@@ -84,7 +84,8 @@ create_column_family(splinterdb  *kvs,
                      const uint64 max_key_size,
                      data_config *new_data_cfg)
 {
-   platform_assert(kvs->data_cfg->max_key_size >= max_key_size);
+   platform_assert(kvs->data_cfg->max_key_size
+                   >= max_key_size + sizeof(column_family_id));
 
    // convert from data_config to cf_data_config
    cf_data_config *cf_cfg = (cf_data_config *)kvs->data_cfg;
@@ -197,7 +198,8 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,       // IN
 )
 {
    // The minimum key contains no key data only consists of
-   // the column id so this is what a NULL key will become
+   // the column id.
+   // This is what a NULL key will become
    char  key_buf[COLUMN_FAMILY_KEY_BYTES];
    slice cf_key =
       userkey_to_cf_key(start_key, cf.id, key_buf, COLUMN_FAMILY_KEY_BYTES);
@@ -264,8 +266,10 @@ cf_key_compare(const data_config *cfg, slice key1, slice key2)
    slice userkey2 = cf_key_to_userkey(key2);
 
    // empty keys are defined to be the minimum among the column family
-   if (slice_length(userkey1) == 0) return -1;
-   if (slice_length(userkey2) == 0) return 1;
+   if (slice_length(userkey1) == 0)
+      return -1;
+   if (slice_length(userkey2) == 0)
+      return 1;
 
    // get the data_config for this column family and call its function
    data_config *cf_cfg = ((cf_data_config *)cfg)->config_table[cf_id1];

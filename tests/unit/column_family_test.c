@@ -206,19 +206,19 @@ CTEST2(column_family, test_multiple_cf_same_key)
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    // Insert a single key to each column family
-   char key_data[] = "key";
-   char val0_data[] = "val0";
-   char val1_data[] = "val1";
-   char val2_data[] = "val2";
-   char val3_data[] = "val3";
-   slice key = slice_create(3, key_data);
-   slice val0 = slice_create(4, val0_data);
-   slice val1 = slice_create(4, val1_data);
-   slice val2 = slice_create(4, val2_data);
-   slice val3 = slice_create(4, val3_data);
+   char  key_data[]  = "key";
+   char  val0_data[] = "val0";
+   char  val1_data[] = "val1";
+   char  val2_data[] = "val2";
+   char  val3_data[] = "val3";
+   slice key         = slice_create(3, key_data);
+   slice val0        = slice_create(4, val0_data);
+   slice val1        = slice_create(4, val1_data);
+   slice val2        = slice_create(4, val2_data);
+   slice val3        = slice_create(4, val3_data);
 
-   slice values[] = {val0, val1, val2, val3};
-   splinterdb_column_family cfs[] = {cf0, cf1, cf2, cf3};
+   slice                    values[] = {val0, val1, val2, val3};
+   splinterdb_column_family cfs[]    = {cf0, cf1, cf2, cf3};
 
    // Perform insertions
    for (int idx = 0; idx < 4; idx++) {
@@ -240,7 +240,8 @@ CTEST2(column_family, test_multiple_cf_same_key)
       rc = splinterdb_cf_lookup_result_value(&result, &value);
       ASSERT_EQUAL(0, rc);
       ASSERT_EQUAL(slice_length(values[idx]), slice_length(value));
-      ASSERT_STREQN(slice_data(values[idx]), slice_data(value), slice_length(value));
+      ASSERT_STREQN(
+         slice_data(values[idx]), slice_data(value), slice_length(value));
    }
 }
 
