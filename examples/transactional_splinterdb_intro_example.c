@@ -8,7 +8,6 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
@@ -20,9 +19,6 @@
 
 /* Application declares the limit of key-sizes it intends to use */
 #define USER_MAX_KEY_SIZE ((int)24)
-
-#define NUM_KEYS  16
-#define VALUE_LEN 1024
 
 /*
  * -------------------------------------------------------------------------------
@@ -54,62 +50,73 @@ main()
    printf("Created Transactional SplinterDB instance, dbname '%s'.\n\n",
           DB_FILE_NAME);
 
-   transaction t1;
-   transaction t2;
-   transaction t3;
+   // Insert a few kv-pairs, describing properties of fruits.
+   char fruit[USER_MAX_KEY_SIZE];
+   memset(fruit, 0, USER_MAX_KEY_SIZE);
+   memcpy(fruit, "apple", strlen("apple"));
+   const char *descr = "An apple a day keeps the doctor away!";
+   slice       key   = slice_create((size_t)strlen(fruit), fruit);
+   slice       value = slice_create((size_t)strlen(descr), descr);
 
-   printf("t1: %lu, t2: %lu, t3: %lu\n\n",
-          ((unsigned long)&t1) % 100,
-          ((unsigned long)&t2) % 100,
-          ((unsigned long)&t3) % 100);
+   transaction txn;
+   transactional_splinterdb_begin(spl_handle, &txn);
 
-   slice keys[NUM_KEYS];
-   for (int i = 0; i < NUM_KEYS; i++) {
-      char *key = (char *)malloc(USER_MAX_KEY_SIZE);
-      memset(key, 'x', USER_MAX_KEY_SIZE);
-      sprintf(key, "key_%d", i);
-      keys[i] = slice_create(USER_MAX_KEY_SIZE, key);
-   }
-   const char  buf[VALUE_LEN] = {1};
-   const slice value          = slice_create(VALUE_LEN, buf);
+   rc = transactional_splinterdb_insert(spl_handle, &txn, key, value);
+   printf("Inserted key '%s'\n", fruit);
 
+   transactional_splinterdb_commit(spl_handle, &txn);
+
+   transactional_splinterdb_begin(spl_handle, &txn);
+
+   memset(fruit, 0, USER_MAX_KEY_SIZE);
+   memcpy(fruit, "Orange", strlen("Orange"));
+   descr = "Is a good source of vitamin-C.";
+   key   = slice_create((size_t)strlen(fruit), fruit);
+   value = slice_create((size_t)strlen(descr), descr);
+   rc    = transactional_splinterdb_insert(spl_handle, &txn, key, value);
+   printf("Inserted key '%s'\n", fruit);
+
+   memset(fruit, 0, USER_MAX_KEY_SIZE);
+   memcpy(fruit, "Mango", strlen("Mango"));
+   descr = "Mango is the king of fruits.";
+   key   = slice_create((size_t)strlen(fruit), fruit);
+   value = slice_create((size_t)strlen(descr), descr);
+   rc    = transactional_splinterdb_insert(spl_handle, &txn, key, value);
+   printf("Inserted key '%s'\n", fruit);
+
+   transactional_splinterdb_commit(spl_handle, &txn);
+
+   transactional_splinterdb_begin(spl_handle, &txn);
+
+   // Retrieve a key-value pair.
    splinterdb_lookup_result result;
    transactional_splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
 
-   transactional_splinterdb_begin(spl_handle, &t1);
-   for (int i = 0; i < NUM_KEYS; i++) {
-      transactional_splinterdb_insert(spl_handle, &t1, keys[i], value);
+   memset(fruit, 0, USER_MAX_KEY_SIZE);
+   memcpy(fruit, "Orange", strlen("Orange"));
+   key = slice_create((size_t)strlen(fruit), fruit);
+   rc  = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
+   rc  = splinterdb_lookup_result_value(&result, &value);
+   if (!rc) {
+      printf("Found key: '%s', value: '%.*s'\n",
+             fruit,
+             (int)slice_length(value),
+             (char *)slice_data(value));
    }
-   assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
 
-   // make keys[0] rts:1 and wts:3
-   transactional_splinterdb_begin(spl_handle, &t1);
-   transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
-   transactional_splinterdb_update(spl_handle, &t1, keys[2], value);
-   transactional_splinterdb_begin(spl_handle, &t2);
-   transactional_splinterdb_update(spl_handle, &t2, keys[2], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-   assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-
-   // make keys[1] rts:1 and wts:2
-   transactional_splinterdb_begin(spl_handle, &t1);
-   transactional_splinterdb_lookup(spl_handle, &t1, keys[1], &result);
-   transactional_splinterdb_update(spl_handle, &t1, keys[3], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-
-   // the example in the tictoc paper
-
-   transactional_splinterdb_begin(spl_handle, &t1);
-   transactional_splinterdb_begin(spl_handle, &t2);
-   transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
-   transactional_splinterdb_update(spl_handle, &t2, keys[0], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-   transactional_splinterdb_update(spl_handle, &t1, keys[1], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-
-   for (int i = 0; i < NUM_KEYS; i++) {
-      free((char *)slice_data(keys[i]));
+   // Handling non-existent keys
+   memset(fruit, 0, USER_MAX_KEY_SIZE);
+   memcpy(fruit, "Banana", strlen("Banana"));
+   key = slice_create((size_t)strlen(fruit), fruit);
+   rc  = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
+   rc  = splinterdb_lookup_result_value(&result, &value);
+   if (rc) {
+      printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
    }
+   printf("\n");
+
+   transactional_splinterdb_commit(spl_handle, &txn);
+
    transactional_splinterdb_close(&spl_handle);
    printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
