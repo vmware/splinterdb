@@ -167,7 +167,6 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
                             ctxt->generation,
                             ctxt->generation_retired,
                             current_generation);
-
             memtable_mark_empty(ctxt);
             memtable_end_insert_rotation(ctxt);
             memtable_end_insert(ctxt);

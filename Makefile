@@ -91,6 +91,11 @@ LDFLAGS += -ggdb3 -pthread
 LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
 
+# Flags for iceberg hash table
+CFLAGS += -DENABLE_BLOCK_LOCKING
+# CFLAGS  += -DENABLE_RESIZE
+LIBS	+= -lssl -lcrypto -ltbb
+
 #*************************************************************#
 # Flags to select release vs debug builds, verbosity, etc.
 #
@@ -497,6 +502,12 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example.o \
                                                                        $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example: $(OBJDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example.o \
+                                                    $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_conflicts_example: $(OBJDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_conflicts_example.o \
+                                                    $(LIBDIR)/libsplinterdb.so
+
 #*************************************************************#
 
 # Report build machine details and compiler version for troubleshooting, so
@@ -508,6 +519,7 @@ clean :
 	$(CC) --version
 tags:
 	ctags -R $(SRCDIR)
+	ctags -R -e $(SRCDIR)
 
 
 #*************************************************************#
