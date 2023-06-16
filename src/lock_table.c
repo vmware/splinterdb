@@ -1,15 +1,13 @@
 #include "lock_table.h"
 #include "experimental_mode.h"
 
-#if !EXPERIMENTAL_MODE_ATOMIC_WORD
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+#   include "transaction_impl/tictoc_disk_internal.h"
+#else
+#   include "transaction_impl/fantasticc_internal.h"
+#endif
 
-#   if EXPERIMENTAL_MODE_TICTOC_DISK
-#      include "transaction_impl/tictoc_disk_internal.h"
-#   else
-#      include "transaction_impl/fantasticc_internal.h"
-#   endif
-
-#   include "poison.h"
+#include "poison.h"
 
 typedef struct lock_table {
    iceberg_table table;
@@ -71,4 +69,3 @@ lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
    }
    return LOCK_TABLE_RC_OK;
 }
-#endif

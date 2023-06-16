@@ -3,11 +3,11 @@
 #include "platform.h"
 
 #define EXPERIMENTAL_MODE_TICTOC_DISK       0
+#define EXPERIMENTAL_MODE_TICTOC_MEMORY     0
 #define EXPERIMENTAL_MODE_KEEP_ALL_KEYS     0
-#define EXPERIMENTAL_MODE_SKETCH            0
+#define EXPERIMENTAL_MODE_SKETCH            1
 #define EXPERIMENTAL_MODE_SILO              0
 #define EXPERIMENTAL_MODE_BYPASS_SPLINTERDB 0
-#define EXPERIMENTAL_MODE_ATOMIC_WORD       1
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
 typedef uint32 txn_timestamp;
@@ -23,7 +23,7 @@ check_experimental_mode_is_valid()
       platform_assert(EXPERIMENTAL_MODE_SKETCH == 0);
       platform_assert(EXPERIMENTAL_MODE_SILO == 0);
       platform_assert(EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 0);
-      platform_assert(EXPERIMENTAL_MODE_ATOMIC_WORD == 0);
+      platform_assert(EXPERIMENTAL_MODE_TICTOC_MEMORY == 0);
    }
 
    if (EXPERIMENTAL_MODE_SILO) {
@@ -45,8 +45,10 @@ check_experimental_mode_is_valid()
       platform_assert(EXPERIMENTAL_MODE_TICTOC_DISK == 0);
    }
 
-   if (EXPERIMENTAL_MODE_ATOMIC_WORD) {
+   if (EXPERIMENTAL_MODE_TICTOC_MEMORY) {
       platform_assert(EXPERIMENTAL_MODE_TICTOC_DISK == 0);
+      platform_assert(EXPERIMENTAL_MODE_SKETCH == 0);
+      platform_assert(EXPERIMENTAL_MODE_SILO == 0);
    }
 }
 
@@ -64,6 +66,6 @@ print_current_experimental_modes()
    platform_default_log("EXPERIMENTAL_MODE_SILO: %d\n", EXPERIMENTAL_MODE_SILO);
    platform_default_log("EXPERIMENTAL_MODE_BYPASS_SPLINTERDB: %d\n",
                         EXPERIMENTAL_MODE_BYPASS_SPLINTERDB);
-   platform_default_log("EXPERIMENTAL_MODE_ATOMIC_WORD: %d\n",
-                        EXPERIMENTAL_MODE_ATOMIC_WORD);
+   platform_default_log("EXPERIMENTAL_MODE_TICTOC_MEMORY: %d\n",
+                        EXPERIMENTAL_MODE_TICTOC_MEMORY);
 }

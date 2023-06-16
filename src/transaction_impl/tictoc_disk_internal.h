@@ -6,7 +6,7 @@
 #include "util.h"
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
-#include "iceberg_table.h"
+#include "isketch/iceberg_table.h"
 #include "lock_table.h"
 #include "transactional_data_config.h"
 

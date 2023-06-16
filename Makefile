@@ -85,13 +85,10 @@ LDFLAGS += -ggdb3 -pthread
 LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
 
-
-# Add libraries in third-party
-ICEBERGHT_HOME = ./third-party/iceberghashtable
-INCLUDE += -I$(ICEBERGHT_HOME)/include -I$(ICEBERGHT_HOME)/src
+# Flags for iceberg hash table
+CFLAGS += -DENABLE_BLOCK_LOCKING
 # CFLAGS  += -DENABLE_RESIZE
-LDFLAGS += -L$(ICEBERGHT_HOME)
-LIBS	+= -liceberghashtable
+LIBS	+= -lssl -lcrypto -ltbb
 
 #*************************************************************#
 # Flags to select release vs debug builds, verbosity, etc.
@@ -260,7 +257,7 @@ EXAMPLES_BINS=$(EXAMPLES_BIN_SRC:$(EXAMPLES_DIR)/%_example.c=$(BINDIR)/$(EXAMPLE
 # The main targets
 #
 all: libs all-tests all-examples $(EXTRA_TARGETS)
-libs: $(ICEBERGHT_HOME)/libiceberghashtable.so $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
+libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 all-examples: $(EXAMPLES_BINS)
 
@@ -340,10 +337,6 @@ $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" "Building archive" $@
 	$(COMMAND) $(AR) -crs $@ $^
-	$(PROLIX) # blank line
-
-$(ICEBERGHT_HOME)/libiceberghashtable.so : $(call rwildcard, $(ICEBERGHT_HOME)/src, *.c)
-	$(MAKE) -C $(ICEBERGHT_HOME) libiceberghashtable.so NORESIZE=t
 	$(PROLIX) # blank line
 
 #################################################################
@@ -498,7 +491,6 @@ $(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_conflicts_example: $(OBJDIR)/
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
-	$(MAKE) -C $(ICEBERGHT_HOME) clean
 	rm -rf $(BUILD_ROOT)
 	uname -a
 	$(CC) --version

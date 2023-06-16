@@ -22,37 +22,34 @@ typedef struct transactional_splinterdb {
    iceberg_table                   *tscache;
 } transactional_splinterdb;
 
-
-// TicToc paper used this structure, but it causes a lot of delta overflow
-/* typedef struct { */
-/*    txn_timestamp lock_bit : 1; */
-/*    txn_timestamp delta : 15; */
-/*    txn_timestamp wts : 48; */
-/* } timestamp_set __attribute__((aligned(sizeof(txn_timestamp)))); */
+typedef struct {
+   txn_timestamp dirty_bit : 1;
+   txn_timestamp delete_bit : 1;
+   txn_timestamp wts : 126;
+} write_timestamp __attribute__((aligned(sizeof(txn_timestamp))));
 
 typedef struct {
-   txn_timestamp lock_bit : 1;
-   txn_timestamp delta : 64;
-   txn_timestamp wts : 63;
-} timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
+   txn_timestamp rts : 128;
+} read_timestamp __attribute__((aligned(sizeof(txn_timestamp))));
+
+
+// static inline bool
+// timestamp_set_is_equal(const timestamp_set *s1, const timestamp_set *s2)
+// {
+//    return memcmp((const void *)s1, (const void *)s2, sizeof(timestamp_set))
+//           == 0;
+// }
+
+// static inline txn_timestamp
+// timestamp_set_get_rts(timestamp_set *ts)
+// {
+//    return ts->wts + ts->delta;
+// }
 
 static inline bool
-timestamp_set_is_equal(const timestamp_set *s1, const timestamp_set *s2)
-{
-   return memcmp((const void *)s1, (const void *)s2, sizeof(timestamp_set))
-          == 0;
-}
-
-static inline txn_timestamp
-timestamp_set_get_rts(timestamp_set *ts)
-{
-   return ts->wts + ts->delta;
-}
-
-static inline bool
-timestamp_set_compare_and_swap(timestamp_set *ts,
-                               timestamp_set *v1,
-                               timestamp_set *v2)
+write_timestamp_compare_and_swap(write_timestamp *ts,
+                                 write_timestamp *v1,
+                                 write_timestamp *v2)
 {
    return __atomic_compare_exchange((volatile txn_timestamp *)ts,
                                     (txn_timestamp *)v1,
@@ -62,22 +59,21 @@ timestamp_set_compare_and_swap(timestamp_set *ts,
                                     __ATOMIC_RELAXED);
 }
 
-static inline void
-timestamp_set_load(timestamp_set *ts, timestamp_set *v)
-{
-   __atomic_load(
-      (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
-}
+// static inline void
+// timestamp_set_load(timestamp_set *ts, timestamp_set *v)
+// {
+//    __atomic_load(
+//       (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
+// }
 
 typedef struct rw_entry {
-   slice          key;
-   message        msg; // value + op
-   txn_timestamp  wts;
-   txn_timestamp  rts;
-   timestamp_set *tuple_ts;
-   bool           is_read;
-   bool           need_to_keep_key;
-   bool           need_to_decrease_refcount;
+   slice            key;
+   message          msg; // value + op
+   read_timestamp   rts;
+   write_timestamp  wts;
+   bool             is_read;
+   bool             need_to_keep_key;
+   bool             need_to_decrease_refcount;
 } rw_entry;
 
 
@@ -162,7 +158,8 @@ rw_entry_create()
    rw_entry *new_entry;
    new_entry = TYPED_ZALLOC(0, new_entry);
    platform_assert(new_entry != NULL);
-   new_entry->tuple_ts = NULL;
+   new_entry->rts = 0;
+   new_entry->wts = 0;
    return new_entry;
 }
 
@@ -639,12 +636,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    rw_entry_iceberg_insert(txn_kvsb, entry);
 
    // timestamp_set v1, v2;
-   timestamp_set v1;
+   write_timestamp v1;
    do {
-      timestamp_set_load(entry->tuple_ts, &v1);
-      if (v1.lock_bit) {
-	continue;
-      }
+      write_timestamp_load(entry->wts, &v1);
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 0
       if (rw_entry_is_write(entry)) {
@@ -663,13 +657,12 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
       }
 #endif
-   } while (!timestamp_set_compare_and_swap(entry->tuple_ts, &v1, &v1));
+   } while (!write_timestamp_compare_and_swap(entry->wts, &v1, &v1));
    // This code is so slow for some reason..
       // timestamp_set_load(entry->tuple_ts, &v2);
       // } while (memcmp(&v1, &v2, sizeof(v1)) != 0);
 
    entry->wts = v1.wts;
-   entry->rts = timestamp_set_get_rts(&v1);
 
    return rc;
 }

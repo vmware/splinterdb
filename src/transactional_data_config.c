@@ -49,9 +49,11 @@ merge_tictoc_tuple(const data_config *cfg,
    }
 
    if (is_merge_accumulator_rts_update(new_message)) {
-      txn_timestamp new_rts = *((txn_timestamp *)merge_accumulator_data(new_message));
+      txn_timestamp new_rts =
+         *((txn_timestamp *)merge_accumulator_data(new_message));
       merge_accumulator_copy_message(new_message, old_message);
-      tuple_header *new_tuple         = (tuple_header *)merge_accumulator_data(new_message);
+      tuple_header *new_tuple =
+         (tuple_header *)merge_accumulator_data(new_message);
       new_tuple->ts.rts = new_rts;
 
       return 0;
