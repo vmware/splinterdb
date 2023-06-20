@@ -6,7 +6,6 @@
 #include "splinterdb_internal.h"
 #include "util.h"
 
-#include <stdbool.h>
 #include <stdlib.h>
 
 // Some helper functions we'll use for managing the column family identifiers
@@ -24,17 +23,16 @@ get_cf_id(slice cf_key)
 slice
 userkey_to_cf_key(slice            userkey,
                   column_family_id cf_id,
-                  char            *buf,
-                  uint32           buf_size)
+                  writable_buffer *cf_key_wb)
 {
+   // extract from the user's key and resize the buffer
    uint64      key_len = slice_length(userkey);
    const void *data    = slice_data(userkey);
-   platform_assert(buf_size >= key_len + sizeof(column_family_id));
 
-   memcpy(buf, &cf_id, sizeof(cf_id));
-   if (key_len > 0)
-      memcpy(buf + sizeof(cf_id), data, key_len);
-   return slice_create(key_len + sizeof(cf_id), buf);
+   // write the cf id and the user's key data to the writable_buffer
+   writable_buffer_append(cf_key_wb, sizeof(cf_id), &cf_id);
+   writable_buffer_append(cf_key_wb, key_len, data);
+   return writable_buffer_to_slice(cf_key_wb);
 }
 
 slice
@@ -120,28 +118,60 @@ splinterdb_cf_insert(const splinterdb_column_family cf, slice key, slice value)
    platform_assert(slice_length(key) > 0);
 
    // convert to column family key by prefixing the cf id
-   char  key_buf[COLUMN_FAMILY_KEY_BYTES];
-   slice cf_key =
-      userkey_to_cf_key(key, cf.id, key_buf, COLUMN_FAMILY_KEY_BYTES);
-   return splinterdb_insert(cf.kvs, cf_key, value);
+   char            key_buf[CF_KEY_DEFAULT_SIZE];
+   writable_buffer cf_key_wb;
+   writable_buffer_init_with_buffer(
+      &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
+   slice cf_key = userkey_to_cf_key(key, cf.id, &cf_key_wb);
+
+   // call splinter's insert function and return
+   int rc = splinterdb_insert(cf.kvs, cf_key, value);
+   if (rc != 0)
+      return rc;
+   writable_buffer_deinit(&cf_key_wb);
+   return 0;
 }
 
 int
 splinterdb_cf_delete(const splinterdb_column_family cf, slice key)
 {
-   char  key_buf[COLUMN_FAMILY_KEY_BYTES];
-   slice cf_key =
-      userkey_to_cf_key(key, cf.id, key_buf, COLUMN_FAMILY_KEY_BYTES);
-   return splinterdb_delete(cf.kvs, cf_key);
+   // zero len key reserved, negative infinity
+   platform_assert(slice_length(key) > 0);
+
+   // convert to column family key by prefixing the cf id
+   char            key_buf[CF_KEY_DEFAULT_SIZE];
+   writable_buffer cf_key_wb;
+   writable_buffer_init_with_buffer(
+      &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
+   slice cf_key = userkey_to_cf_key(key, cf.id, &cf_key_wb);
+
+   // call splinter's delete function and return
+   int rc = splinterdb_delete(cf.kvs, cf_key);
+   if (rc != 0)
+      return rc;
+   writable_buffer_deinit(&cf_key_wb);
+   return 0;
 }
 
 int
 splinterdb_cf_update(const splinterdb_column_family cf, slice key, slice delta)
 {
-   char  key_buf[COLUMN_FAMILY_KEY_BYTES];
-   slice cf_key =
-      userkey_to_cf_key(key, cf.id, key_buf, COLUMN_FAMILY_KEY_BYTES);
-   return splinterdb_insert(cf.kvs, cf_key, delta);
+   // zero len key reserved, negative infinity
+   platform_assert(slice_length(key) > 0);
+
+   // convert to column family key by prefixing the cf id
+   char            key_buf[CF_KEY_DEFAULT_SIZE];
+   writable_buffer cf_key_wb;
+   writable_buffer_init_with_buffer(
+      &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
+   slice cf_key = userkey_to_cf_key(key, cf.id, &cf_key_wb);
+
+   // call splinter's update function and return
+   int rc = splinterdb_update(cf.kvs, cf_key, delta);
+   if (rc != 0)
+      return rc;
+   writable_buffer_deinit(&cf_key_wb);
+   return 0;
 }
 
 // column family lookups
@@ -182,12 +212,23 @@ splinterdb_cf_lookup(const splinterdb_column_family cf,    // IN
                      splinterdb_lookup_result      *result // IN/OUT
 )
 {
-   char  key_buf[COLUMN_FAMILY_KEY_BYTES];
-   slice cf_key =
-      userkey_to_cf_key(key, cf.id, key_buf, COLUMN_FAMILY_KEY_BYTES);
-   return splinterdb_lookup(cf.kvs, cf_key, result);
-}
+   // zero len key reserved, negative infinity
+   platform_assert(slice_length(key) > 0);
 
+   // convert to column family key by prefixing the cf id
+   char            key_buf[CF_KEY_DEFAULT_SIZE];
+   writable_buffer cf_key_wb;
+   writable_buffer_init_with_buffer(
+      &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
+   slice cf_key = userkey_to_cf_key(key, cf.id, &cf_key_wb);
+
+   // call splinter's lookup function and return
+   int rc = splinterdb_lookup(cf.kvs, cf_key, result);
+   if (rc != 0)
+      return rc;
+   writable_buffer_deinit(&cf_key_wb);
+   return 0;
+}
 
 // Range iterators for column families
 
@@ -200,11 +241,19 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,       // IN
    // The minimum key contains no key data only consists of
    // the column id.
    // This is what a NULL key will become
-   char  key_buf[COLUMN_FAMILY_KEY_BYTES];
-   slice cf_key =
-      userkey_to_cf_key(start_key, cf.id, key_buf, COLUMN_FAMILY_KEY_BYTES);
+   // convert to column family key by prefixing the cf id
+   char            key_buf[CF_KEY_DEFAULT_SIZE];
+   writable_buffer cf_key_wb;
+   writable_buffer_init_with_buffer(
+      &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
+   slice cf_key = userkey_to_cf_key(start_key, cf.id, &cf_key_wb);
+
    cf_iter->id = cf.id;
-   return splinterdb_iterator_init(cf.kvs, &cf_iter->iter, cf_key);
+   int rc      = splinterdb_iterator_init(cf.kvs, &cf_iter->iter, cf_key);
+   if (rc != 0)
+      return rc;
+   writable_buffer_deinit(&cf_key_wb);
+   return 0;
 }
 
 void
@@ -222,17 +271,17 @@ splinterdb_cf_iterator_get_current(splinterdb_cf_iterator *cf_iter, // IN
    _Bool valid = splinterdb_iterator_valid(cf_iter->iter);
 
    if (!valid)
-      return false;
+      return FALSE;
 
    // if valid, check the key to ensure it's within this column family
    splinterdb_iterator_get_current(cf_iter->iter, key, value);
    column_family_id key_cf = get_cf_id(*key);
 
    if (key_cf != cf_iter->id)
-      return false;
+      return FALSE;
 
    *key = cf_key_to_userkey(*key);
-   return true;
+   return TRUE;
 }
 
 void
@@ -335,8 +384,6 @@ init_column_family_config(const uint64    max_key_size, // IN
                           cf_data_config *cf_cfg        // OUT
 )
 {
-   platform_assert(max_key_size + sizeof(column_family_id)
-                   < COLUMN_FAMILY_KEY_BYTES);
    data_config cfg = {
       .max_key_size       = max_key_size + sizeof(column_family_id),
       .key_compare        = cf_key_compare,

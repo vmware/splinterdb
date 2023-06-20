@@ -12,10 +12,12 @@
 
 #include "splinterdb/splinterdb.h"
 
-// Maximum size of a key within a column family
-// allows conversion from user key to cf key
-// to be performed upon the stack.
-#define COLUMN_FAMILY_KEY_BYTES 512
+// Size of stack buffer we allocate for column family keys.
+// This can be fairly large because these buffers are short
+// lived. If keys are relatively small then the conversion
+// can be done upon the stack. We use writable buffers to
+// support larger keys.
+#define CF_KEY_DEFAULT_SIZE 512
 
 typedef uint32 column_family_id;
 
