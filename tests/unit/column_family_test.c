@@ -43,7 +43,7 @@ CTEST_DATA(column_family)
 CTEST_SETUP(column_family)
 {
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg);
-   init_column_family_config(TEST_MAX_KEY_SIZE, &data->global_data_cfg);
+   column_family_config_init(TEST_MAX_KEY_SIZE, &data->global_data_cfg);
    data->cfg =
       (splinterdb_config){.filename   = TEST_DB_NAME,
                           .cache_size = 64 * Mega,
@@ -61,15 +61,15 @@ CTEST_TEARDOWN(column_family)
    if (data->kvsb) {
       splinterdb_close(&data->kvsb);
    }
-   deinit_column_family_config(&data->global_data_cfg);
+   column_family_config_deinit(&data->global_data_cfg);
 }
 
 /*
  *
  * Basic test case that ensures we can create and use a single column family
  * correctly Tests:
- *  - create_column_family()
- *  - delete_column_family()
+ *  - column_family_create()
+ *  - column_family_delete()
  *  - splinterdb_cf_insert()
  *  - splinterdb_cf_delete()
  *  - splinterdb_cf_lookup()
@@ -80,7 +80,7 @@ CTEST_TEARDOWN(column_family)
 CTEST2(column_family, test_single_column)
 {
    // create a column family
-   splinterdb_column_family cf = create_column_family(
+   splinterdb_column_family cf = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    // create some basic data to insert and lookup
@@ -127,6 +127,7 @@ CTEST2(column_family, test_single_column)
    ASSERT_FALSE(splinterdb_cf_lookup_found(&result));
 
    splinterdb_cf_lookup_result_deinit(&result);
+   column_family_delete(cf);
 }
 
 /*
@@ -136,7 +137,7 @@ CTEST2(column_family, test_single_column)
 CTEST2(column_family, test_max_length)
 {
    // create a column family
-   splinterdb_column_family cf = create_column_family(
+   splinterdb_column_family cf = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    char   large_key_data[TEST_MAX_KEY_SIZE];
@@ -187,13 +188,13 @@ CTEST2(column_family, test_max_length)
 CTEST2(column_family, test_multiple_cf_same_key)
 {
    // create a few column families
-   splinterdb_column_family cf0 = create_column_family(
+   splinterdb_column_family cf0 = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
-   splinterdb_column_family cf1 = create_column_family(
+   splinterdb_column_family cf1 = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
-   splinterdb_column_family cf2 = create_column_family(
+   splinterdb_column_family cf2 = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
-   splinterdb_column_family cf3 = create_column_family(
+   splinterdb_column_family cf3 = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    // Insert a single key to each column family
@@ -256,7 +257,7 @@ rev_key_compare(const data_config *cfg, slice key1, slice key2)
 CTEST2(column_family, test_multiple_cf_range)
 {
    // create the default column family
-   splinterdb_column_family cf_default = create_column_family(
+   splinterdb_column_family cf_default = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    // create a config with a reversed key compare function
@@ -266,7 +267,7 @@ CTEST2(column_family, test_multiple_cf_range)
    rev_data_config.key_compare = rev_key_compare;
 
    splinterdb_column_family cf_reverse =
-      create_column_family(data->kvsb, TEST_MAX_KEY_SIZE, &rev_data_config);
+      column_family_create(data->kvsb, TEST_MAX_KEY_SIZE, &rev_data_config);
 
    // Insert a few key/value pairs to each cf
    char key1_data[] = "aaaa";
@@ -391,7 +392,7 @@ CTEST2(column_family, multiple_cf_with_updates)
    // create the default column family
    data->default_data_cfg.merge_tuples = merge_tuples;
    data->default_data_cfg.merge_tuples_final = merge_tuple_final;
-   splinterdb_column_family cf_default = create_column_family(
+   splinterdb_column_family cf_default = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    // create a config with a reversed key compare function
@@ -403,7 +404,7 @@ CTEST2(column_family, multiple_cf_with_updates)
    rev_data_config.merge_tuples_final = merge_tuple_final;
 
    splinterdb_column_family cf_reverse =
-      create_column_family(data->kvsb, TEST_MAX_KEY_SIZE, &rev_data_config);
+      column_family_create(data->kvsb, TEST_MAX_KEY_SIZE, &rev_data_config);
 
    // Insert a few key/value pairs to each cf
    char key1_data[] = "aaaa";

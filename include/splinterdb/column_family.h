@@ -44,25 +44,25 @@ typedef struct splinterdb_cf_iterator {
 // this data_config is then passed to SplinterDB to add support for
 // column families
 void
-init_column_family_config(const uint64    max_key_size, // IN
+column_family_config_init(const uint64    max_key_size, // IN
                           cf_data_config *cf_cfg        // OUT
 );
 
 // Delete the cf_data_config, freeing the memory used by the
 // config table
 void
-deinit_column_family_config(cf_data_config *cf_cfg);
+column_family_config_deinit(cf_data_config *cf_cfg);
 
 // Create a new column family
 // Returns a new column family struct
 splinterdb_column_family
-create_column_family(splinterdb  *kvs,
+column_family_create(splinterdb  *kvs,
                      const uint64 max_key_size,
                      data_config *data_cfg);
 
 // Delete the column family cf
 void
-delete_column_family(splinterdb_column_family cf);
+column_family_delete(splinterdb_column_family cf);
 
 // ====== SPLINTERDB Functions ======
 // We wrap these for column family support

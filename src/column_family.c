@@ -78,7 +78,7 @@ cfg_table_delete(cf_data_config *cf_cfg, column_family_id cf_id)
 // Create a new column family
 // Returns a new column family struct
 splinterdb_column_family
-create_column_family(splinterdb  *kvs,
+column_family_create(splinterdb  *kvs,
                      const uint64 max_key_size,
                      data_config *new_data_cfg)
 {
@@ -100,7 +100,7 @@ create_column_family(splinterdb  *kvs,
 
 // Delete the column family cf
 void
-delete_column_family(splinterdb_column_family cf)
+column_family_delete(splinterdb_column_family cf)
 {
    // convert from data_config to cf_data_config
    cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
@@ -380,7 +380,7 @@ cf_message_to_string(const data_config *cfg,
 //       key_hash for the column family. This should probably be fixed.
 //       Likely requires adding the cfg to the key_hash_fn type.
 void
-init_column_family_config(const uint64    max_key_size, // IN
+column_family_config_init(const uint64    max_key_size, // IN
                           cf_data_config *cf_cfg        // OUT
 )
 {
@@ -401,7 +401,7 @@ init_column_family_config(const uint64    max_key_size, // IN
 }
 
 void
-deinit_column_family_config(cf_data_config *cf_cfg)
+column_family_config_deinit(cf_data_config *cf_cfg)
 {
    // we assume that the user will handle deallocating the table entries
    // we just need to dealloc our array of pointers
