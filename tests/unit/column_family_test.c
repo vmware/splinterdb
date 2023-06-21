@@ -180,15 +180,6 @@ CTEST2(column_family, test_max_length)
    splinterdb_cf_lookup_result_deinit(&result);
 }
 
-static int
-rev_key_compare(const data_config *cfg, slice key1, slice key2)
-{
-   platform_assert(slice_data(key1) != NULL);
-   platform_assert(slice_data(key2) != NULL);
-
-   return slice_lex_cmp(key2, key1);
-}
-
 /*
  * Test key/value operations upon multiple column families.
  * Ensure that the keys can be operated upon independently.
@@ -245,7 +236,20 @@ CTEST2(column_family, test_multiple_cf_same_key)
    }
 }
 
-/* Test multiple column families with range iterators
+/*
+ * Custom key compare function that reverses the keys
+ */
+static int
+rev_key_compare(const data_config *cfg, slice key1, slice key2)
+{
+   platform_assert(slice_data(key1) != NULL);
+   platform_assert(slice_data(key2) != NULL);
+
+   return slice_lex_cmp(key2, key1);
+}
+
+/* 
+ * Test multiple column families with range iterators
  * ensure that keys are found in the order defined by their
  * custom key comparison functions
  */
@@ -329,4 +333,146 @@ CTEST2(column_family, test_multiple_cf_range)
    ASSERT_EQUAL(4, idx);
 
    splinterdb_cf_iterator_deinit(it);
+}
+
+
+/*
+ * These functions implement merge functionality so that we can test the update
+ * function within column families
+ */
+
+// merge two messages, with result in new_message
+static int
+merge_tuples(const data_config *cfg, slice key, message old_message, merge_accumulator *new_message)
+{
+   platform_assert(slice_data(key) != NULL);
+   message_type type = old_message.type;
+   writable_buffer *wb = &new_message->data;
+
+   // extract value slices
+   slice old_value = old_message.data;
+   slice new_value = writable_buffer_to_slice(wb);
+
+   // use the cfg's key compare function to find maximal value
+   // and retain that value
+   if (cfg->key_compare(cfg, old_value, new_value) < 0) {
+      platform_status rc = writable_buffer_copy_slice(wb, new_value);
+      if (!SUCCESS(rc)) 
+         return rc.r;
+   }
+   else {
+      platform_status rc = writable_buffer_copy_slice(wb, old_value);
+      if (!SUCCESS(rc))
+         return rc.r;
+   }
+
+   if (type == MESSAGE_TYPE_INSERT)
+      new_message->type = MESSAGE_TYPE_INSERT;
+   else
+      new_message->type = MESSAGE_TYPE_UPDATE;
+
+   return 0;
+}
+
+static int
+merge_tuple_final(const data_config *cfg, slice key, merge_accumulator *oldest_message)
+{
+   platform_assert(slice_data(key) != NULL);
+
+   // simply set type to INSERT
+   oldest_message->type = MESSAGE_TYPE_INSERT;
+   return 0;
+}
+
+
+
+CTEST2(column_family, multiple_cf_with_updates)
+{
+   // create the default column family
+   data->default_data_cfg.merge_tuples = merge_tuples;
+   data->default_data_cfg.merge_tuples_final = merge_tuple_final;
+   splinterdb_column_family cf_default = create_column_family(
+      data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
+
+   // create a config with a reversed key compare function
+   // and create a column family that will reverse the keys
+   data_config rev_data_config;
+   default_data_config_init(TEST_MAX_KEY_SIZE, &rev_data_config);
+   rev_data_config.key_compare = rev_key_compare;
+   rev_data_config.merge_tuples = merge_tuples;
+   rev_data_config.merge_tuples_final = merge_tuple_final;
+
+   splinterdb_column_family cf_reverse =
+      create_column_family(data->kvsb, TEST_MAX_KEY_SIZE, &rev_data_config);
+
+   // Insert a few key/value pairs to each cf
+   char key1_data[] = "aaaa";
+   char key2_data[] = "bbbb";
+   char key3_data[] = "cccc";
+   char key4_data[] = "dddd";
+   char cf1_value[] = "val-in-cf1";
+   char cf2_value[] = "val-in-cf2";
+
+   slice key1 = slice_create(4, key1_data);
+   slice key2 = slice_create(4, key2_data);
+   slice key3 = slice_create(4, key3_data);
+   slice key4 = slice_create(4, key4_data);
+   slice val1 = slice_create(10, cf1_value);
+   slice val2 = slice_create(10, cf2_value);
+
+   slice keys[] = {key1, key2, key3, key4};
+
+   for (int i = 0; i < 4; i++)
+      ASSERT_EQUAL(0, splinterdb_cf_insert(cf_default, keys[i], val1));
+
+   for (int i = 0; i < 4; i++)
+      ASSERT_EQUAL(0, splinterdb_cf_insert(cf_reverse, keys[i], val2));
+
+   // Now update these key-value pairs
+   char small_val[] = "aaaaaa-cf2";
+   char big_val[] = "zzzzzz-cf1";
+
+   slice new_val1 = slice_create(10, big_val);
+   slice new_val2 = slice_create(10, small_val);
+
+   // apply both updates to all keys in cf_default
+   for (int i = 0; i < 4; i++) {
+      ASSERT_EQUAL(0, splinterdb_cf_update(cf_default, keys[i], new_val1));
+      ASSERT_EQUAL(0, splinterdb_cf_update(cf_default, keys[i], new_val2));
+   }
+
+   // apply both updates to all keys in cf_reverse
+   for (int i = 0; i < 4; i++) {
+      ASSERT_EQUAL(0, splinterdb_cf_update(cf_reverse, keys[i], new_val1));
+      ASSERT_EQUAL(0, splinterdb_cf_update(cf_reverse, keys[i], new_val2));
+   }
+
+   splinterdb_column_family cfs[] = {cf_default, cf_reverse};
+
+   // now lookup each key in both cfs
+   for (int idx = 0; idx < 2; idx++) {
+      for (int i = 0; i < 4; i++) {
+         splinterdb_lookup_result result;
+         splinterdb_cf_lookup_result_init(cfs[idx], &result, 0, NULL);
+
+         int rc = splinterdb_cf_lookup(cfs[idx], keys[i], &result);
+         ASSERT_EQUAL(0, rc);
+         ASSERT_TRUE(splinterdb_cf_lookup_found(&result));
+
+         // Lookup should return correct values
+         slice value;
+         rc = splinterdb_cf_lookup_result_value(&result, &value);
+         ASSERT_EQUAL(0, rc);
+         if (idx == 0) {
+            ASSERT_EQUAL(slice_length(new_val1), slice_length(value));
+            ASSERT_STREQN(
+               slice_data(new_val1), slice_data(value), slice_length(value));
+         }
+         else {
+            ASSERT_EQUAL(slice_length(new_val2), slice_length(value));
+            ASSERT_STREQN(
+               slice_data(new_val2), slice_data(value), slice_length(value));
+         }
+      }
+   }  
 }
