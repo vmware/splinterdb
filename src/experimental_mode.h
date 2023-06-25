@@ -5,9 +5,10 @@
 #define EXPERIMENTAL_MODE_TICTOC_DISK       0
 #define EXPERIMENTAL_MODE_TICTOC_MEMORY     0
 #define EXPERIMENTAL_MODE_KEEP_ALL_KEYS     0
-#define EXPERIMENTAL_MODE_SKETCH            1
+#define EXPERIMENTAL_MODE_SKETCH            0
 #define EXPERIMENTAL_MODE_SILO              0
 #define EXPERIMENTAL_MODE_BYPASS_SPLINTERDB 0
+#define EXPERIMENTAL_MODE_STO               1
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
 typedef uint32 txn_timestamp;
@@ -68,4 +69,6 @@ print_current_experimental_modes()
                         EXPERIMENTAL_MODE_BYPASS_SPLINTERDB);
    platform_default_log("EXPERIMENTAL_MODE_TICTOC_MEMORY: %d\n",
                         EXPERIMENTAL_MODE_TICTOC_MEMORY);
+   platform_default_log("EXPERIMENTAL_MODE_STO: %d\n",
+                        EXPERIMENTAL_MODE_STO);
 }

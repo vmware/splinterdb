@@ -7,8 +7,20 @@
 #include "util.h"
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
-#include "iceberg_table.h"
+#include "isketch/iceberg_table.h"
 #include "poison.h"
+
+
+/* 
+ * Implementation of the classic Strict Timestamp Ordering.
+ * The implementation uses a dirty bit to prevent transactions
+ * from reading uncommitted data.
+ * 
+ * The dirty bit is also used a latch to protect against race
+ * conditions that may appear from running multiple threads.
+ */
+
+uint64 global_ts = 0;
 
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
@@ -25,31 +37,31 @@ typedef struct transactional_splinterdb {
 typedef struct {
    txn_timestamp dirty_bit : 1;
    txn_timestamp delete_bit : 1;
-   txn_timestamp wts : 126;
-} write_timestamp __attribute__((aligned(sizeof(txn_timestamp))));
+   txn_timestamp wts : 62;
+   txn_timestamp rts : 64;
+} timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
-typedef struct {
-   txn_timestamp rts : 128;
-} read_timestamp __attribute__((aligned(sizeof(txn_timestamp))));
+typedef struct rw_entry {
+   slice            key;
+   message          msg; // value + op
+   timestamp_set    *ts;
+   bool             is_read;
+   bool             need_to_keep_key;
+   bool             need_to_decrease_refcount;
+} rw_entry;
 
-
-// static inline bool
-// timestamp_set_is_equal(const timestamp_set *s1, const timestamp_set *s2)
-// {
-//    return memcmp((const void *)s1, (const void *)s2, sizeof(timestamp_set))
-//           == 0;
-// }
-
-// static inline txn_timestamp
-// timestamp_set_get_rts(timestamp_set *ts)
-// {
-//    return ts->wts + ts->delta;
-// }
+static inline txn_timestamp
+get_next_global_ts()
+{
+   return __atomic_add_fetch(&global_ts,
+                              1,
+                              __ATOMIC_RELAXED);
+}
 
 static inline bool
-write_timestamp_compare_and_swap(write_timestamp *ts,
-                                 write_timestamp *v1,
-                                 write_timestamp *v2)
+timestamp_set_compare_and_swap(timestamp_set *ts,
+                               timestamp_set *v1,
+                               timestamp_set *v2)
 {
    return __atomic_compare_exchange((volatile txn_timestamp *)ts,
                                     (txn_timestamp *)v1,
@@ -59,22 +71,12 @@ write_timestamp_compare_and_swap(write_timestamp *ts,
                                     __ATOMIC_RELAXED);
 }
 
-// static inline void
-// timestamp_set_load(timestamp_set *ts, timestamp_set *v)
-// {
-//    __atomic_load(
-//       (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
-// }
-
-typedef struct rw_entry {
-   slice            key;
-   message          msg; // value + op
-   read_timestamp   rts;
-   write_timestamp  wts;
-   bool             is_read;
-   bool             need_to_keep_key;
-   bool             need_to_decrease_refcount;
-} rw_entry;
+static inline void
+timestamp_set_load(timestamp_set *ts, timestamp_set *v)
+{
+   __atomic_load(
+      (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
+}
 
 
 /*
@@ -87,7 +89,7 @@ static inline bool
 rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
    // Make sure increasing the refcount only once
-   if (entry->tuple_ts) {
+   if (entry->ts) {
       return FALSE;
    }
 
@@ -98,31 +100,22 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
 
    timestamp_set ts = {0};
-   entry->tuple_ts  = &ts;
+   entry->ts  = &ts;
    bool is_new_item = iceberg_insert_and_get_without_increasing_refcount(
       txn_kvsb->tscache,
       key_ht,
-      (ValueType **)&entry->tuple_ts,
+      (ValueType **)&entry->ts,
       platform_get_tid() - 1);
-   platform_assert(entry->tuple_ts != &ts);
+   platform_assert(entry->ts != &ts);
 #else
    // increase refcount for key
    timestamp_set ts = {0};
-   entry->tuple_ts  = &ts;
+   entry->ts  = &ts;
    bool is_new_item = iceberg_insert_and_get(txn_kvsb->tscache,
                                              key_ht,
-                                             (ValueType **)&entry->tuple_ts,
+                                             (ValueType **)&entry->ts,
                                              platform_get_tid() - 1);
 #endif
-
-   // get the pointer of the value from the iceberg
-   // platform_assert(iceberg_get_value(txn_kvsb->tscache,
-   //                                   key_ht,
-   //                                   (ValueType **)&entry->tuple_ts,
-   //                                   platform_get_tid()));
-
-   /* platform_assert(((uint64)entry->tuple_ts) % sizeof(txn_timestamp) == 0);
-    */
 
    entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
    return is_new_item;
@@ -131,11 +124,11 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 static inline void
 rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
-   if (!entry->tuple_ts) {
+   if (!entry->ts) {
       return;
    }
 
-   entry->tuple_ts = NULL;
+   entry->ts = NULL;
 
 #if !EXPERIMENTAL_MODE_KEEP_ALL_KEYS
    KeyType   key_ht   = (KeyType)slice_data(entry->key);
@@ -158,8 +151,7 @@ rw_entry_create()
    rw_entry *new_entry;
    new_entry = TYPED_ZALLOC(0, new_entry);
    platform_assert(new_entry != NULL);
-   new_entry->rts = 0;
-   new_entry->wts = 0;
+   new_entry->ts = NULL;
    return new_entry;
 }
 
@@ -244,42 +236,43 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
    return entry;
 }
 
-static int
-rw_entry_key_compare(const void *elem1, const void *elem2, void *args)
-{
-   const data_config *cfg = (const data_config *)args;
-
-   rw_entry *e1 = *((rw_entry **)elem1);
-   rw_entry *e2 = *((rw_entry **)elem2);
-
-   key akey = key_create_from_slice(e1->key);
-   key bkey = key_create_from_slice(e2->key);
-
-   return data_key_compare(cfg, akey, bkey);
-}
-
 static inline bool
 rw_entry_try_lock(rw_entry *entry)
 {
    timestamp_set v1, v2;
-   timestamp_set_load(entry->tuple_ts, &v1);
+   timestamp_set_load(entry->ts, &v1);
    v2 = v1;
-   if (v1.lock_bit) {
+   if (v1.dirty_bit) {
       return false;
    }
-   v2.lock_bit = 1;
-   return timestamp_set_compare_and_swap(entry->tuple_ts, &v1, &v2);
+   v2.dirty_bit = 1;
+   return timestamp_set_compare_and_swap(entry->ts, &v1, &v2);
+}
+
+static inline void
+rw_entry_lock(rw_entry *entry)
+{
+   platform_default_log("Lock key = %s\n", (char*)entry->key.data);
+   bool locked = false;
+   do {
+      locked = rw_entry_try_lock(entry);
+      if (!locked) {
+         // 1us is the value that is mentioned in the paper
+         platform_sleep_ns(1000);
+      }
+   } while (!locked);
 }
 
 static inline void
 rw_entry_unlock(rw_entry *entry)
 {
+   platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
    timestamp_set v1, v2;
    do {
-      timestamp_set_load(entry->tuple_ts, &v1);
-      v2          = v1;
-      v2.lock_bit = 0;
-   } while (!timestamp_set_compare_and_swap(entry->tuple_ts, &v1, &v2));
+      timestamp_set_load(entry->ts, &v1);
+      v2           = v1;
+      v2.dirty_bit = 0;
+   } while (!timestamp_set_compare_and_swap(entry->ts, &v1, &v2));
 }
 
 
@@ -384,6 +377,9 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 {
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
+   txn->ts = get_next_global_ts();
+   platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
+
    return 0;
 }
 
@@ -401,109 +397,14 @@ int
 transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn)
 {
-   txn_timestamp commit_ts = 0;
-
-   int       num_reads                    = 0;
-   int       num_writes                   = 0;
-   rw_entry *read_set[RW_SET_SIZE_LIMIT]  = {0};
-   rw_entry *write_set[RW_SET_SIZE_LIMIT] = {0};
-
-   for (int i = 0; i < txn->num_rw_entries; i++) {
-      rw_entry *entry = txn->rw_entries[i];
-      if (rw_entry_is_write(entry)) {
-         write_set[num_writes++] = entry;
-      }
-
-      if (rw_entry_is_read(entry)) {
-         read_set[num_reads++] = entry;
-
-         txn_timestamp wts = entry->wts;
-#if EXPERIMENTAL_MODE_SILO == 1
-         wts += 1;
-#endif
-         commit_ts = MAX(commit_ts, wts);
-      }
-   }
-
-   platform_sort_slow(write_set,
-                      num_writes,
-                      sizeof(rw_entry *),
-                      rw_entry_key_compare,
-                      (void *)txn_kvsb->tcfg->kvsb_cfg.data_cfg,
-                      NULL);
-
-RETRY_LOCK_WRITE_SET:
-{
-   for (int lock_num = 0; lock_num < num_writes; ++lock_num) {
-      rw_entry *w = write_set[lock_num];
-      if (!w->tuple_ts) {
-         rw_entry_iceberg_insert(txn_kvsb, w);
-      }
-
-      if (!rw_entry_try_lock(w)) {
-         // This is "no-wait" optimization in the TicToc paper.
-         for (int i = 0; i < lock_num; ++i) {
-            rw_entry_unlock(write_set[i]);
-         }
-
-         // 1us is the value that is mentioned in the paper
-         platform_sleep_ns(1000);
-
-         goto RETRY_LOCK_WRITE_SET;
-      }
-   }
-}
-
-   for (uint64 i = 0; i < num_writes; ++i) {
-      commit_ts =
-         MAX(commit_ts, timestamp_set_get_rts(write_set[i]->tuple_ts) + 1);
-   }
-
-   bool is_abort = FALSE;
-   for (uint64 i = 0; !is_abort && i < num_reads; ++i) {
-      rw_entry *r = read_set[i];
-      platform_assert(rw_entry_is_read(r));
-
-      if (r->rts < commit_ts) {
-         bool          is_success;
-         timestamp_set v1, v2;
-         do {
-            is_success = TRUE;
-            timestamp_set_load(r->tuple_ts, &v1);
-            v2                                 = v1;
-            bool          is_wts_different     = r->wts != v1.wts;
-            txn_timestamp rts                  = timestamp_set_get_rts(&v1);
-            bool          is_locked_by_another = rts <= commit_ts
-                                        && r->tuple_ts->lock_bit
-                                        && !rw_entry_is_write(r);
-            if (is_wts_different || is_locked_by_another) {
-               is_abort = TRUE;
-               break;
-            }
-            if (rts <= commit_ts) {
-               txn_timestamp delta = commit_ts - v1.wts;
-               /* txn_timestamp shift = delta - (delta & 0x7fff); */
-               txn_timestamp shift = delta - (delta & UINT64_MAX);
-               platform_assert(shift == 0);
-               v2.wts += shift;
-               v2.delta = delta - shift;
-               is_success =
-                  timestamp_set_compare_and_swap(r->tuple_ts, &v1, &v2);
-            }
-         } while (!is_success);
-      }
-   }
-
-   if (!is_abort) {
-      int rc = 0;
-
-      for (uint64 i = 0; i < num_writes; ++i) {
-         rw_entry *w = write_set[i];
-         platform_assert(rw_entry_is_write(w));
-
+   // unlock all writes and update the DB
+   for (int i = 0; i < txn->num_rw_entries; ++i) {
+      rw_entry *w = txn->rw_entries[i];
+      if (rw_entry_is_write(w)) {
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          if (0) {
 #endif
+            int rc = 0;
             switch (message_class(w->msg)) {
                case MESSAGE_TYPE_INSERT:
                   rc = splinterdb_insert(
@@ -519,35 +420,31 @@ RETRY_LOCK_WRITE_SET:
                default:
                   break;
             }
-
             platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
-         timestamp_set v1, v2;
-         do {
-            timestamp_set_load(w->tuple_ts, &v1);
-            v2          = v1;
-            v2.wts      = commit_ts;
-            v2.delta    = 0;
-            v2.lock_bit = 0;
-         } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
-      }
-   } else {
-      for (uint64 i = 0; i < num_writes; ++i) {
-         rw_entry_unlock(write_set[i]);
+         rw_entry_unlock(w);
       }
    }
 
    transaction_deinit(txn_kvsb, txn);
 
-   return (-1 * is_abort);
+   return 0;
 }
 
 int
 transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
                                transaction              *txn)
 {
+   // unlock all writes
+   for (int i = 0; i < txn->num_rw_entries; ++i) {
+      rw_entry *w = txn->rw_entries[i];
+      if (rw_entry_is_write(w)) {
+         rw_entry_unlock(w);
+      }
+   }
+
    transaction_deinit(txn_kvsb, txn);
 
    return 0;
@@ -571,8 +468,15 @@ local_write(transactional_splinterdb *txn_kvsb,
    /*    entry->rts      = timestamp_set_get_rts(&v); */
    /* } */
 
-   if (message_is_null(entry->msg)) {
+   if (!rw_entry_is_write(entry)) {
       rw_entry_set_msg(entry, msg);
+      rw_entry_iceberg_insert(txn_kvsb, entry);
+      rw_entry_lock(entry);
+      if (txn->ts < entry->ts->wts || txn->ts < entry->ts->rts) {
+         //TO rule would be violated so we need to abort
+         transactional_splinterdb_abort(txn_kvsb, txn);
+         return 1;
+      }
    } else {
       // TODO it needs to be checked later for upsert
       key wkey = key_create_from_slice(entry->key);
@@ -582,7 +486,6 @@ local_write(transactional_splinterdb *txn_kvsb,
             rw_entry_set_msg(entry, msg);
          } else {
             platform_assert(message_class(entry->msg) != MESSAGE_TYPE_DELETE);
-
             merge_accumulator new_message;
             merge_accumulator_init_from_message(&new_message, 0, msg);
             data_merge_tuples(cfg, ukey, entry->msg, &new_message);
@@ -633,37 +536,34 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    int rc = 0;
 
+   // TODO: do not insert if already inserted for this transaction
    rw_entry_iceberg_insert(txn_kvsb, entry);
 
-   // timestamp_set v1, v2;
-   write_timestamp v1;
-   do {
-      write_timestamp_load(entry->wts, &v1);
-
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 0
-      if (rw_entry_is_write(entry)) {
-         // read my write
-         // TODO This works for simple insert/update. However, it doesn't work
-         // for upsert.
-         // TODO if it succeeded, this read should not be considered for
-         // validation. entry->is_read should be false.
-         _splinterdb_lookup_result *_result =
+   if (rw_entry_is_write(entry)) {
+      // read my write
+      // TODO This works for simple insert/update. However, it doesn't work
+      // for upsert.
+      // TODO if it succeeded, this read should not be considered for
+      // validation. entry->is_read should be false.
+      _splinterdb_lookup_result *_result =
             (_splinterdb_lookup_result *)result;
-         merge_accumulator_resize(&_result->value, message_length(entry->msg));
-         memcpy(merge_accumulator_data(&_result->value),
+      merge_accumulator_resize(&_result->value, message_length(entry->msg));
+      memcpy(merge_accumulator_data(&_result->value),
                 message_data(entry->msg),
                 message_length(entry->msg));
-      } else {
-         rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
+   } else {
+      rw_entry_lock(entry);
+      if (txn->ts < entry->ts->wts) {
+         // TO rule would be violated, so abort
+         rw_entry_unlock(entry);
+         transactional_splinterdb_abort(txn_kvsb, txn);
+         return 1;
       }
+      rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
+      rw_entry_unlock(entry);
+   }
 #endif
-   } while (!write_timestamp_compare_and_swap(entry->wts, &v1, &v1));
-   // This code is so slow for some reason..
-      // timestamp_set_load(entry->tuple_ts, &v2);
-      // } while (memcmp(&v1, &v2, sizeof(v1)) != 0);
-
-   entry->wts = v1.wts;
-
    return rc;
 }
 
