@@ -12,6 +12,11 @@ use rust_cfg::new_sdb_data_config;
 pub mod splinter_cf;
 pub use splinter_cf::{SplinterDBWithColumnFamilies, SplinterColumnFamily};
 
+pub const NULL_SLICE: splinterdb_sys::slice = splinterdb_sys::slice {
+   length: 0,
+   data: ::std::ptr::null(),
+};
+
 #[derive(Debug)]
 pub struct SplinterDB {
    _inner: *mut splinterdb_sys::splinterdb,
@@ -170,11 +175,6 @@ impl SplinterDB
       self.db_create_or_open(path, cfg, true)
    }
 
-   pub fn create_column_family(&mut self, max_key_size: u64) -> SplinterColumnFamily
-   {
-      splinter_cf::create_column_family(self._inner, max_key_size, &mut self.data_cfg)
-   }
-
    pub fn register_thread(&self)
    {
       unsafe { splinterdb_sys::splinterdb_register_thread(self._inner) };
@@ -272,7 +272,7 @@ impl SplinterDB
 
    pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator>
    {
-      let mut cf_iter: *mut splinterdb_sys::splinterdb_iterator = std::ptr::null_mut();
+      let mut iter: *mut splinterdb_sys::splinterdb_iterator = std::ptr::null_mut();
 
       let rc = unsafe {
          let start_slice: splinterdb_sys::slice = match start_key {
@@ -287,12 +287,12 @@ impl SplinterDB
          };
          splinterdb_sys::splinterdb_iterator_init(
             self._inner,
-            &mut cf_iter,
+            &mut iter,
             start_slice,
          )
       };
       as_result(rc)?;
-      Ok(RangeIterator::new(cf_iter.iter))
+      Ok(RangeIterator::new(iter))
    }
 }
 

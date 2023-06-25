@@ -1,9 +1,9 @@
-use std::io::{Error, Result};
+use std::io::{Result};
 use crate::*;
 
 #[derive(Debug)]
 pub struct RangeIterator<'a> {
-   _inner: *mut splinterdb_sys::splinterdb_cf_iterator,
+   _inner: splinterdb_sys::splinterdb_cf_iterator,
    _marker: ::std::marker::PhantomData<splinterdb_sys::splinterdb_cf_iterator>,
    _parent_marker: ::std::marker::PhantomData<&'a splinterdb_sys::splinterdb>,
    state: Option<IteratorResult<'a>>,
@@ -13,7 +13,64 @@ impl<'a> Drop for RangeIterator<'a>
 {
    fn drop(&mut self)
    {
-      unsafe { splinterdb_sys::splinterdb_cf_iterator_deinit(self._inner) }
+      unsafe { splinterdb_sys::splinterdb_cf_iterator_deinit(&mut self._inner) }
+   }
+}
+
+impl<'a> RangeIterator<'a>
+{
+   pub fn new(cf_iter: splinterdb_sys::splinterdb_cf_iterator) -> RangeIterator<'a> 
+   {
+      RangeIterator {
+         _inner: cf_iter,
+         _marker: ::std::marker::PhantomData,
+         _parent_marker: ::std::marker::PhantomData,
+         state: None,
+      }
+   }
+
+   // almost an iterator, but we need to be able to return errors
+   // and retain ownership of the result
+   #[allow(clippy::should_implement_trait)]
+   pub fn next(&mut self) -> Result<Option<&IteratorResult>>
+   {
+
+      // Rust iterator expects to begin just before the first element
+      // but Splinter iterators start at the first element
+      // so we don't call splinter's next() if its our first iteration
+      if self.state.is_some() {
+         unsafe { splinterdb_sys::splinterdb_cf_iterator_next(&mut self._inner) };
+      }
+
+      let mut key_slice = NULL_SLICE;
+      let mut val_slice = NULL_SLICE;
+
+      let valid = unsafe {
+         splinterdb_sys::splinterdb_cf_iterator_get_current(&mut self._inner, &mut key_slice, &mut val_slice)
+      } as i32;
+
+      if valid == 0 {
+         let rc = unsafe{ splinterdb_sys::splinterdb_cf_iterator_status(&mut self._inner) };
+         as_result(rc)?;
+         return Ok(None);
+      } else {
+         let (key, value): (&[u8], &[u8]) = unsafe {(
+            ::std::slice::from_raw_parts(
+               ::std::mem::transmute(key_slice.data),
+               key_slice.length as usize,
+            ),
+            ::std::slice::from_raw_parts(
+               ::std::mem::transmute(val_slice.data),
+               val_slice.length as usize,
+            ),
+         )};
+         self.state = Some(IteratorResult { key, value});
+      }
+
+      match self.state {
+         None => Ok(None),
+         Some(ref r) => Ok(Some(r)),
+      }
    }
 }
 
@@ -25,15 +82,8 @@ pub struct SplinterDBWithColumnFamilies {
 
 #[derive(Debug)]
 pub struct SplinterColumnFamily {
+   data_cfg: splinterdb_sys::data_config,
    _inner: splinterdb_sys::splinterdb_column_family,
-}
-
-pub fn create_column_family(sdb: *mut splinterdb_sys::splinterdb, max_key_size: u64, cfg: &mut splinterdb_sys::data_config) -> SplinterColumnFamily {
-    SplinterColumnFamily {
-        _inner: unsafe { 
-            splinterdb_sys::column_family_create(sdb, max_key_size, cfg)
-        }
-    }
 }
 
 impl Drop for SplinterDBWithColumnFamilies {
@@ -55,12 +105,9 @@ impl Drop for SplinterColumnFamily {
 
 impl SplinterDBWithColumnFamilies {
    pub fn new() -> SplinterDBWithColumnFamilies {
-      let mut cf_cfg: splinterdb_sys::cf_data_config = unsafe {std::mem::zeroed() };
-      unsafe { splinterdb_sys::column_family_config_init(0, &mut cf_cfg) };
-
       SplinterDBWithColumnFamilies {
          _inner: std::ptr::null_mut(),
-         cf_cfg: cf_cfg,
+         cf_cfg: unsafe {std::mem::zeroed() },
       }
    }
 
@@ -72,15 +119,15 @@ impl SplinterDBWithColumnFamilies {
    ) -> Result<()> {
       let path = path_as_cstring(path); // don't drop until init is done
 
+      // initialize the cf_data_config
+      unsafe { splinterdb_sys::column_family_config_init(cfg.max_key_size as u64, &mut self.cf_cfg) };
+
       // set up the splinterdb config
       let mut sdb_cfg: splinterdb_sys::splinterdb_config = unsafe { std::mem::zeroed() };
       sdb_cfg.filename = path.as_ptr();
       sdb_cfg.cache_size = cfg.cache_size_bytes as u64;
       sdb_cfg.disk_size = cfg.disk_size_bytes as u64;
       sdb_cfg.data_cfg = &mut self.cf_cfg.general_config;
-
-      // set key bytes
-      self.cf_cfg.general_config.max_key_size = cfg.max_key_size as u64;
 
       // Open or create the database
       let rc = if open_existing {
@@ -107,6 +154,18 @@ impl SplinterDBWithColumnFamilies {
    pub fn deregister_thread(&self)
    {
       unsafe { splinterdb_sys::splinterdb_deregister_thread(self._inner) };
+   }
+
+   pub fn column_family_create<T: rust_cfg::SdbRustDataFuncs>(&mut self, max_key_size: u64) -> SplinterColumnFamily
+   {
+      let mut ret: SplinterColumnFamily = SplinterColumnFamily {
+         data_cfg: new_sdb_data_config::<T>(0),
+         _inner: unsafe { std::mem::zeroed() },
+      };
+      ret._inner = unsafe { 
+         splinterdb_sys::column_family_create(self._inner, max_key_size, &mut ret.data_cfg) 
+      };
+      ret
    }
 }
 
@@ -198,7 +257,7 @@ impl SplinterColumnFamily {
 
    pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator>
    {
-      let mut iter: *mut splinterdb_sys::splinterdb_cf_iterator = std::ptr::null_mut();
+      let mut cf_iter: splinterdb_sys::splinterdb_cf_iterator = unsafe { std::mem::zeroed() };
 
       let rc = unsafe {
          let start_slice: splinterdb_sys::slice = match start_key {
@@ -213,12 +272,12 @@ impl SplinterColumnFamily {
          };
          splinterdb_sys::splinterdb_cf_iterator_init(
             self._inner,
-            iter,
+            &mut cf_iter,
             start_slice,
          )
       };
       as_result(rc)?;
-      Ok(RangeIterator::new(iter))
+      Ok(RangeIterator::new(cf_iter))
    }
 }
 
