@@ -44,7 +44,9 @@ resource_types:
 - name: pull-request
   type: registry-image
   source:
-    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/teliaoss/github-pr-resource
+    #! this image is built from https://github.com/cloudfoundry-community/github-pr-resource
+    #! which is maintained by VMware staff
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/loggregatorbot/github-pr-resource
 
 resources:
 
