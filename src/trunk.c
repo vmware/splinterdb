@@ -4193,6 +4193,7 @@ trunk_garbage_collect_filters(trunk_handle             *spl,
                               uint64                    old_root_addr,
                               trunk_compact_bundle_req *req)
 {
+   platform_sleep_ns(10000);
    trunk_node node;
    trunk_garbage_collect_node_get(spl, old_root_addr, req, &node);
 
