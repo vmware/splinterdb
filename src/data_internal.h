@@ -116,105 +116,6 @@ key_copy_contents(void *dst, key k)
 }
 
 /*
- * KEY BUFFERS
- *
- * A key buffer is a piece of managed memory for holding a key.
- * There are two primary uses.  Occasionally, we need to make a local
- * copy of a key (see, e.g. uses of KEY_CREATE_LOCAL_COPY).  And, in
- * the tests, we need to construct keys for inserts, queries, etc.
- */
-
-#define DEFAULT_KEY_BUFFER_SIZE (128)
-typedef struct {
-   key_type        kind;
-   writable_buffer wb;
-   char            default_buffer[DEFAULT_KEY_BUFFER_SIZE];
-} key_buffer;
-
-/*
- * key_buffer functions
- */
-
-static inline key
-key_buffer_key(key_buffer *kb)
-{
-   if (kb->kind == NEGATIVE_INFINITY) {
-      return NEGATIVE_INFINITY_KEY;
-   } else if (kb->kind == POSITIVE_INFINITY) {
-      return POSITIVE_INFINITY_KEY;
-   } else {
-      return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
-   }
-}
-
-static inline void
-key_buffer_init(key_buffer *kb, platform_heap_id hid)
-{
-   kb->kind = USER_KEY;
-   writable_buffer_init_with_buffer(
-      &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
-}
-
-static inline platform_status
-key_buffer_copy_slice(key_buffer *kb, slice src)
-{
-   kb->kind = USER_KEY;
-   return writable_buffer_copy_slice(&kb->wb, src);
-}
-
-static inline platform_status
-key_buffer_copy_key(key_buffer *kb, key src)
-{
-   if (key_is_negative_infinity(src)) {
-      kb->kind = NEGATIVE_INFINITY;
-   } else if (key_is_positive_infinity(src)) {
-      kb->kind = POSITIVE_INFINITY;
-   } else {
-      return key_buffer_copy_slice(kb, key_slice(src));
-   }
-   return STATUS_OK;
-}
-
-static inline platform_status
-key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
-{
-   key_buffer_init(kb, hid);
-   return key_buffer_copy_key(kb, src);
-}
-
-/* Converts kb to a user key if it isn't already. */
-static inline platform_status
-key_buffer_resize(key_buffer *kb, uint64 length)
-{
-   kb->kind = USER_KEY;
-   return writable_buffer_resize(&kb->wb, length);
-}
-
-static inline void *
-key_buffer_data(key_buffer *kb)
-{
-   debug_assert(kb->kind == USER_KEY);
-   return writable_buffer_data(&kb->wb);
-}
-
-static inline void
-key_buffer_deinit(key_buffer *kb)
-{
-   writable_buffer_deinit(&kb->wb);
-}
-
-#define DECLARE_AUTO_KEY_BUFFER(kb, hid)                                       \
-   key_buffer kb __attribute__((cleanup(key_buffer_deinit)));                  \
-   key_buffer_init(&kb, hid)
-
-/* Success will be stored in rc, which must already be declared. */
-#define KEY_CREATE_LOCAL_COPY(rc, dst, hid, src)                               \
-   DECLARE_AUTO_KEY_BUFFER(dst##kb, hid);                                      \
-   rc      = key_buffer_copy_key(&dst##kb, src);                               \
-   key dst = key_buffer_key(&dst##kb)
-
-
-/*
  * ON-DISK KEY REPRESENTATION
  */
 typedef uint16 ondisk_key_length;
@@ -282,6 +183,121 @@ copy_key_to_ondisk_key(ondisk_key *odk, key k)
       odk->length = ONDISK_KEY_POSITIVE_INFINITY;
    }
 }
+
+/*
+ * KEY BUFFERS
+ *
+ * A key buffer is a piece of managed memory for holding a key.
+ * There are two primary uses.  Occasionally, we need to make a local
+ * copy of a key (see, e.g. uses of KEY_CREATE_LOCAL_COPY).  And, in
+ * the tests, we need to construct keys for inserts, queries, etc.
+ */
+
+#define DEFAULT_KEY_BUFFER_SIZE (128)
+typedef struct {
+   key_type        kind;
+   writable_buffer wb;
+   char            default_buffer[DEFAULT_KEY_BUFFER_SIZE];
+} key_buffer;
+
+/*
+ * key_buffer functions
+ */
+
+static inline key
+key_buffer_key(key_buffer *kb)
+{
+   if (kb->kind == NEGATIVE_INFINITY) {
+      return NEGATIVE_INFINITY_KEY;
+   } else if (kb->kind == POSITIVE_INFINITY) {
+      return POSITIVE_INFINITY_KEY;
+   } else {
+      return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
+   }
+}
+
+static inline void
+key_buffer_init(key_buffer *kb, platform_heap_id hid)
+{
+   kb->kind = USER_KEY;
+   writable_buffer_init_with_buffer(
+      &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
+}
+
+static inline platform_status
+key_buffer_copy_slice(key_buffer *kb, slice src)
+{
+   kb->kind = USER_KEY;
+   return writable_buffer_copy_slice(&kb->wb, src);
+}
+
+static inline platform_status
+key_buffer_copy_key(key_buffer *kb, key src)
+{
+   if (key_is_negative_infinity(src)) {
+      kb->kind = NEGATIVE_INFINITY;
+   } else if (key_is_positive_infinity(src)) {
+      kb->kind = POSITIVE_INFINITY;
+   } else {
+      return key_buffer_copy_slice(kb, key_slice(src));
+   }
+   return STATUS_OK;
+}
+
+static inline platform_status
+key_buffer_copy_ondisk_key(key_buffer *kb, ondisk_key *src)
+{
+   key k = ondisk_key_to_key(src);
+   return key_buffer_copy_key(kb, k);
+}
+
+static inline platform_status
+key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
+{
+   key_buffer_init(kb, hid);
+   return key_buffer_copy_key(kb, src);
+}
+
+static inline platform_status
+key_buffer_init_from_ondisk_key(key_buffer      *kb,
+                                platform_heap_id hid,
+                                ondisk_key      *src)
+{
+   key_buffer_init(kb, hid);
+   return key_buffer_copy_ondisk_key(kb, src);
+}
+
+/* Converts kb to a user key if it isn't already. */
+static inline platform_status
+key_buffer_resize(key_buffer *kb, uint64 length)
+{
+   kb->kind = USER_KEY;
+   return writable_buffer_resize(&kb->wb, length);
+}
+
+static inline void *
+key_buffer_data(key_buffer *kb)
+{
+   debug_assert(kb->kind == USER_KEY);
+   return writable_buffer_data(&kb->wb);
+}
+
+static inline void
+key_buffer_deinit(key_buffer *kb)
+{
+   writable_buffer_deinit(&kb->wb);
+}
+
+#define DECLARE_AUTO_KEY_BUFFER(kb, hid)                                       \
+   key_buffer kb __attribute__((cleanup(key_buffer_deinit)));                  \
+   key_buffer_init(&kb, hid)
+
+/* Success will be stored in rc, which must already be declared. */
+#define KEY_CREATE_LOCAL_COPY(rc, dst, hid, src)                               \
+   DECLARE_AUTO_KEY_BUFFER(dst##kb, hid);                                      \
+   rc      = key_buffer_copy_key(&dst##kb, src);                               \
+   key dst = key_buffer_key(&dst##kb)
+
 
 /*
  * MESSAGES

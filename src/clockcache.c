@@ -2104,10 +2104,10 @@ clockcache_get_internal(clockcache   *cc,       // IN
    uint8 extent_ref_count = allocator_get_refcount(cc->al, base_addr);
 
    // Dump allocated extents info for deeper debugging.
-   if (extent_ref_count <= 1) {
+   if (extent_ref_count == 0) {
       allocator_print_allocated(cc->al);
    }
-   debug_assert((extent_ref_count > 1),
+   debug_assert((extent_ref_count > 0),
                 "Attempt to get a buffer for page addr=%lu"
                 ", page type=%d ('%s'),"
                 " from extent addr=%lu, (extent number=%lu)"

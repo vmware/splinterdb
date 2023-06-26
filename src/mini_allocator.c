@@ -1131,6 +1131,10 @@ mini_wait_for_blockers(cache *cc, uint64 meta_head)
    }
 }
 
+/*
+ * Returns TRUE if this dec_ref brought all refcounts to 0,
+ * causing the mini_allocator to free all its extents.
+ */
 bool
 mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,

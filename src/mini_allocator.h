@@ -86,6 +86,11 @@ mini_keyed_inc_ref(cache       *cc,
                    uint64       meta_head,
                    key          start_key,
                    key          end_key);
+
+/*
+ * Returns TRUE if this dec_ref brought all refcounts to 0,
+ * causing the mini_allocator to free all its extents.
+ */
 bool
 mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,

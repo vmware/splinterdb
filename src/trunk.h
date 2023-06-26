@@ -177,6 +177,16 @@ typedef struct trunk_compacted_memtable {
    trunk_compact_bundle_req *req;
 } trunk_compacted_memtable;
 
+typedef struct branch_refcount_table branch_refcount_table;
+
+typedef struct branch_refcount_table_map {
+   platform_heap_id        hid;
+   platform_mutex          lock;
+   uint64                  num_buckets;
+   branch_refcount_table **buckets;
+} branch_refcount_table_map;
+
+
 struct trunk_handle {
    volatile uint64       root_addr;
    uint64                super_block_idx;
@@ -203,17 +213,8 @@ struct trunk_handle {
    // stats
    trunk_stats *stats;
 
-   // Link inside the splinter list
-   List_Links links;
-
-   /*
-    * Per thread task and per splinter table task counter. Used to decide when
-    * to run tasks.
-    */
-
-   struct {
-      uint64 counter;
-   } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
+   // branch refcounts
+   branch_refcount_table_map branch_refcounts;
 
    // space rec queue
    srq srq;

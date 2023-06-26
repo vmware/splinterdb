@@ -1207,6 +1207,10 @@ btree_inc_ref_range(cache              *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
 }
 
+/*
+ * Returns TRUE if this dec_ref brought all refcounts to 0,
+ * causing the btree's mini_allocator to free all its extents.
+ */
 bool
 btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
