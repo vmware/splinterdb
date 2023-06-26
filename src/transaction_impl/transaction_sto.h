@@ -253,7 +253,7 @@ rw_entry_try_lock(rw_entry *entry)
 static inline void
 rw_entry_lock(rw_entry *entry)
 {
-   platform_default_log("Lock key = %s\n", (char*)entry->key.data);
+   //platform_default_log("Lock key = %s\n", (char*)entry->key.data);
    bool locked = false;
    do {
       locked = rw_entry_try_lock(entry);
@@ -267,7 +267,7 @@ rw_entry_lock(rw_entry *entry)
 static inline void
 rw_entry_unlock(rw_entry *entry)
 {
-   platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
+   //platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
    timestamp_set v1, v2;
    do {
       timestamp_set_load(entry->ts, &v1);
@@ -388,7 +388,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
    txn->ts = get_next_global_ts();
-   platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
+   //platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
    return 0;
 }
 
