@@ -26,6 +26,8 @@ typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
    uint64                      tscache_log_slots;
+   uint64                      tscache_rows;
+   uint64                      tscache_cols;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
@@ -77,7 +79,6 @@ timestamp_set_load(timestamp_set *ts, timestamp_set *v)
    __atomic_load(
       (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
 }
-
 
 /*
  * This function has the following effects:
@@ -286,6 +287,8 @@ transactional_splinterdb_config_init(
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
 
    txn_splinterdb_cfg->tscache_log_slots = 29;
+   txn_splinterdb_cfg->tscache_rows = 2;
+   txn_splinterdb_cfg->tscache_cols = 131072;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
@@ -319,8 +322,15 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
-   platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
-                   == 0);
+//   platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
+//                   == 0);
+  platform_assert(iceberg_init_with_sketch(
+           tscache,
+		      txn_splinterdb_cfg->tscache_log_slots,
+		      txn_splinterdb_cfg->tscache_rows,
+		      txn_splinterdb_cfg->tscache_cols)
+                  == 0);
+
    _txn_kvsb->tscache = tscache;
 
    *txn_kvsb = _txn_kvsb;
@@ -379,7 +389,6 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    memset(txn, 0, sizeof(*txn));
    txn->ts = get_next_global_ts();
    platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
-
    return 0;
 }
 
