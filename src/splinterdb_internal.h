@@ -1,3 +1,11 @@
+
+/*
+ * splinterdb_internal.h --
+ *
+ *    Private struct declarations for splinterdb that we'd like
+ *    to share among multiple files, but not share with users.
+ */
+
 #ifndef SPLINTERDB_SPLINTERDB_INTERNAL_H_
 #define SPLINTERDB_SPLINTERDB_INTERNAL_H_
 
@@ -23,5 +31,11 @@ typedef struct splinterdb {
    platform_heap_id     heap_id;
    data_config         *data_cfg;
 } splinterdb;
+
+struct splinterdb_iterator {
+   trunk_range_iterator sri;
+   platform_status      last_rc;
+   const splinterdb    *parent;
+};
 
 #endif // SPLINTERDB_SPLINTERDB_INTERNAL_H_
