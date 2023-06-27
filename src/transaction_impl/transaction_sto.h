@@ -246,7 +246,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
 static inline void
 rw_entry_unlock(rw_entry *entry)
 {
-   platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
+   //platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
    timestamp_set v1, v2;
    do {
       timestamp_set_load(entry->ts, &v1);
@@ -444,7 +444,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
    txn->ts = get_next_global_ts();
-   platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
+   //platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
    return 0;
 }
 
@@ -489,6 +489,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
+         w->ts->wts = txn->ts;
          rw_entry_unlock(w);
       }
    }
@@ -622,6 +623,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          return 1;
       }
       rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
+      if (txn->ts > entry->ts->rts) {
+         entry->ts->rts = txn->ts;
+      }
       rw_entry_unlock(entry);
    }
 #endif
