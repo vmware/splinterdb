@@ -565,13 +565,6 @@ splinterdb_lookup(const splinterdb         *kvs, // IN
    return platform_status_to_int(status);
 }
 
-
-struct splinterdb_iterator {
-   trunk_range_iterator sri;
-   platform_status      last_rc;
-   const splinterdb    *parent;
-};
-
 int
 splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                          splinterdb_iterator **iter,          // OUT

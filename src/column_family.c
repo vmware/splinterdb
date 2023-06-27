@@ -1,5 +1,6 @@
 
 #include "platform.h"
+// #include "poison.h"
 
 #include "splinterdb/column_family.h"
 #include "splinterdb/splinterdb.h"
@@ -7,6 +8,23 @@
 #include "util.h"
 
 #include <stdlib.h>
+
+struct splinterdb_cf_iterator {
+   column_family_id    id;
+   splinterdb_iterator iter;
+};
+
+/*
+ * Extract errno.h -style status int from a platform_status
+ *
+ * Note this currently relies on the implementation of the splinterdb
+ * platform_linux. But at least it doesn't leak the dependency to callers.
+ */
+static inline int
+platform_status_to_int(const platform_status status) // IN
+{
+   return status.r;
+}
 
 // Some helper functions we'll use for managing the column family identifiers
 // and the data config table
@@ -54,7 +72,7 @@ cfg_table_insert(cf_data_config *cf_cfg, data_config *data_cfg)
    // reallocate table memory if necessary
    if (cf_cfg->table_mem <= new_id) {
       cf_cfg->config_table = (data_config **)realloc(
-         cf_cfg->config_table, new_id * 2 * sizeof(data_config *));
+         cf_cfg->config_table, (new_id + 1) * 2 * sizeof(data_config *));
    }
 
    // place new data_config in table
@@ -233,9 +251,9 @@ splinterdb_cf_lookup(const splinterdb_column_family cf,    // IN
 // Range iterators for column families
 
 int
-splinterdb_cf_iterator_init(const splinterdb_column_family cf,       // IN
-                            splinterdb_cf_iterator        *cf_iter,  // OUT
-                            slice                          start_key // IN
+splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
+                            splinterdb_cf_iterator       **cf_iter,       // OUT
+                            slice                          user_start_key // IN
 )
 {
    // The minimum key contains no key data only consists of
@@ -246,20 +264,39 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,       // IN
    writable_buffer cf_key_wb;
    writable_buffer_init_with_buffer(
       &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
-   slice cf_key = userkey_to_cf_key(start_key, cf.id, &cf_key_wb);
+   slice cf_key = userkey_to_cf_key(user_start_key, cf.id, &cf_key_wb);
 
-   cf_iter->id = cf.id;
-   int rc      = splinterdb_iterator_init(cf.kvs, &cf_iter->iter, cf_key);
-   if (rc != 0)
-      return rc;
+   splinterdb_cf_iterator *cf_it = TYPED_MALLOC(cf.kvs->spl->heap_id, cf_it);
+   if (cf_it == NULL) {
+      platform_error_log("TYPED_MALLOC error\n");
+      return platform_status_to_int(STATUS_NO_MEMORY);
+   }
+   cf_it->iter.last_rc              = STATUS_OK;
+   trunk_range_iterator *range_itor = &(cf_it->iter.sri);
+
+   key             start_key = key_create_from_slice(cf_key);
+   platform_status rc        = trunk_range_iterator_init(
+      cf.kvs->spl, range_itor, start_key, POSITIVE_INFINITY_KEY, UINT64_MAX);
+   if (!SUCCESS(rc)) {
+      platform_free(cf.kvs->spl->heap_id, *cf_iter);
+      writable_buffer_deinit(&cf_key_wb);
+      return platform_status_to_int(rc);
+   }
+   cf_it->iter.parent = cf.kvs;
+   cf_it->id          = cf.id;
+
+   *cf_iter = cf_it;
    writable_buffer_deinit(&cf_key_wb);
-   return 0;
+   return EXIT_SUCCESS;
 }
 
 void
 splinterdb_cf_iterator_deinit(splinterdb_cf_iterator *cf_iter)
 {
-   splinterdb_iterator_deinit(cf_iter->iter);
+   trunk_range_iterator *range_itor = &(cf_iter->iter.sri);
+   trunk_range_iterator_deinit(range_itor);
+
+   platform_free(range_itor->spl->heap_id, cf_iter);
 }
 
 _Bool
@@ -268,13 +305,13 @@ splinterdb_cf_iterator_get_current(splinterdb_cf_iterator *cf_iter, // IN
                                    slice                  *value    // OUT
 )
 {
-   _Bool valid = splinterdb_iterator_valid(cf_iter->iter);
+   _Bool valid = splinterdb_iterator_valid(&cf_iter->iter);
 
    if (!valid)
       return FALSE;
 
    // if valid, check the key to ensure it's within this column family
-   splinterdb_iterator_get_current(cf_iter->iter, key, value);
+   splinterdb_iterator_get_current(&cf_iter->iter, key, value);
    column_family_id key_cf = get_cf_id(*key);
 
    if (key_cf != cf_iter->id)
@@ -287,13 +324,13 @@ splinterdb_cf_iterator_get_current(splinterdb_cf_iterator *cf_iter, // IN
 void
 splinterdb_cf_iterator_next(splinterdb_cf_iterator *cf_iter)
 {
-   return splinterdb_iterator_next(cf_iter->iter);
+   return splinterdb_iterator_next(&cf_iter->iter);
 }
 
 int
 splinterdb_cf_iterator_status(const splinterdb_cf_iterator *cf_iter)
 {
-   return splinterdb_iterator_status(cf_iter->iter);
+   return splinterdb_iterator_status(&cf_iter->iter);
 }
 
 

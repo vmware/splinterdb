@@ -33,12 +33,7 @@ typedef struct splinterdb_column_family {
    splinterdb      *kvs;
 } splinterdb_column_family;
 
-typedef struct splinterdb_cf_iterator {
-   column_family_id     id;
-   splinterdb_iterator *iter;
-} splinterdb_cf_iterator;
-
-#define CF_ITER_UNINIT ((splinterdb_cf_iterator){0, NULL})
+typedef struct splinterdb_cf_iterator splinterdb_cf_iterator;
 
 // Initialize the data_config stored in the cf_data_config
 // this data_config is then passed to SplinterDB to add support for
@@ -107,7 +102,7 @@ splinterdb_cf_lookup(const splinterdb_column_family cf,    // IN
 
 int
 splinterdb_cf_iterator_init(const splinterdb_column_family cf,       // IN
-                            splinterdb_cf_iterator        *cf_iter,  // OUT
+                            splinterdb_cf_iterator       **cf_iter,  // OUT
                             slice                          start_key // IN
 );
 

@@ -85,7 +85,7 @@ CTEST2(column_family, test_single_column)
 
    // create some basic data to insert and lookup
    char  *key_data = "some-key";
-   size_t key_len  = sizeof("some-key");
+   size_t key_len  = strlen(key_data);
    slice  user_key = slice_create(key_len, key_data);
 
    splinterdb_lookup_result result;
@@ -234,6 +234,8 @@ CTEST2(column_family, test_multiple_cf_same_key)
       ASSERT_EQUAL(slice_length(values[idx]), slice_length(value));
       ASSERT_STREQN(
          slice_data(values[idx]), slice_data(value), slice_length(value));
+
+      splinterdb_cf_lookup_result_deinit(&result);
    }
 }
 
@@ -249,7 +251,7 @@ rev_key_compare(const data_config *cfg, slice key1, slice key2)
    return slice_lex_cmp(key2, key1);
 }
 
-/* 
+/*
  * Test multiple column families with range iterators
  * ensure that keys are found in the order defined by their
  * custom key comparison functions
@@ -295,8 +297,8 @@ CTEST2(column_family, test_multiple_cf_range)
    ASSERT_EQUAL(0, splinterdb_cf_insert(cf_reverse, key4, val2));
 
    // Perform a range query over all cf1 keys
-   splinterdb_cf_iterator *it = &CF_ITER_UNINIT;
-   ASSERT_EQUAL(0, splinterdb_cf_iterator_init(cf_default, it, NULL_SLICE));
+   splinterdb_cf_iterator *it;
+   ASSERT_EQUAL(0, splinterdb_cf_iterator_init(cf_default, &it, NULL_SLICE));
 
    slice keys[] = {key1, key2, key3, key4};
    slice key;
@@ -317,7 +319,7 @@ CTEST2(column_family, test_multiple_cf_range)
    splinterdb_cf_iterator_deinit(it);
 
    // Perform a range query over all cf2 keys
-   ASSERT_EQUAL(0, splinterdb_cf_iterator_init(cf_reverse, it, NULL_SLICE));
+   ASSERT_EQUAL(0, splinterdb_cf_iterator_init(cf_reverse, &it, NULL_SLICE));
 
    idx = 0;
    for (; splinterdb_cf_iterator_get_current(it, &key, &val);
@@ -344,11 +346,14 @@ CTEST2(column_family, test_multiple_cf_range)
 
 // merge two messages, with result in new_message
 static int
-merge_tuples(const data_config *cfg, slice key, message old_message, merge_accumulator *new_message)
+merge_tuples(const data_config *cfg,
+             slice              key,
+             message            old_message,
+             merge_accumulator *new_message)
 {
    platform_assert(slice_data(key) != NULL);
-   message_type type = old_message.type;
-   writable_buffer *wb = &new_message->data;
+   message_type     type = old_message.type;
+   writable_buffer *wb   = &new_message->data;
 
    // extract value slices
    slice old_value = old_message.data;
@@ -358,10 +363,9 @@ merge_tuples(const data_config *cfg, slice key, message old_message, merge_accum
    // and retain that value
    if (cfg->key_compare(cfg, old_value, new_value) < 0) {
       platform_status rc = writable_buffer_copy_slice(wb, new_value);
-      if (!SUCCESS(rc)) 
+      if (!SUCCESS(rc))
          return rc.r;
-   }
-   else {
+   } else {
       platform_status rc = writable_buffer_copy_slice(wb, old_value);
       if (!SUCCESS(rc))
          return rc.r;
@@ -376,7 +380,9 @@ merge_tuples(const data_config *cfg, slice key, message old_message, merge_accum
 }
 
 static int
-merge_tuple_final(const data_config *cfg, slice key, merge_accumulator *oldest_message)
+merge_tuple_final(const data_config *cfg,
+                  slice              key,
+                  merge_accumulator *oldest_message)
 {
    platform_assert(slice_data(key) != NULL);
 
@@ -386,21 +392,20 @@ merge_tuple_final(const data_config *cfg, slice key, merge_accumulator *oldest_m
 }
 
 
-
 CTEST2(column_family, multiple_cf_with_updates)
 {
    // create the default column family
-   data->default_data_cfg.merge_tuples = merge_tuples;
+   data->default_data_cfg.merge_tuples       = merge_tuples;
    data->default_data_cfg.merge_tuples_final = merge_tuple_final;
-   splinterdb_column_family cf_default = column_family_create(
+   splinterdb_column_family cf_default       = column_family_create(
       data->kvsb, TEST_MAX_KEY_SIZE, &data->default_data_cfg);
 
    // create a config with a reversed key compare function
    // and create a column family that will reverse the keys
    data_config rev_data_config;
    default_data_config_init(TEST_MAX_KEY_SIZE, &rev_data_config);
-   rev_data_config.key_compare = rev_key_compare;
-   rev_data_config.merge_tuples = merge_tuples;
+   rev_data_config.key_compare        = rev_key_compare;
+   rev_data_config.merge_tuples       = merge_tuples;
    rev_data_config.merge_tuples_final = merge_tuple_final;
 
    splinterdb_column_family cf_reverse =
@@ -431,7 +436,7 @@ CTEST2(column_family, multiple_cf_with_updates)
 
    // Now update these key-value pairs
    char small_val[] = "aaaaaa-cf2";
-   char big_val[] = "zzzzzz-cf1";
+   char big_val[]   = "zzzzzz-cf1";
 
    slice new_val1 = slice_create(10, big_val);
    slice new_val2 = slice_create(10, small_val);
@@ -468,12 +473,13 @@ CTEST2(column_family, multiple_cf_with_updates)
             ASSERT_EQUAL(slice_length(new_val1), slice_length(value));
             ASSERT_STREQN(
                slice_data(new_val1), slice_data(value), slice_length(value));
-         }
-         else {
+         } else {
             ASSERT_EQUAL(slice_length(new_val2), slice_length(value));
             ASSERT_STREQN(
                slice_data(new_val2), slice_data(value), slice_length(value));
          }
+
+         splinterdb_cf_lookup_result_deinit(&result);
       }
-   }  
+   }
 }
