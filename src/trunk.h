@@ -198,10 +198,9 @@ struct trunk_handle {
    uint64 est_tuples_in_compaction;
 
    // allocator/cache/log
-   allocator     *al;
-   cache         *cc;
-   log_handle    *log;
-   mini_allocator mini;
+   allocator  *al;
+   cache      *cc;
+   log_handle *log;
 
    // memtables
    allocator_root_id id;
