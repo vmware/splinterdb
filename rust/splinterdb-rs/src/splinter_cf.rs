@@ -3,7 +3,7 @@ use crate::*;
 
 #[derive(Debug)]
 pub struct RangeIterator<'a> {
-   _inner: splinterdb_sys::splinterdb_cf_iterator,
+   _inner: *mut splinterdb_sys::splinterdb_cf_iterator,
    _marker: ::std::marker::PhantomData<splinterdb_sys::splinterdb_cf_iterator>,
    _parent_marker: ::std::marker::PhantomData<&'a splinterdb_sys::splinterdb>,
    state: Option<IteratorResult<'a>>,
@@ -13,13 +13,13 @@ impl<'a> Drop for RangeIterator<'a>
 {
    fn drop(&mut self)
    {
-      unsafe { splinterdb_sys::splinterdb_cf_iterator_deinit(&mut self._inner) }
+      unsafe { splinterdb_sys::splinterdb_cf_iterator_deinit(self._inner) }
    }
 }
 
 impl<'a> RangeIterator<'a>
 {
-   pub fn new(cf_iter: splinterdb_sys::splinterdb_cf_iterator) -> RangeIterator<'a> 
+   pub fn new(cf_iter: *mut splinterdb_sys::splinterdb_cf_iterator) -> RangeIterator<'a> 
    {
       RangeIterator {
          _inner: cf_iter,
@@ -39,18 +39,18 @@ impl<'a> RangeIterator<'a>
       // but Splinter iterators start at the first element
       // so we don't call splinter's next() if its our first iteration
       if self.state.is_some() {
-         unsafe { splinterdb_sys::splinterdb_cf_iterator_next(&mut self._inner) };
+         unsafe { splinterdb_sys::splinterdb_cf_iterator_next(self._inner) };
       }
 
       let mut key_slice = NULL_SLICE;
       let mut val_slice = NULL_SLICE;
 
       let valid = unsafe {
-         splinterdb_sys::splinterdb_cf_iterator_get_current(&mut self._inner, &mut key_slice, &mut val_slice)
+         splinterdb_sys::splinterdb_cf_iterator_get_current(self._inner, &mut key_slice, &mut val_slice)
       } as i32;
 
       if valid == 0 {
-         let rc = unsafe{ splinterdb_sys::splinterdb_cf_iterator_status(&mut self._inner) };
+         let rc = unsafe{ splinterdb_sys::splinterdb_cf_iterator_status(self._inner) };
          as_result(rc)?;
          return Ok(None);
       } else {
@@ -257,7 +257,7 @@ impl SplinterColumnFamily {
 
    pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator>
    {
-      let mut cf_iter: splinterdb_sys::splinterdb_cf_iterator = unsafe { std::mem::zeroed() };
+      let mut cf_iter: *mut splinterdb_sys::splinterdb_cf_iterator = std::ptr::null_mut();
 
       let rc = unsafe {
          let start_slice: splinterdb_sys::slice = match start_key {
