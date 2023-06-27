@@ -52,6 +52,12 @@ typedef struct rw_entry {
    bool             need_to_decrease_refcount;
 } rw_entry;
 
+enum sto_access_rc {
+   STO_ACCESS_OK,
+   STO_ACCESS_BUSY,
+   STO_ACCESS_ABORT
+};
+
 static inline txn_timestamp
 get_next_global_ts()
 {
@@ -237,37 +243,10 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
    return entry;
 }
 
-static inline bool
-rw_entry_try_lock(rw_entry *entry)
-{
-   timestamp_set v1, v2;
-   timestamp_set_load(entry->ts, &v1);
-   v2 = v1;
-   if (v1.dirty_bit) {
-      return false;
-   }
-   v2.dirty_bit = 1;
-   return timestamp_set_compare_and_swap(entry->ts, &v1, &v2);
-}
-
-static inline void
-rw_entry_lock(rw_entry *entry)
-{
-   //platform_default_log("Lock key = %s\n", (char*)entry->key.data);
-   bool locked = false;
-   do {
-      locked = rw_entry_try_lock(entry);
-      if (!locked) {
-         // 1us is the value that is mentioned in the paper
-         platform_sleep_ns(1000);
-      }
-   } while (!locked);
-}
-
 static inline void
 rw_entry_unlock(rw_entry *entry)
 {
-   //platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
+   platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
    timestamp_set v1, v2;
    do {
       timestamp_set_load(entry->ts, &v1);
@@ -276,6 +255,83 @@ rw_entry_unlock(rw_entry *entry)
    } while (!timestamp_set_compare_and_swap(entry->ts, &v1, &v2));
 }
 
+static inline enum sto_access_rc
+rw_entry_try_read_lock(rw_entry *entry, uint64 txn_ts)
+{
+   timestamp_set v1, v2;
+   timestamp_set_load(entry->ts, &v1);
+   if (txn_ts < v1.wts) {
+      return STO_ACCESS_ABORT;
+   }
+   v2 = v1;
+   if (v1.dirty_bit) {
+      return false;
+   }
+   v2.dirty_bit = 1;
+   if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
+      if (txn_ts < v1.wts) {
+         //TO rule would be violated so we need to abort
+         rw_entry_unlock(entry);
+         return STO_ACCESS_ABORT;
+      }
+   } else {
+      return STO_ACCESS_BUSY;
+   }
+   return STO_ACCESS_OK;
+}
+
+static inline enum sto_access_rc
+rw_entry_try_write_lock(rw_entry *entry, uint64 txn_ts)
+{
+   timestamp_set v1, v2;
+   timestamp_set_load(entry->ts, &v1);
+   if (txn_ts < v1.wts || txn_ts < v1.rts) {
+      //TO rule would be violated so we need to abort
+      return STO_ACCESS_ABORT;
+   }
+   v2 = v1;
+   if (v1.dirty_bit) {
+      return false;
+   }
+   v2.dirty_bit = 1;
+   if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
+      if (txn_ts < v1.wts || txn_ts < v1.rts) {
+         rw_entry_unlock(entry);
+         return STO_ACCESS_ABORT;
+      }
+   } else {
+      return STO_ACCESS_BUSY;
+   }
+   return STO_ACCESS_OK;
+}
+
+static inline enum sto_access_rc
+rw_entry_read_lock(rw_entry *entry, uint64 txn_ts)
+{
+   enum sto_access_rc rc;
+   do {
+      rc = rw_entry_try_read_lock(entry, txn_ts);
+      if (rc == STO_ACCESS_BUSY) {
+         // 1us is the value that is mentioned in the paper
+         platform_sleep_ns(1000);
+      }
+   } while (rc == STO_ACCESS_BUSY);
+   return rc;
+}
+
+static inline enum sto_access_rc
+rw_entry_write_lock(rw_entry *entry, uint64 txn_ts)
+{
+   enum sto_access_rc rc;
+   do {
+      rc = rw_entry_try_write_lock(entry, txn_ts);
+      if (rc == STO_ACCESS_BUSY) {
+         // 1us is the value that is mentioned in the paper
+         platform_sleep_ns(1000);
+      }
+   } while (rc == STO_ACCESS_BUSY);
+   return rc;
+}
 
 static void
 transactional_splinterdb_config_init(
@@ -388,7 +444,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
    txn->ts = get_next_global_ts();
-   //platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
+   platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
    return 0;
 }
 
@@ -446,6 +502,7 @@ int
 transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
                                transaction              *txn)
 {
+   platform_default_log("Aborting\n");
    // unlock all writes
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry *w = txn->rw_entries[i];
@@ -480,9 +537,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    if (!rw_entry_is_write(entry)) {
       rw_entry_set_msg(entry, msg);
       rw_entry_iceberg_insert(txn_kvsb, entry);
-      rw_entry_lock(entry);
-      if (txn->ts < entry->ts->wts || txn->ts < entry->ts->rts) {
-         //TO rule would be violated so we need to abort
+      if (rw_entry_write_lock(entry, txn->ts) == STO_ACCESS_ABORT) {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
@@ -562,10 +617,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                 message_data(entry->msg),
                 message_length(entry->msg));
    } else {
-      rw_entry_lock(entry);
-      if (txn->ts < entry->ts->wts) {
-         // TO rule would be violated, so abort
-         rw_entry_unlock(entry);
+      if (rw_entry_read_lock(entry, txn->ts) == STO_ACCESS_ABORT) {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
