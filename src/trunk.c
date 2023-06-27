@@ -2859,6 +2859,109 @@ branch_refcount_table_destroy(platform_heap_id hid, branch_refcount_table *brt)
 }
 
 static inline branch_refcount_table *
+branch_refcount_table_create_single(trunk_handle *spl,
+                                    turnk_node   *node,
+                                    uint64        child_num,
+                                    uint64        addr)
+{
+   branch_refcount_table *brt;
+   /* Allocate for max pivots, since we don't know how many there might be */
+   brt = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      spl->heap_id, brt, entries, TRUNK_MAX_PIVOTS);
+   if (brt == NULL) {
+      goto out;
+   }
+   brt->addr           = addr;
+   brt->num_pivot_keys = 0;
+
+   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, child_num);
+   branch_refcount_table_entry *entry = &brt->entries[0];
+   entry->pivot_generation            = pdata->generation;
+   platform_status rc;
+   rc = key_buffer_init_from_ondisk_key(
+      &entry->pivot, spl->heap_id, &pdata->pivot);
+   if (!SUCCESS(rc)) {
+      goto teardown_brt;
+   }
+   entry->refcount = 1;
+   brt->num_pivot_keys++;
+
+   uint64            next_pivot = child_num + 1;
+   trunk_pivot_data *pdata      = trunk_get_pivot_data(spl, node, child_num);
+   entry                        = &brt->entries[1];
+   entry->pivot_generation      = pdata->generation;
+   rc                           = key_buffer_init_from_ondisk_key(
+      &entry->pivot, spl->heap_id, &pdata->pivot);
+   if (!SUCCESS(rc)) {
+      goto teardown_brt;
+   }
+   brt->num_pivot_keys++;
+
+   return brt;
+
+teardown_brt:
+   branch_refcount_table_destroy(spl->heap_id, brt);
+
+out:
+   return NULL;
+}
+
+static inline platform_status
+branch_refcount_table_append_entry(platform_heap_id hid, branch_refcount_table *brt, trunk_node *node, uint64 child_num)
+{
+   
+}
+
+static inline void
+branch_refcount_table_append(trunk_handle *spl,
+                             trunk_node   *node,
+                             uint64        child_num)
+{
+   uint64 num_entries = brt->num_pivot_keys;
+   platform_assert(1 < brt->num_pivot_keys);
+   platform_assert(brt->num_pivot_keys < TRUNK_MAX_PIVOTS);
+
+   branch_refcount_table_entry *last_entry = &brt->entries[brt->num_pivot_keys - 1];
+   branch_refcount_table_entry *new_entry = &brt->entries[brt->num_pivot_keys];
+
+   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, child_num);
+
+   platform_assert(trunk_key_compare(spl,
+                                     key_buffer_key(&last_entry->pivot),
+                                     ondisk_key_to_key(&pdata->pivot))
+                   <= 0);
+
+   if (trunk_key_compare(spl, key_buffer_key(&last_entry->pivot), ondisk_key_to_key(&pdata->pivot)) < 0) {
+      /* Add a gap to the table */
+      max_entry->pivot_generation = INVALID_PIVOT_GENERATION;
+
+      platform_status rc;
+      rc = key_buffer_init_from_ondisk_key(
+            &new_entry->pivot, spl->heap_id, &pdata->pivot);
+      if (!SUCCESS(rc)) {
+         goto teardown_brt;
+      }
+      // entry->refcount is already 0
+      brt->num_pivot_keys++;
+      max_entry++;
+      new_entry++;
+   }
+
+   last_entry->pivot_generation = pdata->pivot_generation;
+   platform_assert(last_entry->refcount = 0);
+   last_entry->refcount = 1;
+
+   trunk_pivot_data *next_pdata                        = trunk_get_pivot_data(spl, node, child_num+1);
+   new_entry->pivot_generation      = INVALID_PIVOT_GENERATION;
+   rc                           = key_buffer_init_from_ondisk_key(
+      &new_entry->pivot, spl->heap_id, &next_pdata->pivot);
+   if (!SUCCESS(rc)) {
+      goto teardown_brt;
+   }
+   brt->num_pivot_keys++;
+}
+
+static inline branch_refcount_table *
 branch_refcount_table_create(trunk_handle *spl, trunk_node *node)
 {
    uint64 num_pivot_keys = trunk_num_pivot_keys(spl, node);
@@ -2871,7 +2974,7 @@ branch_refcount_table_create(trunk_handle *spl, trunk_node *node)
    }
 
    brt->addr           = 0;
-   brt->num_pivot_keys = num_pivot_keys;
+   brt->num_pivot_keys = 0;
 
    uint64 num_children = num_pivot_keys - 1;
    uint64 entry_num;
@@ -2886,7 +2989,6 @@ branch_refcount_table_create(trunk_handle *spl, trunk_node *node)
          &brt->entries[entry_num].pivot, spl->heap_id, &pdata->pivot);
       if (!SUCCESS(rc)) {
          /* Record the number of entries we actually initialized. */
-         brt->num_pivot_keys = entry_num;
          goto teardown_brt;
       }
       if (entry_num < num_children) {
@@ -2895,6 +2997,7 @@ branch_refcount_table_create(trunk_handle *spl, trunk_node *node)
          /* Leave the last entry at 0, since there's not a child
             corresponding to the last pivot key. */
       }
+      brt->num_pivot_keys++;
    }
 
    return brt;
@@ -8083,726 +8186,751 @@ trunk_create(trunk_config     *cfg,
    return spl;
 }
 
-/*
- * Open (mount) an existing splinter database
- */
-trunk_handle *
-trunk_mount(trunk_config     *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid)
+static bool
+trunk_node_discover_branches(trunk_handle *spl, uint64 addr, void *arg)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
-   memmove(&spl->cfg, cfg, sizeof(*cfg));
+   trunk_node node;
+   trunk_node_get(spl->cc, addr, &node);
 
-   spl->al = al;
-   spl->cc = cc;
-   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
-   spl->id      = id;
-   spl->heap_id = hid;
-   spl->ts      = ts;
+   uint64 num_children = trunk_num_children(spl, node);
+   for (uint64 child_num = 0; child_num < num_children; child_num++) {
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, child_num);
 
-   platform_status rc =
-      branch_refcount_table_map_init(hid, &spl->branch_refcounts);
-   platform_assert_status_ok(rc);
-
-   srq_init(&spl->srq, platform_get_module_id(), hid);
-
-   platform_batch_rwlock_init(&spl->trunk_root_lock);
-
-   // find the unmounted super block
-   spl->root_addr                      = 0;
-   uint64             latest_timestamp = 0;
-   page_handle       *super_page;
-   trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
-   if (super != NULL) {
-      if (super->unmounted && super->timestamp > latest_timestamp) {
-         spl->root_addr   = super->root_addr;
-         latest_timestamp = super->timestamp;
-      }
-      trunk_release_super_block(spl, super_page);
-   }
-   if (spl->root_addr == 0) {
-      platform_free(hid, spl);
-      return (trunk_handle *)NULL;
-   }
-
-   memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   spl->mt_ctxt            = memtable_context_create(
-      spl->heap_id, cc, mt_cfg, trunk_memtable_flush_virtual, spl);
-
-   if (spl->cfg.use_log) {
-      spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
-   }
-
-   trunk_set_super_block(spl, FALSE, FALSE, FALSE);
-
-   if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
-      }
-   }
-   return spl;
-}
-
-/*
- * This function is only safe to call when all other calls to spl have returned
- * and all tasks have been complete.
- */
-void
-trunk_prepare_for_shutdown(trunk_handle *spl)
-{
-   // write current memtable to disk
-   // (any others must already be flushing/flushed)
-
-   if (!memtable_is_empty(spl->mt_ctxt)) {
-      /*
-       * memtable_force_finalize is not thread safe. Note also, we do not hold
-       * the insert lock or rotate while flushing the memtable.
-       */
-
-      uint64 generation = memtable_force_finalize(spl->mt_ctxt);
-      trunk_memtable_flush(spl, generation);
-   }
-
-   // finish any outstanding tasks and destroy task system for this table.
-   platform_status rc = task_perform_until_quiescent(spl->ts);
-   platform_assert_status_ok(rc);
-
-   // destroy memtable context (and its memtables)
-   memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
-
-   // release the log
-   if (spl->cfg.use_log) {
-      platform_free(spl->heap_id, spl->log);
-   }
-
-   // flush all dirty pages in the cache
-   cache_flush(spl->cc);
-}
-
-/*
- * Destroy a database such that it cannot be re-opened later
- */
-void
-trunk_destroy(trunk_handle *spl)
-{
-   srq_deinit(&spl->srq);
-   trunk_prepare_for_shutdown(spl);
-   trunk_node_dec_ref_recursive(spl, spl->root_addr);
-   // clear out this splinter table from the meta page.
-   allocator_remove_super_addr(spl->al, spl->id);
-   branch_refcount_table_map_deinit(&spl->branch_refcounts);
-
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
-   }
-   platform_free(spl->heap_id, spl);
-}
-
-/*
- * Close (unmount) a database without destroying it.
- * It can be re-opened later with trunk_mount().
- */
-void
-trunk_unmount(trunk_handle **spl_in)
-{
-   trunk_handle *spl = *spl_in;
-   srq_deinit(&spl->srq);
-   trunk_prepare_for_shutdown(spl);
-   trunk_set_super_block(spl, FALSE, TRUE, FALSE);
-   branch_refcount_table_map_deinit(&spl->branch_refcounts);
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
-   }
-   platform_free(spl->heap_id, spl);
-   *spl_in = (trunk_handle *)NULL;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * trunk_perform_task
- *
- *      do a batch of tasks
- *-----------------------------------------------------------------------------
- */
-void
-trunk_perform_tasks(trunk_handle *spl)
-{
-   task_perform_all(spl->ts);
-   cache_cleanup(spl->cc);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * Debugging and info functions
- *-----------------------------------------------------------------------------
- */
-
-
-/*
- * verify_node checks that the node is valid in the following places:
- *    1. values in the trunk header
- *    2. pivots are coherent (in order)
- *    3. check tuple counts (index nodes only, leaves have estimates)
- *    4. bundles are coherent (subbundles are contiguous and non-overlapping)
- *    5. subbundles are coherent (branches are contiguous and non-overlapping)
- *    6. start_frac (resp end_branch) is first (resp last) branch in a subbundle
- */
-bool
-trunk_verify_node(trunk_handle *spl, trunk_node *node)
-{
-   bool   is_valid = FALSE;
-   uint64 addr     = node->addr;
-
-   // check values in trunk node->hdr (currently just num_pivot_keys)
-   if (trunk_num_pivot_keys(spl, node) > spl->cfg.max_pivot_keys) {
-      platform_error_log("trunk_verify: too many pivots\n");
-      platform_error_log("addr: %lu\n", addr);
-      goto out;
-   }
-
-   // check that pivots are coherent
-   uint16 num_children = trunk_num_children(spl, node);
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      key pivot      = trunk_get_pivot(spl, node, pivot_no);
-      key next_pivot = trunk_get_pivot(spl, node, pivot_no + 1);
-      if (trunk_key_compare(spl, pivot, next_pivot) >= 0) {
-         platform_error_log("trunk_verify: pivots out of order\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   }
-
-   // check that pivot generations are < node->hdr->pivot_generation
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (pdata->generation >= trunk_pivot_generation(spl, node)) {
-         platform_error_log("trunk_verify: pivot generation out of bound\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   }
-
-   // check that pivot tuple counts are correct
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      uint64 tuple_count        = 0;
-      uint64 kv_bytes           = 0;
-      uint16 pivot_start_branch = trunk_pivot_start_branch(spl, node, pivot_no);
-      for (uint16 branch_no = pivot_start_branch;
-           branch_no != trunk_end_branch(spl, node);
-           branch_no = trunk_add_branch_number(spl, branch_no, 1))
+      uint16 start_branch = trunk_start_branch(spl, node);
+      uint16 end_branch   = trunk_start_frac_branch(spl node);
+      for (uint16 branch_num = start_branch; branch_num != end_branch;
+           branch_num        = trunk_add_branch_number(spl, branch_num, 1))
       {
-         uint64 local_tuple_count = 0;
-         uint64 local_kv_bytes    = 0;
-         trunk_pivot_branch_tuple_counts(spl,
-                                         node,
-                                         pivot_no,
-                                         branch_no,
-                                         &local_tuple_count,
-                                         &local_kv_bytes);
-         tuple_count += local_tuple_count;
-         kv_bytes += local_kv_bytes;
-      }
-      if (trunk_pivot_num_tuples(spl, node, pivot_no) != tuple_count) {
-         platform_error_log("trunk_verify: pivot num tuples incorrect\n");
-         platform_error_log("reported %lu, actual %lu\n",
-                            trunk_pivot_num_tuples(spl, node, pivot_no),
-                            tuple_count);
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-      if (trunk_pivot_kv_bytes(spl, node, pivot_no) != kv_bytes) {
-         platform_error_log("trunk_verify: pivot kv_bytes incorrect\n");
-         platform_error_log("reported %lu, actual %lu\n",
-                            trunk_pivot_kv_bytes(spl, node, pivot_no),
-                            kv_bytes);
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
+         if (trunk_branch_live_for_pivot(spl, node, branch_num, child_num)) {
+            trunk_branch *branch = trunk_get_branch(spl, node, branch_num);
+            branch_refcount_table *brt;
+            brt = branch_refcount_table_map_lookup(&spl->branch_refcounts,
+                                                   branch->root_addr);
+            if (brt == NULL) {
+               brt = branch_refcount_table_create_single(
+                  spl, node, child_num, branch->root_addr);
+            } else {
+               branch_refcount_table_append(spl, node, branch->root_addr);
+            }
+         }
       }
    }
 
-   // check that tuple and kv_byte counts are either both 0 or both non-0
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      if ((trunk_pivot_num_tuples_whole(spl, node, pivot_no) == 0)
-          != (trunk_pivot_kv_bytes_whole(spl, node, pivot_no) == 0))
-      {
-         platform_error_log("trunk_verify: whole branch num_tuples and "
-                            "kv_bytes not both zero or non-zero\n");
-         platform_error_log(
-            "addr: %lu, pivot_no: %u, num_tuples: %lu, kv_bytes: %lu\n",
-            addr,
-            pivot_no,
-            trunk_pivot_num_tuples_whole(spl, node, pivot_no),
-            trunk_pivot_kv_bytes_whole(spl, node, pivot_no));
-         goto out;
-      }
-
-      if ((trunk_pivot_num_tuples_bundle(spl, node, pivot_no) == 0)
-          != (trunk_pivot_kv_bytes_bundle(spl, node, pivot_no) == 0))
-      {
-         platform_error_log("trunk_verify: bundle num_tuples and "
-                            "kv_bytes not both zero or non-zero\n");
-         platform_error_log(
-            "addr: %lu, pivot_no: %u, num_tuples: %lu, kv_bytes: %lu\n",
-            addr,
-            pivot_no,
-            trunk_pivot_num_tuples_bundle(spl, node, pivot_no),
-            trunk_pivot_kv_bytes_bundle(spl, node, pivot_no));
-         goto out;
-      }
-   }
-
-   // check that pivot branches and bundles are valid
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (!trunk_branch_valid(spl, node, pdata->start_branch)) {
-         platform_error_log("trunk_verify: invalid pivot start branch\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-      if (!trunk_bundle_valid(spl, node, pdata->start_bundle)) {
-         platform_error_log("trunk_verify: invalid pivot start bundle\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   }
-
-   // check bundles are coherent
-   trunk_bundle *last_bundle = NULL;
-   for (uint16 bundle_no = trunk_start_bundle(spl, node);
-        bundle_no != trunk_end_bundle(spl, node);
-        bundle_no = trunk_add_bundle_number(spl, bundle_no, 1))
+   /*
+    * Open (mount) an existing splinter database
+    */
+   trunk_handle *trunk_mount(trunk_config * cfg,
+                             allocator * al,
+                             cache * cc,
+                             task_system * ts,
+                             allocator_root_id id,
+                             platform_heap_id  hid)
    {
-      trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
-      if (bundle_no == trunk_start_bundle(spl, node)) {
-         if (trunk_start_subbundle(spl, node) != bundle->start_subbundle) {
-            platform_error_log("trunk_verify: start_subbundle mismatch\n");
-            platform_error_log("addr: %lu\n", addr);
-            goto out;
+      trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+         hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
+      memmove(&spl->cfg, cfg, sizeof(*cfg));
+
+      spl->al = al;
+      spl->cc = cc;
+      debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
+      spl->id      = id;
+      spl->heap_id = hid;
+      spl->ts      = ts;
+
+      platform_status rc =
+         branch_refcount_table_map_init(hid, &spl->branch_refcounts);
+      platform_assert_status_ok(rc);
+
+      srq_init(&spl->srq, platform_get_module_id(), hid);
+
+      platform_batch_rwlock_init(&spl->trunk_root_lock);
+
+      // find the unmounted super block
+      spl->root_addr                      = 0;
+      uint64             latest_timestamp = 0;
+      page_handle       *super_page;
+      trunk_super_block *super =
+         trunk_get_super_block_if_valid(spl, &super_page);
+      if (super != NULL) {
+         if (super->unmounted && super->timestamp > latest_timestamp) {
+            spl->root_addr   = super->root_addr;
+            latest_timestamp = super->timestamp;
          }
-      } else {
-         if (last_bundle->end_subbundle != bundle->start_subbundle) {
-            platform_error_log("trunk_verify: "
-                               "bundles have mismatched subbundles\n");
-            platform_error_log("addr: %lu\n", addr);
-            goto out;
+         trunk_release_super_block(spl, super_page);
+      }
+      if (spl->root_addr == 0) {
+         platform_free(hid, spl);
+         return (trunk_handle *)NULL;
+      }
+
+      memtable_config *mt_cfg = &spl->cfg.mt_cfg;
+      spl->mt_ctxt            = memtable_context_create(
+         spl->heap_id, cc, mt_cfg, trunk_memtable_flush_virtual, spl);
+
+      if (spl->cfg.use_log) {
+         spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
+      }
+
+      trunk_set_super_block(spl, FALSE, FALSE, FALSE);
+
+      if (spl->cfg.use_stats) {
+         spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
+         platform_assert(spl->stats);
+         for (uint64 i = 0; i < MAX_THREADS; i++) {
+            platform_status rc;
+            rc = platform_histo_create(spl->heap_id,
+                                       LATENCYHISTO_SIZE + 1,
+                                       latency_histo_buckets,
+                                       &spl->stats[i].insert_latency_histo);
+            platform_assert_status_ok(rc);
+            rc = platform_histo_create(spl->heap_id,
+                                       LATENCYHISTO_SIZE + 1,
+                                       latency_histo_buckets,
+                                       &spl->stats[i].update_latency_histo);
+            platform_assert_status_ok(rc);
+            rc = platform_histo_create(spl->heap_id,
+                                       LATENCYHISTO_SIZE + 1,
+                                       latency_histo_buckets,
+                                       &spl->stats[i].delete_latency_histo);
+            platform_assert_status_ok(rc);
          }
       }
-      if (bundle_no + 1 == trunk_end_bundle(spl, node)) {
-         if (bundle->end_subbundle != trunk_end_subbundle(spl, node)) {
-            platform_error_log("trunk_verify: end_subbundle mismatch\n");
-            platform_error_log("addr: %lu\n", addr);
-            goto out;
-         }
+      return spl;
+   }
+
+   /*
+    * This function is only safe to call when all other calls to spl have
+    * returned and all tasks have been complete.
+    */
+   void trunk_prepare_for_shutdown(trunk_handle * spl)
+   {
+      // write current memtable to disk
+      // (any others must already be flushing/flushed)
+
+      if (!memtable_is_empty(spl->mt_ctxt)) {
+         /*
+          * memtable_force_finalize is not thread safe. Note also, we do not
+          * hold the insert lock or rotate while flushing the memtable.
+          */
+
+         uint64 generation = memtable_force_finalize(spl->mt_ctxt);
+         trunk_memtable_flush(spl, generation);
       }
-      if (bundle->start_subbundle == bundle->end_subbundle) {
-         platform_error_log("trunk_verify: empty bundle\n");
+
+      // finish any outstanding tasks and destroy task system for this table.
+      platform_status rc = task_perform_until_quiescent(spl->ts);
+      platform_assert_status_ok(rc);
+
+      // destroy memtable context (and its memtables)
+      memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
+
+      // release the log
+      if (spl->cfg.use_log) {
+         platform_free(spl->heap_id, spl->log);
+      }
+
+      // flush all dirty pages in the cache
+      cache_flush(spl->cc);
+   }
+
+   /*
+    * Destroy a database such that it cannot be re-opened later
+    */
+   void trunk_destroy(trunk_handle * spl)
+   {
+      srq_deinit(&spl->srq);
+      trunk_prepare_for_shutdown(spl);
+      trunk_node_dec_ref_recursive(spl, spl->root_addr);
+      // clear out this splinter table from the meta page.
+      allocator_remove_super_addr(spl->al, spl->id);
+      branch_refcount_table_map_deinit(&spl->branch_refcounts);
+
+      if (spl->cfg.use_stats) {
+         for (uint64 i = 0; i < MAX_THREADS; i++) {
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[i].insert_latency_histo);
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[i].update_latency_histo);
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[i].delete_latency_histo);
+         }
+         platform_free(spl->heap_id, spl->stats);
+      }
+      platform_free(spl->heap_id, spl);
+   }
+
+   /*
+    * Close (unmount) a database without destroying it.
+    * It can be re-opened later with trunk_mount().
+    */
+   void trunk_unmount(trunk_handle * *spl_in)
+   {
+      trunk_handle *spl = *spl_in;
+      srq_deinit(&spl->srq);
+      trunk_prepare_for_shutdown(spl);
+      trunk_set_super_block(spl, FALSE, TRUE, FALSE);
+      branch_refcount_table_map_deinit(&spl->branch_refcounts);
+      if (spl->cfg.use_stats) {
+         for (uint64 i = 0; i < MAX_THREADS; i++) {
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[i].insert_latency_histo);
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[i].update_latency_histo);
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[i].delete_latency_histo);
+         }
+         platform_free(spl->heap_id, spl->stats);
+      }
+      platform_free(spl->heap_id, spl);
+      *spl_in = (trunk_handle *)NULL;
+   }
+
+   /*
+    *-----------------------------------------------------------------------------
+    * trunk_perform_task
+    *
+    *      do a batch of tasks
+    *-----------------------------------------------------------------------------
+    */
+   void trunk_perform_tasks(trunk_handle * spl)
+   {
+      task_perform_all(spl->ts);
+      cache_cleanup(spl->cc);
+   }
+
+   /*
+    *-----------------------------------------------------------------------------
+    * Debugging and info functions
+    *-----------------------------------------------------------------------------
+    */
+
+
+   /*
+    * verify_node checks that the node is valid in the following places:
+    *    1. values in the trunk header
+    *    2. pivots are coherent (in order)
+    *    3. check tuple counts (index nodes only, leaves have estimates)
+    *    4. bundles are coherent (subbundles are contiguous and non-overlapping)
+    *    5. subbundles are coherent (branches are contiguous and
+    * non-overlapping)
+    *    6. start_frac (resp end_branch) is first (resp last) branch in a
+    * subbundle
+    */
+   bool trunk_verify_node(trunk_handle * spl, trunk_node * node)
+   {
+      bool   is_valid = FALSE;
+      uint64 addr     = node->addr;
+
+      // check values in trunk node->hdr (currently just num_pivot_keys)
+      if (trunk_num_pivot_keys(spl, node) > spl->cfg.max_pivot_keys) {
+         platform_error_log("trunk_verify: too many pivots\n");
          platform_error_log("addr: %lu\n", addr);
          goto out;
       }
-      last_bundle = bundle;
-   }
 
-   // check subbundles are coherent
-   trunk_subbundle *last_sb = NULL;
-   for (uint16 sb_no = trunk_start_subbundle(spl, node);
-        sb_no != trunk_end_subbundle(spl, node);
-        sb_no = trunk_add_subbundle_number(spl, sb_no, 1))
-   {
-      trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
-      if (sb_no == trunk_start_subbundle(spl, node)) {
-         if (sb->start_branch != trunk_start_frac_branch(spl, node)) {
-            platform_error_log("trunk_verify: start_branch mismatch\n");
-            platform_error_log("addr: %lu\n", addr);
-            goto out;
-         }
-      } else {
-         if (sb->start_branch != last_sb->end_branch) {
-            platform_error_log("trunk_verify: "
-                               "subbundles have mismatched branches\n");
+      // check that pivots are coherent
+      uint16 num_children = trunk_num_children(spl, node);
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         key pivot      = trunk_get_pivot(spl, node, pivot_no);
+         key next_pivot = trunk_get_pivot(spl, node, pivot_no + 1);
+         if (trunk_key_compare(spl, pivot, next_pivot) >= 0) {
+            platform_error_log("trunk_verify: pivots out of order\n");
             platform_error_log("addr: %lu\n", addr);
             goto out;
          }
       }
-      if (sb_no + 1 == trunk_end_subbundle(spl, node)) {
-         if (sb->end_branch != trunk_end_branch(spl, node)) {
-            platform_error_log("trunk_verify: end_branch mismatch\n");
+
+      // check that pivot generations are < node->hdr->pivot_generation
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         if (pdata->generation >= trunk_pivot_generation(spl, node)) {
+            platform_error_log("trunk_verify: pivot generation out of bound\n");
             platform_error_log("addr: %lu\n", addr);
             goto out;
          }
       }
-      for (uint16 filter_no = sb->start_filter; filter_no != sb->end_filter;
-           filter_no = trunk_add_subbundle_filter_number(spl, filter_no, 1))
-      {
-         if (!trunk_sb_filter_valid(spl, node, filter_no)) {
-            platform_error_log("trunk_verify: invalid subbundle filter\n");
+
+      // check that pivot tuple counts are correct
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         uint64 tuple_count = 0;
+         uint64 kv_bytes    = 0;
+         uint16 pivot_start_branch =
+            trunk_pivot_start_branch(spl, node, pivot_no);
+         for (uint16 branch_no = pivot_start_branch;
+              branch_no != trunk_end_branch(spl, node);
+              branch_no = trunk_add_branch_number(spl, branch_no, 1))
+         {
+            uint64 local_tuple_count = 0;
+            uint64 local_kv_bytes    = 0;
+            trunk_pivot_branch_tuple_counts(spl,
+                                            node,
+                                            pivot_no,
+                                            branch_no,
+                                            &local_tuple_count,
+                                            &local_kv_bytes);
+            tuple_count += local_tuple_count;
+            kv_bytes += local_kv_bytes;
+         }
+         if (trunk_pivot_num_tuples(spl, node, pivot_no) != tuple_count) {
+            platform_error_log("trunk_verify: pivot num tuples incorrect\n");
+            platform_error_log("reported %lu, actual %lu\n",
+                               trunk_pivot_num_tuples(spl, node, pivot_no),
+                               tuple_count);
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+         if (trunk_pivot_kv_bytes(spl, node, pivot_no) != kv_bytes) {
+            platform_error_log("trunk_verify: pivot kv_bytes incorrect\n");
+            platform_error_log("reported %lu, actual %lu\n",
+                               trunk_pivot_kv_bytes(spl, node, pivot_no),
+                               kv_bytes);
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+      }
+
+      // check that tuple and kv_byte counts are either both 0 or both non-0
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         if ((trunk_pivot_num_tuples_whole(spl, node, pivot_no) == 0)
+             != (trunk_pivot_kv_bytes_whole(spl, node, pivot_no) == 0))
+         {
+            platform_error_log("trunk_verify: whole branch num_tuples and "
+                               "kv_bytes not both zero or non-zero\n");
             platform_error_log(
-               "sb_no: %u, filter_no: %u, start_filter: %u, end_filter: %u\n",
-               sb_no,
-               filter_no,
-               trunk_start_sb_filter(spl, node),
-               trunk_end_sb_filter(spl, node));
+               "addr: %lu, pivot_no: %u, num_tuples: %lu, kv_bytes: %lu\n",
+               addr,
+               pivot_no,
+               trunk_pivot_num_tuples_whole(spl, node, pivot_no),
+               trunk_pivot_kv_bytes_whole(spl, node, pivot_no));
+            goto out;
+         }
+
+         if ((trunk_pivot_num_tuples_bundle(spl, node, pivot_no) == 0)
+             != (trunk_pivot_kv_bytes_bundle(spl, node, pivot_no) == 0))
+         {
+            platform_error_log("trunk_verify: bundle num_tuples and "
+                               "kv_bytes not both zero or non-zero\n");
+            platform_error_log(
+               "addr: %lu, pivot_no: %u, num_tuples: %lu, kv_bytes: %lu\n",
+               addr,
+               pivot_no,
+               trunk_pivot_num_tuples_bundle(spl, node, pivot_no),
+               trunk_pivot_kv_bytes_bundle(spl, node, pivot_no));
+            goto out;
+         }
+      }
+
+      // check that pivot branches and bundles are valid
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         if (!trunk_branch_valid(spl, node, pdata->start_branch)) {
+            platform_error_log("trunk_verify: invalid pivot start branch\n");
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+         if (!trunk_bundle_valid(spl, node, pdata->start_bundle)) {
+            platform_error_log("trunk_verify: invalid pivot start bundle\n");
             platform_error_log("addr: %lu\n", addr);
             goto out;
          }
       }
 
-      last_sb = sb;
-   }
-
-   // check that sb filters match in node->hdr and subbundles
-   if (trunk_subbundle_count(spl, node) != 0) {
-      uint16           hdr_sb_filter_start = trunk_start_sb_filter(spl, node);
-      uint16           sb_start            = trunk_start_subbundle(spl, node);
-      trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_start);
-      uint16           subbundle_sb_filter_start = sb->start_filter;
-      if (hdr_sb_filter_start != subbundle_sb_filter_start) {
-         platform_error_log(
-            "trunk_verify: header and subbundle start filters do not match\n");
-         platform_error_log("header: %u, subbundle: %u\n",
-                            hdr_sb_filter_start,
-                            subbundle_sb_filter_start);
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-
-      uint16 hdr_sb_filter_end = trunk_end_sb_filter(spl, node);
-      uint16 sb_end            = trunk_end_subbundle(spl, node);
-      uint16 sb_last = trunk_subtract_subbundle_number(spl, sb_end, 1);
-      sb             = trunk_get_subbundle(spl, node, sb_last);
-      uint16 subbundle_sb_filter_end = sb->end_filter;
-      if (hdr_sb_filter_end != subbundle_sb_filter_end) {
-         platform_error_log(
-            "trunk_verify: header and subbundle end filters do not match\n");
-         platform_error_log("header: %u, subbundle: %u\n",
-                            hdr_sb_filter_end,
-                            subbundle_sb_filter_end);
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   } else {
-      if (trunk_start_sb_filter(spl, node) != trunk_end_sb_filter(spl, node)) {
-         platform_error_log(
-            "trunk_verify: subbundle filters without subbundles\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   }
-
-
-   // check that pivot start branches and start bundles are coherent
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (!trunk_bundle_live(spl, node, pdata->start_bundle)) {
-         if (1 && pdata->start_branch != trunk_end_branch(spl, node)
-             && trunk_bundle_count(spl, node) != 0)
-         {
-            platform_error_log("trunk_verify: pivot start bundle doesn't "
-                               "match start branch\n");
-            platform_error_log("addr: %lu\n", addr);
-            goto out;
-         }
-      } else {
-         trunk_bundle *bundle =
-            trunk_get_bundle(spl, node, pdata->start_bundle);
-         trunk_subbundle *sb =
-            trunk_get_subbundle(spl, node, bundle->start_subbundle);
-         if (pdata->start_branch != sb->start_branch) {
-            if (!trunk_branch_in_range(spl,
-                                       pdata->start_branch,
-                                       trunk_start_branch(spl, node),
-                                       sb->start_branch))
-            {
-               platform_error_log("trunk_verify: pivot start branch out of "
-                                  "order with bundle start branch\n");
+      // check bundles are coherent
+      trunk_bundle *last_bundle = NULL;
+      for (uint16 bundle_no = trunk_start_bundle(spl, node);
+           bundle_no != trunk_end_bundle(spl, node);
+           bundle_no = trunk_add_bundle_number(spl, bundle_no, 1))
+      {
+         trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
+         if (bundle_no == trunk_start_bundle(spl, node)) {
+            if (trunk_start_subbundle(spl, node) != bundle->start_subbundle) {
+               platform_error_log("trunk_verify: start_subbundle mismatch\n");
                platform_error_log("addr: %lu\n", addr);
                goto out;
-            }
-            if (pdata->start_bundle != trunk_start_bundle(spl, node)) {
-               platform_error_log("trunk_verify: pivot start bundle "
-                                  "incoherent with start branch\n");
-               platform_error_log("addr: %lu\n", addr);
-               goto out;
-            }
-         }
-      }
-   }
-
-   // check that each pivot with nontrivial compacted branches has a filter
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (trunk_pivot_num_tuples_whole(spl, node, pivot_no) != 0
-          && pdata->filter.addr == 0)
-      {
-         platform_error_log(
-            "trunk_verify: pivot with whole tuples doesn't have filter\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-      if (trunk_pivot_kv_bytes_whole(spl, node, pivot_no) != 0
-          && pdata->filter.addr == 0)
-      {
-         platform_error_log(
-            "trunk_verify: pivot with whole kv_bytes doesn't have filter\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   }
-
-
-   // check that leaves only have a single pivot
-   if (trunk_node_height(node) == 0) {
-      if (trunk_num_children(spl, node) != 1) {
-         platform_error_log("trunk_verify: leaf with multiple children\n");
-         platform_error_log("addr: %lu\n", addr);
-         goto out;
-      }
-   }
-
-   is_valid = TRUE;
-out:
-   if (!is_valid) {
-      trunk_print_locked_node(Platform_error_log_handle, spl, node);
-   }
-   return is_valid;
-}
-
-
-/*
- * Scratch space used with trunk_verify_node_with_neighbors to verify that
- * pivots are coherent across neighboring nodes
- */
-typedef struct trunk_verify_scratch {
-   key_buffer last_key_seen[TRUNK_MAX_HEIGHT];
-} trunk_verify_scratch;
-
-/*
- * verify_node_with_neighbors checks that the node has:
- * 1. coherent max key with successor's min key
- * 2. coherent pivots with children's min/max keys
- */
-bool
-trunk_verify_node_with_neighbors(trunk_handle         *spl,
-                                 trunk_node           *node,
-                                 trunk_verify_scratch *scratch)
-{
-   bool   is_valid = FALSE;
-   uint64 addr     = node->addr;
-
-   uint16 height = trunk_node_height(node);
-   // check node and predescessor have coherent pivots
-   if (trunk_key_compare(spl,
-                         key_buffer_key(&scratch->last_key_seen[height]),
-                         trunk_min_key(spl, node)))
-   {
-      platform_default_log("trunk_verify_node_with_neighbors: mismatched "
-                           "pivots with predescessor\n");
-      platform_default_log(
-         "predescessor max key: %s\n",
-         key_string(trunk_data_config(spl),
-                    key_buffer_key(&scratch->last_key_seen[height])));
-      goto out;
-   }
-   // set last key seen in scratch
-   key_buffer_copy_key(&scratch->last_key_seen[height],
-                       trunk_max_key(spl, node));
-
-   // don't need to verify coherence with children if node is a leaf
-   if (trunk_node_is_leaf(node)) {
-      is_valid = TRUE;
-      goto out;
-   }
-
-   // check node and each child have coherent pivots
-   uint16 num_children = trunk_num_children(spl, node);
-   for (uint16 pivot_no = 0; pivot_no != num_children; pivot_no++) {
-      trunk_pivot_data *pdata      = trunk_get_pivot_data(spl, node, pivot_no);
-      uint64            child_addr = pdata->addr;
-      trunk_node        child;
-      trunk_node_get(spl->cc, child_addr, &child);
-
-      // check pivot == child min key
-      key pivot         = trunk_get_pivot(spl, node, pivot_no);
-      key child_min_key = trunk_min_key(spl, &child);
-      if (trunk_key_compare(spl, pivot, child_min_key) != 0) {
-         platform_default_log("trunk_verify_node_with_neighbors: "
-                              "mismatched pivot with child min key\n");
-         platform_default_log("%s\n", key_string(spl->cfg.data_cfg, pivot));
-         platform_default_log("%s\n",
-                              key_string(spl->cfg.data_cfg, child_min_key));
-         platform_default_log("addr: %lu\n", addr);
-         platform_default_log("child addr: %lu\n", child_addr);
-         trunk_node_unget(spl->cc, &child);
-         goto out;
-      }
-      key next_pivot    = trunk_get_pivot(spl, node, pivot_no + 1);
-      key child_max_key = trunk_max_key(spl, &child);
-      if (trunk_key_compare(spl, next_pivot, child_max_key) != 0) {
-         platform_default_log("trunk_verify_node_with_neighbors: "
-                              "mismatched pivot with child max key\n");
-         platform_default_log("addr: %lu\n", addr);
-         platform_default_log("child addr: %lu\n", child_addr);
-         trunk_node_unget(spl->cc, &child);
-         goto out;
-      }
-
-      trunk_node_unget(spl->cc, &child);
-   }
-
-   is_valid = TRUE;
-out:
-   if (!is_valid) {
-      trunk_print_locked_node(Platform_default_log_handle, spl, node);
-   }
-   return is_valid;
-}
-
-/*
- * Wrapper for trunk_for_each_node
- */
-bool
-trunk_verify_node_and_neighbors(trunk_handle *spl, uint64 addr, void *arg)
-{
-   trunk_node node;
-   trunk_node_get(spl->cc, addr, &node);
-   bool is_valid = trunk_verify_node(spl, &node);
-   if (!is_valid) {
-      goto out;
-   }
-   trunk_verify_scratch *scratch = (trunk_verify_scratch *)arg;
-   is_valid = trunk_verify_node_with_neighbors(spl, &node, scratch);
-
-out:
-   trunk_node_unget(spl->cc, &node);
-   return is_valid;
-}
-
-/*
- * verify_tree verifies each node with itself and its neighbors
- */
-bool
-trunk_verify_tree(trunk_handle *spl)
-{
-   trunk_verify_scratch scratch = {0};
-   for (uint64 h = 0; h < TRUNK_MAX_HEIGHT; h++) {
-      key_buffer_init_from_key(
-         &scratch.last_key_seen[h], spl->heap_id, NEGATIVE_INFINITY_KEY);
-   }
-   bool success =
-      trunk_for_each_node(spl, trunk_verify_node_and_neighbors, &scratch);
-   for (uint64 h = 0; h < TRUNK_MAX_HEIGHT; h++) {
-      key_buffer_deinit(&scratch.last_key_seen[h]);
-   }
-   return success;
-}
-
-/*
- * Returns the amount of space used by each level of the tree
- */
-bool
-trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg)
-{
-   uint64    *bytes_used_on_level = (uint64 *)arg;
-   uint64     bytes_used_in_node  = 0;
-   trunk_node node;
-   trunk_node_get(spl->cc, addr, &node);
-   uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
-   uint16 num_children   = trunk_num_children(spl, &node);
-   for (uint16 branch_no = trunk_start_branch(spl, &node);
-        branch_no != trunk_end_branch(spl, &node);
-        branch_no = trunk_add_branch_number(spl, branch_no, 1))
-   {
-      trunk_branch *branch    = trunk_get_branch(spl, &node, branch_no);
-      key           start_key = NULL_KEY;
-      key           end_key   = NULL_KEY;
-      for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
-         if (1 && pivot_no != num_children
-             && trunk_branch_live_for_pivot(spl, &node, branch_no, pivot_no))
-         {
-            if (key_is_null(start_key)) {
-               start_key = trunk_get_pivot(spl, &node, pivot_no);
             }
          } else {
-            if (!key_is_null(start_key)) {
-               end_key = trunk_get_pivot(spl, &node, pivot_no);
-               uint64 bytes_used_in_branch_range =
-                  btree_space_use_in_range(spl->cc,
-                                           &spl->cfg.btree_cfg,
-                                           branch->root_addr,
-                                           PAGE_TYPE_BRANCH,
-                                           start_key,
-                                           end_key);
-               bytes_used_in_node += bytes_used_in_branch_range;
+            if (last_bundle->end_subbundle != bundle->start_subbundle) {
+               platform_error_log("trunk_verify: "
+                                  "bundles have mismatched subbundles\n");
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
             }
-            start_key = NULL_KEY;
-            end_key   = NULL_KEY;
+         }
+         if (bundle_no + 1 == trunk_end_bundle(spl, node)) {
+            if (bundle->end_subbundle != trunk_end_subbundle(spl, node)) {
+               platform_error_log("trunk_verify: end_subbundle mismatch\n");
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
+            }
+         }
+         if (bundle->start_subbundle == bundle->end_subbundle) {
+            platform_error_log("trunk_verify: empty bundle\n");
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+         last_bundle = bundle;
+      }
+
+      // check subbundles are coherent
+      trunk_subbundle *last_sb = NULL;
+      for (uint16 sb_no = trunk_start_subbundle(spl, node);
+           sb_no != trunk_end_subbundle(spl, node);
+           sb_no = trunk_add_subbundle_number(spl, sb_no, 1))
+      {
+         trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+         if (sb_no == trunk_start_subbundle(spl, node)) {
+            if (sb->start_branch != trunk_start_frac_branch(spl, node)) {
+               platform_error_log("trunk_verify: start_branch mismatch\n");
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
+            }
+         } else {
+            if (sb->start_branch != last_sb->end_branch) {
+               platform_error_log("trunk_verify: "
+                                  "subbundles have mismatched branches\n");
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
+            }
+         }
+         if (sb_no + 1 == trunk_end_subbundle(spl, node)) {
+            if (sb->end_branch != trunk_end_branch(spl, node)) {
+               platform_error_log("trunk_verify: end_branch mismatch\n");
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
+            }
+         }
+         for (uint16 filter_no = sb->start_filter; filter_no != sb->end_filter;
+              filter_no = trunk_add_subbundle_filter_number(spl, filter_no, 1))
+         {
+            if (!trunk_sb_filter_valid(spl, node, filter_no)) {
+               platform_error_log("trunk_verify: invalid subbundle filter\n");
+               platform_error_log("sb_no: %u, filter_no: %u, start_filter: %u, "
+                                  "end_filter: %u\n",
+                                  sb_no,
+                                  filter_no,
+                                  trunk_start_sb_filter(spl, node),
+                                  trunk_end_sb_filter(spl, node));
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
+            }
+         }
+
+         last_sb = sb;
+      }
+
+      // check that sb filters match in node->hdr and subbundles
+      if (trunk_subbundle_count(spl, node) != 0) {
+         uint16 hdr_sb_filter_start = trunk_start_sb_filter(spl, node);
+         uint16 sb_start            = trunk_start_subbundle(spl, node);
+         trunk_subbundle *sb        = trunk_get_subbundle(spl, node, sb_start);
+         uint16           subbundle_sb_filter_start = sb->start_filter;
+         if (hdr_sb_filter_start != subbundle_sb_filter_start) {
+            platform_error_log("trunk_verify: header and subbundle start "
+                               "filters do not match\n");
+            platform_error_log("header: %u, subbundle: %u\n",
+                               hdr_sb_filter_start,
+                               subbundle_sb_filter_start);
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+
+         uint16 hdr_sb_filter_end = trunk_end_sb_filter(spl, node);
+         uint16 sb_end            = trunk_end_subbundle(spl, node);
+         uint16 sb_last = trunk_subtract_subbundle_number(spl, sb_end, 1);
+         sb             = trunk_get_subbundle(spl, node, sb_last);
+         uint16 subbundle_sb_filter_end = sb->end_filter;
+         if (hdr_sb_filter_end != subbundle_sb_filter_end) {
+            platform_error_log(
+               "trunk_verify: header and subbundle end filters do not match\n");
+            platform_error_log("header: %u, subbundle: %u\n",
+                               hdr_sb_filter_end,
+                               subbundle_sb_filter_end);
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+      } else {
+         if (trunk_start_sb_filter(spl, node) != trunk_end_sb_filter(spl, node))
+         {
+            platform_error_log(
+               "trunk_verify: subbundle filters without subbundles\n");
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
          }
       }
+
+
+      // check that pivot start branches and start bundles are coherent
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         if (!trunk_bundle_live(spl, node, pdata->start_bundle)) {
+            if (1 && pdata->start_branch != trunk_end_branch(spl, node)
+                && trunk_bundle_count(spl, node) != 0)
+            {
+               platform_error_log("trunk_verify: pivot start bundle doesn't "
+                                  "match start branch\n");
+               platform_error_log("addr: %lu\n", addr);
+               goto out;
+            }
+         } else {
+            trunk_bundle *bundle =
+               trunk_get_bundle(spl, node, pdata->start_bundle);
+            trunk_subbundle *sb =
+               trunk_get_subbundle(spl, node, bundle->start_subbundle);
+            if (pdata->start_branch != sb->start_branch) {
+               if (!trunk_branch_in_range(spl,
+                                          pdata->start_branch,
+                                          trunk_start_branch(spl, node),
+                                          sb->start_branch))
+               {
+                  platform_error_log("trunk_verify: pivot start branch out of "
+                                     "order with bundle start branch\n");
+                  platform_error_log("addr: %lu\n", addr);
+                  goto out;
+               }
+               if (pdata->start_bundle != trunk_start_bundle(spl, node)) {
+                  platform_error_log("trunk_verify: pivot start bundle "
+                                     "incoherent with start branch\n");
+                  platform_error_log("addr: %lu\n", addr);
+                  goto out;
+               }
+            }
+         }
+      }
+
+      // check that each pivot with nontrivial compacted branches has a filter
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         if (trunk_pivot_num_tuples_whole(spl, node, pivot_no) != 0
+             && pdata->filter.addr == 0)
+         {
+            platform_error_log(
+               "trunk_verify: pivot with whole tuples doesn't have filter\n");
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+         if (trunk_pivot_kv_bytes_whole(spl, node, pivot_no) != 0
+             && pdata->filter.addr == 0)
+         {
+            platform_error_log(
+               "trunk_verify: pivot with whole kv_bytes doesn't have filter\n");
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+      }
+
+
+      // check that leaves only have a single pivot
+      if (trunk_node_height(node) == 0) {
+         if (trunk_num_children(spl, node) != 1) {
+            platform_error_log("trunk_verify: leaf with multiple children\n");
+            platform_error_log("addr: %lu\n", addr);
+            goto out;
+         }
+      }
+
+      is_valid = TRUE;
+   out:
+      if (!is_valid) {
+         trunk_print_locked_node(Platform_error_log_handle, spl, node);
+      }
+      return is_valid;
    }
 
-   uint16 height = trunk_node_height(&node);
-   bytes_used_on_level[height] += bytes_used_in_node;
-   trunk_node_unget(spl->cc, &node);
-   return TRUE;
-}
 
-void
-trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
-{
-   uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
-   trunk_for_each_node(spl, trunk_node_space_use, bytes_used_by_level);
+   /*
+    * Scratch space used with trunk_verify_node_with_neighbors to verify that
+    * pivots are coherent across neighboring nodes
+    */
+   typedef struct trunk_verify_scratch {
+      key_buffer last_key_seen[TRUNK_MAX_HEIGHT];
+   } trunk_verify_scratch;
 
-   platform_log(log_handle,
-                "Space used by level: trunk_tree_height=%d\n",
-                trunk_tree_height(spl));
-   for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
+   /*
+    * verify_node_with_neighbors checks that the node has:
+    * 1. coherent max key with successor's min key
+    * 2. coherent pivots with children's min/max keys
+    */
+   bool trunk_verify_node_with_neighbors(
+      trunk_handle * spl, trunk_node * node, trunk_verify_scratch * scratch)
+   {
+      bool   is_valid = FALSE;
+      uint64 addr     = node->addr;
+
+      uint16 height = trunk_node_height(node);
+      // check node and predescessor have coherent pivots
+      if (trunk_key_compare(spl,
+                            key_buffer_key(&scratch->last_key_seen[height]),
+                            trunk_min_key(spl, node)))
+      {
+         platform_default_log("trunk_verify_node_with_neighbors: mismatched "
+                              "pivots with predescessor\n");
+         platform_default_log(
+            "predescessor max key: %s\n",
+            key_string(trunk_data_config(spl),
+                       key_buffer_key(&scratch->last_key_seen[height])));
+         goto out;
+      }
+      // set last key seen in scratch
+      key_buffer_copy_key(&scratch->last_key_seen[height],
+                          trunk_max_key(spl, node));
+
+      // don't need to verify coherence with children if node is a leaf
+      if (trunk_node_is_leaf(node)) {
+         is_valid = TRUE;
+         goto out;
+      }
+
+      // check node and each child have coherent pivots
+      uint16 num_children = trunk_num_children(spl, node);
+      for (uint16 pivot_no = 0; pivot_no != num_children; pivot_no++) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         uint64            child_addr = pdata->addr;
+         trunk_node        child;
+         trunk_node_get(spl->cc, child_addr, &child);
+
+         // check pivot == child min key
+         key pivot         = trunk_get_pivot(spl, node, pivot_no);
+         key child_min_key = trunk_min_key(spl, &child);
+         if (trunk_key_compare(spl, pivot, child_min_key) != 0) {
+            platform_default_log("trunk_verify_node_with_neighbors: "
+                                 "mismatched pivot with child min key\n");
+            platform_default_log("%s\n", key_string(spl->cfg.data_cfg, pivot));
+            platform_default_log("%s\n",
+                                 key_string(spl->cfg.data_cfg, child_min_key));
+            platform_default_log("addr: %lu\n", addr);
+            platform_default_log("child addr: %lu\n", child_addr);
+            trunk_node_unget(spl->cc, &child);
+            goto out;
+         }
+         key next_pivot    = trunk_get_pivot(spl, node, pivot_no + 1);
+         key child_max_key = trunk_max_key(spl, &child);
+         if (trunk_key_compare(spl, next_pivot, child_max_key) != 0) {
+            platform_default_log("trunk_verify_node_with_neighbors: "
+                                 "mismatched pivot with child max key\n");
+            platform_default_log("addr: %lu\n", addr);
+            platform_default_log("child addr: %lu\n", child_addr);
+            trunk_node_unget(spl->cc, &child);
+            goto out;
+         }
+
+         trunk_node_unget(spl->cc, &child);
+      }
+
+      is_valid = TRUE;
+   out:
+      if (!is_valid) {
+         trunk_print_locked_node(Platform_default_log_handle, spl, node);
+      }
+      return is_valid;
+   }
+
+   /*
+    * Wrapper for trunk_for_each_node
+    */
+   bool trunk_verify_node_and_neighbors(
+      trunk_handle * spl, uint64 addr, void *arg)
+   {
+      trunk_node node;
+      trunk_node_get(spl->cc, addr, &node);
+      bool is_valid = trunk_verify_node(spl, &node);
+      if (!is_valid) {
+         goto out;
+      }
+      trunk_verify_scratch *scratch = (trunk_verify_scratch *)arg;
+      is_valid = trunk_verify_node_with_neighbors(spl, &node, scratch);
+
+   out:
+      trunk_node_unget(spl->cc, &node);
+      return is_valid;
+   }
+
+   /*
+    * verify_tree verifies each node with itself and its neighbors
+    */
+   bool trunk_verify_tree(trunk_handle * spl)
+   {
+      trunk_verify_scratch scratch = {0};
+      for (uint64 h = 0; h < TRUNK_MAX_HEIGHT; h++) {
+         key_buffer_init_from_key(
+            &scratch.last_key_seen[h], spl->heap_id, NEGATIVE_INFINITY_KEY);
+      }
+      bool success =
+         trunk_for_each_node(spl, trunk_verify_node_and_neighbors, &scratch);
+      for (uint64 h = 0; h < TRUNK_MAX_HEIGHT; h++) {
+         key_buffer_deinit(&scratch.last_key_seen[h]);
+      }
+      return success;
+   }
+
+   /*
+    * Returns the amount of space used by each level of the tree
+    */
+   bool trunk_node_space_use(trunk_handle * spl, uint64 addr, void *arg)
+   {
+      uint64    *bytes_used_on_level = (uint64 *)arg;
+      uint64     bytes_used_in_node  = 0;
+      trunk_node node;
+      trunk_node_get(spl->cc, addr, &node);
+      uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
+      uint16 num_children   = trunk_num_children(spl, &node);
+      for (uint16 branch_no = trunk_start_branch(spl, &node);
+           branch_no != trunk_end_branch(spl, &node);
+           branch_no = trunk_add_branch_number(spl, branch_no, 1))
+      {
+         trunk_branch *branch    = trunk_get_branch(spl, &node, branch_no);
+         key           start_key = NULL_KEY;
+         key           end_key   = NULL_KEY;
+         for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
+            if (1 && pivot_no != num_children
+                && trunk_branch_live_for_pivot(spl, &node, branch_no, pivot_no))
+            {
+               if (key_is_null(start_key)) {
+                  start_key = trunk_get_pivot(spl, &node, pivot_no);
+               }
+            } else {
+               if (!key_is_null(start_key)) {
+                  end_key = trunk_get_pivot(spl, &node, pivot_no);
+                  uint64 bytes_used_in_branch_range =
+                     btree_space_use_in_range(spl->cc,
+                                              &spl->cfg.btree_cfg,
+                                              branch->root_addr,
+                                              PAGE_TYPE_BRANCH,
+                                              start_key,
+                                              end_key);
+                  bytes_used_in_node += bytes_used_in_branch_range;
+               }
+               start_key = NULL_KEY;
+               end_key   = NULL_KEY;
+            }
+         }
+      }
+
+      uint16 height = trunk_node_height(&node);
+      bytes_used_on_level[height] += bytes_used_in_node;
+      trunk_node_unget(spl->cc, &node);
+      return TRUE;
+   }
+
+   void trunk_print_space_use(platform_log_handle * log_handle,
+                              trunk_handle * spl)
+   {
+      uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
+      trunk_for_each_node(spl, trunk_node_space_use, bytes_used_by_level);
+
       platform_log(log_handle,
-                   "%u: %lu bytes (%s)\n",
-                   i,
-                   bytes_used_by_level[i],
-                   size_str(bytes_used_by_level[i]));
+                   "Space used by level: trunk_tree_height=%d\n",
+                   trunk_tree_height(spl));
+      for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
+         platform_log(log_handle,
+                      "%u: %lu bytes (%s)\n",
+                      i,
+                      bytes_used_by_level[i],
+                      size_str(bytes_used_by_level[i]));
+      }
+      platform_log(log_handle, "\n");
    }
-   platform_log(log_handle, "\n");
-}
 
-// clang-format off
+   // clang-format off
 void
 trunk_print_locked_node(platform_log_handle *log_handle,
                         trunk_handle        *spl,
@@ -8823,92 +8951,88 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                node->addr,
                height,
                trunk_pivot_generation(spl, node));
-   // clang-format on
+      // clang-format on
 
-   trunk_print_pivots(log_handle, spl, node);
+      trunk_print_pivots(log_handle, spl, node);
 
-   trunk_print_branches_and_bundles(log_handle, spl, node);
+      trunk_print_branches_and_bundles(log_handle, spl, node);
 
-   platform_log(log_handle, "}\n");
-}
+      platform_log(log_handle, "}\n");
+   }
 
 // We print leading n-bytes of pivot's key, given by this define.
 #define PIVOT_KEY_PREFIX_LEN 24
 
-/*
- * trunk_print_pivots() -- Print pivot array information.
- */
-static void
-trunk_print_pivots(platform_log_handle *log_handle,
-                   trunk_handle        *spl,
-                   trunk_node          *node)
-{
-   // clang-format off
+   /*
+    * trunk_print_pivots() -- Print pivot array information.
+    */
+   static void trunk_print_pivots(
+      platform_log_handle * log_handle, trunk_handle * spl, trunk_node * node)
+   {
+      // clang-format off
   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
   platform_log(log_handle, "|                                       PIVOTS                                                     |\n");
   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes  |  srq  |  gen  |\n");
   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|-----------|-------|-------|\n");
-   // clang-format on
+      // clang-format on
 
-   for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
-        pivot_no++)
-   {
-      key               pivot = trunk_get_pivot(spl, node, pivot_no);
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
-         platform_log(log_handle,
-                      "| %*.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
-                      PIVOT_KEY_PREFIX_LEN,
-                      PIVOT_KEY_PREFIX_LEN,
-                      key_string(spl->cfg.data_cfg, pivot),
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "");
-      } else {
-         platform_log(
-            log_handle,
-            "| %*.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
-            PIVOT_KEY_PREFIX_LEN,
-            PIVOT_KEY_PREFIX_LEN,
-            key_string(spl->cfg.data_cfg, pivot),
-            pdata->addr,
-            pdata->filter.addr,
-            pdata->num_tuples_whole + pdata->num_tuples_bundle,
-            pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
-            pdata->srq_idx,
-            pdata->generation);
-      }
-      if (key_is_user_key(pivot)) {
-         platform_log(log_handle, "| Full key: ");
-         debug_hex_dump_slice(log_handle, 4, key_slice(pivot));
-         platform_log(log_handle, "\n");
+      for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
+           pivot_no++)
+      {
+         key               pivot = trunk_get_pivot(spl, node, pivot_no);
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
+            platform_log(log_handle,
+                         "| %*.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
+                         PIVOT_KEY_PREFIX_LEN,
+                         PIVOT_KEY_PREFIX_LEN,
+                         key_string(spl->cfg.data_cfg, pivot),
+                         "",
+                         "",
+                         "",
+                         "",
+                         "",
+                         "");
+         } else {
+            platform_log(
+               log_handle,
+               "| %*.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
+               PIVOT_KEY_PREFIX_LEN,
+               PIVOT_KEY_PREFIX_LEN,
+               key_string(spl->cfg.data_cfg, pivot),
+               pdata->addr,
+               pdata->filter.addr,
+               pdata->num_tuples_whole + pdata->num_tuples_bundle,
+               pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
+               pdata->srq_idx,
+               pdata->generation);
+         }
+         if (key_is_user_key(pivot)) {
+            platform_log(log_handle, "| Full key: ");
+            debug_hex_dump_slice(log_handle, 4, key_slice(pivot));
+            platform_log(log_handle, "\n");
+         }
       }
    }
-}
 
-/*
- * trunk_print_branches_and_bundles() --
- *
- * Iterate through arrays of bundles and sub-bundles on a trunk page.
- * Print contents of those structures.
- */
-static void
-trunk_print_branches_and_bundles(platform_log_handle *log_handle,
-                                 trunk_handle        *spl,
-                                 trunk_node          *node)
-{
-   uint16 start_branch = trunk_start_branch(spl, node);
-   uint16 end_branch   = trunk_end_branch(spl, node);
-   uint16 start_bundle = trunk_start_bundle(spl, node);
-   uint16 end_bundle   = trunk_end_bundle(spl, node);
-   uint16 start_sb     = trunk_start_subbundle(spl, node);
-   uint16 end_sb       = trunk_end_subbundle(spl, node);
+   /*
+    * trunk_print_branches_and_bundles() --
+    *
+    * Iterate through arrays of bundles and sub-bundles on a trunk page.
+    * Print contents of those structures.
+    */
+   static void trunk_print_branches_and_bundles(
+      platform_log_handle * log_handle, trunk_handle * spl, trunk_node * node)
+   {
+      uint16 start_branch = trunk_start_branch(spl, node);
+      uint16 end_branch   = trunk_end_branch(spl, node);
+      uint16 start_bundle = trunk_start_bundle(spl, node);
+      uint16 end_bundle   = trunk_end_bundle(spl, node);
+      uint16 start_sb     = trunk_start_subbundle(spl, node);
+      uint16 end_sb       = trunk_end_subbundle(spl, node);
 
-   // clang-format off
+      // clang-format off
   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
   platform_log(log_handle, "|                              BRANCHES AND [SUB]BUNDLES                                           |\n");
   platform_log(log_handle, "|start_branch=%-2u end_branch=%-2u start_bundle=%-2u end_bundle=%-2u start_sb=%-2u end_sb=%-2u%-17s|\n",
@@ -8923,50 +9047,52 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                 |\n");
   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                 |\n");
   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|-----------------|\n");
-   // clang-format on
+      // clang-format on
 
-   // Iterate through all the branches ...
-   for (uint16 branch_no = start_branch; branch_no != end_branch;
-        branch_no        = trunk_add_branch_number(spl, branch_no, 1))
-   {
-      // Generate marker line if current branch is a pivot's start branch
-      for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
-           pivot_no++) {
-         if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
-            // clang-format off
+      // Iterate through all the branches ...
+      for (uint16 branch_no = start_branch; branch_no != end_branch;
+           branch_no        = trunk_add_branch_number(spl, branch_no, 1))
+      {
+         // Generate marker line if current branch is a pivot's start branch
+         for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
+              pivot_no++) {
+            if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
+               // clang-format off
           platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                 |\n",
                        pivot_no);
-            // clang-format on
+               // clang-format on
+            }
          }
-      }
 
-      // Search for bundles that start at this branch.
-      for (uint16 bundle_no = start_bundle; bundle_no != end_bundle;
-           bundle_no        = trunk_add_bundle_number(spl, bundle_no, 1))
-      {
-         trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
-         // Generate marker line if current branch is a bundle's start branch
-         if (branch_no == trunk_bundle_start_branch(spl, node, bundle)) {
-            // clang-format off
+         // Search for bundles that start at this branch.
+         for (uint16 bundle_no = start_bundle; bundle_no != end_bundle;
+              bundle_no        = trunk_add_bundle_number(spl, bundle_no, 1))
+         {
+            trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
+            // Generate marker line if current branch is a bundle's start branch
+            if (branch_no == trunk_bundle_start_branch(spl, node, bundle)) {
+               // clang-format off
             platform_log(log_handle, "|     |       -- bundle %2u --       | %12lu |              |              |                 |\n",
                          bundle_no,
                          bundle->num_tuples);
-            // clang-format on
+               // clang-format on
+            }
          }
-      }
 
-      // Iterate through all the sub-bundles ...
-      for (uint16 sb_no = start_sb; sb_no != end_sb;
-           sb_no        = trunk_add_subbundle_number(spl, sb_no, 1))
-      {
-         trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
-         // Generate marker line if curr branch is a sub-bundle's start branch
-         platform_assert(sb->state != SB_STATE_INVALID);
+         // Iterate through all the sub-bundles ...
+         for (uint16 sb_no = start_sb; sb_no != end_sb;
+              sb_no        = trunk_add_subbundle_number(spl, sb_no, 1))
+         {
+            trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+            // Generate marker line if curr branch is a sub-bundle's start
+            // branch
+            platform_assert(sb->state != SB_STATE_INVALID);
 
-         if (branch_no == sb->start_branch) {
-            uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
+            if (branch_no == sb->start_branch) {
+               uint16 filter_count =
+                  trunk_subbundle_filter_count(spl, node, sb);
 
-            // clang-format off
+               // clang-format off
             platform_log(log_handle,
                          "|     |  -- %2scomp subbundle %2u --  | %12lu | %12lu | %12lu | %14s |\n",
                          sb->state == SB_STATE_COMPACTED ? "" : "un",
@@ -8975,143 +9101,140 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
                          1 < filter_count ? trunk_subbundle_filter(spl, node, sb, 1)->addr : 0,
                          2 < filter_count ? trunk_subbundle_filter(spl, node, sb, 2)->addr : 0,
                          3 < filter_count ? " *" : "  ");
-            // clang-format on
+               // clang-format on
+            }
          }
-      }
 
-      trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
-      // clang-format off
+         trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
+         // clang-format off
       platform_log(log_handle, "| %3u |         %12lu        |              |              |              |                 |\n",
                    branch_no,
                    branch->root_addr);
-      // clang-format on
-   }
-   // clang-format off
-  platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
-   // clang-format on
-   platform_log(log_handle, "\n");
-}
-// clang-format on
-
-void
-trunk_print_node(platform_log_handle *log_handle,
-                 trunk_handle        *spl,
-                 uint64               addr)
-{
-   if (!allocator_page_valid(cache_get_allocator(spl->cc), addr)) {
-      platform_log(log_handle, "*******************\n");
-      platform_log(log_handle, "** INVALID NODE \n");
-      platform_log(log_handle, "** addr: %lu \n", addr);
-      platform_log(log_handle, "-------------------\n");
-      return;
-   }
-
-   trunk_node node;
-   trunk_node_get(spl->cc, addr, &node);
-   trunk_print_locked_node(log_handle, spl, &node);
-   trunk_node_unget(spl->cc, &node);
-}
-
-/*
- * trunk_print_subtree() --
- *
- * Print the Trunk node at given 'addr'. Iterate down to all its children and
- * print each sub-tree.
- */
-void
-trunk_print_subtree(platform_log_handle *log_handle,
-                    trunk_handle        *spl,
-                    uint64               addr)
-{
-   trunk_print_node(log_handle, spl, addr);
-   trunk_node node;
-   trunk_node_get(spl->cc, addr, &node);
-
-   if (trunk_node_is_index(&node)) {
-      for (uint32 i = 0; i < trunk_num_children(spl, &node); i++) {
-         trunk_pivot_data *data = trunk_get_pivot_data(spl, &node, i);
-         trunk_print_subtree(log_handle, spl, data->addr);
+         // clang-format on
       }
+      // clang-format off
+  platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
+      // clang-format on
+      platform_log(log_handle, "\n");
    }
-   trunk_node_unget(spl->cc, &node);
-}
+   // clang-format on
 
-/*
- * trunk_print_memtable() --
- *
- * Print the currently active Memtable, and the other Memtables being processed.
- * Memtable printing will drill-down to BTree printing which will keep
- * recursing.
- */
-void
-trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
-{
-   uint64 curr_memtable =
-      memtable_generation(spl->mt_ctxt) % TRUNK_NUM_MEMTABLES;
-   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
-   platform_log(log_handle, "&&  MEMTABLES \n");
-   platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
-   platform_log(log_handle, "-------------------\n{\n");
+   void trunk_print_node(
+      platform_log_handle * log_handle, trunk_handle * spl, uint64 addr)
+   {
+      if (!allocator_page_valid(cache_get_allocator(spl->cc), addr)) {
+         platform_log(log_handle, "*******************\n");
+         platform_log(log_handle, "** INVALID NODE \n");
+         platform_log(log_handle, "** addr: %lu \n", addr);
+         platform_log(log_handle, "-------------------\n");
+         return;
+      }
 
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
-   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      memtable *mt = trunk_get_memtable(spl, mt_gen);
+      trunk_node node;
+      trunk_node_get(spl->cc, addr, &node);
+      trunk_print_locked_node(log_handle, spl, &node);
+      trunk_node_unget(spl->cc, &node);
+   }
+
+   /*
+    * trunk_print_subtree() --
+    *
+    * Print the Trunk node at given 'addr'. Iterate down to all its children and
+    * print each sub-tree.
+    */
+   void trunk_print_subtree(
+      platform_log_handle * log_handle, trunk_handle * spl, uint64 addr)
+   {
+      trunk_print_node(log_handle, spl, addr);
+      trunk_node node;
+      trunk_node_get(spl->cc, addr, &node);
+
+      if (trunk_node_is_index(&node)) {
+         for (uint32 i = 0; i < trunk_num_children(spl, &node); i++) {
+            trunk_pivot_data *data = trunk_get_pivot_data(spl, &node, i);
+            trunk_print_subtree(log_handle, spl, data->addr);
+         }
+      }
+      trunk_node_unget(spl->cc, &node);
+   }
+
+   /*
+    * trunk_print_memtable() --
+    *
+    * Print the currently active Memtable, and the other Memtables being
+    * processed. Memtable printing will drill-down to BTree printing which will
+    * keep recursing.
+    */
+   void trunk_print_memtable(platform_log_handle * log_handle,
+                             trunk_handle * spl)
+   {
+      uint64 curr_memtable =
+         memtable_generation(spl->mt_ctxt) % TRUNK_NUM_MEMTABLES;
+      platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
+      platform_log(log_handle, "&&  MEMTABLES \n");
+      platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
+      platform_log(log_handle, "-------------------\n{\n");
+
+      uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
+      uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+      for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
+         memtable *mt = trunk_get_memtable(spl, mt_gen);
+         platform_log(log_handle,
+                      "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
+                      mt->root_addr,
+                      mt_gen,
+                      allocator_get_refcount(spl->al, mt->root_addr),
+                      mt->state);
+
+         memtable_print(log_handle, spl->cc, mt);
+      }
+      platform_log(log_handle, "\n}\n");
+   }
+
+   /*
+    * trunk_print()
+    *
+    * Driver routine to print a SplinterDB trunk, and all its sub-pages.
+    */
+   void trunk_print(platform_log_handle * log_handle, trunk_handle * spl)
+   {
+      trunk_print_memtable(log_handle, spl);
+      trunk_print_subtree(log_handle, spl, spl->root_addr);
+   }
+
+   /*
+    * trunk_print_super_block()
+    *
+    * Fetch a super-block for a running Splinter instance, and print its
+    * contents.
+    */
+   void trunk_print_super_block(platform_log_handle * log_handle,
+                                trunk_handle * spl)
+   {
+      page_handle       *super_page;
+      trunk_super_block *super =
+         trunk_get_super_block_if_valid(spl, &super_page);
+      if (super == NULL) {
+         return;
+      }
+
+      platform_log(
+         log_handle, "Superblock root_addr=%lu {\n", super->root_addr);
       platform_log(log_handle,
-                   "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
-                   mt->root_addr,
-                   mt_gen,
-                   allocator_get_refcount(spl->al, mt->root_addr),
-                   mt->state);
-
-      memtable_print(log_handle, spl->cc, mt);
-   }
-   platform_log(log_handle, "\n}\n");
-}
-
-/*
- * trunk_print()
- *
- * Driver routine to print a SplinterDB trunk, and all its sub-pages.
- */
-void
-trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
-{
-   trunk_print_memtable(log_handle, spl);
-   trunk_print_subtree(log_handle, spl, spl->root_addr);
-}
-
-/*
- * trunk_print_super_block()
- *
- * Fetch a super-block for a running Splinter instance, and print its
- * contents.
- */
-void
-trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl)
-{
-   page_handle       *super_page;
-   trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
-   if (super == NULL) {
-      return;
+                   "meta_tail=%lu log_addr=%lu log_meta_addr=%lu\n",
+                   super->meta_tail,
+                   super->meta_tail,
+                   super->log_meta_addr);
+      platform_log(log_handle,
+                   "timestamp=%lu, checkpointed=%d, unmounted=%d\n",
+                   super->timestamp,
+                   super->checkpointed,
+                   super->unmounted);
+      platform_log(log_handle, "}\n\n");
+      trunk_release_super_block(spl, super_page);
    }
 
-   platform_log(log_handle, "Superblock root_addr=%lu {\n", super->root_addr);
-   platform_log(log_handle,
-                "meta_tail=%lu log_addr=%lu log_meta_addr=%lu\n",
-                super->meta_tail,
-                super->meta_tail,
-                super->log_meta_addr);
-   platform_log(log_handle,
-                "timestamp=%lu, checkpointed=%d, unmounted=%d\n",
-                super->timestamp,
-                super->checkpointed,
-                super->unmounted);
-   platform_log(log_handle, "}\n\n");
-   trunk_release_super_block(spl, super_page);
-}
-
-// clang-format off
+   // clang-format off
 void
 trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 {
@@ -9519,65 +9642,117 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
   cache_print_stats(log_handle, spl->cc);
   platform_log(log_handle, "\n");
 }
-// clang-format on
+   // clang-format on
 
 
-void
-trunk_print_lookup(trunk_handle        *spl,
-                   key                  target,
-                   platform_log_handle *log_handle)
-{
-   merge_accumulator data;
-   merge_accumulator_init(&data, spl->heap_id);
+   void trunk_print_lookup(
+      trunk_handle * spl, key target, platform_log_handle * log_handle)
+   {
+      merge_accumulator data;
+      merge_accumulator_init(&data, spl->heap_id);
 
-   platform_stream_handle stream;
-   platform_open_log_stream(&stream);
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
-   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      bool   memtable_is_compacted;
-      uint64 root_addr = trunk_memtable_root_addr_for_lookup(
-         spl, mt_gen, &memtable_is_compacted);
-      platform_status rc;
+      platform_stream_handle stream;
+      platform_open_log_stream(&stream);
+      uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
+      uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+      for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
+         bool   memtable_is_compacted;
+         uint64 root_addr = trunk_memtable_root_addr_for_lookup(
+            spl, mt_gen, &memtable_is_compacted);
+         platform_status rc;
 
-      rc = btree_lookup(spl->cc,
-                        &spl->cfg.btree_cfg,
-                        root_addr,
-                        PAGE_TYPE_MEMTABLE,
-                        target,
-                        &data);
-      platform_assert_status_ok(rc);
-      if (!merge_accumulator_is_null(&data)) {
-         char    key_str[128];
-         char    message_str[128];
-         message msg = merge_accumulator_to_message(&data);
-         trunk_key_to_string(spl, target, key_str);
-         trunk_message_to_string(spl, msg, message_str);
-         platform_log_stream(
-            &stream,
-            "Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
-            key_str,
-            root_addr,
-            mt_gen,
-            memtable_is_compacted,
-            message_str);
-         btree_print_lookup(spl->cc,
-                            &spl->cfg.btree_cfg,
-                            root_addr,
-                            PAGE_TYPE_MEMTABLE,
-                            target);
+         rc = btree_lookup(spl->cc,
+                           &spl->cfg.btree_cfg,
+                           root_addr,
+                           PAGE_TYPE_MEMTABLE,
+                           target,
+                           &data);
+         platform_assert_status_ok(rc);
+         if (!merge_accumulator_is_null(&data)) {
+            char    key_str[128];
+            char    message_str[128];
+            message msg = merge_accumulator_to_message(&data);
+            trunk_key_to_string(spl, target, key_str);
+            trunk_message_to_string(spl, msg, message_str);
+            platform_log_stream(
+               &stream,
+               "Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
+               key_str,
+               root_addr,
+               mt_gen,
+               memtable_is_compacted,
+               message_str);
+            btree_print_lookup(spl->cc,
+                               &spl->cfg.btree_cfg,
+                               root_addr,
+                               PAGE_TYPE_MEMTABLE,
+                               target);
+         }
       }
-   }
 
-   trunk_node node;
-   trunk_node_get(spl->cc, spl->root_addr, &node);
-   uint16 height = trunk_node_height(&node);
-   for (uint16 h = height; h > 0; h--) {
+      trunk_node node;
+      trunk_node_get(spl->cc, spl->root_addr, &node);
+      uint16 height = trunk_node_height(&node);
+      for (uint16 h = height; h > 0; h--) {
+         trunk_print_locked_node(Platform_default_log_handle, spl, &node);
+         uint16 pivot_no =
+            trunk_find_pivot(spl, &node, target, less_than_or_equal);
+         debug_assert(pivot_no < trunk_num_children(spl, &node));
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
+         merge_accumulator_set_to_null(&data);
+         trunk_pivot_lookup(spl, &node, pdata, target, &data);
+         if (!merge_accumulator_is_null(&data)) {
+            char key_str[128];
+            char message_str[128];
+            trunk_key_to_string(spl, target, key_str);
+            message msg = merge_accumulator_to_message(&data);
+            trunk_message_to_string(spl, msg, message_str);
+            platform_log_stream(
+               &stream,
+               "Key %s found in node %lu pivot %u with data %s\n",
+               key_str,
+               node.addr,
+               pivot_no,
+               message_str);
+         } else {
+            for (uint16 branch_no = pdata->start_branch;
+                 branch_no != trunk_end_branch(spl, &node);
+                 branch_no = trunk_add_branch_number(spl, branch_no, 1))
+            {
+               trunk_branch   *branch = trunk_get_branch(spl, &node, branch_no);
+               platform_status rc;
+               bool            local_found;
+               merge_accumulator_set_to_null(&data);
+               rc = trunk_btree_lookup_and_merge(
+                  spl, branch, target, &data, &local_found);
+               platform_assert_status_ok(rc);
+               if (local_found) {
+                  char key_str[128];
+                  char message_str[128];
+                  trunk_key_to_string(spl, target, key_str);
+                  message msg = merge_accumulator_to_message(&data);
+                  trunk_message_to_string(spl, msg, message_str);
+                  platform_log_stream(
+                     &stream,
+                     "!! Key %s found in branch %u of node %lu pivot %u "
+                     "with data %s\n",
+                     key_str,
+                     branch_no,
+                     node.addr,
+                     pivot_no,
+                     message_str);
+               }
+            }
+         }
+         trunk_node child;
+         trunk_node_get(spl->cc, pdata->addr, &child);
+         trunk_node_unget(spl->cc, &node);
+         node = child;
+      }
+
+      // look in leaf
       trunk_print_locked_node(Platform_default_log_handle, spl, &node);
-      uint16 pivot_no =
-         trunk_find_pivot(spl, &node, target, less_than_or_equal);
-      debug_assert(pivot_no < trunk_num_children(spl, &node));
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, 0);
       merge_accumulator_set_to_null(&data);
       trunk_pivot_lookup(spl, &node, pdata, target, &data);
       if (!merge_accumulator_is_null(&data)) {
@@ -9590,7 +9765,7 @@ trunk_print_lookup(trunk_handle        *spl,
                              "Key %s found in node %lu pivot %u with data %s\n",
                              key_str,
                              node.addr,
-                             pivot_no,
+                             0,
                              message_str);
       } else {
          for (uint16 branch_no = pdata->start_branch;
@@ -9617,427 +9792,376 @@ trunk_print_lookup(trunk_handle        *spl,
                   key_str,
                   branch_no,
                   node.addr,
-                  pivot_no,
+                  0,
                   message_str);
             }
          }
       }
-      trunk_node child;
-      trunk_node_get(spl->cc, pdata->addr, &child);
       trunk_node_unget(spl->cc, &node);
-      node = child;
+      merge_accumulator_deinit(&data);
+      platform_close_log_stream(&stream, Platform_default_log_handle);
    }
 
-   // look in leaf
-   trunk_print_locked_node(Platform_default_log_handle, spl, &node);
-   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, 0);
-   merge_accumulator_set_to_null(&data);
-   trunk_pivot_lookup(spl, &node, pdata, target, &data);
-   if (!merge_accumulator_is_null(&data)) {
-      char key_str[128];
-      char message_str[128];
-      trunk_key_to_string(spl, target, key_str);
-      message msg = merge_accumulator_to_message(&data);
-      trunk_message_to_string(spl, msg, message_str);
-      platform_log_stream(&stream,
-                          "Key %s found in node %lu pivot %u with data %s\n",
-                          key_str,
-                          node.addr,
-                          0,
-                          message_str);
-   } else {
-      for (uint16 branch_no = pdata->start_branch;
-           branch_no != trunk_end_branch(spl, &node);
-           branch_no = trunk_add_branch_number(spl, branch_no, 1))
-      {
-         trunk_branch   *branch = trunk_get_branch(spl, &node, branch_no);
-         platform_status rc;
-         bool            local_found;
-         merge_accumulator_set_to_null(&data);
-         rc = trunk_btree_lookup_and_merge(
-            spl, branch, target, &data, &local_found);
-         platform_assert_status_ok(rc);
-         if (local_found) {
-            char key_str[128];
-            char message_str[128];
-            trunk_key_to_string(spl, target, key_str);
-            message msg = merge_accumulator_to_message(&data);
-            trunk_message_to_string(spl, msg, message_str);
-            platform_log_stream(
-               &stream,
-               "!! Key %s found in branch %u of node %lu pivot %u "
-               "with data %s\n",
-               key_str,
-               branch_no,
-               node.addr,
-               0,
-               message_str);
+   void trunk_reset_stats(trunk_handle * spl)
+   {
+      if (spl->cfg.use_stats) {
+         for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[thr_i].insert_latency_histo);
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[thr_i].update_latency_histo);
+            platform_histo_destroy(spl->heap_id,
+                                   spl->stats[thr_i].delete_latency_histo);
+
+            memset(&spl->stats[thr_i], 0, sizeof(spl->stats[thr_i]));
+
+            platform_status rc;
+            rc = platform_histo_create(spl->heap_id,
+                                       LATENCYHISTO_SIZE + 1,
+                                       latency_histo_buckets,
+                                       &spl->stats[thr_i].insert_latency_histo);
+            platform_assert_status_ok(rc);
+            rc = platform_histo_create(spl->heap_id,
+                                       LATENCYHISTO_SIZE + 1,
+                                       latency_histo_buckets,
+                                       &spl->stats[thr_i].update_latency_histo);
+            platform_assert_status_ok(rc);
+            rc = platform_histo_create(spl->heap_id,
+                                       LATENCYHISTO_SIZE + 1,
+                                       latency_histo_buckets,
+                                       &spl->stats[thr_i].delete_latency_histo);
+            platform_assert_status_ok(rc);
          }
       }
    }
-   trunk_node_unget(spl->cc, &node);
-   merge_accumulator_deinit(&data);
-   platform_close_log_stream(&stream, Platform_default_log_handle);
-}
 
-void
-trunk_reset_stats(trunk_handle *spl)
-{
-   if (spl->cfg.use_stats) {
-      for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[thr_i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[thr_i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[thr_i].delete_latency_histo);
-
-         memset(&spl->stats[thr_i], 0, sizeof(spl->stats[thr_i]));
-
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[thr_i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[thr_i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[thr_i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+   void trunk_branch_count_num_tuples(trunk_handle * spl,
+                                      trunk_node * node,
+                                      uint16 branch_no,
+                                      uint64 * num_tuples,
+                                      uint64 * kv_bytes)
+   {
+      uint16 num_children = trunk_num_children(spl, node);
+      *num_tuples         = 0;
+      *kv_bytes           = 0;
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         if (trunk_branch_live_for_pivot(spl, node, branch_no, pivot_no)) {
+            uint64 local_num_tuples;
+            uint64 local_kv_bytes;
+            trunk_pivot_branch_tuple_counts(spl,
+                                            node,
+                                            pivot_no,
+                                            branch_no,
+                                            &local_num_tuples,
+                                            &local_kv_bytes);
+            *num_tuples += local_num_tuples;
+            *kv_bytes += local_kv_bytes;
+         }
       }
    }
-}
 
-void
-trunk_branch_count_num_tuples(trunk_handle *spl,
-                              trunk_node   *node,
-                              uint16        branch_no,
-                              uint64       *num_tuples,
-                              uint64       *kv_bytes)
-{
-   uint16 num_children = trunk_num_children(spl, node);
-   *num_tuples         = 0;
-   *kv_bytes           = 0;
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      if (trunk_branch_live_for_pivot(spl, node, branch_no, pivot_no)) {
-         uint64 local_num_tuples;
-         uint64 local_kv_bytes;
-         trunk_pivot_branch_tuple_counts(
-            spl, node, pivot_no, branch_no, &local_num_tuples, &local_kv_bytes);
-         *num_tuples += local_num_tuples;
-         *kv_bytes += local_kv_bytes;
+   bool trunk_node_print_branches(trunk_handle * spl, uint64 addr, void *arg)
+   {
+      platform_log_handle *log_handle = (platform_log_handle *)arg;
+      trunk_node           node;
+      trunk_node_get(spl->cc, addr, &node);
+
+      platform_log(log_handle,
+                   "-----------------------------------------------------------"
+                   "-------\n");
+      platform_log(log_handle,
+                   "| Page type: %s, Node addr=%lu height=%u\n",
+                   page_type_str[PAGE_TYPE_TRUNK],
+                   addr,
+                   trunk_node_height(&node));
+      platform_log(log_handle,
+                   "-----------------------------------------------------------"
+                   "-------\n");
+
+      uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
+      platform_log(log_handle, "| pivots:\n");
+      for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
+         char key_str[128];
+         trunk_key_to_string(
+            spl, trunk_get_pivot(spl, &node, pivot_no), key_str);
+         platform_log(log_handle, "| %u: %s\n", pivot_no, key_str);
       }
-   }
-}
 
-bool
-trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
-{
-   platform_log_handle *log_handle = (platform_log_handle *)arg;
-   trunk_node           node;
-   trunk_node_get(spl->cc, addr, &node);
-
-   platform_log(
-      log_handle,
-      "------------------------------------------------------------------\n");
-   platform_log(log_handle,
-                "| Page type: %s, Node addr=%lu height=%u\n",
-                page_type_str[PAGE_TYPE_TRUNK],
-                addr,
-                trunk_node_height(&node));
-   platform_log(
-      log_handle,
-      "------------------------------------------------------------------\n");
-
-   uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
-   platform_log(log_handle, "| pivots:\n");
-   for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
-      char key_str[128];
-      trunk_key_to_string(spl, trunk_get_pivot(spl, &node, pivot_no), key_str);
-      platform_log(log_handle, "| %u: %s\n", pivot_no, key_str);
-   }
-
-   // clang-format off
+      // clang-format off
   platform_log(log_handle,
                "-----------------------------------------------------------------------------------\n");
   platform_log(log_handle,
                "| branch |     addr     |  num tuples  | num kv bytes |    space    |  space amp  |\n");
   platform_log(log_handle,
                "-----------------------------------------------------------------------------------\n");
-   // clang-format on
-   uint16 start_branch = trunk_start_branch(spl, &node);
-   uint16 end_branch   = trunk_end_branch(spl, &node);
-   for (uint16 branch_no = start_branch; branch_no != end_branch;
-        branch_no        = trunk_add_branch_number(spl, branch_no, 1))
+      // clang-format on
+      uint16 start_branch = trunk_start_branch(spl, &node);
+      uint16 end_branch   = trunk_end_branch(spl, &node);
+      for (uint16 branch_no = start_branch; branch_no != end_branch;
+           branch_no        = trunk_add_branch_number(spl, branch_no, 1))
+      {
+         uint64 addr = trunk_get_branch(spl, &node, branch_no)->root_addr;
+         uint64 num_tuples_in_branch;
+         uint64 kv_bytes_in_branch;
+         trunk_branch_count_num_tuples(
+            spl, &node, branch_no, &num_tuples_in_branch, &kv_bytes_in_branch);
+         uint64 kib_in_branch = 0;
+         // trunk_branch_extent_count(spl, &node, branch_no);
+         kib_in_branch *= B_TO_KiB(trunk_extent_size(&spl->cfg));
+         fraction space_amp =
+            init_fraction(kib_in_branch * 1024, kv_bytes_in_branch);
+         platform_log(
+            log_handle,
+            "| %6u | %12lu | %12lu | %9luKiB | %8luKiB |   " FRACTION_FMT(
+               2, 2) "   |\n",
+            branch_no,
+            addr,
+            num_tuples_in_branch,
+            B_TO_KiB(kv_bytes_in_branch),
+            kib_in_branch,
+            FRACTION_ARGS(space_amp));
+      }
+      platform_log(log_handle,
+                   "-----------------------------------------------------------"
+                   "-------\n");
+      platform_log(log_handle, "\n");
+      trunk_node_unget(spl->cc, &node);
+      return TRUE;
+   }
+
+   void trunk_print_branches(platform_log_handle * log_handle,
+                             trunk_handle * spl)
    {
-      uint64 addr = trunk_get_branch(spl, &node, branch_no)->root_addr;
-      uint64 num_tuples_in_branch;
-      uint64 kv_bytes_in_branch;
-      trunk_branch_count_num_tuples(
-         spl, &node, branch_no, &num_tuples_in_branch, &kv_bytes_in_branch);
-      uint64 kib_in_branch = 0;
-      // trunk_branch_extent_count(spl, &node, branch_no);
-      kib_in_branch *= B_TO_KiB(trunk_extent_size(&spl->cfg));
-      fraction space_amp =
-         init_fraction(kib_in_branch * 1024, kv_bytes_in_branch);
-      platform_log(
-         log_handle,
-         "| %6u | %12lu | %12lu | %9luKiB | %8luKiB |   " FRACTION_FMT(
-            2, 2) "   |\n",
-         branch_no,
-         addr,
-         num_tuples_in_branch,
-         B_TO_KiB(kv_bytes_in_branch),
-         kib_in_branch,
-         FRACTION_ARGS(space_amp));
-   }
-   platform_log(
-      log_handle,
-      "------------------------------------------------------------------\n");
-   platform_log(log_handle, "\n");
-   trunk_node_unget(spl->cc, &node);
-   return TRUE;
-}
-
-void
-trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl)
-{
-   trunk_for_each_node(spl, trunk_node_print_branches, log_handle);
-}
-
-// bool
-// trunk_node_print_extent_count(trunk_handle *spl,
-//                                 uint64           addr,
-//                                 void            *arg)
-//{
-//   trunk_node *node = trunk_node_get(spl, addr);
-//
-//   uint16 start_branch = trunk_start_branch(spl, node);
-//   uint16 end_branch = trunk_end_branch(spl, node);
-//   uint64 num_extents = 0;
-//   for (uint16 branch_no = start_branch;
-//        branch_no != end_branch;
-//        branch_no = trunk_add_branch_number(spl, branch_no, 1))
-//   {
-//      num_extents += trunk_branch_extent_count(spl, node, branch_no);
-//   }
-//   platform_default_log("%8lu\n", num_extents);
-//   trunk_node_unget(spl->cc, &node);
-//   return TRUE;
-//}
-//
-// void
-// trunk_print_extent_counts(trunk_handle *spl)
-//{
-//   platform_default_log("extent counts:\n");
-//   trunk_for_each_node(spl, trunk_node_print_extent_count, NULL);
-//}
-
-
-// basic validation of data_config
-static void
-trunk_validate_data_config(const data_config *cfg)
-{
-   platform_assert(cfg->key_compare != NULL);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * trunk_config_init --
- *
- *       Initialize splinter config
- *       This function calls btree_config_init
- *-----------------------------------------------------------------------------
- */
-platform_status
-trunk_config_init(trunk_config        *trunk_cfg,
-                  cache_config        *cache_cfg,
-                  data_config         *data_cfg,
-                  log_config          *log_cfg,
-                  uint64               memtable_capacity,
-                  uint64               fanout,
-                  uint64               max_branches_per_node,
-                  uint64               btree_rough_count_height,
-                  uint64               filter_remainder_size,
-                  uint64               filter_index_size,
-                  uint64               reclaim_threshold,
-                  uint64               queue_scale_percent,
-                  bool                 use_log,
-                  bool                 use_stats,
-                  bool                 verbose_logging,
-                  platform_log_handle *log_handle)
-
-{
-   trunk_validate_data_config(data_cfg);
-
-   platform_status rc = STATUS_BAD_PARAM;
-   uint64          trunk_pivot_size;
-   uint64          bytes_for_branches;
-   routing_config *filter_cfg = &trunk_cfg->filter_cfg;
-
-   ZERO_CONTENTS(trunk_cfg);
-   trunk_cfg->cache_cfg = cache_cfg;
-   trunk_cfg->data_cfg  = data_cfg;
-   trunk_cfg->log_cfg   = log_cfg;
-
-   trunk_cfg->fanout                  = fanout;
-   trunk_cfg->max_branches_per_node   = max_branches_per_node;
-   trunk_cfg->reclaim_threshold       = reclaim_threshold;
-   trunk_cfg->queue_scale_percent     = queue_scale_percent;
-   trunk_cfg->use_log                 = use_log;
-   trunk_cfg->use_stats               = use_stats;
-   trunk_cfg->verbose_logging_enabled = verbose_logging;
-   trunk_cfg->log_handle              = log_handle;
-
-   // Inline what we would get from trunk_pivot_size(trunk_handle *).
-   trunk_pivot_size = data_cfg->max_key_size + sizeof(trunk_pivot_data);
-
-   // Setting hard limit and check configuration for over-provisioning
-   trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
-   uint64 header_bytes       = sizeof(trunk_hdr);
-
-   uint64 pivot_bytes = (trunk_cfg->max_pivot_keys
-                         * (data_cfg->max_key_size + sizeof(trunk_pivot_data)));
-   uint64 branch_bytes =
-      trunk_cfg->max_branches_per_node * sizeof(trunk_branch);
-   uint64 trunk_node_min_size   = header_bytes + pivot_bytes + branch_bytes;
-   uint64 page_size             = cache_config_page_size(cache_cfg);
-   uint64 available_pivot_bytes = page_size - header_bytes - branch_bytes;
-   uint64 available_bytes_per_pivot =
-      available_pivot_bytes / trunk_cfg->max_pivot_keys;
-
-   // Deal with mis-configurations where we don't have available bytes per
-   // pivot key
-   uint64 available_bytes_per_pivot_key = 0;
-   if (available_bytes_per_pivot > sizeof(trunk_pivot_data)) {
-      available_bytes_per_pivot_key =
-         available_bytes_per_pivot - sizeof(trunk_pivot_data);
+      trunk_for_each_node(spl, trunk_node_print_branches, log_handle);
    }
 
-   if (trunk_node_min_size >= page_size) {
-      platform_error_log("Trunk node min size=%lu bytes "
-                         "does not fit in page size=%lu bytes as configured.\n"
-                         "node->hdr: %lu bytes, "
-                         "pivots: %lu bytes (max_pivot=%lu x %lu bytes),\n"
-                         "branches %lu bytes (max_branches=%lu x %lu bytes).\n"
-                         "Maximum key size supported with current "
-                         "configuration: %lu bytes.\n",
-                         trunk_node_min_size,
-                         page_size,
-                         header_bytes,
-                         pivot_bytes,
-                         trunk_cfg->max_pivot_keys,
-                         trunk_pivot_size,
-                         branch_bytes,
-                         max_branches_per_node,
-                         sizeof(trunk_branch),
-                         available_bytes_per_pivot_key);
-      return rc;
-   }
+   // bool
+   // trunk_node_print_extent_count(trunk_handle *spl,
+   //                                 uint64           addr,
+   //                                 void            *arg)
+   //{
+   //   trunk_node *node = trunk_node_get(spl, addr);
+   //
+   //   uint16 start_branch = trunk_start_branch(spl, node);
+   //   uint16 end_branch = trunk_end_branch(spl, node);
+   //   uint64 num_extents = 0;
+   //   for (uint16 branch_no = start_branch;
+   //        branch_no != end_branch;
+   //        branch_no = trunk_add_branch_number(spl, branch_no, 1))
+   //   {
+   //      num_extents += trunk_branch_extent_count(spl, node, branch_no);
+   //   }
+   //   platform_default_log("%8lu\n", num_extents);
+   //   trunk_node_unget(spl->cc, &node);
+   //   return TRUE;
+   //}
+   //
+   // void
+   // trunk_print_extent_counts(trunk_handle *spl)
+   //{
+   //   platform_default_log("extent counts:\n");
+   //   trunk_for_each_node(spl, trunk_node_print_extent_count, NULL);
+   //}
 
-   // Space left for branches past end of pivot array of [max_pivot_keys]
-   bytes_for_branches = (page_size - trunk_hdr_size()
-                         - (trunk_cfg->max_pivot_keys * trunk_pivot_size));
 
-   // Internally determined hard-limit, which effectively depends on the
-   // - configured page size and trunk header size
-   // - user-specified configured key size
-   // - user-specified fanout
-   trunk_cfg->hard_max_branches_per_node =
-      bytes_for_branches / sizeof(trunk_branch) - 1;
-
-   // Initialize point message btree
-   btree_config_init(&trunk_cfg->btree_cfg,
-                     cache_cfg,
-                     trunk_cfg->data_cfg,
-                     btree_rough_count_height);
-
-   memtable_config_init(&trunk_cfg->mt_cfg,
-                        &trunk_cfg->btree_cfg,
-                        TRUNK_NUM_MEMTABLES,
-                        memtable_capacity);
-
-   // Has to be set after btree_config_init is called
-   trunk_cfg->max_kv_bytes_per_node =
-      trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
-      * cache_config_extent_size(cache_cfg) / MEMTABLE_SPACE_OVERHEAD_FACTOR;
-   trunk_cfg->target_leaf_kv_bytes = trunk_cfg->max_kv_bytes_per_node / 2;
-   trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 32;
-
-   // filter config settings
-   filter_cfg->cache_cfg = cache_cfg;
-
-   filter_cfg->index_size     = filter_index_size;
-   filter_cfg->seed           = 42;
-   filter_cfg->hash           = trunk_cfg->data_cfg->key_hash;
-   filter_cfg->data_cfg       = trunk_cfg->data_cfg;
-   filter_cfg->log_index_size = 31 - __builtin_clz(filter_cfg->index_size);
-
-   uint64 filter_max_fingerprints = trunk_cfg->max_tuples_per_node;
-   uint64 filter_quotient_size = 64 - __builtin_clzll(filter_max_fingerprints);
-   uint64 filter_fingerprint_size =
-      filter_remainder_size + filter_quotient_size;
-   filter_cfg->fingerprint_size = filter_fingerprint_size;
-   uint64 max_value             = trunk_cfg->max_branches_per_node;
-   size_t max_value_size        = 64 - __builtin_clzll(max_value);
-
-   if (filter_fingerprint_size > 32 - max_value_size) {
-      platform_default_log(
-         "Fingerprint size %lu too large, max value size is %lu, "
-         "setting to %lu\n",
-         filter_fingerprint_size,
-         max_value_size,
-         32 - max_value_size);
-      filter_cfg->fingerprint_size = 32 - max_value_size;
+   // basic validation of data_config
+   static void trunk_validate_data_config(const data_config *cfg)
+   {
+      platform_assert(cfg->key_compare != NULL);
    }
 
    /*
-    * Set filter index size
+    *-----------------------------------------------------------------------------
+    * trunk_config_init --
     *
-    * In quick_filter_init() we have this assert:
-    *   index / addrs_per_page < cfg->extent_size / cfg->page_size
-    * where
-    *   - cfg is of type quick_filter_config
-    *   - index is less than num_indices, which equals to params.num_buckets /
-    *     cfg->index_size. params.num_buckets should be less than
-    *     trunk_cfg.max_tuples_per_node
-    *   - addrs_per_page = cfg->page_size / sizeof(uint64)
-    *   - pages_per_extent = cfg->extent_size / cfg->page_size
-    *
-    * Therefore we have the following constraints on filter-index-size:
-    *   (max_tuples_per_node / filter_cfg.index_size) / addrs_per_page <
-    *   pages_per_extent
-    * ->
-    *   max_tuples_per_node / filter_cfg.index_size < addrs_per_page *
-    *   pages_per_extent
-    * ->
-    *   filter_cfg.index_size > (max_tuples_per_node / (addrs_per_page *
-    *   pages_per_extent))
+    *       Initialize splinter config
+    *       This function calls btree_config_init
+    *-----------------------------------------------------------------------------
     */
-   uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
-   uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
-   while (filter_cfg->index_size <= (trunk_cfg->max_tuples_per_node
-                                     / (addrs_per_page * pages_per_extent)))
-   {
-      platform_default_log("filter-index-size: %u is too small, "
-                           "setting to %u\n",
-                           filter_cfg->index_size,
-                           filter_cfg->index_size * 2);
-      filter_cfg->index_size *= 2;
-      filter_cfg->log_index_size++;
-   }
-   // When everything succeeds, return success.
-   return STATUS_OK;
-}
+   platform_status trunk_config_init(trunk_config * trunk_cfg,
+                                     cache_config * cache_cfg,
+                                     data_config * data_cfg,
+                                     log_config * log_cfg,
+                                     uint64 memtable_capacity,
+                                     uint64 fanout,
+                                     uint64 max_branches_per_node,
+                                     uint64 btree_rough_count_height,
+                                     uint64 filter_remainder_size,
+                                     uint64 filter_index_size,
+                                     uint64 reclaim_threshold,
+                                     uint64 queue_scale_percent,
+                                     bool   use_log,
+                                     bool   use_stats,
+                                     bool   verbose_logging,
+                                     platform_log_handle *log_handle)
 
-size_t
-trunk_get_scratch_size()
-{
-   return sizeof(trunk_task_scratch);
-}
+   {
+      trunk_validate_data_config(data_cfg);
+
+      platform_status rc = STATUS_BAD_PARAM;
+      uint64          trunk_pivot_size;
+      uint64          bytes_for_branches;
+      routing_config *filter_cfg = &trunk_cfg->filter_cfg;
+
+      ZERO_CONTENTS(trunk_cfg);
+      trunk_cfg->cache_cfg = cache_cfg;
+      trunk_cfg->data_cfg  = data_cfg;
+      trunk_cfg->log_cfg   = log_cfg;
+
+      trunk_cfg->fanout                  = fanout;
+      trunk_cfg->max_branches_per_node   = max_branches_per_node;
+      trunk_cfg->reclaim_threshold       = reclaim_threshold;
+      trunk_cfg->queue_scale_percent     = queue_scale_percent;
+      trunk_cfg->use_log                 = use_log;
+      trunk_cfg->use_stats               = use_stats;
+      trunk_cfg->verbose_logging_enabled = verbose_logging;
+      trunk_cfg->log_handle              = log_handle;
+
+      // Inline what we would get from trunk_pivot_size(trunk_handle *).
+      trunk_pivot_size = data_cfg->max_key_size + sizeof(trunk_pivot_data);
+
+      // Setting hard limit and check configuration for over-provisioning
+      trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
+      uint64 header_bytes       = sizeof(trunk_hdr);
+
+      uint64 pivot_bytes =
+         (trunk_cfg->max_pivot_keys
+          * (data_cfg->max_key_size + sizeof(trunk_pivot_data)));
+      uint64 branch_bytes =
+         trunk_cfg->max_branches_per_node * sizeof(trunk_branch);
+      uint64 trunk_node_min_size   = header_bytes + pivot_bytes + branch_bytes;
+      uint64 page_size             = cache_config_page_size(cache_cfg);
+      uint64 available_pivot_bytes = page_size - header_bytes - branch_bytes;
+      uint64 available_bytes_per_pivot =
+         available_pivot_bytes / trunk_cfg->max_pivot_keys;
+
+      // Deal with mis-configurations where we don't have available bytes per
+      // pivot key
+      uint64 available_bytes_per_pivot_key = 0;
+      if (available_bytes_per_pivot > sizeof(trunk_pivot_data)) {
+         available_bytes_per_pivot_key =
+            available_bytes_per_pivot - sizeof(trunk_pivot_data);
+      }
+
+      if (trunk_node_min_size >= page_size) {
+         platform_error_log(
+            "Trunk node min size=%lu bytes "
+            "does not fit in page size=%lu bytes as configured.\n"
+            "node->hdr: %lu bytes, "
+            "pivots: %lu bytes (max_pivot=%lu x %lu bytes),\n"
+            "branches %lu bytes (max_branches=%lu x %lu bytes).\n"
+            "Maximum key size supported with current "
+            "configuration: %lu bytes.\n",
+            trunk_node_min_size,
+            page_size,
+            header_bytes,
+            pivot_bytes,
+            trunk_cfg->max_pivot_keys,
+            trunk_pivot_size,
+            branch_bytes,
+            max_branches_per_node,
+            sizeof(trunk_branch),
+            available_bytes_per_pivot_key);
+         return rc;
+      }
+
+      // Space left for branches past end of pivot array of [max_pivot_keys]
+      bytes_for_branches = (page_size - trunk_hdr_size()
+                            - (trunk_cfg->max_pivot_keys * trunk_pivot_size));
+
+      // Internally determined hard-limit, which effectively depends on the
+      // - configured page size and trunk header size
+      // - user-specified configured key size
+      // - user-specified fanout
+      trunk_cfg->hard_max_branches_per_node =
+         bytes_for_branches / sizeof(trunk_branch) - 1;
+
+      // Initialize point message btree
+      btree_config_init(&trunk_cfg->btree_cfg,
+                        cache_cfg,
+                        trunk_cfg->data_cfg,
+                        btree_rough_count_height);
+
+      memtable_config_init(&trunk_cfg->mt_cfg,
+                           &trunk_cfg->btree_cfg,
+                           TRUNK_NUM_MEMTABLES,
+                           memtable_capacity);
+
+      // Has to be set after btree_config_init is called
+      trunk_cfg->max_kv_bytes_per_node =
+         trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
+         * cache_config_extent_size(cache_cfg) / MEMTABLE_SPACE_OVERHEAD_FACTOR;
+      trunk_cfg->target_leaf_kv_bytes = trunk_cfg->max_kv_bytes_per_node / 2;
+      trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 32;
+
+      // filter config settings
+      filter_cfg->cache_cfg = cache_cfg;
+
+      filter_cfg->index_size     = filter_index_size;
+      filter_cfg->seed           = 42;
+      filter_cfg->hash           = trunk_cfg->data_cfg->key_hash;
+      filter_cfg->data_cfg       = trunk_cfg->data_cfg;
+      filter_cfg->log_index_size = 31 - __builtin_clz(filter_cfg->index_size);
+
+      uint64 filter_max_fingerprints = trunk_cfg->max_tuples_per_node;
+      uint64 filter_quotient_size =
+         64 - __builtin_clzll(filter_max_fingerprints);
+      uint64 filter_fingerprint_size =
+         filter_remainder_size + filter_quotient_size;
+      filter_cfg->fingerprint_size = filter_fingerprint_size;
+      uint64 max_value             = trunk_cfg->max_branches_per_node;
+      size_t max_value_size        = 64 - __builtin_clzll(max_value);
+
+      if (filter_fingerprint_size > 32 - max_value_size) {
+         platform_default_log(
+            "Fingerprint size %lu too large, max value size is %lu, "
+            "setting to %lu\n",
+            filter_fingerprint_size,
+            max_value_size,
+            32 - max_value_size);
+         filter_cfg->fingerprint_size = 32 - max_value_size;
+      }
+
+      /*
+       * Set filter index size
+       *
+       * In quick_filter_init() we have this assert:
+       *   index / addrs_per_page < cfg->extent_size / cfg->page_size
+       * where
+       *   - cfg is of type quick_filter_config
+       *   - index is less than num_indices, which equals to params.num_buckets
+       * / cfg->index_size. params.num_buckets should be less than
+       *     trunk_cfg.max_tuples_per_node
+       *   - addrs_per_page = cfg->page_size / sizeof(uint64)
+       *   - pages_per_extent = cfg->extent_size / cfg->page_size
+       *
+       * Therefore we have the following constraints on filter-index-size:
+       *   (max_tuples_per_node / filter_cfg.index_size) / addrs_per_page <
+       *   pages_per_extent
+       * ->
+       *   max_tuples_per_node / filter_cfg.index_size < addrs_per_page *
+       *   pages_per_extent
+       * ->
+       *   filter_cfg.index_size > (max_tuples_per_node / (addrs_per_page *
+       *   pages_per_extent))
+       */
+      uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
+      uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
+      while (filter_cfg->index_size <= (trunk_cfg->max_tuples_per_node
+                                        / (addrs_per_page * pages_per_extent)))
+      {
+         platform_default_log("filter-index-size: %u is too small, "
+                              "setting to %u\n",
+                              filter_cfg->index_size,
+                              filter_cfg->index_size * 2);
+         filter_cfg->index_size *= 2;
+         filter_cfg->log_index_size++;
+      }
+      // When everything succeeds, return success.
+      return STATUS_OK;
+   }
+
+   size_t trunk_get_scratch_size()
+   {
+      return sizeof(trunk_task_scratch);
+   }
