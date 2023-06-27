@@ -503,7 +503,6 @@ int
 transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
                                transaction              *txn)
 {
-   platform_default_log("Aborting\n");
    // unlock all writes
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry *w = txn->rw_entries[i];
