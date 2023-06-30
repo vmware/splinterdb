@@ -1,6 +1,6 @@
 
 #include "platform.h"
-// #include "poison.h"
+#include "poison.h"
 
 #include "splinterdb/column_family.h"
 #include "splinterdb/splinterdb.h"
@@ -72,7 +72,7 @@ cfg_table_insert(cf_data_config *cf_cfg, data_config *data_cfg)
 
    // reallocate table memory if necessary
    if (cf_cfg->table_mem <= new_id) {
-      cf_cfg->config_table = (data_config **)realloc(
+      cf_cfg->config_table = (data_config **)platform_realloc(platform_get_heap_id(),
          cf_cfg->config_table, (new_id + 1) * 2 * sizeof(data_config *));
    }
 
@@ -484,7 +484,7 @@ column_family_config_deinit(cf_data_config *cf_cfg)
    // we assume that the user will handle deallocating the table entries
    // we just need to dealloc our array of pointers
    if (cf_cfg->config_table != NULL)
-      free(cf_cfg->config_table);
+      platform_free(platform_get_heap_id(), cf_cfg->config_table);
    cf_cfg->config_table = NULL;
    cf_cfg->table_mem    = 0;
 }
