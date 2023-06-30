@@ -80,6 +80,9 @@ pub struct SplinterDBWithColumnFamilies {
    cf_cfg: splinterdb_sys::cf_data_config,
 }
 
+unsafe impl Sync for SplinterDBWithColumnFamilies {}
+unsafe impl Send for SplinterDBWithColumnFamilies {}
+
 #[derive(Debug)]
 pub struct SplinterColumnFamily {
    data_cfg: splinterdb_sys::data_config,
