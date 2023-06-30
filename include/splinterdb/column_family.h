@@ -113,6 +113,9 @@ void
 splinterdb_cf_iterator_next(splinterdb_cf_iterator *cf_iter);
 
 _Bool
+splinterdb_cf_iterator_valid(splinterdb_cf_iterator *cf_iter);
+
+void
 splinterdb_cf_iterator_get_current(splinterdb_cf_iterator *cf_iter, // IN
                                    slice                  *key,     // OUT
                                    slice                  *value    // OUT

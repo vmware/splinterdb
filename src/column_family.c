@@ -9,8 +9,9 @@
 
 #include <stdlib.h>
 
+// This is just a normal splinterdb_iterator
+// but to have a clean interface, we pretend its not
 struct splinterdb_cf_iterator {
-   column_family_id    id;
    splinterdb_iterator iter;
 };
 
@@ -266,26 +267,29 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
       &cf_key_wb, platform_get_heap_id(), CF_KEY_DEFAULT_SIZE, key_buf, 0);
    slice cf_key = userkey_to_cf_key(user_start_key, cf.id, &cf_key_wb);
 
-   splinterdb_cf_iterator *cf_it = TYPED_MALLOC(cf.kvs->spl->heap_id, cf_it);
-   if (cf_it == NULL) {
+   column_family_id next_cf = cf.id + 1;
+   slice next_cf_key = slice_create(sizeof(column_family_id), (void *)&next_cf);
+
+   splinterdb_iterator *it = TYPED_MALLOC(cf.kvs->spl->heap_id, it);
+   if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
-   cf_it->iter.last_rc              = STATUS_OK;
-   trunk_range_iterator *range_itor = &(cf_it->iter.sri);
+   it->last_rc                    = STATUS_OK;
+   trunk_range_iterator *range_itor = &(it->sri);
 
    key             start_key = key_create_from_slice(cf_key);
+   key             end_key   = key_create_from_slice(next_cf_key);
    platform_status rc        = trunk_range_iterator_init(
-      cf.kvs->spl, range_itor, start_key, POSITIVE_INFINITY_KEY, UINT64_MAX);
+      cf.kvs->spl, range_itor, start_key, end_key, UINT64_MAX);
    if (!SUCCESS(rc)) {
-      platform_free(cf.kvs->spl->heap_id, *cf_iter);
+      platform_free(cf.kvs->spl->heap_id, it);
       writable_buffer_deinit(&cf_key_wb);
       return platform_status_to_int(rc);
    }
-   cf_it->iter.parent = cf.kvs;
-   cf_it->id          = cf.id;
+   it->parent = cf.kvs;
 
-   *cf_iter = cf_it;
+   *cf_iter = (splinterdb_cf_iterator *)it;
    writable_buffer_deinit(&cf_key_wb);
    return EXIT_SUCCESS;
 }
@@ -293,32 +297,23 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
 void
 splinterdb_cf_iterator_deinit(splinterdb_cf_iterator *cf_iter)
 {
-   trunk_range_iterator *range_itor = &(cf_iter->iter.sri);
-   trunk_range_iterator_deinit(range_itor);
-
-   platform_free(range_itor->spl->heap_id, cf_iter);
+   splinterdb_iterator_deinit(&cf_iter->iter);
 }
 
 _Bool
+splinterdb_cf_iterator_valid(splinterdb_cf_iterator *cf_iter)
+{
+   return splinterdb_iterator_valid(&cf_iter->iter);
+}
+
+void
 splinterdb_cf_iterator_get_current(splinterdb_cf_iterator *cf_iter, // IN
                                    slice                  *key,     // OUT
                                    slice                  *value    // OUT
 )
 {
-   _Bool valid = splinterdb_iterator_valid(&cf_iter->iter);
-
-   if (!valid)
-      return FALSE;
-
-   // if valid, check the key to ensure it's within this column family
    splinterdb_iterator_get_current(&cf_iter->iter, key, value);
-   column_family_id key_cf = get_cf_id(*key);
-
-   if (key_cf != cf_iter->id)
-      return FALSE;
-
    *key = cf_key_to_userkey(*key);
-   return TRUE;
 }
 
 void
