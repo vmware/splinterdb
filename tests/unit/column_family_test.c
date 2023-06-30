@@ -304,8 +304,7 @@ CTEST2(column_family, test_multiple_cf_range)
    slice key;
    slice val;
    int   idx = 0;
-   for (; splinterdb_cf_iterator_valid(it); splinterdb_cf_iterator_next(it))
-   {
+   for (; splinterdb_cf_iterator_valid(it); splinterdb_cf_iterator_next(it)) {
       splinterdb_cf_iterator_get_current(it, &key, &val);
       ASSERT_EQUAL(slice_length(keys[idx]), slice_length(key));
       ASSERT_STREQN(slice_data(keys[idx]), slice_data(key), slice_length(key));
@@ -322,8 +321,7 @@ CTEST2(column_family, test_multiple_cf_range)
    ASSERT_EQUAL(0, splinterdb_cf_iterator_init(cf_reverse, &it, NULL_SLICE));
 
    idx = 0;
-   for (; splinterdb_cf_iterator_valid(it); splinterdb_cf_iterator_next(it))
-   {
+   for (; splinterdb_cf_iterator_valid(it); splinterdb_cf_iterator_next(it)) {
       splinterdb_cf_iterator_get_current(it, &key, &val);
       ASSERT_EQUAL(slice_length(keys[3 - idx]), slice_length(key));
       ASSERT_STREQN(

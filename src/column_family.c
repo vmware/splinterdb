@@ -29,7 +29,7 @@ platform_status_to_int(const platform_status status) // IN
 
 // Some helper functions we'll use for managing the column family identifiers
 // and the data config table
-column_family_id
+static inline column_family_id
 get_cf_id(slice cf_key)
 {
    // the cf id is a prefix of the key
@@ -39,7 +39,7 @@ get_cf_id(slice cf_key)
    return id;
 }
 
-slice
+static inline slice
 userkey_to_cf_key(slice            userkey,
                   column_family_id cf_id,
                   writable_buffer *cf_key_wb)
@@ -54,7 +54,7 @@ userkey_to_cf_key(slice            userkey,
    return writable_buffer_to_slice(cf_key_wb);
 }
 
-slice
+static inline slice
 cf_key_to_userkey(slice cf_key)
 {
    uint64      key_len = slice_length(cf_key);
@@ -64,7 +64,7 @@ cf_key_to_userkey(slice cf_key)
                        data + sizeof(column_family_id));
 }
 
-column_family_id
+static inline column_family_id
 cfg_table_insert(cf_data_config *cf_cfg, data_config *data_cfg)
 {
    column_family_id new_id = cf_cfg->num_families;
@@ -82,7 +82,7 @@ cfg_table_insert(cf_data_config *cf_cfg, data_config *data_cfg)
    return new_id;
 }
 
-void
+static inline void
 cfg_table_delete(cf_data_config *cf_cfg, column_family_id cf_id)
 {
    // memory is held by user so don't free it
@@ -90,6 +90,18 @@ cfg_table_delete(cf_data_config *cf_cfg, column_family_id cf_id)
    cf_cfg->config_table[cf_id] = NULL;
 
    // TODO: Reuse this slot somehow?
+}
+
+// lookup a data_config in the table.
+// Returns NULL if the column family ID does not exist
+// otherwise, returns the associated data_config for the cf
+static inline data_config *
+cfg_table_lookup(cf_data_config *cf_cfg, column_family_id cf_id)
+{
+   if (cf_cfg->num_families <= cf_id)
+      return NULL;
+
+   return cf_cfg->config_table[cf_id];
 }
 
 // Beginning of column family interface
@@ -136,6 +148,10 @@ splinterdb_cf_insert(const splinterdb_column_family cf, slice key, slice value)
    // zero len key reserved, negative infinity
    platform_assert(slice_length(key) > 0);
 
+   // assert that this is a valid column family
+   cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
+   platform_assert(cfg_table_lookup(cf_cfg, cf.id) != NULL);
+
    // convert to column family key by prefixing the cf id
    char            key_buf[CF_KEY_DEFAULT_SIZE];
    writable_buffer cf_key_wb;
@@ -145,10 +161,8 @@ splinterdb_cf_insert(const splinterdb_column_family cf, slice key, slice value)
 
    // call splinter's insert function and return
    int rc = splinterdb_insert(cf.kvs, cf_key, value);
-   if (rc != 0)
-      return rc;
    writable_buffer_deinit(&cf_key_wb);
-   return 0;
+   return rc;
 }
 
 int
@@ -156,6 +170,10 @@ splinterdb_cf_delete(const splinterdb_column_family cf, slice key)
 {
    // zero len key reserved, negative infinity
    platform_assert(slice_length(key) > 0);
+
+   // assert that this is a valid column family
+   cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
+   platform_assert(cfg_table_lookup(cf_cfg, cf.id) != NULL);
 
    // convert to column family key by prefixing the cf id
    char            key_buf[CF_KEY_DEFAULT_SIZE];
@@ -166,10 +184,8 @@ splinterdb_cf_delete(const splinterdb_column_family cf, slice key)
 
    // call splinter's delete function and return
    int rc = splinterdb_delete(cf.kvs, cf_key);
-   if (rc != 0)
-      return rc;
    writable_buffer_deinit(&cf_key_wb);
-   return 0;
+   return rc;
 }
 
 int
@@ -177,6 +193,10 @@ splinterdb_cf_update(const splinterdb_column_family cf, slice key, slice delta)
 {
    // zero len key reserved, negative infinity
    platform_assert(slice_length(key) > 0);
+
+   // assert that this is a valid column family
+   cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
+   platform_assert(cfg_table_lookup(cf_cfg, cf.id) != NULL);
 
    // convert to column family key by prefixing the cf id
    char            key_buf[CF_KEY_DEFAULT_SIZE];
@@ -187,10 +207,8 @@ splinterdb_cf_update(const splinterdb_column_family cf, slice key, slice delta)
 
    // call splinter's update function and return
    int rc = splinterdb_update(cf.kvs, cf_key, delta);
-   if (rc != 0)
-      return rc;
    writable_buffer_deinit(&cf_key_wb);
-   return 0;
+   return rc;
 }
 
 // column family lookups
@@ -234,6 +252,10 @@ splinterdb_cf_lookup(const splinterdb_column_family cf,    // IN
    // zero len key reserved, negative infinity
    platform_assert(slice_length(key) > 0);
 
+   // assert that this is a valid column family
+   cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
+   platform_assert(cfg_table_lookup(cf_cfg, cf.id) != NULL);
+
    // convert to column family key by prefixing the cf id
    char            key_buf[CF_KEY_DEFAULT_SIZE];
    writable_buffer cf_key_wb;
@@ -257,6 +279,10 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
                             slice                          user_start_key // IN
 )
 {
+   // assert that this is a valid column family
+   cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
+   platform_assert(cfg_table_lookup(cf_cfg, cf.id) != NULL);
+
    // The minimum key contains no key data only consists of
    // the column id.
    // This is what a NULL key will become
@@ -275,7 +301,7 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
       platform_error_log("TYPED_MALLOC error\n");
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
-   it->last_rc                    = STATUS_OK;
+   it->last_rc                      = STATUS_OK;
    trunk_range_iterator *range_itor = &(it->sri);
 
    key             start_key = key_create_from_slice(cf_key);
@@ -352,8 +378,14 @@ cf_key_compare(const data_config *cfg, slice key1, slice key2)
    if (slice_length(userkey2) == 0)
       return 1;
 
-   // get the data_config for this column family and call its function
-   data_config *cf_cfg = ((cf_data_config *)cfg)->config_table[cf_id1];
+   // get the data_config for this column family
+   data_config *cf_cfg = cfg_table_lookup((cf_data_config *)cfg, cf_id1);
+
+   // keys are equal if the config has been deleted. Squish it all together.
+   if (cf_cfg == NULL)
+      return 0;
+
+   // call column family's function
    return cf_cfg->key_compare(cf_cfg, userkey1, userkey2);
 }
 
@@ -361,14 +393,21 @@ static int
 cf_merge_tuples(const data_config *cfg,
                 slice              key,
                 message            old_raw_message,
-                merge_accumulator *new_data)
+                merge_accumulator *new_message)
 {
    column_family_id cf_id = get_cf_id(key);
 
    // get the data_config for this column family and call its function
-   data_config *cf_cfg = ((cf_data_config *)cfg)->config_table[cf_id];
+   data_config *cf_cfg = cfg_table_lookup((cf_data_config *)cfg, cf_id);
+   if (cf_cfg == NULL) {
+      // new_message becomes a deletion as the column family has been deleted
+      new_message->type = MESSAGE_TYPE_DELETE;
+      return 0;
+   }
+
+   // call column family's function
    return cf_cfg->merge_tuples(
-      cf_cfg, cf_key_to_userkey(key), old_raw_message, new_data);
+      cf_cfg, cf_key_to_userkey(key), old_raw_message, new_message);
 }
 
 static int
@@ -379,8 +418,15 @@ cf_merge_tuples_final(const data_config *cfg,
 {
    column_family_id cf_id = get_cf_id(key);
 
-   // get the data_config for this column family and call its function
-   data_config *cf_cfg = ((cf_data_config *)cfg)->config_table[cf_id];
+   // get the data_config for this column family
+   data_config *cf_cfg = cfg_table_lookup((cf_data_config *)cfg, cf_id);
+   if (cf_cfg == NULL) {
+      // oldest_data becomes a deletion as the column family has been deleted
+      oldest_data->type = MESSAGE_TYPE_DELETE;
+      return 0;
+   }
+
+   // call column family's function
    return cf_cfg->merge_tuples_final(
       cf_cfg, cf_key_to_userkey(key), oldest_data);
 }
