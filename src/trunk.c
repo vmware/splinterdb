@@ -846,17 +846,17 @@ void                               trunk_print_node                (platform_log
 static void                        trunk_print_pivots              (platform_log_handle *log_handle, trunk_handle *spl, trunk_node *node);
 static void                        trunk_print_branches_and_bundles(platform_log_handle *log_handle, trunk_handle *spl, trunk_node *node);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, trunk_node *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
-void                               trunk_btree_skiperator_get_curr (iterator *itor, key *curr_key, message *data);
-platform_status                    trunk_btree_skiperator_advance  (iterator *itor);
-platform_status                    trunk_btree_skiperator_at_end   (iterator *itor, bool *at_end);
+void                               trunk_btree_skiperator_curr     (iterator *itor, key *curr_key, message *data);
+platform_status                    trunk_btree_skiperator_next     (iterator *itor);
+bool                               trunk_btree_skiperator_valid    (iterator *itor);
 void                               trunk_btree_skiperator_print    (iterator *itor);
 void                               trunk_btree_skiperator_deinit   (trunk_handle *spl, trunk_btree_skiperator *skip_itor);
 bool                               trunk_verify_node               (trunk_handle *spl, trunk_node *node);
 void                               trunk_maybe_reclaim_space       (trunk_handle *spl);
 const static iterator_ops trunk_btree_skiperator_ops = {
-   .get_curr = trunk_btree_skiperator_get_curr,
-   .at_end   = trunk_btree_skiperator_at_end,
-   .advance  = trunk_btree_skiperator_advance,
+   .curr = trunk_btree_skiperator_curr,
+   .valid   = trunk_btree_skiperator_valid,
+   .next  = trunk_btree_skiperator_next,
    .print    = trunk_btree_skiperator_print,
 };
 
@@ -4908,13 +4908,13 @@ trunk_btree_skiperator_init(trunk_handle           *spl,
 
    bool at_end;
    if (skip_itor->curr != skip_itor->end) {
-      iterator_at_end(&skip_itor->itor[skip_itor->curr].super, &at_end);
+      at_end = !iterator_valid(&skip_itor->itor[skip_itor->curr].super);
    } else {
       at_end = TRUE;
    }
 
    while (skip_itor->curr != skip_itor->end && at_end) {
-      iterator_at_end(&skip_itor->itor[skip_itor->curr].super, &at_end);
+      at_end = !iterator_valid(&skip_itor->itor[skip_itor->curr].super);
       if (!at_end) {
          break;
       }
@@ -4923,28 +4923,27 @@ trunk_btree_skiperator_init(trunk_handle           *spl,
 }
 
 void
-trunk_btree_skiperator_get_curr(iterator *itor, key *curr_key, message *data)
+trunk_btree_skiperator_curr(iterator *itor, key *curr_key, message *data)
 {
    debug_assert(itor != NULL);
    trunk_btree_skiperator *skip_itor = (trunk_btree_skiperator *)itor;
-   iterator_get_curr(&skip_itor->itor[skip_itor->curr].super, curr_key, data);
+   iterator_curr(&skip_itor->itor[skip_itor->curr].super, curr_key, data);
 }
 
 platform_status
-trunk_btree_skiperator_advance(iterator *itor)
+trunk_btree_skiperator_next(iterator *itor)
 {
    debug_assert(itor != NULL);
    trunk_btree_skiperator *skip_itor = (trunk_btree_skiperator *)itor;
-   platform_status         rc =
-      iterator_advance(&skip_itor->itor[skip_itor->curr].super);
+   platform_status rc = iterator_next(&skip_itor->itor[skip_itor->curr].super);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    bool at_end;
-   iterator_at_end(&skip_itor->itor[skip_itor->curr].super, &at_end);
+   at_end = !iterator_valid(&skip_itor->itor[skip_itor->curr].super);
    while (skip_itor->curr != skip_itor->end && at_end) {
-      iterator_at_end(&skip_itor->itor[skip_itor->curr].super, &at_end);
+      at_end = !iterator_valid(&skip_itor->itor[skip_itor->curr].super);
       if (!at_end)
          break;
       skip_itor->curr++;
@@ -4953,17 +4952,15 @@ trunk_btree_skiperator_advance(iterator *itor)
    return STATUS_OK;
 }
 
-platform_status
-trunk_btree_skiperator_at_end(iterator *itor, bool *at_end)
+bool
+trunk_btree_skiperator_valid(iterator *itor)
 {
    trunk_btree_skiperator *skip_itor = (trunk_btree_skiperator *)itor;
    if (skip_itor->curr == skip_itor->end) {
-      *at_end = TRUE;
-      return STATUS_OK;
+      return FALSE;
    }
 
-   iterator_at_end(&skip_itor->itor[skip_itor->curr].super, at_end);
-   return STATUS_OK;
+   return iterator_valid(&skip_itor->itor[skip_itor->curr].super);
 }
 
 void
@@ -5740,7 +5737,7 @@ trunk_split_leaf(trunk_handle *spl,
        * 2. Use rough merge iterator to determine pivots for new leaves
        */
       bool at_end;
-      rc = iterator_at_end(&rough_merge_itor->super, &at_end);
+      at_end = !iterator_valid(&rough_merge_itor->super);
       platform_assert_status_ok(rc);
 
       uint64 rough_count_kv_bytes;
@@ -5754,7 +5751,7 @@ trunk_split_leaf(trunk_handle *spl,
          {
             key     curr_key;
             message pivot_data_message;
-            iterator_get_curr(
+            iterator_curr(
                &rough_merge_itor->super, &curr_key, &pivot_data_message);
 
             const btree_pivot_data *pivot_data =
@@ -5762,8 +5759,9 @@ trunk_split_leaf(trunk_handle *spl,
             rough_count_num_tuples += pivot_data->stats.num_kvs;
             rough_count_kv_bytes +=
                pivot_data->stats.key_bytes + pivot_data->stats.message_bytes;
-            iterator_advance(&rough_merge_itor->super);
-            iterator_at_end(&rough_merge_itor->super, &at_end);
+            rc = iterator_next(&rough_merge_itor->super);
+            platform_assert_status_ok(rc);
+            at_end = !iterator_valid(&rough_merge_itor->super);
          }
 
          if (num_leaves == 0) {
@@ -5774,7 +5772,7 @@ trunk_split_leaf(trunk_handle *spl,
          if (!at_end) {
             key     curr_key;
             message dummy_data;
-            iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
+            iterator_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
             debug_assert(key_length(curr_key) <= trunk_max_key_size(spl));
             // copy new pivot (in parent) of new leaf
             key_buffer_init_from_key(
@@ -6012,18 +6010,18 @@ trunk_split_root(trunk_handle *spl, trunk_node *root)
  *-----------------------------------------------------------------------------
  */
 void
-trunk_range_iterator_get_curr(iterator *itor, key *curr_key, message *data);
+trunk_range_iterator_curr(iterator *itor, key *curr_key, message *data);
+bool
+trunk_range_iterator_valid(iterator *itor);
 platform_status
-trunk_range_iterator_at_end(iterator *itor, bool *at_end);
-platform_status
-trunk_range_iterator_advance(iterator *itor);
+trunk_range_iterator_next(iterator *itor);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
 const static iterator_ops trunk_range_iterator_ops = {
-   .get_curr = trunk_range_iterator_get_curr,
-   .at_end   = trunk_range_iterator_at_end,
-   .advance  = trunk_range_iterator_advance,
+   .curr  = trunk_range_iterator_curr,
+   .valid = trunk_range_iterator_valid,
+   .next  = trunk_range_iterator_next,
 };
 
 platform_status
@@ -6205,7 +6203,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    }
 
    bool at_end;
-   iterator_at_end(&range_itor->merge_itor->super, &at_end);
+   at_end = !iterator_valid(&range_itor->merge_itor->super);
 
    /*
     * if the merge itor is already exhausted, and there are more keys in the
@@ -6235,7 +6233,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
          if (!SUCCESS(rc)) {
             return rc;
          }
-         iterator_at_end(&range_itor->merge_itor->super, &at_end);
+         at_end = !iterator_valid(&range_itor->merge_itor->super);
       }
    }
 
@@ -6245,23 +6243,26 @@ trunk_range_iterator_init(trunk_handle         *spl,
 }
 
 void
-trunk_range_iterator_get_curr(iterator *itor, key *curr_key, message *data)
+trunk_range_iterator_curr(iterator *itor, key *curr_key, message *data)
 {
    debug_assert(itor != NULL);
    trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
-   iterator_get_curr(&range_itor->merge_itor->super, curr_key, data);
+   iterator_curr(&range_itor->merge_itor->super, curr_key, data);
 }
 
 platform_status
-trunk_range_iterator_advance(iterator *itor)
+trunk_range_iterator_next(iterator *itor)
 {
    debug_assert(itor != NULL);
    trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
-   iterator_advance(&range_itor->merge_itor->super);
+   platform_status       rc;
+   rc = iterator_next(&range_itor->merge_itor->super);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    range_itor->num_tuples++;
    bool at_end;
-   iterator_at_end(&range_itor->merge_itor->super, &at_end);
-   platform_status rc;
+   at_end = !iterator_valid(&range_itor->merge_itor->super);
    // robj: shouldn't this be a while loop, like in the init function?
    if (at_end) {
       KEY_CREATE_LOCAL_COPY(rc,
@@ -6288,7 +6289,7 @@ trunk_range_iterator_advance(iterator *itor)
          return rc;
       }
       if (!range_itor->at_end) {
-         iterator_at_end(&range_itor->merge_itor->super, &at_end);
+         at_end = !iterator_valid(&range_itor->merge_itor->super);
          platform_assert(!at_end);
       }
    }
@@ -6296,14 +6297,13 @@ trunk_range_iterator_advance(iterator *itor)
    return STATUS_OK;
 }
 
-platform_status
-trunk_range_iterator_at_end(iterator *itor, bool *at_end)
+bool
+trunk_range_iterator_valid(iterator *itor)
 {
    debug_assert(itor != NULL);
    trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
 
-   *at_end = range_itor->at_end;
-   return STATUS_OK;
+   return !range_itor->at_end;
 }
 
 void
@@ -7389,16 +7389,15 @@ trunk_range(trunk_handle  *spl,
       goto destroy_range_itor;
    }
 
-   bool at_end;
-   iterator_at_end(&range_itor->super, &at_end);
-
-   for (int i = 0; i < num_tuples && !at_end; i++) {
+   for (int i = 0; i < num_tuples && iterator_valid(&range_itor->super); i++) {
       key     curr_key;
       message data;
-      iterator_get_curr(&range_itor->super, &curr_key, &data);
+      iterator_curr(&range_itor->super, &curr_key, &data);
       func(curr_key, data, arg);
-      iterator_advance(&range_itor->super);
-      iterator_at_end(&range_itor->super, &at_end);
+      rc = iterator_next(&range_itor->super);
+      if (!SUCCESS(rc)) {
+         goto destroy_range_itor;
+      }
    }
 
 destroy_range_itor:

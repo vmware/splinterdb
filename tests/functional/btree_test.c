@@ -866,8 +866,9 @@ test_count_tuples_in_range(cache        *cc,
                            key           high_key,
                            uint64       *count) // OUTPUT
 {
-   btree_iterator itor;
-   uint64         i;
+   platform_status rc;
+   btree_iterator  itor;
+   uint64          i;
    *count = 0;
    for (i = 0; i < num_trees; i++) {
       if (!btree_verify_tree(cc, cfg, root_addr[i], type)) {
@@ -880,13 +881,11 @@ test_count_tuples_in_range(cache        *cc,
       }
       btree_iterator_init(
          cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, 0);
-      bool at_end;
-      iterator_at_end(&itor.super, &at_end);
       key last_key = NULL_KEY;
-      while (!at_end) {
+      while (iterator_valid(&itor.super)) {
          key     curr_key;
          message data;
-         iterator_get_curr(&itor.super, &curr_key, &data);
+         iterator_curr(&itor.super, &curr_key, &data);
          if (!key_is_null(last_key)
              && data_key_compare(cfg->data_cfg, last_key, curr_key) > 0)
          {
@@ -938,13 +937,17 @@ test_count_tuples_in_range(cache        *cc,
             platform_assert(0);
          }
          (*count)++;
-         iterator_advance(&itor.super);
-         iterator_at_end(&itor.super, &at_end);
+         rc = iterator_next(&itor.super);
+         if (!SUCCESS(rc)) {
+            btree_iterator_deinit(&itor);
+            goto out;
+         }
       }
       btree_iterator_deinit(&itor);
    }
 
-   return STATUS_OK;
+out:
+   return rc;
 }
 
 static inline int
@@ -962,17 +965,18 @@ test_btree_print_all_keys(cache        *cc,
       platform_default_log("tree number %lu\n", i);
       btree_iterator_init(
          cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, 0);
-      bool at_end;
-      iterator_at_end(&itor.super, &at_end);
-      while (!at_end) {
+      while (iterator_valid(&itor.super)) {
          key     curr_key;
          message data;
-         iterator_get_curr(&itor.super, &curr_key, &data);
+         iterator_curr(&itor.super, &curr_key, &data);
          char key_str[128];
          data_key_to_string(cfg->data_cfg, curr_key, key_str, 128);
          platform_default_log("%s\n", key_str);
-         iterator_advance(&itor.super);
-         iterator_at_end(&itor.super, &at_end);
+         platform_status rc = iterator_next(&itor.super);
+         if (!SUCCESS(rc)) {
+            btree_iterator_deinit(&itor);
+            return -1;
+         }
       }
       btree_iterator_deinit(&itor);
    }
@@ -1244,7 +1248,6 @@ test_btree_rough_iterator(cache             *cc,
    iterator **rough_itor = TYPED_ARRAY_MALLOC(hid, rough_itor, num_trees);
    platform_assert(rough_itor);
 
-   bool at_end;
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
       btree_iterator_init(cc,
                           btree_cfg,
@@ -1255,12 +1258,10 @@ test_btree_rough_iterator(cache             *cc,
                           POSITIVE_INFINITY_KEY,
                           TRUE,
                           1);
-      if (SUCCESS(iterator_at_end(&rough_btree_itor[tree_no].super, &at_end))
-          && !at_end)
-      {
+      if (iterator_valid(&rough_btree_itor[tree_no].super)) {
          key     curr_key;
          message msg;
-         iterator_get_curr(&rough_btree_itor[tree_no].super, &curr_key, &msg);
+         iterator_curr(&rough_btree_itor[tree_no].super, &curr_key, &msg);
          platform_default_log("key size: %lu\n", key_length(curr_key));
       }
       rough_itor[tree_no] = &rough_btree_itor[tree_no].super;
@@ -1277,14 +1278,14 @@ test_btree_rough_iterator(cache             *cc,
    // uint64 target_num_pivots =
    //   cfg->mt_cfg->max_tuples_per_memtable / btree_cfg->tuples_per_leaf;
 
-   iterator_at_end(&rough_merge_itor->super, &at_end);
+   bool at_end = !iterator_valid(&rough_merge_itor->super);
 
    uint64 pivot_no;
    for (pivot_no = 0; !at_end; pivot_no++) {
       // uint64 rough_count_pivots = 0;
       key     curr_key;
       message dummy_data;
-      iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
+      iterator_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
       if (key_length(curr_key) != btree_cfg->data_cfg->max_key_size) {
          platform_default_log("Weird key length: %lu should be: %lu\n",
                               key_length(curr_key),

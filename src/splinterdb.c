@@ -643,20 +643,15 @@ splinterdb_iterator_valid(splinterdb_iterator *kvi)
    if (!SUCCESS(kvi->last_rc)) {
       return FALSE;
    }
-   bool      at_end;
    iterator *itor = &(kvi->sri.super);
-   kvi->last_rc   = iterator_at_end(itor, &at_end);
-   if (!SUCCESS(kvi->last_rc)) {
-      return FALSE;
-   }
-   return !at_end;
+   return iterator_valid(itor);
 }
 
 void
 splinterdb_iterator_next(splinterdb_iterator *kvi)
 {
    iterator *itor = &(kvi->sri.super);
-   kvi->last_rc   = iterator_advance(itor);
+   kvi->last_rc   = iterator_next(itor);
 }
 
 int
@@ -675,7 +670,7 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
    message   msg;
    iterator *itor = &(iter->sri.super);
 
-   iterator_get_curr(itor, &result_key, &msg);
+   iterator_curr(itor, &result_key, &msg);
    *value  = message_slice(msg);
    *outkey = key_slice(result_key);
 }

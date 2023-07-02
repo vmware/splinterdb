@@ -425,18 +425,17 @@ iterator_tests(cache           *cc,
 
    iterator *iter = (iterator *)&dbiter;
 
-   uint64 seen = 0;
-   bool   at_end;
+   uint64 seen    = 0;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
    key    prev    = NULL_KEY;
    uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
    uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
-   while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
+   while (iterator_valid(iter)) {
       key     curr_key;
       message msg;
 
-      iterator_get_curr(iter, &curr_key, &msg);
+      iterator_curr(iter, &curr_key, &msg);
       uint64 k = ungen_key(curr_key);
       ASSERT_TRUE(k < nkvs);
 
@@ -456,7 +455,7 @@ iterator_tests(cache           *cc,
       prev = key_create(key_length(curr_key), prevbuf);
       key_copy_contents(prevbuf, curr_key);
 
-      if (!SUCCESS(iterator_advance(iter))) {
+      if (!SUCCESS(iterator_next(iter))) {
          break;
       }
    }

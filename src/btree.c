@@ -2391,13 +2391,19 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
  *-----------------------------------------------------------------------------
  */
 static bool
-btree_iterator_is_at_end(btree_iterator *itor)
+btree_iterator_valid(btree_iterator *itor)
 {
-   return itor->curr.addr == itor->end_addr && itor->idx == itor->end_idx;
+   return itor->curr.addr != itor->end_addr || itor->idx != itor->end_idx;
+}
+
+static bool
+btree_iterator_valid_virtual(iterator *itor)
+{
+   return btree_iterator_valid((btree_iterator *)itor);
 }
 
 void
-btree_iterator_get_curr(iterator *base_itor, key *curr_key, message *data)
+btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
@@ -2407,7 +2413,7 @@ btree_iterator_get_curr(iterator *base_itor, key *curr_key, message *data)
       btree_print_tree(itor->cc, itor->cfg, itor->root_addr);
    }
    */
-   debug_assert(!btree_iterator_is_at_end(itor));
+   debug_assert(btree_iterator_valid(itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
    debug_assert(itor->curr.page != NULL);
    debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
@@ -2534,35 +2540,25 @@ btree_iterator_advance_leaf(btree_iterator *itor)
 }
 
 platform_status
-btree_iterator_advance(iterator *base_itor)
+btree_iterator_next(iterator *base_itor)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
 
    // We should not be calling advance on an empty iterator
-   debug_assert(!btree_iterator_is_at_end(itor));
+   debug_assert(btree_iterator_valid(itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
 
    itor->idx++;
 
-   if (!btree_iterator_is_at_end(itor)
+   if (btree_iterator_valid(itor)
        && itor->idx == btree_num_entries(itor->curr.hdr))
    {
       btree_iterator_advance_leaf(itor);
    }
 
-   debug_assert(btree_iterator_is_at_end(itor)
+   debug_assert(!btree_iterator_valid(itor)
                 || itor->idx < btree_num_entries(itor->curr.hdr));
-
-   return STATUS_OK;
-}
-
-
-platform_status
-btree_iterator_at_end(iterator *itor, bool *at_end)
-{
-   debug_assert(itor != NULL);
-   *at_end = btree_iterator_is_at_end((btree_iterator *)itor);
 
    return STATUS_OK;
 }
@@ -2590,10 +2586,10 @@ btree_iterator_print(iterator *itor)
 }
 
 const static iterator_ops btree_iterator_ops = {
-   .get_curr = btree_iterator_get_curr,
-   .at_end   = btree_iterator_at_end,
-   .advance  = btree_iterator_advance,
-   .print    = btree_iterator_print,
+   .curr  = btree_iterator_curr,
+   .valid = btree_iterator_valid_virtual,
+   .next  = btree_iterator_next,
+   .print = btree_iterator_print,
 };
 
 
@@ -2697,7 +2693,7 @@ btree_iterator_init(cache          *cc,
    }
    itor->idx = tmp;
 
-   if (!btree_iterator_is_at_end(itor)
+   if (btree_iterator_valid(itor)
        && itor->idx == btree_num_entries(itor->curr.hdr))
    {
       btree_iterator_advance_leaf(itor);
@@ -2710,7 +2706,7 @@ btree_iterator_init(cache          *cc,
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
    }
 
-   debug_assert(btree_iterator_is_at_end(itor)
+   debug_assert(!btree_iterator_valid(itor)
                 || itor->idx < btree_num_entries(itor->curr.hdr));
 }
 
@@ -2981,10 +2977,9 @@ btree_pack(btree_pack_req *req)
 
    key     tuple_key = NEGATIVE_INFINITY_KEY;
    message data;
-   bool    at_end;
 
-   while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
-      iterator_get_curr(req->itor, &tuple_key, &data);
+   while (iterator_valid(req->itor)) {
+      iterator_curr(req->itor, &tuple_key, &data);
       if (!btree_pack_can_fit_tuple(req, tuple_key, data)) {
          platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
                             "limit, req->max_tuples=%lu\n",
@@ -3000,7 +2995,12 @@ btree_pack(btree_pack_req *req)
          btree_pack_abort(req);
          return rc;
       }
-      iterator_advance(req->itor);
+      rc = iterator_next(req->itor);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s error status: %d\n", __func__, rc.r);
+         btree_pack_abort(req);
+         return rc;
+      }
    }
 
    btree_pack_post_loop(req, tuple_key);
@@ -3086,17 +3086,15 @@ btree_count_in_range_by_iterator(cache             *cc,
 
    memset(stats, 0, sizeof(*stats));
 
-   bool at_end;
-   iterator_at_end(itor, &at_end);
-   while (!at_end) {
+   while (iterator_valid(itor)) {
       key     curr_key;
       message msg;
-      iterator_get_curr(itor, &curr_key, &msg);
+      iterator_curr(itor, &curr_key, &msg);
       stats->num_kvs++;
       stats->key_bytes += key_length(curr_key);
       stats->message_bytes += message_length(msg);
-      iterator_advance(itor);
-      iterator_at_end(itor, &at_end);
+      platform_status rc = iterator_next(itor);
+      platform_assert_status_ok(rc);
    }
    btree_iterator_deinit(&btree_itor);
 }

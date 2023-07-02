@@ -18,18 +18,18 @@ struct merge_behavior {
 
 /* Function declarations and iterator_ops */
 void
-merge_get_curr(iterator *itor, key *curr_key, message *data);
+merge_curr(iterator *itor, key *curr_key, message *data);
+
+bool
+merge_valid(iterator *itor);
 
 platform_status
-merge_at_end(iterator *itor, bool *at_end);
-
-platform_status
-merge_advance(iterator *itor);
+merge_next(iterator *itor);
 
 static iterator_ops merge_ops = {
-   .get_curr = merge_get_curr,
-   .at_end   = merge_at_end,
-   .advance  = merge_advance,
+   .curr  = merge_curr,
+   .valid = merge_valid,
+   .next  = merge_next,
 };
 
 /*
@@ -107,7 +107,7 @@ bsearch_insert(register const ordered_iterator *key,
 static inline void
 set_curr_ordered_iterator(const data_config *cfg, ordered_iterator *itor)
 {
-   iterator_get_curr(itor->itor, &itor->curr_key, &itor->curr_data);
+   iterator_curr(itor->itor, &itor->curr_key, &itor->curr_data);
    debug_assert(key_is_user_key(itor->curr_key));
 }
 
@@ -154,19 +154,13 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
    merge_itor->ordered_iterators[0]->curr_key       = NULL_KEY;
    merge_itor->ordered_iterators[0]->curr_data      = NULL_MESSAGE;
-   rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
+   rc = iterator_next(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   bool at_end;
    // if it's exhausted, kill it and move the ritors up the queue.
-   rc = iterator_at_end(merge_itor->ordered_iterators[0]->itor, &at_end);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   if (UNLIKELY(at_end)) {
+   if (UNLIKELY(!iterator_valid(merge_itor->ordered_iterators[0]->itor))) {
       merge_itor->num_remaining--;
       ordered_iterator *tmp = merge_itor->ordered_iterators[0];
       for (int i = 0; i < merge_itor->num_remaining; ++i) {
@@ -457,12 +451,7 @@ merge_iterator_create(platform_heap_id hid,
    merge_itor->num_remaining = num_trees;
    i                         = 0;
    while (i < merge_itor->num_remaining) {
-      bool at_end;
-      rc = iterator_at_end(merge_itor->ordered_iterators[i]->itor, &at_end);
-      if (!SUCCESS(rc)) {
-         goto destroy;
-      }
-      if (at_end) {
+      if (!iterator_valid(merge_itor->ordered_iterators[i]->itor)) {
          ordered_iterator *tmp =
             merge_itor->ordered_iterators[merge_itor->num_remaining - 1];
          merge_itor->ordered_iterators[merge_itor->num_remaining - 1] =
@@ -493,14 +482,21 @@ merge_iterator_create(platform_heap_id hid,
    bool retry;
    rc = advance_one_loop(merge_itor, &retry);
    if (!SUCCESS(rc)) {
-      goto out;
+      goto destroy;
    }
 
    if (retry) {
-      rc = merge_advance((iterator *)merge_itor);
+      rc = merge_next((iterator *)merge_itor);
+      if (!SUCCESS(rc)) {
+         goto destroy;
+      }
    }
 
-   goto out;
+   *out_itor = merge_itor;
+   if (!merge_itor->at_end) {
+      debug_assert_message_type_valid(merge_itor);
+   }
+   return rc;
 
 destroy:
    merge_iterator_rc = merge_iterator_destroy(hid, &merge_itor);
@@ -512,16 +508,6 @@ destroy:
       }
    }
 
-out:
-   if (!SUCCESS(rc)) {
-      platform_error_log("merge_iterator_create: exception: %s\n",
-                         platform_status_to_string(rc));
-   } else {
-      *out_itor = merge_itor;
-      if (!merge_itor->at_end) {
-         debug_assert_message_type_valid(merge_itor);
-      }
-   }
    return rc;
 }
 
@@ -557,15 +543,12 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
  *      None.
  *-----------------------------------------------------------------------------
  */
-platform_status
-merge_at_end(iterator *itor, // IN
-             bool     *at_end)   // OUT
+bool
+merge_valid(iterator *itor) // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   *at_end                    = merge_itor->at_end;
-   debug_assert(*at_end == key_is_null(merge_itor->curr_key));
-
-   return STATUS_OK;
+   debug_assert(merge_itor->at_end == key_is_null(merge_itor->curr_key));
+   return !merge_itor->at_end;
 }
 
 /*
@@ -582,7 +565,7 @@ merge_at_end(iterator *itor, // IN
  *-----------------------------------------------------------------------------
  */
 void
-merge_get_curr(iterator *itor, key *curr_key, message *data)
+merge_curr(iterator *itor, key *curr_key, message *data)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(!merge_itor->at_end);
@@ -601,7 +584,7 @@ merge_get_curr(iterator *itor, key *curr_key, message *data)
  *-----------------------------------------------------------------------------
  */
 platform_status
-merge_advance(iterator *itor)
+merge_next(iterator *itor)
 {
    platform_status rc         = STATUS_OK;
    merge_iterator *merge_itor = (merge_iterator *)itor;
@@ -632,7 +615,7 @@ merge_iterator_print(merge_iterator *merge_itor)
    key          curr_key;
    message      data;
    data_config *data_cfg = merge_itor->cfg;
-   iterator_get_curr(&merge_itor->super, &curr_key, &data);
+   iterator_curr(&merge_itor->super, &curr_key, &data);
 
    platform_default_log("****************************************\n");
    platform_default_log("** merge iterator\n");
@@ -642,16 +625,14 @@ merge_iterator_print(merge_iterator *merge_itor)
    platform_default_log("** curr: %s\n", key_string(data_cfg, curr_key));
    platform_default_log("----------------------------------------\n");
    for (i = 0; i < merge_itor->num_trees; i++) {
-      bool at_end;
-      iterator_at_end(merge_itor->ordered_iterators[i]->itor, &at_end);
       platform_default_log("%u: ", merge_itor->ordered_iterators[i]->seq);
-      if (at_end) {
+      if (!iterator_valid(merge_itor->ordered_iterators[i]->itor)) {
          platform_default_log("# : ");
       } else {
          platform_default_log("_ : ");
       }
       if (i < merge_itor->num_remaining) {
-         iterator_get_curr(
+         iterator_curr(
             merge_itor->ordered_iterators[i]->itor, &curr_key, &data);
          platform_default_log("%s\n", key_string(data_cfg, curr_key));
       } else {

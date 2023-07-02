@@ -1215,20 +1215,18 @@ routing_filter_verify(cache          *cc,
                       uint16          value,
                       iterator       *itor)
 {
-   bool at_end;
-   iterator_at_end(itor, &at_end);
-   while (!at_end) {
+   while (iterator_valid(itor)) {
       key     curr_key;
       message msg;
-      iterator_get_curr(itor, &curr_key, &msg);
+      iterator_curr(itor, &curr_key, &msg);
       debug_assert(key_is_user_key(curr_key));
       uint64          found_values;
       platform_status rc =
          routing_filter_lookup(cc, cfg, filter, curr_key, &found_values);
       platform_assert_status_ok(rc);
       platform_assert(routing_filter_is_value_found(found_values, value));
-      iterator_advance(itor);
-      iterator_at_end(itor, &at_end);
+      rc = iterator_next(itor);
+      platform_assert_status_ok(rc);
    }
 }
 
