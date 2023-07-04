@@ -56,13 +56,12 @@ sketch_deinit(sketch *sktch)
 static inline uint64_t
 get_index_in_row(sketch *sktch, KeyType key, uint64_t row)
 {
-   if (sktch->cols == 1) {
-      return 0;
-   }
-
+   bool     should_compute_hash = sktch->cols > 1;
    uint64_t col =
-      MurmurHash64A_inline((const void *)key, KEY_SIZE, sktch->hashes[row])
-      % sktch->cols;
+      should_compute_hash
+         ? MurmurHash64A_inline((const void *)key, KEY_SIZE, sktch->hashes[row])
+              % sktch->cols
+         : 0;
    return row * sktch->cols + col;
 }
 
