@@ -11,11 +11,11 @@
 #include "poison.h"
 
 
-/* 
+/*
  * Implementation of the classic Strict Timestamp Ordering.
  * The implementation uses a dirty bit to prevent transactions
  * from reading uncommitted data.
- * 
+ *
  * The dirty bit is also used a latch to protect against race
  * conditions that may appear from running multiple threads.
  */
@@ -44,26 +44,20 @@ typedef struct {
 } timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
 typedef struct rw_entry {
-   slice            key;
-   message          msg; // value + op
-   timestamp_set    *ts;
-   bool             is_read;
-   bool             need_to_keep_key;
-   bool             need_to_decrease_refcount;
+   slice          key;
+   message        msg; // value + op
+   timestamp_set *ts;
+   bool           is_read;
+   bool           need_to_keep_key;
+   bool           need_to_decrease_refcount;
 } rw_entry;
 
-enum sto_access_rc {
-   STO_ACCESS_OK,
-   STO_ACCESS_BUSY,
-   STO_ACCESS_ABORT
-};
+enum sto_access_rc { STO_ACCESS_OK, STO_ACCESS_BUSY, STO_ACCESS_ABORT };
 
 static inline txn_timestamp
 get_next_global_ts()
 {
-   return __atomic_add_fetch(&global_ts,
-                              1,
-                              __ATOMIC_RELAXED);
+   return __atomic_add_fetch(&global_ts, 1, __ATOMIC_RELAXED);
 }
 
 static inline bool
@@ -107,7 +101,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
 
    timestamp_set ts = {0};
-   entry->ts  = &ts;
+   entry->ts        = &ts;
    bool is_new_item = iceberg_insert_and_get_without_increasing_refcount(
       txn_kvsb->tscache,
       key_ht,
@@ -117,7 +111,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 #else
    // increase refcount for key
    timestamp_set ts = {0};
-   entry->ts  = &ts;
+   entry->ts        = &ts;
    bool is_new_item = iceberg_insert_and_get(txn_kvsb->tscache,
                                              key_ht,
                                              (ValueType **)&entry->ts,
@@ -246,7 +240,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
 static inline void
 rw_entry_unlock(rw_entry *entry)
 {
-   //platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
+   // platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
    timestamp_set v1, v2;
    do {
       timestamp_set_load(entry->ts, &v1);
@@ -270,7 +264,7 @@ rw_entry_try_read_lock(rw_entry *entry, uint64 txn_ts)
    v2.dirty_bit = 1;
    if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
       if (txn_ts < v1.wts) {
-         //TO rule would be violated so we need to abort
+         // TO rule would be violated so we need to abort
          rw_entry_unlock(entry);
          return STO_ACCESS_ABORT;
       }
@@ -286,7 +280,7 @@ rw_entry_try_write_lock(rw_entry *entry, uint64 txn_ts)
    timestamp_set v1, v2;
    timestamp_set_load(entry->ts, &v1);
    if (txn_ts < v1.wts || txn_ts < v1.rts) {
-      //TO rule would be violated so we need to abort
+      // TO rule would be violated so we need to abort
       return STO_ACCESS_ABORT;
    }
    v2 = v1;
@@ -343,8 +337,8 @@ transactional_splinterdb_config_init(
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
 
    txn_splinterdb_cfg->tscache_log_slots = 29;
-   txn_splinterdb_cfg->tscache_rows = 2;
-   txn_splinterdb_cfg->tscache_cols = 131072;
+   txn_splinterdb_cfg->tscache_rows      = 2;
+   txn_splinterdb_cfg->tscache_cols      = 131072;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
@@ -378,14 +372,15 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
-//   platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
-//                   == 0);
-  platform_assert(iceberg_init_with_sketch(
-           tscache,
-		      txn_splinterdb_cfg->tscache_log_slots,
-		      txn_splinterdb_cfg->tscache_rows,
-		      txn_splinterdb_cfg->tscache_cols)
-                  == 0);
+   //   platform_assert(iceberg_init(tscache,
+   //   txn_splinterdb_cfg->tscache_log_slots)
+   //                   == 0);
+   platform_assert(
+      iceberg_init_with_sketch(tscache,
+                               txn_splinterdb_cfg->tscache_log_slots,
+                               txn_splinterdb_cfg->tscache_rows,
+                               txn_splinterdb_cfg->tscache_cols)
+      == 0);
 
    _txn_kvsb->tscache = tscache;
 
@@ -444,7 +439,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
    txn->ts = get_next_global_ts();
-   //platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
+   // platform_default_log("Starting transaction, ts = %lu\n", txn->ts);
    return 0;
 }
 
@@ -567,6 +562,15 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
+   // Call non-transactional insertion for YCSB loading..
+   if (txn == NULL) {
+      rw_entry tmp_entry;
+      rw_entry_set_key(&tmp_entry, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
+      splinterdb_insert(txn_kvsb->kvsb, tmp_entry.key, value);
+      platform_free_from_heap(0, (void *)slice_data(tmp_entry.key));
+      return 0;
+   }
+
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }
@@ -610,12 +614,11 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       // for upsert.
       // TODO if it succeeded, this read should not be considered for
       // validation. entry->is_read should be false.
-      _splinterdb_lookup_result *_result =
-            (_splinterdb_lookup_result *)result;
+      _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
       merge_accumulator_resize(&_result->value, message_length(entry->msg));
       memcpy(merge_accumulator_data(&_result->value),
-                message_data(entry->msg),
-                message_length(entry->msg));
+             message_data(entry->msg),
+             message_length(entry->msg));
    } else {
       if (rw_entry_read_lock(entry, txn->ts) == STO_ACCESS_ABORT) {
          transactional_splinterdb_abort(txn_kvsb, txn);
