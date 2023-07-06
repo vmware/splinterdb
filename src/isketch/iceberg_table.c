@@ -1816,6 +1816,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          }
 
          *key = head->kv.key;
+         head->kv.refcount = 0;
          iceberg_lv3_node *old_head = lists[boffset].head;
          lists[boffset].head = lists[boffset].head->next_node;
          free(old_head);
@@ -1857,10 +1858,12 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          if (force_remove || (delete_item && next_node->kv.refcount == 1)) {
             // If it has a sketch, insert the removed value to it.
             if (table->sktch) {
-               sketch_insert(table->sktch, head->kv.key, head->kv.val);
+               sketch_insert(
+                  table->sktch, next_node->kv.key, next_node->kv.val);
             }
 
             *key = next_node->kv.key;
+            next_node->kv.refcount = 0;
             iceberg_lv3_node *old_node = current_node->next_node;
             current_node->next_node = current_node->next_node->next_node;
             free(old_node);

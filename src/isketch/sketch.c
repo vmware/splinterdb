@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <immintrin.h>
 
 void
@@ -17,9 +18,11 @@ sketch_init(uint64_t rows, uint64_t cols, sketch *sktch)
    sktch->rows = rows;
    sktch->cols = cols;
 
+   uint64_t table_size = sktch->rows * sktch->cols * sizeof(sketch_item);
+
    sktch->table =
       (sketch_item *)mmap(NULL,
-                          sktch->rows * sktch->cols * sizeof(sketch_item),
+                          table_size,
                           PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
                           0,
@@ -28,6 +31,8 @@ sketch_init(uint64_t rows, uint64_t cols, sketch *sktch)
       perror("table malloc failed");
       exit(1);
    }
+
+   memset(sktch->table, 0, table_size);
 
    sktch->hashes =
       (unsigned int *)mmap(NULL,
