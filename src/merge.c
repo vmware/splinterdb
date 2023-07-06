@@ -522,6 +522,7 @@ out:
          debug_assert_message_type_valid(merge_itor);
       }
    }
+   platform_assert(SUCCESS(rc) == (*out_itor != NULL));
    return rc;
 }
 

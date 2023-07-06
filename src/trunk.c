@@ -674,6 +674,33 @@ trunk_node_is_index(trunk_node *node)
    return !trunk_node_is_leaf(node);
 }
 
+// call this function when entering data_config critical functions.
+static inline void
+trunk_cfg_counter_enter(trunk_handle *spl)
+{
+   threadid tid = platform_get_tid();
+   platform_assert(tid < MAX_THREADS);
+   if (spl->cfg_crit_count[tid].depth == 0) {
+      platform_assert(spl->cfg_crit_count[tid].counter % 2 == 0);
+      ++spl->cfg_crit_count[tid].counter;
+   }
+   ++spl->cfg_crit_count[tid].depth;
+}
+
+// call this funciton when exiting data_config critical functions.
+static inline void
+trunk_cfg_counter_exit(trunk_handle *spl)
+{
+   threadid tid = platform_get_tid();
+   platform_assert(tid < MAX_THREADS);
+   platform_assert(spl->cfg_crit_count[tid].depth > 0);
+   --spl->cfg_crit_count[tid].depth;
+   if (spl->cfg_crit_count[tid].depth == 0) {
+      platform_assert(spl->cfg_crit_count[tid].counter % 2 == 1);
+      ++spl->cfg_crit_count[tid].counter;
+   }
+}
+
 /*
  *-----------------------------------------------------------------------------
  * Compaction Requests
@@ -3785,7 +3812,9 @@ static void
 trunk_memtable_flush_internal_virtual(void *arg, void *scratch)
 {
    trunk_memtable_args *mt_args = arg;
+   trunk_cfg_counter_enter(mt_args->spl);
    trunk_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   trunk_cfg_counter_exit(mt_args->spl);
 }
 
 /*
@@ -4221,6 +4250,8 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    trunk_compact_bundle_req *compact_req = (trunk_compact_bundle_req *)arg;
    trunk_handle             *spl         = compact_req->spl;
 
+   trunk_cfg_counter_enter(spl);
+
    bool should_continue_build_filters = TRUE;
    while (should_continue_build_filters) {
       trunk_node      node;
@@ -4262,6 +4293,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
             spl, &stream, "out of order, reequeuing\n");
          trunk_close_log_stream_if_enabled(spl, &stream);
          trunk_node_unget(spl->cc, &node);
+         trunk_cfg_counter_exit(spl);
          return;
       }
 
@@ -4391,6 +4423,7 @@ out:
    key_buffer_deinit(&compact_req->end_key);
    platform_free(spl->heap_id, compact_req);
    trunk_maybe_reclaim_space(spl);
+   trunk_cfg_counter_exit(spl);
    return;
 }
 
@@ -5071,6 +5104,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_handle             *spl          = req->spl;
    threadid                  tid;
 
+   trunk_cfg_counter_enter(spl); // entering data_config critical region
+
    /*
     * 1. Acquire node read lock
     */
@@ -5396,6 +5431,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 out:
    trunk_log_stream_if_enabled(spl, &stream, "\n");
    trunk_close_log_stream_if_enabled(spl, &stream);
+   trunk_cfg_counter_exit(spl); // exiting data_config critical region
 }
 
 /*
@@ -6213,32 +6249,24 @@ trunk_range_iterator_init(trunk_handle         *spl,
     */
    if (at_end) {
       KEY_CREATE_LOCAL_COPY(rc,
-                            local_max_key,
-                            spl->heap_id,
-                            key_buffer_key(&range_itor->local_max_key));
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-      KEY_CREATE_LOCAL_COPY(rc,
                             rebuild_key,
                             spl->heap_id,
                             key_buffer_key(&range_itor->rebuild_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
+
+      uint64 temp_tuples = range_itor->num_tuples;
       trunk_range_iterator_deinit(range_itor);
-      if (1 && trunk_key_compare(spl, local_max_key, POSITIVE_INFINITY_KEY) != 0
-          && trunk_key_compare(spl, local_max_key, max_key) < 0)
-      {
+      if (trunk_key_compare(spl, rebuild_key, max_key) < 0) {
          rc = trunk_range_iterator_init(
-            spl, range_itor, rebuild_key, max_key, range_itor->num_tuples);
+            spl, range_itor, rebuild_key, max_key, temp_tuples);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         iterator_at_end(&range_itor->merge_itor->super, &at_end);
+         at_end = range_itor->at_end;
       }
    }
-
    range_itor->at_end = at_end;
 
    return rc;
@@ -6519,6 +6547,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data)
    if (trunk_max_key_size(spl) < key_length(tuple_key)) {
       return STATUS_BAD_PARAM;
    }
+   trunk_cfg_counter_enter(spl);
 
    if (message_class(data) == MESSAGE_TYPE_DELETE) {
       data = DELETE_MESSAGE;
@@ -6554,6 +6583,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data)
    }
 
 out:
+   trunk_cfg_counter_exit(spl);
    return rc;
 }
 
@@ -6727,6 +6757,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
    //                also handles switch to READY ^^^^^
 
    merge_accumulator_set_to_null(result);
+   trunk_cfg_counter_enter(spl);
 
    memtable_begin_lookup(spl->mt_ctxt);
    bool   found_in_memtable = FALSE;
@@ -6805,6 +6836,7 @@ found_final_answer_early:
       merge_accumulator_set_to_null(result);
    }
 
+   trunk_cfg_counter_exit(spl);
    return STATUS_OK;
 }
 
@@ -6929,6 +6961,8 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
 {
    cache_async_result res = 0;
    threadid           tid;
+
+   trunk_cfg_counter_enter(spl);
 
 #if TRUNK_DEBUG
    cache_enable_sync_get(spl->cc, FALSE);
@@ -7371,6 +7405,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
    cache_enable_sync_get(spl->cc, TRUE);
 #endif
 
+   trunk_cfg_counter_exit(spl);
    return res;
 }
 
@@ -7382,6 +7417,7 @@ trunk_range(trunk_handle  *spl,
             tuple_function func,
             void          *arg)
 {
+   trunk_cfg_counter_enter(spl);
    trunk_range_iterator *range_itor = TYPED_MALLOC(spl->heap_id, range_itor);
    platform_status       rc         = trunk_range_iterator_init(
       spl, range_itor, start_key, POSITIVE_INFINITY_KEY, num_tuples);
@@ -7404,6 +7440,7 @@ trunk_range(trunk_handle  *spl,
 destroy_range_itor:
    trunk_range_iterator_deinit(range_itor);
    platform_free(spl->heap_id, range_itor);
+   trunk_cfg_counter_exit(spl);
    return rc;
 }
 

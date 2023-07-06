@@ -10,10 +10,18 @@
 #include <stdlib.h>
 
 // This is just a normal splinterdb_iterator
-// but to have a clean interface, we pretend its not
+// but to have a clean interface, we pretend it's not
 struct splinterdb_cf_iterator {
    splinterdb_iterator iter;
 };
+
+typedef struct cf_data_config {
+   data_config        general_config;
+   platform_semaphore table_sema;
+   column_family_id   num_families;
+   column_family_id   capacity;
+   data_config      **config_table;
+} cf_data_config;
 
 /*
  * Extract errno.h -style status int from a platform_status
@@ -44,7 +52,6 @@ userkey_to_cf_key(slice            userkey,
                   column_family_id cf_id,
                   writable_buffer *cf_key_wb)
 {
-   // extract from the user's key and resize the buffer
    uint64      key_len = slice_length(userkey);
    const void *data    = slice_data(userkey);
 
@@ -65,31 +72,51 @@ cf_key_to_userkey(slice cf_key)
 }
 
 static inline column_family_id
-cfg_table_insert(cf_data_config *cf_cfg, data_config *data_cfg)
+cfg_table_insert(splinterdb *kvs, cf_data_config *cf_cfg, data_config *data_cfg)
 {
+
+   platform_semaphore_wait(&cf_cfg->table_sema);
    column_family_id new_id = cf_cfg->num_families;
    cf_cfg->num_families += 1;
 
    // reallocate table memory if necessary
-   if (cf_cfg->table_mem <= new_id) {
-      cf_cfg->config_table = (data_config **)platform_realloc(platform_get_heap_id(),
-         cf_cfg->config_table, (new_id + 1) * 2 * sizeof(data_config *));
+   if (cf_cfg->capacity <= new_id) {
+      cf_cfg->capacity *= 2;
+      data_config **new_table = TYPED_ARRAY_MALLOC(
+         platform_get_heap_id(), new_table, cf_cfg->capacity);
+      if (new_table == NULL) {
+         platform_error_log("TYPED_ARRAY_MALLOC error\n");
+         return -1;
+      }
+
+      memcpy(new_table,
+             cf_cfg->config_table,
+             cf_cfg->num_families * sizeof(data_config *));
+      data_config **old_table = cf_cfg->config_table;
+      cf_cfg->config_table    = new_table;
+
+      // wait until all threads have the change to observe this table change
+      // 1. make copy of counters
+      uint64 local_counter_copy[MAX_THREADS];
+      for (int i = 0; i < MAX_THREADS; i++)
+         local_counter_copy[i] = kvs->spl->cfg_crit_count[i].counter;
+
+      // 2. for each thread wait until copy is even or that current is > copy
+      for (int i = 0; i < MAX_THREADS; i++) {
+         if (local_counter_copy[i] % 2 == 1)
+            while (local_counter_copy[i] >= kvs->spl->cfg_crit_count[i].counter)
+               ;
+      }
+      // free the old table
+      platform_free(platform_get_heap_id(), old_table);
    }
 
    // place new data_config in table
    cf_cfg->config_table[new_id] = data_cfg;
 
+   platform_semaphore_post(&cf_cfg->table_sema);
+
    return new_id;
-}
-
-static inline void
-cfg_table_delete(cf_data_config *cf_cfg, column_family_id cf_id)
-{
-   // memory is held by user so don't free it
-   // just mark the config_table entry as NULL
-   cf_cfg->config_table[cf_id] = NULL;
-
-   // TODO: Reuse this slot somehow?
 }
 
 // lookup a data_config in the table.
@@ -119,7 +146,7 @@ column_family_create(splinterdb  *kvs,
    // convert from data_config to cf_data_config
    cf_data_config *cf_cfg = (cf_data_config *)kvs->data_cfg;
 
-   column_family_id new_id = cfg_table_insert(cf_cfg, new_data_cfg);
+   column_family_id new_id = cfg_table_insert(kvs, cf_cfg, new_data_cfg);
 
    // return new column family
    splinterdb_column_family cf;
@@ -133,10 +160,7 @@ column_family_create(splinterdb  *kvs,
 void
 column_family_delete(splinterdb_column_family cf)
 {
-   // convert from data_config to cf_data_config
-   cf_data_config *cf_cfg = (cf_data_config *)cf.kvs->data_cfg;
-
-   cfg_table_delete(cf_cfg, cf.id);
+   // TODO: Issue deletion messages to all keys within the column family!
 }
 
 // SplinterDB Functions
@@ -380,10 +404,7 @@ cf_key_compare(const data_config *cfg, slice key1, slice key2)
 
    // get the data_config for this column family
    data_config *cf_cfg = cfg_table_lookup((cf_data_config *)cfg, cf_id1);
-
-   // keys are equal if the config has been deleted. Squish it all together.
-   if (cf_cfg == NULL)
-      return 0;
+   platform_assert(cf_cfg != NULL);
 
    // call column family's function
    return cf_cfg->key_compare(cf_cfg, userkey1, userkey2);
@@ -399,11 +420,7 @@ cf_merge_tuples(const data_config *cfg,
 
    // get the data_config for this column family and call its function
    data_config *cf_cfg = cfg_table_lookup((cf_data_config *)cfg, cf_id);
-   if (cf_cfg == NULL) {
-      // new_message becomes a deletion as the column family has been deleted
-      new_message->type = MESSAGE_TYPE_DELETE;
-      return 0;
-   }
+   platform_assert(cf_cfg != NULL);
 
    // call column family's function
    return cf_cfg->merge_tuples(
@@ -420,11 +437,7 @@ cf_merge_tuples_final(const data_config *cfg,
 
    // get the data_config for this column family
    data_config *cf_cfg = cfg_table_lookup((cf_data_config *)cfg, cf_id);
-   if (cf_cfg == NULL) {
-      // oldest_data becomes a deletion as the column family has been deleted
-      oldest_data->type = MESSAGE_TYPE_DELETE;
-      return 0;
-   }
+   platform_assert(cf_cfg != NULL);
 
    // call column family's function
    return cf_cfg->merge_tuples_final(
@@ -450,16 +463,11 @@ cf_message_to_string(const data_config *cfg,
 
 // Initialize the data_config stored in the cf_data_config.
 // Its data_config is then passed to SplinterDB to add support for
-// column families
-//
-// TODO: The key_hash function cannot be overwritten by column families
-//       at this time. This is because we do not have access to the cfg
-//       in the key_hash. So we have no way of accessing a user defined
-//       key_hash for the column family. This should probably be fixed.
-//       Likely requires adding the cfg to the key_hash_fn type.
+// column families. The memory for the column_family_config is managed
+// by splinter. Not the user.
 void
-column_family_config_init(const uint64    max_key_size, // IN
-                          cf_data_config *cf_cfg        // OUT
+column_family_config_init(const uint64  max_key_size, // IN
+                          data_config **data_cfg      // OUT
 )
 {
    data_config cfg = {
@@ -472,19 +480,26 @@ column_family_config_init(const uint64    max_key_size, // IN
       .message_to_string  = cf_message_to_string,
    };
 
+   platform_heap_id hid    = platform_get_heap_id();
+   cf_data_config  *cf_cfg = TYPED_MALLOC(hid, cf_cfg);
+
    cf_cfg->general_config = cfg;
    cf_cfg->num_families   = 0;
-   cf_cfg->config_table   = NULL;
-   cf_cfg->table_mem      = 0;
+   cf_cfg->capacity       = 1;
+   cf_cfg->config_table   = TYPED_MALLOC(hid, cf_cfg->config_table);
+
+   platform_semaphore_init(&cf_cfg->table_sema, 1, hid);
+   *data_cfg = (data_config *)cf_cfg;
 }
 
 void
-column_family_config_deinit(cf_data_config *cf_cfg)
+column_family_config_deinit(data_config *data_cfg)
 {
-   // we assume that the user will handle deallocating the table entries
-   // we just need to dealloc our array of pointers
-   if (cf_cfg->config_table != NULL)
-      platform_free(platform_get_heap_id(), cf_cfg->config_table);
-   cf_cfg->config_table = NULL;
-   cf_cfg->table_mem    = 0;
+   cf_data_config *cf_cfg = (cf_data_config *)data_cfg;
+
+   // user deallocates their cf's data configs
+   // we need to deallocate everything else
+   platform_semaphore_destroy(&cf_cfg->table_sema);
+   platform_free(platform_get_heap_id(), cf_cfg->config_table);
+   platform_free(platform_get_heap_id(), cf_cfg);
 }
