@@ -259,7 +259,7 @@ rw_entry_try_read_lock(rw_entry *entry, uint64 txn_ts)
    }
    v2 = v1;
    if (v1.dirty_bit) {
-      return false;
+      return STO_ACCESS_BUSY;
    }
    v2.dirty_bit = 1;
    if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
@@ -285,7 +285,7 @@ rw_entry_try_write_lock(rw_entry *entry, uint64 txn_ts)
    }
    v2 = v1;
    if (v1.dirty_bit) {
-      return false;
+      return STO_ACCESS_BUSY;
    }
    v2.dirty_bit = 1;
    if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
@@ -339,7 +339,12 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->tscache_log_slots = 29;
    txn_splinterdb_cfg->tscache_rows      = 2;
    txn_splinterdb_cfg->tscache_cols      = 131072;
+ 
+   //txn_splinterdb_cfg->tscache_rows      = 1;
+   //txn_splinterdb_cfg->tscache_cols      = 1;
 
+   txn_splinterdb_cfg->tscache_rows      = 2;
+   txn_splinterdb_cfg->tscache_cols      = 131072;
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
