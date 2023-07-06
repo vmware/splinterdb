@@ -343,8 +343,6 @@ transactional_splinterdb_config_init(
    //txn_splinterdb_cfg->tscache_rows      = 1;
    //txn_splinterdb_cfg->tscache_cols      = 1;
 
-   txn_splinterdb_cfg->tscache_rows      = 2;
-   txn_splinterdb_cfg->tscache_cols      = 131072;
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
@@ -535,12 +533,12 @@ local_write(transactional_splinterdb *txn_kvsb,
    /* } */
 
    if (!rw_entry_is_write(entry)) {
-      rw_entry_set_msg(entry, msg);
       rw_entry_iceberg_insert(txn_kvsb, entry);
       if (rw_entry_write_lock(entry, txn->ts) == STO_ACCESS_ABORT) {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
+      rw_entry_set_msg(entry, msg);
    } else {
       // TODO it needs to be checked later for upsert
       key wkey = key_create_from_slice(entry->key);
