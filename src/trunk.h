@@ -225,7 +225,7 @@ struct trunk_handle {
     * happen without this change when deleting a column family.
     */
    struct {
-      uint64 counter;
+      volatile uint64 counter;
       uint64 depth; // only incr counter if we're the highest scope to do so
    } PLATFORM_CACHELINE_ALIGNED cfg_crit_count[MAX_THREADS];
 

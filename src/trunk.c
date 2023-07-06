@@ -4191,7 +4191,8 @@ trunk_replace_routing_filter(trunk_handle             *spl,
       // Move the tuples count from the bundle to whole branch
       uint64 bundle_num_tuples = compact_req->output_pivot_tuple_count[pos];
       debug_assert(pdata->num_tuples_bundle >= bundle_num_tuples);
-      debug_assert((bundle_num_tuples == 0) == (pdata->filter.addr == 0));
+      debug_assert((bundle_num_tuples + pdata->num_tuples_whole == 0)
+                   == (pdata->filter.addr == 0));
       pdata->num_tuples_bundle -= bundle_num_tuples;
       pdata->num_tuples_whole += bundle_num_tuples;
 
@@ -5155,6 +5156,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->stats[tid].compaction_time_wasted_ns[height] +=
             platform_timestamp_elapsed(compaction_start);
       }
+      trunk_cfg_counter_exit(spl);
       return;
    }
 

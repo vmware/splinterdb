@@ -74,7 +74,6 @@ cf_key_to_userkey(slice cf_key)
 static inline column_family_id
 cfg_table_insert(splinterdb *kvs, cf_data_config *cf_cfg, data_config *data_cfg)
 {
-
    platform_semaphore_wait(&cf_cfg->table_sema);
    column_family_id new_id = cf_cfg->num_families;
    cf_cfg->num_families += 1;
@@ -113,7 +112,6 @@ cfg_table_insert(splinterdb *kvs, cf_data_config *cf_cfg, data_config *data_cfg)
 
    // place new data_config in table
    cf_cfg->config_table[new_id] = data_cfg;
-
    platform_semaphore_post(&cf_cfg->table_sema);
 
    return new_id;

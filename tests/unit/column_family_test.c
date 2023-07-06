@@ -512,10 +512,6 @@ do_cf(do_cf_args *args)
    splinterdb_register_thread(kvs);
    splinterdb_column_family cf =
       column_family_create(kvs, TEST_MAX_KEY_SIZE, data_cfg);
-   printf("column family ID = %i, inserts = %i, deletes = %i\n",
-          cf.id,
-          inserts,
-          deletes);
 
    // perform insertions
    for (int i = 0; i < inserts; i++) {
@@ -529,7 +525,6 @@ do_cf(do_cf_args *args)
 
       ASSERT_EQUAL(0, splinterdb_cf_insert(cf, key, val));
    }
-   printf("column family ID = %i, inserts done\n", cf.id);
 
    // perform deletions
    for (int i = 0; i < deletes; i++) {
@@ -540,7 +535,6 @@ do_cf(do_cf_args *args)
 
       ASSERT_EQUAL(0, splinterdb_cf_delete(cf, key));
    }
-   printf("column family ID = %i, deletes done\n", cf.id);
 
    // perform a range query
    int first_idx   = deletes; // first remaining insertion
@@ -570,11 +564,9 @@ do_cf(do_cf_args *args)
       cur_idx++;
    }
    ASSERT_EQUAL(num_inserts, cur_idx - first_idx);
-   printf("column family ID = %i, range query done\n", cf.id);
 
    splinterdb_cf_iterator_deinit(it);
 
-   printf("Deleting column family %i\n", cf.id);
    column_family_delete(cf);
 
    splinterdb_deregister_thread(kvs);
@@ -640,7 +632,7 @@ CTEST2(column_family, test_multithread_cf)
    do_cf_args      t4_args = {.kvs      = data->kvsb,
                               .data_cfg = &t4_cfg,
                               .inserts  = 2000000,
-                              .deletes  = 200000};
+                              .deletes  = 2000000};
    platform_thread_create(&thread4,
                           FALSE,
                           (void (*)(void *))do_cf,
