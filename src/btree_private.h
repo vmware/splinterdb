@@ -33,6 +33,7 @@ typedef node_offset table_entry;
  * *************************************************************************
  */
 struct ONDISK btree_hdr {
+   uint64      prev_addr;
    uint64      next_addr;
    uint64      next_extent_addr;
    uint64      generation;

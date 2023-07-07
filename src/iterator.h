@@ -18,6 +18,7 @@ typedef struct iterator_ops {
    iterator_curr_fn  curr;
    iterator_valid_fn valid;
    iterator_step_fn  next;
+   iterator_step_fn  prev;
    iterator_print_fn print;
 } iterator_ops;
 
@@ -42,6 +43,12 @@ static inline platform_status
 iterator_next(iterator *itor)
 {
    return itor->ops->next(itor);
+}
+
+static inline platform_status
+iterator_prev(iterator *itor)
+{
+   return itor->ops->prev(itor);
 }
 
 static inline void

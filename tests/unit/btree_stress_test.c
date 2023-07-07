@@ -404,27 +404,13 @@ query_tests(cache           *cc,
    return 1;
 }
 
-static int
-iterator_tests(cache           *cc,
-               btree_config    *cfg,
-               uint64           root_addr,
-               int              nkvs,
-               platform_heap_id hid)
+static void
+iterator_test(platform_heap_id hid,
+              btree_config    *cfg,
+              uint64           nkvs,
+              iterator        *iter,
+              bool             forwards)
 {
-   btree_iterator dbiter;
-
-   btree_iterator_init(cc,
-                       cfg,
-                       &dbiter,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY,
-                       FALSE,
-                       0);
-
-   iterator *iter = (iterator *)&dbiter;
-
    uint64 seen    = 0;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
    key    prev    = NULL_KEY;
@@ -448,24 +434,64 @@ iterator_tests(cache           *cc,
       rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
-      ASSERT_TRUE(key_is_null(prev)
-                  || data_key_compare(cfg->data_cfg, prev, curr_key) < 0);
+      if (forwards) {
+         ASSERT_TRUE(key_is_null(prev)
+                     || data_key_compare(cfg->data_cfg, prev, curr_key) < 0);
+      } else {
+         ASSERT_TRUE(key_is_null(prev)
+                     || data_key_compare(cfg->data_cfg, curr_key, prev) < 0);
+      }
 
       seen++;
       prev = key_create(key_length(curr_key), prevbuf);
       key_copy_contents(prevbuf, curr_key);
 
-      if (!SUCCESS(iterator_next(iter))) {
-         break;
+      if (forwards) {
+         if (!SUCCESS(iterator_next(iter))) {
+            break;
+         }
+      } else {
+         if (!SUCCESS(iterator_prev(iter))) {
+            break;
+         }
       }
    }
 
    ASSERT_EQUAL(nkvs, seen);
-
-   btree_iterator_deinit(&dbiter);
    platform_free(hid, prevbuf);
    platform_free(hid, keybuf);
    platform_free(hid, msgbuf);
+}
+
+static int
+iterator_tests(cache           *cc,
+               btree_config    *cfg,
+               uint64           root_addr,
+               int              nkvs,
+               platform_heap_id hid)
+{
+   btree_iterator dbiter;
+
+   btree_iterator_init(cc,
+                       cfg,
+                       &dbiter,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
+                       FALSE,
+                       0);
+
+   iterator *iter     = (iterator *)&dbiter;
+   bool      nonempty = iterator_valid(iter);
+
+   iterator_test(hid, cfg, nkvs, iter, TRUE);
+   if (nonempty) {
+      iterator_prev(iter);
+   }
+   iterator_test(hid, cfg, nkvs, iter, FALSE);
+
+   btree_iterator_deinit(&dbiter);
 
    return 1;
 }

@@ -170,7 +170,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
     * or the size of a btree leafy entry, then this number will need
     * to be changed, and that's fine.
     */
-   int nkvs = 209;
+   int nkvs = 208;
 
    btree_init_hdr(cfg, hdr);
 
