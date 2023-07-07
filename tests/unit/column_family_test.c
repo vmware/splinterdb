@@ -582,12 +582,6 @@ do_cf(do_cf_args *args)
  */
 CTEST2(column_family, test_multithread_cf)
 {
-   data_config t1_cfg, t2_cfg, t3_cfg, t4_cfg;
-   default_data_config_init(TEST_MAX_KEY_SIZE, &t1_cfg);
-   default_data_config_init(TEST_MAX_KEY_SIZE, &t2_cfg);
-   default_data_config_init(TEST_MAX_KEY_SIZE, &t3_cfg);
-   default_data_config_init(TEST_MAX_KEY_SIZE, &t4_cfg);
-
    // close and reopen with background threads
    splinterdb_close(&data->kvsb);
    data->cfg.num_normal_bg_threads   = 4;
@@ -595,11 +589,9 @@ CTEST2(column_family, test_multithread_cf)
 
    splinterdb_create(&data->cfg, &data->kvsb);
 
-   printf("\n");
-
    platform_thread thread1;
    do_cf_args      t1_args = {
-           .kvs = data->kvsb, .data_cfg = &t1_cfg, .inserts = 2000000, .deletes = 0};
+           .kvs = data->kvsb, .data_cfg = &data->default_data_cfg, .inserts = 2000000, .deletes = 0};
    platform_thread_create(&thread1,
                           FALSE,
                           (void (*)(void *))do_cf,
@@ -608,7 +600,7 @@ CTEST2(column_family, test_multithread_cf)
 
    platform_thread thread2;
    do_cf_args      t2_args = {.kvs      = data->kvsb,
-                              .data_cfg = &t2_cfg,
+                              .data_cfg = &data->default_data_cfg,
                               .inserts  = 500000,
                               .deletes  = 10000};
    platform_thread_create(&thread2,
@@ -619,7 +611,7 @@ CTEST2(column_family, test_multithread_cf)
 
    platform_thread thread3;
    do_cf_args      t3_args = {.kvs      = data->kvsb,
-                              .data_cfg = &t3_cfg,
+                              .data_cfg = &data->default_data_cfg,
                               .inserts  = 3000000,
                               .deletes  = 250000};
    platform_thread_create(&thread3,
@@ -630,7 +622,7 @@ CTEST2(column_family, test_multithread_cf)
 
    platform_thread thread4;
    do_cf_args      t4_args = {.kvs      = data->kvsb,
-                              .data_cfg = &t4_cfg,
+                              .data_cfg = &data->default_data_cfg,
                               .inserts  = 2000000,
                               .deletes  = 2000000};
    platform_thread_create(&thread4,

@@ -6191,12 +6191,13 @@ trunk_range_iterator_init(trunk_handle         *spl,
          : max_key;
    key_buffer_init_from_key(
       &range_itor->rebuild_key, spl->heap_id, rebuild_key);
+   key_buffer local_max_key;
    if (trunk_key_compare(spl, max_key, rebuild_key) < 0) {
       key_buffer_init_from_key(
-         &range_itor->local_max_key, spl->heap_id, max_key);
+         &local_max_key, spl->heap_id, max_key);
    } else {
       key_buffer_init_from_key(
-         &range_itor->local_max_key, spl->heap_id, rebuild_key);
+         &local_max_key, spl->heap_id, rebuild_key);
    }
 
    trunk_node_unget(spl->cc, &node);
@@ -6214,7 +6215,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
                                     btree_itor,
                                     branch,
                                     key_buffer_key(&range_itor->min_key),
-                                    key_buffer_key(&range_itor->local_max_key),
+                                    key_buffer_key(&local_max_key),
                                     do_prefetch,
                                     FALSE);
       } else {
@@ -6225,12 +6226,14 @@ trunk_range_iterator_init(trunk_handle         *spl,
             btree_itor,
             mt_root_addr,
             key_buffer_key(&range_itor->min_key),
-            key_buffer_key(&range_itor->local_max_key),
+            key_buffer_key(&local_max_key),
             is_live,
             FALSE);
       }
       range_itor->itor[i] = &btree_itor->super;
    }
+
+   key_buffer_deinit(&local_max_key);
 
    platform_status rc = merge_iterator_create(spl->heap_id,
                                               spl->cfg.data_cfg,
@@ -6360,7 +6363,6 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
 
    key_buffer_deinit(&range_itor->min_key);
    key_buffer_deinit(&range_itor->max_key);
-   key_buffer_deinit(&range_itor->local_max_key);
    key_buffer_deinit(&range_itor->rebuild_key);
 }
 
