@@ -215,6 +215,20 @@ struct trunk_handle {
       uint64 counter;
    } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
 
+   /*
+    * Per thread and per splinter table, count entering and exiting regions
+    * critical to the data_config.
+    *
+    * Specifically the race condition is if a trunk task or function is in the
+    * middle of performing a key_compare or merge function call in the
+    * data_config and then the memory for the data_config is free'd. This could
+    * happen without this change when deleting a column family.
+    */
+   struct {
+      volatile uint64 counter;
+      uint64 depth; // only incr counter if we're the highest scope to do so
+   } PLATFORM_CACHELINE_ALIGNED cfg_crit_count[MAX_THREADS];
+
    // space rec queue
    srq srq;
 
@@ -234,7 +248,6 @@ typedef struct trunk_range_iterator {
    bool            at_end;
    key_buffer      min_key;
    key_buffer      max_key;
-   key_buffer      local_max_key;
    key_buffer      rebuild_key;
    btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
