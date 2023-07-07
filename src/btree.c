@@ -1304,7 +1304,6 @@ btree_split_child_leaf(cache                 *cc,
 
    leaf_splitting_plan plan =
       btree_build_leaf_splitting_plan(cfg, child->hdr, spec);
-
    /* p: claim, c: claim, rc: -, on: - */
 
    btree_alloc(cc,
@@ -1314,33 +1313,10 @@ btree_split_child_leaf(cache                 *cc,
                NULL,
                PAGE_TYPE_MEMTABLE,
                &right_child);
-
    /* p: claim, c: claim, rc: write, on: - */
 
    btree_node_lock(cc, cfg, parent);
-   btree_node_lock(cc, cfg, child);
-
-   /* p: write, c: write, rc: write, on: - */
-
-   if (child->hdr->next_addr != 0) {
-      btree_node old_next;
-      old_next.addr = child->hdr->next_addr;
-      btree_node_get(cc, cfg, &old_next, PAGE_TYPE_MEMTABLE);
-      uint64 old_next_wait = 1;
-      while (!btree_node_claim(cc, cfg, &old_next)) {
-         btree_node_unget(cc, cfg, &old_next);
-         platform_sleep_ns(old_next_wait);
-         old_next_wait =
-            old_next_wait > 2048 ? old_next_wait : 2 * old_next_wait;
-         btree_node_get(cc, cfg, &old_next, PAGE_TYPE_MEMTABLE);
-      }
-      btree_node_lock(cc, cfg, &old_next);
-      old_next.hdr->prev_addr = right_child.addr;
-      btree_node_full_unlock(cc, cfg, &old_next);
-   }
-
-   /* p: write, c: write, rc: write, on: - */
-
+   /* p: write, c: claim, rc: write, on: - */
    {
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
        * may invalidate the memory it points to.
@@ -1354,18 +1330,38 @@ btree_split_child_leaf(cache                 *cc,
                                               BTREE_PIVOT_STATS_UNKNOWN);
       platform_assert(success);
    }
-
-   /* p: write, c: write, rc: write, on: - */
+   btree_node_full_unlock(cc, cfg, parent);
+   /* p: fully unlocked, c: claim, rc: write, on: - */
 
    btree_split_leaf_build_right_node(
       cfg, child->hdr, child->addr, spec, plan, right_child.hdr, generation);
 
-   /* p: write, c: write, rc: write, on: - */
-
-   btree_node_full_unlock(cc, cfg, parent);
    btree_node_full_unlock(cc, cfg, &right_child);
+   /* p: fully unlocked, c: claim, rc: fully unlocked, on: - */
 
-   /* p: fully unlocked, c: write, rc: fully unlocked, on: - */
+   btree_node old_next;
+   old_next.addr = child->hdr->next_addr;
+   if (old_next.addr != 0) {
+      btree_node_get(cc, cfg, &old_next, PAGE_TYPE_MEMTABLE);
+      uint64 old_next_wait = 1;
+      while (!btree_node_claim(cc, cfg, &old_next)) {
+         btree_node_unget(cc, cfg, &old_next);
+         platform_sleep_ns(old_next_wait);
+         old_next_wait =
+            old_next_wait > 2048 ? old_next_wait : 2 * old_next_wait;
+         btree_node_get(cc, cfg, &old_next, PAGE_TYPE_MEMTABLE);
+      }
+   }
+   btree_node_lock(cc, cfg, child);
+   /* p: fully unlocked, c: write, rc: fully unlocked, on: claim */
+
+   // set prev pointer from old next to right_child
+   if (old_next.addr != 0) {
+      btree_node_lock(cc, cfg, &old_next);
+      old_next.hdr->prev_addr = right_child.addr;
+      btree_node_full_unlock(cc, cfg, &old_next);
+   }
+   /* p: fully unlocked, c: write, rc: fully unlocked, on: fully unlocked */
 
    btree_split_leaf_cleanup_left_node(
       cfg, scratch, child->hdr, spec, plan, right_child.addr);
@@ -1375,11 +1371,9 @@ btree_split_child_leaf(cache                 *cc,
       platform_assert(incorporated);
    }
 
-   /* p: fully unlocked, c: write, rc: fully unlocked, on: - */
-
    btree_node_full_unlock(cc, cfg, child);
-
-   /* p: fully unlocked, c: fully unlocked, rc: fully unlocked, on: - */
+   /* p: fully unlocked, c: fully unlocked, rc: fully unlocked, on: fully
+    * unlocked */
 
    return 0;
 }
