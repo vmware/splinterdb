@@ -238,9 +238,9 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
 }
 
 static inline void
-rw_entry_unlock(rw_entry *entry)
+rw_entry_unlock(rw_entry *entry, uint64 txn_ts)
 {
-   // platform_default_log("Unlock key = %s\n", (char*)entry->key.data);
+   //platform_default_log("Unlock key = %s, %lu\n", (char*)entry->key.data, txn_ts);
    timestamp_set v1, v2;
    do {
       timestamp_set_load(entry->ts, &v1);
@@ -265,7 +265,7 @@ rw_entry_try_read_lock(rw_entry *entry, uint64 txn_ts)
    if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
       if (txn_ts < v1.wts) {
          // TO rule would be violated so we need to abort
-         rw_entry_unlock(entry);
+         rw_entry_unlock(entry, txn_ts);
          return STO_ACCESS_ABORT;
       }
    } else {
@@ -290,7 +290,7 @@ rw_entry_try_write_lock(rw_entry *entry, uint64 txn_ts)
    v2.dirty_bit = 1;
    if (timestamp_set_compare_and_swap(entry->ts, &v1, &v2)) {
       if (txn_ts < v1.wts || txn_ts < v1.rts) {
-         rw_entry_unlock(entry);
+         rw_entry_unlock(entry, txn_ts);
          return STO_ACCESS_ABORT;
       }
    } else {
@@ -302,6 +302,7 @@ rw_entry_try_write_lock(rw_entry *entry, uint64 txn_ts)
 static inline enum sto_access_rc
 rw_entry_read_lock(rw_entry *entry, uint64 txn_ts)
 {
+   //platform_default_log("Trying to lock key for read at ts = %s, %lu\n", (char*)entry->key.data, txn_ts);
    enum sto_access_rc rc;
    do {
       rc = rw_entry_try_read_lock(entry, txn_ts);
@@ -316,6 +317,7 @@ rw_entry_read_lock(rw_entry *entry, uint64 txn_ts)
 static inline enum sto_access_rc
 rw_entry_write_lock(rw_entry *entry, uint64 txn_ts)
 {
+   //platform_default_log("Trying to lock key for write = %s, %lu\n", (char*)entry->key.data, txn_ts);
    enum sto_access_rc rc;
    do {
       rc = rw_entry_try_write_lock(entry, txn_ts);
@@ -487,8 +489,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
-         w->ts->wts = txn->ts;
-         rw_entry_unlock(w);
+         //w->ts->wts = txn->ts;
+         rw_entry_unlock(w, txn->ts);
       }
    }
 
@@ -505,7 +507,7 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry *w = txn->rw_entries[i];
       if (rw_entry_is_write(w)) {
-         rw_entry_unlock(w);
+         rw_entry_unlock(w, txn->ts);
       }
    }
 
@@ -538,6 +540,9 @@ local_write(transactional_splinterdb *txn_kvsb,
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
+      // To prevent deadlocks, we have to update the wts
+      entry->ts->wts = txn->ts;
+      //platform_default_log("Locked key for write = %s, %lu\n", (char*)entry->key.data, txn->ts);
       rw_entry_set_msg(entry, msg);
    } else {
       // TODO it needs to be checked later for upsert
@@ -627,11 +632,12 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
+      //platform_default_log("Locked key for read = %s, %lu\n", (char*)entry->key.data, txn->ts);
       rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
       if (txn->ts > entry->ts->rts) {
          entry->ts->rts = txn->ts;
       }
-      rw_entry_unlock(entry);
+      rw_entry_unlock(entry, txn->ts);
    }
 #endif
    return rc;
