@@ -46,7 +46,7 @@ impl<'a> RangeIterator<'a>
       let mut val_slice = NULL_SLICE;
 
       let valid = unsafe {
-         splinterdb_sys::splinterdb_cf_iterator_get_current(self._inner, &mut key_slice, &mut val_slice)
+         splinterdb_sys::splinterdb_cf_iterator_valid(self._inner)
       } as i32;
 
       if valid == 0 {
@@ -54,6 +54,10 @@ impl<'a> RangeIterator<'a>
          as_result(rc)?;
          return Ok(None);
       } else {
+         unsafe { 
+            splinterdb_sys::splinterdb_cf_iterator_get_current(self._inner, &mut key_slice, &mut val_slice) 
+         }
+
          let (key, value): (&[u8], &[u8]) = unsafe {(
             ::std::slice::from_raw_parts(
                ::std::mem::transmute(key_slice.data),
@@ -77,7 +81,7 @@ impl<'a> RangeIterator<'a>
 #[derive(Debug)]
 pub struct SplinterDBWithColumnFamilies {
    _inner: *mut splinterdb_sys::splinterdb,
-   cf_cfg: splinterdb_sys::cf_data_config,
+   cf_cfg: *mut splinterdb_sys::data_config,
 }
 
 unsafe impl Sync for SplinterDBWithColumnFamilies {}
@@ -92,8 +96,8 @@ pub struct SplinterColumnFamily {
 impl Drop for SplinterDBWithColumnFamilies {
    fn drop(&mut self) {
       unsafe {
-         splinterdb_sys::column_family_config_deinit(&mut self.cf_cfg);
          splinterdb_sys::splinterdb_close(&mut self._inner);
+         splinterdb_sys::column_family_config_deinit(self.cf_cfg);
       }
    }
 }
@@ -130,7 +134,7 @@ impl SplinterDBWithColumnFamilies {
       sdb_cfg.filename = path.as_ptr();
       sdb_cfg.cache_size = cfg.cache_size_bytes as u64;
       sdb_cfg.disk_size = cfg.disk_size_bytes as u64;
-      sdb_cfg.data_cfg = &mut self.cf_cfg.general_config;
+      sdb_cfg.data_cfg = self.cf_cfg;
 
       // Open or create the database
       let rc = if open_existing {
