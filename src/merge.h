@@ -68,6 +68,8 @@ typedef struct merge_iterator {
    key          curr_key;      // current key
    message      curr_data;     // current data
 
+   bool forwards;
+
    // Padding so ordered_iterators[-1] is valid
    ordered_iterator ordered_iterator_stored_pad;
    ordered_iterator ordered_iterator_stored[MAX_MERGE_ARITY];

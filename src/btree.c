@@ -1304,7 +1304,6 @@ btree_split_child_leaf(cache                 *cc,
 
    leaf_splitting_plan plan =
       btree_build_leaf_splitting_plan(cfg, child->hdr, spec);
-   /* p: claim, c: claim, rc: -, on: - */
 
    btree_alloc(cc,
                mini,
@@ -1317,27 +1316,6 @@ btree_split_child_leaf(cache                 *cc,
 
    btree_node_lock(cc, cfg, parent);
    /* p: write, c: claim, rc: write, on: - */
-   {
-      /* limit the scope of pivot_key, since subsequent mutations of the nodes
-       * may invalidate the memory it points to.
-       */
-      key  pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
-      bool success   = btree_insert_index_entry(cfg,
-                                              parent->hdr,
-                                              index_of_child_in_parent + 1,
-                                              pivot_key,
-                                              right_child.addr,
-                                              BTREE_PIVOT_STATS_UNKNOWN);
-      platform_assert(success);
-   }
-   btree_node_full_unlock(cc, cfg, parent);
-   /* p: fully unlocked, c: claim, rc: write, on: - */
-
-   btree_split_leaf_build_right_node(
-      cfg, child->hdr, child->addr, spec, plan, right_child.hdr, generation);
-
-   btree_node_full_unlock(cc, cfg, &right_child);
-   /* p: fully unlocked, c: claim, rc: fully unlocked, on: - */
 
    btree_node old_next;
    old_next.addr = child->hdr->next_addr;
@@ -1352,8 +1330,26 @@ btree_split_child_leaf(cache                 *cc,
          btree_node_get(cc, cfg, &old_next, PAGE_TYPE_MEMTABLE);
       }
    }
+   /* p: write, c: claim, rc: write, on: write if exists */
+
    btree_node_lock(cc, cfg, child);
-   /* p: fully unlocked, c: write, rc: fully unlocked, on: claim */
+   /* p: write, c: write, rc: write, on: write if exists */
+
+   {
+      /* limit the scope of pivot_key, since subsequent mutations of the nodes
+       * may invalidate the memory it points to.
+       */
+      key  pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
+      bool success   = btree_insert_index_entry(cfg,
+                                              parent->hdr,
+                                              index_of_child_in_parent + 1,
+                                              pivot_key,
+                                              right_child.addr,
+                                              BTREE_PIVOT_STATS_UNKNOWN);
+      platform_assert(success);
+   }
+   btree_node_full_unlock(cc, cfg, parent);
+   /* p: fully unlocked, c: write, rc: write, on: write if exists */
 
    // set prev pointer from old next to right_child
    if (old_next.addr != 0) {
@@ -1361,6 +1357,11 @@ btree_split_child_leaf(cache                 *cc,
       old_next.hdr->prev_addr = right_child.addr;
       btree_node_full_unlock(cc, cfg, &old_next);
    }
+   /* p: fully unlocked, c: write, rc: write, on: fully unlocked */
+
+   btree_split_leaf_build_right_node(
+      cfg, child->hdr, child->addr, spec, plan, right_child.hdr, generation);
+   btree_node_full_unlock(cc, cfg, &right_child);
    /* p: fully unlocked, c: write, rc: fully unlocked, on: fully unlocked */
 
    btree_split_leaf_cleanup_left_node(
@@ -1370,7 +1371,6 @@ btree_split_child_leaf(cache                 *cc,
          cfg, child->hdr, spec, generation);
       platform_assert(incorporated);
    }
-
    btree_node_full_unlock(cc, cfg, child);
    /* p: fully unlocked, c: fully unlocked, rc: fully unlocked, on: fully
     * unlocked */
@@ -2589,7 +2589,19 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    btree_node_unget(cc, cfg, &itor->curr);
    itor->curr.addr = prev_addr;
    btree_node_get(cc, cfg, &itor->curr, itor->page_type);
-   debug_assert(itor->curr.hdr->next_addr == curr_addr);
+
+   /*
+    * The previous leaf may have split in between our release of the
+    * old curr node and the new one.  In this case, we can just walk
+    * forward until we find the leaf whose successor is our old leaf.
+    */
+   while (itor->curr.hdr->next_addr != curr_addr) {
+      uint64 next_addr = itor->curr.hdr->next_addr;
+      btree_node_unget(cc, cfg, &itor->curr);
+      itor->curr.addr = next_addr;
+      btree_node_get(cc, cfg, &itor->curr, itor->page_type);
+   }
+
    itor->idx = btree_num_entries(itor->curr.hdr) - 1;
 
    /* Do a quick check whether this entire leaf is within the range. */
