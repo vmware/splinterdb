@@ -1,4 +1,5 @@
 use std::io::{Result};
+use std::collections::LinkedList;
 use crate::*;
 
 #[derive(Debug)]
@@ -80,8 +81,9 @@ impl<'a> RangeIterator<'a>
 
 #[derive(Debug)]
 pub struct SplinterDBWithColumnFamilies {
-   _inner: *mut splinterdb_sys::splinterdb,
-   cf_cfg: *mut splinterdb_sys::data_config,
+   _inner:    *mut splinterdb_sys::splinterdb,
+   cf_cfg:    *mut splinterdb_sys::data_config,
+   data_cfgs: LinkedList<splinterdb_sys::data_config>,
 }
 
 unsafe impl Sync for SplinterDBWithColumnFamilies {}
@@ -89,9 +91,11 @@ unsafe impl Send for SplinterDBWithColumnFamilies {}
 
 #[derive(Debug)]
 pub struct SplinterColumnFamily {
-   data_cfg: splinterdb_sys::data_config,
    _inner: splinterdb_sys::splinterdb_column_family,
 }
+
+unsafe impl Sync for SplinterColumnFamily {}
+unsafe impl Send for SplinterColumnFamily {}
 
 impl Drop for SplinterDBWithColumnFamilies {
    fn drop(&mut self) {
@@ -113,8 +117,9 @@ impl Drop for SplinterColumnFamily {
 impl SplinterDBWithColumnFamilies {
    pub fn new() -> SplinterDBWithColumnFamilies {
       SplinterDBWithColumnFamilies {
-         _inner: std::ptr::null_mut(),
-         cf_cfg: unsafe {std::mem::zeroed() },
+         _inner:    std::ptr::null_mut(),
+         cf_cfg:    unsafe {std::mem::zeroed() },
+         data_cfgs: LinkedList::new(),
       }
    }
 
@@ -165,12 +170,20 @@ impl SplinterDBWithColumnFamilies {
 
    pub fn column_family_create<T: rust_cfg::SdbRustDataFuncs>(&mut self, max_key_size: u64) -> SplinterColumnFamily
    {
+      let data_cfg: *mut splinterdb_sys::data_config;
+      // add this data config to our linked list of configs
+      let new_cfg: splinterdb_sys::data_config = new_sdb_data_config::<T>(0);
+      self.data_cfgs.push_back(new_cfg);
+      data_cfg = match self.data_cfgs.back_mut() {
+         None => panic!(),
+         Some(x) => x,
+      };
+
       let mut ret: SplinterColumnFamily = SplinterColumnFamily {
-         data_cfg: new_sdb_data_config::<T>(0),
          _inner: unsafe { std::mem::zeroed() },
       };
       ret._inner = unsafe { 
-         splinterdb_sys::column_family_create(self._inner, max_key_size, &mut ret.data_cfg) 
+         splinterdb_sys::column_family_create(self._inner, max_key_size, data_cfg)
       };
       ret
    }

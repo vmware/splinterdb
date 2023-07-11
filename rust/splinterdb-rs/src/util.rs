@@ -1,6 +1,9 @@
 use std::io::{Error, Result};
 use std::path::Path;
 
+const MB: usize = 1 << 20;
+const GB: usize = 1 << 30;
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug)]
 pub struct DBConfig {
@@ -8,6 +11,21 @@ pub struct DBConfig {
    pub disk_size_bytes: usize,
    pub max_key_size: usize,
    pub max_value_size: usize,
+   pub num_normal_bg_threads: usize,
+   pub num_memtable_bg_threads: usize,
+}
+
+impl Default for DBConfig {
+   fn default() -> DBConfig {
+      DBConfig {
+         cache_size_bytes: MB * 256,
+         disk_size_bytes: GB * 2,
+         max_key_size: 32,
+         max_value_size: 32,
+         num_normal_bg_threads: 0,
+         num_memtable_bg_threads: 0,
+      }
+   }
 }
 
 #[derive(Debug, PartialEq)]

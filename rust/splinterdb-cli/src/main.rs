@@ -148,6 +148,7 @@ impl InitDB {
             disk_size_bytes: (self.disk_mb as usize) * MB,
             max_key_size: self.key_size,
             max_value_size: self.value_size,
+            ..Default::default()
         };
         meta_save(&opts.file, &db_config)?;
 
@@ -269,6 +270,7 @@ impl Perf {
             disk_size_bytes: self.disk_mb as usize * MB,
             max_key_size: Perf::KEY_SIZE,
             max_value_size: Perf::VALUE_SIZE,
+            ..Default::default()
         };
         let path = file;
 

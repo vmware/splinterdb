@@ -27,6 +27,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -86,6 +87,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -143,6 +145,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -196,6 +199,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
       println!("SUCCESSFULLY CREATED DB!");
@@ -240,6 +244,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
       println!("SUCCESSFULLY CREATED DB!");
@@ -332,6 +337,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
       println!("SUCCESSFULLY CREATED DB!");
@@ -379,6 +385,111 @@ mod tests {
       Ok(())
    }
 
+   use std::thread;
+   fn do_thread<T: SdbRustDataFuncs>(
+      kvs: &crate::SplinterDB,
+      inserts: usize,
+      mut deletes: usize,
+      offset: usize,
+   ) -> Result<()> {
+      println!("Do_thread() called!");
+      kvs.register_thread();
+
+      if deletes > inserts {
+         deletes = inserts;
+      }
+
+      // perform insertions
+      println!("Beginning insertions!");
+      for i in 0..inserts {
+         let key = format!("key-{:0>4x}", offset + i);
+         let val = format!("val-{:0>4x}", offset + i);
+         kvs.insert(key.as_bytes(), val.as_bytes())?;
+      }
+
+      // perform deletions
+      println!("Beginning deletions!");
+      for i in 0..deletes {
+         let key = format!("key-{:0>4x}", offset + i);
+         kvs.delete(key.as_bytes())?;
+      }
+
+      println!("Performing range query!");
+      // perform a range query
+      let start_key = format!("key-{:0>4x}", offset);
+      let mut iter = kvs.range(Some(start_key.as_bytes()))?;
+      let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
+      loop {
+         match iter.next() {
+            Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
+            Ok(None) => break,
+            Err(e) => return Err(e),
+         }
+      }
+      drop(iter);
+
+      kvs.deregister_thread();
+
+      println!("Do_thread() done!");
+      Ok(())
+   }
+
+   #[test]
+   fn multi_thread_test() -> Result<()> {
+      use tempfile::tempdir;
+      use std::sync::Arc;
+      println!("BEGINNING TEST!");
+
+      let sdb = Arc::new({
+         let mut loc = crate::SplinterDB::new::<crate::rust_cfg::DefaultSdb>();
+
+         let data_dir = tempdir()?; // is removed on drop
+         let data_file = data_dir.path().join("db.splinterdb");
+
+         loc.db_create(
+            &data_file,
+            &crate::DBConfig {
+               cache_size_bytes: 1024 * 1024 * 32,
+               disk_size_bytes: 1024 * 1024 * 1024,
+               max_key_size: 23,
+               max_value_size: 100,
+               num_normal_bg_threads: 2,
+               num_memtable_bg_threads: 1,
+            },
+         )?;
+         loc
+      });
+
+      println!("SUCCESSFULLY CREATED DB!");
+
+      let thread1 = {
+         let thr_arc = Arc::clone(&sdb);
+         thread::spawn(move || -> Result<()> {
+            do_thread::<crate::rust_cfg::DefaultSdb>(&thr_arc, 1024, 128, 0)
+         })
+      };
+
+      let thread2 = {
+         let thr_arc = Arc::clone(&sdb);
+         thread::spawn(move || -> Result<()> {
+            do_thread::<crate::rust_cfg::DefaultSdb>(&thr_arc, 100000, 10000, 1024)
+         })
+      };
+
+      let thread3 = {
+         let thr_arc = Arc::clone(&sdb);
+         thread::spawn(move || -> Result<()> {
+            do_thread::<crate::rust_cfg::DefaultSdb>(&thr_arc, 300000, 100000, 101024)
+         })
+      };
+
+      thread1.join().unwrap()?;
+      thread2.join().unwrap()?;
+      thread3.join().unwrap()?;
+
+      Ok(())
+   }
+
    // Test of performing two insertions and lookup in a column family
    #[test]
    fn cf_ins_test() -> Result<()> {
@@ -397,6 +508,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -450,6 +562,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -528,6 +641,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -600,6 +714,7 @@ mod tests {
             disk_size_bytes: 30 * 1024 * 1024,
             max_key_size: 23,
             max_value_size: 100,
+            ..Default::default()
          },
       )?;
 
@@ -657,6 +772,141 @@ mod tests {
       println!("Drop done! Exiting");
       Ok(())
    }
+
+   fn do_cf_thread(
+      cf: crate::SplinterColumnFamily,
+      inserts: usize,
+      mut deletes: usize,
+   ) -> Result<()> {
+      if deletes > inserts {
+         deletes = inserts;
+      }
+
+      // perform insertions
+      println!("Beginning insertions!");
+      for i in 0..inserts {
+         let key = format!("key-{:0>4x}", i);
+         let val = format!("val-{:0>4x}", i);
+         cf.insert(key.as_bytes(), val.as_bytes())?;
+      }
+
+      // perform deletions
+      println!("Beginning deletions!");
+      for i in 0..deletes {
+         let key = format!("key-{:0>4x}", i);
+         cf.delete(key.as_bytes())?;
+      }
+
+      println!("Performing range query!");
+      // perform a range query
+      let mut iter = cf.range(None)?;
+      let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
+      loop {
+         match iter.next() {
+            Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
+            Ok(None) => break,
+            Err(e) => return Err(e),
+         }
+      }
+      drop(iter);
+      drop(cf);
+
+      println!("Do_thread() done!");
+      Ok(())
+   }
+
+   #[test]
+   fn multi_thread_cf_test() -> Result<()> {
+      use tempfile::tempdir;
+      use std::sync::{Arc, Mutex};
+      println!("BEGINNING TEST!");
+
+      let sdb = Arc::new(Mutex::new({
+         let mut loc = crate::SplinterDBWithColumnFamilies::new();
+
+         let data_dir = tempdir()?; // is removed on drop
+         let data_file = data_dir.path().join("db.splinterdb");
+
+         loc.db_create(
+            &data_file,
+            &crate::DBConfig {
+               cache_size_bytes: 1024 * 1024 * 32,
+               disk_size_bytes: 1024 * 1024 * 1024,
+               max_key_size: 23,
+               max_value_size: 100,
+               num_normal_bg_threads: 2,
+               num_memtable_bg_threads: 1,
+            },
+         )?;
+         loc
+      }));
+
+      println!("SUCCESSFULLY CREATED DB!");
+
+      let thread1 = {
+         let thr_arc = Arc::clone(&sdb);
+         let cf = {
+            let mut kvs = thr_arc.lock().unwrap();
+            (*kvs).column_family_create::<crate::rust_cfg::DefaultSdb>(16)
+         };
+         thread::spawn(move || -> Result<()> {
+            {
+               let kvs = thr_arc.lock().unwrap();
+               kvs.register_thread();
+            }
+            let ret = do_cf_thread(cf, 1024, 128);
+            {
+               let kvs = thr_arc.lock().unwrap();
+               kvs.deregister_thread();
+            }
+            ret
+         })
+      };
+
+      let thread2 = {
+         let thr_arc = Arc::clone(&sdb);
+         let cf = {
+            let mut kvs = thr_arc.lock().unwrap();
+            (*kvs).column_family_create::<crate::rust_cfg::DefaultSdb>(16)
+         };
+         thread::spawn(move || -> Result<()> {
+            {
+               let kvs = thr_arc.lock().unwrap();
+               kvs.register_thread();
+            }
+            let ret = do_cf_thread(cf, 100000, 10000);
+            {
+               let kvs = thr_arc.lock().unwrap();
+               kvs.deregister_thread();
+            }
+            ret
+         })
+      };
+
+      let thread3 = {
+         let thr_arc = Arc::clone(&sdb);
+         let cf = {
+            let mut kvs = thr_arc.lock().unwrap();
+            (*kvs).column_family_create::<crate::rust_cfg::DefaultSdb>(16)
+         };
+         thread::spawn(move || -> Result<()> {
+            {
+               let kvs = thr_arc.lock().unwrap();
+               kvs.register_thread();
+            }
+            let ret = do_cf_thread(cf, 300000, 100000);
+            {
+               let kvs = thr_arc.lock().unwrap();
+               kvs.deregister_thread();
+            }
+            ret
+         })
+      };
+
+      thread1.join().unwrap()?;
+      thread2.join().unwrap()?;
+      thread3.join().unwrap()?;
+
+      Ok(())
+   }
 }
-
-
