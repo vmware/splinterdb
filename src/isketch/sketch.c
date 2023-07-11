@@ -102,16 +102,21 @@ sketch_insert(sketch *sktch, KeyType key, ValueType value)
       sktch->table[index].value = MAX(sktch->table[index].value, value);
       unlock(&sktch->table[index].latch);
 #else
-      do {
-         current_value =
-            __atomic_load_n(&sktch->table[index].value, __ATOMIC_RELAXED);
+      current_value =
+         __atomic_load_n(&sktch->table[index].value, __ATOMIC_RELAXED);
+      while (current_value < value) {
          max_value = MAX(current_value, value);
-      } while (!__atomic_compare_exchange(&sktch->table[index].value,
-                                          &current_value,
-                                          &max_value,
-                                          true,
-                                          __ATOMIC_RELAXED,
-                                          __ATOMIC_RELAXED));
+         bool is_success =
+            __atomic_compare_exchange_n(&sktch->table[index].value,
+                                        &current_value,
+                                        max_value,
+                                        true,
+                                        __ATOMIC_RELAXED,
+                                        __ATOMIC_RELAXED);
+         if (is_success) {
+            break;
+         }
+      }
 #endif
    }
 }
