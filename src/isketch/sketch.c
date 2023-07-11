@@ -103,7 +103,7 @@ sketch_insert(sketch *sktch, KeyType key, ValueType value)
       unlock(&sktch->table[index].latch);
 #else
       current_value =
-         __atomic_load_n(&sktch->table[index].value, __ATOMIC_RELAXED);
+         __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST);
       while (current_value < value) {
          max_value = MAX(current_value, value);
          bool is_success =
@@ -111,8 +111,8 @@ sketch_insert(sketch *sktch, KeyType key, ValueType value)
                                         &current_value,
                                         max_value,
                                         true,
-                                        __ATOMIC_RELAXED,
-                                        __ATOMIC_RELAXED);
+                                        __ATOMIC_SEQ_CST,
+                                        __ATOMIC_SEQ_CST);
          if (is_success) {
             break;
          }
@@ -138,11 +138,11 @@ sketch_get(sketch *sktch, KeyType key)
    }
 #else
    ValueType value =
-      __atomic_load_n(&sktch->table[index].value, __ATOMIC_RELAXED);
+      __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST);
    for (row = 1; row < sktch->rows; ++row) {
       index = get_index_in_row(sktch, key, row);
       value = MIN(
-         value, __atomic_load_n(&sktch->table[index].value, __ATOMIC_RELAXED));
+         value, __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST));
    }
 #endif
    return value;
