@@ -4162,7 +4162,8 @@ trunk_replace_routing_filter(trunk_handle             *spl,
       // Move the tuples count from the bundle to whole branch
       uint64 bundle_num_tuples = compact_req->output_pivot_tuple_count[pos];
       debug_assert(pdata->num_tuples_bundle >= bundle_num_tuples);
-      debug_assert((bundle_num_tuples + pdata->num_tuples_whole == 0) == (pdata->filter.addr == 0));
+      debug_assert((bundle_num_tuples + pdata->num_tuples_whole == 0)
+                   == (pdata->filter.addr == 0));
       pdata->num_tuples_bundle -= bundle_num_tuples;
       pdata->num_tuples_whole += bundle_num_tuples;
 
@@ -6155,11 +6156,9 @@ trunk_range_iterator_init(trunk_handle         *spl,
       &range_itor->rebuild_key, spl->heap_id, rebuild_key);
    key_buffer local_max_key;
    if (trunk_key_compare(spl, max_key, rebuild_key) < 0) {
-      key_buffer_init_from_key(
-         &local_max_key, spl->heap_id, max_key);
+      key_buffer_init_from_key(&local_max_key, spl->heap_id, max_key);
    } else {
-      key_buffer_init_from_key(
-         &local_max_key, spl->heap_id, rebuild_key);
+      key_buffer_init_from_key(&local_max_key, spl->heap_id, rebuild_key);
    }
 
    trunk_node_unget(spl->cc, &node);
@@ -6183,14 +6182,13 @@ trunk_range_iterator_init(trunk_handle         *spl,
       } else {
          uint64 mt_root_addr = branch->root_addr;
          bool   is_live      = branch_no == 0;
-         trunk_memtable_iterator_init(
-            spl,
-            btree_itor,
-            mt_root_addr,
-            key_buffer_key(&range_itor->min_key),
-            key_buffer_key(&local_max_key),
-            is_live,
-            FALSE);
+         trunk_memtable_iterator_init(spl,
+                                      btree_itor,
+                                      mt_root_addr,
+                                      key_buffer_key(&range_itor->min_key),
+                                      key_buffer_key(&local_max_key),
+                                      is_live,
+                                      FALSE);
       }
       range_itor->itor[i] = &btree_itor->super;
    }
