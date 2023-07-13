@@ -32,8 +32,8 @@ typedef struct transactional_splinterdb {
 
 typedef struct {
    txn_timestamp lock_bit : 1;
-   txn_timestamp delta : 64;
    txn_timestamp wts : 63;
+   txn_timestamp delta : 64;
 } timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
 static inline bool
@@ -457,6 +457,19 @@ RETRY_LOCK_WRITE_SET:
 
          goto RETRY_LOCK_WRITE_SET;
       }
+
+#if DBX1000_CHECK
+      platform_assert(FALSE, "This is currently an invalid path.");
+      timestamp_set v1;
+      timestamp_set_load(w->tuple_ts, &v1);
+      if (v1.wts != w->wts) {
+         for (int i = 0; i <= lock_num; ++i) {
+            rw_entry_unlock(write_set[i]);
+         }
+         transaction_deinit(txn_kvsb, txn);
+         return -1;
+      }
+#endif
    }
 }
 
@@ -576,6 +589,15 @@ local_write(transactional_splinterdb *txn_kvsb,
    /*    entry->wts      = v.wts; */
    /*    entry->rts      = timestamp_set_get_rts(&v); */
    /* } */
+
+#if DBX1000_CHECK
+   platform_assert(FALSE, "This is currently an invalid path.");
+   rw_entry_iceberg_insert(txn_kvsb, entry);
+   timestamp_set v1;
+   timestamp_set_load(entry->tuple_ts, &v1);
+   entry->wts = v1.wts;
+   entry->rts = timestamp_set_get_rts(&v1);
+#endif
 
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, msg);
