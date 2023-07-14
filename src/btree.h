@@ -318,6 +318,7 @@ btree_iterator_init(cache          *cc,
                     page_type       page_type,
                     key             min_key,
                     key             max_key,
+                    key             start_key,
                     bool            do_prefetch,
                     uint32          height);
 

@@ -11,6 +11,9 @@ typedef struct iterator iterator;
 typedef void (*iterator_curr_fn)(iterator *itor, key *curr_key, message *msg);
 typedef bool (*iterator_valid_fn)(iterator *itor);
 typedef platform_status (*iterator_step_fn)(iterator *itor);
+typedef platform_status (*iterator_seek_fn)(iterator *itor,
+                                            key       seek_key,
+                                            bool      from_above);
 typedef void (*iterator_print_fn)(iterator *itor);
 
 typedef struct iterator_ops {
@@ -19,6 +22,7 @@ typedef struct iterator_ops {
    iterator_valid_fn valid;
    iterator_step_fn  next;
    iterator_step_fn  prev;
+   iterator_seek_fn  seek;
    iterator_print_fn print;
 } iterator_ops;
 
@@ -49,6 +53,12 @@ static inline platform_status
 iterator_prev(iterator *itor)
 {
    return itor->ops->prev(itor);
+}
+
+static inline platform_status
+iterator_seek(iterator *itor, key seek_key, bool from_above)
+{
+   return itor->ops->seek(itor, seek_key, from_above);
 }
 
 static inline void

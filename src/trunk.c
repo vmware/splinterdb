@@ -3344,6 +3344,7 @@ trunk_memtable_iterator_init(trunk_handle   *spl,
                        PAGE_TYPE_MEMTABLE,
                        min_key,
                        max_key,
+                       min_key,
                        FALSE,
                        0);
 }
@@ -4828,6 +4829,7 @@ trunk_branch_iterator_init(trunk_handle   *spl,
                        PAGE_TYPE_BRANCH,
                        min_key,
                        max_key,
+                       min_key,
                        do_prefetch,
                        0);
 }
@@ -5719,6 +5721,7 @@ trunk_split_leaf(trunk_handle *spl,
                              PAGE_TYPE_BRANCH,
                              min_key,
                              max_key,
+                             min_key,
                              TRUE,
                              1);
          rough_itor[branch_offset] = &rough_btree_itor[branch_offset].super;
