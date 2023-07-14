@@ -276,7 +276,7 @@ transactional_splinterdb_config_init(
 
    txn_splinterdb_cfg->tscache_log_slots = 29;
    txn_splinterdb_cfg->tscache_rows      = 2;
-   txn_splinterdb_cfg->tscache_cols      = 131072 * 2;
+   txn_splinterdb_cfg->tscache_cols      = 131072;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
