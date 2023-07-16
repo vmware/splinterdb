@@ -1,4 +1,8 @@
-# SplinterDB
+# Persistron 
+PersistCache is a grey-box DRAM/PMEM caching system that requires only small changes to application code in order to achieve the speed, cost, and durability advantages of PMEM-based systems.
+
+We have implemented PersistCache by modifying the cache layer of SplinterDB. We call the resulting key-value store **Persistron**.
+
 SplinterDB is a key-value store designed for high performance on fast storage devices.
 
 See
