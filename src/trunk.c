@@ -6065,10 +6065,11 @@ trunk_range_iterator_init(trunk_handle         *spl,
    key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);
    key_buffer_init_from_key(&range_itor->max_key, spl->heap_id, max_key);
 
-   int comp                 = trunk_key_compare(spl, min_key, start_key);
-   range_itor->before_begin = key_is_negative_infinity(min_key) ? comp >= 0 && !forwards : comp > 0;
-   range_itor->after_end    = trunk_key_compare(spl, max_key, start_key) <= 0;
-   range_itor->merge_itor   = NULL;
+   int comp = trunk_key_compare(spl, min_key, start_key);
+   range_itor->before_begin =
+      key_is_negative_infinity(min_key) ? comp >= 0 && !forwards : comp > 0;
+   range_itor->after_end  = trunk_key_compare(spl, max_key, start_key) <= 0;
+   range_itor->merge_itor = NULL;
 
    if ((forwards && range_itor->after_end)
        || (!forwards && range_itor->before_begin))
@@ -6369,11 +6370,13 @@ trunk_range_iterator_prev(iterator *itor)
    range_itor->after_end    = FALSE;
 
    if (range_itor->before_begin) {
-      int  comp      = trunk_key_compare(range_itor->spl,
+      int  comp = trunk_key_compare(range_itor->spl,
                                    key_buffer_key(&range_itor->local_min_key),
                                    key_buffer_key(&range_itor->min_key));
-      bool more_data = key_is_negative_infinity(key_buffer_key(&range_itor->min_key))
-                          ? comp >= 0 : comp > 0;
+      bool more_data =
+         key_is_negative_infinity(key_buffer_key(&range_itor->min_key))
+            ? comp >= 0
+            : comp > 0;
       if (more_data) {
          KEY_CREATE_LOCAL_COPY(rc,
                                min_key,

@@ -66,7 +66,12 @@ static int
 check_current_tuple(splinterdb_iterator *it, const int expected_i);
 
 static int
-test_two_step_iterator(splinterdb *kvsb, slice start_key, int num_keys, int minkey, int start_i, int hop_i);
+test_two_step_iterator(splinterdb *kvsb,
+                       slice       start_key,
+                       int         num_keys,
+                       int         minkey,
+                       int         start_i,
+                       int         hop_i);
 
 static int
 custom_key_comparator(const data_config *cfg, slice key1, slice key2);
@@ -641,18 +646,25 @@ CTEST2(splinterdb_quick, test_iterator_prev)
    char key[TEST_INSERT_KEY_LENGTH];
 
    // test starting with a null key
-   ASSERT_EQUAL(0, test_two_step_iterator(data->kvsb, NULL_SLICE, num_inserts, minkey, 0, hop_amt));
+   ASSERT_EQUAL(0,
+                test_two_step_iterator(
+                   data->kvsb, NULL_SLICE, num_inserts, minkey, 0, hop_amt));
 
    // test starting == minkey
    snprintf(key, sizeof(key), key_fmt, minkey);
    slice start_key = slice_create(strlen(key), key);
-   ASSERT_EQUAL(0, test_two_step_iterator(data->kvsb, start_key, num_inserts, minkey, 0, hop_amt));
+   ASSERT_EQUAL(0,
+                test_two_step_iterator(
+                   data->kvsb, start_key, num_inserts, minkey, 0, hop_amt));
 
    // test starting between two keys
    int start_i = num_inserts / 4;
    snprintf(key, sizeof(key), key_fmt, hop_amt * start_i + minkey - 1);
    start_key = slice_create(strlen(key), key);
-   ASSERT_EQUAL(0, test_two_step_iterator(data->kvsb, start_key, num_inserts, minkey, start_i, hop_amt));
+   ASSERT_EQUAL(
+      0,
+      test_two_step_iterator(
+         data->kvsb, start_key, num_inserts, minkey, start_i, hop_amt));
 }
 
 /*
@@ -1041,11 +1053,16 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
 
 // Test moving iterator 2 steps up, 1 step back and then all the way back down
 static int
-test_two_step_iterator(splinterdb *kvsb, slice start_key, int num_keys, int minkey, int start_i, int hop_i)
+test_two_step_iterator(splinterdb *kvsb,
+                       slice       start_key,
+                       int         num_keys,
+                       int         minkey,
+                       int         start_i,
+                       int         hop_i)
 {
-   int rc;
+   int                  rc;
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(kvsb, &it, start_key);
+   rc                      = splinterdb_iterator_init(kvsb, &it, start_key);
    ASSERT_EQUAL(0, rc);
 
    for (int i = start_i; i < num_keys; i++) {
