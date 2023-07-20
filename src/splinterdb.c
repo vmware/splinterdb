@@ -615,8 +615,13 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
       start_key = key_create_from_slice(user_start_key);
    }
 
-   platform_status rc = trunk_range_iterator_init(
-      kvs->spl, range_itor, start_key, POSITIVE_INFINITY_KEY, UINT64_MAX);
+   platform_status rc = trunk_range_iterator_init(kvs->spl,
+                                                  range_itor,
+                                                  start_key,
+                                                  POSITIVE_INFINITY_KEY,
+                                                  start_key,
+                                                  TRUE,
+                                                  UINT64_MAX);
    if (!SUCCESS(rc)) {
       platform_free(kvs->spl->heap_id, *iter);
       return platform_status_to_int(rc);
@@ -652,6 +657,13 @@ splinterdb_iterator_next(splinterdb_iterator *kvi)
 {
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_next(itor);
+}
+
+void
+splinterdb_iterator_prev(splinterdb_iterator *kvi)
+{
+   iterator *itor = &(kvi->sri.super);
+   kvi->last_rc   = iterator_prev(itor);
 }
 
 int

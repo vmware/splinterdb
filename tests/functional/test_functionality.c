@@ -33,8 +33,13 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
 {
    trunk_range_iterator iter;
 
-   trunk_range_iterator_init(
-      spl, &iter, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY, UINT64_MAX);
+   trunk_range_iterator_init(spl,
+                             &iter,
+                             NEGATIVE_INFINITY_KEY,
+                             POSITIVE_INFINITY_KEY,
+                             NEGATIVE_INFINITY_KEY,
+                             TRUE,
+                             UINT64_MAX);
    uint64 count = 0;
    while (iterator_valid((iterator *)&iter)) {
       key     curr_key;
@@ -233,8 +238,13 @@ verify_range_against_shadow(trunk_handle               *spl,
 
    trunk_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
-   status = trunk_range_iterator_init(
-      spl, range_itor, start_key, end_key, end_index - start_index);
+   status = trunk_range_iterator_init(spl,
+                                      range_itor,
+                                      start_key,
+                                      end_key,
+                                      start_key,
+                                      TRUE,
+                                      end_index - start_index);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
                          platform_status_to_string(status));

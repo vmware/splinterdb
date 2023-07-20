@@ -340,6 +340,11 @@ splinterdb_iterator_valid(splinterdb_iterator *iter);
 void
 splinterdb_iterator_next(splinterdb_iterator *iter);
 
+// Attempts to move the iterator to the previous item.
+// Any error will cause valid() == false and be visible with status()
+void
+splinterdb_iterator_prev(splinterdb_iterator *iter);
+
 // Sets *key and *value to the locations of the current item
 // Callers must not modify that memory pointed to by the slice
 //

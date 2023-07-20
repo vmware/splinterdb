@@ -97,6 +97,7 @@ platform_status
 merge_iterator_create(platform_heap_id hid,
                       data_config     *cfg,
                       int              num_trees,
+                      bool             forwards,
                       iterator       **itor_arr,
                       merge_behavior   merge_mode,
                       merge_iterator **out_itor);

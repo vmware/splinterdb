@@ -2615,6 +2615,9 @@ btree_iterator_prev_leaf(btree_iterator *itor)
          itor->height
             ? btree_find_pivot(cfg, itor->curr.hdr, itor->min_key, &found)
             : btree_find_tuple(cfg, itor->curr.hdr, itor->min_key, &found);
+      if (!found) {
+         itor->curr_min_idx++;
+      }
    }
    if (itor->curr.hdr->prev_addr == 0 && itor->curr_min_idx == -1) {
       itor->curr_min_idx = 0;
@@ -2756,6 +2759,10 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
       }
    }
    itor->curr_min_idx = tmp;
+   // if min_key is not within the current node but there is no previous node
+   // then set curr_min_idx to 0
+   if (itor->curr_min_idx == -1 && itor->curr.hdr->prev_addr == 0)
+      itor->curr_min_idx = 0;
 
    // find the index of the actual target
    if (itor->height == 0) {
@@ -2887,6 +2894,7 @@ btree_iterator_init(cache          *cc,
                     key             min_key,
                     key             max_key,
                     key             start_key,
+                    bool            from_above,
                     bool            do_prefetch,
                     uint32          height)
 {
@@ -2894,12 +2902,12 @@ btree_iterator_init(cache          *cc,
    debug_assert(page_type == PAGE_TYPE_MEMTABLE
                 || page_type == PAGE_TYPE_BRANCH);
 
-   debug_assert(!key_is_null(min_key) && !key_is_null(max_key));
+   debug_assert(!key_is_null(min_key) && !key_is_null(max_key)
+                && !key_is_null(start_key));
 
    if (btree_key_compare(cfg, min_key, max_key) > 0) {
       max_key = min_key;
    }
-
    if (btree_key_compare(cfg, start_key, min_key) < 0) {
       start_key = min_key;
    }
@@ -2918,7 +2926,7 @@ btree_iterator_init(cache          *cc,
    itor->page_type   = page_type;
    itor->super.ops   = &btree_iterator_ops;
 
-   find_btree_node_and_get_idx_bounds(itor, start_key, TRUE);
+   find_btree_node_and_get_idx_bounds(itor, start_key, from_above);
 
    if (itor->do_prefetch && itor->curr.hdr->next_extent_addr != 0
        && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr))
@@ -3304,6 +3312,7 @@ btree_count_in_range_by_iterator(cache             *cc,
                        min_key,
                        max_key,
                        min_key,
+                       TRUE,
                        TRUE,
                        0);
 

@@ -518,6 +518,7 @@ iterator_tests(cache           *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        start_key,
+                       TRUE,
                        FALSE,
                        0);
 
@@ -566,6 +567,7 @@ iterator_seek_tests(cache           *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        start_key,
+                       TRUE,
                        FALSE,
                        0);
    iterator *iter = (iterator *)&dbiter;
@@ -607,6 +609,7 @@ pack_tests(cache           *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        NEGATIVE_INFINITY_KEY,
+                       TRUE,
                        FALSE,
                        0);
 

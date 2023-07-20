@@ -665,6 +665,7 @@ test_btree_basic(cache             *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        NEGATIVE_INFINITY_KEY,
+                       TRUE,
                        FALSE,
                        0);
    platform_default_log("btree iterator init time %luns\n",
@@ -840,6 +841,7 @@ test_btree_create_packed_trees(cache             *cc,
                           NEGATIVE_INFINITY_KEY,
                           POSITIVE_INFINITY_KEY,
                           NEGATIVE_INFINITY_KEY,
+                          TRUE,
                           FALSE,
                           0);
 
@@ -889,6 +891,7 @@ test_count_tuples_in_range(cache        *cc,
                           low_key,
                           high_key,
                           low_key,
+                          TRUE,
                           TRUE,
                           0);
       key last_key = NULL_KEY;
@@ -982,6 +985,7 @@ test_btree_print_all_keys(cache        *cc,
                           high_key,
                           low_key,
                           TRUE,
+                          TRUE,
                           0);
       while (iterator_valid(&itor.super)) {
          key     curr_key;
@@ -1058,12 +1062,18 @@ test_btree_merge_basic(cache             *cc,
                              hi,
                              lo,
                              TRUE,
+                             TRUE,
                              0);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
-      rc = merge_iterator_create(
-         hid, btree_cfg->data_cfg, arity, itor_arr, MERGE_FULL, &merge_itor);
+      rc = merge_iterator_create(hid,
+                                 btree_cfg->data_cfg,
+                                 arity,
+                                 TRUE,
+                                 itor_arr,
+                                 MERGE_FULL,
+                                 &merge_itor);
       if (!SUCCESS(rc)) {
          goto destroy_btrees;
       }
@@ -1277,6 +1287,7 @@ test_btree_rough_iterator(cache             *cc,
                           POSITIVE_INFINITY_KEY,
                           NEGATIVE_INFINITY_KEY,
                           TRUE,
+                          TRUE,
                           1);
       if (iterator_valid(&rough_btree_itor[tree_no].super)) {
          key     curr_key;
@@ -1291,6 +1302,7 @@ test_btree_rough_iterator(cache             *cc,
    rc = merge_iterator_create(hid,
                               btree_cfg->data_cfg,
                               num_trees,
+                              TRUE,
                               rough_itor,
                               MERGE_RAW,
                               &rough_merge_itor);
@@ -1436,12 +1448,18 @@ test_btree_merge_perf(cache             *cc,
                                 max_key,
                                 min_key,
                                 TRUE,
+                                TRUE,
                                 0);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;
-         rc = merge_iterator_create(
-            hid, btree_cfg->data_cfg, arity, itor_arr, MERGE_FULL, &merge_itor);
+         rc = merge_iterator_create(hid,
+                                    btree_cfg->data_cfg,
+                                    arity,
+                                    TRUE,
+                                    itor_arr,
+                                    MERGE_FULL,
+                                    &merge_itor);
          if (!SUCCESS(rc)) {
             goto destroy_btrees;
          }

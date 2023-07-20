@@ -44,10 +44,10 @@
 #define TEST_MAX_VALUE_SIZE 32
 
 // Hard-coded format strings to generate key and values
-static const char key_fmt[] = "key-%02x";
-static const char val_fmt[] = "val-%02x";
-#define KEY_FMT_LENGTH         (6)
-#define VAL_FMT_LENGTH         (6)
+static const char key_fmt[] = "key-%08x";
+static const char val_fmt[] = "val-%20x";
+#define KEY_FMT_LENGTH         (12)
+#define VAL_FMT_LENGTH         (24)
 #define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
 #define TEST_INSERT_VAL_LENGTH (VAL_FMT_LENGTH + 1)
 
@@ -64,6 +64,9 @@ insert_keys(splinterdb *kvsb, const int minkey, int numkeys, const int incr);
 
 static int
 check_current_tuple(splinterdb_iterator *it, const int expected_i);
+
+static int
+test_two_step_iterator(splinterdb *kvsb, slice start_key, int num_keys, int minkey, int start_i, int hop_i);
 
 static int
 custom_key_comparator(const data_config *cfg, slice key1, slice key2);
@@ -626,6 +629,32 @@ CTEST2(splinterdb_quick,
    }
 }
 
+CTEST2(splinterdb_quick, test_iterator_prev)
+{
+   const int num_inserts = 1 << 14;
+   // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
+   int minkey  = 1;
+   int hop_amt = 3;
+   int rc      = insert_keys(data->kvsb, minkey, num_inserts, 3);
+   ASSERT_EQUAL(0, rc);
+
+   char key[TEST_INSERT_KEY_LENGTH];
+
+   // test starting with a null key
+   ASSERT_EQUAL(0, test_two_step_iterator(data->kvsb, NULL_SLICE, num_inserts, minkey, 0, hop_amt));
+
+   // test starting == minkey
+   snprintf(key, sizeof(key), key_fmt, minkey);
+   slice start_key = slice_create(strlen(key), key);
+   ASSERT_EQUAL(0, test_two_step_iterator(data->kvsb, start_key, num_inserts, minkey, 0, hop_amt));
+
+   // test starting between two keys
+   int start_i = num_inserts / 4;
+   snprintf(key, sizeof(key), key_fmt, hop_amt * start_i + minkey - 1);
+   start_key = slice_create(strlen(key), key);
+   ASSERT_EQUAL(0, test_two_step_iterator(data->kvsb, start_key, num_inserts, minkey, start_i, hop_amt));
+}
+
 /*
  * Test case to verify the interfaces to close() and reopen() a KVS work
  * as expected. After reopening the KVS, we should be able to retrieve data
@@ -1007,6 +1036,58 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
    ASSERT_EQUAL(0, key_cmp);
    ASSERT_EQUAL(0, val_cmp);
 
+   return rc;
+}
+
+// Test moving iterator 2 steps up, 1 step back and then all the way back down
+static int
+test_two_step_iterator(splinterdb *kvsb, slice start_key, int num_keys, int minkey, int start_i, int hop_i)
+{
+   int rc;
+   splinterdb_iterator *it = NULL;
+   rc = splinterdb_iterator_init(kvsb, &it, start_key);
+   ASSERT_EQUAL(0, rc);
+
+   for (int i = start_i; i < num_keys; i++) {
+      bool is_valid = splinterdb_iterator_valid(it);
+      ASSERT_TRUE(is_valid);
+      check_current_tuple(it, i * hop_i + minkey);
+      splinterdb_iterator_next(it);
+
+      if (i < num_keys - 2) {
+         is_valid = splinterdb_iterator_valid(it);
+         ASSERT_TRUE(is_valid);
+         check_current_tuple(it, (i + 1) * hop_i + minkey);
+         splinterdb_iterator_next(it);
+
+         is_valid = splinterdb_iterator_valid(it);
+         ASSERT_TRUE(is_valid);
+         check_current_tuple(it, (i + 2) * hop_i + minkey);
+         splinterdb_iterator_prev(it);
+      }
+   }
+
+   bool is_valid = splinterdb_iterator_valid(it);
+   ASSERT_FALSE(is_valid);
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+
+   // Start going down
+   splinterdb_iterator_prev(it);
+   for (int i = num_keys - 1; i >= start_i; i--) {
+      bool is_valid = splinterdb_iterator_valid(it);
+      ASSERT_TRUE(is_valid);
+      check_current_tuple(it, i * hop_i + minkey);
+
+      splinterdb_iterator_prev(it);
+   }
+
+   is_valid = splinterdb_iterator_valid(it);
+   ASSERT_FALSE(is_valid);
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_iterator_deinit(it);
    return rc;
 }
 

@@ -231,11 +231,12 @@ typedef struct trunk_range_iterator {
    uint64          memtable_end_gen;
    bool            compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator *merge_itor;
-   bool            at_end;
+   bool            before_begin;
+   bool            after_end;
    key_buffer      min_key;
    key_buffer      max_key;
+   key_buffer      local_min_key;
    key_buffer      local_max_key;
-   key_buffer      rebuild_key;
    btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 
@@ -351,6 +352,8 @@ trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
                           key                   min_key,
                           key                   max_key,
+                          key                   curr_key,
+                          bool                  forwards,
                           uint64                num_tuples);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);

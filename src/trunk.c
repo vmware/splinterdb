@@ -3331,6 +3331,8 @@ trunk_memtable_iterator_init(trunk_handle   *spl,
                              uint64          root_addr,
                              key             min_key,
                              key             max_key,
+                             key             start_key,
+                             bool            from_above,
                              bool            is_live,
                              bool            inc_ref)
 {
@@ -3344,7 +3346,8 @@ trunk_memtable_iterator_init(trunk_handle   *spl,
                        PAGE_TYPE_MEMTABLE,
                        min_key,
                        max_key,
-                       min_key,
+                       start_key,
+                       from_above,
                        FALSE,
                        0);
 }
@@ -3439,6 +3442,8 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                                 memtable_root_addr,
                                 NEGATIVE_INFINITY_KEY,
                                 POSITIVE_INFINITY_KEY,
+                                NEGATIVE_INFINITY_KEY,
+                                TRUE,
                                 FALSE,
                                 FALSE);
    btree_pack_req req;
@@ -4813,6 +4818,8 @@ trunk_branch_iterator_init(trunk_handle   *spl,
                            trunk_branch   *branch,
                            key             min_key,
                            key             max_key,
+                           key             start_key,
+                           bool            from_above,
                            bool            do_prefetch,
                            bool            should_inc_ref)
 {
@@ -4829,7 +4836,8 @@ trunk_branch_iterator_init(trunk_handle   *spl,
                        PAGE_TYPE_BRANCH,
                        min_key,
                        max_key,
-                       min_key,
+                       start_key,
+                       from_above,
                        do_prefetch,
                        0);
 }
@@ -4902,6 +4910,8 @@ trunk_btree_skiperator_init(trunk_handle           *spl,
                                     &skip_itor->branch,
                                     pivot_min_key,
                                     pivot_max_key,
+                                    pivot_min_key,
+                                    TRUE,
                                     TRUE,
                                     TRUE);
          iterator_started = FALSE;
@@ -5192,6 +5202,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    rc = merge_iterator_create(spl->heap_id,
                               spl->cfg.data_cfg,
                               num_branches,
+                              TRUE,
                               itor_arr,
                               merge_mode,
                               &merge_itor);
@@ -5723,6 +5734,7 @@ trunk_split_leaf(trunk_handle *spl,
                              max_key,
                              min_key,
                              TRUE,
+                             TRUE,
                              1);
          rough_itor[branch_offset] = &rough_btree_itor[branch_offset].super;
       }
@@ -5731,6 +5743,7 @@ trunk_split_leaf(trunk_handle *spl,
       platform_status rc = merge_iterator_create(spl->heap_id,
                                                  spl->cfg.data_cfg,
                                                  num_branches,
+                                                 TRUE,
                                                  rough_itor,
                                                  MERGE_RAW,
                                                  &rough_merge_itor);
@@ -6018,6 +6031,8 @@ bool
 trunk_range_iterator_valid(iterator *itor);
 platform_status
 trunk_range_iterator_next(iterator *itor);
+platform_status
+trunk_range_iterator_prev(iterator *itor);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
@@ -6025,6 +6040,7 @@ const static iterator_ops trunk_range_iterator_ops = {
    .curr  = trunk_range_iterator_curr,
    .valid = trunk_range_iterator_valid,
    .next  = trunk_range_iterator_next,
+   .prev  = trunk_range_iterator_prev,
 };
 
 platform_status
@@ -6032,24 +6048,39 @@ trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
                           key                   min_key,
                           key                   max_key,
+                          key                   start_key,
+                          bool                  forwards,
                           uint64                num_tuples)
 {
    debug_assert(!key_is_null(min_key));
    debug_assert(!key_is_null(max_key));
+   debug_assert(!key_is_null(start_key));
 
    range_itor->spl          = spl;
    range_itor->super.ops    = &trunk_range_iterator_ops;
    range_itor->num_branches = 0;
    range_itor->num_tuples   = num_tuples;
+
+   // copy over global min and max
    key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);
    key_buffer_init_from_key(&range_itor->max_key, spl->heap_id, max_key);
 
-   if (trunk_key_compare(spl, max_key, min_key) <= 0) {
-      range_itor->at_end = TRUE;
+   int comp                 = trunk_key_compare(spl, min_key, start_key);
+   range_itor->before_begin = key_is_negative_infinity(min_key) ? comp >= 0 && !forwards : comp > 0;
+   range_itor->after_end    = trunk_key_compare(spl, max_key, start_key) <= 0;
+   range_itor->merge_itor   = NULL;
+
+   if ((forwards && range_itor->after_end)
+       || (!forwards && range_itor->before_begin))
+   {
+      // iterator out of bounds. Setup future calls to prev/next to attempt
+      // to resume at start_key.
+      key_buffer_init_from_key(
+         &range_itor->local_min_key, spl->heap_id, start_key);
+      key_buffer_init_from_key(
+         &range_itor->local_max_key, spl->heap_id, start_key);
       return STATUS_OK;
    }
-
-   range_itor->at_end = FALSE;
 
    ZERO_ARRAY(range_itor->compacted);
 
@@ -6097,8 +6128,12 @@ trunk_range_iterator_init(trunk_handle         *spl,
    // index btrees
    uint16 height = trunk_node_height(&node);
    for (uint16 h = height; h > 0; h--) {
-      uint16 pivot_no = trunk_find_pivot(
-         spl, &node, key_buffer_key(&range_itor->min_key), less_than_or_equal);
+      uint16 pivot_no;
+      if (forwards) {
+         pivot_no = trunk_find_pivot(spl, &node, start_key, less_than_or_equal);
+      } else {
+         pivot_no = trunk_find_pivot(spl, &node, start_key, less_than);
+      }
       debug_assert(pivot_no < trunk_num_children(spl, &node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
 
@@ -6147,20 +6182,19 @@ trunk_range_iterator_init(trunk_handle         *spl,
       range_itor->num_branches++;
    }
 
-   // have a leaf, use to get rebuild key
-   key rebuild_key =
+   // have a leaf, use to establish local bounds
+   key local_min =
+      trunk_key_compare(spl, trunk_min_key(spl, &node), min_key) > 0
+         ? trunk_min_key(spl, &node)
+         : min_key;
+   key local_max =
       trunk_key_compare(spl, trunk_max_key(spl, &node), max_key) < 0
          ? trunk_max_key(spl, &node)
          : max_key;
    key_buffer_init_from_key(
-      &range_itor->rebuild_key, spl->heap_id, rebuild_key);
-   if (trunk_key_compare(spl, max_key, rebuild_key) < 0) {
-      key_buffer_init_from_key(
-         &range_itor->local_max_key, spl->heap_id, max_key);
-   } else {
-      key_buffer_init_from_key(
-         &range_itor->local_max_key, spl->heap_id, rebuild_key);
-   }
+      &range_itor->local_min_key, spl->heap_id, local_min);
+   key_buffer_init_from_key(
+      &range_itor->local_max_key, spl->heap_id, local_max);
 
    trunk_node_unget(spl->cc, &node);
 
@@ -6176,8 +6210,10 @@ trunk_range_iterator_init(trunk_handle         *spl,
          trunk_branch_iterator_init(spl,
                                     btree_itor,
                                     branch,
-                                    key_buffer_key(&range_itor->min_key),
+                                    key_buffer_key(&range_itor->local_min_key),
                                     key_buffer_key(&range_itor->local_max_key),
+                                    start_key,
+                                    forwards,
                                     do_prefetch,
                                     FALSE);
       } else {
@@ -6187,8 +6223,10 @@ trunk_range_iterator_init(trunk_handle         *spl,
             spl,
             btree_itor,
             mt_root_addr,
-            key_buffer_key(&range_itor->min_key),
+            key_buffer_key(&range_itor->local_min_key),
             key_buffer_key(&range_itor->local_max_key),
+            start_key,
+            forwards,
             is_live,
             FALSE);
       }
@@ -6198,6 +6236,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    platform_status rc = merge_iterator_create(spl->heap_id,
                                               spl->cfg.data_cfg,
                                               range_itor->num_branches,
+                                              forwards,
                                               range_itor->itor,
                                               MERGE_FULL,
                                               &range_itor->merge_itor);
@@ -6212,35 +6251,34 @@ trunk_range_iterator_init(trunk_handle         *spl,
     * if the merge itor is already exhausted, and there are more keys in the
     * db/range, move to next leaf
     */
-   if (at_end) {
-      KEY_CREATE_LOCAL_COPY(rc,
-                            local_max_key,
-                            spl->heap_id,
-                            key_buffer_key(&range_itor->local_max_key));
+   if (at_end && trunk_key_compare(spl, local_max, max_key) < 0) {
+      debug_assert(forwards);
+      KEY_CREATE_LOCAL_COPY(
+         rc, min_key, spl->heap_id, key_buffer_key(&range_itor->min_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
-      KEY_CREATE_LOCAL_COPY(rc,
-                            rebuild_key,
-                            spl->heap_id,
-                            key_buffer_key(&range_itor->rebuild_key));
+      KEY_CREATE_LOCAL_COPY(
+         rc, max_key, spl->heap_id, key_buffer_key(&range_itor->max_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
+
       trunk_range_iterator_deinit(range_itor);
-      if (1 && trunk_key_compare(spl, local_max_key, POSITIVE_INFINITY_KEY) != 0
-          && trunk_key_compare(spl, local_max_key, max_key) < 0)
-      {
-         rc = trunk_range_iterator_init(
-            spl, range_itor, rebuild_key, max_key, range_itor->num_tuples);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
-         at_end = !iterator_valid(&range_itor->merge_itor->super);
+      rc = trunk_range_iterator_init(spl,
+                                     range_itor,
+                                     min_key,
+                                     max_key,
+                                     key_buffer_key(&range_itor->local_max_key),
+                                     TRUE,
+                                     range_itor->num_tuples);
+      if (!SUCCESS(rc)) {
+         return rc;
       }
+      at_end = !iterator_valid(&range_itor->merge_itor->super);
    }
 
-   range_itor->at_end = at_end;
+   range_itor->after_end = at_end;
 
    return rc;
 }
@@ -6259,19 +6297,25 @@ trunk_range_iterator_next(iterator *itor)
    debug_assert(itor != NULL);
    trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
    platform_status       rc;
+
    rc = iterator_next(&range_itor->merge_itor->super);
    if (!SUCCESS(rc)) {
       return rc;
    }
    range_itor->num_tuples++;
-   bool at_end;
-   at_end = !iterator_valid(&range_itor->merge_itor->super);
-   // robj: shouldn't this be a while loop, like in the init function?
-   if (at_end) {
+   range_itor->before_begin = FALSE;
+   range_itor->after_end    = !iterator_valid(&range_itor->merge_itor->super);
+   bool more_data =
+      trunk_key_compare(range_itor->spl,
+                        key_buffer_key(&range_itor->local_max_key),
+                        key_buffer_key(&range_itor->max_key))
+      < 0;
+
+   if (range_itor->after_end && more_data) {
       KEY_CREATE_LOCAL_COPY(rc,
-                            rebuild_key,
+                            min_key,
                             range_itor->spl->heap_id,
-                            key_buffer_key(&range_itor->rebuild_key));
+                            key_buffer_key(&range_itor->min_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -6282,18 +6326,90 @@ trunk_range_iterator_next(iterator *itor)
       if (!SUCCESS(rc)) {
          return rc;
       }
-      trunk_range_iterator_deinit(range_itor);
-      rc = trunk_range_iterator_init(range_itor->spl,
-                                     range_itor,
-                                     rebuild_key,
-                                     max_key,
-                                     range_itor->num_tuples);
+      KEY_CREATE_LOCAL_COPY(rc,
+                            local_max_key,
+                            range_itor->spl->heap_id,
+                            key_buffer_key(&range_itor->local_max_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
-      if (!range_itor->at_end) {
-         at_end = !iterator_valid(&range_itor->merge_itor->super);
-         platform_assert(!at_end);
+
+      uint64 temp_tuples = range_itor->num_tuples;
+      trunk_range_iterator_deinit(range_itor);
+      rc = trunk_range_iterator_init(range_itor->spl,
+                                     range_itor,
+                                     min_key,
+                                     max_key,
+                                     local_max_key,
+                                     TRUE,
+                                     temp_tuples);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (!range_itor->after_end) {
+         platform_assert(iterator_valid(&range_itor->merge_itor->super));
+      }
+   }
+
+   return STATUS_OK;
+}
+
+platform_status
+trunk_range_iterator_prev(iterator *itor)
+{
+   debug_assert(itor != NULL);
+   trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
+   platform_status       rc;
+   rc = iterator_prev(&range_itor->merge_itor->super);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   range_itor->num_tuples++;
+   range_itor->before_begin = !iterator_valid(&range_itor->merge_itor->super);
+   range_itor->after_end    = FALSE;
+
+   if (range_itor->before_begin) {
+      int  comp      = trunk_key_compare(range_itor->spl,
+                                   key_buffer_key(&range_itor->local_min_key),
+                                   key_buffer_key(&range_itor->min_key));
+      bool more_data = key_is_negative_infinity(key_buffer_key(&range_itor->min_key))
+                          ? comp >= 0 : comp > 0;
+      if (more_data) {
+         KEY_CREATE_LOCAL_COPY(rc,
+                               min_key,
+                               range_itor->spl->heap_id,
+                               key_buffer_key(&range_itor->min_key));
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         KEY_CREATE_LOCAL_COPY(rc,
+                               max_key,
+                               range_itor->spl->heap_id,
+                               key_buffer_key(&range_itor->max_key));
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         KEY_CREATE_LOCAL_COPY(rc,
+                               local_min_key,
+                               range_itor->spl->heap_id,
+                               key_buffer_key(&range_itor->local_min_key));
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         trunk_range_iterator_deinit(range_itor);
+         rc = trunk_range_iterator_init(range_itor->spl,
+                                        range_itor,
+                                        min_key,
+                                        max_key,
+                                        local_min_key,
+                                        FALSE,
+                                        range_itor->num_tuples);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         if (!range_itor->before_begin) {
+            platform_assert(iterator_valid(&range_itor->merge_itor->super));
+         }
       }
    }
 
@@ -6306,35 +6422,33 @@ trunk_range_iterator_valid(iterator *itor)
    debug_assert(itor != NULL);
    trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
 
-   return !range_itor->at_end;
+   return !range_itor->before_begin && !range_itor->after_end;
 }
 
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
 {
-   // If the iterator is at end, then it has already been deinitialized
-   if (range_itor->at_end) {
-      return;
-   }
    trunk_handle *spl = range_itor->spl;
-   merge_iterator_destroy(range_itor->spl->heap_id, &range_itor->merge_itor);
-   for (uint64 i = 0; i < range_itor->num_branches; i++) {
-      btree_iterator *btree_itor = &range_itor->btree_itor[i];
-      if (range_itor->compacted[i]) {
-         uint64 root_addr = btree_itor->root_addr;
-         trunk_branch_iterator_deinit(spl, btree_itor, FALSE);
-         btree_unblock_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
-      } else {
-         uint64 mt_gen = range_itor->memtable_start_gen - i;
-         trunk_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
-         trunk_memtable_dec_ref(spl, mt_gen);
+   if (range_itor->merge_itor != NULL) {
+      merge_iterator_destroy(range_itor->spl->heap_id, &range_itor->merge_itor);
+      for (uint64 i = 0; i < range_itor->num_branches; i++) {
+         btree_iterator *btree_itor = &range_itor->btree_itor[i];
+         if (range_itor->compacted[i]) {
+            uint64 root_addr = btree_itor->root_addr;
+            trunk_branch_iterator_deinit(spl, btree_itor, FALSE);
+            btree_unblock_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
+         } else {
+            uint64 mt_gen = range_itor->memtable_start_gen - i;
+            trunk_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
+            trunk_memtable_dec_ref(spl, mt_gen);
+         }
       }
    }
 
    key_buffer_deinit(&range_itor->min_key);
    key_buffer_deinit(&range_itor->max_key);
+   key_buffer_deinit(&range_itor->local_min_key);
    key_buffer_deinit(&range_itor->local_max_key);
-   key_buffer_deinit(&range_itor->rebuild_key);
 }
 
 /*
@@ -7386,8 +7500,13 @@ trunk_range(trunk_handle  *spl,
             void          *arg)
 {
    trunk_range_iterator *range_itor = TYPED_MALLOC(spl->heap_id, range_itor);
-   platform_status       rc         = trunk_range_iterator_init(
-      spl, range_itor, start_key, POSITIVE_INFINITY_KEY, num_tuples);
+   platform_status       rc         = trunk_range_iterator_init(spl,
+                                                  range_itor,
+                                                  start_key,
+                                                  POSITIVE_INFINITY_KEY,
+                                                  start_key,
+                                                  TRUE,
+                                                  num_tuples);
    if (!SUCCESS(rc)) {
       goto destroy_range_itor;
    }

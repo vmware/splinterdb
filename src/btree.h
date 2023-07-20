@@ -319,6 +319,7 @@ btree_iterator_init(cache          *cc,
                     key             min_key,
                     key             max_key,
                     key             start_key,
+                    bool            from_above,
                     bool            do_prefetch,
                     uint32          height);
 
