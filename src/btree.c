@@ -1329,6 +1329,7 @@ btree_split_child_leaf(cache                 *cc,
             old_next_wait > 2048 ? old_next_wait : 2 * old_next_wait;
          btree_node_get(cc, cfg, &old_next, PAGE_TYPE_MEMTABLE);
       }
+      btree_node_lock(cc, cfg, &old_next);
    }
    /* p: write, c: claim, rc: write, on: write if exists */
 
