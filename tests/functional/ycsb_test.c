@@ -181,7 +181,7 @@ print_latency_table(latency_table table, platform_log_handle *log_handle)
 {
    uint64_t exponent;
    uint64_t mantissa;
-   bool     started = FALSE;
+   bool32     started = FALSE;
    uint64_t max     = max_latency(table);
 
    platform_log(log_handle, "latency count\n");
@@ -248,7 +248,7 @@ typedef struct ycsb_op {
    uint64 range_len;
    uint64 start_time;
    uint64 end_time;
-   bool   found;
+   bool32   found;
 } ycsb_op;
 
 typedef struct running_times {
@@ -529,7 +529,7 @@ run_all_ycsb_phases(trunk_handle    *spl,
 
 typedef struct parse_ycsb_log_req {
    char     *filename;
-   bool      lock;
+   bool32      lock;
    uint64    start_line;
    uint64    end_line;
    uint64   *num_ops;
@@ -542,7 +542,7 @@ parse_ycsb_log_file(void *arg)
 {
    parse_ycsb_log_req *req     = (parse_ycsb_log_req *)arg;
    platform_heap_id    hid     = platform_get_heap_id();
-   bool                lock    = req->lock;
+   bool32                lock    = req->lock;
    uint64             *num_ops = req->num_ops;
 
    random_state rs;
@@ -641,7 +641,7 @@ static platform_status
 load_ycsb_logs(int          argc,
                char        *argv[],
                uint64      *nphases,
-               bool        *use_existing,
+               bool32        *use_existing,
                ycsb_phase **output,
                int         *args_consumed,
                uint64      *log_size_bytes_out,
@@ -649,7 +649,7 @@ load_ycsb_logs(int          argc,
 {
    uint64 _nphases            = 1;
    uint64 num_threads         = 0;
-   bool   mlock_log           = TRUE;
+   bool32   mlock_log           = TRUE;
    char  *measurement_command = NULL;
    uint64 log_size_bytes      = 0;
    *use_existing              = FALSE;
@@ -1158,7 +1158,7 @@ ycsb_test(int argc, char *argv[])
    task_system       *ts = NULL;
 
    uint64                 nphases;
-   bool                   use_existing = 0;
+   bool32                   use_existing = 0;
    ycsb_phase            *phases;
    int                    args_consumed;
    test_message_generator gen;

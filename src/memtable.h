@@ -95,7 +95,7 @@ memtable_transition(memtable      *mt,
                     memtable_state old_state,
                     memtable_state new_state)
 {
-   bool success = memtable_try_transition(mt, old_state, new_state);
+   bool32 success = memtable_try_transition(mt, old_state, new_state);
    platform_assert(success);
 }
 
@@ -131,7 +131,7 @@ typedef struct memtable_context {
    // read lock to read and write lock to modify.
    volatile uint64 generation_retired;
 
-   bool is_empty;
+   bool32 is_empty;
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];

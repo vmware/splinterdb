@@ -96,7 +96,7 @@ btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
  */
 typedef struct leaf_splitting_plan {
    uint64 split_idx;         // keys with idx < split_idx go left
-   bool insertion_goes_left; // does the key to be inserted go to the left child
+   bool32 insertion_goes_left; // does the key to be inserted go to the left child
 } leaf_splitting_plan;
 
 /*
@@ -135,7 +135,7 @@ int64
 btree_find_pivot(const btree_config *cfg,
                  const btree_hdr    *hdr,
                  key                 target,
-                 bool               *found);
+                 bool32               *found);
 
 leaf_splitting_plan
 btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN

@@ -532,7 +532,7 @@ routing_filter_add(cache           *cc,
          while (new_fps_added < new_index_count
                 || old_fps_added < old_index_count) {
             uint32 fp;
-            bool   is_old = ((new_fps_added == new_index_count)
+            bool32   is_old = ((new_fps_added == new_index_count)
                            || ((old_fps_added != old_index_count)
                                && (old_src_fp[old_fps_added]
                                    <= new_src_fp[new_fps_added])));
@@ -984,7 +984,7 @@ routing_filter_lookup_async(cache              *cc,
                             routing_async_ctxt *ctxt)
 {
    cache_async_result res  = 0;
-   bool               done = FALSE;
+   bool32               done = FALSE;
 
    debug_assert(key_is_user_key(target));
 
@@ -1215,7 +1215,7 @@ routing_filter_verify(cache          *cc,
                       uint16          value,
                       iterator       *itor)
 {
-   bool at_end;
+   bool32 at_end;
    iterator_at_end(itor, &at_end);
    while (!at_end) {
       key     curr_key;

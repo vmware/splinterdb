@@ -21,8 +21,8 @@ typedef struct stats_lookup {
 } stats_lookup;
 
 typedef struct {
-   bool          expected_found;
-   bool          stats_only; // update statistic only
+   bool32          expected_found;
+   bool32          stats_only; // update statistic only
    stats_lookup *stats;
 } verify_tuple_arg;
 
@@ -35,7 +35,7 @@ verify_tuple(trunk_handle           *spl,
              uint64                  lookup_num,
              key                     tuple_key,
              message                 data,
-             bool                    expected_found);
+             bool32                    expected_found);
 
 void
 test_wait_for_inflight(trunk_handle      *spl,

@@ -125,7 +125,7 @@ typedef struct writable_buffer {
    void            *buffer;
    uint64           buffer_capacity;
    uint64           length;
-   bool             can_free;
+   bool32             can_free;
 } writable_buffer;
 
 #define WRITABLE_BUFFER_NULL_LENGTH UINT64_MAX

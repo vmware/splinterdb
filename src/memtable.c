@@ -217,7 +217,7 @@ memtable_insert(memtable_context *ctxt,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
-   bool           was_unique;
+   bool32           was_unique;
 
    platform_status rc = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,
@@ -249,7 +249,7 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;
 
-   bool freed = btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   bool32 freed = btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
       mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
@@ -295,7 +295,7 @@ void
 memtable_deinit(cache *cc, memtable *mt)
 {
    mini_release(&mt->mini, NULL_KEY);
-   debug_only bool freed =
+   debug_only bool32 freed =
       btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);
 }

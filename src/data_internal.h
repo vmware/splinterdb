@@ -325,7 +325,7 @@ message_create(message_type type, slice data)
 static inline bool
 message_is_null(message msg)
 {
-   bool r = slice_is_null(msg.data);
+   bool32 r = slice_is_null(msg.data);
    debug_assert(IMPLIES(r, msg.type == MESSAGE_TYPE_INVALID));
    return r;
 }
@@ -527,7 +527,7 @@ merge_accumulator_set_to_null(merge_accumulator *ma)
 static inline bool
 merge_accumulator_is_null(const merge_accumulator *ma)
 {
-   bool r = writable_buffer_is_null(&ma->data);
+   bool32 r = writable_buffer_is_null(&ma->data);
    debug_assert(IMPLIES(r, ma->type == MESSAGE_TYPE_INVALID));
    return r;
 }

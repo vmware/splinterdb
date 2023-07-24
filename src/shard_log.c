@@ -40,7 +40,7 @@ static log_ops shard_log_ops = {
 void
 shard_log_iterator_get_curr(iterator *itor, key *curr_key, message *msg);
 platform_status
-shard_log_iterator_at_end(iterator *itor, bool *at_end);
+shard_log_iterator_at_end(iterator *itor, bool32 *at_end);
 platform_status
 shard_log_iterator_advance(iterator *itor);
 
@@ -436,7 +436,7 @@ shard_log_iterator_get_curr(iterator *itorh, key *curr_key, message *msg)
 }
 
 platform_status
-shard_log_iterator_at_end(iterator *itorh, bool *at_end)
+shard_log_iterator_at_end(iterator *itorh, bool32 *at_end)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *at_end                  = itor->pos == itor->num_entries;

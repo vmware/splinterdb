@@ -312,7 +312,7 @@ srq_print(srq *queue)
 static inline bool
 srq_verify(srq *queue)
 {
-   bool ret = TRUE;
+   bool32 ret = TRUE;
    platform_mutex_lock(&queue->mutex);
    uint64 entries_found = 0;
    for (uint64 idx = 0; idx < SRQ_MAX_ENTRIES; idx++) {

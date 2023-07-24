@@ -62,8 +62,6 @@ static_assert(sizeof(uint64) == 8, "incorrect type");
 #   define FALSE (0)
 #endif
 
-typedef uint8 bool8;
-
 typedef FILE platform_log_handle;
 
 // By default, info messages sent from platform_default_log() go to /dev/null
