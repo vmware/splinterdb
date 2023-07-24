@@ -46,7 +46,7 @@ resource_types:
   source:
     #! this image is built from https://github.com/cloudfoundry-community/github-pr-resource
     #! which is maintained by VMware staff
-    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/loggregatorbot/github-pr-resource
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/loggregatorbot/github-pr-resource:latest
 
 resources:
 
