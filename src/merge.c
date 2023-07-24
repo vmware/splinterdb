@@ -644,7 +644,7 @@ bool
 merge_in_range(iterator *itor) // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   debug_assert(!merge_itor->in_range == key_is_null(merge_itor->curr_key)
+   debug_assert(merge_itor->in_range != key_is_null(merge_itor->curr_key)
                 || !merge_itor->forwards);
    return merge_itor->in_range;
 }
