@@ -356,9 +356,9 @@ static platform_status
 advance_one_loop(merge_iterator *merge_itor, bool *retry)
 {
    *retry = FALSE;
-   // Determine whether we're at the end.
+   // Determine whether we're no longer in range.
    if (merge_itor->num_remaining == 0) {
-      merge_itor->at_end = TRUE;
+      merge_itor->in_range = FALSE;
       return STATUS_OK;
    }
 
@@ -410,7 +410,7 @@ setup_ordered_iterators(merge_iterator *merge_itor)
 {
    platform_status   rc = STATUS_OK;
    ordered_iterator *temp;
-   merge_itor->at_end = FALSE;
+   merge_itor->in_range = TRUE;
 
    // Move all the dead iterators to the end and count how many are still alive.
    merge_itor->num_remaining = merge_itor->num_trees;
@@ -454,19 +454,26 @@ setup_ordered_iterators(merge_iterator *merge_itor)
 
    bool retry;
    rc = advance_one_loop(merge_itor, &retry);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
 
-   if (retry) {
+   if (retry && SUCCESS(rc)) {
       if (merge_itor->forwards) {
          rc = merge_next((iterator *)merge_itor);
       } else {
          rc = merge_prev((iterator *)merge_itor);
       }
+   }
 
-      if (!SUCCESS(rc)) {
-         return rc;
+   if (!SUCCESS(rc)) {
+      // destroy the iterator
+      platform_status merge_iterator_rc =
+         merge_iterator_destroy(platform_get_heap_id(), &merge_itor);
+      if (!SUCCESS(merge_iterator_rc)) {
+         platform_error_log(
+            "setup_ordered_iterators: exception while releasing\n");
+         if (SUCCESS(rc)) {
+            platform_error_log("setup_ordered_iterators: clobbering rc\n");
+            rc = merge_iterator_rc;
+         }
       }
    }
 
@@ -496,7 +503,7 @@ merge_iterator_create(platform_heap_id hid,
                       merge_iterator **out_itor)
 {
    int             i;
-   platform_status rc = STATUS_OK, merge_iterator_rc;
+   platform_status rc = STATUS_OK;
    merge_iterator *merge_itor;
 
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
@@ -549,21 +556,11 @@ merge_iterator_create(platform_heap_id hid,
 
    rc = setup_ordered_iterators(merge_itor);
    if (!SUCCESS(rc)) {
-      // destroy the iterator and exit
-      merge_iterator_rc = merge_iterator_destroy(hid, &merge_itor);
-      if (!SUCCESS(merge_iterator_rc)) {
-         platform_error_log(
-            "merge_iterator_create: exception while releasing\n");
-         if (SUCCESS(rc)) {
-            platform_error_log("merge_iterator_create: clobbering rc\n");
-            rc = merge_iterator_rc;
-         }
-      }
       return rc;
    }
 
    *out_itor = merge_itor;
-   if (!merge_itor->at_end) {
+   if (merge_itor->in_range) {
       debug_assert_message_type_valid(merge_itor);
    }
 
@@ -619,21 +616,10 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool forwards)
    // restore iterator invariants
    rc = setup_ordered_iterators(merge_itor);
    if (!SUCCESS(rc)) {
-      // destroy the iterator and exit
-      platform_status merge_iterator_rc =
-         merge_iterator_destroy(platform_get_heap_id(), &merge_itor);
-      if (!SUCCESS(merge_iterator_rc)) {
-         platform_error_log(
-            "merge_iterator_set_direction: exception while releasing\n");
-         if (SUCCESS(rc)) {
-            platform_error_log("merge_iterator_set_direction: clobbering rc\n");
-            rc = merge_iterator_rc;
-         }
-      }
       return rc;
    }
 
-   if (!merge_itor->at_end) {
+   if (merge_itor->in_range) {
       debug_assert_message_type_valid(merge_itor);
    }
    return rc;
@@ -658,9 +644,9 @@ bool
 merge_in_range(iterator *itor) // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   debug_assert(merge_itor->at_end == key_is_null(merge_itor->curr_key)
+   debug_assert(!merge_itor->in_range == key_is_null(merge_itor->curr_key)
                 || !merge_itor->forwards);
-   return !merge_itor->at_end;
+   return merge_itor->in_range;
 }
 
 /*
@@ -680,9 +666,32 @@ void
 merge_curr(iterator *itor, key *curr_key, message *data)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   debug_assert(!merge_itor->at_end);
+   debug_assert(merge_itor->in_range);
    *curr_key = merge_itor->curr_key;
    *data     = merge_itor->curr_data;
+}
+
+static inline platform_status
+merge_advance_helper(merge_iterator *merge_itor)
+{
+   platform_status rc = STATUS_OK;
+   bool            retry;
+   do {
+      merge_itor->curr_key  = NULL_KEY;
+      merge_itor->curr_data = NULL_MESSAGE;
+      // Advance one iterator
+      rc = advance_and_resort_min_ritor(merge_itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+
+      rc = advance_one_loop(merge_itor, &retry);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   } while (retry);
+
+   return rc;
 }
 
 /*
@@ -698,30 +707,12 @@ merge_curr(iterator *itor, key *curr_key, message *data)
 platform_status
 merge_next(iterator *itor)
 {
-   platform_status rc         = STATUS_OK;
    merge_iterator *merge_itor = (merge_iterator *)itor;
 
    if (!merge_itor->forwards) {
       return merge_iterator_set_direction(merge_itor, TRUE);
    }
-
-   bool retry;
-   do {
-      merge_itor->curr_key  = NULL_KEY;
-      merge_itor->curr_data = NULL_MESSAGE;
-      // Advance one iterator
-      rc = advance_and_resort_min_ritor(merge_itor);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-
-      rc = advance_one_loop(merge_itor, &retry);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   } while (retry);
-
-   return STATUS_OK;
+   return merge_advance_helper(merge_itor);
 }
 
 /*
@@ -737,30 +728,12 @@ merge_next(iterator *itor)
 platform_status
 merge_prev(iterator *itor)
 {
-   platform_status rc         = STATUS_OK;
    merge_iterator *merge_itor = (merge_iterator *)itor;
 
    if (merge_itor->forwards) {
       return merge_iterator_set_direction(merge_itor, FALSE);
    }
-
-   bool retry;
-   do {
-      merge_itor->curr_key  = NULL_KEY;
-      merge_itor->curr_data = NULL_MESSAGE;
-      // Advance one iterator
-      rc = advance_and_resort_min_ritor(merge_itor);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-
-      rc = advance_one_loop(merge_itor, &retry);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   } while (retry);
-
-   return STATUS_OK;
+   return merge_advance_helper(merge_itor);
 }
 
 void

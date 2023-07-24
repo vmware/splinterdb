@@ -2875,11 +2875,10 @@ btree_iterator_seek(iterator *base_itor, key seek_key, comparison seek_type)
       itor->idx =
          find_key_in_node(itor, itor->curr.hdr, seek_key, seek_type, &found);
       platform_assert(0 <= itor->idx);
-      return STATUS_OK;
+   } else {
+      // seek key is not within our current leaf. So find the correct leaf
+      find_btree_node_and_get_idx_bounds(itor, seek_key, seek_type);
    }
-
-   // seek key is not within our current leaf. So find the correct leaf
-   find_btree_node_and_get_idx_bounds(itor, seek_key, seek_type);
 
    return STATUS_OK;
 }
