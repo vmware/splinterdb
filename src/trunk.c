@@ -4162,7 +4162,8 @@ trunk_replace_routing_filter(trunk_handle             *spl,
       // Move the tuples count from the bundle to whole branch
       uint64 bundle_num_tuples = compact_req->output_pivot_tuple_count[pos];
       debug_assert(pdata->num_tuples_bundle >= bundle_num_tuples);
-      debug_assert((bundle_num_tuples == 0) == (pdata->filter.addr == 0));
+      debug_assert((bundle_num_tuples + pdata->num_tuples_whole == 0)
+                   == (pdata->filter.addr == 0));
       pdata->num_tuples_bundle -= bundle_num_tuples;
       pdata->num_tuples_whole += bundle_num_tuples;
 
@@ -6153,12 +6154,11 @@ trunk_range_iterator_init(trunk_handle         *spl,
          : max_key;
    key_buffer_init_from_key(
       &range_itor->rebuild_key, spl->heap_id, rebuild_key);
+   key_buffer local_max_key;
    if (trunk_key_compare(spl, max_key, rebuild_key) < 0) {
-      key_buffer_init_from_key(
-         &range_itor->local_max_key, spl->heap_id, max_key);
+      key_buffer_init_from_key(&local_max_key, spl->heap_id, max_key);
    } else {
-      key_buffer_init_from_key(
-         &range_itor->local_max_key, spl->heap_id, rebuild_key);
+      key_buffer_init_from_key(&local_max_key, spl->heap_id, rebuild_key);
    }
 
    trunk_node_unget(spl->cc, &node);
@@ -6176,23 +6176,23 @@ trunk_range_iterator_init(trunk_handle         *spl,
                                     btree_itor,
                                     branch,
                                     key_buffer_key(&range_itor->min_key),
-                                    key_buffer_key(&range_itor->local_max_key),
+                                    key_buffer_key(&local_max_key),
                                     do_prefetch,
                                     FALSE);
       } else {
          uint64 mt_root_addr = branch->root_addr;
          bool   is_live      = branch_no == 0;
-         trunk_memtable_iterator_init(
-            spl,
-            btree_itor,
-            mt_root_addr,
-            key_buffer_key(&range_itor->min_key),
-            key_buffer_key(&range_itor->local_max_key),
-            is_live,
-            FALSE);
+         trunk_memtable_iterator_init(spl,
+                                      btree_itor,
+                                      mt_root_addr,
+                                      key_buffer_key(&range_itor->min_key),
+                                      key_buffer_key(&local_max_key),
+                                      is_live,
+                                      FALSE);
       }
       range_itor->itor[i] = &btree_itor->super;
    }
+   key_buffer_deinit(&local_max_key);
 
    platform_status rc = merge_iterator_create(spl->heap_id,
                                               spl->cfg.data_cfg,
@@ -6213,29 +6213,21 @@ trunk_range_iterator_init(trunk_handle         *spl,
     */
    if (at_end) {
       KEY_CREATE_LOCAL_COPY(rc,
-                            local_max_key,
-                            spl->heap_id,
-                            key_buffer_key(&range_itor->local_max_key));
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-      KEY_CREATE_LOCAL_COPY(rc,
                             rebuild_key,
                             spl->heap_id,
                             key_buffer_key(&range_itor->rebuild_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
+      uint64 temp_tuples = range_itor->num_tuples;
       trunk_range_iterator_deinit(range_itor);
-      if (1 && trunk_key_compare(spl, local_max_key, POSITIVE_INFINITY_KEY) != 0
-          && trunk_key_compare(spl, local_max_key, max_key) < 0)
-      {
+      if (trunk_key_compare(spl, rebuild_key, max_key) < 0) {
          rc = trunk_range_iterator_init(
-            spl, range_itor, rebuild_key, max_key, range_itor->num_tuples);
+            spl, range_itor, rebuild_key, max_key, temp_tuples);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         iterator_at_end(&range_itor->merge_itor->super, &at_end);
+         at_end = range_itor->at_end;
       }
    }
 
@@ -6330,7 +6322,6 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
 
    key_buffer_deinit(&range_itor->min_key);
    key_buffer_deinit(&range_itor->max_key);
-   key_buffer_deinit(&range_itor->local_max_key);
    key_buffer_deinit(&range_itor->rebuild_key);
 }
 
