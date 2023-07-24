@@ -1,6 +1,7 @@
 #! Copyright 2018-2021 VMware, Inc.
 #! SPDX-License-Identifier: Apache-2.0
 
+---
 
 #@ def get_task_timeout(quick=False, sanitize="", test_nightly=False):
 #@   if sanitize:
@@ -10,18 +11,16 @@
 #@   elif test_nightly:
 #@     return "6h"
 #@   else:
-#@     return "2h"
+#@     return "3h"
 #@   end
 #@ end
 
-#@ def step_build_splinterdb_image(source, compiler, git_sha=False):
+#@ def step_build_splinterdb_image(source, compiler):
 task: build
 timeout: #@ get_task_timeout()
 privileged: true
-#@ if git_sha:
 params:
   LABEL_git_sha: ((.:git-commit-sha))
-#@ end
 config:
   platform: linux
   image_resource:
@@ -40,7 +39,6 @@ config:
     IMAGE_ARG_run_env_image: run-env-image-latest/image.tar
     BUILD_ARG_compiler: #@ compiler
     LABEL_compiler: #@ compiler
-    LABEL_source: #@ source
     LABEL_created_by: "SplinterDB Concourse CI"
     CONTEXT: splinterdb-src
     UNPACK_ROOTFS: true
@@ -64,7 +62,7 @@ config:
 #@ end
 
 ---
-#@ def step_collect_tags(compiler):
+#@ def step_collect_tags(source, compiler):
 task: collect-tags
 timeout: #@ get_task_timeout()
 config:
@@ -74,7 +72,7 @@ config:
     source:
       repository: harbor-repo.vmware.com/dockerhub-proxy-cache/library/busybox
   inputs:
-  - name: branch-main
+  - name: #@ source
     path: repo
   outputs:
   - name: tags
@@ -88,11 +86,7 @@ config:
 ---
 
 #@ def step_build_test(compiler, input_name, is_debug=True, quick=False, sanitize="", test_nightly=False):
-#@ if is_debug:
-task: debug-build-test
-#@ else:
-task: release-build-test
-#@ end
+task: #@ "debug-build-test" if is_debug else "release-build-test"
 timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize, test_nightly=test_nightly)
 image: build-env-image-latest
 config:
@@ -108,11 +102,7 @@ config:
     VERBOSE: "3"
 
     #! Exercise 'make help' in quick tests mode, to ensure 'help' still works.
-    #@ if quick:
-    MAKE_HELP: help
-    #@ else:
-    MAKE_HELP: ""
-    #@ end
+    MAKE_HELP: #@ "help" if quick else ""
 
     #@ if is_debug:
     BUILD_MODE: "debug"
@@ -136,9 +126,9 @@ config:
 
 ---
 
-#@ def step_set_pr_status(context, status, description=""):
+#@ def step_set_pr_status(context, branch, status, description=""):
 put: update-status
-resource: github-pull-request
+resource: #@ "github-prs-" + branch
 params:
   path: github-pull-request
   status: #@ status
@@ -154,7 +144,7 @@ get_params: {skip_download: true}
 
 #@ def step_set_commit_status(status, context=""):
 put: github-commit-status
-inputs: [branch-main]
+inputs: [ "source" ]
 params:
   state: #@ status
   #@ if context:

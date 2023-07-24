@@ -47,7 +47,7 @@ typedef struct {
    uint64 io_async_queue_depth;
 
    // cache
-   bool        cache_use_stats;
+   _Bool       cache_use_stats;
    const char *cache_logfile;
 
    // task system
@@ -73,7 +73,7 @@ typedef struct {
    uint64 filter_index_size;
 
    // log
-   bool use_log;
+   _Bool use_log;
 
    // splinter
    uint64 memtable_capacity;
@@ -237,7 +237,7 @@ void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 
 // Returns true if the result was found
-bool
+_Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 
 // Decode the value from a found result
@@ -332,7 +332,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter);
 // will succeed. If false, there are two possibilities:
 // 1. Iterator has passed the final item.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
-bool
+_Bool
 splinterdb_iterator_valid(splinterdb_iterator *iter);
 
 // Attempts to advance the iterator to the next item.

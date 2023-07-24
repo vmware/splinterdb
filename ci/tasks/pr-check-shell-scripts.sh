@@ -48,8 +48,7 @@ fi
 cd github-pull-request
 
 if ! [ -s ".editorconfig" ]; then
-   echo Expecting to find .editorconfig file in source repo root
-   echo Please check that your code is rebased on a recent commit of branch main
+   echo Missing expected .editorconfig file in source repo root
    exit 1
 fi
 

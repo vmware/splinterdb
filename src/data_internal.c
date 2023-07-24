@@ -1,4 +1,3 @@
-
 #include "data_internal.h"
 
 message_type
@@ -26,7 +25,7 @@ merge_accumulator_to_slice(const merge_accumulator *ma)
 }
 
 /* Copy a message into an already-initialized merge_accumulator. */
-bool
+_Bool
 merge_accumulator_copy_message(merge_accumulator *ma, message msg)
 {
    platform_status rc =
@@ -38,7 +37,7 @@ merge_accumulator_copy_message(merge_accumulator *ma, message msg)
    return TRUE;
 }
 
-bool
+_Bool
 merge_accumulator_resize(merge_accumulator *ma, uint64 newsize)
 {
    platform_status rc = writable_buffer_resize(&ma->data, newsize);

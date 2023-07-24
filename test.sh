@@ -59,6 +59,13 @@ function usage() {
    echo "To run CI-regression tests       : INCLUDE_SLOW_TESTS=true ./${Me}"
    echo "To run nightly regression tests  : RUN_NIGHTLY_TESTS=true ./${Me}"
    echo "To run make build-and-test tests : RUN_MAKE_TESTS=true ./${Me}"
+   echo
+   echo "To run a smaller collection of slow running tests,
+name the function that drives the test execution.
+Examples:"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh nightly_cache_perf_tests"
 }
 
 # ##################################################################
@@ -742,6 +749,24 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 fi
 
 # ---- Rest of the coverage runs included in CI test runs ----
+
+# ------------------------------------------------------------------------
+# Fast-path execution support. You can invoke this script specifying the
+# name of one of the functions to execute a specific set of tests. If the
+# function takes arguments, pass them on the command-line. This way, one
+# can debug script changes to ensure that test-execution still works.
+#
+# Examples:
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests
+# ------------------------------------------------------------------------
+if [ $# -ge 1 ]; then
+
+   # shellcheck disable=SC2048
+   $*
+   record_elapsed_time ${testRunStartSeconds} "All Tests"
+   cat_exec_log_file
+   exit 0
+fi
 
 # Run all the unit-tests first, to get basic coverage
 run_with_timing "Fast unit tests" "$BINDIR"/unit_test

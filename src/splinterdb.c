@@ -531,7 +531,7 @@ splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
    merge_accumulator_deinit(&_result->value);
 }
 
-bool
+_Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
@@ -637,7 +637,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
    platform_free(spl->heap_id, range_itor);
 }
 
-bool
+_Bool
 splinterdb_iterator_valid(splinterdb_iterator *kvi)
 {
    if (!SUCCESS(kvi->last_rc)) {

@@ -244,13 +244,19 @@ CTEST2(misc, test_size_to_str)
 
         , { KiB + 128                      , "~1.12 KiB"  }
         , { KiB + ((25 * KiB) / 100)       , "~1.25 KiB"  }
-        , { MiB + 128                      , "~1.0 MiB"   }
+        , { MiB + 128                      , "~1.00 MiB"   }
         , { MiB + ((5 * MiB) / 10)         , "~1.50 MiB"  }
-        , { GiB + 128                      , "~1.0 GiB"   }
+        , { GiB + 128                      , "~1.00 GiB"   }
         , { GiB + ((75 * GiB) / 100)       , "~1.75 GiB"  }
         , { (3 * GiB) + ((5 * GiB) / 10)   , "~3.50 GiB"  }
-        , { TiB + 128                      , "~1.0 TiB"   }
+        , { TiB + 128                      , "~1.00 TiB"   }
         , { (2 * TiB) + ((25 * TiB) / 100) , "~2.25 TiB"  }
+
+        // Specific data-values that tripped bugs in formatting output string
+        , { 2222981120                     , "~2.07 GiB"  }
+        , { KiB + 28                       , "~1.02 KiB"  }
+        , { MiB + (98 * KiB)               , "~1.09 MiB"   }
+        , { GiB + (55 * MiB)               , "~1.05 GiB"   }
    };
    // clang-format on
 

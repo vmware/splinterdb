@@ -80,9 +80,8 @@ platform_status
 test_btree_insert(test_memtable_context *ctxt, key tuple_key, message data)
 {
    uint64          generation;
-   page_handle    *lock_page = NULL;
-   platform_status rc        = memtable_maybe_rotate_and_get_insert_lock(
-      ctxt->mt_ctxt, &generation, &lock_page);
+   platform_status rc =
+      memtable_maybe_rotate_and_begin_insert(ctxt->mt_ctxt, &generation);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -102,7 +101,7 @@ test_btree_insert(test_memtable_context *ctxt, key tuple_key, message data)
                         &dummy_leaf_generation);
 
 out:
-   memtable_unget_insert_lock(ctxt->mt_ctxt, lock_page);
+   memtable_end_insert(ctxt->mt_ctxt);
    return rc;
 }
 
@@ -277,7 +276,7 @@ test_btree_perf(cache             *cc,
    memtable_print_stats(Platform_default_log_handle, cc, &ctxt->mt_ctxt->mt[0]);
    // for (i = 0; i < num_trees; i++) {
    //   if (!btree_verify_tree(cc, cfg, root_addr[i]))
-   //      btree_print_tree(cc, cfg, root_addr[i]);
+   //      btree_print_tree(cc, cfg, root_addr[i], PAGE_TYPE_BRANCH);
    //}
 
    // for (i = 0; i < num_threads; i++) {
@@ -436,8 +435,11 @@ btree_test_run_pending(cache                   *cc,
             break;
          case async_success:
             if (local_found ^ expected_found) {
-               btree_print_tree(
-                  Platform_default_log_handle, cc, cfg, root_addr);
+               btree_print_tree(Platform_default_log_handle,
+                                cc,
+                                cfg,
+                                root_addr,
+                                PAGE_TYPE_BRANCH);
                char key_string[128];
                data_key_to_string(cfg->data_cfg,
                                   key_buffer_key(&ctxt->keybuf),
@@ -699,8 +701,11 @@ test_btree_basic(cache             *cc,
                               key_buffer_key(&keybuf),
                               merge_accumulator_to_message(&expected_data));
          if (!correct) {
-            btree_print_tree(
-               Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
+            btree_print_tree(Platform_default_log_handle,
+                             cc,
+                             btree_cfg,
+                             packed_root_addr,
+                             PAGE_TYPE_BRANCH);
             char key_string[128];
             key  target = key_buffer_key(&keybuf);
             btree_key_to_string(btree_cfg, target, key_string);
@@ -722,8 +727,11 @@ test_btree_basic(cache             *cc,
                                                           &correct);
          if (res == async_success) {
             if (!correct) {
-               btree_print_tree(
-                  Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
+               btree_print_tree(Platform_default_log_handle,
+                                cc,
+                                btree_cfg,
+                                packed_root_addr,
+                                PAGE_TYPE_BRANCH);
                char key_string[128];
                key  target = key_buffer_key(&async_ctxt->keybuf);
                btree_key_to_string(btree_cfg, target, key_string);
@@ -754,8 +762,11 @@ test_btree_basic(cache             *cc,
                                        key_buffer_key(&keybuf),
                                        NULL_MESSAGE);
       if (!correct) {
-         btree_print_tree(
-            Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
+         btree_print_tree(Platform_default_log_handle,
+                          cc,
+                          btree_cfg,
+                          packed_root_addr,
+                          PAGE_TYPE_BRANCH);
          char key_string[128];
          key  target = key_buffer_key(&keybuf);
          btree_key_to_string(btree_cfg, target, key_string);
@@ -860,7 +871,11 @@ test_count_tuples_in_range(cache        *cc,
    *count = 0;
    for (i = 0; i < num_trees; i++) {
       if (!btree_verify_tree(cc, cfg, root_addr[i], type)) {
-         btree_print_tree(Platform_default_log_handle, cc, cfg, root_addr[i]);
+         btree_print_tree(Platform_default_log_handle,
+                          cc,
+                          cfg,
+                          root_addr[i],
+                          PAGE_TYPE_BRANCH);
          platform_assert(0);
       }
       btree_iterator_init(
@@ -878,8 +893,11 @@ test_count_tuples_in_range(cache        *cc,
             char last_key_str[128], key_str[128];
             data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
             data_key_to_string(cfg->data_cfg, curr_key, key_str, 128);
-            btree_print_tree(
-               Platform_default_log_handle, cc, cfg, root_addr[i]);
+            btree_print_tree(Platform_default_log_handle,
+                             cc,
+                             cfg,
+                             root_addr[i],
+                             PAGE_TYPE_BRANCH);
             platform_default_log(
                "test_count_tuples_in_range: key out of order\n");
             platform_default_log("last %s\nkey %s\n", last_key_str, key_str);
@@ -890,8 +908,11 @@ test_count_tuples_in_range(cache        *cc,
             data_key_to_string(cfg->data_cfg, low_key, low_key_str, 128);
             data_key_to_string(cfg->data_cfg, curr_key, key_str, 128);
             data_key_to_string(cfg->data_cfg, high_key, high_key_str, 128);
-            btree_print_tree(
-               Platform_default_log_handle, cc, cfg, root_addr[i]);
+            btree_print_tree(Platform_default_log_handle,
+                             cc,
+                             cfg,
+                             root_addr[i],
+                             PAGE_TYPE_BRANCH);
             platform_default_log(
                "test_count_tuples_in_range: key out of range\n");
             platform_default_log(
@@ -905,8 +926,11 @@ test_count_tuples_in_range(cache        *cc,
             data_key_to_string(cfg->data_cfg, low_key, low_key_str, 128);
             data_key_to_string(cfg->data_cfg, curr_key, key_str, 128);
             data_key_to_string(cfg->data_cfg, high_key, high_key_str, 128);
-            btree_print_tree(
-               Platform_default_log_handle, cc, cfg, root_addr[i]);
+            btree_print_tree(Platform_default_log_handle,
+                             cc,
+                             cfg,
+                             root_addr[i],
+                             PAGE_TYPE_BRANCH);
             platform_default_log(
                "test_count_tuples_in_range: key out of range\n");
             platform_default_log(

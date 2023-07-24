@@ -122,7 +122,7 @@ routing_filter_get_next_value(uint64 found_values, uint16 last_value)
 static inline bool
 routing_filter_is_value_found(uint64 found_values, uint16 value)
 {
-   return found_values & (1 << value);
+   return ((found_values & (1 << value)) != 0);
 }
 
 
