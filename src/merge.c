@@ -21,7 +21,7 @@ void
 merge_curr(iterator *itor, key *curr_key, message *data);
 
 bool
-merge_valid(iterator *itor);
+merge_in_range(iterator *itor);
 
 platform_status
 merge_next(iterator *itor);
@@ -30,10 +30,10 @@ platform_status
 merge_prev(iterator *itor);
 
 static iterator_ops merge_ops = {
-   .curr  = merge_curr,
-   .valid = merge_valid,
-   .next  = merge_next,
-   .prev  = merge_prev,
+   .curr     = merge_curr,
+   .in_range = merge_in_range,
+   .next     = merge_next,
+   .prev     = merge_prev,
 };
 
 /*
@@ -72,10 +72,11 @@ struct merge_ctxt {
 static int
 merge_comp(const void *one, const void *two, void *ctxt)
 {
+   struct merge_ctxt      *m_ctxt   = (struct merge_ctxt *)ctxt;
    const ordered_iterator *itor_one = *(ordered_iterator **)one;
    const ordered_iterator *itor_two = *(ordered_iterator **)two;
-   bool                    forwards = ((struct merge_ctxt *)ctxt)->forwards;
-   data_config            *cfg      = ((struct merge_ctxt *)ctxt)->cfg;
+   bool                    forwards = m_ctxt->forwards;
+   data_config            *cfg      = m_ctxt->cfg;
    bool                    ignore_keys_equal;
    return bsearch_comp(itor_one, itor_two, forwards, cfg, &ignore_keys_equal);
 }
@@ -181,7 +182,7 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    // if it's exhausted, kill it and move the ritors up the queue.
-   if (UNLIKELY(!iterator_valid(merge_itor->ordered_iterators[0]->itor))) {
+   if (UNLIKELY(!iterator_in_range(merge_itor->ordered_iterators[0]->itor))) {
       merge_itor->num_remaining--;
       ordered_iterator *tmp = merge_itor->ordered_iterators[0];
       for (int i = 0; i < merge_itor->num_remaining; ++i) {
@@ -415,7 +416,7 @@ setup_ordered_iterators(merge_iterator *merge_itor)
    merge_itor->num_remaining = merge_itor->num_trees;
    int i                     = 0;
    while (i < merge_itor->num_remaining) {
-      if (!iterator_valid(merge_itor->ordered_iterators[i]->itor)) {
+      if (!iterator_in_range(merge_itor->ordered_iterators[i]->itor)) {
          ordered_iterator *tmp =
             merge_itor->ordered_iterators[merge_itor->num_remaining - 1];
          merge_itor->ordered_iterators[merge_itor->num_remaining - 1] =
@@ -438,15 +439,16 @@ setup_ordered_iterators(merge_iterator *merge_itor)
                       &merge_args,
                       &temp);
    // Generate initial value for next_key_equal bits
-   for (i = 0; i + 1 < merge_itor->num_remaining; ++i) {
+   for (int i = 0; i + 1 < merge_itor->num_remaining; ++i) {
       int cmp =
          data_key_compare(merge_itor->cfg,
                           merge_itor->ordered_iterators[i]->curr_key,
                           merge_itor->ordered_iterators[i + 1]->curr_key);
-      if (merge_itor->forwards)
+      if (merge_itor->forwards) {
          debug_assert(cmp <= 0);
-      else
+      } else {
          debug_assert(cmp >= 0);
+      }
       merge_itor->ordered_iterators[i]->next_key_equal = (cmp == 0);
    }
 
@@ -640,7 +642,7 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool forwards)
 
 /*
  *-----------------------------------------------------------------------------
- * merge_valid --
+ * merge_in_range --
  *
  *      Checks if the iterator is out of bounds.
  *      The half open range [start_key, end_key) defines the iterator's bounds.
@@ -653,7 +655,7 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool forwards)
  *-----------------------------------------------------------------------------
  */
 bool
-merge_valid(iterator *itor) // IN
+merge_in_range(iterator *itor) // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(merge_itor->at_end == key_is_null(merge_itor->curr_key)
@@ -779,7 +781,7 @@ merge_iterator_print(merge_iterator *merge_itor)
    platform_default_log("----------------------------------------\n");
    for (i = 0; i < merge_itor->num_trees; i++) {
       platform_default_log("%u: ", merge_itor->ordered_iterators[i]->seq);
-      if (!iterator_valid(merge_itor->ordered_iterators[i]->itor)) {
+      if (!iterator_in_range(merge_itor->ordered_iterators[i]->itor)) {
          platform_default_log("# : ");
       } else {
          platform_default_log("_ : ");

@@ -313,13 +313,13 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
 void
 btree_iterator_init(cache          *cc,
                     btree_config   *cfg,
-                    btree_iterator *iterator,
+                    btree_iterator *itor,
                     uint64          root_addr,
                     page_type       page_type,
                     key             min_key,
                     key             max_key,
                     key             start_key,
-                    bool            from_above,
+                    comparison      start_type,
                     bool            do_prefetch,
                     uint32          height);
 

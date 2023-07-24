@@ -40,15 +40,15 @@ static log_ops shard_log_ops = {
 void
 shard_log_iterator_curr(iterator *itor, key *curr_key, message *msg);
 bool
-shard_log_iterator_valid(iterator *itor);
+shard_log_iterator_in_range(iterator *itor);
 platform_status
 shard_log_iterator_next(iterator *itor);
 
 const static iterator_ops shard_log_iterator_ops = {
-   .curr  = shard_log_iterator_curr,
-   .valid = shard_log_iterator_valid,
-   .next  = shard_log_iterator_next,
-   .print = NULL,
+   .curr     = shard_log_iterator_curr,
+   .in_range = shard_log_iterator_in_range,
+   .next     = shard_log_iterator_next,
+   .print    = NULL,
 };
 
 static inline uint64
@@ -436,7 +436,7 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 }
 
 bool
-shard_log_iterator_valid(iterator *itorh)
+shard_log_iterator_in_range(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    return itor->pos != itor->num_entries;

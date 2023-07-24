@@ -649,7 +649,7 @@ splinterdb_iterator_valid(splinterdb_iterator *kvi)
       return FALSE;
    }
    iterator *itor = &(kvi->sri.super);
-   return iterator_valid(itor);
+   return iterator_in_range(itor);
 }
 
 void

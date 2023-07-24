@@ -81,7 +81,7 @@ test_log_crash(clockcache             *cc,
    platform_assert_status_ok(rc);
    itorh = (iterator *)&itor;
 
-   for (i = 0; i < num_entries && iterator_valid(itorh); i++) {
+   for (i = 0; i < num_entries && iterator_in_range(itorh); i++) {
       key skey = test_key(&keybuffer,
                           TEST_RANDOM,
                           i,

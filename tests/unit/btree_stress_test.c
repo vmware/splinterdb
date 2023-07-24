@@ -448,7 +448,7 @@ iterator_test(platform_heap_id hid,
    uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
    uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
-   while (iterator_valid(iter)) {
+   while (iterator_in_range(iter)) {
       key     curr_key;
       message msg;
 
@@ -518,7 +518,7 @@ iterator_tests(cache           *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        start_key,
-                       TRUE,
+                       greater_than_or_equal,
                        FALSE,
                        0);
 
@@ -527,7 +527,7 @@ iterator_tests(cache           *cc,
    if (!start_front) {
       iterator_prev(iter);
    }
-   bool nonempty = iterator_valid(iter);
+   bool nonempty = iterator_in_range(iter);
 
    ASSERT_EQUAL(nkvs, iterator_test(hid, cfg, nkvs, iter, start_front));
    if (nonempty) {
@@ -567,7 +567,7 @@ iterator_seek_tests(cache           *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        start_key,
-                       TRUE,
+                       greater_than_or_equal,
                        FALSE,
                        0);
    iterator *iter = (iterator *)&dbiter;
@@ -609,7 +609,7 @@ pack_tests(cache           *cc,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        NEGATIVE_INFINITY_KEY,
-                       TRUE,
+                       greater_than_or_equal,
                        FALSE,
                        0);
 

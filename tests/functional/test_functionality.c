@@ -41,7 +41,7 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
                              TRUE,
                              UINT64_MAX);
    uint64 count = 0;
-   while (iterator_valid((iterator *)&iter)) {
+   while (iterator_in_range((iterator *)&iter)) {
       key     curr_key;
       message value;
       iterator_curr((iterator *)&iter, &curr_key, &value);
@@ -259,7 +259,7 @@ verify_range_against_shadow(trunk_handle               *spl,
          continue;
       }
 
-      if (!iterator_valid((iterator *)range_itor)) {
+      if (!iterator_in_range((iterator *)range_itor)) {
          platform_error_log("ERROR: range itor terminated early\n");
          status = STATUS_NO_PERMISSION;
          goto destroy;
@@ -296,7 +296,7 @@ verify_range_against_shadow(trunk_handle               *spl,
       }
    }
 
-   while (iterator_valid((iterator *)range_itor)) {
+   while (iterator_in_range((iterator *)range_itor)) {
       status = STATUS_LIMIT_EXCEEDED;
       iterator_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
