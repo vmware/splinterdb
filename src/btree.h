@@ -248,14 +248,14 @@ btree_inc_ref_range(cache              *cc,
                     key                 start_key,
                     key                 end_key);
 
-bool
+bool32
 btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
                     key                 start_key,
                     key                 end_key);
 
-bool
+bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
@@ -277,7 +277,7 @@ btree_lookup(cache             *cc,
              key                target,
              merge_accumulator *result);
 
-static inline bool
+static inline bool32
 btree_found(merge_accumulator *result)
 {
    return !merge_accumulator_is_null(result);
@@ -420,7 +420,7 @@ btree_print_lookup(cache        *cc,
                    page_type     type,
                    key           target);
 
-bool
+bool32
 btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type);
 
 uint64

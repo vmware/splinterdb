@@ -182,7 +182,7 @@ btree_fill_index_entry(const btree_config *cfg,
    entry->pivot_data.stats      = stats;
 }
 
-bool
+bool32
 btree_set_index_entry(const btree_config *cfg,
                       btree_hdr          *hdr,
                       table_index         k,
@@ -237,7 +237,7 @@ btree_set_index_entry(const btree_config *cfg,
    return TRUE;
 }
 
-static inline bool
+static inline bool32
 btree_insert_index_entry(const btree_config *cfg,
                          btree_hdr          *hdr,
                          uint32              k,
@@ -277,7 +277,7 @@ btree_fill_leaf_entry(const btree_config *cfg,
                 "entry->type not large enough to hold message_class");
 }
 
-static inline bool
+static inline bool32
 btree_can_set_leaf_entry(const btree_config *cfg,
                          const btree_hdr    *hdr,
                          table_index         k,
@@ -308,7 +308,7 @@ btree_can_set_leaf_entry(const btree_config *cfg,
    return TRUE;
 }
 
-bool
+bool32
 btree_set_leaf_entry(const btree_config *cfg,
                      btree_hdr          *hdr,
                      table_index         k,
@@ -355,7 +355,7 @@ btree_set_leaf_entry(const btree_config *cfg,
    return TRUE;
 }
 
-static inline bool
+static inline bool32
 btree_insert_leaf_entry(const btree_config *cfg,
                         btree_hdr          *hdr,
                         table_index         k,
@@ -578,7 +578,7 @@ destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec)
    }
 }
 
-static inline bool
+static inline bool32
 btree_can_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         btree_hdr                   *hdr,
                                         const leaf_incorporate_spec *spec)
@@ -601,7 +601,7 @@ btree_can_perform_leaf_incorporate_spec(const btree_config          *cfg,
    }
 }
 
-bool
+bool32
 btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         btree_hdr                   *hdr,
                                         const leaf_incorporate_spec *spec,
@@ -708,7 +708,7 @@ btree_truncate_leaf(const btree_config *cfg, // IN
 static leaf_splitting_plan initial_plan = {0, FALSE};
 
 
-static bool
+static bool32
 most_of_entry_is_on_left_side(uint64 total_bytes,
                               uint64 left_bytes,
                               uint64 entry_size)
@@ -902,7 +902,7 @@ btree_split_leaf_cleanup_left_node(const btree_config    *cfg, // IN
  *      Assumes write lock on both nodes.
  *-----------------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 btree_index_is_full(const btree_config *cfg, // IN
                     const btree_hdr    *hdr)    // IN
 {
@@ -1020,7 +1020,7 @@ btree_truncate_index(const btree_config *cfg, // IN
  *      more nodes available for the given height.
  *-----------------------------------------------------------------------------
  */
-bool
+bool32
 btree_alloc(cache          *cc,
             mini_allocator *mini,
             uint64          height,
@@ -1060,7 +1060,7 @@ btree_node_get(cache              *cc,
    node->hdr  = (btree_hdr *)(node->page->data);
 }
 
-static inline bool
+static inline bool32
 btree_node_claim(cache              *cc,  // IN
                  const btree_config *cfg, // IN
                  btree_node         *node)        // IN
@@ -1124,7 +1124,7 @@ btree_node_get_from_cache_ctxt(const btree_config *cfg,  // IN
 }
 
 
-static inline bool
+static inline bool32
 btree_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
 {
    allocator *al = cache_get_allocator(cc);
@@ -1207,7 +1207,7 @@ btree_inc_ref_range(cache              *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
 }
 
-bool
+bool32
 btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
@@ -1220,7 +1220,7 @@ btree_dec_ref_range(cache              *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
 }
 
-bool
+bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
@@ -2390,7 +2390,7 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
  * the end node and end_idx.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 btree_iterator_is_at_end(btree_iterator *itor)
 {
    return itor->curr.addr == itor->end_addr && itor->idx == itor->end_idx;
@@ -2941,7 +2941,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    mini_release(&req->mini, last_key);
 }
 
-static bool
+static bool32
 btree_pack_can_fit_tuple(btree_pack_req *req, key tuple_key, message data)
 {
    return req->num_tuples < req->max_tuples;
@@ -3408,7 +3408,7 @@ btree_space_use_in_range(cache        *cc,
    return extents_used * btree_extent_size(cfg);
 }
 
-bool
+bool32
 btree_verify_node(cache        *cc,
                   btree_config *cfg,
                   uint64        addr,
@@ -3541,7 +3541,7 @@ out:
    return result;
 }
 
-bool
+bool32
 btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type)
 {
    return btree_verify_node(cc, cfg, addr, type, TRUE);

@@ -423,13 +423,13 @@ laio_cleanup_all(io_handle *ioh)
    }
 }
 
-static inline bool
+static inline bool32
 laio_config_valid_page_size(io_config *cfg)
 {
    return (cfg->page_size == LAIO_DEFAULT_PAGE_SIZE);
 }
 
-static inline bool
+static inline bool32
 laio_config_valid_extent_size(io_config *cfg)
 {
    return (cfg->extent_size == LAIO_DEFAULT_EXTENT_SIZE);

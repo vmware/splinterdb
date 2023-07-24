@@ -52,7 +52,7 @@ writable_buffer_resize(writable_buffer *wb, uint64 newlength)
  * negative_limit and positive_limit are absolute values
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 try_string_to_uint64_limit(const char  *nptr,           // IN
                            const uint64 negative_limit, // IN
                            const uint64 positive_limit, // IN
@@ -195,7 +195,7 @@ multiple_strings:
  * Base is automatically detected based on the regular expressions above
  *----------------------------------------------------------------------
  */
-bool
+bool32
 try_string_to_uint64(const char *nptr, // IN
                      uint64     *n)        // OUT
 {
@@ -204,7 +204,7 @@ try_string_to_uint64(const char *nptr, // IN
    return try_string_to_uint64_limit(nptr, negative_limit, positive_limit, n);
 }
 
-bool
+bool32
 try_string_to_int64(const char *nptr, // IN
                     int64      *n)         // OUT
 {
@@ -220,7 +220,7 @@ try_string_to_int64(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint32(const char *nptr, // IN
                      uint32     *n)        // OUT
 {
@@ -232,7 +232,7 @@ try_string_to_uint32(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint16(const char *nptr, // IN
                      uint16     *n)        // OUT
 {
@@ -244,7 +244,7 @@ try_string_to_uint16(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint8(const char *nptr, // IN
                     uint8      *n)         // OUT
 {
@@ -256,7 +256,7 @@ try_string_to_uint8(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int32(const char *nptr, // IN
                     int32      *n)         // OUT
 {
@@ -268,7 +268,7 @@ try_string_to_int32(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int16(const char *nptr, // IN
                     int16      *n)         // OUT
 {
@@ -280,7 +280,7 @@ try_string_to_int16(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int8(const char *nptr, // IN
                    int8       *n)          // OUT
 {

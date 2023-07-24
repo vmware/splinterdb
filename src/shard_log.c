@@ -179,7 +179,7 @@ first_log_entry(char *page)
    return (log_entry *)(page + sizeof(shard_log_hdr));
 }
 
-static bool
+static bool32
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
    return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
@@ -295,7 +295,7 @@ shard_log_magic(log_handle *logh)
    return log->magic;
 }
 
-bool
+bool32
 shard_log_valid(shard_log_config *cfg, page_handle *page, uint64 magic)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;

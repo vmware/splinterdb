@@ -19,13 +19,13 @@
 #define MEMTABLE_INSERT_LOCK_IDX 0
 #define MEMTABLE_LOOKUP_LOCK_IDX 1
 
-bool
+bool32
 memtable_is_full(const memtable_config *cfg, memtable *mt)
 {
    return cfg->max_extents_per_memtable <= mini_num_extents(&mt->mini);
 }
 
-bool
+bool32
 memtable_is_empty(memtable_context *ctxt)
 {
    return ctxt->is_empty;
@@ -55,7 +55,7 @@ memtable_end_insert(memtable_context *ctxt)
    platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
-static inline bool
+static inline bool32
 memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
    if (!platform_batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX))
@@ -244,7 +244,7 @@ memtable_insert(memtable_context *ctxt,
  * if there are no outstanding refs, then destroy and reinit memtable and
  * transition to READY
  */
-bool
+bool32
 memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;

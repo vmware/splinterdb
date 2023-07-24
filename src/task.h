@@ -248,7 +248,7 @@ void
 task_perform_all(task_system *ts);
 
 /* TRUE if there are no running or waiting tasks. */
-bool
+bool32
 task_system_is_quiescent(task_system *ts);
 
 /*

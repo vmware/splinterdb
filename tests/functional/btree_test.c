@@ -105,7 +105,7 @@ out:
    return rc;
 }
 
-bool
+bool32
 test_btree_lookup(cache           *cc,
                   btree_config    *cfg,
                   platform_heap_id hid,
@@ -134,7 +134,7 @@ test_btree_lookup(cache           *cc,
    return ret;
 }
 
-bool
+bool32
 test_memtable_lookup(test_memtable_context *ctxt,
                      uint64                 mt_no,
                      key                    target,
@@ -382,7 +382,7 @@ btree_test_async_ctxt_init(btree_test_async_lookup *async_lookup)
    async_lookup->ctxt_bitmap = (1UL << max_async_inflight) - 1;
 }
 
-static bool
+static bool32
 btree_test_async_ctxt_is_used(const btree_test_async_lookup *async_lookup,
                               int                            ctxt_idx)
 {
@@ -390,7 +390,7 @@ btree_test_async_ctxt_is_used(const btree_test_async_lookup *async_lookup,
    return async_lookup->ctxt_bitmap & (1UL << ctxt_idx) ? FALSE : TRUE;
 }
 
-static bool
+static bool32
 btree_test_async_ctxt_any_used(const btree_test_async_lookup *async_lookup)
 {
    debug_assert((async_lookup->ctxt_bitmap & ~((1UL << max_async_inflight) - 1))
@@ -398,7 +398,7 @@ btree_test_async_ctxt_any_used(const btree_test_async_lookup *async_lookup)
    return async_lookup->ctxt_bitmap != (1UL << max_async_inflight) - 1;
 }
 
-static bool
+static bool32
 btree_test_run_pending(cache                   *cc,
                        btree_config            *cfg,
                        uint64                   root_addr,

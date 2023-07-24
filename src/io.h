@@ -168,7 +168,7 @@ io_thread_register(io_handle *io)
    }
 }
 
-static inline bool
+static inline bool32
 io_max_latency_elapsed(io_handle *io, timestamp ts)
 {
    if (io->ops->max_latency_elapsed) {

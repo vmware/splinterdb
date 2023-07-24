@@ -650,7 +650,7 @@ test_abandon_read_batch(test_params *params,
 }
 
 // Do async reads for a batch of addresses, and wait for them to complete
-static bool
+static bool32
 test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
 {
    page_handle **handle_arr = &params->handle_arr[batch_start];

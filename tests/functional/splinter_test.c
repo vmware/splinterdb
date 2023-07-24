@@ -92,7 +92,7 @@ typedef struct trunk_range_perf_params {
  */
 typedef void (*test_trunk_thread_hdlr)(void *arg);
 
-static inline bool
+static inline bool32
 test_is_done(const uint8 done, const uint8 n)
 {
    return (((done >> n) & 1) != 0);
@@ -104,7 +104,7 @@ test_set_done(uint8 *done, const uint8 n)
    *done |= 1 << n;
 }
 
-static inline bool
+static inline bool32
 test_all_done(const uint8 done, const uint8 num_tables)
 {
    return (done == ((1 << num_tables) - 1));
@@ -461,7 +461,7 @@ out:
  * Returns: TRUE if all tests are done
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 advance_base(const test_splinter_thread_params *params,
              uint64                            *curr_op,
              uint64                            *base,

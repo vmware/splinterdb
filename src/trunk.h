@@ -335,7 +335,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data);
 platform_status
 trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result);
 
-static inline bool
+static inline bool32
 trunk_lookup_found(merge_accumulator *result)
 {
    return !merge_accumulator_is_null(result);
@@ -408,7 +408,7 @@ void
 trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
 void
 trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
-bool
+bool32
 trunk_verify_tree(trunk_handle *spl);
 
 static inline uint64

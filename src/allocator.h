@@ -251,7 +251,7 @@ allocator_print_allocated(allocator *al)
    return al->ops->print_allocated(al);
 }
 
-static inline bool
+static inline bool32
 allocator_page_valid(allocator *al, uint64 addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);

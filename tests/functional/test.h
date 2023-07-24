@@ -110,7 +110,7 @@ test_key(key_buffer   *keywb,
    return key_buffer_key(keywb);
 }
 
-static inline bool
+static inline bool32
 test_period_complete(uint64 idx, uint64 period)
 {
    return idx % period == 0;

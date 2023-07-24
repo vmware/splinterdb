@@ -50,7 +50,7 @@ test_async_ctxt_get(trunk_handle      *spl,
                     test_async_lookup *async_lookup,
                     verify_tuple_arg  *vtarg);
 
-static inline bool
+static inline bool32
 test_show_verbose_progress(test_exec_config *test_exec_cfg)
 {
    return (test_exec_cfg->verbose_progress);

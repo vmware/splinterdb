@@ -112,7 +112,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * to cfg->log_handle.
  */
 
-static inline bool
+static inline bool32
 trunk_verbose_logging_enabled(trunk_handle *spl)
 {
    return spl->cfg.verbose_logging_enabled;
@@ -662,13 +662,13 @@ trunk_node_height(trunk_node *node)
    return node->hdr->height;
 }
 
-static inline bool
+static inline bool32
 trunk_node_is_leaf(trunk_node *node)
 {
    return trunk_node_height(node) == 0;
 }
 
-static inline bool
+static inline bool32
 trunk_node_is_index(trunk_node *node)
 {
    return !trunk_node_is_leaf(node);
@@ -1012,7 +1012,7 @@ trunk_logical_branch_count(trunk_handle *spl, trunk_node *node)
  * A node is full if either it has too many tuples or if it has too many
  * logical branches.
  */
-static inline bool
+static inline bool32
 trunk_node_is_full(trunk_handle *spl, trunk_node *node)
 {
    uint64 num_kv_bytes = 0;
@@ -1025,7 +1025,7 @@ trunk_node_is_full(trunk_handle *spl, trunk_node *node)
    return num_kv_bytes > spl->cfg.max_kv_bytes_per_node;
 }
 
-bool
+bool32
 trunk_for_each_subtree(trunk_handle *spl, uint64 addr, node_fn func, void *arg)
 {
    // func may be deallocation, so first apply to subtree
@@ -1057,7 +1057,7 @@ failed_on_subtree:
  *
  * Returns: TRUE, if 'func' was successful on all nodes. FALSE, otherwise.
  */
-bool
+bool32
 trunk_for_each_node(trunk_handle *spl, node_fn func, void *arg)
 {
    return trunk_for_each_subtree(spl, spl->root_addr, func, arg);
@@ -1355,7 +1355,7 @@ trunk_subtract_branch_number(trunk_handle *spl, uint16 branch_no, uint16 offset)
           % spl->cfg.hard_max_branches_per_node;
 }
 
-static inline bool
+static inline bool32
 trunk_branch_in_range(trunk_handle *spl,
                       uint16        branch_no,
                       uint16        start,
@@ -1377,7 +1377,7 @@ trunk_subtract_bundle_number(trunk_handle *spl, uint16 start, uint16 end)
    return (start + TRUNK_MAX_BUNDLES - end) % TRUNK_MAX_BUNDLES;
 }
 
-static inline bool
+static inline bool32
 trunk_bundle_in_range(trunk_handle *spl,
                       uint16        bundle_no,
                       uint16        start,
@@ -1671,7 +1671,7 @@ trunk_find_pivot(trunk_handle *spl,
  * branch_live_for_pivot returns TRUE if the branch is live for the pivot and
  * FALSE otherwise.
  */
-static inline bool
+static inline bool32
 trunk_branch_live_for_pivot(trunk_handle *spl,
                             trunk_node   *node,
                             uint64        branch_no,
@@ -1687,7 +1687,7 @@ trunk_branch_live_for_pivot(trunk_handle *spl,
  * branch_is_whole returns TRUE if the branch is whole and FALSE if it is
  * fractional (part of a bundle) or dead.
  */
-static inline bool
+static inline bool32
 trunk_branch_is_whole(trunk_handle *spl, trunk_node *node, uint64 branch_no)
 {
    return trunk_subtract_branch_number(spl, branch_no, node->hdr->start_branch)
@@ -1960,7 +1960,7 @@ trunk_pivot_logical_branch_count(trunk_handle     *spl,
  * with too many live logical branches must be flushed in order to reduce the
  * branch count.
  */
-static inline bool
+static inline bool32
 trunk_pivot_needs_flush(trunk_handle     *spl,
                         trunk_node       *node,
                         trunk_pivot_data *pdata)
@@ -2172,7 +2172,7 @@ trunk_inc_num_pivot_keys(trunk_handle *spl, trunk_node *node)
 /*
  * Returns TRUE if the bundle is live in the node and FALSE otherwise.
  */
-static inline bool
+static inline bool32
 trunk_bundle_live(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
 {
    return trunk_bundle_in_range(spl,
@@ -2305,7 +2305,7 @@ trunk_end_sb_filter(trunk_handle *spl, trunk_node *node)
    return node->hdr->end_sb_filter;
 }
 
-static inline bool
+static inline bool32
 trunk_sb_filter_valid(trunk_handle *spl, trunk_node *node, uint16 filter_no)
 {
    uint16 start_filter = trunk_start_sb_filter(spl, node);
@@ -2563,7 +2563,7 @@ trunk_subbundle_count(trunk_handle *spl, trunk_node *node)
  * Returns TRUE if the bundle is valid in the node (live or == end_bundle) and
  * FALSE otherwise.
  */
-static inline bool
+static inline bool32
 trunk_bundle_valid(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
 {
    return trunk_subtract_bundle_number(spl, bundle_no, node->hdr->start_bundle)
@@ -2574,7 +2574,7 @@ trunk_bundle_valid(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
 /*
  * Returns TRUE if the bundle is live for the pivot and FALSE otherwise
  */
-static inline bool
+static inline bool32
 trunk_bundle_live_for_pivot(trunk_handle *spl,
                             trunk_node   *node,
                             uint16        bundle_no,
@@ -2730,7 +2730,7 @@ trunk_branch_count(trunk_handle *spl, trunk_node *node)
       spl, node->hdr->end_branch, node->hdr->start_branch);
 }
 
-static inline bool
+static inline bool32
 trunk_has_vacancy(trunk_handle *spl, trunk_node *node, uint16 num_new_branches)
 {
    uint16 branch_count = trunk_branch_count(spl, node);
@@ -2788,7 +2788,7 @@ trunk_end_branch(trunk_handle *spl, trunk_node *node)
 /*
  * branch_live checks if branch_no is live for any pivot in the node.
  */
-static inline bool
+static inline bool32
 trunk_branch_live(trunk_handle *spl, trunk_node *node, uint64 branch_no)
 {
    return trunk_branch_in_range(
@@ -2799,7 +2799,7 @@ trunk_branch_live(trunk_handle *spl, trunk_node *node, uint64 branch_no)
  * branch_valid checks if branch_no is being used by any pivot or is
  * end_branch. Used to verify if a given entry is valid.
  */
-static inline bool
+static inline bool32
 trunk_branch_valid(trunk_handle *spl, trunk_node *node, uint64 branch_no)
 {
    return trunk_subtract_branch_number(spl, branch_no, node->hdr->start_branch)
@@ -3527,7 +3527,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
  * 2. memtable set to COMP after try_continue tries to set it to incorp
  *       should_wait will be set to generation, so try_start will incorp
  */
-static inline bool
+static inline bool32
 trunk_try_start_incorporate(trunk_handle *spl, uint64 generation)
 {
    bool32 should_start = FALSE;
@@ -3548,7 +3548,7 @@ unlock_incorp_lock:
    return should_start;
 }
 
-static inline bool
+static inline bool32
 trunk_try_continue_incorporate(trunk_handle *spl, uint64 next_generation)
 {
    bool32 should_continue = FALSE;
@@ -3920,7 +3920,7 @@ trunk_filter_scratch_init(trunk_compact_bundle_req *compact_req,
    ZERO_CONTENTS(filter_scratch);
    filter_scratch->fp_arr = compact_req->fp_arr;
 }
-static inline bool
+static inline bool32
 trunk_compact_bundle_node_has_split(trunk_handle             *spl,
                                     trunk_compact_bundle_req *req,
                                     trunk_node               *node)
@@ -3949,7 +3949,7 @@ trunk_compact_bundle_node_copy_path(trunk_handle             *spl,
       spl, start_key, req->height, out_node, old_root_addr);
 }
 
-static inline bool
+static inline bool32
 trunk_build_filter_should_abort(trunk_compact_bundle_req *req, trunk_node *node)
 {
    trunk_handle *spl = req->spl;
@@ -3974,7 +3974,7 @@ trunk_build_filter_should_abort(trunk_compact_bundle_req *req, trunk_node *node)
    return FALSE;
 }
 
-static inline bool
+static inline bool32
 trunk_build_filter_should_skip(trunk_compact_bundle_req *req, trunk_node *node)
 {
    trunk_handle *spl = req->spl;
@@ -3997,7 +3997,7 @@ trunk_build_filter_should_skip(trunk_compact_bundle_req *req, trunk_node *node)
    return FALSE;
 }
 
-static inline bool
+static inline bool32
 trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
                                     trunk_node               *node)
 {
@@ -4555,7 +4555,7 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
  *
  * NOTE: parent and child must have at least read locks
  */
-static inline bool
+static inline bool32
 trunk_room_to_flush(trunk_handle     *spl,
                     trunk_node       *parent,
                     trunk_node       *child,
@@ -5404,7 +5404,7 @@ out:
  *-----------------------------------------------------------------------------
  */
 
-static inline bool
+static inline bool32
 trunk_needs_split(trunk_handle *spl, trunk_node *node)
 {
    if (trunk_node_is_leaf(node)) {
@@ -6421,7 +6421,7 @@ trunk_compact_leaf(trunk_handle *spl, trunk_node *leaf)
  * Space reclamation
  *-----------------------------------------------------------------------------
  */
-bool
+bool32
 trunk_should_reclaim_space(trunk_handle *spl)
 {
    if (spl->cfg.reclaim_threshold == UINT64_MAX) {
@@ -6557,7 +6557,7 @@ out:
    return rc;
 }
 
-bool
+bool32
 trunk_filter_lookup(trunk_handle      *spl,
                     trunk_node        *node,
                     routing_filter    *filter,
@@ -6606,7 +6606,7 @@ trunk_filter_lookup(trunk_handle      *spl,
    return TRUE;
 }
 
-bool
+bool32
 trunk_compacted_subbundle_lookup(trunk_handle      *spl,
                                  trunk_node        *node,
                                  trunk_subbundle   *sb,
@@ -6658,7 +6658,7 @@ trunk_compacted_subbundle_lookup(trunk_handle      *spl,
    return TRUE;
 }
 
-bool
+bool32
 trunk_bundle_lookup(trunk_handle      *spl,
                     trunk_node        *node,
                     trunk_bundle      *bundle,
@@ -6688,7 +6688,7 @@ trunk_bundle_lookup(trunk_handle      *spl,
    return TRUE;
 }
 
-bool
+bool32
 trunk_pivot_lookup(trunk_handle      *spl,
                    trunk_node        *node,
                    trunk_pivot_data  *pdata,
@@ -7654,7 +7654,7 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
    cache_flush(spl->cc);
 }
 
-bool
+bool32
 trunk_node_destroy(trunk_handle *spl, uint64 addr, void *arg)
 {
    trunk_node node;
@@ -7775,7 +7775,7 @@ trunk_perform_tasks(trunk_handle *spl)
  *    5. subbundles are coherent (branches are contiguous and non-overlapping)
  *    6. start_frac (resp end_branch) is first (resp last) branch in a subbundle
  */
-bool
+bool32
 trunk_verify_node(trunk_handle *spl, trunk_node *node)
 {
    bool32 is_valid = FALSE;
@@ -8108,7 +8108,7 @@ typedef struct trunk_verify_scratch {
  * 1. coherent max key with successor's min key
  * 2. coherent pivots with children's min/max keys
  */
-bool
+bool32
 trunk_verify_node_with_neighbors(trunk_handle         *spl,
                                  trunk_node           *node,
                                  trunk_verify_scratch *scratch)
@@ -8187,7 +8187,7 @@ out:
 /*
  * Wrapper for trunk_for_each_node
  */
-bool
+bool32
 trunk_verify_node_and_neighbors(trunk_handle *spl, uint64 addr, void *arg)
 {
    trunk_node node;
@@ -8207,7 +8207,7 @@ out:
 /*
  * verify_tree verifies each node with itself and its neighbors
  */
-bool
+bool32
 trunk_verify_tree(trunk_handle *spl)
 {
    trunk_verify_scratch scratch = {0};
@@ -8226,7 +8226,7 @@ trunk_verify_tree(trunk_handle *spl)
 /*
  * Returns the amount of space used by each level of the tree
  */
-bool
+bool32
 trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg)
 {
    uint64    *bytes_used_on_level = (uint64 *)arg;
@@ -9226,7 +9226,7 @@ trunk_branch_count_num_tuples(trunk_handle *spl,
    }
 }
 
-bool
+bool32
 trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
 {
    platform_log_handle *log_handle = (platform_log_handle *)arg;
@@ -9301,7 +9301,7 @@ trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl)
    trunk_for_each_node(spl, trunk_node_print_branches, log_handle);
 }
 
-// bool
+// bool32
 // trunk_node_print_extent_count(trunk_handle *spl,
 //                                 uint64           addr,
 //                                 void            *arg)

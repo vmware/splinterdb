@@ -742,7 +742,7 @@ task_perform_all(task_system *ts)
    } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
 }
 
-bool
+bool32
 task_system_is_quiescent(task_system *ts)
 {
    platform_status rc;

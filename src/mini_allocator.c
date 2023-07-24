@@ -364,13 +364,13 @@ mini_num_entries(page_handle *meta_page)
  * Side effects:
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 entry_fits_in_page(uint64 page_size, uint64 start, uint64 entry_size)
 {
    return start + entry_size <= page_size;
 }
 
-static bool
+static bool32
 mini_keyed_append_entry(mini_allocator *mini,
                         uint64          batch,
                         page_handle    *meta_page,
@@ -404,7 +404,7 @@ mini_keyed_append_entry(mini_allocator *mini,
    return TRUE;
 }
 
-static bool
+static bool32
 mini_unkeyed_append_entry(mini_allocator *mini,
                           page_handle    *meta_page,
                           uint64          extent_addr)
@@ -507,7 +507,7 @@ mini_set_next_meta_addr(mini_allocator *mini,
    hdr->next_meta_addr = next_meta_addr;
 }
 
-static bool
+static bool32
 mini_append_entry(mini_allocator *mini,
                   uint64          batch,
                   key             entry_key,
@@ -796,7 +796,7 @@ typedef enum boundary_state {
    after_end    = 2
 } boundary_state;
 
-static bool
+static bool32
 interval_intersects_range(boundary_state left_state, boundary_state right_state)
 {
    /*
@@ -837,7 +837,7 @@ state(data_config *cfg, key start_key, key end_key, key entry_start_key)
  * point passed to mini_release.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_keyed_for_each(cache           *cc,
                     data_config     *cfg,
                     uint64           meta_head,
@@ -914,7 +914,7 @@ mini_keyed_for_each(cache           *cc,
  * point passed to mini_release.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_keyed_for_each_self_exclusive(cache           *cc,
                                    data_config     *cfg,
                                    uint64           meta_head,

@@ -367,7 +367,7 @@ cache_unget(cache *cc, page_handle *page)
  * Does not block.
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 cache_try_claim(cache *cc, page_handle *page)
 {
    return cc->ops->page_try_claim(cc, page);
@@ -732,7 +732,7 @@ cache_get_read_ref(cache *cc, page_handle *page)
  * Returns TRUE if page is present in the cache.
  *-----------------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 cache_present(cache *cc, page_handle *page)
 {
    return cc->ops->cache_present(cc, page);

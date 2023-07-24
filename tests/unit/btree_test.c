@@ -42,7 +42,7 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid);
 
-static bool
+static bool32
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
                              btree_hdr             *hdr,

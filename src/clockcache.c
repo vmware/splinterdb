@@ -146,7 +146,7 @@ clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type);
 void
 clockcache_unget(clockcache *cc, page_handle *page);
 
-bool
+bool32
 clockcache_try_claim(clockcache *cc, page_handle *page);
 
 void
@@ -230,7 +230,7 @@ clockcache_count_dirty(clockcache *cc);
 uint16
 clockcache_get_read_ref(clockcache *cc, page_handle *page);
 
-bool
+bool32
 clockcache_present(clockcache *cc, page_handle *page);
 
 static void
@@ -1192,7 +1192,7 @@ failed:
  *      test and set.
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 clockcache_ok_to_writeback(clockcache *cc,
                            uint32      entry_number,
                            bool32      with_access)
@@ -1212,7 +1212,7 @@ clockcache_ok_to_writeback(clockcache *cc,
  *         -- CC_CLEANABLE2_STATUS (= 0 | CC_ACCESSED)    // dirty
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 clockcache_try_set_writeback(clockcache *cc,
                              uint32      entry_number,
                              bool32      with_access)
@@ -2081,7 +2081,7 @@ clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
  *      Blocks while the page is loaded into cache if necessary.
  *----------------------------------------------------------------------
  */
-static bool
+static bool32
 clockcache_get_internal(clockcache   *cc,       // IN
                         uint64        addr,     // IN
                         bool32        blocking, // IN
@@ -2534,7 +2534,7 @@ clockcache_unget(clockcache *cc, page_handle *page)
  *      readlock before trying to claim again to avoid deadlock.
  *----------------------------------------------------------------------
  */
-bool
+bool32
 clockcache_try_claim(clockcache *cc, page_handle *page)
 {
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
@@ -3223,7 +3223,7 @@ clockcache_get_read_ref(clockcache *cc, page_handle *page)
    return ref_count;
 }
 
-bool
+bool32
 clockcache_present(clockcache *cc, page_handle *page)
 {
    return clockcache_lookup(cc, page->disk_addr) != CC_UNMAPPED_ENTRY;
