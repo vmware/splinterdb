@@ -65,7 +65,7 @@ typedef struct test_splinter_thread_params {
    uint64             max_range_length;
    stats_insert       insert_stats;
    uint64             num_ops_per_thread[NUM_OP_TYPES]; // in each round
-   bool32               expected_found;
+   bool32             expected_found;
    test_async_lookup *async_lookup[8]; // async lookup state per table
    uint64             insert_rate;
    stats_lookup       lookup_stats[NUM_LOOKUP_TYPES];
@@ -233,7 +233,7 @@ test_trunk_lookup_thread(void *arg)
    uint64            *curr_op        = params->curr_op;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
-   bool32               expected_found = params->expected_found;
+   bool32             expected_found = params->expected_found;
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.expected_found = expected_found,
                                         .stats = &params->lookup_stats[ASYNC_LU]};
@@ -366,7 +366,8 @@ test_trunk_range_thread(void *arg)
    uint64 *range_base = TYPED_ARRAY_ZALLOC(heap_id, range_base, num_tables);
    uint8   done       = 0;
 
-   bool32 verbose_progress  = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   bool32 verbose_progress =
+      test_show_verbose_progress(test_cfg->test_exec_cfg);
    uint64 test_start_time = platform_get_timestamp();
    uint64 start_time      = platform_get_timestamp();
    char   progress_msg[60];
@@ -556,7 +557,7 @@ do_operation(test_splinter_thread_params *params,
              uint64                       num_ops,
              uint64                       op_offset,
              const uint8                 *done,
-             bool32                         is_insert)
+             bool32                       is_insert)
 {
    trunk_handle     **spl_tables     = params->spl;
    const test_config *test_cfg       = params->test_cfg;
@@ -859,7 +860,7 @@ load_thread_params(test_splinter_thread_params *params,
                    uint64                       insert_rate,
                    uint64                       num_insert_threads,
                    uint64                       num_threads,
-                   bool32                         is_parallel)
+                   bool32                       is_parallel)
 {
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].spl            = spl_tables;
@@ -1009,7 +1010,8 @@ splinter_perf_inserts(platform_heap_id             hid,
       return rc;
    }
 
-   bool32 verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   bool32 verbose_progress =
+      test_show_verbose_progress(test_cfg->test_exec_cfg);
    if (verbose_progress) {
       platform_default_log("Created %lu insert threads"
                            ", Waiting for threads to complete ...\n",
@@ -1112,7 +1114,8 @@ splinter_perf_lookups(platform_heap_id             hid,
       return rc;
    }
 
-   bool32 verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   bool32 verbose_progress =
+      test_show_verbose_progress(test_cfg->test_exec_cfg);
    if (verbose_progress) {
       platform_default_log("Created %lu lookup threads"
                            ", Waiting for threads to complete ...\n",
@@ -1208,8 +1211,9 @@ splinter_perf_range_lookups(platform_heap_id             hid,
    platform_assert(
       (num_range_threads > 0), "num_range_threads=%lu", num_range_threads);
 
-   bool32 verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
-   uint64 total_ranges   = 0;
+   bool32 verbose_progress =
+      test_show_verbose_progress(test_cfg->test_exec_cfg);
+   uint64 total_ranges = 0;
    for (uint8 i = 0; i < num_tables; i++) {
       per_table_ranges[i] =
          ROUNDUP(per_table_inserts[i] / num_ranges, TEST_RANGE_GRANULARITY);
@@ -2492,7 +2496,7 @@ splinter_test(int argc, char *argv[])
    uint32                 num_range_lookup_threads, max_async_inflight;
    uint32                 num_pthreads    = 0;
    uint8                  num_tables      = 1;
-   bool32                   cache_per_table = FALSE;
+   bool32                 cache_per_table = FALSE;
    uint64                 insert_rate     = 0; // no rate throttling by default.
    task_system           *ts              = NULL;
    uint8                  lookup_positive_pct = 0;

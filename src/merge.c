@@ -44,7 +44,7 @@ static inline int
 bsearch_comp(const ordered_iterator *itor_one,
              const ordered_iterator *itor_two,
              const data_config      *cfg,
-             bool32                   *keys_equal)
+             bool32                 *keys_equal)
 {
    int cmp     = data_key_compare(cfg, itor_one->curr_key, itor_two->curr_key);
    *keys_equal = (cmp == 0);
@@ -64,7 +64,7 @@ merge_comp(const void *one, const void *two, void *ctxt)
    const ordered_iterator *itor_one = *(ordered_iterator **)one;
    const ordered_iterator *itor_two = *(ordered_iterator **)two;
    data_config            *cfg      = (data_config *)ctxt;
-   bool32                    ignore_keys_equal;
+   bool32                  ignore_keys_equal;
    return bsearch_comp(itor_one, itor_two, cfg, &ignore_keys_equal);
 }
 
@@ -74,14 +74,14 @@ bsearch_insert(register const ordered_iterator *key,
                ordered_iterator               **base0,
                const size_t                     nmemb,
                const data_config               *cfg,
-               bool32                            *prev_equal_out,
-               bool32                            *next_equal_out)
+               bool32                          *prev_equal_out,
+               bool32                          *next_equal_out)
 {
    register ordered_iterator **base = base0;
    register int                lim, cmp;
    register ordered_iterator **p;
-   bool32                        prev_equal = FALSE;
-   bool32                        next_equal = FALSE;
+   bool32                      prev_equal = FALSE;
+   bool32                      next_equal = FALSE;
 
 
    for (lim = nmemb; lim != 0; lim >>= 1) {
@@ -242,7 +242,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 
    // there is more than one copy of the current key
    bool32 success = merge_accumulator_copy_message(&merge_itor->merge_buffer,
-                                                 merge_itor->curr_data);
+                                                   merge_itor->curr_data);
    if (!success) {
       return STATUS_NO_MEMORY;
    }
@@ -303,7 +303,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
  */
 static inline platform_status
 merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
-                                           bool32           *discarded)
+                                           bool32         *discarded)
 {
    data_config *cfg   = merge_itor->cfg;
    message_type class = message_class(merge_itor->curr_data);
@@ -559,7 +559,7 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
  */
 platform_status
 merge_at_end(iterator *itor, // IN
-             bool32     *at_end)   // OUT
+             bool32   *at_end) // OUT
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    *at_end                    = merge_itor->at_end;

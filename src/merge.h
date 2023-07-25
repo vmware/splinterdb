@@ -21,7 +21,7 @@ typedef struct ordered_iterator {
    int       seq;
    key       curr_key;
    message   curr_data;
-   bool32      next_key_equal;
+   bool32    next_key_equal;
 } ordered_iterator;
 
 /*
@@ -59,10 +59,10 @@ extern struct merge_behavior   merge_full, merge_intermediate, merge_raw;
 typedef struct merge_iterator {
    iterator     super;     // handle for iterator.h API
    int          num_trees; // number of trees in the forest
-   bool32         merge_messages;
-   bool32         finalize_updates;
-   bool32         emit_deletes;
-   bool32         at_end;
+   bool32       merge_messages;
+   bool32       finalize_updates;
+   bool32       emit_deletes;
+   bool32       at_end;
    int          num_remaining; // number of ritors not at end
    data_config *cfg;           // point message tree data config
    key          curr_key;      // current key

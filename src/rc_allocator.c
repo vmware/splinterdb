@@ -688,7 +688,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 {
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
-   bool32   extent_is_free = FALSE;
+   bool32 extent_is_free = FALSE;
 
    do {
       hand = __sync_fetch_and_add(&al->hand, 1) % al->cfg->extent_capacity;

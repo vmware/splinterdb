@@ -217,7 +217,7 @@ memtable_insert(memtable_context *ctxt,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
-   bool32           was_unique;
+   bool32         was_unique;
 
    platform_status rc = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,

@@ -79,7 +79,7 @@ typedef struct routing_async_ctxt {
    // Internal fields
    routing_async_state prev_state; // Previous state
    routing_async_state state;      // Current state
-   bool32                was_async;  // Was the last cache_get async ?
+   bool32              was_async;  // Was the last cache_get async ?
    uint32              remainder_size;
    uint32              remainder;   // remainder
    uint32              bucket;      // hash bucket

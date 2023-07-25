@@ -298,7 +298,7 @@ filter_test(int argc, char *argv[])
    clockcache            *cc;
    int                    config_argc;
    char                 **config_argv;
-   bool32                   run_perf_test;
+   bool32                 run_perf_test;
    platform_status        rc;
    uint64                 seed;
    test_message_generator gen;

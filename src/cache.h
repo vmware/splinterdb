@@ -137,7 +137,7 @@ typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
 typedef page_handle *(*page_get_fn)(cache    *cc,
                                     uint64    addr,
-                                    bool32      blocking,
+                                    bool32    blocking,
                                     page_type type);
 typedef cache_async_result (*page_get_async_fn)(cache            *cc,
                                                 uint64            addr,
@@ -149,7 +149,7 @@ typedef void (*page_async_done_fn)(cache            *cc,
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
                              page_handle *page,
-                             bool32         is_blocking,
+                             bool32       is_blocking,
                              page_type    type);
 typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,
@@ -509,7 +509,10 @@ cache_unpin(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_page_sync(cache *cc, page_handle *page, bool32 is_blocking, page_type type)
+cache_page_sync(cache       *cc,
+                page_handle *page,
+                bool32       is_blocking,
+                page_type    type)
 {
    return cc->ops->page_sync(cc, page, is_blocking, type);
 }

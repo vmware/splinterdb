@@ -115,7 +115,7 @@ test_btree_lookup(cache           *cc,
 {
    platform_status   rc;
    merge_accumulator result;
-   bool32              ret;
+   bool32            ret;
 
    merge_accumulator_init(&result, hid);
 
@@ -308,7 +308,7 @@ destroy_btrees:
 typedef struct {
    btree_async_ctxt  ctxt;
    cache_async_ctxt  cache_ctxt;
-   bool32              ready;
+   bool32            ready;
    key_buffer        keybuf;
    merge_accumulator result;
 } btree_test_async_ctxt;
@@ -404,7 +404,7 @@ btree_test_run_pending(cache                   *cc,
                        uint64                   root_addr,
                        btree_test_async_lookup *async_lookup,
                        btree_test_async_ctxt   *skip_ctxt,
-                       bool32                     expected_found)
+                       bool32                   expected_found)
 {
    int i;
 
@@ -467,7 +467,7 @@ btree_test_wait_pending(cache                   *cc,
                         btree_config            *cfg,
                         uint64                   root_addr,
                         btree_test_async_lookup *async_lookup,
-                        bool32                     expected_found)
+                        bool32                   expected_found)
 {
    // Rough detection of stuck contexts
    const timestamp ts = platform_get_timestamp();
@@ -484,8 +484,8 @@ test_btree_async_lookup(cache                   *cc,
                         btree_test_async_ctxt   *async_ctxt,
                         btree_test_async_lookup *async_lookup,
                         uint64                   root_addr,
-                        bool32                     expected_found,
-                        bool32                    *correct)
+                        bool32                   expected_found,
+                        bool32                  *correct)
 {
    cache_async_result res;
    btree_ctxt_init(
@@ -522,8 +522,8 @@ test_memtable_async_lookup(test_memtable_context   *ctxt,
                            btree_test_async_ctxt   *async_ctxt,
                            btree_test_async_lookup *async_lookup,
                            uint64                   mt_no,
-                           bool32                     expected_found,
-                           bool32                    *correct)
+                           bool32                   expected_found,
+                           bool32                  *correct)
 {
    memtable     *mt        = &ctxt->mt_ctxt->mt[mt_no];
    btree_config *btree_cfg = mt->cfg;
@@ -756,11 +756,11 @@ test_btree_basic(cache             *cc,
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
       test_btree_tuple(ctxt, &keybuf, &expected_data, insert_num, 0);
       bool32 correct = test_btree_lookup(cc,
-                                       btree_cfg,
-                                       hid,
-                                       packed_root_addr,
-                                       key_buffer_key(&keybuf),
-                                       NULL_MESSAGE);
+                                         btree_cfg,
+                                         hid,
+                                         packed_root_addr,
+                                         key_buffer_key(&keybuf),
+                                         NULL_MESSAGE);
       if (!correct) {
          btree_print_tree(Platform_default_log_handle,
                           cc,
@@ -1493,7 +1493,7 @@ btree_test(int argc, char *argv[])
    task_system_config     task_cfg;
    int                    config_argc;
    char                 **config_argv;
-   bool32                   run_perf_test;
+   bool32                 run_perf_test;
    platform_status        rc;
    uint64                 seed;
    task_system           *ts = NULL;

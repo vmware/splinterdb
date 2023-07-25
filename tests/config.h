@@ -57,7 +57,7 @@ typedef struct master_config {
 
    // cache
    uint64 cache_capacity;
-   bool32   cache_use_stats;
+   bool32 cache_use_stats;
    char   cache_logfile[MAX_STRING_LENGTH];
 
    // btree
@@ -81,8 +81,8 @@ typedef struct master_config {
    uint64               use_stats;
    uint64               reclaim_threshold;
    uint64               queue_scale_percent;
-   bool32                 verbose_logging_enabled;
-   bool32                 verbose_progress;
+   bool32               verbose_logging_enabled;
+   bool32               verbose_progress;
    platform_log_handle *log_handle;
 
    // data

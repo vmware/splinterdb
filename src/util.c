@@ -109,7 +109,7 @@ try_string_to_uint64_limit(const char  *nptr,           // IN
    const int    cutlim = limit % (uint64)base;
 
    uint64 value;
-   bool32   converted_any = FALSE;
+   bool32 converted_any = FALSE;
    for (value = 0; c != '\0'; c = *s++) {
       if (isspace(c)) {
          break;
@@ -375,7 +375,7 @@ size_to_str(char *outbuf, size_t outbuflen, size_t size)
    debug_assert(outbuflen >= SIZE_TO_STR_LEN, "outbuflen=%lu.\n", outbuflen);
    size_t unit_val  = 0;
    size_t frac_val  = 0;
-   bool32   is_approx = FALSE;
+   bool32 is_approx = FALSE;
 
    char *units = NULL;
    if (size >= TiB) {

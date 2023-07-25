@@ -310,7 +310,7 @@ typedef struct {
          uint32 start;
          uint32 end;
          int32  incr;
-         bool32   arity;
+         bool32 arity;
       } hop;
    };
 } cache_test_index_itor;
@@ -410,7 +410,7 @@ cache_test_dirty_flush(cache                 *cc,
    for (uint32 i = 0; i < cfg->page_capacity; i++) {
       const uint32 idx = cache_test_index_itor_get(itor);
       page_handle *ph  = cache_get(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
-      bool32         claim_obtained = cache_try_claim(cc, ph);
+      bool32       claim_obtained = cache_try_claim(cc, ph);
       if (!claim_obtained) {
          platform_error_log("Expected uncontested claim, but failed\n");
          rc = STATUS_TEST_FAILED;
@@ -582,8 +582,8 @@ typedef struct {
    task_system       *ts;                      // IN
    platform_thread    thread;                  // IN
    platform_heap_id   hid;                     // IN
-   bool32               mt_reader;               // IN readers are MT
-   bool32               logger;                  // IN logger thread
+   bool32             mt_reader;               // IN readers are MT
+   bool32             logger;                  // IN logger thread
    const uint64      *addr_arr;                // IN array of page addrs
    uint64             num_pages;               // IN #of pages to get
    uint64             num_pages_ws;            // IN #of pages in working set
@@ -626,7 +626,7 @@ static void
 test_abandon_read_batch(test_params *params,
                         uint64       batch_start,
                         uint64       batch_end, // exclusive
-                        bool32         was_async[])
+                        bool32       was_async[])
 {
    page_handle **handle_arr = params->handle_arr;
    const uint64 *addr_arr   = params->addr_arr;
@@ -655,9 +655,9 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
 {
    page_handle **handle_arr = &params->handle_arr[batch_start];
    const uint64 *addr_arr   = &params->addr_arr[batch_start];
-   const bool32    mt_reader  = params->mt_reader;
+   const bool32  mt_reader  = params->mt_reader;
    cache        *cc         = params->cc;
-   bool32          was_async[READER_BATCH_SIZE] = {FALSE};
+   bool32        was_async[READER_BATCH_SIZE] = {FALSE};
    uint64        j;
 
    // Prepare to do async gets on current batch
@@ -968,7 +968,7 @@ cache_test(int argc, char *argv[])
    char                 **config_argv = argv + 1;
    platform_status        rc;
    task_system           *ts        = NULL;
-   bool32                   benchmark = FALSE, async = FALSE;
+   bool32                 benchmark = FALSE, async = FALSE;
    uint64                 seed;
    test_message_generator gen;
 

@@ -235,7 +235,7 @@ task_invoke_with_hooks(void *func_and_args)
  */
 static platform_status
 task_create_thread_with_hooks(platform_thread       *thread,
-                              bool32                   detached,
+                              bool32                 detached,
                               platform_thread_worker func,
                               void                  *arg,
                               size_t                 scratch_size,
@@ -563,7 +563,7 @@ task_group_deinit(task_group *group)
 static platform_status
 task_group_init(task_group  *group,
                 task_system *ts,
-                bool32         use_stats,
+                bool32       use_stats,
                 uint8        num_bg_threads,
                 uint64       scratch_size)
 {
@@ -608,7 +608,7 @@ task_enqueue(task_system *ts,
              task_type    type,
              task_fn      func,
              void        *arg,
-             bool32         at_head)
+             bool32       at_head)
 {
    task *new_task = TYPED_ZALLOC(ts->heap_id, new_task);
    if (new_task == NULL) {
@@ -747,7 +747,7 @@ task_system_is_quiescent(task_system *ts)
 {
    platform_status rc;
    task_type       ttlocked;
-   bool32            result = FALSE;
+   bool32          result = FALSE;
 
    for (ttlocked = TASK_TYPE_FIRST; ttlocked < NUM_TASK_TYPES; ttlocked++) {
       rc = task_group_lock(&ts->group[ttlocked]);
@@ -817,7 +817,7 @@ task_config_valid(const uint64 num_background_threads[NUM_TASK_TYPES])
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
-                        bool32                use_stats,
+                        bool32              use_stats,
                         const uint64        num_bg_threads[NUM_TASK_TYPES],
                         uint64              scratch_size)
 {

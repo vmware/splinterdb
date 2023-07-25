@@ -40,7 +40,7 @@ typedef struct shadow_entry {
 
 typedef struct trunk_shadow {
    data_config    *data_cfg;
-   bool32            sorted;
+   bool32          sorted;
    writable_buffer entries;
    writable_buffer data;
 } trunk_shadow;
@@ -49,7 +49,7 @@ typedef struct trunk_shadow {
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
-                    bool32          verify,
+                    bool32        verify,
                     trunk_shadow *shadow); // Out
 
 static platform_status
@@ -692,7 +692,7 @@ CTEST2(splinter, test_splinter_print_diags)
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
-                    bool32          verify,
+                    bool32        verify,
                     trunk_shadow *shadow) // Out
 {
    // Cast void * datap to ptr-to-CTEST_DATA() struct in use.

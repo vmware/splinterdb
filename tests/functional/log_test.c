@@ -31,7 +31,7 @@ test_log_crash(clockcache             *cc,
                platform_heap_id        hid,
                test_message_generator *gen,
                uint64                  num_entries,
-               bool32                    crash)
+               bool32                  crash)
 
 {
    platform_status    rc;
@@ -45,7 +45,7 @@ test_log_crash(clockcache             *cc,
    iterator          *itorh = (iterator *)&itor;
    char               key_str[128];
    char               data_str[128];
-   bool32               at_end;
+   bool32             at_end;
    merge_accumulator  msg;
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
 
@@ -240,8 +240,8 @@ log_test(int argc, char *argv[])
    platform_status        ret;
    int                    config_argc;
    char                 **config_argv;
-   bool32                   run_perf_test;
-   bool32                   run_crash_test;
+   bool32                 run_perf_test;
+   bool32                 run_crash_test;
    int                    rc;
    uint64                 seed;
    task_system           *ts = NULL;

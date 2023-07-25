@@ -131,7 +131,7 @@ typedef struct btree_iterator {
    iterator      super;
    cache        *cc;
    btree_config *cfg;
-   bool32          do_prefetch;
+   bool32        do_prefetch;
    uint32        height;
    page_type     page_type;
    key           min_key;
@@ -195,7 +195,7 @@ typedef struct btree_async_ctxt {
    cache_async_ctxt *cache_ctxt; // cache ctxt for async get
    btree_async_state prev_state; // Previous state
    btree_async_state state;      // Current state
-   bool32              was_async;  // Was the last cache_get async ?
+   bool32            was_async;  // Was the last cache_get async ?
    btree_node        node;       // Current node
    uint64            child_addr; // Child disk address
 } btree_async_ctxt;
@@ -210,7 +210,7 @@ btree_insert(cache              *cc,         // IN
              key                 tuple_key,  // IN
              message             data,       // IN
              uint64             *generation, // OUT
-             bool32               *was_unique);              // OUT
+             bool32             *was_unique);            // OUT
 
 /*
  *-----------------------------------------------------------------------------
@@ -290,7 +290,7 @@ btree_lookup_and_merge(cache             *cc,
                        page_type          type,
                        key                target,
                        merge_accumulator *data,
-                       bool32              *local_found);
+                       bool32            *local_found);
 
 cache_async_result
 btree_lookup_async(cache             *cc,
@@ -306,7 +306,7 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
                              uint64             root_addr,   // IN
                              key                target,      // IN
                              merge_accumulator *data,        // OUT
-                             bool32              *local_found, // OUT
+                             bool32            *local_found, // OUT
                              btree_async_ctxt  *ctxt);        // IN
 
 void
@@ -317,7 +317,7 @@ btree_iterator_init(cache          *cc,
                     page_type       page_type,
                     key             min_key,
                     key             max_key,
-                    bool32            do_prefetch,
+                    bool32          do_prefetch,
                     uint32          height);
 
 void

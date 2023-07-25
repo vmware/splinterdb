@@ -266,7 +266,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
          message_create(MESSAGE_TYPE_INSERT, slice_create(i % 8, messagebuf));
 
       leaf_incorporate_spec spec;
-      bool32                  result = btree_leaf_incorporate_tuple(
+      bool32                result = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, tuple_key, msg, &spec, &generation);
       ASSERT_TRUE(result, "Could not incorporate kv pair %d\n", i);
 
@@ -296,7 +296,7 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
 
    bool32 rv     = FALSE;
-   int  cmp_rv = 0;
+   int    cmp_rv = 0;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -373,8 +373,8 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
    }
 
    for (int i = 0; i < nkvs; i++) {
-      bool32  found;
-      uint8 keybuf[1];
+      bool32 found;
+      uint8  keybuf[1];
       keybuf[0]    = i;
       key   target = key_create(1, &keybuf);
       int64 idx    = btree_find_pivot(cfg, hdr, target, &found);

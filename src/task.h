@@ -38,7 +38,7 @@ typedef struct task_queue {
 } task_queue;
 
 typedef struct task_bg_thread_group {
-   bool32            stop;
+   bool32          stop;
    uint8           num_threads;
    platform_thread threads[MAX_THREADS];
 } task_bg_thread_group;
@@ -58,7 +58,7 @@ typedef struct task_group {
    task_bg_thread_group bg;
 
    // Per thread stats.
-   bool32       use_stats;
+   bool32     use_stats;
    task_stats stats[MAX_THREADS];
 } task_group;
 
@@ -77,14 +77,14 @@ typedef enum task_type {
 } task_type;
 
 typedef struct task_system_config {
-   bool32   use_stats;
+   bool32 use_stats;
    uint64 num_background_threads[NUM_TASK_TYPES];
    uint64 scratch_size;
 } task_system_config;
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
-                        bool32                use_stats,
+                        bool32              use_stats,
                         const uint64 num_background_threads[NUM_TASK_TYPES],
                         uint64       scratch_size);
 
@@ -199,7 +199,7 @@ task_enqueue(task_system *ts,
              task_type    type,
              task_fn      func,
              void        *arg,
-             bool32         at_head);
+             bool32       at_head);
 
 /*
  * Possibly performs one background task if there is one waiting,

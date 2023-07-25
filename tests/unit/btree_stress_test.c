@@ -305,7 +305,7 @@ insert_tests(cache           *cc,
              int              end)
 {
    uint64 generation;
-   bool32   was_unique;
+   bool32 was_unique;
 
    int    keybuf_size = btree_page_size(cfg);
    int    msgbuf_size = btree_page_size(cfg);
@@ -426,7 +426,7 @@ iterator_tests(cache           *cc,
    iterator *iter = (iterator *)&dbiter;
 
    uint64 seen = 0;
-   bool32   at_end;
+   bool32 at_end;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
    key    prev    = NULL_KEY;
    uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
