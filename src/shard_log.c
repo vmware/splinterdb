@@ -40,13 +40,16 @@ static log_ops shard_log_ops = {
 void
 shard_log_iterator_curr(iterator *itor, key *curr_key, message *msg);
 bool
-shard_log_iterator_in_range(iterator *itor);
+shard_log_iterator_can_prev(iterator *itor);
+bool
+shard_log_iterator_can_next(iterator *itor);
 platform_status
 shard_log_iterator_next(iterator *itor);
 
 const static iterator_ops shard_log_iterator_ops = {
    .curr     = shard_log_iterator_curr,
-   .in_range = shard_log_iterator_in_range,
+   .can_prev = shard_log_iterator_can_prev,
+   .can_next = shard_log_iterator_can_next,
    .next     = shard_log_iterator_next,
    .print    = NULL,
 };
@@ -436,10 +439,17 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 }
 
 bool
-shard_log_iterator_in_range(iterator *itorh)
+shard_log_iterator_can_prev(iterator *itorh)
+{
+   // this iterator only goes forward so just return TRUE
+   return TRUE;
+}
+
+bool
+shard_log_iterator_can_next(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
-   return itor->pos != itor->num_entries;
+   return itor->pos < itor->num_entries;
 }
 
 platform_status

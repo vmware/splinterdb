@@ -634,7 +634,7 @@ CTEST2(splinterdb_quick,
    }
 }
 
-CTEST2(splinterdb_quick, test_iterator_prev)
+CTEST2(splinterdb_quick, test_iterator_prev_and_next)
 {
    const int num_inserts = 1 << 14;
    // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
@@ -1088,10 +1088,11 @@ test_two_step_iterator(splinterdb *kvsb,
    ASSERT_FALSE(is_valid);
    rc = splinterdb_iterator_status(it);
    ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_iterator_can_prev(it));
 
    // Start going down
    splinterdb_iterator_prev(it);
-   for (int i = num_keys - 1; i >= start_i; i--) {
+   for (int i = num_keys - 1; i >= 0; i--) {
       bool is_valid = splinterdb_iterator_valid(it);
       ASSERT_TRUE(is_valid);
       check_current_tuple(it, i * hop_i + minkey);

@@ -38,10 +38,10 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
                              NEGATIVE_INFINITY_KEY,
                              POSITIVE_INFINITY_KEY,
                              NEGATIVE_INFINITY_KEY,
-                             TRUE,
+                             greater_than_or_equal,
                              UINT64_MAX);
    uint64 count = 0;
-   while (iterator_in_range((iterator *)&iter)) {
+   while (iterator_can_curr((iterator *)&iter)) {
       key     curr_key;
       message value;
       iterator_curr((iterator *)&iter, &curr_key, &value);
@@ -243,7 +243,7 @@ verify_range_against_shadow(trunk_handle               *spl,
                                       start_key,
                                       end_key,
                                       start_key,
-                                      TRUE,
+                                      greater_than_or_equal,
                                       end_index - start_index);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
@@ -259,7 +259,7 @@ verify_range_against_shadow(trunk_handle               *spl,
          continue;
       }
 
-      if (!iterator_in_range((iterator *)range_itor)) {
+      if (!iterator_can_curr((iterator *)range_itor)) {
          platform_error_log("ERROR: range itor terminated early\n");
          status = STATUS_NO_PERMISSION;
          goto destroy;
@@ -296,7 +296,7 @@ verify_range_against_shadow(trunk_handle               *spl,
       }
    }
 
-   while (iterator_in_range((iterator *)range_itor)) {
+   while (iterator_can_curr((iterator *)range_itor)) {
       status = STATUS_LIMIT_EXCEEDED;
       iterator_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);

@@ -2425,10 +2425,12 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
 
 /*
  *-----------------------------------------------------------------------------
- * btree_iterator_init --
- * btree_iterator_curr --
- * btree_iterator_next --
- * btree_iterator_in_range
+ * btree_iterator_init     --
+ * btree_iterator_prev     --
+ * btree_iterator_curr     --
+ * btree_iterator_next     --
+ * btree_iterator_can_prev --
+ * btree_iterator_can_next --
  *
  * This iterator implementation supports an upper bound key ub.  Given
  * an upper bound, the iterator will return only keys strictly less
@@ -2459,27 +2461,27 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
  *-----------------------------------------------------------------------------
  */
 static bool
-btree_iterator_after_end(btree_iterator *itor)
+btree_iterator_can_prev(iterator *base_itor)
 {
-   return itor->curr.addr == itor->end_addr && itor->idx == itor->end_idx;
+   btree_iterator *itor = (btree_iterator *)base_itor;
+   return itor->idx >= itor->curr_min_idx;
 }
 
 static bool
-btree_iterator_before_start(btree_iterator *itor)
+btree_iterator_can_next(iterator *base_itor)
 {
-   return itor->idx < itor->curr_min_idx;
+   btree_iterator *itor = (btree_iterator *)base_itor;
+   return itor->curr.addr != itor->end_addr || itor->idx != itor->end_idx;
 }
 
-static bool
+// function internal to the btree iterator that checks if the iterator
+// is in a valid state
+inline static bool
 btree_iterator_in_range(btree_iterator *itor)
 {
-   return !btree_iterator_before_start(itor) && !btree_iterator_after_end(itor);
-}
-
-static bool
-btree_iterator_in_range_virtual(iterator *itor)
-{
-   return btree_iterator_in_range((btree_iterator *)itor);
+   iterator *base_itor = (iterator *)itor;
+   return btree_iterator_can_prev(base_itor)
+          && btree_iterator_can_next(base_itor);
 }
 
 void
@@ -2720,9 +2722,7 @@ btree_iterator_next(iterator *base_itor)
    btree_iterator *itor = (btree_iterator *)base_itor;
 
    // We should not be calling advance on an empty iterator
-   debug_assert(!btree_iterator_after_end(itor));
-   debug_assert(itor->idx >= 0
-                || (btree_iterator_before_start(itor) && itor->idx == -1));
+   debug_assert(btree_iterator_can_next(base_itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
 
    itor->idx++;
@@ -2734,7 +2734,7 @@ btree_iterator_next(iterator *base_itor)
    }
 
    debug_assert(
-      btree_iterator_after_end(itor)
+      !btree_iterator_can_next(base_itor)
       || (0 <= itor->idx && itor->idx < btree_num_entries(itor->curr.hdr)));
 
    return STATUS_OK;
@@ -2747,10 +2747,8 @@ btree_iterator_prev(iterator *base_itor)
    btree_iterator *itor = (btree_iterator *)base_itor;
 
    // We should not be calling prev on an empty iterator
-   debug_assert(!btree_iterator_before_start(itor));
-   debug_assert(0 <= itor->idx);
-   debug_assert(btree_iterator_after_end(itor)
-                || itor->idx < btree_num_entries(itor->curr.hdr));
+   debug_assert(btree_iterator_can_prev(base_itor));
+   debug_assert(itor->idx >= 0);
 
    itor->idx--;
    if (itor->curr_min_idx == -1 && itor->idx == -1) {
@@ -2758,7 +2756,7 @@ btree_iterator_prev(iterator *base_itor)
    }
 
    debug_assert(
-      btree_iterator_before_start(itor)
+      !btree_iterator_can_prev(base_itor)
       || (0 <= itor->idx && itor->idx < btree_num_entries(itor->curr.hdr)));
 
    return STATUS_OK;
@@ -2907,7 +2905,8 @@ btree_iterator_print(iterator *itor)
 
 const static iterator_ops btree_iterator_ops = {
    .curr     = btree_iterator_curr,
-   .in_range = btree_iterator_in_range_virtual,
+   .can_prev = btree_iterator_can_prev,
+   .can_next = btree_iterator_can_next,
    .next     = btree_iterator_next,
    .prev     = btree_iterator_prev,
    .seek     = btree_iterator_seek,
@@ -2918,7 +2917,7 @@ const static iterator_ops btree_iterator_ops = {
 /*
  *-----------------------------------------------------------------------------
  * Caller must guarantee:
- *    max_key needs to be valid until at_end() returns true
+ *    min_key and max_key need to be valid until iterator deinitialized
  *-----------------------------------------------------------------------------
  */
 void
@@ -3244,7 +3243,7 @@ btree_pack(btree_pack_req *req)
    key     tuple_key = NEGATIVE_INFINITY_KEY;
    message data;
 
-   while (iterator_in_range(req->itor)) {
+   while (iterator_can_next(req->itor)) {
       iterator_curr(req->itor, &tuple_key, &data);
       if (!btree_pack_can_fit_tuple(req, tuple_key, data)) {
          platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
@@ -3354,7 +3353,7 @@ btree_count_in_range_by_iterator(cache             *cc,
 
    memset(stats, 0, sizeof(*stats));
 
-   while (iterator_in_range(itor)) {
+   while (iterator_can_next(itor)) {
       key     curr_key;
       message msg;
       iterator_curr(itor, &curr_key, &msg);

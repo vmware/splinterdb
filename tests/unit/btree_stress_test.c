@@ -448,7 +448,7 @@ iterator_test(platform_heap_id hid,
    uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
    uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
-   while (iterator_in_range(iter)) {
+   while (iterator_can_curr(iter)) {
       key     curr_key;
       message msg;
 
@@ -527,7 +527,7 @@ iterator_tests(cache           *cc,
    if (!start_front) {
       iterator_prev(iter);
    }
-   bool nonempty = iterator_in_range(iter);
+   bool nonempty = iterator_can_curr(iter);
 
    ASSERT_EQUAL(nkvs, iterator_test(hid, cfg, nkvs, iter, start_front));
    if (nonempty) {

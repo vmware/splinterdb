@@ -62,7 +62,8 @@ typedef struct merge_iterator {
    bool         merge_messages;
    bool         finalize_updates;
    bool         emit_deletes;
-   bool         in_range;
+   bool         can_prev;
+   bool         can_next;
    int          num_remaining; // number of ritors not at end
    data_config *cfg;           // point message tree data config
    key          curr_key;      // current key
@@ -96,7 +97,6 @@ platform_status
 merge_iterator_create(platform_heap_id hid,
                       data_config     *cfg,
                       int              num_trees,
-                      bool             forwards,
                       iterator       **itor_arr,
                       merge_behavior   merge_mode,
                       merge_iterator **out_itor);

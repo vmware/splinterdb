@@ -17,7 +17,7 @@ typedef enum comparison {
 } comparison;
 
 typedef void (*iterator_curr_fn)(iterator *itor, key *curr_key, message *msg);
-typedef bool (*iterator_in_range_fn)(iterator *itor);
+typedef bool (*iterator_bound_fn)(iterator *itor);
 typedef platform_status (*iterator_step_fn)(iterator *itor);
 typedef platform_status (*iterator_seek_fn)(iterator  *itor,
                                             key        seek_key,
@@ -26,12 +26,13 @@ typedef void (*iterator_print_fn)(iterator *itor);
 
 typedef struct iterator_ops {
    /* Callers should not modify data pointed to by *key or *data */
-   iterator_curr_fn     curr;
-   iterator_in_range_fn in_range;
-   iterator_step_fn     next;
-   iterator_step_fn     prev;
-   iterator_seek_fn     seek;
-   iterator_print_fn    print;
+   iterator_curr_fn  curr;
+   iterator_bound_fn can_prev;
+   iterator_bound_fn can_next;
+   iterator_step_fn  next;
+   iterator_step_fn  prev;
+   iterator_seek_fn  seek;
+   iterator_print_fn print;
 } iterator_ops;
 
 // To sub-class iterator, make an iterator your first field
@@ -48,9 +49,21 @@ iterator_curr(iterator *itor, key *curr_key, message *msg)
 }
 
 static inline bool
-iterator_in_range(iterator *itor)
+iterator_can_prev(iterator *itor)
 {
-   return itor->ops->in_range(itor);
+   return itor->ops->can_prev(itor);
+}
+
+static inline bool
+iterator_can_next(iterator *itor)
+{
+   return itor->ops->can_next(itor);
+}
+
+static inline bool
+iterator_can_curr(iterator *itor)
+{
+   return itor->ops->can_next(itor) && itor->ops->can_prev(itor);
 }
 
 static inline platform_status

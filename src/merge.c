@@ -21,7 +21,10 @@ void
 merge_curr(iterator *itor, key *curr_key, message *data);
 
 bool
-merge_in_range(iterator *itor);
+merge_can_prev(iterator *itor);
+
+bool
+merge_can_next(iterator *itor);
 
 platform_status
 merge_next(iterator *itor);
@@ -31,7 +34,8 @@ merge_prev(iterator *itor);
 
 static iterator_ops merge_ops = {
    .curr     = merge_curr,
-   .in_range = merge_in_range,
+   .can_prev = merge_can_prev,
+   .can_next = merge_can_next,
    .next     = merge_next,
    .prev     = merge_prev,
 };
@@ -182,7 +186,7 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    // if it's exhausted, kill it and move the ritors up the queue.
-   if (UNLIKELY(!iterator_in_range(merge_itor->ordered_iterators[0]->itor))) {
+   if (UNLIKELY(!iterator_can_curr(merge_itor->ordered_iterators[0]->itor))) {
       merge_itor->num_remaining--;
       ordered_iterator *tmp = merge_itor->ordered_iterators[0];
       for (int i = 0; i < merge_itor->num_remaining; ++i) {
@@ -358,7 +362,11 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
    *retry = FALSE;
    // Determine whether we're no longer in range.
    if (merge_itor->num_remaining == 0) {
-      merge_itor->in_range = FALSE;
+      if (merge_itor->forwards) {
+         merge_itor->can_next = FALSE;
+      } else {
+         merge_itor->can_prev = FALSE;
+      }
       return STATUS_OK;
    }
 
@@ -410,13 +418,14 @@ setup_ordered_iterators(merge_iterator *merge_itor)
 {
    platform_status   rc = STATUS_OK;
    ordered_iterator *temp;
-   merge_itor->in_range = TRUE;
+   merge_itor->can_prev = FALSE;
+   merge_itor->can_next = FALSE;
 
    // Move all the dead iterators to the end and count how many are still alive.
    merge_itor->num_remaining = merge_itor->num_trees;
    int i                     = 0;
    while (i < merge_itor->num_remaining) {
-      if (!iterator_in_range(merge_itor->ordered_iterators[i]->itor)) {
+      if (!iterator_can_curr(merge_itor->ordered_iterators[i]->itor)) {
          ordered_iterator *tmp =
             merge_itor->ordered_iterators[merge_itor->num_remaining - 1];
          merge_itor->ordered_iterators[merge_itor->num_remaining - 1] =
@@ -426,6 +435,9 @@ setup_ordered_iterators(merge_iterator *merge_itor)
       } else {
          set_curr_ordered_iterator(merge_itor->cfg,
                                    merge_itor->ordered_iterators[i]);
+         // if we can_curr then we can also both prev and next
+         merge_itor->can_prev = TRUE;
+         merge_itor->can_next = TRUE;
          i++;
       }
    }
@@ -475,6 +487,13 @@ setup_ordered_iterators(merge_iterator *merge_itor)
             rc = merge_iterator_rc;
          }
       }
+      platform_error_log("setup_ordered_iterators: exception: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   if (!key_is_null(merge_itor->curr_key)) {
+      debug_assert_message_type_valid(merge_itor);
    }
 
    return rc;
@@ -497,7 +516,6 @@ platform_status
 merge_iterator_create(platform_heap_id hid,
                       data_config     *cfg,
                       int              num_trees,
-                      bool             forwards,
                       iterator       **itor_arr,
                       merge_behavior   merge_mode,
                       merge_iterator **out_itor)
@@ -560,10 +578,6 @@ merge_iterator_create(platform_heap_id hid,
    }
 
    *out_itor = merge_itor;
-   if (merge_itor->in_range) {
-      debug_assert_message_type_valid(merge_itor);
-   }
-
    return rc;
 }
 
@@ -615,38 +629,37 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool forwards)
 
    // restore iterator invariants
    rc = setup_ordered_iterators(merge_itor);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
 
-   if (merge_itor->in_range) {
-      debug_assert_message_type_valid(merge_itor);
-   }
    return rc;
 }
 
 
 /*
  *-----------------------------------------------------------------------------
- * merge_in_range --
+ * merge_can_prev and merge_can_next --
  *
- *      Checks if the iterator is out of bounds.
+ *      Checks if the iterator is able to move prev or next.
  *      The half open range [start_key, end_key) defines the iterator's bounds.
  *
  * Results:
- *      Returns TRUE if the itor is at end, FALSE otherwise.
+ *      Returns TRUE if the iterator can move as requested, FALSE otherwise.
  *
  * Side effects:
  *      None.
  *-----------------------------------------------------------------------------
  */
 bool
-merge_in_range(iterator *itor) // IN
+merge_can_prev(iterator *itor)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   debug_assert(merge_itor->in_range != key_is_null(merge_itor->curr_key)
-                || !merge_itor->forwards);
-   return merge_itor->in_range;
+   return merge_itor->can_prev;
+}
+
+bool
+merge_can_next(iterator *itor)
+{
+   merge_iterator *merge_itor = (merge_iterator *)itor;
+   return merge_itor->can_next;
 }
 
 /*
@@ -665,10 +678,10 @@ merge_in_range(iterator *itor) // IN
 void
 merge_curr(iterator *itor, key *curr_key, message *data)
 {
+   debug_assert(iterator_can_curr(itor));
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   debug_assert(merge_itor->in_range);
-   *curr_key = merge_itor->curr_key;
-   *data     = merge_itor->curr_data;
+   *curr_key                  = merge_itor->curr_key;
+   *data                      = merge_itor->curr_data;
 }
 
 static inline platform_status
@@ -754,7 +767,7 @@ merge_iterator_print(merge_iterator *merge_itor)
    platform_default_log("----------------------------------------\n");
    for (i = 0; i < merge_itor->num_trees; i++) {
       platform_default_log("%u: ", merge_itor->ordered_iterators[i]->seq);
-      if (!iterator_in_range(merge_itor->ordered_iterators[i]->itor)) {
+      if (!iterator_can_curr(merge_itor->ordered_iterators[i]->itor)) {
          platform_default_log("# : ");
       } else {
          platform_default_log("_ : ");

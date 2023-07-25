@@ -1215,7 +1215,7 @@ routing_filter_verify(cache          *cc,
                       uint16          value,
                       iterator       *itor)
 {
-   while (iterator_in_range(itor)) {
+   while (iterator_can_next(itor)) {
       key     curr_key;
       message msg;
       iterator_curr(itor, &curr_key, &msg);
