@@ -229,7 +229,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 int
 splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                           splinterdb             **kvs_out,      // OUT
-                          bool                     open_existing // IN
+                          bool32                   open_existing // IN
 )
 {
    splinterdb     *kvs;
@@ -643,7 +643,7 @@ splinterdb_iterator_valid(splinterdb_iterator *kvi)
    if (!SUCCESS(kvi->last_rc)) {
       return FALSE;
    }
-   bool      at_end;
+   bool32    at_end;
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_at_end(itor, &at_end);
    if (!SUCCESS(kvi->last_rc)) {

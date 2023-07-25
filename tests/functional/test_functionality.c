@@ -32,7 +32,7 @@ static void
 search_for_key_via_iterator(trunk_handle *spl, key target)
 {
    trunk_range_iterator iter;
-   bool                 at_end;
+   bool32               at_end;
 
    trunk_range_iterator_init(
       spl, &iter, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY, UINT64_MAX);
@@ -60,7 +60,7 @@ verify_tuple(trunk_handle    *spl,
              platform_status *result)
 {
    const data_handle *dh      = message_data(msg);
-   bool               found   = dh != NULL;
+   bool32             found   = dh != NULL;
    uint64             int_key = be64toh(*(uint64 *)key_data(keybuf));
 
    if (dh && message_length(msg) < sizeof(data_handle)) {
@@ -227,7 +227,7 @@ verify_range_against_shadow(trunk_handle               *spl,
    const data_handle *splinter_data_handle;
    uint64             splinter_key;
    uint64             i;
-   bool               at_end;
+   bool32             at_end;
 
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
@@ -329,7 +329,7 @@ choose_key(data_config                *cfg,         // IN
            test_splinter_shadow_array *sharr,       // IN
            random_state               *prg,         // IN/OUT
            int                         type,        // IN
-           bool                        is_start,    // IN
+           bool32                      is_start,    // IN
            key                         startkey,    // IN
            int                         start_index, // IN
            int                        *index,       // OUT
@@ -382,7 +382,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                                       random_state               *prg,
                                       test_splinter_shadow_array *sharr,
                                       platform_heap_id            hid,
-                                      bool                        do_it)
+                                      bool32                      do_it)
 {
    int             begin_type;
    int             end_type;
@@ -470,7 +470,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
                              random_state              *prg,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_id           hid,
-                             bool                       do_it,
+                             bool32                     do_it,
                              test_async_lookup         *async_lookup)
 {
    test_splinter_shadow_array dry_run_sharr = {

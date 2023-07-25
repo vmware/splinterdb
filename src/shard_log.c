@@ -40,7 +40,7 @@ static log_ops shard_log_ops = {
 void
 shard_log_iterator_get_curr(iterator *itor, key *curr_key, message *msg);
 platform_status
-shard_log_iterator_at_end(iterator *itor, bool *at_end);
+shard_log_iterator_at_end(iterator *itor, bool32 *at_end);
 platform_status
 shard_log_iterator_advance(iterator *itor);
 
@@ -179,7 +179,7 @@ first_log_entry(char *page)
    return (log_entry *)(page + sizeof(shard_log_hdr));
 }
 
-static bool
+static bool32
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
    return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
@@ -295,7 +295,7 @@ shard_log_magic(log_handle *logh)
    return log->magic;
 }
 
-bool
+bool32
 shard_log_valid(shard_log_config *cfg, page_handle *page, uint64 magic)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
@@ -436,7 +436,7 @@ shard_log_iterator_get_curr(iterator *itorh, key *curr_key, message *msg)
 }
 
 platform_status
-shard_log_iterator_at_end(iterator *itorh, bool *at_end)
+shard_log_iterator_at_end(iterator *itorh, bool32 *at_end)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *at_end                  = itor->pos == itor->num_entries;

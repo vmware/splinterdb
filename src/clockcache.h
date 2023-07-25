@@ -29,7 +29,7 @@ typedef struct clockcache_config {
    cache_config super;
    io_config   *io_cfg;
    uint64       capacity;
-   bool         use_stats;
+   bool32       use_stats;
    char         logfile[MAX_STRING_LENGTH];
 
    // computed
@@ -127,14 +127,14 @@ struct clockcache {
    volatile uint8 *pincount;
 
    // Clock hands and related metadata
-   volatile uint32 evict_hand;
-   volatile uint32 free_hand;
-   volatile bool  *batch_busy;
-   uint64          cleaner_gap;
+   volatile uint32  evict_hand;
+   volatile uint32  free_hand;
+   volatile bool32 *batch_busy;
+   uint64           cleaner_gap;
 
    volatile struct {
       volatile uint32 free_hand;
-      bool            enable_sync_get;
+      bool32          enable_sync_get;
    } PLATFORM_CACHELINE_ALIGNED per_thread[MAX_THREADS];
 
    // Stats
