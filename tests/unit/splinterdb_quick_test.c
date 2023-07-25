@@ -463,7 +463,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_startkey)
       rc              = splinterdb_iterator_init(data->kvsb, &it, start_key);
       ASSERT_EQUAL(0, rc);
 
-      bool is_valid = splinterdb_iterator_valid(it);
+      bool32 is_valid = splinterdb_iterator_valid(it);
       ASSERT_TRUE(is_valid);
 
       // Scan should have been positioned at the i'th key
@@ -497,7 +497,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    rc              = splinterdb_iterator_init(data->kvsb, &it, start_key);
 
    // Iterator should be invalid, as lookup key is non-existent.
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
 
    splinterdb_iterator_deinit(it);
@@ -563,7 +563,7 @@ CTEST2(splinterdb_quick,
    rc = splinterdb_iterator_init(data->kvsb, &it, start_key);
    ASSERT_EQUAL(0, rc);
 
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_TRUE(is_valid);
 
    // Iterator should be initialized to 1st key inserted, if the supplied
@@ -797,7 +797,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
    ASSERT_EQUAL(num_inserts, i);
    ASSERT_TRUE(data->default_data_cfg.num_comparisons > (2 * num_inserts));
 
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
 
    if (it) {
@@ -825,7 +825,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    rc = splinterdb_iterator_init(data->kvsb, &it, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
-   bool iter_valid = splinterdb_iterator_valid(it);
+   bool32 iter_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(iter_valid);
 
    splinterdb_iterator_deinit(it);

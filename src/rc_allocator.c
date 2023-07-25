@@ -203,7 +203,7 @@ const static allocator_ops rc_allocator_ops = {
  * Is page address 'base_addr' a valid extent address? I.e. it is the address
  * of the 1st page in an extent.
  */
-debug_only static inline bool
+debug_only static inline bool32
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 {
    return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
@@ -688,7 +688,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 {
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
-   bool   extent_is_free = FALSE;
+   bool32 extent_is_free = FALSE;
 
    do {
       hand = __sync_fetch_and_add(&al->hand, 1) % al->cfg->extent_capacity;
@@ -841,7 +841,7 @@ rc_allocator_print_allocated(rc_allocator *al)
    uint64 nallocated = al->stats.curr_allocated;
 
    // For more than a few allocated extents, print enclosing { } tags.
-   bool print_curly = (nallocated > 20);
+   bool32 print_curly = (nallocated > 20);
 
    platform_default_log(
       "Allocated extents: %lu\n%s", nallocated, (print_curly ? "{\n" : ""));

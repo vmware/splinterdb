@@ -36,7 +36,7 @@ static platform_status
 laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr);
 
 static io_async_req *
-laio_get_async_req(io_handle *ioh, bool blocking);
+laio_get_async_req(io_handle *ioh, bool32 blocking);
 
 struct iovec *
 laio_get_iovec(io_handle *ioh, io_async_req *req);
@@ -117,7 +117,7 @@ io_handle_init(laio_handle         *io,
    status = io_setup(cfg->kernel_queue_size, &io->ctx);
    platform_assert(status == 0);
 
-   bool is_create = ((cfg->flags & O_CREAT) != 0);
+   bool32 is_create = ((cfg->flags & O_CREAT) != 0);
    if (is_create) {
       io->fd = open(cfg->filename, cfg->flags, cfg->perms);
    } else {
@@ -245,7 +245,7 @@ laio_get_kth_req(laio_handle *io, uint64 k)
  * laio_get_async_req() - Return an Async IO request structure for this thread.
  */
 static io_async_req *
-laio_get_async_req(io_handle *ioh, bool blocking)
+laio_get_async_req(io_handle *ioh, bool32 blocking)
 {
    laio_handle   *io;
    io_async_req  *req;
@@ -423,13 +423,13 @@ laio_cleanup_all(io_handle *ioh)
    }
 }
 
-static inline bool
+static inline bool32
 laio_config_valid_page_size(io_config *cfg)
 {
    return (cfg->page_size == LAIO_DEFAULT_PAGE_SIZE);
 }
 
-static inline bool
+static inline bool32
 laio_config_valid_extent_size(io_config *cfg)
 {
    return (cfg->extent_size == LAIO_DEFAULT_EXTENT_SIZE);

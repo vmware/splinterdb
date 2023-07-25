@@ -62,7 +62,7 @@ async_ctxt_process_one(trunk_handle         *spl,
                        timestamp            *latency_max,
                        async_ctxt_process_cb process_cb,
                        void                 *process_arg);
-bool
+bool32
 async_ctxt_process_ready(trunk_handle         *spl,
                          test_async_lookup    *async_lookup,
                          timestamp            *latency_max,

@@ -79,7 +79,7 @@ typedef struct routing_async_ctxt {
    // Internal fields
    routing_async_state prev_state; // Previous state
    routing_async_state state;      // Current state
-   bool                was_async;  // Was the last cache_get async ?
+   bool32              was_async;  // Was the last cache_get async ?
    uint32              remainder_size;
    uint32              remainder;   // remainder
    uint32              bucket;      // hash bucket
@@ -119,7 +119,7 @@ routing_filter_get_next_value(uint64 found_values, uint16 last_value)
    return 63 - __builtin_clzll(found_values);
 }
 
-static inline bool
+static inline bool32
 routing_filter_is_value_found(uint64 found_values, uint16 value)
 {
    return ((found_values & (1 << value)) != 0);

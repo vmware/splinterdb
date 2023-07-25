@@ -38,7 +38,7 @@ struct io_async_req {
    io_callback_fn callback;     // issuer callback
    char           metadata[64]; // issuer callback data
    uint64         number;       // request number/id
-   bool           busy;         // request in-use flag
+   bool32         busy;         // request in-use flag
    uint64         bytes;        // total bytes in the IO request
    uint64         count;        // number of vector elements
    struct iovec   iovec[];      // vector with IO offsets and size

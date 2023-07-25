@@ -42,7 +42,7 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid);
 
-static bool
+static bool32
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
                              btree_hdr             *hdr,
@@ -174,7 +174,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    btree_init_hdr(cfg, hdr);
 
-   bool rv = FALSE;
+   bool32 rv = FALSE;
    for (uint32 i = 0; i < nkvs; i++) {
       rv = btree_set_leaf_entry(
          cfg,
@@ -266,7 +266,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
          message_create(MESSAGE_TYPE_INSERT, slice_create(i % 8, messagebuf));
 
       leaf_incorporate_spec spec;
-      bool                  result = btree_leaf_incorporate_tuple(
+      bool32                result = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, tuple_key, msg, &spec, &generation);
       ASSERT_TRUE(result, "Could not incorporate kv pair %d\n", i);
 
@@ -295,8 +295,8 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    int        nkvs = 100;
 
 
-   bool rv     = FALSE;
-   int  cmp_rv = 0;
+   bool32 rv     = FALSE;
+   int    cmp_rv = 0;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -362,7 +362,7 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 
    btree_init_hdr(cfg, hdr);
 
-   bool rv = FALSE;
+   bool32 rv = FALSE;
    for (int i = 0; i < nkvs; i += 2) {
       uint8 keybuf[1];
       keybuf[0]     = i;
@@ -373,8 +373,8 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
    }
 
    for (int i = 0; i < nkvs; i++) {
-      bool  found;
-      uint8 keybuf[1];
+      bool32 found;
+      uint8  keybuf[1];
       keybuf[0]    = i;
       key   target = key_create(1, &keybuf);
       int64 idx    = btree_find_pivot(cfg, hdr, target, &found);
@@ -427,7 +427,7 @@ leaf_split_tests(btree_config    *cfg,
 
       key tuple_key = key_create(1, &i);
 
-      bool success = btree_leaf_incorporate_tuple(
+      bool32 success = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, tuple_key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(

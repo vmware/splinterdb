@@ -11,7 +11,7 @@ typedef struct iterator iterator;
 typedef void (*iterator_get_curr_fn)(iterator *itor,
                                      key      *curr_key,
                                      message  *msg);
-typedef platform_status (*iterator_at_end_fn)(iterator *itor, bool *at_end);
+typedef platform_status (*iterator_at_end_fn)(iterator *itor, bool32 *at_end);
 typedef platform_status (*iterator_advance_fn)(iterator *itor);
 typedef void (*iterator_print_fn)(iterator *itor);
 
@@ -35,7 +35,7 @@ iterator_get_curr(iterator *itor, key *curr_key, message *msg)
 }
 
 static inline platform_status
-iterator_at_end(iterator *itor, bool *at_end)
+iterator_at_end(iterator *itor, bool32 *at_end)
 {
    return itor->ops->at_end(itor, at_end);
 }
