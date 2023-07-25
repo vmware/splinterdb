@@ -931,8 +931,13 @@ trunk_set_super_block(trunk_handle *spl,
    super->root_addr = spl->root_addr;
    super->meta_tail = mini_meta_tail(&spl->mini);
    if (spl->cfg.use_log) {
-      super->log_addr      = log_addr(spl->log);
-      super->log_meta_addr = log_meta_addr(spl->log);
+      if (spl->log) {
+         super->log_addr      = log_addr(spl->log);
+         super->log_meta_addr = log_meta_addr(spl->log);
+      } else {
+         super->log_addr      = 0;
+         super->log_meta_addr = 0;
+      }
    }
    super->timestamp    = platform_get_real_time();
    super->checkpointed = is_checkpoint;
