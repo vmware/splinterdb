@@ -6080,10 +6080,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    if (trunk_key_compare(spl, max_key, start_key) <= 0) {
       // out of bounds, start at max
       start_key            = max_key;
-      range_itor->can_next = FALSE;
    }
-   platform_assert(!key_is_negative_infinity(start_key)
-                   || start_type >= less_than_or_equal);
 
    // copy over global min and max
    key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);

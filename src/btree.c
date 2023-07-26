@@ -2477,16 +2477,6 @@ btree_iterator_can_next(iterator *base_itor)
           || (itor->idx < itor->end_idx && itor->curr_min_idx != itor->end_idx);
 }
 
-// function internal to the btree iterator that checks if the iterator
-// is in a valid state
-inline static bool32
-btree_iterator_in_range(btree_iterator *itor)
-{
-   iterator *base_itor = (iterator *)itor;
-   return btree_iterator_can_prev(base_itor)
-          && btree_iterator_can_next(base_itor);
-}
-
 void
 btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
 {
@@ -2498,7 +2488,7 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
       btree_print_tree(itor->cc, itor->cfg, itor->root_addr);
    }
    */
-   debug_assert(btree_iterator_in_range(itor));
+   debug_assert(iterator_can_curr(base_itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
    debug_assert(itor->curr.page != NULL);
    debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
@@ -2730,8 +2720,8 @@ btree_iterator_next(iterator *base_itor)
 
    itor->idx++;
 
-   if (btree_iterator_in_range(itor)
-       && itor->idx == btree_num_entries(itor->curr.hdr))
+   if (itor->idx == btree_num_entries(itor->curr.hdr)
+       && btree_iterator_can_next(base_itor))
    {
       btree_iterator_next_leaf(itor);
    }
@@ -2827,8 +2817,9 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    itor->curr_min_idx = !found && tmp == 0 ? --tmp : tmp;
    // if min_key is not within the current node but there is no previous node
    // then set curr_min_idx to 0
-   if (itor->curr_min_idx == -1 && itor->curr.hdr->prev_addr == 0)
+   if (itor->curr_min_idx == -1 && itor->curr.hdr->prev_addr == 0) {
       itor->curr_min_idx = 0;
+   }
 
    // find the index of the actual target
    itor->idx =
@@ -2977,7 +2968,7 @@ btree_iterator_init(cache          *cc,
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
    }
 
-   debug_assert(!btree_iterator_in_range(itor)
+   debug_assert(!iterator_can_curr((iterator *) itor)
                 || itor->idx < btree_num_entries(itor->curr.hdr));
 }
 
