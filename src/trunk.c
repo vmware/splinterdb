@@ -839,8 +839,8 @@ static void                        trunk_print_branches_and_bundles(platform_log
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, trunk_node *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
 void                               trunk_btree_skiperator_curr     (iterator *itor, key *curr_key, message *data);
 platform_status                    trunk_btree_skiperator_next     (iterator *itor);
-bool32                               trunk_btree_skiperator_can_prev (iterator *itor);
-bool32                               trunk_btree_skiperator_can_next (iterator *itor);
+bool32                             trunk_btree_skiperator_can_prev (iterator *itor);
+bool32                             trunk_btree_skiperator_can_next (iterator *itor);
 void                               trunk_btree_skiperator_print    (iterator *itor);
 void                               trunk_btree_skiperator_deinit   (trunk_handle *spl, trunk_btree_skiperator *skip_itor);
 bool32                             trunk_verify_node               (trunk_handle *spl, trunk_node *node);
@@ -3331,8 +3331,8 @@ trunk_memtable_iterator_init(trunk_handle   *spl,
                              key             max_key,
                              key             start_key,
                              comparison      start_type,
-                             bool32            is_live,
-                             bool32            inc_ref)
+                             bool32          is_live,
+                             bool32          inc_ref)
 {
    if (inc_ref) {
       allocator_inc_ref(spl->al, root_addr);
@@ -4965,8 +4965,12 @@ trunk_btree_skiperator_next(iterator *itor)
 bool32
 trunk_btree_skiperator_can_prev(iterator *itor)
 {
-   // Currently this iterator only ever goes forward so just return true
-   return TRUE;
+   trunk_btree_skiperator *skip_itor = (trunk_btree_skiperator *)itor;
+   if (skip_itor->curr == skip_itor->end) {
+      return FALSE;
+   }
+
+   return iterator_can_prev(&skip_itor->itor[skip_itor->curr].super);
 }
 
 bool32
@@ -6072,13 +6076,14 @@ trunk_range_iterator_init(trunk_handle         *spl,
    if (trunk_key_compare(spl, min_key, start_key) > 0) {
       // in bounds, start at min
       start_key = min_key;
-   } 
+   }
    if (trunk_key_compare(spl, max_key, start_key) <= 0) {
       // out of bounds, start at max
-      start_key = max_key;
+      start_key            = max_key;
       range_itor->can_next = FALSE;
    }
-   platform_assert(!key_is_negative_infinity(start_key) || start_type >= less_than_or_equal);
+   platform_assert(!key_is_negative_infinity(start_key)
+                   || start_type >= less_than_or_equal);
 
    // copy over global min and max
    key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);
@@ -6220,7 +6225,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
                                     FALSE);
       } else {
          uint64 mt_root_addr = branch->root_addr;
-         bool32   is_live    = branch_no == 0;
+         bool32 is_live      = branch_no == 0;
          trunk_memtable_iterator_init(
             spl,
             btree_itor,
@@ -6265,14 +6270,9 @@ trunk_range_iterator_init(trunk_handle         *spl,
             return rc;
          }
       } else {
-         // This works because users can only create iterators with
-         // start_type of greater_than_or_equal. Therefore, we only
-         // have to perform this two sided check when facing up.
-         // the specific case we're catching here is:
-         // start_key > true_max_key && start_key >= true_min_key
-         // So, try creating an iterator to go down now.
          range_itor->can_next = FALSE;
-         start_type = less_than_or_equal;
+         range_itor->can_prev =
+            iterator_can_prev(&range_itor->merge_itor->super);
       }
    }
    if (!in_range && start_type <= less_than_or_equal) {
@@ -6290,6 +6290,8 @@ trunk_range_iterator_init(trunk_handle         *spl,
          }
       } else {
          range_itor->can_prev = FALSE;
+         range_itor->can_next =
+            iterator_can_next(&range_itor->merge_itor->super);
       }
    }
    return rc;

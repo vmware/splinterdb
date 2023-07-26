@@ -442,8 +442,8 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 bool32
 shard_log_iterator_can_prev(iterator *itorh)
 {
-   // this iterator only goes forward so just return TRUE
-   return TRUE;
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   return itor->pos >= 0;
 }
 
 bool32

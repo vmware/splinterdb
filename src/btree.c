@@ -2464,14 +2464,17 @@ static bool32
 btree_iterator_can_prev(iterator *base_itor)
 {
    btree_iterator *itor = (btree_iterator *)base_itor;
-   return itor->idx >= itor->curr_min_idx;
+   return itor->idx >= itor->curr_min_idx
+          && (itor->curr_min_idx != itor->end_idx
+              || itor->curr.addr != itor->end_addr);
 }
 
 static bool32
 btree_iterator_can_next(iterator *base_itor)
 {
    btree_iterator *itor = (btree_iterator *)base_itor;
-   return itor->curr.addr != itor->end_addr || itor->idx != itor->end_idx;
+   return itor->curr.addr != itor->end_addr
+          || (itor->idx < itor->end_idx && itor->curr_min_idx != itor->end_idx);
 }
 
 // function internal to the btree iterator that checks if the iterator
@@ -2517,7 +2520,7 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
 
 // helper function to find a key within a btree node
 // at a height specified by the iterator
-static inline uint64
+static inline int64
 find_key_in_node(btree_iterator *itor,
                  btree_hdr      *hdr,
                  key             target,
@@ -2815,8 +2818,8 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    btree_node_unclaim(itor->cc, itor->cfg, &itor->curr);
 
    // find the index of the minimum key
-   bool32  found;
-   int64 tmp = find_key_in_node(
+   bool32 found;
+   int64  tmp = find_key_in_node(
       itor, itor->curr.hdr, itor->min_key, greater_than_or_equal, &found);
    // If min key doesn't exist in current node, but is:
    // 1) in range:     Min idx = smallest key > min_key
@@ -2830,12 +2833,16 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    // find the index of the actual target
    itor->idx =
       find_key_in_node(itor, itor->curr.hdr, target, position_rule, &found);
-   platform_assert(0 <= itor->idx);
 
-   if (btree_iterator_in_range(itor)
+   // check if we already need to move to the prev/next leaf
+   if (itor->curr.addr != itor->end_addr
        && itor->idx == btree_num_entries(itor->curr.hdr))
    {
       btree_iterator_next_leaf(itor);
+      itor->curr_min_idx = 0; // we came from an irrelevant leaf
+   }
+   if (itor->curr_min_idx == -1 && itor->idx == -1) {
+      btree_iterator_prev_leaf(itor);
    }
 }
 

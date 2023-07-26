@@ -64,7 +64,7 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
-               bool32             start_front,
+               bool32           start_front,
                platform_heap_id hid);
 
 static int
@@ -440,7 +440,7 @@ iterator_test(platform_heap_id hid,
               btree_config    *cfg,
               uint64           nkvs,
               iterator        *iter,
-              bool32             forwards)
+              bool32           forwards)
 {
    uint64 seen    = 0;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
@@ -499,7 +499,7 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
-               bool32             start_front,
+               bool32           start_front,
                platform_heap_id hid)
 {
    btree_iterator dbiter;

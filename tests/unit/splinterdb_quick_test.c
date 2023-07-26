@@ -44,10 +44,10 @@
 #define TEST_MAX_VALUE_SIZE 32
 
 // Hard-coded format strings to generate key and values
-static const char key_fmt[] = "key-%08x";
-static const char val_fmt[] = "val-%20x";
-#define KEY_FMT_LENGTH         (12)
-#define VAL_FMT_LENGTH         (24)
+static const char key_fmt[] = "key-%04x";
+static const char val_fmt[] = "val-%04x";
+#define KEY_FMT_LENGTH         (8)
+#define VAL_FMT_LENGTH         (8)
 #define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
 #define TEST_INSERT_VAL_LENGTH (VAL_FMT_LENGTH + 1)
 

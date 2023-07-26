@@ -425,6 +425,14 @@ setup_ordered_iterators(merge_iterator *merge_itor)
    merge_itor->num_remaining = merge_itor->num_trees;
    int i                     = 0;
    while (i < merge_itor->num_remaining) {
+      // determine if the merge itor can go prev/next based upon ordered_itors
+      if (iterator_can_prev(merge_itor->ordered_iterators[i]->itor)) {
+         merge_itor->can_prev = TRUE;
+      }
+      if (iterator_can_next(merge_itor->ordered_iterators[i]->itor)) {
+         merge_itor->can_next = TRUE;
+      }
+
       if (!iterator_can_curr(merge_itor->ordered_iterators[i]->itor)) {
          ordered_iterator *tmp =
             merge_itor->ordered_iterators[merge_itor->num_remaining - 1];
@@ -435,9 +443,6 @@ setup_ordered_iterators(merge_iterator *merge_itor)
       } else {
          set_curr_ordered_iterator(merge_itor->cfg,
                                    merge_itor->ordered_iterators[i]);
-         // if we can_curr then we can also both prev and next
-         merge_itor->can_prev = TRUE;
-         merge_itor->can_next = TRUE;
          i++;
       }
    }
@@ -618,11 +623,14 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool32 forwards)
    platform_status rc;
    merge_itor->forwards = forwards;
 
-   // Step every iterator, both alive and dead, in appropriate direction.
+   // Step every iterator, both alive and dead, in the appropriate direction.
    for (int i = 0; i < merge_itor->num_trees; i++) {
-      if (forwards) {
+      if (forwards && iterator_can_next(merge_itor->ordered_iterators[i]->itor))
+      {
          iterator_next(merge_itor->ordered_iterators[i]->itor);
-      } else {
+      }
+      if (!forwards
+          && iterator_can_prev(merge_itor->ordered_iterators[i]->itor)) {
          iterator_prev(merge_itor->ordered_iterators[i]->itor);
       }
    }
