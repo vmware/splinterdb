@@ -31,7 +31,7 @@ test_log_crash(clockcache             *cc,
                platform_heap_id        hid,
                test_message_generator *gen,
                uint64                  num_entries,
-               bool                    crash)
+               bool32                  crash)
 
 {
    platform_status    rc;
@@ -238,8 +238,8 @@ log_test(int argc, char *argv[])
    platform_status        ret;
    int                    config_argc;
    char                 **config_argv;
-   bool                   run_perf_test;
-   bool                   run_crash_test;
+   bool32                 run_perf_test;
+   bool32                 run_crash_test;
    int                    rc;
    uint64                 seed;
    task_system           *ts = NULL;

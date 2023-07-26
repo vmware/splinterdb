@@ -219,7 +219,7 @@ btree_fill_index_entry(const btree_config *cfg,
    entry->pivot_data.stats      = stats;
 }
 
-bool
+bool32
 btree_set_index_entry(const btree_config *cfg,
                       btree_hdr          *hdr,
                       table_index         k,
@@ -274,7 +274,7 @@ btree_set_index_entry(const btree_config *cfg,
    return TRUE;
 }
 
-static inline bool
+static inline bool32
 btree_insert_index_entry(const btree_config *cfg,
                          btree_hdr          *hdr,
                          uint32              k,
@@ -282,7 +282,7 @@ btree_insert_index_entry(const btree_config *cfg,
                          uint64              new_addr,
                          btree_pivot_stats   stats)
 {
-   bool succeeded = btree_set_index_entry(
+   bool32 succeeded = btree_set_index_entry(
       cfg, hdr, hdr->num_entries, new_pivot_key, new_addr, stats);
    if (succeeded) {
       node_offset this_entry_offset = hdr->offsets[hdr->num_entries - 1];
@@ -314,7 +314,7 @@ btree_fill_leaf_entry(const btree_config *cfg,
                 "entry->type not large enough to hold message_class");
 }
 
-static inline bool
+static inline bool32
 btree_can_set_leaf_entry(const btree_config *cfg,
                          const btree_hdr    *hdr,
                          table_index         k,
@@ -345,7 +345,7 @@ btree_can_set_leaf_entry(const btree_config *cfg,
    return TRUE;
 }
 
-bool
+bool32
 btree_set_leaf_entry(const btree_config *cfg,
                      btree_hdr          *hdr,
                      table_index         k,
@@ -392,7 +392,7 @@ btree_set_leaf_entry(const btree_config *cfg,
    return TRUE;
 }
 
-static inline bool
+static inline bool32
 btree_insert_leaf_entry(const btree_config *cfg,
                         btree_hdr          *hdr,
                         table_index         k,
@@ -400,7 +400,7 @@ btree_insert_leaf_entry(const btree_config *cfg,
                         message             new_message)
 {
    debug_assert(k <= hdr->num_entries);
-   bool succeeded =
+   bool32 succeeded =
       btree_set_leaf_entry(cfg, hdr, hdr->num_entries, new_key, new_message);
    if (succeeded) {
       node_offset this_entry_offset = hdr->offsets[hdr->num_entries - 1];
@@ -465,7 +465,7 @@ int64
 btree_find_pivot(const btree_config *cfg,
                  const btree_hdr    *hdr,
                  key                 target,
-                 bool               *found)
+                 bool32             *found)
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
 
@@ -509,7 +509,7 @@ static inline int64
 btree_find_tuple(const btree_config *cfg,
                  const btree_hdr    *hdr,
                  key                 target,
-                 bool               *found)
+                 bool32             *found)
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
 
@@ -581,7 +581,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    leaf_incorporate_spec *spec)
 {
    spec->tuple_key = tuple_key;
-   bool found;
+   bool32 found;
    spec->idx             = btree_find_tuple(cfg, hdr, tuple_key, &found);
    spec->old_entry_state = found ? ENTRY_STILL_EXISTS : ENTRY_DID_NOT_EXIST;
    if (!found) {
@@ -591,7 +591,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
    } else {
       leaf_entry *entry      = btree_get_leaf_entry(cfg, hdr, spec->idx);
       message     oldmessage = leaf_entry_message(entry);
-      bool        success;
+      bool32      success;
       success = merge_accumulator_init_from_message(
          &spec->msg.merged_message, heap_id, msg);
       if (!success) {
@@ -615,7 +615,7 @@ destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec)
    }
 }
 
-static inline bool
+static inline bool32
 btree_can_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         btree_hdr                   *hdr,
                                         const leaf_incorporate_spec *spec)
@@ -638,13 +638,13 @@ btree_can_perform_leaf_incorporate_spec(const btree_config          *cfg,
    }
 }
 
-bool
+bool32
 btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         btree_hdr                   *hdr,
                                         const leaf_incorporate_spec *spec,
                                         uint64                      *generation)
 {
-   bool success;
+   bool32 success;
    switch (spec->old_entry_state) {
       case ENTRY_DID_NOT_EXIST:
          success = btree_insert_leaf_entry(
@@ -704,8 +704,8 @@ btree_defragment_leaf(const btree_config    *cfg, // IN
       {
          spec->old_entry_state = ENTRY_HAS_BEEN_REMOVED;
       } else {
-         leaf_entry     *entry = btree_get_leaf_entry(cfg, scratch_hdr, i);
-         debug_only bool success =
+         leaf_entry       *entry = btree_get_leaf_entry(cfg, scratch_hdr, i);
+         debug_only bool32 success =
             btree_set_leaf_entry(cfg,
                                  hdr,
                                  dst_idx++,
@@ -745,7 +745,7 @@ btree_truncate_leaf(const btree_config *cfg, // IN
 static leaf_splitting_plan initial_plan = {0, FALSE};
 
 
-static bool
+static bool32
 most_of_entry_is_on_left_side(uint64 total_bytes,
                               uint64 left_bytes,
                               uint64 entry_size)
@@ -908,7 +908,7 @@ btree_split_leaf_build_right_node(const btree_config    *cfg,       // IN
 
    if (!plan.insertion_goes_left) {
       spec->idx -= plan.split_idx;
-      bool incorporated = btree_try_perform_leaf_incorporate_spec(
+      bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, right_hdr, spec, generation);
       platform_assert(incorporated);
    }
@@ -941,7 +941,7 @@ btree_split_leaf_cleanup_left_node(const btree_config    *cfg, // IN
  *      Assumes write lock on both nodes.
  *-----------------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 btree_index_is_full(const btree_config *cfg, // IN
                     const btree_hdr    *hdr)    // IN
 {
@@ -992,12 +992,12 @@ btree_split_index_build_right_node(const btree_config *cfg,        // IN
    for (uint64 i = 0; i < target_right_entries; i++) {
       index_entry *entry =
          btree_get_index_entry(cfg, left_hdr, target_left_entries + i);
-      bool succeeded = btree_set_index_entry(cfg,
-                                             right_hdr,
-                                             i,
-                                             index_entry_key(entry),
-                                             index_entry_child_addr(entry),
-                                             entry->pivot_data.stats);
+      bool32 succeeded = btree_set_index_entry(cfg,
+                                               right_hdr,
+                                               i,
+                                               index_entry_key(entry),
+                                               index_entry_child_addr(entry),
+                                               entry->pivot_data.stats);
       platform_assert(succeeded);
    }
 }
@@ -1019,12 +1019,12 @@ btree_defragment_index(const btree_config *cfg, // IN
    btree_reset_node_entries(cfg, hdr);
    for (uint64 i = 0; i < btree_num_entries(scratch_hdr); i++) {
       index_entry *entry     = btree_get_index_entry(cfg, scratch_hdr, i);
-      bool         succeeded = btree_set_index_entry(cfg,
-                                             hdr,
-                                             i,
-                                             index_entry_key(entry),
-                                             index_entry_child_addr(entry),
-                                             entry->pivot_data.stats);
+      bool32       succeeded = btree_set_index_entry(cfg,
+                                               hdr,
+                                               i,
+                                               index_entry_key(entry),
+                                               index_entry_child_addr(entry),
+                                               entry->pivot_data.stats);
       platform_assert(succeeded);
    }
 }
@@ -1059,7 +1059,7 @@ btree_truncate_index(const btree_config *cfg, // IN
  *      more nodes available for the given height.
  *-----------------------------------------------------------------------------
  */
-bool
+bool32
 btree_alloc(cache          *cc,
             mini_allocator *mini,
             uint64          height,
@@ -1099,7 +1099,7 @@ btree_node_get(cache              *cc,
    node->hdr  = (btree_hdr *)(node->page->data);
 }
 
-static inline bool
+static inline bool32
 btree_node_claim(cache              *cc,  // IN
                  const btree_config *cfg, // IN
                  btree_node         *node)        // IN
@@ -1163,7 +1163,7 @@ btree_node_get_from_cache_ctxt(const btree_config *cfg,  // IN
 }
 
 
-static inline bool
+static inline bool32
 btree_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
 {
    allocator *al = cache_get_allocator(cc);
@@ -1198,7 +1198,7 @@ btree_create(cache              *cc,
    platform_status rc = allocator_alloc(al, &base_addr, type);
    platform_assert_status_ok(rc);
    page_handle *root_page = cache_alloc(cc, base_addr, type);
-   bool         pinned    = (type == PAGE_TYPE_MEMTABLE);
+   bool32       pinned    = (type == PAGE_TYPE_MEMTABLE);
 
    // set up the root
    btree_node root;
@@ -1246,7 +1246,7 @@ btree_inc_ref_range(cache              *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
 }
 
-bool
+bool32
 btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
@@ -1259,7 +1259,7 @@ btree_dec_ref_range(cache              *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
 }
 
-bool
+bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
@@ -1388,13 +1388,13 @@ btree_split_child_leaf(cache                 *cc,
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
        * may invalidate the memory it points to.
        */
-      key  pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
-      bool success   = btree_insert_index_entry(cfg,
-                                              parent->hdr,
-                                              index_of_child_in_parent + 1,
-                                              pivot_key,
-                                              right_child.addr,
-                                              BTREE_PIVOT_STATS_UNKNOWN);
+      key    pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
+      bool32 success   = btree_insert_index_entry(cfg,
+                                                parent->hdr,
+                                                index_of_child_in_parent + 1,
+                                                pivot_key,
+                                                right_child.addr,
+                                                BTREE_PIVOT_STATS_UNKNOWN);
       platform_assert(success);
    }
    btree_node_full_unlock(cc, cfg, parent);
@@ -1415,7 +1415,7 @@ btree_split_child_leaf(cache                 *cc,
    btree_split_leaf_cleanup_left_node(
       cfg, scratch, child->hdr, spec, plan, right_child.addr);
    if (plan.insertion_goes_left) {
-      bool incorporated = btree_try_perform_leaf_incorporate_spec(
+      bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, generation);
       platform_assert(incorporated);
    }
@@ -1467,7 +1467,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       btree_node_unget(cc, cfg, parent);
       btree_node_lock(cc, cfg, child);
       btree_defragment_leaf(cfg, scratch, child->hdr, spec);
-      bool incorporated = btree_try_perform_leaf_incorporate_spec(
+      bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, generation);
       platform_assert(incorporated);
       btree_node_full_unlock(cc, cfg, child);
@@ -1715,7 +1715,7 @@ btree_grow_root(cache              *cc,   // IN
    } else {
       new_pivot = btree_get_pivot(cfg, child.hdr, 0);
    }
-   bool succeeded = btree_set_index_entry(
+   bool32 succeeded = btree_set_index_entry(
       cfg, root_node->hdr, 0, new_pivot, child.addr, BTREE_PIVOT_STATS_UNKNOWN);
    platform_assert(succeeded);
 
@@ -1740,7 +1740,7 @@ btree_insert(cache              *cc,         // IN
              key                 tuple_key,  // IN
              message             msg,        // IN
              uint64             *generation, // OUT
-             bool               *was_unique)               // OUT
+             bool32             *was_unique)             // OUT
 {
    platform_status       rc;
    leaf_incorporate_spec spec;
@@ -1795,8 +1795,8 @@ start_over:
 
    /* read lock on root_node, root_node is an index. */
 
-   bool  found;
-   int64 child_idx = btree_find_pivot(cfg, root_node.hdr, tuple_key, &found);
+   bool32 found;
+   int64  child_idx = btree_find_pivot(cfg, root_node.hdr, tuple_key, &found);
    index_entry *parent_entry;
 
    if (child_idx < 0 || btree_index_is_full(cfg, root_node.hdr)) {
@@ -1805,7 +1805,7 @@ start_over:
          goto start_over;
       }
       btree_node_lock(cc, cfg, &root_node);
-      bool need_to_set_min_key = FALSE;
+      bool32 need_to_set_min_key = FALSE;
       if (child_idx < 0) {
          child_idx    = 0;
          parent_entry = btree_get_index_entry(cfg, root_node.hdr, 0);
@@ -1823,7 +1823,7 @@ start_over:
       }
       if (need_to_set_min_key) {
          parent_entry = btree_get_index_entry(cfg, root_node.hdr, 0);
-         bool success =
+         bool32 success =
             btree_set_index_entry(cfg,
                                   root_node.hdr,
                                   0,
@@ -1876,7 +1876,7 @@ start_over:
          btree_node_lock(cc, cfg, &parent_node);
          btree_node_lock(cc, cfg, &child_node);
 
-         bool need_to_set_min_key = FALSE;
+         bool32 need_to_set_min_key = FALSE;
          if (next_child_idx < 0) {
             next_child_idx = 0;
             index_entry *child_entry =
@@ -1912,7 +1912,7 @@ start_over:
                                     // this case
             index_entry *child_entry =
                btree_get_index_entry(cfg, parent_node.hdr, 0);
-            bool success =
+            bool32 success =
                btree_set_index_entry(cfg,
                                      parent_node.hdr,
                                      0,
@@ -1971,7 +1971,7 @@ start_over:
          goto start_over;
       }
       btree_node_lock(cc, cfg, &child_node);
-      bool incorporated = btree_try_perform_leaf_incorporate_spec(
+      bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child_node.hdr, &spec, generation);
       platform_assert(incorporated);
       btree_node_full_unlock(cc, cfg, &child_node);
@@ -1987,7 +1987,7 @@ start_over:
       destroy_leaf_incorporate_spec(&spec);
       goto start_over;
    }
-   bool need_to_rebuild_spec = FALSE;
+   bool32 need_to_rebuild_spec = FALSE;
    while (!btree_node_claim(cc, cfg, &child_node)) {
       btree_node_unget(cc, cfg, &child_node);
       platform_sleep_ns(leaf_wait);
@@ -2062,7 +2062,7 @@ btree_lookup_node(cache             *cc,             // IN
    btree_node_get(cc, cfg, &node, type);
 
    for (h = btree_height(node.hdr); h > stop_at_height; h--) {
-      bool found;
+      bool32 found;
       child_idx = key_is_positive_infinity(target)
                      ? btree_num_entries(node.hdr) - 1
                      : btree_find_pivot(cfg, node.hdr, target, &found);
@@ -2095,7 +2095,7 @@ btree_lookup_with_ref(cache        *cc,        // IN
                       key           target,    // IN
                       btree_node   *node,      // OUT
                       message      *msg,       // OUT
-                      bool         *found)             // OUT
+                      bool32       *found)           // OUT
 {
    btree_lookup_node(cc, cfg, root_addr, target, 0, type, node, NULL);
    int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
@@ -2118,13 +2118,13 @@ btree_lookup(cache             *cc,        // IN
    btree_node      node;
    message         data;
    platform_status rc = STATUS_OK;
-   bool            local_found;
+   bool32          local_found;
 
    btree_lookup_with_ref(
       cc, cfg, root_addr, type, target, &node, &data, &local_found);
    if (local_found) {
-      bool success = merge_accumulator_copy_message(result, data);
-      rc           = success ? STATUS_OK : STATUS_NO_MEMORY;
+      bool32 success = merge_accumulator_copy_message(result, data);
+      rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
       btree_node_unget(cc, cfg, &node);
    }
    return rc;
@@ -2137,7 +2137,7 @@ btree_lookup_and_merge(cache             *cc,        // IN
                        page_type          type,      // IN
                        key                target,    // IN
                        merge_accumulator *data,      // OUT
-                       bool              *local_found)            // OUT
+                       bool32            *local_found)          // OUT
 {
    btree_node      node;
    message         local_data;
@@ -2149,8 +2149,8 @@ btree_lookup_and_merge(cache             *cc,        // IN
       cc, cfg, root_addr, type, target, &node, &local_data, local_found);
    if (*local_found) {
       if (merge_accumulator_is_null(data)) {
-         bool success = merge_accumulator_copy_message(data, local_data);
-         rc           = success ? STATUS_OK : STATUS_NO_MEMORY;
+         bool32 success = merge_accumulator_copy_message(data, local_data);
+         rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
       } else if (btree_merge_tuples(cfg, target, local_data, data)) {
          rc = STATUS_NO_MEMORY;
       }
@@ -2241,11 +2241,11 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
                             key               target,    // IN
                             btree_node       *node_out,  // OUT
                             message          *data,      // OUT
-                            bool             *found,     // OUT
+                            bool32           *found,     // OUT
                             btree_async_ctxt *ctxt)      // IN
 {
    cache_async_result res  = 0;
-   bool               done = FALSE;
+   bool32             done = FALSE;
    btree_node        *node = &ctxt->node;
 
    do {
@@ -2313,8 +2313,8 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
                btree_async_set_state(ctxt, btree_async_state_get_leaf_complete);
                break;
             }
-            bool  found_pivot;
-            int64 child_idx =
+            bool32 found_pivot;
+            int64  child_idx =
                btree_find_pivot(cfg, node->hdr, target, &found_pivot);
             if (child_idx < 0) {
                child_idx = 0;
@@ -2383,11 +2383,11 @@ btree_lookup_async(cache             *cc,        // IN
    cache_async_result res;
    btree_node         node;
    message            data;
-   bool               local_found;
+   bool32             local_found;
    res = btree_lookup_async_with_ref(
       cc, cfg, root_addr, target, &node, &data, &local_found, ctxt);
    if (res == async_success && local_found) {
-      bool success = merge_accumulator_copy_message(result, data);
+      bool32 success = merge_accumulator_copy_message(result, data);
       platform_assert(success); // FIXME
       btree_node_unget(cc, cfg, &node);
    }
@@ -2401,7 +2401,7 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
                              uint64             root_addr,   // IN
                              key                target,      // IN
                              merge_accumulator *data,        // OUT
-                             bool              *local_found, // OUT
+                             bool32            *local_found, // OUT
                              btree_async_ctxt  *ctxt)         // IN
 {
    cache_async_result res;
@@ -2412,7 +2412,7 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
       cc, cfg, root_addr, target, &node, &local_data, local_found, ctxt);
    if (res == async_success && *local_found) {
       if (merge_accumulator_is_null(data)) {
-         bool success = merge_accumulator_copy_message(data, local_data);
+         bool32 success = merge_accumulator_copy_message(data, local_data);
          platform_assert(success);
       } else {
          int rc = btree_merge_tuples(cfg, target, local_data, data);
@@ -2460,14 +2460,14 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
  * the end node and end_idx.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 btree_iterator_can_prev(iterator *base_itor)
 {
    btree_iterator *itor = (btree_iterator *)base_itor;
    return itor->idx >= itor->curr_min_idx;
 }
 
-static bool
+static bool32
 btree_iterator_can_next(iterator *base_itor)
 {
    btree_iterator *itor = (btree_iterator *)base_itor;
@@ -2476,7 +2476,7 @@ btree_iterator_can_next(iterator *base_itor)
 
 // function internal to the btree iterator that checks if the iterator
 // is in a valid state
-inline static bool
+inline static bool32
 btree_iterator_in_range(btree_iterator *itor)
 {
    iterator *base_itor = (iterator *)itor;
@@ -2522,9 +2522,9 @@ find_key_in_node(btree_iterator *itor,
                  btree_hdr      *hdr,
                  key             target,
                  comparison      position_rule,
-                 bool           *found)
+                 bool32         *found)
 {
-   bool loc_found;
+   bool32 loc_found;
    if (found == NULL) {
       found = &loc_found;
    }
@@ -2688,7 +2688,7 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    if (btree_key_compare(cfg, itor->min_key, first_key) < 0) {
       itor->curr_min_idx = -1;
    } else {
-      bool found;
+      bool32 found;
       itor->curr_min_idx =
          itor->height
             ? btree_find_pivot(cfg, itor->curr.hdr, itor->min_key, &found)
@@ -2815,7 +2815,7 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    btree_node_unclaim(itor->cc, itor->cfg, &itor->curr);
 
    // find the index of the minimum key
-   bool  found;
+   bool32  found;
    int64 tmp = find_key_in_node(
       itor, itor->curr.hdr, itor->min_key, greater_than_or_equal, &found);
    // If min key doesn't exist in current node, but is:
@@ -2869,7 +2869,7 @@ btree_iterator_seek(iterator *base_itor, key seek_key, comparison seek_type)
        && btree_key_compare(itor->cfg, seek_key, last_key) <= 0)
    {
       // seek_key is within our current leaf. So just directly search for it
-      bool found;
+      bool32 found;
       itor->idx =
          find_key_in_node(itor, itor->curr.hdr, seek_key, seek_type, &found);
       platform_assert(0 <= itor->idx);
@@ -2930,7 +2930,7 @@ btree_iterator_init(cache          *cc,
                     key             max_key,
                     key             start_key,
                     comparison      start_type,
-                    bool            do_prefetch,
+                    bool32          do_prefetch,
                     uint32          height)
 {
    platform_assert(root_addr != 0);
@@ -3065,8 +3065,8 @@ btree_pack_link_node(btree_pack_req *req,
                                  *edge_stats))
    {
       btree_pack_create_next_node(req, height + 1, pivot);
-      parent       = btree_pack_get_current_node(req, height + 1);
-      bool success = btree_set_index_entry(
+      parent         = btree_pack_get_current_node(req, height + 1);
+      bool32 success = btree_set_index_entry(
          req->cfg, parent->hdr, 0, pivot, edge->addr, *edge_stats);
       platform_assert(success);
    }
@@ -3140,7 +3140,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
           req->cfg, leaf->hdr, btree_num_entries(leaf->hdr), tuple_key, msg))
    {
       leaf = btree_pack_create_next_node(req, 0, tuple_key);
-      bool result =
+      bool32 result =
          btree_set_leaf_entry(req->cfg, leaf->hdr, 0, tuple_key, msg);
       platform_assert(result);
    }
@@ -3189,7 +3189,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
 
    root.addr = req->root_addr;
    btree_node_get(cc, cfg, &root, PAGE_TYPE_BRANCH);
-   debug_only bool success = btree_node_claim(cc, cfg, &root);
+   debug_only bool32 success = btree_node_claim(cc, cfg, &root);
    debug_assert(success);
    btree_node_lock(cc, cfg, &root);
    memmove(root.hdr, req->edge[req->height][0].hdr, btree_page_size(cfg));
@@ -3202,7 +3202,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    mini_release(&req->mini, last_key);
 }
 
-static bool
+static bool32
 btree_pack_can_fit_tuple(btree_pack_req *req, key tuple_key, message data)
 {
    return req->num_tuples < req->max_tuples;
@@ -3288,8 +3288,8 @@ btree_get_rank(cache             *cc,
 
    btree_lookup_node(
       cc, cfg, root_addr, target, 0, PAGE_TYPE_BRANCH, &leaf, stats);
-   bool  found;
-   int64 tuple_rank_in_leaf = btree_find_tuple(cfg, leaf.hdr, target, &found);
+   bool32 found;
+   int64  tuple_rank_in_leaf = btree_find_tuple(cfg, leaf.hdr, target, &found);
    if (!found) {
       tuple_rank_in_leaf++;
    }
@@ -3673,19 +3673,19 @@ btree_space_use_in_range(cache        *cc,
    return extents_used * btree_extent_size(cfg);
 }
 
-bool
+bool32
 btree_verify_node(cache        *cc,
                   btree_config *cfg,
                   uint64        addr,
                   page_type     type,
-                  bool          is_left_edge)
+                  bool32        is_left_edge)
 {
    btree_node node;
    node.addr = addr;
    debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
    btree_node_get(cc, cfg, &node, type);
    table_index idx;
-   bool        result = FALSE;
+   bool32      result = FALSE;
 
    for (idx = 0; idx < node.hdr->num_entries; idx++) {
       if (node.hdr->height == 0) {
@@ -3791,7 +3791,7 @@ btree_verify_node(cache        *cc,
             }
          }
          btree_node_unget(cc, cfg, &child);
-         bool child_is_left_edge = is_left_edge && idx == 0;
+         bool32 child_is_left_edge = is_left_edge && idx == 0;
          if (!btree_verify_node(cc, cfg, child.addr, type, child_is_left_edge))
          {
             btree_node_unget(cc, cfg, &node);
@@ -3806,7 +3806,7 @@ out:
    return result;
 }
 
-bool
+bool32
 btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type)
 {
    return btree_verify_node(cc, cfg, addr, type, TRUE);
@@ -3828,7 +3828,7 @@ btree_print_lookup(cache        *cc,        // IN
    btree_node_get(cc, cfg, &node, type);
 
    for (h = node.hdr->height; h > 0; h--) {
-      bool found;
+      bool32 found;
       child_idx = btree_find_pivot(cfg, node.hdr, target, &found);
       if (child_idx < 0) {
          child_idx = 0;
@@ -3840,8 +3840,8 @@ btree_print_lookup(cache        *cc,        // IN
       node = child_node;
    }
 
-   bool  found;
-   int64 idx = btree_find_tuple(cfg, node.hdr, target, &found);
+   bool32 found;
+   int64  idx = btree_find_tuple(cfg, node.hdr, target, &found);
    platform_default_log(
       "Matching index: %lu (%d) of %u\n", idx, found, node.hdr->num_entries);
    btree_node_unget(cc, cfg, &node);

@@ -46,8 +46,8 @@ typedef struct {
    task_system *tasks;
    threadid     exp_thread_idx; // Splinter-generated expected thread index
    threadid     exp_max_tid;    // After this thread gets created
-   bool         stop_thread;
-   bool         waitfor_stop_signal;
+   bool32       stop_thread;
+   bool32       waitfor_stop_signal;
    int          line; // Thread created on / around this line #
 } thread_config_lockstep;
 

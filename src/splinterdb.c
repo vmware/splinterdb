@@ -229,7 +229,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 int
 splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                           splinterdb             **kvs_out,      // OUT
-                          bool                     open_existing // IN
+                          bool32                   open_existing // IN
 )
 {
    splinterdb     *kvs;

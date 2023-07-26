@@ -9,8 +9,8 @@
 
 __thread threadid xxxtid = INVALID_TID;
 
-bool platform_use_hugetlb = FALSE;
-bool platform_use_mlock   = FALSE;
+bool32 platform_use_hugetlb = FALSE;
+bool32 platform_use_mlock   = FALSE;
 
 // By default, platform_default_log() messages are sent to /dev/null
 // and platform_error_log() messages go to stderr (see below).
@@ -139,7 +139,7 @@ platform_buffer_deinit(buffer_handle *bh)
  */
 platform_status
 platform_thread_create(platform_thread       *thread,
-                       bool                   detached,
+                       bool32                 detached,
                        platform_thread_worker worker,
                        void                  *arg,
                        platform_heap_id       UNUSED_PARAM(heap_id))
@@ -295,7 +295,7 @@ platform_batch_rwlock_full_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
  *-----------------------------------------------------------------------------
  */
 
-bool
+bool32
 platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx)
 {
    threadid tid = platform_get_tid();

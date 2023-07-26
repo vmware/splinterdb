@@ -33,9 +33,7 @@
  * Section 1:
  * Shared types/typedefs that don't rely on anything platform-specific
  */
-#if !defined(__cplusplus)
-typedef int32 bool;
-#endif
+typedef int32 bool32;
 
 #if !defined(SPLINTER_DEBUG)
 #   define SPLINTER_DEBUG 0
@@ -184,8 +182,8 @@ typedef struct {
    int   last_token_len;
 } platform_strtok_ctx;
 
-extern bool platform_use_hugetlb;
-extern bool platform_use_mlock;
+extern bool32 platform_use_hugetlb;
+extern bool32 platform_use_mlock;
 
 
 /*
@@ -673,7 +671,7 @@ platform_spinlock_destroy(platform_spinlock *lock);
 
 platform_status
 platform_thread_create(platform_thread       *thread,
-                       bool                   detached,
+                       bool32                 detached,
                        platform_thread_worker worker,
                        void                  *arg,
                        platform_heap_id       heap_id);
@@ -747,7 +745,7 @@ max_size_t(size_t a, size_t b)
    return a > b ? a : b;
 }
 
-static inline bool
+static inline bool32
 SUCCESS(const platform_status s)
 {
    return STATUS_IS_EQ(s, STATUS_OK);

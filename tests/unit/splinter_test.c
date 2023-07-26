@@ -40,7 +40,7 @@ typedef struct shadow_entry {
 
 typedef struct trunk_shadow {
    data_config    *data_cfg;
-   bool            sorted;
+   bool32          sorted;
    writable_buffer entries;
    writable_buffer data;
 } trunk_shadow;
@@ -49,7 +49,7 @@ typedef struct trunk_shadow {
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
-                    bool          verify,
+                    bool32        verify,
                     trunk_shadow *shadow); // Out
 
 static platform_status
@@ -120,7 +120,7 @@ CTEST_SETUP(splinter)
    data->max_async_inflight = 64;
    data->spl_num_tables = 1;
 
-   bool cache_per_table = FALSE;
+   bool32 cache_per_table = FALSE;
    int num_tables       = data->spl_num_tables; // Cache, for re-use below
    uint8 num_caches     = (cache_per_table ? num_tables : 1);
    uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB * num_tables);
@@ -692,7 +692,7 @@ CTEST2(splinter, test_splinter_print_diags)
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
-                    bool          verify,
+                    bool32        verify,
                     trunk_shadow *shadow) // Out
 {
    // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
@@ -745,7 +745,7 @@ splinter_do_inserts(void         *datap,
 
       if (verify && (insert_num != 0)
           && (insert_num % TEST_VERIFY_GRANULARITY) == 0) {
-         bool result = trunk_verify_tree(spl);
+         bool32 result = trunk_verify_tree(spl);
          ASSERT_TRUE(result,
                      "trunk_verify_tree() failed after %d inserts. ",
                      insert_num);

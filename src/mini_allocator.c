@@ -274,7 +274,7 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type,
-          bool            keyed)
+          bool32          keyed)
 {
    platform_assert(num_batches <= MINI_MAX_BATCHES);
    platform_assert(num_batches != 0);
@@ -364,13 +364,13 @@ mini_num_entries(page_handle *meta_page)
  * Side effects:
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 entry_fits_in_page(uint64 page_size, uint64 start, uint64 entry_size)
 {
    return start + entry_size <= page_size;
 }
 
-static bool
+static bool32
 mini_keyed_append_entry(mini_allocator *mini,
                         uint64          batch,
                         page_handle    *meta_page,
@@ -404,7 +404,7 @@ mini_keyed_append_entry(mini_allocator *mini,
    return TRUE;
 }
 
-static bool
+static bool32
 mini_unkeyed_append_entry(mini_allocator *mini,
                           page_handle    *meta_page,
                           uint64          extent_addr)
@@ -507,14 +507,14 @@ mini_set_next_meta_addr(mini_allocator *mini,
    hdr->next_meta_addr = next_meta_addr;
 }
 
-static bool
+static bool32
 mini_append_entry(mini_allocator *mini,
                   uint64          batch,
                   key             entry_key,
                   uint64          next_addr)
 {
    page_handle *meta_page = mini_full_lock_meta_tail(mini);
-   bool         success;
+   bool32       success;
    if (mini->keyed) {
       success =
          mini_keyed_append_entry(mini, batch, meta_page, next_addr, entry_key);
@@ -597,7 +597,7 @@ mini_alloc(mini_allocator *mini,
       platform_assert_status_ok(rc);
       next_addr = extent_addr;
 
-      bool success = mini_append_entry(mini, batch, alloc_key, next_addr);
+      bool32 success = mini_append_entry(mini, batch, alloc_key, next_addr);
       platform_assert(success);
    }
 
@@ -665,7 +665,7 @@ mini_release(mini_allocator *mini, key end_key)
  */
 
 void
-mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
+mini_deinit(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
 {
    allocator *al        = cache_get_allocator(cc);
    uint64     meta_addr = meta_head;
@@ -758,16 +758,16 @@ mini_destroy_unused(mini_allocator *mini)
  *-----------------------------------------------------------------------------
  */
 
-typedef bool (*mini_for_each_fn)(cache    *cc,
-                                 page_type type,
-                                 uint64    base_addr,
-                                 void     *out);
+typedef bool32 (*mini_for_each_fn)(cache    *cc,
+                                   page_type type,
+                                   uint64    base_addr,
+                                   void     *out);
 
 static void
 mini_unkeyed_for_each(cache           *cc,
                       uint64           meta_head,
                       page_type        type,
-                      bool             pinned,
+                      bool32           pinned,
                       mini_for_each_fn func,
                       void            *out)
 {
@@ -796,7 +796,7 @@ typedef enum boundary_state {
    after_end    = 2
 } boundary_state;
 
-static bool
+static bool32
 interval_intersects_range(boundary_state left_state, boundary_state right_state)
 {
    /*
@@ -837,7 +837,7 @@ state(data_config *cfg, key start_key, key end_key, key entry_start_key)
  * point passed to mini_release.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_keyed_for_each(cache           *cc,
                     data_config     *cfg,
                     uint64           meta_head,
@@ -848,10 +848,10 @@ mini_keyed_for_each(cache           *cc,
                     void            *out)
 {
    // We return true for cleanup if every call to func returns TRUE.
-   bool should_cleanup = TRUE;
+   bool32 should_cleanup = TRUE;
    // Should not be called if there are no intersecting ranges, we track with
    // did_work.
-   debug_only bool did_work = FALSE;
+   debug_only bool32 did_work = FALSE;
 
    uint64 meta_addr = meta_head;
 
@@ -882,8 +882,9 @@ mini_keyed_for_each(cache           *cc,
 
          if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
-            bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
-            should_cleanup            = should_cleanup && entry_should_cleanup;
+            bool32 entry_should_cleanup =
+               func(cc, type, extent_addr[batch], out);
+            should_cleanup = should_cleanup && entry_should_cleanup;
          }
 
          extent_addr[batch]   = entry->extent_addr;
@@ -913,7 +914,7 @@ mini_keyed_for_each(cache           *cc,
  * point passed to mini_release.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_keyed_for_each_self_exclusive(cache           *cc,
                                    data_config     *cfg,
                                    uint64           meta_head,
@@ -924,10 +925,10 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
                                    void            *out)
 {
    // We return true for cleanup if every call to func returns TRUE.
-   bool should_cleanup = TRUE;
+   bool32 should_cleanup = TRUE;
    // Should not be called if there are no intersecting ranges, we track with
    // did_work.
-   debug_only bool did_work = FALSE;
+   debug_only bool32 did_work = FALSE;
 
    uint64       meta_addr = meta_head;
    page_handle *meta_page = mini_get_claim_meta_page(cc, meta_head, type);
@@ -958,8 +959,9 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
 
          if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
-            bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
-            should_cleanup            = should_cleanup && entry_should_cleanup;
+            bool32 entry_should_cleanup =
+               func(cc, type, extent_addr[batch], out);
+            should_cleanup = should_cleanup && entry_should_cleanup;
          }
 
          extent_addr[batch]   = entry->extent_addr;
@@ -1007,7 +1009,7 @@ mini_unkeyed_inc_ref(cache *cc, uint64 meta_head)
    return ref - MINI_NO_REFS;
 }
 
-static bool
+static bool32
 mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    allocator *al  = cache_get_allocator(cc);
@@ -1020,7 +1022,7 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 }
 
 uint8
-mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
+mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
 {
    if (type == PAGE_TYPE_MEMTABLE) {
       platform_assert(pinned);
@@ -1074,7 +1076,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *      Deallocation/cache side effects.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_keyed_inc_ref_extent(cache    *cc,
                           page_type type,
                           uint64    base_addr,
@@ -1103,7 +1105,7 @@ mini_keyed_inc_ref(cache       *cc,
                        NULL);
 }
 
-static bool
+static bool32
 mini_keyed_dec_ref_extent(cache    *cc,
                           page_type type,
                           uint64    base_addr,
@@ -1131,7 +1133,7 @@ mini_wait_for_blockers(cache *cc, uint64 meta_head)
    }
 }
 
-bool
+bool32
 mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
@@ -1140,7 +1142,7 @@ mini_keyed_dec_ref(cache       *cc,
                    key          end_key)
 {
    mini_wait_for_blockers(cc, meta_head);
-   bool should_cleanup =
+   bool32 should_cleanup =
       mini_keyed_for_each_self_exclusive(cc,
                                          data_cfg,
                                          meta_head,
@@ -1203,7 +1205,7 @@ mini_unblock_dec_ref(cache *cc, uint64 meta_head)
  *      None.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_keyed_count_extents(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    uint64 *count = (uint64 *)out;
@@ -1244,7 +1246,7 @@ mini_keyed_extent_count(cache       *cc,
  *      Standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-static bool
+static bool32
 mini_prefetch_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    cache_prefetch(cc, base_addr, type);

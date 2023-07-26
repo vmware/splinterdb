@@ -65,7 +65,7 @@ verify_tuple(trunk_handle    *spl,
              platform_status *result)
 {
    const data_handle *dh      = message_data(msg);
-   bool               found   = dh != NULL;
+   bool32             found   = dh != NULL;
    uint64             int_key = be64toh(*(uint64 *)key_data(keybuf));
 
    if (dh && message_length(msg) < sizeof(data_handle)) {
@@ -331,7 +331,7 @@ choose_key(data_config                *cfg,         // IN
            test_splinter_shadow_array *sharr,       // IN
            random_state               *prg,         // IN/OUT
            int                         type,        // IN
-           bool                        is_start,    // IN
+           bool32                      is_start,    // IN
            key                         startkey,    // IN
            int                         start_index, // IN
            int                        *index,       // OUT
@@ -384,7 +384,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                                       random_state               *prg,
                                       test_splinter_shadow_array *sharr,
                                       platform_heap_id            hid,
-                                      bool                        do_it)
+                                      bool32                      do_it)
 {
    int             begin_type;
    int             end_type;
@@ -472,7 +472,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
                              random_state              *prg,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_id           hid,
-                             bool                       do_it,
+                             bool32                     do_it,
                              test_async_lookup         *async_lookup)
 {
    test_splinter_shadow_array dry_run_sharr = {

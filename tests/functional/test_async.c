@@ -153,7 +153,7 @@ async_ctxt_process_one(trunk_handle         *spl,
  *
  * Returns: TRUE if no context at all are used.
  */
-bool
+bool32
 async_ctxt_process_ready(trunk_handle         *spl,
                          test_async_lookup    *async_lookup,
                          timestamp            *latency_max,

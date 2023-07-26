@@ -20,10 +20,10 @@ struct merge_behavior {
 void
 merge_curr(iterator *itor, key *curr_key, message *data);
 
-bool
+bool32
 merge_can_prev(iterator *itor);
 
-bool
+bool32
 merge_can_next(iterator *itor);
 
 platform_status
@@ -51,9 +51,9 @@ static iterator_ops merge_ops = {
 static inline int
 bsearch_comp(const ordered_iterator *itor_one,
              const ordered_iterator *itor_two,
-             const bool              forwards,
+             const bool32            forwards,
              const data_config      *cfg,
-             bool                   *keys_equal)
+             bool32                 *keys_equal)
 {
    int cmp     = data_key_compare(cfg, itor_one->curr_key, itor_two->curr_key);
    cmp         = forwards ? cmp : -cmp;
@@ -68,7 +68,7 @@ bsearch_comp(const ordered_iterator *itor_one,
 }
 
 struct merge_ctxt {
-   bool         forwards;
+   bool32       forwards;
    data_config *cfg;
 };
 
@@ -79,9 +79,9 @@ merge_comp(const void *one, const void *two, void *ctxt)
    struct merge_ctxt      *m_ctxt   = (struct merge_ctxt *)ctxt;
    const ordered_iterator *itor_one = *(ordered_iterator **)one;
    const ordered_iterator *itor_two = *(ordered_iterator **)two;
-   bool                    forwards = m_ctxt->forwards;
+   bool32                  forwards = m_ctxt->forwards;
    data_config            *cfg      = m_ctxt->cfg;
-   bool                    ignore_keys_equal;
+   bool32                  ignore_keys_equal;
    return bsearch_comp(itor_one, itor_two, forwards, cfg, &ignore_keys_equal);
 }
 
@@ -91,20 +91,20 @@ bsearch_insert(register const ordered_iterator *key,
                ordered_iterator               **base0,
                const size_t                     nmemb,
                const data_config               *cfg,
-               bool                             forwards,
-               bool                            *prev_equal_out,
-               bool                            *next_equal_out)
+               bool32                           forwards,
+               bool32                          *prev_equal_out,
+               bool32                          *next_equal_out)
 {
    register ordered_iterator **base = base0;
    register int                lim, cmp;
    register ordered_iterator **p;
-   bool                        prev_equal = FALSE;
-   bool                        next_equal = FALSE;
+   bool32                      prev_equal = FALSE;
+   bool32                      next_equal = FALSE;
 
 
    for (lim = nmemb; lim != 0; lim >>= 1) {
       p = base + (lim >> 1);
-      bool keys_equal;
+      bool32 keys_equal;
       cmp = bsearch_comp(key, *p, forwards, cfg, &keys_equal);
       debug_assert(cmp != 0);
 
@@ -203,8 +203,8 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
       goto out;
    }
 
-   bool prev_equal;
-   bool next_equal;
+   bool32 prev_equal;
+   bool32 next_equal;
    // otherwise, find its position in the array
    // Add 1 to return value since it gives offset from [1]
    int index = 1
@@ -262,8 +262,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
 
    // there is more than one copy of the current key
-   bool success = merge_accumulator_copy_message(&merge_itor->merge_buffer,
-                                                 merge_itor->curr_data);
+   bool32 success = merge_accumulator_copy_message(&merge_itor->merge_buffer,
+                                                   merge_itor->curr_data);
    if (!success) {
       return STATUS_NO_MEMORY;
    }
@@ -324,7 +324,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
  */
 static inline platform_status
 merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
-                                           bool           *discarded)
+                                           bool32         *discarded)
 {
    data_config *cfg   = merge_itor->cfg;
    message_type class = message_class(merge_itor->curr_data);
@@ -332,7 +332,7 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
       if (message_data(merge_itor->curr_data)
           != merge_accumulator_data(&merge_itor->merge_buffer))
       {
-         bool success = merge_accumulator_copy_message(
+         bool32 success = merge_accumulator_copy_message(
             &merge_itor->merge_buffer, merge_itor->curr_data);
          if (!success) {
             return STATUS_NO_MEMORY;
@@ -357,7 +357,7 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
 }
 
 static platform_status
-advance_one_loop(merge_iterator *merge_itor, bool *retry)
+advance_one_loop(merge_iterator *merge_itor, bool32 *retry)
 {
    *retry = FALSE;
    // Determine whether we're no longer in range.
@@ -391,7 +391,7 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
       }
    }
 
-   bool discarded;
+   bool32 discarded;
    rc = merge_finalize_updates_and_discard_deletes(merge_itor, &discarded);
    if (!SUCCESS(rc)) {
       return rc;
@@ -464,7 +464,7 @@ setup_ordered_iterators(merge_iterator *merge_itor)
       merge_itor->ordered_iterators[i]->next_key_equal = (cmp == 0);
    }
 
-   bool retry;
+   bool32 retry;
    rc = advance_one_loop(merge_itor, &retry);
 
    if (retry && SUCCESS(rc)) {
@@ -612,7 +612,7 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
  *-----------------------------------------------------------------------------
  */
 static platform_status
-merge_iterator_set_direction(merge_iterator *merge_itor, bool forwards)
+merge_iterator_set_direction(merge_iterator *merge_itor, bool32 forwards)
 {
    debug_assert(merge_itor->forwards != forwards);
    platform_status rc;
@@ -648,14 +648,14 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool forwards)
  *      None.
  *-----------------------------------------------------------------------------
  */
-bool
+bool32
 merge_can_prev(iterator *itor)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    return merge_itor->can_prev;
 }
 
-bool
+bool32
 merge_can_next(iterator *itor)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
@@ -688,7 +688,7 @@ static inline platform_status
 merge_advance_helper(merge_iterator *merge_itor)
 {
    platform_status rc = STATUS_OK;
-   bool            retry;
+   bool32          retry;
    do {
       merge_itor->curr_key  = NULL_KEY;
       merge_itor->curr_data = NULL_MESSAGE;

@@ -39,12 +39,13 @@ static log_ops shard_log_ops = {
 
 void
 shard_log_iterator_curr(iterator *itor, key *curr_key, message *msg);
-bool
+bool32
 shard_log_iterator_can_prev(iterator *itor);
-bool
+bool32
 shard_log_iterator_can_next(iterator *itor);
 platform_status
 shard_log_iterator_next(iterator *itor);
+
 
 const static iterator_ops shard_log_iterator_ops = {
    .curr     = shard_log_iterator_curr,
@@ -182,7 +183,7 @@ first_log_entry(char *page)
    return (log_entry *)(page + sizeof(shard_log_hdr));
 }
 
-static bool
+static bool32
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
    return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
@@ -298,7 +299,7 @@ shard_log_magic(log_handle *logh)
    return log->magic;
 }
 
-bool
+bool32
 shard_log_valid(shard_log_config *cfg, page_handle *page, uint64 magic)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
@@ -438,14 +439,14 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
    *msg                     = log_entry_message(itor->entries[itor->pos]);
 }
 
-bool
+bool32
 shard_log_iterator_can_prev(iterator *itorh)
 {
    // this iterator only goes forward so just return TRUE
    return TRUE;
 }
 
-bool
+bool32
 shard_log_iterator_can_next(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;

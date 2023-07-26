@@ -450,6 +450,24 @@ CTEST2(splinterdb_quick, test_basic_iterator)
 }
 
 /*
+ * empty iterator test case.
+ */
+CTEST2(splinterdb_quick, test_empty_iterator)
+{
+   splinterdb_iterator *it = NULL;
+   int rc = splinterdb_iterator_init(data->kvsb, &it, NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_FALSE(splinterdb_iterator_can_next(it));
+   ASSERT_FALSE(splinterdb_iterator_can_prev(it));
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_iterator_deinit(it);
+}
+
+/*
  * Test case to exercise and verify that splinterdb iterator interfaces with a
  * non-NULL start key correctly sets up the start scan at the requested
  * initial key value.
@@ -471,7 +489,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_startkey)
       rc              = splinterdb_iterator_init(data->kvsb, &it, start_key);
       ASSERT_EQUAL(0, rc);
 
-      bool is_valid = splinterdb_iterator_valid(it);
+      bool32 is_valid = splinterdb_iterator_valid(it);
       ASSERT_TRUE(is_valid);
 
       // Scan should have been positioned at the i'th key
@@ -505,7 +523,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    rc              = splinterdb_iterator_init(data->kvsb, &it, start_key);
 
    // Iterator should be invalid, as lookup key is non-existent.
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
 
    splinterdb_iterator_deinit(it);
@@ -571,7 +589,7 @@ CTEST2(splinterdb_quick,
    rc = splinterdb_iterator_init(data->kvsb, &it, start_key);
    ASSERT_EQUAL(0, rc);
 
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_TRUE(is_valid);
 
    // Iterator should be initialized to 1st key inserted, if the supplied
@@ -650,8 +668,8 @@ CTEST2(splinterdb_quick, test_iterator_prev_and_next)
                 test_two_step_iterator(
                    data->kvsb, NULL_SLICE, num_inserts, minkey, 0, hop_amt));
 
-   // test starting == minkey
-   snprintf(key, sizeof(key), key_fmt, minkey);
+   // test starting with key < minkey
+   snprintf(key, sizeof(key), key_fmt, 0);
    slice start_key = slice_create(strlen(key), key);
    ASSERT_EQUAL(0,
                 test_two_step_iterator(
@@ -838,7 +856,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
    ASSERT_EQUAL(num_inserts, i);
    ASSERT_TRUE(data->default_data_cfg.num_comparisons > (2 * num_inserts));
 
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
 
    if (it) {
@@ -866,7 +884,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    rc = splinterdb_iterator_init(data->kvsb, &it, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
-   bool iter_valid = splinterdb_iterator_valid(it);
+   bool32 iter_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(iter_valid);
 
    splinterdb_iterator_deinit(it);
@@ -1066,7 +1084,7 @@ test_two_step_iterator(splinterdb *kvsb,
    ASSERT_EQUAL(0, rc);
 
    for (int i = start_i; i < num_keys; i++) {
-      bool is_valid = splinterdb_iterator_valid(it);
+      bool32 is_valid = splinterdb_iterator_valid(it);
       ASSERT_TRUE(is_valid);
       check_current_tuple(it, i * hop_i + minkey);
       splinterdb_iterator_next(it);
@@ -1084,7 +1102,7 @@ test_two_step_iterator(splinterdb *kvsb,
       }
    }
 
-   bool is_valid = splinterdb_iterator_valid(it);
+   bool32 is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
    rc = splinterdb_iterator_status(it);
    ASSERT_EQUAL(0, rc);
@@ -1093,7 +1111,7 @@ test_two_step_iterator(splinterdb *kvsb,
    // Start going down
    splinterdb_iterator_prev(it);
    for (int i = num_keys - 1; i >= 0; i--) {
-      bool is_valid = splinterdb_iterator_valid(it);
+      bool32 is_valid = splinterdb_iterator_valid(it);
       ASSERT_TRUE(is_valid);
       check_current_tuple(it, i * hop_i + minkey);
 

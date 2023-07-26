@@ -64,7 +64,7 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
-               bool             start_front,
+               bool32             start_front,
                platform_heap_id hid);
 
 static int
@@ -336,7 +336,7 @@ insert_tests(cache           *cc,
              int              end)
 {
    uint64 generation;
-   bool   was_unique;
+   bool32 was_unique;
 
    int    keybuf_size = btree_page_size(cfg);
    int    msgbuf_size = btree_page_size(cfg);
@@ -440,7 +440,7 @@ iterator_test(platform_heap_id hid,
               btree_config    *cfg,
               uint64           nkvs,
               iterator        *iter,
-              bool             forwards)
+              bool32             forwards)
 {
    uint64 seen    = 0;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
@@ -499,7 +499,7 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
-               bool             start_front,
+               bool32             start_front,
                platform_heap_id hid)
 {
    btree_iterator dbiter;
@@ -527,7 +527,7 @@ iterator_tests(cache           *cc,
    if (!start_front) {
       iterator_prev(iter);
    }
-   bool nonempty = iterator_can_curr(iter);
+   bool32 nonempty = iterator_can_curr(iter);
 
    ASSERT_EQUAL(nkvs, iterator_test(hid, cfg, nkvs, iter, start_front));
    if (nonempty) {

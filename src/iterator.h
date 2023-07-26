@@ -17,7 +17,7 @@ typedef enum comparison {
 } comparison;
 
 typedef void (*iterator_curr_fn)(iterator *itor, key *curr_key, message *msg);
-typedef bool (*iterator_bound_fn)(iterator *itor);
+typedef bool32 (*iterator_bound_fn)(iterator *itor);
 typedef platform_status (*iterator_step_fn)(iterator *itor);
 typedef platform_status (*iterator_seek_fn)(iterator  *itor,
                                             key        seek_key,
@@ -48,19 +48,19 @@ iterator_curr(iterator *itor, key *curr_key, message *msg)
    itor->ops->curr(itor, curr_key, msg);
 }
 
-static inline bool
+static inline bool32
 iterator_can_prev(iterator *itor)
 {
    return itor->ops->can_prev(itor);
 }
 
-static inline bool
+static inline bool32
 iterator_can_next(iterator *itor)
 {
    return itor->ops->can_next(itor);
 }
 
-static inline bool
+static inline bool32
 iterator_can_curr(iterator *itor)
 {
    return itor->ops->can_next(itor) && itor->ops->can_prev(itor);
