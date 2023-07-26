@@ -6079,7 +6079,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    }
    if (trunk_key_compare(spl, max_key, start_key) <= 0) {
       // out of bounds, start at max
-      start_key            = max_key;
+      start_key = max_key;
    }
 
    // copy over global min and max

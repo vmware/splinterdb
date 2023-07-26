@@ -2968,7 +2968,7 @@ btree_iterator_init(cache          *cc,
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
    }
 
-   debug_assert(!iterator_can_curr((iterator *) itor)
+   debug_assert(!iterator_can_curr((iterator *)itor)
                 || itor->idx < btree_num_entries(itor->curr.hdr));
 }
 
