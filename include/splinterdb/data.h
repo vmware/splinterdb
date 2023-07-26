@@ -162,8 +162,10 @@ struct data_config {
    // FIXME: Planned for deprecation.
    uint64 max_key_size;
 
-   key_compare_fn       key_compare;
-   key_hash_fn          key_hash;
+   key_compare_fn key_compare;
+   key_hash_fn    key_hash;
+   /* The merge functions may be NULL, in which case
+      splinterdb_update() is not allowed. */
    merge_tuple_fn       merge_tuples;
    merge_tuple_final_fn merge_tuples_final;
    key_to_str_fn        key_to_string;

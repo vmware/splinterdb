@@ -112,8 +112,6 @@ splinterdb_validate_app_data_config(const data_config *cfg)
    platform_assert(cfg->max_key_size > 0);
    platform_assert(cfg->key_compare != NULL);
    platform_assert(cfg->key_hash != NULL);
-   platform_assert(cfg->merge_tuples != NULL);
-   platform_assert(cfg->merge_tuples_final != NULL);
    platform_assert(cfg->key_to_string != NULL);
    platform_assert(cfg->message_to_string != NULL);
 
@@ -488,6 +486,7 @@ int
 splinterdb_update(const splinterdb *kvsb, slice user_key, slice update)
 {
    message msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
