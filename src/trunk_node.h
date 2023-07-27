@@ -4,7 +4,6 @@
 #include "cache.h"
 
 typedef struct branch_ref branch_ref;
-
 typedef struct maplet_ref maplet_ref;
 
 /*
@@ -13,10 +12,8 @@ typedef struct maplet_ref maplet_ref;
  */
 typedef struct routed_bundle    routed_bundle;
 typedef struct compacted_bundle compacted_bundle;
-
-typedef struct inflight_bundle inflight_bundle;
-
-typedef struct pivot pivot;
+typedef struct inflight_bundle  inflight_bundle;
+typedef struct pivot            pivot;
 
 typedef struct in_memory_node {
    platform_heap_id hid;
@@ -27,6 +24,16 @@ typedef struct in_memory_node {
    uint64           num_inflight_bundles;
    inflight_bundle *inflight_bundles;
 } in_memory_node;
+
+/*
+ * Policy functions
+ */
+
+uint64
+trunk_node_flush_select_child(in_memory_node *node);
+
+uint64
+trunk_node_needs_split(in_memory_node *node);
 
 /*
  * Incorporation and flushing-related functions
@@ -80,7 +87,13 @@ platform_status
 trunk_node_replace_pivot_maplets(in_memory_node   *node,
                                  compacted_bundle *old_bundle,
                                  maplet_ref       *old_maplets,
-                                 maplet_ref       *maplets);
+                                 maplet_ref       *new_maplets);
+
+uint64
+trunk_node_height(in_memory_node *node);
+
+uint64
+trunk_node_child(in_memory_node *node, key target);
 
 /*
  * Marshalling and un-marshalling functions

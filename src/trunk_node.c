@@ -41,6 +41,7 @@ typedef struct ONDISK routed_bundle {
 typedef struct ONDISK compacted_bundle {
    uint64     num_maplets;
    maplet_ref maplets[];
+   /* Following the maplets is one branch per child. */
 } compacted_bundle;
 
 typedef struct ONDISK inflight_bundle {
