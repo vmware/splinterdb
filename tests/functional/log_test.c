@@ -45,7 +45,6 @@ test_log_crash(clockcache             *cc,
    iterator          *itorh = (iterator *)&itor;
    char               key_str[128];
    char               data_str[128];
-   bool32             at_end;
    merge_accumulator  msg;
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
 
@@ -82,8 +81,7 @@ test_log_crash(clockcache             *cc,
    platform_assert_status_ok(rc);
    itorh = (iterator *)&itor;
 
-   iterator_at_end(itorh, &at_end);
-   for (i = 0; i < num_entries && !at_end; i++) {
+   for (i = 0; i < num_entries && iterator_can_curr(itorh); i++) {
       key skey = test_key(&keybuffer,
                           TEST_RANDOM,
                           i,
@@ -93,7 +91,7 @@ test_log_crash(clockcache             *cc,
                           0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
-      iterator_get_curr(itorh, &returned_key, &returned_message);
+      iterator_curr(itorh, &returned_key, &returned_message);
       if (data_key_compare(cfg->data_cfg, skey, returned_key)
           || message_lex_cmp(mmessage, returned_message))
       {
@@ -106,8 +104,8 @@ test_log_crash(clockcache             *cc,
          platform_default_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }
-      iterator_advance(itorh);
-      iterator_at_end(itorh, &at_end);
+      rc = iterator_next(itorh);
+      platform_assert_status_ok(rc);
    }
 
    platform_default_log("log returned %lu of %lu entries\n", i, num_entries);

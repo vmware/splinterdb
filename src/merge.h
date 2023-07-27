@@ -62,11 +62,13 @@ typedef struct merge_iterator {
    bool32       merge_messages;
    bool32       finalize_updates;
    bool32       emit_deletes;
-   bool32       at_end;
+   bool32       can_prev;
+   bool32       can_next;
    int          num_remaining; // number of ritors not at end
    data_config *cfg;           // point message tree data config
    key          curr_key;      // current key
    message      curr_data;     // current data
+   bool32       forwards;
 
    // Padding so ordered_iterators[-1] is valid
    ordered_iterator ordered_iterator_stored_pad;
