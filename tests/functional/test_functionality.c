@@ -32,20 +32,25 @@ static void
 search_for_key_via_iterator(trunk_handle *spl, key target)
 {
    trunk_range_iterator iter;
-   bool32               at_end;
 
-   trunk_range_iterator_init(
-      spl, &iter, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY, UINT64_MAX);
+   trunk_range_iterator_init(spl,
+                             &iter,
+                             NEGATIVE_INFINITY_KEY,
+                             POSITIVE_INFINITY_KEY,
+                             NEGATIVE_INFINITY_KEY,
+                             greater_than_or_equal,
+                             UINT64_MAX);
    uint64 count = 0;
-   while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
+   while (iterator_can_curr((iterator *)&iter)) {
       key     curr_key;
       message value;
-      iterator_get_curr((iterator *)&iter, &curr_key, &value);
+      iterator_curr((iterator *)&iter, &curr_key, &value);
       if (data_key_compare(spl->cfg.data_cfg, target, curr_key) == 0) {
          platform_error_log("Found missing key %s\n",
                             key_string(spl->cfg.data_cfg, target));
       }
-      iterator_advance((iterator *)&iter);
+      platform_status rc = iterator_next((iterator *)&iter);
+      platform_assert_status_ok(rc);
       count++;
    }
    platform_default_log("Saw a total of %lu keys\n", count);
@@ -227,15 +232,19 @@ verify_range_against_shadow(trunk_handle               *spl,
    const data_handle *splinter_data_handle;
    uint64             splinter_key;
    uint64             i;
-   bool32             at_end;
 
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
    trunk_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
-   status = trunk_range_iterator_init(
-      spl, range_itor, start_key, end_key, end_index - start_index);
+   status = trunk_range_iterator_init(spl,
+                                      range_itor,
+                                      start_key,
+                                      end_key,
+                                      start_key,
+                                      greater_than_or_equal,
+                                      end_index - start_index);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
                          platform_status_to_string(status));
@@ -250,19 +259,13 @@ verify_range_against_shadow(trunk_handle               *spl,
          continue;
       }
 
-      status = iterator_at_end((iterator *)range_itor, &at_end);
-      if (!SUCCESS(status) || at_end) {
-         platform_error_log("ERROR: range itor failed or terminated "
-                            "early (at_end = %d): %s\n",
-                            at_end,
-                            platform_status_to_string(status));
-         if (SUCCESS(status)) {
-            status = STATUS_NO_PERMISSION;
-         }
+      if (!iterator_can_curr((iterator *)range_itor)) {
+         platform_error_log("ERROR: range itor terminated early\n");
+         status = STATUS_NO_PERMISSION;
          goto destroy;
       }
 
-      iterator_get_curr(
+      iterator_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
       splinter_key         = be64toh(*(uint64 *)key_data(splinter_keybuf));
       splinter_data_handle = message_data(splinter_message);
@@ -287,16 +290,15 @@ verify_range_against_shadow(trunk_handle               *spl,
       verify_tuple(
          spl, splinter_keybuf, splinter_message, shadow_refcount, &status);
 
-      status = iterator_advance((iterator *)range_itor);
+      status = iterator_next((iterator *)range_itor);
       if (!SUCCESS(status)) {
          goto destroy;
       }
    }
 
-   while (SUCCESS(iterator_at_end((iterator *)range_itor, &at_end)) && !at_end)
-   {
+   while (iterator_can_curr((iterator *)range_itor)) {
       status = STATUS_LIMIT_EXCEEDED;
-      iterator_get_curr(
+      iterator_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
       splinter_key = be64toh(*(uint64 *)key_data(splinter_keybuf));
 
@@ -304,7 +306,7 @@ verify_range_against_shadow(trunk_handle               *spl,
                            "Tree Refcount %3d\n",
                            splinter_key,
                            splinter_data_handle->ref_count);
-      if (!SUCCESS(iterator_advance((iterator *)range_itor))) {
+      if (!SUCCESS(iterator_next((iterator *)range_itor))) {
          goto destroy;
       }
    }

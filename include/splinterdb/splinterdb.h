@@ -330,12 +330,36 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter);
 
 // Checks that the iterator status is OK (no errors) and that get_current()
 // will succeed. If false, there are two possibilities:
-// 1. Iterator has passed the final item.  In this case, status() == 0
+// 1. Iterator is out of bounds.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
 _Bool
 splinterdb_iterator_valid(splinterdb_iterator *iter);
 
-// Attempts to advance the iterator to the next item.
+/*
+ * splinterdb_iterator_can_next --
+ * splinterdb_iterator_can_prev --
+ *
+ * Knowing the iterator is invalid does not provide enough information to
+ * determine if next and prev are safe operations.
+ *
+ * These functions provide granular information on which operations are safe.
+ * splinterdb_iterator_can_next == TRUE <-> splinterdb_iterator_next is safe
+ * splinterdb_iterator_can_prev == TRUE <-> splinterdb_iterator_prev is safe
+ */
+_Bool
+splinterdb_iterator_can_prev(splinterdb_iterator *iter);
+
+_Bool
+splinterdb_iterator_can_next(splinterdb_iterator *iter);
+
+// Moves the iterator to the previous item.
+// Precondition for calling: splinterdb_iterator_can_prev() returns TRUE
+// Any error will cause valid() == false and be visible with status()
+void
+splinterdb_iterator_prev(splinterdb_iterator *iter);
+
+// Moves the iterator to the next item.
+// Precondition for calling: splinterdb_iterator_can_next() returns TRUE
 // Any error will cause valid() == false and be visible with status()
 void
 splinterdb_iterator_next(splinterdb_iterator *iter);
