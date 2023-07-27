@@ -3592,12 +3592,10 @@ btree_print_lookup(cache        *cc,        // IN
 void
 btree_config_init(btree_config *btree_cfg,
                   cache_config *cache_cfg,
-                  data_config  *data_cfg,
-                  uint64        rough_count_height)
+                  data_config  *data_cfg)
 {
-   btree_cfg->cache_cfg          = cache_cfg;
-   btree_cfg->data_cfg           = data_cfg;
-   btree_cfg->rough_count_height = rough_count_height;
+   btree_cfg->cache_cfg = cache_cfg;
+   btree_cfg->data_cfg  = data_cfg;
 
    uint64 page_size           = btree_page_size(btree_cfg);
    uint64 max_inline_key_size = MAX_INLINE_KEY_SIZE(page_size);

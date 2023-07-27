@@ -78,7 +78,6 @@ _Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
 typedef struct btree_config {
    cache_config *cache_cfg;
    data_config  *data_cfg;
-   uint64        rough_count_height;
 } btree_config;
 
 typedef struct ONDISK btree_hdr btree_hdr;
@@ -373,13 +372,6 @@ btree_count_in_range_by_iterator(cache             *cc,
                                  key                max_key,
                                  btree_pivot_stats *stats);
 
-uint64
-btree_rough_count(cache        *cc,
-                  btree_config *cfg,
-                  uint64        root_addr,
-                  key           min_key,
-                  key           max_key);
-
 void
 btree_print_memtable_tree(platform_log_handle *log_handle,
                           cache               *cc,
@@ -437,8 +429,7 @@ btree_space_use_in_range(cache        *cc,
 void
 btree_config_init(btree_config *btree_cfg,
                   cache_config *cache_cfg,
-                  data_config  *data_cfg,
-                  uint64        rough_count_height);
+                  data_config  *data_cfg);
 
 // robj: I propose making all the following functions private to
 // btree.c

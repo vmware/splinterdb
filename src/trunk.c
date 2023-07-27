@@ -9439,10 +9439,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
       bytes_for_branches / sizeof(trunk_branch) - 1;
 
    // Initialize point message btree
-   btree_config_init(&trunk_cfg->btree_cfg,
-                     cache_cfg,
-                     trunk_cfg->data_cfg,
-                     btree_rough_count_height);
+   btree_config_init(&trunk_cfg->btree_cfg, cache_cfg, trunk_cfg->data_cfg);
 
    memtable_config_init(&trunk_cfg->mt_cfg,
                         &trunk_cfg->btree_cfg,
