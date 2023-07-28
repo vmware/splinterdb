@@ -110,7 +110,7 @@ test_key(key_buffer   *keywb,
    return key_buffer_key(keywb);
 }
 
-static inline bool
+static inline bool32
 test_period_complete(uint64 idx, uint64 period)
 {
    return idx % period == 0;
@@ -279,7 +279,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 typedef struct test_exec_config {
    uint64 seed;
    uint64 num_inserts;
-   bool   verbose_progress; // --verbose-progress: During test execution
+   bool32 verbose_progress; // --verbose-progress: During test execution
 } test_exec_config;
 
 /*

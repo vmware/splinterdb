@@ -112,8 +112,6 @@ splinterdb_validate_app_data_config(const data_config *cfg)
    platform_assert(cfg->max_key_size > 0);
    platform_assert(cfg->key_compare != NULL);
    platform_assert(cfg->key_hash != NULL);
-   platform_assert(cfg->merge_tuples != NULL);
-   platform_assert(cfg->merge_tuples_final != NULL);
    platform_assert(cfg->key_to_string != NULL);
    platform_assert(cfg->message_to_string != NULL);
 
@@ -229,7 +227,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 int
 splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                           splinterdb             **kvs_out,      // OUT
-                          bool                     open_existing // IN
+                          bool32                   open_existing // IN
 )
 {
    splinterdb     *kvs;
@@ -488,6 +486,7 @@ int
 splinterdb_update(const splinterdb *kvsb, slice user_key, slice update)
 {
    message msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
@@ -643,7 +642,7 @@ splinterdb_iterator_valid(splinterdb_iterator *kvi)
    if (!SUCCESS(kvi->last_rc)) {
       return FALSE;
    }
-   bool      at_end;
+   bool32    at_end;
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_at_end(itor, &at_end);
    if (!SUCCESS(kvi->last_rc)) {

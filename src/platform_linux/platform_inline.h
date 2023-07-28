@@ -28,7 +28,7 @@ platform_popcount(uint32 x)
 #define platform_hash64  XXH64
 #define platform_hash128 XXH128
 
-static inline bool
+static inline bool32
 platform_checksum_is_equal(checksum128 left, checksum128 right)
 {
    return XXH128_isEqual(left, right);
@@ -216,13 +216,13 @@ platform_yield()
 {}
 
 // platform predicates
-static inline bool
+static inline bool32
 STATUS_IS_EQ(const platform_status s1, const platform_status s2)
 {
    return s1.r == s2.r;
 }
 
-static inline bool
+static inline bool32
 STATUS_IS_NE(const platform_status s1, const platform_status s2)
 {
    return s1.r != s2.r;

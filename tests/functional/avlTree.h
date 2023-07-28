@@ -78,7 +78,7 @@ AvlTree_Init(AvlTree              *tree,
 void
 AvlTree_InitNode(AvlTreeLinks *node);
 
-bool
+bool32
 AvlTree_IsUnlinked(AvlTreeLinks *node);
 
 /* Insertion / deletion */
@@ -155,7 +155,7 @@ AvlTreeIter_AllocSize(unsigned max) // IN height of the avl tree
 void
 AvlTreeIter_Init(AvlTreeIter *iter, unsigned max, AvlTree *tree);
 
-bool
+bool32
 AvlTreeIter_IsAtEnd(AvlTreeIter *iter);
 
 void
