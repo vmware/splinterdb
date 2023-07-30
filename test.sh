@@ -534,6 +534,7 @@ function test_make_run_tests() {
 function run_fast_unit_tests() {
 
    "$BINDIR"/unit/splinterdb_quick_test
+   "$BINDIR"/unit/column_family_test
    "$BINDIR"/unit/btree_test
    "$BINDIR"/unit/util_test
    "$BINDIR"/unit/misc_test
