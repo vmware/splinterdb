@@ -43,7 +43,7 @@ typedef platform_status (*io_write_fn)(io_handle *io,
                                        void      *buf,
                                        uint64     bytes,
                                        uint64     addr);
-typedef io_async_req *(*io_get_async_req_fn)(io_handle *io, bool blocking);
+typedef io_async_req *(*io_get_async_req_fn)(io_handle *io, bool32 blocking);
 typedef struct iovec *(*io_get_iovec_fn)(io_handle *io, io_async_req *req);
 typedef void *(*io_get_metadata_fn)(io_handle *io, io_async_req *req);
 typedef platform_status (*io_read_async_fn)(io_handle     *io,
@@ -59,7 +59,7 @@ typedef platform_status (*io_write_async_fn)(io_handle     *io,
 typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
 typedef void (*io_cleanup_all_fn)(io_handle *io);
 typedef void (*io_thread_register_fn)(io_handle *io);
-typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
+typedef bool32 (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
 typedef void *(*io_get_context_fn)(io_handle *io);
 
 
@@ -110,7 +110,7 @@ io_write(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 }
 
 static inline io_async_req *
-io_get_async_req(io_handle *io, bool blocking)
+io_get_async_req(io_handle *io, bool32 blocking)
 {
    return io->ops->get_async_req(io, blocking);
 }
@@ -168,7 +168,7 @@ io_thread_register(io_handle *io)
    }
 }
 
-static inline bool
+static inline bool32
 io_max_latency_elapsed(io_handle *io, timestamp ts)
 {
    if (io->ops->max_latency_elapsed) {

@@ -41,7 +41,7 @@ test_filter_basic(cache           *cc,
       fp_arr[i] = TYPED_ARRAY_MALLOC(hid, fp_arr[i], num_fingerprints);
    }
 
-   bool *used_keys =
+   bool32 *used_keys =
       TYPED_ARRAY_ZALLOC(hid, used_keys, (num_values + 1) * num_fingerprints);
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
@@ -298,7 +298,7 @@ filter_test(int argc, char *argv[])
    clockcache            *cc;
    int                    config_argc;
    char                 **config_argv;
-   bool                   run_perf_test;
+   bool32                 run_perf_test;
    platform_status        rc;
    uint64                 seed;
    test_message_generator gen;

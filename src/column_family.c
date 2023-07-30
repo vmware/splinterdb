@@ -316,6 +316,7 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
    slice cf_key = userkey_to_cf_key(user_start_key, cf.id, &cf_key_wb);
 
    column_family_id next_cf = cf.id + 1;
+   slice curr_cf_key = slice_create(sizeof(column_family_id), (void *)&cf.id);
    slice next_cf_key = slice_create(sizeof(column_family_id), (void *)&next_cf);
 
    splinterdb_iterator *it = TYPED_MALLOC(cf.kvs->spl->heap_id, it);
@@ -326,10 +327,16 @@ splinterdb_cf_iterator_init(const splinterdb_column_family cf,            // IN
    it->last_rc                      = STATUS_OK;
    trunk_range_iterator *range_itor = &(it->sri);
 
+   key             min_key   = key_create_from_slice(curr_cf_key);
    key             start_key = key_create_from_slice(cf_key);
    key             end_key   = key_create_from_slice(next_cf_key);
-   platform_status rc        = trunk_range_iterator_init(
-      cf.kvs->spl, range_itor, start_key, end_key, UINT64_MAX);
+   platform_status rc        = trunk_range_iterator_init(cf.kvs->spl,
+                                                  range_itor,
+                                                  min_key,
+                                                  end_key,
+                                                  start_key,
+                                                  greater_than_or_equal,
+                                                  UINT64_MAX);
    if (!SUCCESS(rc)) {
       platform_free(cf.kvs->spl->heap_id, it);
       writable_buffer_deinit(&cf_key_wb);
@@ -354,6 +361,18 @@ splinterdb_cf_iterator_valid(splinterdb_cf_iterator *cf_iter)
    return splinterdb_iterator_valid(&cf_iter->iter);
 }
 
+_Bool
+splinterdb_cf_iterator_can_prev(splinterdb_cf_iterator *cf_iter)
+{
+   return splinterdb_iterator_can_prev(&cf_iter->iter);
+}
+
+_Bool
+splinterdb_cf_iterator_can_next(splinterdb_cf_iterator *cf_iter)
+{
+   return splinterdb_iterator_can_next(&cf_iter->iter);
+}
+
 void
 splinterdb_cf_iterator_get_current(splinterdb_cf_iterator *cf_iter, // IN
                                    slice                  *key,     // OUT
@@ -368,6 +387,12 @@ void
 splinterdb_cf_iterator_next(splinterdb_cf_iterator *cf_iter)
 {
    return splinterdb_iterator_next(&cf_iter->iter);
+}
+
+void
+splinterdb_cf_iterator_prev(splinterdb_cf_iterator *cf_iter)
+{
+   return splinterdb_iterator_prev(&cf_iter->iter);
 }
 
 int
@@ -395,6 +420,8 @@ cf_key_compare(const data_config *cfg, slice key1, slice key2)
    slice userkey2 = cf_key_to_userkey(key2);
 
    // empty keys are defined to be the minimum among the column family
+   if (slice_length(userkey1) == 0 && slice_length(userkey2) == 0)
+      return 0;
    if (slice_length(userkey1) == 0)
       return -1;
    if (slice_length(userkey2) == 0)
