@@ -64,7 +64,15 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
+               bool32           start_front,
                platform_heap_id hid);
+
+static int
+iterator_seek_tests(cache           *cc,
+                    btree_config    *cfg,
+                    uint64           root_addr,
+                    int              nkvs,
+                    platform_heap_id hid);
 
 static uint64
 pack_tests(cache           *cc,
@@ -232,10 +240,29 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
-   if (!iterator_tests(
+   if (!iterator_tests((cache *)&data->cc,
+                       &data->dbtree_cfg,
+                       root_addr,
+                       nkvs,
+                       TRUE,
+                       data->hid))
+   {
+      CTEST_ERR("invalid ranges in original tree, starting at front\n");
+   }
+   if (!iterator_tests((cache *)&data->cc,
+                       &data->dbtree_cfg,
+                       root_addr,
+                       nkvs,
+                       FALSE,
+                       data->hid))
+   {
+      CTEST_ERR("invalid ranges in original tree, starting at back\n");
+   }
+
+   if (!iterator_seek_tests(
           (cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs, data->hid))
    {
-      CTEST_ERR("invalid ranges in original tree\n");
+      CTEST_ERR("invalid ranges when seeking in original tree\n");
    }
 
    uint64 packed_root_addr = pack_tests(
@@ -252,8 +279,12 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                     nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
-   rc = iterator_tests(
-      (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
+   rc = iterator_tests((cache *)&data->cc,
+                       &data->dbtree_cfg,
+                       packed_root_addr,
+                       nkvs,
+                       TRUE,
+                       data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
 
    // Exercise print method to verify that it basically continues to work.
@@ -305,7 +336,7 @@ insert_tests(cache           *cc,
              int              end)
 {
    uint64 generation;
-   bool   was_unique;
+   bool32 was_unique;
 
    int    keybuf_size = btree_page_size(cfg);
    int    msgbuf_size = btree_page_size(cfg);
@@ -404,39 +435,24 @@ query_tests(cache           *cc,
    return 1;
 }
 
-static int
-iterator_tests(cache           *cc,
-               btree_config    *cfg,
-               uint64           root_addr,
-               int              nkvs,
-               platform_heap_id hid)
+static uint64
+iterator_test(platform_heap_id hid,
+              btree_config    *cfg,
+              uint64           nkvs,
+              iterator        *iter,
+              bool32           forwards)
 {
-   btree_iterator dbiter;
-
-   btree_iterator_init(cc,
-                       cfg,
-                       &dbiter,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY,
-                       FALSE,
-                       0);
-
-   iterator *iter = (iterator *)&dbiter;
-
-   uint64 seen = 0;
-   bool   at_end;
+   uint64 seen    = 0;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
    key    prev    = NULL_KEY;
    uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
    uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
-   while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
+   while (iterator_can_curr(iter)) {
       key     curr_key;
       message msg;
 
-      iterator_get_curr(iter, &curr_key, &msg);
+      iterator_curr(iter, &curr_key, &msg);
       uint64 k = ungen_key(curr_key);
       ASSERT_TRUE(k < nkvs);
 
@@ -449,24 +465,128 @@ iterator_tests(cache           *cc,
       rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
-      ASSERT_TRUE(key_is_null(prev)
-                  || data_key_compare(cfg->data_cfg, prev, curr_key) < 0);
+      if (forwards) {
+         ASSERT_TRUE(key_is_null(prev)
+                     || data_key_compare(cfg->data_cfg, prev, curr_key) < 0);
+      } else {
+         ASSERT_TRUE(key_is_null(prev)
+                     || data_key_compare(cfg->data_cfg, curr_key, prev) < 0);
+      }
 
       seen++;
       prev = key_create(key_length(curr_key), prevbuf);
       key_copy_contents(prevbuf, curr_key);
 
-      if (!SUCCESS(iterator_advance(iter))) {
-         break;
+      if (forwards) {
+         if (!SUCCESS(iterator_next(iter))) {
+            break;
+         }
+      } else {
+         if (!SUCCESS(iterator_prev(iter))) {
+            break;
+         }
       }
    }
 
-   ASSERT_EQUAL(nkvs, seen);
-
-   btree_iterator_deinit(&dbiter);
    platform_free(hid, prevbuf);
    platform_free(hid, keybuf);
    platform_free(hid, msgbuf);
+   return seen;
+}
+
+static int
+iterator_tests(cache           *cc,
+               btree_config    *cfg,
+               uint64           root_addr,
+               int              nkvs,
+               bool32           start_front,
+               platform_heap_id hid)
+{
+   btree_iterator dbiter;
+
+   key start_key;
+   if (start_front)
+      start_key = NEGATIVE_INFINITY_KEY;
+   else
+      start_key = POSITIVE_INFINITY_KEY;
+
+   btree_iterator_init(cc,
+                       cfg,
+                       &dbiter,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
+                       start_key,
+                       greater_than_or_equal,
+                       FALSE,
+                       0);
+
+   iterator *iter = (iterator *)&dbiter;
+
+   if (!start_front) {
+      iterator_prev(iter);
+   }
+   bool32 nonempty = iterator_can_curr(iter);
+
+   ASSERT_EQUAL(nkvs, iterator_test(hid, cfg, nkvs, iter, start_front));
+   if (nonempty) {
+      if (start_front) {
+         iterator_prev(iter);
+      } else {
+         iterator_next(iter);
+      }
+   }
+   ASSERT_EQUAL(nkvs, iterator_test(hid, cfg, nkvs, iter, !start_front));
+
+   btree_iterator_deinit(&dbiter);
+
+   return 1;
+}
+
+static int
+iterator_seek_tests(cache           *cc,
+                    btree_config    *cfg,
+                    uint64           root_addr,
+                    int              nkvs,
+                    platform_heap_id hid)
+{
+   btree_iterator dbiter;
+
+   int    keybuf_size = btree_page_size(cfg);
+   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
+
+   // start in the "middle" of the range
+   key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);
+
+   btree_iterator_init(cc,
+                       cfg,
+                       &dbiter,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
+                       start_key,
+                       greater_than_or_equal,
+                       FALSE,
+                       0);
+   iterator *iter = (iterator *)&dbiter;
+
+   // go down
+   uint64 found_down = iterator_test(hid, cfg, nkvs, iter, FALSE);
+
+   // seek back to start_key
+   iterator_seek(iter, start_key, TRUE);
+
+   // skip start_key
+   iterator_next(iter);
+
+   // go up
+   uint64 found_up = iterator_test(hid, cfg, nkvs, iter, TRUE);
+
+   ASSERT_EQUAL(nkvs, found_up + found_down);
+
+   btree_iterator_deinit(&dbiter);
 
    return 1;
 }
@@ -488,6 +608,8 @@ pack_tests(cache           *cc,
                        PAGE_TYPE_MEMTABLE,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
+                       NEGATIVE_INFINITY_KEY,
+                       greater_than_or_equal,
                        FALSE,
                        0);
 

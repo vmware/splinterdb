@@ -18,18 +18,26 @@ struct merge_behavior {
 
 /* Function declarations and iterator_ops */
 void
-merge_get_curr(iterator *itor, key *curr_key, message *data);
+merge_curr(iterator *itor, key *curr_key, message *data);
+
+bool32
+merge_can_prev(iterator *itor);
+
+bool32
+merge_can_next(iterator *itor);
 
 platform_status
-merge_at_end(iterator *itor, bool *at_end);
+merge_next(iterator *itor);
 
 platform_status
-merge_advance(iterator *itor);
+merge_prev(iterator *itor);
 
 static iterator_ops merge_ops = {
-   .get_curr = merge_get_curr,
-   .at_end   = merge_at_end,
-   .advance  = merge_advance,
+   .curr     = merge_curr,
+   .can_prev = merge_can_prev,
+   .can_next = merge_can_next,
+   .next     = merge_next,
+   .prev     = merge_prev,
 };
 
 /*
@@ -43,10 +51,12 @@ static iterator_ops merge_ops = {
 static inline int
 bsearch_comp(const ordered_iterator *itor_one,
              const ordered_iterator *itor_two,
+             const bool32            forwards,
              const data_config      *cfg,
-             bool                   *keys_equal)
+             bool32                 *keys_equal)
 {
    int cmp     = data_key_compare(cfg, itor_one->curr_key, itor_two->curr_key);
+   cmp         = forwards ? cmp : -cmp;
    *keys_equal = (cmp == 0);
    if (cmp == 0) {
       cmp = itor_two->seq - itor_one->seq;
@@ -57,15 +67,22 @@ bsearch_comp(const ordered_iterator *itor_one,
    return cmp;
 }
 
+struct merge_ctxt {
+   bool32       forwards;
+   data_config *cfg;
+};
+
 /* Comparison function for sort of the min ritor array */
 static int
 merge_comp(const void *one, const void *two, void *ctxt)
 {
+   struct merge_ctxt      *m_ctxt   = (struct merge_ctxt *)ctxt;
    const ordered_iterator *itor_one = *(ordered_iterator **)one;
    const ordered_iterator *itor_two = *(ordered_iterator **)two;
-   data_config            *cfg      = (data_config *)ctxt;
-   bool                    ignore_keys_equal;
-   return bsearch_comp(itor_one, itor_two, cfg, &ignore_keys_equal);
+   bool32                  forwards = m_ctxt->forwards;
+   data_config            *cfg      = m_ctxt->cfg;
+   bool32                  ignore_keys_equal;
+   return bsearch_comp(itor_one, itor_two, forwards, cfg, &ignore_keys_equal);
 }
 
 // Returns index (from base0) where key belongs
@@ -74,20 +91,21 @@ bsearch_insert(register const ordered_iterator *key,
                ordered_iterator               **base0,
                const size_t                     nmemb,
                const data_config               *cfg,
-               bool                            *prev_equal_out,
-               bool                            *next_equal_out)
+               bool32                           forwards,
+               bool32                          *prev_equal_out,
+               bool32                          *next_equal_out)
 {
    register ordered_iterator **base = base0;
    register int                lim, cmp;
    register ordered_iterator **p;
-   bool                        prev_equal = FALSE;
-   bool                        next_equal = FALSE;
+   bool32                      prev_equal = FALSE;
+   bool32                      next_equal = FALSE;
 
 
    for (lim = nmemb; lim != 0; lim >>= 1) {
       p = base + (lim >> 1);
-      bool keys_equal;
-      cmp = bsearch_comp(key, *p, cfg, &keys_equal);
+      bool32 keys_equal;
+      cmp = bsearch_comp(key, *p, forwards, cfg, &keys_equal);
       debug_assert(cmp != 0);
 
       if (cmp > 0) { /* key > p: move right */
@@ -107,7 +125,7 @@ bsearch_insert(register const ordered_iterator *key,
 static inline void
 set_curr_ordered_iterator(const data_config *cfg, ordered_iterator *itor)
 {
-   iterator_get_curr(itor->itor, &itor->curr_key, &itor->curr_data);
+   iterator_curr(itor->itor, &itor->curr_key, &itor->curr_data);
    debug_assert(key_is_user_key(itor->curr_key));
 }
 
@@ -138,7 +156,10 @@ debug_verify_sorted(debug_only merge_iterator *merge_itor,
    if (merge_itor->ordered_iterators[index]->next_key_equal) {
       debug_assert(cmp == 0);
    } else {
-      debug_assert(cmp < 0);
+      if (merge_itor->forwards)
+         debug_assert(cmp < 0);
+      else
+         debug_assert(cmp > 0);
    }
 #endif
 }
@@ -154,19 +175,18 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
    merge_itor->ordered_iterators[0]->curr_key       = NULL_KEY;
    merge_itor->ordered_iterators[0]->curr_data      = NULL_MESSAGE;
-   rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
+   if (merge_itor->forwards) {
+      rc = iterator_next(merge_itor->ordered_iterators[0]->itor);
+   } else {
+      rc = iterator_prev(merge_itor->ordered_iterators[0]->itor);
+   }
+
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   bool at_end;
    // if it's exhausted, kill it and move the ritors up the queue.
-   rc = iterator_at_end(merge_itor->ordered_iterators[0]->itor, &at_end);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   if (UNLIKELY(at_end)) {
+   if (UNLIKELY(!iterator_can_curr(merge_itor->ordered_iterators[0]->itor))) {
       merge_itor->num_remaining--;
       ordered_iterator *tmp = merge_itor->ordered_iterators[0];
       for (int i = 0; i < merge_itor->num_remaining; ++i) {
@@ -183,8 +203,8 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
       goto out;
    }
 
-   bool prev_equal;
-   bool next_equal;
+   bool32 prev_equal;
+   bool32 next_equal;
    // otherwise, find its position in the array
    // Add 1 to return value since it gives offset from [1]
    int index = 1
@@ -192,6 +212,7 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
                                 merge_itor->ordered_iterators + 1,
                                 merge_itor->num_remaining - 1,
                                 merge_itor->cfg,
+                                merge_itor->forwards,
                                 &prev_equal,
                                 &next_equal);
    debug_assert(index >= 0);
@@ -241,8 +262,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
 
    // there is more than one copy of the current key
-   bool success = merge_accumulator_copy_message(&merge_itor->merge_buffer,
-                                                 merge_itor->curr_data);
+   bool32 success = merge_accumulator_copy_message(&merge_itor->merge_buffer,
+                                                   merge_itor->curr_data);
    if (!success) {
       return STATUS_NO_MEMORY;
    }
@@ -303,7 +324,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
  */
 static inline platform_status
 merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
-                                           bool           *discarded)
+                                           bool32         *discarded)
 {
    data_config *cfg   = merge_itor->cfg;
    message_type class = message_class(merge_itor->curr_data);
@@ -311,7 +332,7 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
       if (message_data(merge_itor->curr_data)
           != merge_accumulator_data(&merge_itor->merge_buffer))
       {
-         bool success = merge_accumulator_copy_message(
+         bool32 success = merge_accumulator_copy_message(
             &merge_itor->merge_buffer, merge_itor->curr_data);
          if (!success) {
             return STATUS_NO_MEMORY;
@@ -336,12 +357,16 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
 }
 
 static platform_status
-advance_one_loop(merge_iterator *merge_itor, bool *retry)
+advance_one_loop(merge_iterator *merge_itor, bool32 *retry)
 {
    *retry = FALSE;
-   // Determine whether we're at the end.
+   // Determine whether we're no longer in range.
    if (merge_itor->num_remaining == 0) {
-      merge_itor->at_end = TRUE;
+      if (merge_itor->forwards) {
+         merge_itor->can_next = FALSE;
+      } else {
+         merge_itor->can_prev = FALSE;
+      }
       return STATUS_OK;
    }
 
@@ -366,7 +391,7 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
       }
    }
 
-   bool discarded;
+   bool32 discarded;
    rc = merge_finalize_updates_and_discard_deletes(merge_itor, &discarded);
    if (!SUCCESS(rc)) {
       return rc;
@@ -377,6 +402,106 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
    }
    debug_assert_message_type_valid(merge_itor);
    return STATUS_OK;
+}
+
+/*
+ * Given a merge_iterator with initialized ordered_iterators restore the
+ * following invariants:
+ *    1. Each iterator holds the appropriate key and value
+ *    2. Dead iterators come after live iterators.
+ *    3. Live iterators are in sorted order. (depends on merge_itor->forwards)
+ *    4. Live iterators that have equal keys indicate so.
+ *    5. The first key in the sorted order has all its iterators merged.
+ */
+static platform_status
+setup_ordered_iterators(merge_iterator *merge_itor)
+{
+   platform_status   rc = STATUS_OK;
+   ordered_iterator *temp;
+   merge_itor->can_prev = FALSE;
+   merge_itor->can_next = FALSE;
+
+   // Move all the dead iterators to the end and count how many are still alive.
+   merge_itor->num_remaining = merge_itor->num_trees;
+   int i                     = 0;
+   while (i < merge_itor->num_remaining) {
+      // determine if the merge itor can go prev/next based upon ordered_itors
+      if (iterator_can_prev(merge_itor->ordered_iterators[i]->itor)) {
+         merge_itor->can_prev = TRUE;
+      }
+      if (iterator_can_next(merge_itor->ordered_iterators[i]->itor)) {
+         merge_itor->can_next = TRUE;
+      }
+
+      if (!iterator_can_curr(merge_itor->ordered_iterators[i]->itor)) {
+         ordered_iterator *tmp =
+            merge_itor->ordered_iterators[merge_itor->num_remaining - 1];
+         merge_itor->ordered_iterators[merge_itor->num_remaining - 1] =
+            merge_itor->ordered_iterators[i];
+         merge_itor->ordered_iterators[i] = tmp;
+         merge_itor->num_remaining--;
+      } else {
+         set_curr_ordered_iterator(merge_itor->cfg,
+                                   merge_itor->ordered_iterators[i]);
+         i++;
+      }
+   }
+   struct merge_ctxt merge_args;
+   merge_args.forwards = merge_itor->forwards;
+   merge_args.cfg      = merge_itor->cfg;
+   platform_sort_slow(merge_itor->ordered_iterators,
+                      merge_itor->num_remaining,
+                      sizeof(*merge_itor->ordered_iterators),
+                      merge_comp,
+                      &merge_args,
+                      &temp);
+   // Generate initial value for next_key_equal bits
+   for (int i = 0; i + 1 < merge_itor->num_remaining; ++i) {
+      int cmp =
+         data_key_compare(merge_itor->cfg,
+                          merge_itor->ordered_iterators[i]->curr_key,
+                          merge_itor->ordered_iterators[i + 1]->curr_key);
+      if (merge_itor->forwards) {
+         debug_assert(cmp <= 0);
+      } else {
+         debug_assert(cmp >= 0);
+      }
+      merge_itor->ordered_iterators[i]->next_key_equal = (cmp == 0);
+   }
+
+   bool32 retry;
+   rc = advance_one_loop(merge_itor, &retry);
+
+   if (retry && SUCCESS(rc)) {
+      if (merge_itor->forwards) {
+         rc = merge_next((iterator *)merge_itor);
+      } else {
+         rc = merge_prev((iterator *)merge_itor);
+      }
+   }
+
+   if (!SUCCESS(rc)) {
+      // destroy the iterator
+      platform_status merge_iterator_rc =
+         merge_iterator_destroy(platform_get_heap_id(), &merge_itor);
+      if (!SUCCESS(merge_iterator_rc)) {
+         platform_error_log(
+            "setup_ordered_iterators: exception while releasing\n");
+         if (SUCCESS(rc)) {
+            platform_error_log("setup_ordered_iterators: clobbering rc\n");
+            rc = merge_iterator_rc;
+         }
+      }
+      platform_error_log("setup_ordered_iterators: exception: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   if (!key_is_null(merge_itor->curr_key)) {
+      debug_assert_message_type_valid(merge_itor);
+   }
+
+   return rc;
 }
 
 /*
@@ -400,10 +525,9 @@ merge_iterator_create(platform_heap_id hid,
                       merge_behavior   merge_mode,
                       merge_iterator **out_itor)
 {
-   int               i;
-   platform_status   rc = STATUS_OK, merge_iterator_rc;
-   merge_iterator   *merge_itor;
-   ordered_iterator *temp;
+   int             i;
+   platform_status rc = STATUS_OK;
+   merge_iterator *merge_itor;
 
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
        || num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored))
@@ -436,9 +560,9 @@ merge_iterator_create(platform_heap_id hid,
    merge_itor->finalize_updates = merge_mode == MERGE_FULL;
    merge_itor->emit_deletes     = merge_mode != MERGE_FULL;
 
-   merge_itor->at_end   = FALSE;
    merge_itor->cfg      = cfg;
    merge_itor->curr_key = NULL_KEY;
+   merge_itor->forwards = TRUE;
 
    // index -1 initializes the pad variable
    for (i = -1; i < num_trees; i++) {
@@ -453,75 +577,12 @@ merge_iterator_create(platform_heap_id hid,
          &merge_itor->ordered_iterator_stored[i];
    }
 
-   // Move all the dead iterators to the end and count how many are still alive.
-   merge_itor->num_remaining = num_trees;
-   i                         = 0;
-   while (i < merge_itor->num_remaining) {
-      bool at_end;
-      rc = iterator_at_end(merge_itor->ordered_iterators[i]->itor, &at_end);
-      if (!SUCCESS(rc)) {
-         goto destroy;
-      }
-      if (at_end) {
-         ordered_iterator *tmp =
-            merge_itor->ordered_iterators[merge_itor->num_remaining - 1];
-         merge_itor->ordered_iterators[merge_itor->num_remaining - 1] =
-            merge_itor->ordered_iterators[i];
-         merge_itor->ordered_iterators[i] = tmp;
-         merge_itor->num_remaining--;
-      } else {
-         set_curr_ordered_iterator(cfg, merge_itor->ordered_iterators[i]);
-         i++;
-      }
-   }
-   platform_sort_slow(merge_itor->ordered_iterators,
-                      merge_itor->num_remaining,
-                      sizeof(*merge_itor->ordered_iterators),
-                      merge_comp,
-                      merge_itor->cfg,
-                      &temp);
-   // Generate initial value for next_key_equal bits
-   for (i = 0; i + 1 < merge_itor->num_remaining; ++i) {
-      int cmp =
-         data_key_compare(merge_itor->cfg,
-                          merge_itor->ordered_iterators[i]->curr_key,
-                          merge_itor->ordered_iterators[i + 1]->curr_key);
-      debug_assert(cmp <= 0);
-      merge_itor->ordered_iterators[i]->next_key_equal = (cmp == 0);
-   }
-
-   bool retry;
-   rc = advance_one_loop(merge_itor, &retry);
+   rc = setup_ordered_iterators(merge_itor);
    if (!SUCCESS(rc)) {
-      goto out;
+      return rc;
    }
 
-   if (retry) {
-      rc = merge_advance((iterator *)merge_itor);
-   }
-
-   goto out;
-
-destroy:
-   merge_iterator_rc = merge_iterator_destroy(hid, &merge_itor);
-   if (!SUCCESS(merge_iterator_rc)) {
-      platform_error_log("merge_iterator_create: exception while releasing\n");
-      if (SUCCESS(rc)) {
-         platform_error_log("merge_iterator_create: clobbering rc\n");
-         rc = merge_iterator_rc;
-      }
-   }
-
-out:
-   if (!SUCCESS(rc)) {
-      platform_error_log("merge_iterator_create: exception: %s\n",
-                         platform_status_to_string(rc));
-   } else {
-      *out_itor = merge_itor;
-      if (!merge_itor->at_end) {
-         debug_assert_message_type_valid(merge_itor);
-      }
-   }
+   *out_itor = merge_itor;
    return rc;
 }
 
@@ -543,29 +604,70 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
    return STATUS_OK;
 }
 
+/*
+ *-----------------------------------------------------------------------------
+ * merge_iterator_set_direction --
+ *
+ *      Prepares the merge iterator for traveling either forwards or backwards
+ *      by calling next or prev respectively on each iterator and then
+ *      resorting.
+ *
+ * Results:
+ *      0 if successful, error otherwise
+ *-----------------------------------------------------------------------------
+ */
+static platform_status
+merge_iterator_set_direction(merge_iterator *merge_itor, bool32 forwards)
+{
+   debug_assert(merge_itor->forwards != forwards);
+   platform_status rc;
+   merge_itor->forwards = forwards;
+
+   // Step every iterator, both alive and dead, in the appropriate direction.
+   for (int i = 0; i < merge_itor->num_trees; i++) {
+      if (forwards && iterator_can_next(merge_itor->ordered_iterators[i]->itor))
+      {
+         iterator_next(merge_itor->ordered_iterators[i]->itor);
+      }
+      if (!forwards
+          && iterator_can_prev(merge_itor->ordered_iterators[i]->itor)) {
+         iterator_prev(merge_itor->ordered_iterators[i]->itor);
+      }
+   }
+
+   // restore iterator invariants
+   rc = setup_ordered_iterators(merge_itor);
+
+   return rc;
+}
+
 
 /*
  *-----------------------------------------------------------------------------
- * merge_at_end --
+ * merge_can_prev and merge_can_next --
  *
- *      Checks if more values are left in the merge itor.
+ *      Checks if the iterator is able to move prev or next.
+ *      The half open range [start_key, end_key) defines the iterator's bounds.
  *
  * Results:
- *      Returns TRUE if the itor is at end, FALSE otherwise.
+ *      Returns TRUE if the iterator can move as requested, FALSE otherwise.
  *
  * Side effects:
  *      None.
  *-----------------------------------------------------------------------------
  */
-platform_status
-merge_at_end(iterator *itor, // IN
-             bool     *at_end)   // OUT
+bool32
+merge_can_prev(iterator *itor)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   *at_end                    = merge_itor->at_end;
-   debug_assert(*at_end == key_is_null(merge_itor->curr_key));
+   return merge_itor->can_prev;
+}
 
-   return STATUS_OK;
+bool32
+merge_can_next(iterator *itor)
+{
+   merge_iterator *merge_itor = (merge_iterator *)itor;
+   return merge_itor->can_next;
 }
 
 /*
@@ -582,31 +684,19 @@ merge_at_end(iterator *itor, // IN
  *-----------------------------------------------------------------------------
  */
 void
-merge_get_curr(iterator *itor, key *curr_key, message *data)
+merge_curr(iterator *itor, key *curr_key, message *data)
 {
+   debug_assert(iterator_can_curr(itor));
    merge_iterator *merge_itor = (merge_iterator *)itor;
-   debug_assert(!merge_itor->at_end);
-   *curr_key = merge_itor->curr_key;
-   *data     = merge_itor->curr_data;
+   *curr_key                  = merge_itor->curr_key;
+   *data                      = merge_itor->curr_data;
 }
 
-/*
- *-----------------------------------------------------------------------------
- * merge_advance --
- *
- *      Merges the next key from the array of input iterators.
- *
- * Results:
- *      0 if successful, error otherwise
- *-----------------------------------------------------------------------------
- */
-platform_status
-merge_advance(iterator *itor)
+static inline platform_status
+merge_advance_helper(merge_iterator *merge_itor)
 {
-   platform_status rc         = STATUS_OK;
-   merge_iterator *merge_itor = (merge_iterator *)itor;
-
-   bool retry;
+   platform_status rc = STATUS_OK;
+   bool32          retry;
    do {
       merge_itor->curr_key  = NULL_KEY;
       merge_itor->curr_data = NULL_MESSAGE;
@@ -622,7 +712,49 @@ merge_advance(iterator *itor)
       }
    } while (retry);
 
-   return STATUS_OK;
+   return rc;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * merge_next --
+ *
+ *      Merges the next key from the array of input iterators.
+ *
+ * Results:
+ *      0 if successful, error otherwise
+ *-----------------------------------------------------------------------------
+ */
+platform_status
+merge_next(iterator *itor)
+{
+   merge_iterator *merge_itor = (merge_iterator *)itor;
+
+   if (!merge_itor->forwards) {
+      return merge_iterator_set_direction(merge_itor, TRUE);
+   }
+   return merge_advance_helper(merge_itor);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * merge_prev --
+ *
+ *      Merges the prev key from the array of input iterators.
+ *
+ * Results:
+ *      0 if successful, error otherwise
+ *-----------------------------------------------------------------------------
+ */
+platform_status
+merge_prev(iterator *itor)
+{
+   merge_iterator *merge_itor = (merge_iterator *)itor;
+
+   if (merge_itor->forwards) {
+      return merge_iterator_set_direction(merge_itor, FALSE);
+   }
+   return merge_advance_helper(merge_itor);
 }
 
 void
@@ -632,7 +764,7 @@ merge_iterator_print(merge_iterator *merge_itor)
    key          curr_key;
    message      data;
    data_config *data_cfg = merge_itor->cfg;
-   iterator_get_curr(&merge_itor->super, &curr_key, &data);
+   iterator_curr(&merge_itor->super, &curr_key, &data);
 
    platform_default_log("****************************************\n");
    platform_default_log("** merge iterator\n");
@@ -642,16 +774,14 @@ merge_iterator_print(merge_iterator *merge_itor)
    platform_default_log("** curr: %s\n", key_string(data_cfg, curr_key));
    platform_default_log("----------------------------------------\n");
    for (i = 0; i < merge_itor->num_trees; i++) {
-      bool at_end;
-      iterator_at_end(merge_itor->ordered_iterators[i]->itor, &at_end);
       platform_default_log("%u: ", merge_itor->ordered_iterators[i]->seq);
-      if (at_end) {
+      if (!iterator_can_curr(merge_itor->ordered_iterators[i]->itor)) {
          platform_default_log("# : ");
       } else {
          platform_default_log("_ : ");
       }
       if (i < merge_itor->num_remaining) {
-         iterator_get_curr(
+         iterator_curr(
             merge_itor->ordered_iterators[i]->itor, &curr_key, &data);
          platform_default_log("%s\n", key_string(data_cfg, curr_key));
       } else {

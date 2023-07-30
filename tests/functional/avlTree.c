@@ -102,7 +102,7 @@ AvlTree_InitNode(AvlTreeLinks *node)
  *-----------------------------------------------------------------------------
  */
 
-bool
+bool32
 AvlTree_IsUnlinked(AvlTreeLinks *node)
 {
    return node->left == NULL && node->right == NULL && node->height == 0;
@@ -787,7 +787,7 @@ AvlTreeStackPop(AvlTreeIter *iter)
  *-----------------------------------------------------------------------------
  */
 
-static bool
+static bool32
 AvlTreeStackIsEmpty(AvlTreeIter *iter)
 {
    return iter->num == 0;
@@ -870,7 +870,7 @@ AvlTreeIter_Init(AvlTreeIter *iter, // IN iterator
  *-----------------------------------------------------------------------------
  */
 
-bool
+bool32
 AvlTreeIter_IsAtEnd(AvlTreeIter *iter)
 {
    return iter->cur == NULL;

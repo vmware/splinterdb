@@ -112,8 +112,6 @@ splinterdb_validate_app_data_config(const data_config *cfg)
    platform_assert(cfg->max_key_size > 0);
    platform_assert(cfg->key_compare != NULL);
    platform_assert(cfg->key_hash != NULL);
-   platform_assert(cfg->merge_tuples != NULL);
-   platform_assert(cfg->merge_tuples_final != NULL);
    platform_assert(cfg->key_to_string != NULL);
    platform_assert(cfg->message_to_string != NULL);
 
@@ -229,7 +227,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 int
 splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                           splinterdb             **kvs_out,      // OUT
-                          bool                     open_existing // IN
+                          bool32                   open_existing // IN
 )
 {
    splinterdb     *kvs;
@@ -488,6 +486,7 @@ int
 splinterdb_update(const splinterdb *kvsb, slice user_key, slice update)
 {
    message msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
@@ -615,8 +614,13 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
       start_key = key_create_from_slice(user_start_key);
    }
 
-   platform_status rc = trunk_range_iterator_init(
-      kvs->spl, range_itor, start_key, POSITIVE_INFINITY_KEY, UINT64_MAX);
+   platform_status rc = trunk_range_iterator_init(kvs->spl,
+                                                  range_itor,
+                                                  NEGATIVE_INFINITY_KEY,
+                                                  POSITIVE_INFINITY_KEY,
+                                                  start_key,
+                                                  greater_than_or_equal,
+                                                  UINT64_MAX);
    if (!SUCCESS(rc)) {
       platform_free(kvs->spl->heap_id, *iter);
       return platform_status_to_int(rc);
@@ -643,20 +647,42 @@ splinterdb_iterator_valid(splinterdb_iterator *kvi)
    if (!SUCCESS(kvi->last_rc)) {
       return FALSE;
    }
-   bool      at_end;
    iterator *itor = &(kvi->sri.super);
-   kvi->last_rc   = iterator_at_end(itor, &at_end);
+   return iterator_can_curr(itor);
+}
+
+_Bool
+splinterdb_iterator_can_prev(splinterdb_iterator *kvi)
+{
    if (!SUCCESS(kvi->last_rc)) {
       return FALSE;
    }
-   return !at_end;
+   iterator *itor = &(kvi->sri.super);
+   return iterator_can_prev(itor);
+}
+
+_Bool
+splinterdb_iterator_can_next(splinterdb_iterator *kvi)
+{
+   if (!SUCCESS(kvi->last_rc)) {
+      return FALSE;
+   }
+   iterator *itor = &(kvi->sri.super);
+   return iterator_can_next(itor);
 }
 
 void
 splinterdb_iterator_next(splinterdb_iterator *kvi)
 {
    iterator *itor = &(kvi->sri.super);
-   kvi->last_rc   = iterator_advance(itor);
+   kvi->last_rc   = iterator_next(itor);
+}
+
+void
+splinterdb_iterator_prev(splinterdb_iterator *kvi)
+{
+   iterator *itor = &(kvi->sri.super);
+   kvi->last_rc   = iterator_prev(itor);
 }
 
 int
@@ -675,7 +701,7 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
    message   msg;
    iterator *itor = &(iter->sri.super);
 
-   iterator_get_curr(itor, &result_key, &msg);
+   iterator_curr(itor, &result_key, &msg);
    *value  = message_slice(msg);
    *outkey = key_slice(result_key);
 }

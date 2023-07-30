@@ -137,7 +137,7 @@ typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
 typedef page_handle *(*page_get_fn)(cache    *cc,
                                     uint64    addr,
-                                    bool      blocking,
+                                    bool32    blocking,
                                     page_type type);
 typedef cache_async_result (*page_get_async_fn)(cache            *cc,
                                                 uint64            addr,
@@ -146,23 +146,23 @@ typedef cache_async_result (*page_get_async_fn)(cache            *cc,
 typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
-typedef bool (*page_try_claim_fn)(cache *cc, page_handle *page);
+typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
                              page_handle *page,
-                             bool         is_blocking,
+                             bool32       is_blocking,
                              page_type    type);
 typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,
                                uint64 *pages_outstanding);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
-typedef int (*evict_fn)(cache *cc, bool ignore_pinned);
+typedef int (*evict_fn)(cache *cc, bool32 ignore_pinned);
 typedef void (*assert_ungot_fn)(cache *cc, uint64 addr);
 typedef void (*validate_page_fn)(cache *cc, page_handle *page, uint64 addr);
 typedef void (*io_stats_fn)(cache *cc, uint64 *read_bytes, uint64 *write_bytes);
 typedef uint32 (*count_dirty_fn)(cache *cc);
 typedef uint16 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
-typedef bool (*cache_present_fn)(cache *cc, page_handle *page);
-typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
+typedef bool32 (*cache_present_fn)(cache *cc, page_handle *page);
+typedef void (*enable_sync_get_fn)(cache *cc, bool32 enabled);
 typedef allocator *(*get_allocator_fn)(const cache *cc);
 typedef cache_config *(*cache_config_fn)(const cache *cc);
 typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
@@ -278,7 +278,7 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
  *----------------------------------------------------------------------
  */
 static inline page_handle *
-cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
+cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
 {
    return cc->ops->page_get(cc, addr, blocking, type);
 }
@@ -367,7 +367,7 @@ cache_unget(cache *cc, page_handle *page)
  * Does not block.
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 cache_try_claim(cache *cc, page_handle *page)
 {
    return cc->ops->page_try_claim(cc, page);
@@ -509,7 +509,10 @@ cache_unpin(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
+cache_page_sync(cache       *cc,
+                page_handle *page,
+                bool32       is_blocking,
+                page_type    type)
 {
    return cc->ops->page_sync(cc, page, is_blocking, type);
 }
@@ -574,7 +577,7 @@ cache_flush(cache *cc)
  *-----------------------------------------------------------------------------
  */
 static inline int
-cache_evict(cache *cc, bool ignore_pinned_pages)
+cache_evict(cache *cc, bool32 ignore_pinned_pages)
 {
    return cc->ops->evict(cc, ignore_pinned_pages);
 }
@@ -732,7 +735,7 @@ cache_get_read_ref(cache *cc, page_handle *page)
  * Returns TRUE if page is present in the cache.
  *-----------------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 cache_present(cache *cc, page_handle *page)
 {
    return cc->ops->cache_present(cc, page);
@@ -750,7 +753,7 @@ cache_present(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_enable_sync_get(cache *cc, bool enabled)
+cache_enable_sync_get(cache *cc, bool32 enabled)
 {
    cc->ops->enable_sync_get(cc, enabled);
 }

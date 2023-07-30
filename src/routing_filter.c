@@ -532,10 +532,10 @@ routing_filter_add(cache           *cc,
          while (new_fps_added < new_index_count
                 || old_fps_added < old_index_count) {
             uint32 fp;
-            bool   is_old = ((new_fps_added == new_index_count)
-                           || ((old_fps_added != old_index_count)
-                               && (old_src_fp[old_fps_added]
-                                   <= new_src_fp[new_fps_added])));
+            bool32 is_old = ((new_fps_added == new_index_count)
+                             || ((old_fps_added != old_index_count)
+                                 && (old_src_fp[old_fps_added]
+                                     <= new_src_fp[new_fps_added])));
             if (is_old) {
                fp = old_src_fp[old_fps_added++];
             } else {
@@ -984,7 +984,7 @@ routing_filter_lookup_async(cache              *cc,
                             routing_async_ctxt *ctxt)
 {
    cache_async_result res  = 0;
-   bool               done = FALSE;
+   bool32             done = FALSE;
 
    debug_assert(key_is_user_key(target));
 
@@ -1215,20 +1215,18 @@ routing_filter_verify(cache          *cc,
                       uint16          value,
                       iterator       *itor)
 {
-   bool at_end;
-   iterator_at_end(itor, &at_end);
-   while (!at_end) {
+   while (iterator_can_next(itor)) {
       key     curr_key;
       message msg;
-      iterator_get_curr(itor, &curr_key, &msg);
+      iterator_curr(itor, &curr_key, &msg);
       debug_assert(key_is_user_key(curr_key));
       uint64          found_values;
       platform_status rc =
          routing_filter_lookup(cc, cfg, filter, curr_key, &found_values);
       platform_assert_status_ok(rc);
       platform_assert(routing_filter_is_value_found(found_values, value));
-      iterator_advance(itor);
-      iterator_at_end(itor, &at_end);
+      rc = iterator_next(itor);
+      platform_assert_status_ok(rc);
    }
 }
 
