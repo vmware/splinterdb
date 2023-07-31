@@ -470,11 +470,12 @@ typedef enum branch_tuple_count_operation {
 } branch_tuple_count_operation;
 
 platform_status
-add_branch_tuple_counts(cache                       *cc,
-                        const btree_config          *cfg,
-                        in_memory_node              *node,
-                        branch_ref                   bref,
-                        branch_tuple_count_operation operation)
+add_branch_tuple_counts_for_child(cache                       *cc,
+                                  const btree_config          *cfg,
+                                  in_memory_node              *node,
+                                  branch_ref                   bref,
+                                  branch_tuple_count_operation operation,
+                                  uint64                       child_num)
 {
    int coefficient;
    switch (operation) {
@@ -489,25 +490,42 @@ add_branch_tuple_counts(cache                       *cc,
          break;
    }
 
-   for (uint64 child_num = 0; child_num < in_memory_node_num_children(node);
-        child_num++)
-   {
-      in_memory_pivot *lbpivot =
-         in_memory_pivot_vector_get(&node->pivots, child_num);
-      in_memory_pivot *ubpivot =
-         in_memory_pivot_vector_get(&node->pivots, child_num + 1);
-      key               lb = in_memory_pivot_key(lbpivot);
-      key               ub = in_memory_pivot_key(ubpivot);
-      btree_pivot_stats stats;
-      btree_count_in_range(cc, cfg, branch_ref_addr(bref), lb, ub, &stats);
-      int64 num_kv_bytes = stats.key_bytes + stats.message_bytes;
-      int64 num_kvs      = stats.num_kvs;
-      node->num_kv_bytes += coefficient * num_kv_bytes;
-      node->num_tuples += coefficient * num_kvs;
-      lbpivot->num_kv_bytes += coefficient * num_kv_bytes;
-      lbpivot->num_tuples += coefficient * num_kvs;
-   }
+   in_memory_pivot *lbpivot =
+      in_memory_pivot_vector_get(&node->pivots, child_num);
+   in_memory_pivot *ubpivot =
+      in_memory_pivot_vector_get(&node->pivots, child_num + 1);
+   key               lb = in_memory_pivot_key(lbpivot);
+   key               ub = in_memory_pivot_key(ubpivot);
+   btree_pivot_stats stats;
+   btree_count_in_range(cc, cfg, branch_ref_addr(bref), lb, ub, &stats);
+   int64 num_kv_bytes = stats.key_bytes + stats.message_bytes;
+   int64 num_kvs      = stats.num_kvs;
+   node->num_kv_bytes += coefficient * num_kv_bytes;
+   node->num_tuples += coefficient * num_kvs;
+   lbpivot->num_kv_bytes += coefficient * num_kv_bytes;
+   lbpivot->num_tuples += coefficient * num_kvs;
+
    return STATUS_OK;
+}
+
+platform_status
+add_branches_tuple_counts_for_child(cache                       *cc,
+                                    const btree_config          *cfg,
+                                    in_memory_node              *node,
+                                    uint64                       num_branches,
+                                    const branch_ref            *brefs,
+                                    branch_tuple_count_operation operation,
+                                    uint64                       child_num)
+{
+   platform_status rc = STATUS_OK;
+   for (uint64 branch_num = 0; branch_num < num_branches; branch_num++) {
+      rc = add_branch_tuple_counts_for_child(
+         cc, cfg, node, brefs[branch_num], operation, child_num);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return rc;
 }
 
 platform_status
@@ -519,8 +537,11 @@ add_branches_tuple_counts(cache                       *cc,
                           branch_tuple_count_operation operation)
 {
    platform_status rc = STATUS_OK;
-   for (uint64 branch_num = 0; branch_num < num_branches; branch_num++) {
-      rc = add_branch_tuple_counts(cc, cfg, node, brefs[branch_num], operation);
+   for (uint64 child_num = 0; child_num < in_memory_node_num_children(node);
+        child_num++)
+   {
+      rc = add_branches_tuple_counts_for_child(
+         cc, cfg, node, num_branches, brefs, operation, child_num);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -621,8 +642,8 @@ in_memory_node_extract_pivot_bundle(cache              *cc,
       in_memory_routed_bundle_vector_get(&node->pivot_bundles, child_num);
    uint64 num_branches        = in_memory_routed_bundle_num_branches(result);
    const branch_ref *branches = in_memory_routed_bundle_branch_array(result);
-   platform_status   rc       = add_branches_tuple_counts(
-      cc, cfg, node, num_branches, branches, BRANCH_TUPLE_COUNT_SUB);
+   platform_status   rc       = add_branches_tuple_counts_for_child(
+      cc, cfg, node, num_branches, branches, BRANCH_TUPLE_COUNT_SUB, child_num);
    if (SUCCESS(rc)) {
       in_memory_routed_bundle_vector_set(
          &node->pivot_bundles, child_num, &empty_routed_bundle);
@@ -664,14 +685,44 @@ perform_flush(cache              *cc,
          case INFLIGHT_BUNDLE_TYPE_ROUTED:
             rc = in_memory_node_receive_routed_bundle(
                cc, cfg, child, &bundle->u.routed);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
+            uint64 num_branches =
+               in_memory_routed_bundle_num_branches(&bundle->u.routed);
+            const branch_ref *branches =
+               in_memory_routed_bundle_branch_array(&bundle->u.routed);
+            rc = add_branches_tuple_counts(
+               cc, cfg, parent, num_branches, branches, BRANCH_TUPLE_COUNT_SUB);
             break;
          case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
             rc = in_memory_node_receive_per_child_bundle(
                cc, cfg, child, &bundle->u.per_child, child_num);
+            for (uint64 child_num = 0;
+                 child_num < in_memory_node_num_children(parent);
+                 child_num++)
+            {
+               branch_ref branch = in_memory_per_child_bundle_branch(
+                  &bundle->u.per_child, child_num);
+               rc = add_branches_tuple_counts_for_child(cc,
+                                                        cfg,
+                                                        parent,
+                                                        1,
+                                                        &branch,
+                                                        BRANCH_TUPLE_COUNT_SUB,
+                                                        child_num);
+            }
             break;
          case INFLIGHT_BUNDLE_TYPE_SINGLETON:
             rc = in_memory_node_receive_singleton_bundle(
                cc, cfg, child, &bundle->u.singleton);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
+            branch_ref branch =
+               in_memory_singleton_bundle_branch(&bundle->u.singleton);
+            rc = add_branches_tuple_counts(
+               cc, cfg, parent, 1, &branch, BRANCH_TUPLE_COUNT_SUB);
             break;
          default:
             platform_assert(0);
