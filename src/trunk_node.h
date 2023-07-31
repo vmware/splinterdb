@@ -2,6 +2,29 @@
 #include "data_internal.h"
 #include "allocator.h"
 #include "cache.h"
+#include "btree.h"
+#include "routing_filter.h"
+
+typedef struct trunk_node_config {
+   cache_config *cache_cfg;
+
+   // parameters
+   uint64 fanout; // children to trigger split
+   uint64 max_kv_bytes_per_node;
+   uint64 max_branches_per_node;
+   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
+   uint64 reclaim_threshold;    // start reclaming space when
+                                // free space < threshold
+   bool32         use_stats;    // stats
+   btree_config   btree_cfg;
+   routing_config filter_cfg;
+   data_config   *data_cfg;
+
+   // verbose logging
+   bool32               verbose_logging_enabled;
+   platform_log_handle *log_handle;
+} trunk_node_config;
+
 
 typedef struct branch_ref branch_ref;
 typedef struct maplet_ref maplet_ref;
@@ -15,29 +38,36 @@ typedef struct compacted_bundle compacted_bundle;
 typedef struct inflight_bundle  inflight_bundle;
 typedef struct pivot            pivot;
 
-typedef struct in_memory_node {
-   platform_heap_id hid;
-   uint16           height;
-   uint64           num_pivots;
-   pivot           *pivots;
-   routed_bundle  **pivot_bundles; // indexed by child
-   uint64           num_inflight_bundles;
-   inflight_bundle *inflight_bundles;
-} in_memory_node;
 
 /*
  * Policy functions
  */
 
+bool32
+trunk_node_needs_flush(trunk_node_config *cfg, in_memory_node *node);
+
 uint64
 trunk_node_flush_select_child(in_memory_node *node);
 
 uint64
-trunk_node_needs_split(in_memory_node *node);
+trunk_node_needs_split(trunk_node_config *cfg, in_memory_node *node);
+
+platform_status
+trunk_node_leaf_select_split_pivots(trunk_node_config *cfg,
+                                    in_memory_node    *node,
+                                    uint64            *num_pivots,
+                                    key_buffer       **pivots);
 
 /*
  * Incorporation and flushing-related functions
  */
+
+platform_status
+trunk_node_incorporate(trunk_node_config *cfg,
+                       in_memory_node    *node,
+                       uint64             branch_addr,
+                       uint64             maplet_addr,
+                       trunk_node_config *result);
 
 routed_bundle *
 trunk_node_extract_pivot_bundle(in_memory_node *node, uint64 child_num);

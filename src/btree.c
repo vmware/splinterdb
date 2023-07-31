@@ -1972,14 +1972,14 @@ start_over:
  *-----------------------------------------------------------------------------
  */
 platform_status
-btree_lookup_node(cache             *cc,             // IN
-                  btree_config      *cfg,            // IN
-                  uint64             root_addr,      // IN
-                  key                target,         // IN
-                  uint16             stop_at_height, // IN
-                  page_type          type,           // IN
-                  btree_node        *out_node,       // OUT
-                  btree_pivot_stats *stats)          // OUT
+btree_lookup_node(cache              *cc,             // IN
+                  const btree_config *cfg,            // IN
+                  uint64              root_addr,      // IN
+                  key                 target,         // IN
+                  uint16              stop_at_height, // IN
+                  page_type           type,           // IN
+                  btree_node         *out_node,       // OUT
+                  btree_pivot_stats  *stats)           // OUT
 {
    btree_node node, child_node;
    uint32     h;
@@ -3013,11 +3013,11 @@ btree_pack(btree_pack_req *req)
  * the total size of all such keys and messages.
  */
 static inline void
-btree_get_rank(cache             *cc,
-               btree_config      *cfg,
-               uint64             root_addr,
-               key                target,
-               btree_pivot_stats *stats)
+btree_get_rank(cache              *cc,
+               const btree_config *cfg,
+               uint64              root_addr,
+               key                 target,
+               btree_pivot_stats  *stats)
 {
    btree_node leaf;
 
@@ -3037,12 +3037,12 @@ btree_get_rank(cache             *cc,
  * btree between min_key (inc) and max_key (excl).
  */
 void
-btree_count_in_range(cache             *cc,
-                     btree_config      *cfg,
-                     uint64             root_addr,
-                     key                min_key,
-                     key                max_key,
-                     btree_pivot_stats *stats)
+btree_count_in_range(cache              *cc,
+                     const btree_config *cfg,
+                     uint64              root_addr,
+                     key                 min_key,
+                     key                 max_key,
+                     btree_pivot_stats  *stats)
 {
    btree_pivot_stats min_stats;
 

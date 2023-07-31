@@ -358,12 +358,12 @@ platform_status
 btree_pack(btree_pack_req *req);
 
 void
-btree_count_in_range(cache             *cc,
-                     btree_config      *cfg,
-                     uint64             root_addr,
-                     key                min_key,
-                     key                max_key,
-                     btree_pivot_stats *stats);
+btree_count_in_range(cache              *cc,
+                     const btree_config *cfg,
+                     uint64              root_addr,
+                     key                 min_key,
+                     key                 max_key,
+                     btree_pivot_stats  *stats);
 
 void
 btree_count_in_range_by_iterator(cache             *cc,
