@@ -317,14 +317,14 @@ platform_log_stream_to_string(platform_stream_handle *stream)
 
 #define platform_open_log_file(path, mode)                                     \
    ({                                                                          \
-      platform_log_handle lh = fopen(path, mode);                              \
+      platform_log_handle *lh = fopen(path, mode);                             \
       platform_assert(lh);                                                     \
       lh;                                                                      \
    })
 
-#define platform_close_log_file(path)                                          \
+#define platform_close_log_file(log_handle)                                    \
    do {                                                                        \
-      fclose(path);                                                            \
+      fclose(log_handle);                                                      \
    } while (0)
 
 #define platform_thread_cleanup_push(func, arg)                                \

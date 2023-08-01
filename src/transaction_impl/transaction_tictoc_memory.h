@@ -8,6 +8,7 @@
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
 #include "isketch/iceberg_table.h"
+#include "transaction_stats.h"
 #include "poison.h"
 
 typedef struct transactional_splinterdb_config {
@@ -20,6 +21,11 @@ typedef struct transactional_splinterdb {
    splinterdb                      *kvsb;
    transactional_splinterdb_config *tcfg;
    iceberg_table                   *tscache;
+
+#if USE_TRANSACTION_STATS
+   // For experimental purpose
+   transaction_stats txn_stats;
+#endif
 } transactional_splinterdb;
 
 
@@ -379,11 +385,20 @@ void
 transactional_splinterdb_register_thread(transactional_splinterdb *kvs)
 {
    splinterdb_register_thread(kvs->kvsb);
+
+#if USE_TRANSACTION_STATS
+   transaction_stats_init(&kvs->txn_stats, platform_get_tid() - 1);
+#endif
 }
 
 void
 transactional_splinterdb_deregister_thread(transactional_splinterdb *kvs)
 {
+#if USE_TRANSACTION_STATS
+   transaction_stats_dump(&kvs->txn_stats, platform_get_tid() - 1);
+   transaction_stats_deinit(&kvs->txn_stats, platform_get_tid() - 1);
+#endif
+
    splinterdb_deregister_thread(kvs->kvsb);
 }
 
@@ -393,6 +408,10 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 {
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
+
+#if USE_TRANSACTION_STATS
+   transaction_stats_begin(&txn_kvsb->txn_stats, platform_get_tid() - 1);
+#endif
    return 0;
 }
 
@@ -410,6 +429,11 @@ int
 transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn)
 {
+
+#if USE_TRANSACTION_STATS
+   transaction_stats_commit_start(&txn_kvsb->txn_stats, platform_get_tid() - 1);
+#endif
+
    txn_timestamp commit_ts = 0;
 
    int       num_reads                    = 0;
@@ -514,6 +538,11 @@ RETRY_LOCK_WRITE_SET:
    }
 
    if (!is_abort) {
+#if USE_TRANSACTION_STATS
+      transaction_stats_write_start(&txn_kvsb->txn_stats,
+                                    platform_get_tid() - 1);
+#endif
+
       int rc = 0;
 
       for (uint64 i = 0; i < num_writes; ++i) {
@@ -559,6 +588,15 @@ RETRY_LOCK_WRITE_SET:
    }
 
    transaction_deinit(txn_kvsb, txn);
+
+#if USE_TRANSACTION_STATS
+   if (is_abort) {
+      transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid() - 1);
+   } else {
+      transaction_stats_commit_end(&txn_kvsb->txn_stats,
+                                   platform_get_tid() - 1);
+   }
+#endif
 
    return (-1 * is_abort);
 }
