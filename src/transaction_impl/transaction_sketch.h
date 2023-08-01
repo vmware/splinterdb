@@ -79,6 +79,12 @@ timestamp_set_set_timestamps(txn_timestamp  wts,
    ts->delta = rts - wts;
 }
 
+static inline void
+timestamp_set_check_invariant(timestamp_set *ts)
+{
+   platform_assert(timestamp_set_get_rts(ts) >= ts->wts);
+}
+
 static void
 sketch_insert_timestamp_set(ValueType *current_value, ValueType new_value)
 {
@@ -103,6 +109,7 @@ sketch_get_timestamp_set(ValueType current_value, ValueType *new_value)
 
    timestamp_set_set_timestamps(
       MIN(current_ts->wts, new_ts->wts), MIN(current_rts, new_rts), new_ts);
+   timestamp_set_check_invariant(new_ts);
 }
 
 typedef struct rw_entry {
