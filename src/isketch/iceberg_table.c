@@ -575,13 +575,12 @@ iceberg_init(iceberg_table *table, uint64_t log_slots)
 int
 iceberg_init_with_sketch(iceberg_table *table,
                          uint64_t       log_slots,
-                         uint64_t       rows,
-                         uint64_t       cols)
+                         sketch_config *config)
 {
    iceberg_init(table, log_slots);
 
    table->sktch = (sketch *)calloc(sizeof(sketch), 1);
-   sketch_init(rows, cols, table->sktch);
+   sketch_init(config, table->sktch);
 
    return 0;
 }

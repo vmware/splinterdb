@@ -26,8 +26,7 @@ typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
    uint64                      tscache_log_slots;
-   uint64                      tscache_rows;
-   uint64                      tscache_cols;
+   sketch_config               sktch_config;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
@@ -96,7 +95,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    KeyType key_ht = (KeyType)slice_data(entry->key);
    // ValueType value_ht = {0};
-#if EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1
    // bool is_new_item = iceberg_insert_without_increasing_refcount(
    //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
 
@@ -108,15 +106,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       (ValueType **)&entry->ts,
       platform_get_tid() - 1);
    platform_assert(entry->ts != &ts);
-#else
-   // increase refcount for key
-   timestamp_set ts = {0};
-   entry->ts        = &ts;
-   bool is_new_item = iceberg_insert_and_get(txn_kvsb->tscache,
-                                             key_ht,
-                                             (ValueType **)&entry->ts,
-                                             platform_get_tid() - 1);
-#endif
 
    entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
    return is_new_item;
@@ -131,19 +120,17 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    entry->ts = NULL;
 
-#if !EXPERIMENTAL_MODE_KEEP_ALL_KEYS
-   KeyType   key_ht   = (KeyType)slice_data(entry->key);
-   ValueType value_ht = {0};
-   if (iceberg_get_and_remove(
-          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
-   {
-      if (slice_data(entry->key) != key_ht) {
-         platform_free_from_heap(0, key_ht);
-      } else {
-         entry->need_to_keep_key = 0;
-      }
-   }
-#endif
+   // KeyType   key_ht   = (KeyType)slice_data(entry->key);
+   // ValueType value_ht = {0};
+   // if (iceberg_get_and_remove(
+   //        txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
+   // {
+   //    if (slice_data(entry->key) != key_ht) {
+   //       platform_free_from_heap(0, key_ht);
+   //    } else {
+   //       entry->need_to_keep_key = 0;
+   //    }
+   // }
 }
 
 static rw_entry *
@@ -240,7 +227,8 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
 static inline void
 rw_entry_unlock(rw_entry *entry, uint64 txn_ts)
 {
-   //platform_default_log("Unlock key = %s, %lu\n", (char*)entry->key.data, txn_ts);
+   // platform_default_log("Unlock key = %s, %lu\n", (char*)entry->key.data,
+   // txn_ts);
    timestamp_set v1, v2;
    do {
       timestamp_set_load(entry->ts, &v1);
@@ -302,7 +290,8 @@ rw_entry_try_write_lock(rw_entry *entry, uint64 txn_ts)
 static inline enum sto_access_rc
 rw_entry_read_lock(rw_entry *entry, uint64 txn_ts)
 {
-   //platform_default_log("Trying to lock key for read at ts = %s, %lu\n", (char*)entry->key.data, txn_ts);
+   // platform_default_log("Trying to lock key for read at ts = %s, %lu\n",
+   // (char*)entry->key.data, txn_ts);
    enum sto_access_rc rc;
    do {
       rc = rw_entry_try_read_lock(entry, txn_ts);
@@ -317,7 +306,8 @@ rw_entry_read_lock(rw_entry *entry, uint64 txn_ts)
 static inline enum sto_access_rc
 rw_entry_write_lock(rw_entry *entry, uint64 txn_ts)
 {
-   //platform_default_log("Trying to lock key for write = %s, %lu\n", (char*)entry->key.data, txn_ts);
+   // platform_default_log("Trying to lock key for write = %s, %lu\n",
+   // (char*)entry->key.data, txn_ts);
    enum sto_access_rc rc;
    do {
       rc = rw_entry_try_write_lock(entry, txn_ts);
@@ -343,6 +333,8 @@ transactional_splinterdb_config_init(
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
+
+   sketch_config_default_init(&txn_splinterdb_cfg->sktch_config);
 }
 
 static int
@@ -372,14 +364,8 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
-#if EXPERIMENTAL_MODE_KEEP_ALL_KEYS
    platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
                    == 0);
-#else
-   platform_assert(iceberg_init_with_sketch(
-                      tscache, txn_splinterdb_cfg->tscache_log_slots, 1, 1)
-                   == 0);
-#endif
 
    _txn_kvsb->tscache = tscache;
 
@@ -483,7 +469,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
-         //w->ts->wts = txn->ts;
+         // w->ts->wts = txn->ts;
          rw_entry_unlock(w, txn->ts);
       }
    }
@@ -536,7 +522,8 @@ local_write(transactional_splinterdb *txn_kvsb,
       }
       // To prevent deadlocks, we have to update the wts
       entry->ts->wts = txn->ts;
-      //platform_default_log("Locked key for write = %s, %lu\n", (char*)entry->key.data, txn->ts);
+      // platform_default_log("Locked key for write = %s, %lu\n",
+      // (char*)entry->key.data, txn->ts);
       rw_entry_set_msg(entry, msg);
    } else {
       // TODO it needs to be checked later for upsert
@@ -626,7 +613,8 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
-      //platform_default_log("Locked key for read = %s, %lu\n", (char*)entry->key.data, txn->ts);
+      // platform_default_log("Locked key for read = %s, %lu\n",
+      // (char*)entry->key.data, txn->ts);
       rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
       if (txn->ts > entry->ts->rts) {
          entry->ts->rts = txn->ts;

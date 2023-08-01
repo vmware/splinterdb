@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 #include "types.h"
+#include "sketch_config.h"
 
 #define USE_SKETCH_ITEM_LATCH 0
 
@@ -18,14 +19,14 @@ typedef struct sketch_item {
 } sketch_item;
 
 typedef struct sketch {
-   uint64_t      rows;
-   uint64_t      cols;
-   sketch_item  *table;
-   unsigned int *hashes;
+   sketch_config *config;
+   sketch_item   *table;
+   unsigned int  *hashes;
 } sketch;
 
 void
-sketch_init(uint64_t rows, uint64_t cols, sketch *sktch);
+sketch_init(sketch_config *config, sketch *sktch);
+
 void
 sketch_deinit(sketch *sktch);
 

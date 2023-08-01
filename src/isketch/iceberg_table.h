@@ -115,8 +115,7 @@ iceberg_init(iceberg_table *table, uint64_t log_slots);
 int
 iceberg_init_with_sketch(iceberg_table *table,
                          uint64_t       log_slots,
-                         uint64_t       rows,
-                         uint64_t       cols);
+                         sketch_config *config);
 
 double
 iceberg_load_factor(iceberg_table *table);

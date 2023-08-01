@@ -14,8 +14,7 @@ typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
    uint64                      tscache_log_slots;
-   uint64                      tscache_rows;
-   uint64                      tscache_cols;
+   sketch_config               sktch_config;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
@@ -69,6 +68,41 @@ timestamp_set_load(timestamp_set *ts, timestamp_set *v)
 {
    __atomic_load(
       (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
+}
+
+static inline void
+timestamp_set_set_timestamps(txn_timestamp  wts,
+                             txn_timestamp  rts,
+                             timestamp_set *ts)
+{
+   ts->wts   = wts;
+   ts->delta = rts - wts;
+}
+
+static void
+sketch_insert_timestamp_set(ValueType *current_value, ValueType new_value)
+{
+   timestamp_set *current_ts = (timestamp_set *)current_value;
+   timestamp_set *new_ts     = (timestamp_set *)&new_value;
+
+   txn_timestamp current_rts = timestamp_set_get_rts(current_ts);
+   txn_timestamp new_rts     = timestamp_set_get_rts(new_ts);
+
+   timestamp_set_set_timestamps(
+      MAX(current_ts->wts, new_ts->wts), MAX(current_rts, new_rts), current_ts);
+}
+
+static void
+sketch_get_timestamp_set(ValueType current_value, ValueType *new_value)
+{
+   timestamp_set *current_ts = (timestamp_set *)&current_value;
+   timestamp_set *new_ts     = (timestamp_set *)new_value;
+
+   txn_timestamp current_rts = timestamp_set_get_rts(current_ts);
+   txn_timestamp new_rts     = timestamp_set_get_rts(new_ts);
+
+   timestamp_set_set_timestamps(
+      MIN(current_ts->wts, new_ts->wts), MIN(current_rts, new_rts), new_ts);
 }
 
 typedef struct rw_entry {
@@ -275,12 +309,24 @@ transactional_splinterdb_config_init(
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
 
    txn_splinterdb_cfg->tscache_log_slots = 29;
-   txn_splinterdb_cfg->tscache_rows      = 2;
-   txn_splinterdb_cfg->tscache_cols      = 131072;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
+
+   sketch_config_default_init(&txn_splinterdb_cfg->sktch_config);
+
+   txn_splinterdb_cfg->sktch_config.insert_value_fn =
+      &sketch_insert_timestamp_set;
+   txn_splinterdb_cfg->sktch_config.get_value_fn = &sketch_get_timestamp_set;
+
+#if EXPERIMENTAL_MODE_COUNTER
+   txn_splinterdb_cfg->sktch_config.rows = 1;
+   txn_splinterdb_cfg->sktch_config.cols = 1;
+#else // if EXPERIMENTAL_MODE_SKETCH
+   txn_splinterdb_cfg->sktch_config.rows = 2;
+   txn_splinterdb_cfg->sktch_config.cols = 131072;
+#endif
 }
 
 static int
@@ -313,8 +359,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    platform_assert(
       iceberg_init_with_sketch(tscache,
                                txn_splinterdb_cfg->tscache_log_slots,
-                               txn_splinterdb_cfg->tscache_rows,
-                               txn_splinterdb_cfg->tscache_cols)
+                               &txn_splinterdb_cfg->sktch_config)
       == 0);
    _txn_kvsb->tscache = tscache;
 
@@ -406,10 +451,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          read_set[num_reads++] = entry;
 
          txn_timestamp wts = entry->wts;
-#if EXPERIMENTAL_MODE_SILO == 1
-         wts += 1;
-#endif
-         commit_ts = MAX(commit_ts, wts);
+         commit_ts         = MAX(commit_ts, wts);
       }
    }
 

@@ -103,7 +103,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    KeyType key_ht = (KeyType)slice_data(entry->key);
    // ValueType value_ht = {0};
-#if EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1
    // bool is_new_item = iceberg_insert_without_increasing_refcount(
    //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
 
@@ -115,16 +114,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       (ValueType **)&entry->tuple_ts,
       platform_get_tid() - 1);
    platform_assert(entry->tuple_ts != &ts);
-#else
-   // increase refcount for key
-   timestamp_set ts = {0};
-   entry->tuple_ts  = &ts;
-   bool is_new_item = iceberg_insert_and_get(txn_kvsb->tscache,
-                                             key_ht,
-                                             (ValueType **)&entry->tuple_ts,
-                                             platform_get_tid() - 1);
-#endif
-
    // get the pointer of the value from the iceberg
    // platform_assert(iceberg_get_value(txn_kvsb->tscache,
    //                                   key_ht,
@@ -147,19 +136,17 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    entry->tuple_ts = NULL;
 
-#if !EXPERIMENTAL_MODE_KEEP_ALL_KEYS
-   KeyType   key_ht   = (KeyType)slice_data(entry->key);
-   ValueType value_ht = {0};
-   if (iceberg_get_and_remove(
-          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
-   {
-      if (slice_data(entry->key) != key_ht) {
-         platform_free_from_heap(0, key_ht);
-      } else {
-         entry->need_to_keep_key = 0;
-      }
-   }
-#endif
+   //    KeyType   key_ht   = (KeyType)slice_data(entry->key);
+   //    ValueType value_ht = {0};
+   //    if (iceberg_get_and_remove(
+   //           txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
+   //    {
+   //       if (slice_data(entry->key) != key_ht) {
+   //          platform_free_from_heap(0, key_ht);
+   //       } else {
+   //          entry->need_to_keep_key = 0;
+   //       }
+   //    }
 }
 
 static rw_entry *
@@ -335,14 +322,8 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
-#if EXPERIMENTAL_MODE_KEEP_ALL_KEYS
    platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
                    == 0);
-#else
-   platform_assert(iceberg_init_with_sketch(
-                      tscache, txn_splinterdb_cfg->tscache_log_slots, 1, 1)
-                   == 0);
-#endif
    _txn_kvsb->tscache = tscache;
 
    *txn_kvsb = _txn_kvsb;
