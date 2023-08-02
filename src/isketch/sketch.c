@@ -106,61 +106,49 @@ unlock_all(sketch *sktch, KeyType key)
 }
 #endif
 
+inline static void
+update_value_at_row(sketch *sktch, KeyType key, ValueType value, uint64_t row)
+{
+   uint64_t  index = get_index_in_row(sktch, key, row);
+   ValueType current_value =
+      __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST);
+   ValueType max_value;
+   bool      is_success;
+   while (current_value < value) {
+      max_value = current_value;
+      sktch->config->insert_value_fn(&max_value, value);
+      is_success = __atomic_compare_exchange_n(&sktch->table[index].value,
+                                               &current_value,
+                                               max_value,
+                                               true,
+                                               __ATOMIC_SEQ_CST,
+                                               __ATOMIC_SEQ_CST);
+      if (is_success) {
+         break;
+      }
+   }
+}
+
 inline void
 sketch_insert(sketch *sktch, KeyType key, ValueType value)
 {
    uint64_t row = 0;
-   uint64_t index;
 
    if (sktch->config->rows == 1) {
-      index = get_index_in_row(sktch, key, row);
-      ValueType current_value =
-         __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST);
-      ValueType max_value;
-      while (current_value < value) {
-         max_value = current_value;
-         sktch->config->insert_value_fn(&max_value, value);
-         bool is_success =
-            __atomic_compare_exchange_n(&sktch->table[index].value,
-                                        &current_value,
-                                        max_value,
-                                        true,
-                                        __ATOMIC_SEQ_CST,
-                                        __ATOMIC_SEQ_CST);
-         if (is_success) {
-            break;
-         }
-      }
+      update_value_at_row(sktch, key, value, row);
       return;
    }
 
 #if USE_SKETCH_ITEM_LATCH
    lock_all(sktch, key);
    for (row = 0; row < sktch->config->rows; ++row) {
-      index = get_index_in_row(sktch, key, row);
+      uint64_t index = get_index_in_row(sktch, key, row);
       sktch->config->insert_value_fn(&sktch->table[index].value, value);
    }
    unlock_all(sktch, key);
 #else
-   ValueType current_value, max_value;
    for (row = 0; row < sktch->config->rows; ++row) {
-      index = get_index_in_row(sktch, key, row);
-      current_value =
-         __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST);
-      while (current_value < value) {
-         max_value = current_value;
-         sktch->config->insert_value_fn(&max_value, value);
-         bool is_success =
-            __atomic_compare_exchange_n(&sktch->table[index].value,
-                                        &current_value,
-                                        max_value,
-                                        true,
-                                        __ATOMIC_SEQ_CST,
-                                        __ATOMIC_SEQ_CST);
-         if (is_success) {
-            break;
-         }
-      }
+      update_value_at_row(sktch, key, value, row);
    }
 #endif
 }
