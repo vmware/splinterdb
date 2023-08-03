@@ -61,14 +61,14 @@ pub struct IteratorResult<'a> {
 }
 
 #[derive(Debug)]
-pub struct RangeIterator<'a> {
+pub struct SplinterCursor<'a> {
     _inner: *mut splinterdb_sys::splinterdb_iterator,
     _marker: ::std::marker::PhantomData<splinterdb_sys::splinterdb_iterator>,
     _parent_marker: ::std::marker::PhantomData<&'a splinterdb_sys::splinterdb>,
     state: Option<IteratorResult<'a>>,
 }
 
-impl<'a> Drop for RangeIterator<'a>
+impl<'a> Drop for SplinterCursor<'a>
 {
     fn drop(&mut self)
     {
@@ -76,21 +76,36 @@ impl<'a> Drop for RangeIterator<'a>
     }
 }
 
-impl<'a> RangeIterator<'a>
+// Bidirectional cursor for SplinterDB
+// can return errors and retains ownership of the result
+impl<'a> SplinterCursor<'a>
 {
-    pub fn new(iter: *mut splinterdb_sys::splinterdb_iterator) -> RangeIterator<'a> 
+    pub fn new(iter: *mut splinterdb_sys::splinterdb_iterator)
+    -> Result<SplinterCursor<'a>>
     {
-        RangeIterator {
+        Ok(SplinterCursor {
             _inner: iter,
             _marker: ::std::marker::PhantomData,
             _parent_marker: ::std::marker::PhantomData,
-            state: None,
-        }
+            state: Self::_get_current(iter)?,
+        })
     }
 
-    // stashes current state of the iterator from the C API
-    fn _stash_current(&mut self)
+    // returns the current state of the iterator from the C API
+    fn _get_current(it: *mut splinterdb_sys::splinterdb_iterator)
+    -> Result<Option<IteratorResult<'a>>>
     {
+        let valid: i32 = unsafe {
+            splinterdb_sys::splinterdb_iterator_valid(it)
+        } as i32;
+
+        if valid == 0 {
+            // cannot access the current element, check status
+            let rc = unsafe { splinterdb_sys::splinterdb_iterator_status(it) };
+            as_result(rc)?;
+            return Ok(None);
+        }
+
         let mut key_out: splinterdb_sys::slice = splinterdb_sys::slice {
             length: 0,
             data: ::std::ptr::null(),
@@ -103,7 +118,7 @@ impl<'a> RangeIterator<'a>
         let (key, value): (&[u8], &[u8]) = unsafe {
             // get key and value
             splinterdb_sys::splinterdb_iterator_get_current(
-                self._inner,
+                it,
                 &mut key_out,
                 &mut val_out,
             );
@@ -120,38 +135,45 @@ impl<'a> RangeIterator<'a>
             )
         };
         let r = IteratorResult { key, value };
-        self.state = Some(r);
+        Ok(Some(r))
     }
 
-    fn _inner_advance(&mut self)
+    pub fn get_curr(&self) -> Option<&IteratorResult>
     {
-        unsafe { splinterdb_sys::splinterdb_iterator_next(self._inner) };
-    }
-
-    // almost an iterator, but we need to be able to return errors
-    // and retain ownership of the result
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<Option<&IteratorResult>>
-    {
-        // Rust iterator expects to start just before the first element
-        // but Splinter iterators start at the first element
-        // so we only call _inner_advance if its our first iteration
-        if self.state.is_some() {
-            self._inner_advance();
+        match self.state {
+            None => None,
+            Some(ref r) => Some(r),
         }
+    }
 
-        let valid = unsafe { splinterdb_sys::splinterdb_iterator_valid(self._inner) } as i32;
-        if valid == 0 {
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Result<bool>
+    {
+        let can_next = unsafe { splinterdb_sys::splinterdb_iterator_can_next(self._inner) } as i32;
+        if can_next == 0 {
             let rc = unsafe { splinterdb_sys::splinterdb_iterator_status(self._inner) };
             as_result(rc)?;
-            return Ok(None);
+            return Ok(false);
         }
+        unsafe { splinterdb_sys::splinterdb_iterator_next(self._inner); }
 
-        self._stash_current();
-        match self.state {
-            None => Ok(None),
-            Some(ref r) => Ok(Some(r)),
+        self.state = Self::_get_current(self._inner)?;
+        Ok(true)
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn prev(&mut self) -> Result<bool>
+    {
+        let can_prev = unsafe { splinterdb_sys::splinterdb_iterator_can_prev(self._inner) } as i32;
+        if can_prev == 0 {
+            let rc = unsafe { splinterdb_sys::splinterdb_iterator_status(self._inner) };
+            as_result(rc)?;
+            return Ok(false);
         }
+        unsafe { splinterdb_sys::splinterdb_iterator_prev(self._inner); }
+
+        self.state = Self::_get_current(self._inner)?;
+        Ok(true)
     }
 }
 
@@ -303,7 +325,7 @@ impl SplinterDB
         }
     }
 
-    pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator>
+    pub fn range(&self, start_key: Option<&[u8]>) -> Result<SplinterCursor>
     {
         let mut iter: *mut splinterdb_sys::splinterdb_iterator = std::ptr::null_mut();
 
@@ -325,7 +347,7 @@ impl SplinterDB
             )
         };
         as_result(rc)?;
-        Ok(RangeIterator::new(iter))
+        return SplinterCursor::new(iter);
     }
 }
 

@@ -249,12 +249,17 @@ mod tests {
         sdb.insert(&(b"some-key-5".to_vec()), &(b"some-value-5".to_vec()))?;
         sdb.insert(&(b"some-key-6".to_vec()), &(b"some-value-6".to_vec()))?;
 
+        println!("SUCCESSFULLY PERFORMED INSERTIONS!");
         let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
         let mut iter = sdb.range(None)?;
         loop {
+            match iter.get_curr() {
+                None => break,
+                Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+            }
             match iter.next() {
-                Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-                Ok(None) => break,
+                Ok(true) => (),
+                Ok(false) => break,
                 Err(e) => return Err(e),
             }
         }
@@ -265,6 +270,28 @@ mod tests {
         assert_eq!(found[1], (b"some-key-3".to_vec(), b"some-value-3".to_vec()));
         assert_eq!(found[2], (b"some-key-5".to_vec(), b"some-value-5".to_vec()));
         assert_eq!(found[3], (b"some-key-6".to_vec(), b"some-value-6".to_vec()));
+
+        // try going backwards as well
+        found = Vec::new();
+        iter.prev()?;
+        loop {
+            match iter.get_curr() {
+                None => break,
+                Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+            }
+            match iter.prev() {
+                Ok(true) => (),
+                Ok(false) => break,
+                Err(e) => return Err(e),
+            }
+        }
+
+        println!("Found {} results", found.len());
+
+        assert_eq!(found[0], (b"some-key-6".to_vec(), b"some-value-6".to_vec()));
+        assert_eq!(found[1], (b"some-key-5".to_vec(), b"some-value-5".to_vec()));
+        assert_eq!(found[2], (b"some-key-3".to_vec(), b"some-value-3".to_vec()));
+        assert_eq!(found[3], (b"some-key-0".to_vec(), b"some-value-0".to_vec()));
 
         drop(iter);
 
@@ -356,9 +383,13 @@ mod tests {
         let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
         let mut iter = sdb.range(None)?;
         loop {
+            match iter.get_curr() {
+                None => break,
+                Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+            }
             match iter.next() {
-                Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-                Ok(None) => break,
+                Ok(true) => (),
+                Ok(false) => break,
                 Err(e) => return Err(e),
             }
         }
