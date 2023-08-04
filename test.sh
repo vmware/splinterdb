@@ -667,13 +667,13 @@ function run_other_driver_tests() {
 # ##################################################################
 function run_rust_wrapper_tests() {
     set +x
-    rustc --version > /dev/null
+    which rustc
     have_rustc=$?
-    cargo --version > /dev/null
+    which cargo
     have_cargo=$?
 
     if [ ! $have_rustc ] || [ ! $have_cargo ]; then
-        echo "Rust and cargo not installed... skipping tests"
+        echo "Rust or cargo not installed... skipping tests"
         set -x
         return 0
     fi
@@ -684,7 +684,6 @@ function run_rust_wrapper_tests() {
     cd -
     return $ret
 }
-
 
 # ##################################################################
 # main() begins here
