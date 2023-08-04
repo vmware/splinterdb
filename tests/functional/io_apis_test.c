@@ -48,7 +48,7 @@ typedef struct io_test_fn_args {
 } io_test_fn_args;
 
 /* Whether to display verbose-progress from each thread's activity */
-bool Verbose_progress = FALSE;
+bool32 Verbose_progress = FALSE;
 
 /*
  * Different test cases in this test drive multiple threads each doing one

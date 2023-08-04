@@ -330,6 +330,22 @@ CTEST2(column_family, test_multiple_cf_range)
       ++idx;
    }
    ASSERT_EQUAL(4, idx);
+   ASSERT_FALSE(splinterdb_cf_iterator_can_next(it));
+   ASSERT_TRUE(splinterdb_cf_iterator_can_prev(it));
+   splinterdb_cf_iterator_prev(it);
+   --idx;
+
+   for (; splinterdb_cf_iterator_valid(it); splinterdb_cf_iterator_prev(it)) {
+      splinterdb_cf_iterator_get_current(it, &key, &val);
+      ASSERT_EQUAL(slice_length(keys[3 - idx]), slice_length(key));
+      ASSERT_STREQN(
+         slice_data(keys[3 - idx]), slice_data(key), slice_length(key));
+
+      ASSERT_EQUAL(slice_length(val2), slice_length(val));
+      ASSERT_STREQN(slice_data(val2), slice_data(val), slice_length(val));
+      --idx;
+   }
+   ASSERT_EQUAL(-1, idx);
 
    splinterdb_cf_iterator_deinit(it);
    column_family_delete(cf_default);
@@ -590,8 +606,10 @@ CTEST2(column_family, test_multithread_cf)
    splinterdb_create(&data->cfg, &data->kvsb);
 
    platform_thread thread1;
-   do_cf_args      t1_args = {
-           .kvs = data->kvsb, .data_cfg = &data->default_data_cfg, .inserts = 2000000, .deletes = 0};
+   do_cf_args      t1_args = {.kvs      = data->kvsb,
+                              .data_cfg = &data->default_data_cfg,
+                              .inserts  = 2000000,
+                              .deletes  = 0};
    platform_thread_create(&thread1,
                           FALSE,
                           (void (*)(void *))do_cf,

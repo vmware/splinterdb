@@ -26,7 +26,7 @@ verify_tuple(trunk_handle           *spl,
              uint64                  lookup_num,
              key                     tuple_key,
              message                 data,
-             bool                    expected_found)
+             bool32                  expected_found)
 {
    if (message_is_null(data) != !expected_found) {
       char key_str[128];
@@ -89,7 +89,7 @@ void
 verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    verify_tuple_arg *vta   = arg;
-   bool              found = trunk_lookup_found(&ctxt->data);
+   bool32            found = trunk_lookup_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {

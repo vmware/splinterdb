@@ -74,7 +74,7 @@ srq_rchild(int64 pos)
 /*
  * Returns TRUE if priority(left) > priority(right)
  */
-static inline bool
+static inline bool32
 srq_has_priority(srq *queue, int64 lpos, int64 rpos)
 {
    debug_assert(lpos >= 0, "lpos=%ld", lpos);
@@ -166,7 +166,7 @@ srq_get_new_index(srq *queue)
    return queue->index_hand;
 }
 
-static inline bool
+static inline bool32
 srq_verify(srq *queue);
 
 static inline void
@@ -189,7 +189,7 @@ srq_insert(srq *queue, srq_data new_data)
    return new_idx;
 }
 
-static inline bool
+static inline bool32
 srq_data_found(srq_data *data)
 {
    return data->idx != SRQ_INDEX_AVAILABLE;
@@ -309,10 +309,10 @@ srq_print(srq *queue)
    platform_mutex_unlock(&queue->mutex);
 }
 
-static inline bool
+static inline bool32
 srq_verify(srq *queue)
 {
-   bool ret = TRUE;
+   bool32 ret = TRUE;
    platform_mutex_lock(&queue->mutex);
    uint64 entries_found = 0;
    for (uint64 idx = 0; idx < SRQ_MAX_ENTRIES; idx++) {

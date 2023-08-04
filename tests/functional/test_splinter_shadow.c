@@ -145,7 +145,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
  *-----------------------------------------------------------------------------
  */
 
-bool
+bool32
 test_splinter_shadow_lookup(test_splinter_shadow_tree *tree,
                             uint64                    *key,
                             uint64                    *val)
