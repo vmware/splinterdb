@@ -23,5 +23,6 @@
 #include "util.h"
 
 typedef struct VECTOR_NAME {
-   writable_buffer wb;
+   writable_buffer     wb;
+   VECTOR_ELEMENT_TYPE vector_element_type_handle[0];
 } VECTOR_NAME;

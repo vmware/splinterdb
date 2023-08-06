@@ -34,7 +34,7 @@
 VECTOR_STORAGE
 void
 VECTOR_FUNC_NAME(init)(platform_heap_id          hid,
-                                    VECTOR_NAME *array)
+                       VECTOR_NAME *array)
    __attribute__((unused));
 
 VECTOR_STORAGE
@@ -64,27 +64,35 @@ void
 VECTOR_FUNC_NAME(deinit)(VECTOR_NAME *array)
    __attribute__((unused));
 
-VECTOR_STORAGE
-uint64
-VECTOR_FUNC_NAME(length)(VECTOR_NAME *array)
-   __attribute__((unused));
+#ifndef vector_length
+#define vector_length(v) (writable_buffer_length(&((v)->wb)) / sizeof((v)->vector_element_type_handle[0]))
+#endif
 
-VECTOR_STORAGE
-VECTOR_ELEMENT_TYPE
-VECTOR_FUNC_NAME(get)(VECTOR_NAME *array, uint64 idx)
-  __attribute__((unused));
+#ifndef vector_get
+#define vector_get(v, i) \
+  ({\
+    uint64 vector_tmp_idx = (i);                       \
+    typeof(v) vector_tmp = (v); \
+    debug_assert((vector_tmp_idx) < vector_length(vector_tmp)); \
+    ((typeof(&(vector_tmp)->vector_element_type_handle[0]))writable_buffer_data(&((vector_tmp)->wb)))[(vector_tmp_idx)];\
+  })
+#endif
 
 VECTOR_STORAGE
 slice
-VECTOR_FUNC_NAME(slice)(VECTOR_NAME *array)
+VECTOR_FUNC_NAME(slice)(const VECTOR_NAME *array)
   __attribute__((unused));
 
-VECTOR_STORAGE
-void
-VECTOR_FUNC_NAME(set)(VECTOR_NAME        *array,
-                                   uint64                           idx,
-                                   VECTOR_ELEMENT_TYPE elt)
-  __attribute__((unused));
+#ifndef vector_set
+#define vector_set(v, i, val)                       \
+  ({\
+    uint64 vector_tmp_idx = (i);                       \
+    typeof(v) vector_tmp = (v); \
+    typeof(val) val_tmp = (val); \
+    debug_assert((vector_tmp_idx) < vector_length(vector_tmp)); \
+    ((typeof(&(vector_tmp)->vector_element_type_handle[0]))writable_buffer_data(&((vector_tmp)->wb)))[(vector_tmp_idx)] = val_tmp;\
+  })
+#endif
 
 VECTOR_STORAGE
 void
@@ -104,11 +112,15 @@ VECTOR_FUNC_NAME(set_array)(VECTOR_NAME *array,
                                          uint64                    offset)
   __attribute__((unused));
 
-VECTOR_STORAGE
-platform_status
-VECTOR_FUNC_NAME(append)(VECTOR_NAME        *array,
-                                      VECTOR_ELEMENT_TYPE elt)
-  __attribute__((unused));
+#ifndef vector_append
+#define vector_append(v, val) \
+  ({ \
+    typeof(v) vector_tmp = (v);                                         \
+    typeof(vector_tmp->vector_element_type_handle[0]) val_tmp = (val); \
+    writable_buffer_append(&vector_tmp->wb, sizeof(val_tmp), &val_tmp); \
+    STATUS_OK; \
+  })
+#endif
 
 VECTOR_STORAGE
 platform_status
