@@ -54,6 +54,8 @@ typedef struct ONDISK routing_filter {
    uint32 value_size;
 } routing_filter;
 
+#define NULL_ROUTING_FILTER ((routing_filter){0})
+
 struct routing_async_ctxt;
 typedef void (*routing_async_cb)(struct routing_async_ctxt *ctxt);
 
