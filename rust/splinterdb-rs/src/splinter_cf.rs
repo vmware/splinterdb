@@ -3,83 +3,6 @@ use std::collections::LinkedList;
 use crate::*;
 
 #[derive(Debug)]
-pub struct RangeIterator<'a> {
-   _inner: *mut splinterdb_sys::splinterdb_cf_iterator,
-   _marker: ::std::marker::PhantomData<splinterdb_sys::splinterdb_cf_iterator>,
-   _parent_marker: ::std::marker::PhantomData<&'a splinterdb_sys::splinterdb>,
-   state: Option<IteratorResult<'a>>,
-}
-
-impl<'a> Drop for RangeIterator<'a>
-{
-   fn drop(&mut self)
-   {
-      unsafe { splinterdb_sys::splinterdb_cf_iterator_deinit(self._inner) }
-   }
-}
-
-impl<'a> RangeIterator<'a>
-{
-   pub fn new(cf_iter: *mut splinterdb_sys::splinterdb_cf_iterator) -> RangeIterator<'a> 
-   {
-      RangeIterator {
-         _inner: cf_iter,
-         _marker: ::std::marker::PhantomData,
-         _parent_marker: ::std::marker::PhantomData,
-         state: None,
-      }
-   }
-
-   // almost an iterator, but we need to be able to return errors
-   // and retain ownership of the result
-   #[allow(clippy::should_implement_trait)]
-   pub fn next(&mut self) -> Result<Option<&IteratorResult>>
-   {
-
-      // Rust iterator expects to begin just before the first element
-      // but Splinter iterators start at the first element
-      // so we don't call splinter's next() if its our first iteration
-      if self.state.is_some() {
-         unsafe { splinterdb_sys::splinterdb_cf_iterator_next(self._inner) };
-      }
-
-      let mut key_slice = NULL_SLICE;
-      let mut val_slice = NULL_SLICE;
-
-      let valid = unsafe {
-         splinterdb_sys::splinterdb_cf_iterator_valid(self._inner)
-      } as i32;
-
-      if valid == 0 {
-         let rc = unsafe{ splinterdb_sys::splinterdb_cf_iterator_status(self._inner) };
-         as_result(rc)?;
-         return Ok(None);
-      } else {
-         unsafe { 
-            splinterdb_sys::splinterdb_cf_iterator_get_current(self._inner, &mut key_slice, &mut val_slice) 
-         }
-
-         let (key, value): (&[u8], &[u8]) = unsafe {(
-            ::std::slice::from_raw_parts(
-               ::std::mem::transmute(key_slice.data),
-               key_slice.length as usize,
-            ),
-            ::std::slice::from_raw_parts(
-               ::std::mem::transmute(val_slice.data),
-               val_slice.length as usize,
-            ),
-         )};
-         self.state = Some(IteratorResult { key, value});
-      }
-
-      match self.state {
-         None => Ok(None),
-         Some(ref r) => Ok(Some(r)),
-      }
-   }
-}
-
-#[derive(Debug)]
 pub struct SplinterDBWithColumnFamilies {
    _inner:    *mut splinterdb_sys::splinterdb,
    cf_cfg:    *mut splinterdb_sys::data_config,
@@ -275,9 +198,10 @@ impl SplinterColumnFamily {
       }
    }
 
-   pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator>
+   pub fn range(&self, start_key: Option<&[u8]>) -> Result<SplinterCursor>
    {
       let mut cf_iter: *mut splinterdb_sys::splinterdb_cf_iterator = std::ptr::null_mut();
+
 
       let rc = unsafe {
          let start_slice: splinterdb_sys::slice = match start_key {
@@ -297,7 +221,6 @@ impl SplinterColumnFamily {
          )
       };
       as_result(rc)?;
-      Ok(RangeIterator::new(cf_iter))
+      SplinterCursor::new(cf_iter as *mut splinterdb_sys::splinterdb_iterator, true)
    }
 }
-

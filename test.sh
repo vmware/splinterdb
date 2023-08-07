@@ -663,6 +663,30 @@ function run_other_driver_tests() {
 }
 
 # ##################################################################
+# Run the tests of the Rust wrapper
+# Exits without running tests if rust and cargo are not installed
+# ##################################################################
+function run_rust_wrapper_tests() {
+    set +x
+    which rustc
+    have_rustc=$?
+    which cargo
+    have_cargo=$?
+
+    if [ ! $have_rustc ] || [ ! $have_cargo ]; then
+        echo "Rust or cargo not installed... skipping tests"
+        set -x
+        return 0
+    fi
+    set -x
+    cd rust
+    cargo test --tests --release
+    ret=$?
+    cd -
+    return $ret
+}
+
+# ##################################################################
 # main() begins here
 # ##################################################################
 
@@ -741,6 +765,8 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    run_with_timing "Smoke tests" run_fast_unit_tests
 
+   run_with_timing "Rust wrapper tests" run_rust_wrapper_tests
+
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
       run_with_timing "Basic build-and-test tests" test_make_run_tests
    fi
@@ -771,6 +797,9 @@ fi
 
 # Run all the unit-tests first, to get basic coverage
 run_with_timing "Fast unit tests" "$BINDIR"/unit_test
+
+# Run rust wrapper tests
+run_with_timing "Rust wrapper tests" run_rust_wrapper_tests
 
 # ------------------------------------------------------------------------
 # Run mini-unit-tests that were excluded from bin/unit_test binary:

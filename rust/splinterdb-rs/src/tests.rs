@@ -240,11 +240,11 @@ mod tests {
       sdb.db_create(
          &data_file,
          &crate::DBConfig {
-            cache_size_bytes: 1024 * 1024,
-            disk_size_bytes: 30 * 1024 * 1024,
-            max_key_size: 23,
-            max_value_size: 100,
-            ..Default::default()
+             cache_size_bytes: 1024 * 1024,
+             disk_size_bytes: 30 * 1024 * 1024,
+             max_key_size: 23,
+             max_value_size: 100,
+             ..Default::default()
          },
       )?;
       println!("SUCCESSFULLY CREATED DB!");
@@ -254,13 +254,18 @@ mod tests {
       sdb.insert(&(b"some-key-5".to_vec()), &(b"some-value-5".to_vec()))?;
       sdb.insert(&(b"some-key-6".to_vec()), &(b"some-value-6".to_vec()))?;
 
+      println!("SUCCESSFULLY PERFORMED INSERTIONS!");
       let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
       let mut iter = sdb.range(None)?;
       loop {
+         match iter.get_curr() {
+             None => break,
+             Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+         }
          match iter.next() {
-            Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-            Ok(None) => break,
-            Err(e) => return Err(e),
+             Ok(true) => (),
+             Ok(false) => break,
+             Err(e) => return Err(e),
          }
       }
 
@@ -270,6 +275,28 @@ mod tests {
       assert_eq!(found[1], (b"some-key-3".to_vec(), b"some-value-3".to_vec()));
       assert_eq!(found[2], (b"some-key-5".to_vec(), b"some-value-5".to_vec()));
       assert_eq!(found[3], (b"some-key-6".to_vec(), b"some-value-6".to_vec()));
+
+      // try going backwards as well
+      found = Vec::new();
+      iter.prev()?;
+      loop {
+         match iter.get_curr() {
+             None => break,
+             Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+         }
+         match iter.prev() {
+             Ok(true) => (),
+             Ok(false) => break,
+             Err(e) => return Err(e),
+         }
+      }
+
+      println!("Found {} results", found.len());
+
+      assert_eq!(found[0], (b"some-key-6".to_vec(), b"some-value-6".to_vec()));
+      assert_eq!(found[1], (b"some-key-5".to_vec(), b"some-value-5".to_vec()));
+      assert_eq!(found[2], (b"some-key-3".to_vec(), b"some-value-3".to_vec()));
+      assert_eq!(found[3], (b"some-key-0".to_vec(), b"some-value-0".to_vec()));
 
       drop(iter);
 
@@ -362,9 +389,14 @@ mod tests {
       let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
       let mut iter = sdb.range(None)?;
       loop {
+         match iter.get_curr() {
+            None => break,
+            Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+         }
+
          match iter.next() {
-            Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-            Ok(None) => break,
+            Ok(true) => (),
+            Ok(false) => break,
             Err(e) => return Err(e),
          }
       }
@@ -420,9 +452,14 @@ mod tests {
       let mut iter = kvs.range(Some(start_key.as_bytes()))?;
       let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
       loop {
+         match iter.get_curr() {
+            None => break,
+            Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+         }
+
          match iter.next() {
-            Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-            Ok(None) => break,
+            Ok(true) => (),
+            Ok(false) => break,
             Err(e) => return Err(e),
          }
       }
@@ -665,9 +702,14 @@ mod tests {
          let mut iter = cfs[i].range(None)?;
          let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
          loop {
+            match iter.get_curr() {
+               None => break,
+               Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+            }
+
             match iter.next() {
-               Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-               Ok(None) => break,
+               Ok(true) => (),
+               Ok(false) => break,
                Err(e) => return Err(e),
             }
          }
@@ -678,8 +720,6 @@ mod tests {
       }      
 
       println!("SUCCESSFULLY PERFORMED RANGE LOOKUPS!");
-
-
 
       println!("Dropping Column Families!");
       drop(cf0);
@@ -737,9 +777,14 @@ mod tests {
          let mut iter0 = cfs[0].range(None)?;
          let mut found0: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
          loop {
+            match iter0.get_curr() {
+               None => break,
+               Some(r) => found0.push((r.key.to_vec(), r.value.to_vec())),
+            }
+
             match iter0.next() {
-               Ok(Some(r)) => found0.push((r.key.to_vec(), r.value.to_vec())),
-               Ok(None) => break,
+               Ok(true) => (),
+               Ok(false) => break,
                Err(e) => return Err(e),
             }
          }
@@ -751,9 +796,14 @@ mod tests {
          let mut iter1 = cfs[1].range(None)?;
          let mut found1: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
          loop {
+            match iter1.get_curr() {
+               None => break,
+               Some(r) => found1.push((r.key.to_vec(), r.value.to_vec())),
+            }
+
             match iter1.next() {
-               Ok(Some(r)) => found1.push((r.key.to_vec(), r.value.to_vec())),
-               Ok(None) => break,
+               Ok(true) => (),
+               Ok(false) => break,
                Err(e) => return Err(e),
             }
          }
@@ -802,12 +852,17 @@ mod tests {
       let mut iter = cf.range(None)?;
       let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // to collect results
       loop {
-         match iter.next() {
-            Ok(Some(r)) => found.push((r.key.to_vec(), r.value.to_vec())),
-            Ok(None) => break,
-            Err(e) => return Err(e),
+            match iter.get_curr() {
+               None => break,
+               Some(r) => found.push((r.key.to_vec(), r.value.to_vec())),
+            }
+
+            match iter.next() {
+               Ok(true) => (),
+               Ok(false) => break,
+               Err(e) => return Err(e),
+            }
          }
-      }
       drop(iter);
       drop(cf);
 

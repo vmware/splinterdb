@@ -18,6 +18,7 @@ enum SubCommand {
     Delete(Delete),
     Get(Get),
     List(List),
+    RevList(RevList),
     Perf(Perf),
 }
 
@@ -52,6 +53,11 @@ struct Get {
 /// List all keys and values in an existing database
 #[derive(Parser)]
 struct List {}
+
+/// List all keys and values in an existing database
+/// in descending order
+#[derive(Parser)]
+struct RevList {}
 
 /// Initialize a new database file
 #[derive(Parser)]
@@ -209,13 +215,65 @@ impl List {
         db.db_open(&opts.file, &db_config)?;
         let mut iter = db.range(None)?;
         loop {
-            match iter.next() {
-                Ok(Some(&splinterdb_rs::IteratorResult { key, value })) => {
-                    let key = std::str::from_utf8(key)?;
-                    let value = std::str::from_utf8(value)?;
+            let res_opt = iter.get_curr();
+            match res_opt {
+                None => break,
+                Some(result) => {
+                    let key = std::str::from_utf8(result.key)?;
+                    let value = std::str::from_utf8(result.value)?;
                     println!("\t{} : {}", key, value)
                 }
-                Ok(None) => {
+            }
+            match iter.next() {
+                Ok(true) => (),
+                Ok(false) => {
+                    println!("<end of list>");
+                    break;
+                }
+                Err(e) => {
+                    println!("got error: {:?}", e);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl RevList {
+    fn run(&self, opts: &Opts) -> CLIResult<()> {
+        let db_config = meta_load(&opts.file)?;
+        let mut db = splinterdb_rs::SplinterDB::new::<splinterdb_rs::rust_cfg::DefaultSdb>();
+        db.db_open(&opts.file, &db_config)?;
+        let mut iter = db.range(None)?;
+        // find the end of the list
+        loop {
+            match iter.next() {
+                Ok(true) => (),
+                Ok(false) => break,
+                Err(e) => {
+                    println!("got error: {:?}", e);
+                    return Ok(());
+                }
+            }
+        }
+        // move back one element to end of range
+        iter.prev()?;
+
+        // iterate list backwards
+        loop {
+            let res_opt = iter.get_curr();
+            match res_opt {
+                None => break,
+                Some(result) => {
+                    let key = std::str::from_utf8(result.key)?;
+                    let value = std::str::from_utf8(result.value)?;
+                    println!("\t{} : {}", key, value)
+                }
+            }
+            match iter.prev() {
+                Ok(true) => (),
+                Ok(false) => {
                     println!("<end of list>");
                     break;
                 }
@@ -408,6 +466,7 @@ fn main() -> CLIResult<()> {
         SubCommand::Delete(ref delete) => delete.run(&opts),
         SubCommand::Get(ref get) => get.run(&opts),
         SubCommand::List(ref list) => list.run(&opts),
+        SubCommand::RevList(ref revlist) => revlist.run(&opts),
         SubCommand::Perf(ref perf) => perf.run(opts.file),
     }
 }
