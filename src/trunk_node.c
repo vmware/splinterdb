@@ -99,6 +99,9 @@ typedef struct in_memory_node {
    in_memory_inflight_bundle_vector inflight_bundles;
 } in_memory_node;
 
+/*
+ * branch_ref operations
+ */
 branch_ref
 create_branch_ref(uint64 addr)
 {
@@ -111,7 +114,9 @@ branch_ref_addr(branch_ref bref)
    return bref.addr;
 }
 
-
+/*
+ * pivot operations
+ */
 in_memory_pivot *
 pivot_create(platform_heap_id hid, key k)
 {
@@ -136,6 +141,17 @@ in_memory_pivot_num_tuples(const in_memory_pivot *pivot)
    return pivot->num_tuples;
 }
 
+/*
+ * basic node operations
+ */
+void
+in_memory_node_deinit(in_memory_node *node)
+{
+   vector_apply(&node->pivots, vector_apply_platform_free, node->hid);
+   vector_apply(&node->pivot_bundles, vector_apply_platform_free, node->hid);
+   vector_apply(&node->inflight_bundles, vector_apply_platform_free, node->hid);
+}
+
 uint64
 in_memory_node_num_children(const in_memory_node *node)
 {
@@ -154,6 +170,9 @@ in_memory_node_is_leaf(const in_memory_node *node)
    return node->height == 0;
 }
 
+/*
+ * routed_bundle operations
+ */
 in_memory_routed_bundle *
 in_memory_routed_bundle_create(platform_heap_id hid,
                                routing_filter   maplet,
@@ -230,6 +249,9 @@ in_memory_routed_bundle_branch(const in_memory_routed_bundle *bundle, uint64 i)
    return bundle->branches[i];
 }
 
+/*
+ * per_child_bundle operations
+ */
 branch_ref *
 in_memory_per_child_bundle_branch_array(in_memory_per_child_bundle *bundle)
 {
@@ -272,6 +294,9 @@ in_memory_per_child_bundle_branch(in_memory_per_child_bundle *bundle, uint64 i)
    return branch_array[i];
 }
 
+/*
+ * singleton_bundle operations
+ */
 void
 in_memory_singleton_bundle_destroy(platform_heap_id            hid,
                                    in_memory_singleton_bundle *bundle)
@@ -306,6 +331,9 @@ in_memory_singleton_bundle_branch(const in_memory_singleton_bundle *bundle)
    return bundle->branch;
 }
 
+/*
+ * inflight_bundle operations
+ */
 in_memory_inflight_bundle *
 in_memory_inflight_bundle_create_routed(platform_heap_id               hid,
                                         const in_memory_routed_bundle *bundle)
@@ -479,7 +507,6 @@ in_memory_inflight_bundle_create_singleton(platform_heap_id            hid,
    return result;
 }
 
-
 in_memory_inflight_bundle *
 in_memory_inflight_bundle_copy_singleton(
    platform_heap_id                  hid,
@@ -500,6 +527,9 @@ in_memory_inflight_bundle_copy_singleton(
    return result;
 }
 
+/*
+ * accounting maintenance
+ */
 typedef enum branch_tuple_count_operation {
    BRANCH_TUPLE_COUNT_ADD,
    BRANCH_TUPLE_COUNT_SUB,
@@ -583,6 +613,9 @@ add_branches_tuple_counts(cache                       *cc,
    return rc;
 }
 
+/*
+ * flushing: bundles
+ */
 platform_status
 in_memory_node_receive_routed_bundle(cache                         *cc,
                                      const btree_config            *cfg,
@@ -759,6 +792,10 @@ perform_flush(cache              *cc,
    return rc;
 }
 
+/*
+ * branch_merger operations
+ * (used in both leaf splits and compactions)
+ */
 VECTOR_DEFINE(iterator_vector, iterator *)
 
 typedef struct branch_merger {
@@ -923,6 +960,9 @@ branch_merger_deinit(branch_merger *merger)
    return rc;
 }
 
+/*
+ * flushing: leaf splits
+ */
 platform_status
 in_memory_leaf_estimate_unique_keys(cache           *cc,
                                     routing_config  *filter_cfg,
@@ -1103,8 +1143,7 @@ platform_status
 in_memory_node_init(in_memory_node  *new_node,
                     platform_heap_id hid,
                     uint64           height,
-                    key              min_key,
-                    key              max_key)
+                    key              min_key)
 {
    platform_status rc;
    ZERO_CONTENTS(new_node);
@@ -1119,40 +1158,13 @@ in_memory_node_init(in_memory_node  *new_node,
       rc = STATUS_NO_MEMORY;
       goto deinits;
    }
-   pivot *ub = pivot_create(hid, max_key);
-   if (ub == NULL) {
-      rc = STATUS_NO_MEMORY;
-      goto free_lb;
-   }
-
-   in_memory_routed_bundle *pbundle =
-      TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, pbundle, branches, 0);
-   if (pbundle == NULL) {
-      rc = STATUS_NO_MEMORY;
-      goto free_ub;
-   }
-
    rc = vector_append(&new_node->pivots, lb);
    if (!SUCCESS(rc)) {
-      goto free_pbundle;
-   }
-
-   rc = vector_append(&new_node->pivots, ub);
-   if (!SUCCESS(rc)) {
-      goto free_pbundle;
-   }
-
-   rc = vector_append(&new_node->pivot_bundles, pbundle);
-   if (!SUCCESS(rc)) {
-      goto free_pbundle;
+      goto free_lb;
    }
 
    return STATUS_OK;
 
-free_pbundle:
-   platform_free(hid, pbundle);
-free_ub:
-   platform_free(hid, ub);
 free_lb:
    platform_free(hid, lb);
 deinits:
@@ -1160,14 +1172,6 @@ deinits:
    vector_deinit(&new_node->pivot_bundles);
    vector_deinit(&new_node->inflight_bundles);
    return rc;
-}
-
-void
-in_memory_node_deinit(in_memory_node *node)
-{
-   vector_apply(&node->pivots, vector_apply_platform_free, node->hid);
-   vector_apply(&node->pivot_bundles, vector_apply_platform_free, node->hid);
-   vector_apply(&node->inflight_bundles, vector_apply_platform_free, node->hid);
 }
 
 platform_status
@@ -1181,7 +1185,7 @@ in_memory_leaf_split_init(in_memory_node  *new_leaf,
 {
    platform_assert(in_memory_node_is_leaf(leaf));
 
-   platform_status rc = in_memory_node_init(new_leaf, hid, 0, min_key, max_key);
+   platform_status rc = in_memory_node_init(new_leaf, hid, 0, min_key);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1282,7 +1286,9 @@ pivots_deinit:
    return rc;
 }
 
-/* new_leaf must be an inited empty node */
+/*
+ * flushing: index splits
+ */
 platform_status
 in_memory_build_index_split_node(in_memory_node  *new_index,
                                  platform_heap_id hid,
@@ -1292,5 +1298,13 @@ in_memory_build_index_split_node(in_memory_node  *new_index,
                                  uint64           start_child_num,
                                  uint64           end_child_num)
 {
+   platform_assert(in_memory_node_is_leaf(leaf));
+
+   platform_status rc = in_memory_node_init(new_leaf, hid, 0, min_key, max_key);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+
    return STATUS_OK;
 }
