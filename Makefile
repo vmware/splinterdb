@@ -411,6 +411,7 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 # defined above using unit_test_self_dependency.
 #
 $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
+$(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)            \
                                 $(COMMON_UNIT_TESTOBJ)

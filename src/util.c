@@ -7,7 +7,7 @@
 
 #include "poison.h"
 
-static platform_status
+platform_status
 writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 {
    if (minspace <= wb->buffer_capacity) {

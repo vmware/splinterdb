@@ -140,9 +140,18 @@ writable_buffer_length(const writable_buffer *wb)
    return wb->length;
 }
 
+static inline uint64
+writable_buffer_capacity(const writable_buffer *wb)
+{
+   return wb->buffer_capacity;
+}
+
 /* May allocate memory */
 platform_status
 writable_buffer_resize(writable_buffer *wb, uint64 newlength);
+
+platform_status
+writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace);
 
 static inline void *
 writable_buffer_data(const writable_buffer *wb)
@@ -257,14 +266,16 @@ writable_buffer_to_slice(const writable_buffer *wb)
 }
 
 /* Returns the old length of wb */
-static inline uint64
+static inline platform_status
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
-   uint64 oldsize = writable_buffer_length(wb);
-   platform_assert(SUCCESS(writable_buffer_resize(wb, oldsize + length)));
-   char *data = writable_buffer_data(wb);
-   memcpy(data + oldsize, newdata, length);
-   return oldsize;
+   uint64          oldsize = writable_buffer_length(wb);
+   platform_status rc      = writable_buffer_resize(wb, oldsize + length);
+   if (SUCCESS(rc)) {
+      char *data = writable_buffer_data(wb);
+      memcpy(data + oldsize, newdata, length);
+   }
+   return rc;
 }
 
 /*
