@@ -5,7 +5,7 @@
 #   include "transaction_impl/tictoc_disk_internal.h"
 #elif EXPERIMENTAL_MODE_2PL
 #   include "transaction_impl/2pl_internal.h"
-#elif EXPERIMENTAL_MODE_SILO_MEMORY
+#else // #elif EXPERIMENTAL_MODE_SILO_MEMORY
 #   include "transaction_impl/fantasticc_internal.h"
 #endif
 
