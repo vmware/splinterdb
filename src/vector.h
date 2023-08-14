@@ -95,6 +95,25 @@
       writable_buffer_append(&(v)->wb, sizeof(__val), &(__val));               \
    })
 
+#define vector_append_subvector(dst, src, start, end)                          \
+   ({                                                                          \
+      _Static_assert(__builtin_types_compatible_p(vector_elt_type(dst),        \
+                                                  vector_elt_type(src)),       \
+                     "vector_append_vector must be called with vectors of "    \
+                     "the same element type.");                                \
+      _Static_assert(vector_elt_size(dst) == vector_elt_size(src),             \
+                     "vector_append_subvector must be called with vectors of " \
+                     "elements of same size.");                                \
+      uint64 __start                     = (start);                            \
+      vector_elt_ptr_type(src) __srcdata = vector_data(src);                   \
+      writable_buffer_append(&(dst)->wb,                                       \
+                             ((end)-__start) * vector_elt_size(src),           \
+                             __srcdata + __start);                             \
+   })
+
+#define vector_append_vector(dst, src)                                         \
+   vector_append_subvector(dst, src, 0, vector_length(src))
+
 #define vector_truncate(v, new_length)                                         \
    ({                                                                          \
       typeof(v)          __v          = (v);                                   \
@@ -106,8 +125,7 @@
    })
 
 #define vector_ensure_capacity(v, capacity)                                    \
-   (writable_buffer_ensure_space(&(v)->wv,                                     \
-                                 capacity * vector_element_size(capacity)))
+   (writable_buffer_ensure_space(&(v)->wb, capacity * vector_elt_size(v)))
 
 #define vector_copy(v, src)                                                    \
    ({                                                                          \
@@ -302,7 +320,7 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
          __builtin_types_compatible_p(platform_status,                         \
                                       typeof(func(__VA_ARGS__)))               \
             || __builtin_types_compatible_p(void, typeof(func(__VA_ARGS__))),  \
-         "vector_call_failable_at can be called only with "                    \
+         "vector_call_failable can be called only with "                       \
          "functions that return platform_status or void.");                    \
       platform_status __rc;                                                    \
       if (__builtin_types_compatible_p(platform_status,                        \
@@ -317,6 +335,29 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
       }                                                                        \
       __rc;                                                                    \
    })
+
+#define VECTOR_FAILABLE_FOR_LOOP_GENERIC(v, func, ...)                         \
+   ({                                                                          \
+      platform_status __rc     = STATUS_OK;                                    \
+      uint64          __length = vector_length(v);                             \
+      for (uint64 __idx = 0; __idx < __length; __idx++) {                      \
+         __rc =                                                                \
+            VECTOR_CALL_FAILABLE(func, v, __idx __VA_OPT__(, __VA_ARGS__));    \
+         if (!SUCCESS(__rc)) {                                                 \
+            break;                                                             \
+         }                                                                     \
+      }                                                                        \
+      __rc;                                                                    \
+   })
+
+#define VECTOR_FAILABLE_FOR_LOOP_ELTS(v, func, ...)                            \
+   VECTOR_FAILABLE_FOR_LOOP_GENERIC(                                           \
+      v, vector_apply_to_elt, func __VA_OPT__(, __VA_ARGS__))
+
+#define VECTOR_FAILABLE_FOR_LOOP_PTRS(v, func, ...)                            \
+   VECTOR_FAILABLE_FOR_LOOP_GENERIC(                                           \
+      v, vector_apply_to_ptr, func __VA_OPT__(, __VA_ARGS__))
+
 
 // allocates space for one more element, then calls
 //   init(v, |v|, ...)
