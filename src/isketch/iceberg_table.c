@@ -1644,7 +1644,8 @@ iceberg_put_or_insert(iceberg_table *table,
       // If the sketch is enabled, get the value from the sketch to
       // the new item and set the max.
       if (table->sktch && !overwrite_value) {
-         table->sktch->config->insert_value_fn(&kv->val, sketch_get(table->sktch, key));
+         table->sktch->config->insert_value_fn(&kv->val,
+                                               sketch_get(table->sktch, key));
       }
       *value = &kv->val;
    }

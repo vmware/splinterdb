@@ -327,10 +327,10 @@ transactional_splinterdb_config_init(
       &sketch_insert_timestamp_set;
    txn_splinterdb_cfg->sktch_config.get_value_fn = &sketch_get_timestamp_set;
 
-#if EXPERIMENTAL_MODE_COUNTER
+#if EXPERIMENTAL_MODE_TICTOC_COUNTER
    txn_splinterdb_cfg->sktch_config.rows = 1;
    txn_splinterdb_cfg->sktch_config.cols = 1;
-#else // if EXPERIMENTAL_MODE_SKETCH
+#else // if EXPERIMENTAL_MODE_TICTOC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols = 131072;
 #endif
