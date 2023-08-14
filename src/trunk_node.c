@@ -478,6 +478,24 @@ in_memory_inflight_bundle_init_from_split(in_memory_inflight_bundle *bundle,
    }
 }
 
+void
+in_memory_inflight_bundle_truncate(in_memory_inflight_bundle *bundle,
+                                   uint64                     num_children)
+{
+   switch (bundle->type) {
+      case INFLIGHT_BUNDLE_TYPE_ROUTED:
+         break;
+      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
+         vector_truncate(&bundle->u.per_child.branches, num_children);
+         break;
+      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
+         break;
+      default:
+         platform_assert(0);
+         break;
+   }
+}
+
 platform_status
 in_memory_inflight_bundle_vector_collect_maplets(
    const in_memory_inflight_bundle_vector *bundles,
@@ -1566,8 +1584,6 @@ cleanup_pivots:
 platform_status
 in_memory_index_init_split(in_memory_node  *new_index,
                            platform_heap_id hid,
-                           cache           *cc,
-                           btree_config    *btree_cfg,
                            in_memory_node  *index,
                            uint64           start_child_num,
                            uint64           end_child_num)
@@ -1654,6 +1670,58 @@ cleanup_pivot_bundles:
 cleanup_pivots:
    VECTOR_APPLY_TO_ELTS(&pivots, in_memory_pivot_destroy, hid);
    vector_deinit(&pivots);
+   return rc;
+}
+
+void
+in_memory_index_split_truncate(in_memory_node *index, uint64 num_children)
+{
+   vector_truncate(&index->pivots, num_children + 1);
+   vector_truncate(&index->pivot_bundles, num_children);
+   VECTOR_APPLY_TO_PTRS(&index->inflight_bundles,
+                        in_memory_inflight_bundle_truncate,
+                        num_children);
+}
+
+platform_status
+in_memory_index_split(platform_heap_id       hid,
+                      uint64                 target_fanout,
+                      in_memory_node        *index,
+                      in_memory_node_vector *new_indexes)
+{
+   platform_status rc;
+   rc = vector_append(new_indexes, *index);
+   if (!SUCCESS(rc)) {
+      goto cleanup_new_indexes;
+   }
+
+   uint64 num_children = in_memory_node_num_children(index);
+   uint64 num_nodes    = (num_children + target_fanout - 1) / target_fanout;
+
+   for (uint64 i = 1; i < num_nodes; i++) {
+      rc = VECTOR_EMPLACE_APPEND(new_indexes,
+                                 in_memory_index_init_split,
+                                 hid,
+                                 index,
+                                 i * num_children / num_nodes,
+                                 (i + 1) * num_children / num_nodes);
+      if (!SUCCESS(rc)) {
+         goto cleanup_new_indexes;
+      }
+   }
+
+   in_memory_index_split_truncate(vector_get_ptr(new_indexes, 0),
+                                  num_children / num_nodes);
+
+cleanup_new_indexes:
+   if (!SUCCESS(rc)) {
+      // We skip entry 0 because it's the original index
+      for (uint64 i = 1; i < vector_length(new_indexes); i++) {
+         in_memory_node_deinit(vector_get_ptr(new_indexes, i));
+      }
+      vector_truncate(new_indexes, 0);
+   }
+
    return rc;
 }
 
