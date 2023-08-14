@@ -13,9 +13,9 @@
 #elif EXPERIMENTAL_MODE_STO_MEMORY
 #   include "transaction_impl/transaction_sto_memory.h"
 #elif EXPERIMENTAL_MODE_STO_COUNTER
-#   include "transaction_impl/transaction_sto_sketch.h"
+#   include "transaction_impl/transaction_sto.h"
 #elif EXPERIMENTAL_MODE_STO_SKETCH
-#   include "transaction_impl/transaction_sto_sketch.h"
+#   include "transaction_impl/transaction_sto.h"
 #elif EXPERIMENTAL_MODE_2PL
 #   include "transaction_impl/transaction_2pl.h"
 #elif EXPERIMENTAL_MODE_SILO_MEMORY
