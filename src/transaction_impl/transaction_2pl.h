@@ -109,7 +109,7 @@ transactional_splinterdb_config_init(
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
 
-   txn_splinterdb_cfg->lock_timeout_ns = 0;
+   txn_splinterdb_cfg->lock_timeout_ns = 1000000;
 }
 
 static int
