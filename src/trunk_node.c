@@ -1681,6 +1681,16 @@ in_memory_index_split_truncate(in_memory_node *index, uint64 num_children)
    VECTOR_APPLY_TO_PTRS(&index->inflight_bundles,
                         in_memory_inflight_bundle_truncate,
                         num_children);
+
+   uint64 num_tuples   = 0;
+   uint64 num_kv_bytes = 0;
+   for (uint64 i = 0; i < num_children; i++) {
+      num_tuples += in_memory_pivot_num_tuples(vector_get(&index->pivots, i));
+      num_kv_bytes +=
+         in_memory_pivot_num_kv_bytes(vector_get(&index->pivots, i));
+   }
+   index->num_tuples   = num_tuples;
+   index->num_kv_bytes = num_kv_bytes;
 }
 
 platform_status
