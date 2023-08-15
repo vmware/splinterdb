@@ -109,12 +109,6 @@ CTEST2(config_parse, test_basic_parsing)
                "Parameter '%s' expected. ",
                "--verbose-logging");
 
-   int btree_rough_count_height = 11;
-   ASSERT_EQUAL(btree_rough_count_height,
-                splinter_cfg->btree_cfg.rough_count_height,
-                "Parameter '%s' expected. ",
-                "--rough-count-height 11");
-
    int num_inserts = 20;
    ASSERT_EQUAL(num_inserts,
                 data->test_exec_cfg.num_inserts,
