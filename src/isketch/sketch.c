@@ -114,7 +114,7 @@ update_value_at_row(sketch *sktch, KeyType key, ValueType value, uint64_t row)
       __atomic_load_n(&sktch->table[index].value, __ATOMIC_SEQ_CST);
    ValueType max_value;
    bool      is_success;
-   while (true) {
+   do {
       max_value = current_value;
       sktch->config->insert_value_fn(&max_value, value);
       is_success = __atomic_compare_exchange_n(&sktch->table[index].value,
@@ -123,10 +123,7 @@ update_value_at_row(sketch *sktch, KeyType key, ValueType value, uint64_t row)
                                                true,
                                                __ATOMIC_SEQ_CST,
                                                __ATOMIC_SEQ_CST);
-      if (is_success) {
-         break;
-      }
-   }
+   } while(!is_success);
 }
 
 inline void
