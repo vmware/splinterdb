@@ -95,6 +95,64 @@
       writable_buffer_append(&(v)->wb, sizeof(__val), &(__val));               \
    })
 
+static inline platform_status
+__vector_replace(writable_buffer       *dst,
+                 uint64                 eltsize,
+                 uint64                 dstoff,
+                 uint64                 dstlen,
+                 const writable_buffer *src,
+                 uint64                 srcoff,
+                 uint64                 srclen)
+{
+   platform_status rc           = STATUS_OK;
+   uint64          old_dst_size = writable_buffer_length(dst);
+   uint64          src_size     = writable_buffer_length(src);
+
+   debug_assert((dstoff + dstlen) * eltsize <= old_dst_size);
+   debug_assert((srcoff + srclen) * eltsize <= src_size);
+
+   if (dstlen < srclen) {
+      rc = writable_buffer_resize(dst,
+                                  old_dst_size + (srclen - dstlen) * eltsize);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   uint8 *dstdata = writable_buffer_data(dst);
+   uint8 *srcdata = writable_buffer_data(src);
+   memmove(dstdata + (dstoff + srclen) * eltsize,
+           dstdata + (dstoff + dstlen) * eltsize,
+           (old_dst_size - (dstoff + dstlen)) * eltsize);
+   memmove(
+      dstdata + dstoff * eltsize, srcdata + srcoff * eltsize, srclen * eltsize);
+
+   if (srclen < dstlen) {
+      rc = writable_buffer_resize(dst,
+                                  old_dst_size - (dstlen - srclen) * eltsize);
+      platform_assert_status_ok(rc);
+   }
+   return rc;
+}
+
+#define vector_replace(dst, dstoff, dstlen, src, srcoff, srclen)               \
+   ({                                                                          \
+      _Static_assert(__builtin_types_compatible_p(vector_elt_type(dst),        \
+                                                  vector_elt_type(src)),       \
+                     "vector_replace must be called with vectors of "          \
+                     "the same element type.");                                \
+      _Static_assert(vector_elt_size(dst) == vector_elt_size(src),             \
+                     "vector_replace must be called with vectors of "          \
+                     "elements of same size.");                                \
+      __vector_replace(&((dst)->wb),                                           \
+                       vector_elt_size(dst),                                   \
+                       dstoff,                                                 \
+                       dstlen,                                                 \
+                       &((src)->wb),                                           \
+                       srcoff,                                                 \
+                       srclen);                                                \
+   })
+
 #define vector_append_subvector(dst, src, start, end)                          \
    ({                                                                          \
       _Static_assert(__builtin_types_compatible_p(vector_elt_type(dst),        \
@@ -151,8 +209,9 @@
       }                                                                        \
    })
 
-// Adapters to define vector_apply_to_elements and vector_apply_to_ptrs.
-// You probably don't need to use these directly.
+// Adapters to define vector_apply_to_elements and
+// vector_apply_to_ptrs. You probably don't need to use
+// these directly.
 #define vector_apply_to_elt(v, i, func, ...)                                   \
    func(vector_get(v, i) __VA_OPT__(, __VA_ARGS__))
 #define vector_apply_to_ptr(v, i, func, ...)                                   \
@@ -311,9 +370,10 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
 // func(...)
 // func may be void or return a platform_status
 //
-// The purpose of this macro is to transform void function calls into
-// expressions that return platform_status, so we can deal with void and
-// failable functions uniformly in the macros that follow.
+// The purpose of this macro is to transform void function
+// calls into expressions that return platform_status, so
+// we can deal with void and failable functions uniformly
+// in the macros that follow.
 #define VECTOR_CALL_FAILABLE(func, ...)                                        \
    ({                                                                          \
       _Static_assert(                                                          \
@@ -362,8 +422,8 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
 // allocates space for one more element, then calls
 //   init(v, |v|, ...)
 // init may be void or return a platform_status
-// if init succeeds, then the length of v is increased by 1.
-// returns platform_status to indicate success
+// if init succeeds, then the length of v is increased
+// by 1. returns platform_status to indicate success
 #define VECTOR_EMPLACE_APPEND_GENERIC(v, init, ...)                            \
    ({                                                                          \
       uint64          __old_length = vector_length(v);                         \
@@ -385,16 +445,17 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
 // allocates space for one more element, then calls
 //   init(&v[|v|], ...)
 // init may be void or return a platform_status
-// if init succeeds, then the length of v is increased by 1.
-// returns platform_status to indicate success
+// if init succeeds, then the length of v is increased
+// by 1. returns platform_status to indicate success
 #define VECTOR_EMPLACE_APPEND(v, init, ...)                                    \
    VECTOR_EMPLACE_APPEND_GENERIC(                                              \
       v, vector_apply_to_ptr_unsafe, init __VA_OPT__(, __VA_ARGS__))
 
 // for i = 0 to |src|: func(&dst[i], src, i, ...)
 // Stops after first failed call to func.
-// Leaves dst length equal to the number of successful calls.
-// returns platform_status indicating success/failure.
+// Leaves dst length equal to the number of successful
+// calls. returns platform_status indicating
+// success/failure.
 #define VECTOR_EMPLACE_MAP_GENERIC(dst, func, src, ...)                        \
    ({                                                                          \
       uint64          __len  = vector_length(src);                             \

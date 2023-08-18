@@ -92,14 +92,14 @@ typedef struct routing_async_ctxt {
 } routing_async_ctxt;
 
 platform_status
-routing_filter_add(cache           *cc,
-                   routing_config  *cfg,
-                   platform_heap_id hid,
-                   routing_filter  *old_filter,
-                   routing_filter  *filter,
-                   uint32          *new_fp_arr,
-                   uint64           num_new_fingerprints,
-                   uint16           value);
+routing_filter_add(cache                *cc,
+                   const routing_config *cfg,
+                   platform_heap_id      hid,
+                   routing_filter       *old_filter,
+                   routing_filter       *filter,
+                   uint32               *new_fp_arr,
+                   uint64                num_new_fingerprints,
+                   uint16                value);
 
 platform_status
 routing_filter_lookup(cache          *cc,
@@ -163,19 +163,19 @@ void
 routing_filter_zap(cache *cc, routing_filter *filter);
 
 uint32
-routing_filter_estimate_unique_keys_from_count(routing_config *cfg,
-                                               uint64          num_unique);
+routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
+                                               uint64 num_unique);
 
 uint32
 routing_filter_estimate_unique_keys(routing_filter *filter,
                                     routing_config *cfg);
 
 uint32
-routing_filter_estimate_unique_fp(cache           *cc,
-                                  routing_config  *cfg,
-                                  platform_heap_id hid,
-                                  routing_filter  *filter,
-                                  uint64           num_filters);
+routing_filter_estimate_unique_fp(cache                *cc,
+                                  const routing_config *cfg,
+                                  platform_heap_id      hid,
+                                  routing_filter       *filter,
+                                  uint64                num_filters);
 
 // Debug functions
 

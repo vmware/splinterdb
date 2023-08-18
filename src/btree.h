@@ -128,14 +128,14 @@ typedef struct ONDISK btree_pivot_data {
  * A BTree iterator:
  */
 typedef struct btree_iterator {
-   iterator      super;
-   cache        *cc;
-   btree_config *cfg;
-   bool32        do_prefetch;
-   uint32        height;
-   page_type     page_type;
-   key           min_key;
-   key           max_key;
+   iterator            super;
+   cache              *cc;
+   const btree_config *cfg;
+   bool32              do_prefetch;
+   uint32              height;
+   page_type           page_type;
+   key                 min_key;
+   key                 max_key;
 
    uint64     root_addr;
    btree_node curr;
@@ -311,17 +311,17 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
                              btree_async_ctxt  *ctxt);        // IN
 
 void
-btree_iterator_init(cache          *cc,
-                    btree_config   *cfg,
-                    btree_iterator *itor,
-                    uint64          root_addr,
-                    page_type       page_type,
-                    key             min_key,
-                    key             max_key,
-                    key             start_key,
-                    comparison      start_type,
-                    bool32          do_prefetch,
-                    uint32          height);
+btree_iterator_init(cache              *cc,
+                    const btree_config *cfg,
+                    btree_iterator     *itor,
+                    uint64              root_addr,
+                    page_type           page_type,
+                    key                 min_key,
+                    key                 max_key,
+                    key                 start_key,
+                    comparison          start_type,
+                    bool32              do_prefetch,
+                    uint32              height);
 
 void
 btree_iterator_deinit(btree_iterator *itor);
@@ -398,7 +398,7 @@ btree_print_tree(platform_log_handle *log_handle,
 
 void
 btree_print_locked_node(platform_log_handle *log_handle,
-                        btree_config        *cfg,
+                        const btree_config  *cfg,
                         uint64               addr,
                         btree_hdr           *hdr,
                         page_type            type);
@@ -406,7 +406,7 @@ btree_print_locked_node(platform_log_handle *log_handle,
 void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
-                 btree_config        *cfg,
+                 const btree_config  *cfg,
                  btree_node          *node,
                  page_type            type);
 
