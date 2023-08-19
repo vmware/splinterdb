@@ -8,18 +8,17 @@
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
 #include "isketch/iceberg_table.h"
-#include "lock_table.h"
+#include "lock_table_rw.h"
 
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
-   timestamp                   lock_timeout_ns;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
    splinterdb                      *kvsb;
    transactional_splinterdb_config *tcfg;
-   lock_table                      *lock_tbl;
+   lock_table_rw                   *lock_tbl;
 } transactional_splinterdb;
 
 typedef struct rw_entry {
@@ -27,4 +26,5 @@ typedef struct rw_entry {
    message msg; // value + op
    bool    is_read;
    bool    is_locked;
+   lock_entry *le;
 } rw_entry;

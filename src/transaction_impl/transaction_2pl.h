@@ -4,9 +4,8 @@
 #include "poison.h"
 
 /*
- * Implementation of the 2Phase-Locking(2PL). To handle deadlock,
- * transactions abort when they fail to acquire a lock without a
- * timeout.
+ * Implementation of the 2Phase-Locking(2PL). It uses a lock_table that
+ * implements three deadlock prevention mechanisms (see lock_table_rw.h).
  */
 
 static rw_entry *
@@ -279,9 +278,10 @@ local_write(transactional_splinterdb *txn_kvsb,
    /* } */
 
    if (!rw_entry_is_write(entry)) {
+      // TODO: generate a transaction id to use as the unique lock request id
       bool is_key_locked_by_another =
-         lock_table_try_acquire_entry_lock_timeouts(
-            txn_kvsb->lock_tbl, entry, txn_kvsb->tcfg->lock_timeout_ns)
+         lock_table_rw_try_acquire_entry_lock=(
+            txn_kvsb->lock_tbl, entry, WRITE_LOCK, 0)
          == LOCK_TABLE_RC_BUSY;
       if (is_key_locked_by_another) {
          transactional_splinterdb_abort(txn_kvsb, txn);
@@ -369,9 +369,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
              message_data(entry->msg),
              message_length(entry->msg));
    } else {
+      // TODO: generate a transaction id to use as the unique lock request id
       bool is_key_locked_by_another =
-         lock_table_try_acquire_entry_lock_timeouts(
-            txn_kvsb->lock_tbl, entry, txn_kvsb->tcfg->lock_timeout_ns)
+         lock_table_rw_try_acquire_entry_lock(
+            txn_kvsb->lock_tbl, entry, READ_LOCK, 0)
          == LOCK_TABLE_RC_BUSY;
       if (is_key_locked_by_another) {
          transactional_splinterdb_abort(txn_kvsb, txn);
