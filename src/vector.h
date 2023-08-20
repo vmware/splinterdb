@@ -367,6 +367,13 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
    VECTOR_FOLD_RIGHT_GENERIC(                                                  \
       v, vector_fold_ptr_acc, zero, add __VA_OPT__(, __VA_ARGS__))
 
+
+_Static_assert(__builtin_types_compatible_p(void, void), "Uhoh");
+_Static_assert(__builtin_types_compatible_p(platform_status, platform_status),
+               "Uhoh");
+_Static_assert(!__builtin_types_compatible_p(void, platform_status), "Uhoh");
+_Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
+
 // func(...)
 // func may be void or return a platform_status
 //
@@ -382,18 +389,13 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
             || __builtin_types_compatible_p(void, typeof(func(__VA_ARGS__))),  \
          "vector_call_failable can be called only with "                       \
          "functions that return platform_status or void.");                    \
-      platform_status __rc;                                                    \
-      if (__builtin_types_compatible_p(platform_status,                        \
-                                       typeof(func(__VA_ARGS__)))) {           \
-         __rc = func(__VA_ARGS__);                                             \
-      } else if (__builtin_types_compatible_p(void,                            \
-                                              typeof(func(__VA_ARGS__)))) {    \
-         func(__VA_ARGS__);                                                    \
-         __rc = STATUS_OK;                                                     \
-      } else {                                                                 \
-         platform_assert(0);                                                   \
-      }                                                                        \
-      __rc;                                                                    \
+      __builtin_choose_expr(                                                   \
+         __builtin_types_compatible_p(void, typeof(func(__VA_ARGS__))),        \
+         ({                                                                    \
+            func(__VA_ARGS__);                                                 \
+            STATUS_OK;                                                         \
+         }),                                                                   \
+         ({ func(__VA_ARGS__); }));                                            \
    })
 
 #define VECTOR_FAILABLE_FOR_LOOP_GENERIC(v, func, ...)                         \
