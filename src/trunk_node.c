@@ -120,8 +120,11 @@ typedef struct in_memory_node {
    uint16                           height;
    in_memory_pivot_vector           pivots;
    in_memory_routed_bundle_vector   pivot_bundles; // indexed by child
+   uint64                           num_old_bundles;
    in_memory_inflight_bundle_vector inflight_bundles;
 } in_memory_node;
+
+typedef VECTOR(in_memory_node) in_memory_node_vector;
 
 typedef struct trunk_node_config {
    const data_config    *data_cfg;
@@ -761,11 +764,13 @@ in_memory_node_init(in_memory_node                  *node,
                     uint16                           height,
                     in_memory_pivot_vector           pivots,
                     in_memory_routed_bundle_vector   pivot_bundles,
+                    uint64                           num_old_bundles,
                     in_memory_inflight_bundle_vector inflight_bundles)
 {
    node->height           = height;
    node->pivots           = pivots;
    node->pivot_bundles    = pivot_bundles;
+   node->num_old_bundles  = num_old_bundles;
    node->inflight_bundles = inflight_bundles;
 }
 
@@ -841,8 +846,10 @@ bool
 in_memory_node_is_well_formed_leaf(const trunk_node_config *cfg,
                                    const in_memory_node    *node)
 {
-   bool basics = node->height == 0 && vector_length(&node->pivots) == 2
-                 && vector_length(&node->pivot_bundles) == 1;
+   bool basics =
+      node->height == 0 && vector_length(&node->pivots) == 2
+      && vector_length(&node->pivot_bundles) == 1
+      && node->num_old_bundles <= vector_length(&node->inflight_bundles);
    if (!basics) {
       return FALSE;
    }
@@ -859,9 +866,10 @@ bool
 in_memory_node_is_well_formed_index(const data_config    *data_cfg,
                                     const in_memory_node *node)
 {
-   bool basics = 0 < node->height && 1 < vector_length(&node->pivots)
-                 && vector_length(&node->pivot_bundles)
-                       == vector_length(&node->pivots) - 1;
+   bool basics =
+      0 < node->height && 1 < vector_length(&node->pivots)
+      && vector_length(&node->pivot_bundles) == vector_length(&node->pivots) - 1
+      && node->num_old_bundles <= vector_length(&node->inflight_bundles);
    if (!basics) {
       return FALSE;
    }
@@ -904,6 +912,12 @@ in_memory_node_is_well_formed_index(const data_config    *data_cfg,
 }
 
 void
+in_memory_node_reset_num_old_bundles(in_memory_node *node)
+{
+   node->num_old_bundles = 0;
+}
+
+void
 in_memory_node_deinit(in_memory_node *node, trunk_node_context *context)
 {
    VECTOR_APPLY_TO_ELTS(
@@ -915,6 +929,17 @@ in_memory_node_deinit(in_memory_node *node, trunk_node_context *context)
    vector_deinit(&node->pivot_bundles);
    vector_deinit(&node->inflight_bundles);
 }
+
+/**************************************
+ * Refcounting
+ **************************************/
+
+void
+on_disk_node_inc_ref(trunk_node_context *context, uint64 addr);
+
+void
+on_disk_node_dec_ref(trunk_node_context *context, uint64 addr);
+
 
 /*********************************************
  * node de/serialization
@@ -928,8 +953,40 @@ in_memory_node_deserialize(trunk_node_context *context,
                            uint64              addr,
                            in_memory_node     *result);
 
-void
-on_disk_node_dec_ref(trunk_node_context *context, uint64 addr);
+platform_status
+serialize_nodes(trunk_node_context     *context,
+                in_memory_node_vector  *nodes,
+                in_memory_pivot_vector *result)
+{
+   platform_status rc;
+
+   rc = vector_ensure_capacity(result, vector_length(nodes));
+   if (!SUCCESS(rc)) {
+      goto finish;
+   }
+   for (uint64 i = 0; i < vector_length(nodes); i++) {
+      in_memory_pivot *pivot =
+         in_memory_node_serialize(context, vector_get_ptr(nodes, i));
+      if (pivot == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto finish;
+      }
+      rc = vector_append(result, pivot);
+      platform_assert_status_ok(rc);
+   }
+
+finish:
+   if (!SUCCESS(rc)) {
+      for (uint64 i = 0; i < vector_length(result); i++) {
+         on_disk_node_dec_ref(
+            context, in_memory_pivot_child_addr(vector_get(result, i)));
+      }
+      VECTOR_APPLY_TO_ELTS(result, in_memory_pivot_destroy, context->hid);
+      vector_truncate(result, 0);
+   }
+
+   return rc;
+}
 
 /*********************************************
  * branch_merger operations
@@ -1101,6 +1158,87 @@ branch_merger_deinit(branch_merger *merger)
 
    return rc;
 }
+
+/************************
+ * bundle compaction
+ ************************/
+
+void
+bundle_compaction_task(void *arg, void *scratch);
+
+typedef struct bundle_compaction_args {
+   trunk_node_context *context;
+   uint64              addr;
+   in_memory_node     *node;
+} bundle_compaction_args;
+
+platform_status
+enqueue_bundle_compaction(trunk_node_context *context,
+                          uint64              addr,
+                          in_memory_node     *node)
+{
+   bundle_compaction_args *args = TYPED_ZALLOC(context->hid, args);
+   if (args == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   args->context = context;
+   args->addr    = addr;
+   args->node    = node;
+
+   on_disk_node_inc_ref(context, addr);
+
+   platform_status rc = task_enqueue(
+      context->ts, TASK_TYPE_NORMAL, bundle_compaction_task, args, FALSE);
+   if (!SUCCESS(rc)) {
+      platform_free(context->hid, args);
+   }
+
+   return rc;
+}
+
+platform_status
+enqueue_bundle_compactions(trunk_node_context     *context,
+                           in_memory_pivot_vector *pivots,
+                           in_memory_node_vector  *nodes)
+{
+   debug_assert(vector_length(pivots) == vector_length(nodes));
+
+   for (uint64 i = 0; i < vector_length(pivots); i++) {
+      platform_status  rc;
+      in_memory_pivot *pivot = vector_get(pivots, i);
+      in_memory_node  *node  = vector_get_ptr(nodes, i);
+      rc                     = enqueue_bundle_compaction(
+         context, in_memory_pivot_child_addr(pivot), node);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   return STATUS_OK;
+}
+
+platform_status
+serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
+                                               in_memory_node_vector  *nodes,
+                                               in_memory_pivot_vector *result)
+{
+   platform_status rc;
+
+   rc = serialize_nodes(context, nodes, result);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = enqueue_bundle_compactions(context, result, nodes);
+   if (!SUCCESS(rc)) {
+      VECTOR_APPLY_TO_ELTS(result, in_memory_pivot_destroy, context->hid);
+      vector_truncate(result, 0);
+      return rc;
+   }
+
+   return rc;
+}
+
 
 /************************
  * accounting maintenance
@@ -1486,7 +1624,7 @@ in_memory_leaf_split_init(in_memory_node     *new_leaf,
       goto cleanup_inflight_bundles;
    }
 
-   in_memory_node_init(new_leaf, 0, pivots, pivot_bundles, inflight_bundles);
+   in_memory_node_init(new_leaf, 0, pivots, pivot_bundles, 0, inflight_bundles);
 
    return rc;
 
@@ -1530,12 +1668,11 @@ in_memory_leaf_split_truncate(in_memory_node     *leaf,
       in_memory_pivot_reset_tuple_counts(pivot);
       in_memory_pivot_add_tuple_counts(
          pivot, 1, stats.num_kvs, stats.key_bytes + stats.message_bytes);
+      in_memory_node_reset_num_old_bundles(leaf);
    }
 
    return rc;
 }
-
-typedef VECTOR(in_memory_node) in_memory_node_vector;
 
 platform_status
 in_memory_leaf_split(trunk_node_context    *context,
@@ -1673,6 +1810,7 @@ in_memory_index_init_split(in_memory_node  *new_index,
                        in_memory_node_height(index),
                        pivots,
                        pivot_bundles,
+                       0,
                        inflight_bundles);
 
    return rc;
@@ -1697,6 +1835,7 @@ in_memory_index_split_truncate(in_memory_node *index, uint64 num_children)
    VECTOR_APPLY_TO_PTRS(&index->inflight_bundles,
                         in_memory_inflight_bundle_truncate,
                         num_children);
+   in_memory_node_reset_num_old_bundles(index);
 }
 
 platform_status
@@ -1816,105 +1955,6 @@ restore_balance_leaf(trunk_node_context    *context,
 }
 
 platform_status
-serialize_nodes(trunk_node_context     *context,
-                in_memory_node_vector  *nodes,
-                in_memory_pivot_vector *result)
-{
-   platform_status rc;
-
-   rc = vector_ensure_capacity(result, vector_length(nodes));
-   if (!SUCCESS(rc)) {
-      goto finish;
-   }
-   for (uint64 i = 0; i < vector_length(nodes); i++) {
-      in_memory_pivot *pivot =
-         in_memory_node_serialize(context, vector_get_ptr(nodes, i));
-      if (pivot == NULL) {
-         rc = STATUS_NO_MEMORY;
-         goto finish;
-      }
-      rc = vector_append(result, pivot);
-      platform_assert_status_ok(rc);
-   }
-
-finish:
-   if (!SUCCESS(rc)) {
-      for (uint64 i = 0; i < vector_length(result); i++) {
-         on_disk_node_dec_ref(
-            context, in_memory_pivot_child_addr(vector_get(result, i)));
-      }
-      VECTOR_APPLY_TO_ELTS(result, in_memory_pivot_destroy, context->hid);
-      vector_truncate(result, 0);
-   }
-
-   return rc;
-}
-
-platform_status
-enqueue_compactions_leaf(trunk_node_context *context,
-                         uint64              addr,
-                         in_memory_node     *leaf)
-{
-   platform_assert(0);
-}
-
-platform_status
-enqueue_compactions_index(trunk_node_context *context,
-                          uint64              addr,
-                          in_memory_node     *index)
-{
-   platform_assert(0);
-}
-
-platform_status
-enqueue_compactions(trunk_node_context     *context,
-                    in_memory_pivot_vector *pivots,
-                    in_memory_node_vector  *nodes)
-{
-   debug_assert(vector_length(pivots) == vector_length(nodes));
-
-   for (uint64 i = 0; i < vector_length(pivots); i++) {
-      platform_status  rc;
-      in_memory_pivot *pivot = vector_get(pivots, i);
-      in_memory_node  *node  = vector_get_ptr(nodes, i);
-      if (in_memory_node_is_leaf(node)) {
-         rc = enqueue_compactions_leaf(
-            context, in_memory_pivot_child_addr(pivot), node);
-      } else {
-         rc = enqueue_compactions_index(
-            context, in_memory_pivot_child_addr(pivot), node);
-      }
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   }
-
-   return STATUS_OK;
-}
-
-platform_status
-serialize_nodes_and_enqueue_compactions(trunk_node_context     *context,
-                                        in_memory_node_vector  *nodes,
-                                        in_memory_pivot_vector *result)
-{
-   platform_status rc;
-
-   rc = serialize_nodes(context, nodes, result);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   rc = enqueue_compactions(context, result, nodes);
-   if (!SUCCESS(rc)) {
-      VECTOR_APPLY_TO_ELTS(result, in_memory_pivot_destroy, context->hid);
-      vector_truncate(result, 0);
-      return rc;
-   }
-
-   return rc;
-}
-
-platform_status
 flush_then_compact(trunk_node_context               *context,
                    in_memory_node                   *node,
                    in_memory_routed_bundle          *routed,
@@ -1976,7 +2016,7 @@ restore_balance_index(trunk_node_context    *context,
             }
 
             vector_init(&new_pivots, context->hid);
-            rc = serialize_nodes_and_enqueue_compactions(
+            rc = serialize_nodes_and_enqueue_bundle_compactions(
                context, &new_children, &new_pivots);
             if (!SUCCESS(rc)) {
                vector_deinit(&new_children);
@@ -2077,7 +2117,7 @@ build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
    // back the pivots for the new root node.
    in_memory_pivot_vector pivots;
    vector_init(&pivots, context->hid);
-   rc = serialize_nodes_and_enqueue_compactions(context, nodes, &pivots);
+   rc = serialize_nodes_and_enqueue_bundle_compactions(context, nodes, &pivots);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
    }
@@ -2102,7 +2142,8 @@ build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
 
    // Build the new root
    in_memory_node new_root;
-   in_memory_node_init(&new_root, height + 1, pivots, pivot_bundles, inflight);
+   in_memory_node_init(
+      &new_root, height + 1, pivots, pivot_bundles, 0, inflight);
 
    // At this point, all our resources that we've allocated have been put into
    // the new root.
