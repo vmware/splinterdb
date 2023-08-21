@@ -128,6 +128,12 @@ routing_filter_is_value_found(uint64 found_values, uint16 value)
 }
 
 
+static inline bool32
+routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
+{
+   return (f1->addr == f2->addr);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * routing_filter_ctxt_init --

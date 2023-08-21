@@ -368,6 +368,41 @@ vector_apply_platform_free(void *ptr, platform_heap_id hid)
       v, vector_fold_ptr_acc, zero, add __VA_OPT__(, __VA_ARGS__))
 
 
+#define VECTOR_FOLD2_GENERIC(v1, v2, combiner, folder, init, ...)              \
+   ({                                                                          \
+      debug_assert(vector_length(v1) == vector_length(v2));                    \
+      __auto_type __acc = init;                                                \
+      for (uint64 __idx = 0; __idx < vector_length(v1); __idx++) {             \
+         __acc =                                                               \
+            folder(__acc, combiner(v1, v2, __idx __VA_OPT__(, __VA_ARGS__)));  \
+      }                                                                        \
+      __acc;                                                                   \
+   })
+
+#define vector_apply_to_elts2(v1, v2, idx, combiner, ...)                      \
+   combiner(vector_get(v1, idx), vector_get(v2, idx) __VA_OPT__(, __VA_ARGS__))
+#define vector_apply_to_ptrs2(v1, v2, idx, combiner, ...)                      \
+   combiner(vector_get_ptr(v1, idx),                                           \
+            vector_get_ptr(v2, idx) __VA_OPT__(, __VA_ARGS__))
+
+#define VECTOR_FOLD2_ELTS(v1, v2, combiner, folder, init, ...)                 \
+   VECTOR_FOLD2_GENERIC(                                                       \
+      v1, v2, vector_apply_to_elts2, folder, init, combiner, __VA_ARGS__)
+
+#define VECTOR_FOLD2_PTRS(v1, v2, combiner, folder, init, ...)                 \
+   VECTOR_FOLD2_GENERIC(                                                       \
+      v1, v2, vector_apply_to_ptrs2, folder, init, combiner, __VA_ARGS__)
+
+#define VECTOR_AND(a, b) ((a) && (b))
+
+#define VECTOR_ELTS_EQUAL(v1, v2, comparator)                                  \
+   (vector_length(v1) == vector_length(v2)                                     \
+    && VECTOR_FOLD2_ELTS(v1, v2, comparator, VECTOR_AND, TRUE))
+
+#define VECTOR_ELTS_EQUAL_BY_PTR(v1, v2, comparator)                           \
+   (vector_length(v1) == vector_length(v2)                                     \
+    && VECTOR_FOLD2_PTRS(v1, v2, comparator, VECTOR_AND, TRUE))
+
 _Static_assert(__builtin_types_compatible_p(void, void), "Uhoh");
 _Static_assert(__builtin_types_compatible_p(platform_status, platform_status),
                "Uhoh");

@@ -80,6 +80,9 @@ typedef struct merge_iterator {
 
    // Stats
    uint64 discarded_deletes;
+   uint64 num_input_tuples;
+   uint64 num_input_key_bytes;
+   uint64 num_input_message_bytes;
 
    // space for merging data together
    merge_accumulator merge_buffer;

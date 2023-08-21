@@ -162,6 +162,14 @@ branch_ref_addr(branch_ref bref)
    return bref.addr;
 }
 
+#define NULL_BRANCH_REF ((branch_ref){.addr = 0})
+
+bool32
+branches_equal(branch_ref a, branch_ref b)
+{
+   return a.addr == b.addr;
+}
+
 /**************************
  * routed_bundle operations
  **************************/
@@ -241,6 +249,14 @@ in_memory_routed_bundle_branch(const in_memory_routed_bundle *bundle, uint64 i)
 {
    debug_assert(i < vector_length(&bundle->branches));
    return vector_get(&bundle->branches, i);
+}
+
+bool32
+in_memory_routed_bundles_equal(const in_memory_routed_bundle *a,
+                               const in_memory_routed_bundle *b)
+{
+   return routing_filters_equal(&a->maplet, &b->maplet)
+          && VECTOR_ELTS_EQUAL(&a->branches, &b->branches, branches_equal);
 }
 
 /*****************************
@@ -325,6 +341,15 @@ in_memory_per_child_bundle_maplet(const in_memory_per_child_bundle *bundle,
    return vector_get(&bundle->maplets, i);
 }
 
+bool32
+in_memory_per_child_bundles_equal(const in_memory_per_child_bundle *a,
+                                  const in_memory_per_child_bundle *b)
+{
+   return VECTOR_ELTS_EQUAL_BY_PTR(
+             &a->maplets, &b->maplets, routing_filters_equal)
+          && VECTOR_ELTS_EQUAL(&a->branches, &b->branches, branches_equal);
+}
+
 /*****************************
  * singleton_bundle operations
  *****************************/
@@ -401,6 +426,15 @@ branch_ref
 in_memory_singleton_bundle_branch(const in_memory_singleton_bundle *bundle)
 {
    return bundle->branch;
+}
+
+bool32
+in_memory_singleton_bundles_equal(const in_memory_singleton_bundle *a,
+                                  const in_memory_singleton_bundle *b)
+{
+   return VECTOR_ELTS_EQUAL_BY_PTR(
+             &a->maplets, &b->maplets, routing_filters_equal)
+          && branches_equal(a->branch, b->branch);
 }
 
 /****************************
@@ -610,6 +644,29 @@ inflight_bundle_type
 in_memory_inflight_bundle_type(const in_memory_inflight_bundle *bundle)
 {
    return bundle->type;
+}
+
+bool32
+in_memory_inflight_bundles_equal(const in_memory_inflight_bundle *a,
+                                 const in_memory_inflight_bundle *b)
+{
+   if (a->type != b->type) {
+      return false;
+   }
+
+   switch (a->type) {
+      case INFLIGHT_BUNDLE_TYPE_ROUTED:
+         return in_memory_routed_bundles_equal(&a->u.routed, &b->u.routed);
+      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
+         return in_memory_per_child_bundles_equal(&a->u.per_child,
+                                                  &b->u.per_child);
+      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
+         return in_memory_singleton_bundles_equal(&a->u.singleton,
+                                                  &b->u.singleton);
+      default:
+         platform_assert(0);
+         return false;
+   }
 }
 
 platform_status
@@ -1003,7 +1060,7 @@ typedef struct branch_merger {
    key                min_key;
    key                max_key;
    uint64             height;
-   iterator          *merge_itor;
+   merge_iterator    *merge_itor;
    iterator_vector    itors;
 } branch_merger;
 
@@ -1139,7 +1196,7 @@ branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
                                 vector_length(&merger->itors),
                                 vector_data(&merger->itors),
                                 merge_mode,
-                                (merge_iterator **)&merger->merge_itor);
+                                &merger->merge_itor);
 }
 
 platform_status
@@ -1147,8 +1204,7 @@ branch_merger_deinit(branch_merger *merger)
 {
    platform_status rc;
    if (merger->merge_itor != NULL) {
-      rc = merge_iterator_destroy(merger->hid,
-                                  (merge_iterator **)&merger->merge_itor);
+      rc = merge_iterator_destroy(merger->hid, &merger->merge_itor);
    }
 
    for (uint64 i = 0; i < vector_length(&merger->itors); i++) {
@@ -1280,7 +1336,7 @@ bundle_compaction_args_create(trunk_node_context *context,
       btree_pack_req_init(&args->pack_reqs[pack_req_num],
                           context->cc,
                           context->cfg->btree_cfg,
-                          args->mergers[pack_req_num].merge_itor,
+                          &args->mergers[pack_req_num].merge_itor->super,
                           context->cfg->max_tuples_per_node,
                           context->cfg->filter_cfg->hash,
                           context->cfg->filter_cfg->seed,
@@ -1306,10 +1362,159 @@ cleanup:
    return NULL;
 }
 
+int64
+find_matching_bundles(in_memory_node *target, in_memory_node *src)
+{
+   // Due to the always-flush-all-bundles rule, we need only find a match for
+   // the first new bundle in src.  We are guaranteed that the rest of the new
+   // bundles will be in the target, as well.
+
+   in_memory_inflight_bundle *needle =
+      vector_get_ptr(&src->inflight_bundles, src->num_old_bundles);
+
+   for (int64 i = 0; i < vector_length(&target->inflight_bundles); i++) {
+      if (in_memory_inflight_bundles_equal(
+             needle, vector_get_ptr(&target->inflight_bundles, i)))
+      {
+         return i;
+      }
+   }
+   return -1;
+}
+
 platform_status
 apply_bundle_compaction(trunk_node_context *context,
                         in_memory_node     *target,
-                        void               *arg);
+                        void               *arg)
+{
+   platform_status         rc;
+   bundle_compaction_args *args = (bundle_compaction_args *)arg;
+
+   if (in_memory_node_is_leaf(target)
+       && (data_key_compare(args->context->cfg->data_cfg,
+                            in_memory_node_pivot_min_key(target),
+                            in_memory_node_pivot_min_key(&args->node))
+              != 0
+           || data_key_compare(args->context->cfg->data_cfg,
+                               in_memory_node_pivot_max_key(target),
+                               in_memory_node_pivot_max_key(&args->node))
+                 != 0))
+   {
+      return STATUS_OK;
+   }
+
+   uint64 bundle_match_offset = find_matching_bundles(target, &args->node);
+   if (bundle_match_offset == -1) {
+      return STATUS_OK;
+   }
+
+   branch_ref_vector branches;
+   vector_init(&branches, context->hid);
+   rc = vector_ensure_capacity(&branches, in_memory_node_num_children(target));
+   if (!SUCCESS(rc)) {
+      vector_deinit(&branches);
+      return rc;
+   }
+
+   uint64 src_child_num = 0;
+   for (uint64 target_child_num = 0;
+        target_child_num < in_memory_node_num_children(target);
+        target_child_num++)
+   {
+      in_memory_pivot *pivot = in_memory_node_pivot(target, target_child_num);
+
+      key target_lbkey = in_memory_pivot_key(pivot);
+      key target_ubkey = in_memory_node_pivot_key(target, target_child_num + 1);
+
+      key src_lbkey = in_memory_node_pivot_key(&args->node, src_child_num);
+      while (src_child_num < in_memory_node_num_children(&args->node)
+             && data_key_compare(
+                   args->context->cfg->data_cfg, src_lbkey, target_lbkey)
+                   < 0)
+      {
+         src_child_num++;
+         // Note that it is safe to do the following lookup because there is
+         // always one more pivot that the number of children
+         src_lbkey = in_memory_node_pivot_key(&args->node, src_child_num);
+      }
+
+      branch_ref bref;
+      uint64     tuple_count_decrease = 0;
+      uint64     kv_bytes_decrease    = 0;
+      if (src_child_num < in_memory_node_num_children(&args->node)
+          && data_key_compare(
+                args->context->cfg->data_cfg, src_lbkey, target_lbkey)
+                == 0
+          && data_key_compare(
+                args->context->cfg->data_cfg,
+                in_memory_node_pivot_key(&args->node, src_child_num + 1),
+                target_ubkey)
+                == 0
+          && in_memory_pivot_inflight_bundle_start(pivot)
+                <= bundle_match_offset)
+      {
+         bref = create_branch_ref(args->pack_reqs[src_child_num].root_addr);
+         merge_iterator *itor = args->mergers[src_child_num].merge_itor;
+         tuple_count_decrease =
+            itor->num_input_tuples - args->pack_reqs[src_child_num].num_tuples;
+         kv_bytes_decrease = itor->num_input_key_bytes
+                             + itor->num_input_message_bytes
+                             - args->pack_reqs[src_child_num].key_bytes
+                             - args->pack_reqs[src_child_num].message_bytes;
+      } else {
+         bref = NULL_BRANCH_REF;
+      }
+
+      rc = vector_append(&branches, bref);
+      platform_assert_status_ok(rc);
+      in_memory_pivot_add_tuple_counts(
+         pivot, -1, tuple_count_decrease, kv_bytes_decrease);
+   }
+
+   uint64 num_bundles =
+      vector_length(&args->node.inflight_bundles) - args->node.num_old_bundles;
+   in_memory_inflight_bundle result_bundle;
+   rc = in_memory_inflight_bundle_init_per_child_from_compaction(
+      &result_bundle,
+      context->hid,
+      &target->inflight_bundles,
+      bundle_match_offset,
+      bundle_match_offset + num_bundles,
+      &branches);
+   if (!SUCCESS(rc)) {
+      vector_deinit(&branches);
+      return rc;
+   }
+
+   for (uint64 i = bundle_match_offset; i < bundle_match_offset + num_bundles;
+        i++) {
+      in_memory_inflight_bundle_deinit(
+         vector_get_ptr(&target->inflight_bundles, i));
+   }
+   rc = vector_replace(&target->inflight_bundles,
+                       bundle_match_offset,
+                       num_bundles,
+                       &target->inflight_bundles,
+                       bundle_match_offset,
+                       1);
+   platform_assert_status_ok(rc);
+   vector_set(&target->inflight_bundles, bundle_match_offset, result_bundle);
+
+   for (uint64 i = 0; i < in_memory_node_num_children(target); i++) {
+      in_memory_pivot *pivot    = in_memory_node_pivot(target, i);
+      uint64 pivot_bundle_start = in_memory_pivot_inflight_bundle_start(pivot);
+      if (bundle_match_offset < pivot_bundle_start) {
+         debug_assert(bundle_match_offset + num_bundles <= pivot_bundle_start);
+         in_memory_pivot_set_inflight_bundle_start(
+            pivot, pivot_bundle_start - num_bundles + 1);
+      }
+   }
+
+   // FIXME: unfinished -- need to handle filter merging
+   // FIXME: add kv-count tracking code to merge.c
+
+   return STATUS_OK;
+}
 
 void
 bundle_compaction_task(void *arg, void *scratch)
@@ -1701,11 +1906,12 @@ leaf_split_select_pivots(trunk_node_context *context,
 
    uint64 leaf_num            = 1;
    uint64 cumulative_kv_bytes = 0;
-   while (!iterator_can_next(merger.merge_itor) && leaf_num < target_num_leaves)
+   while (!iterator_can_next(&merger.merge_itor->super)
+          && leaf_num < target_num_leaves)
    {
       key     curr_key;
       message pivot_data_message;
-      iterator_curr(merger.merge_itor, &curr_key, &pivot_data_message);
+      iterator_curr(&merger.merge_itor->super, &curr_key, &pivot_data_message);
       const btree_pivot_data *pivot_data = message_data(pivot_data_message);
       uint64                  new_cumulative_kv_bytes = cumulative_kv_bytes
                                        + pivot_data->stats.key_bytes
@@ -1722,7 +1928,7 @@ leaf_split_select_pivots(trunk_node_context *context,
          }
       }
 
-      iterator_next(merger.merge_itor);
+      iterator_next(&merger.merge_itor->super);
    }
 
    rc = VECTOR_EMPLACE_APPEND(
