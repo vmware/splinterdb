@@ -7,6 +7,13 @@
  * Implementation of the 2Phase-Locking(2PL). It uses a lock_table that
  * implements three deadlock prevention mechanisms (see lock_table_rw.h).
  */
+txn_timestamp global_ts = 0;
+
+static inline txn_timestamp
+get_next_global_ts()
+{
+   return __atomic_add_fetch(&global_ts, 1, __ATOMIC_RELAXED);
+}
 
 static rw_entry *
 rw_entry_create()
@@ -187,6 +194,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 {
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
+   txn->ts = get_next_global_ts();
    return 0;
 }
 
@@ -230,9 +238,11 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
-         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, WRITE_LOCK, 0);
+         lock_table_rw_release_entry_lock(
+            txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn->ts);
       } else {
-         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, READ_LOCK, 0);
+         lock_table_rw_release_entry_lock(
+            txn_kvsb->lock_tbl, entry, READ_LOCK, txn->ts);
       }
    }
 
@@ -249,9 +259,11 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry *entry = txn->rw_entries[i];
       if (rw_entry_is_write(entry)) {
-         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, WRITE_LOCK, 0);
+         lock_table_rw_release_entry_lock(
+            txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn->ts);
       } else {
-         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, READ_LOCK, 0);
+         lock_table_rw_release_entry_lock(
+            txn_kvsb->lock_tbl, entry, READ_LOCK, txn->ts);
       }
    }
 
@@ -281,8 +293,9 @@ local_write(transactional_splinterdb *txn_kvsb,
    if (!rw_entry_is_write(entry)) {
       // TODO: generate a transaction id to use as the unique lock request id
       if (lock_table_rw_try_acquire_entry_lock(
-            txn_kvsb->lock_tbl,
-            entry, WRITE_LOCK, 0) == LOCK_TABLE_RW_RC_BUSY) {
+             txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn->ts)
+          == LOCK_TABLE_RW_RC_BUSY)
+      {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
@@ -370,8 +383,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    } else {
       // TODO: generate a transaction id to use as the unique lock request id
       if (lock_table_rw_try_acquire_entry_lock(
-            txn_kvsb->lock_tbl,
-            entry, READ_LOCK, 0) == LOCK_TABLE_RW_RC_BUSY) {
+             txn_kvsb->lock_tbl, entry, READ_LOCK, txn->ts)
+          == LOCK_TABLE_RW_RC_BUSY)
+      {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }

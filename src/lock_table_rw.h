@@ -9,13 +9,13 @@
 /*
  * Implements a lock table that uses READ/WRITE locks and 3 locking policies:
  * NO_WAIT, WAIT-DIE, and WOUND-WAIT
-*/
+ */
 
 #define LOCK_TABLE_DEBUG 0
 
 // locking policies
-#define NO_WAIT    0
-#define WAIT_DIE   1
+#define NO_WAIT    1
+#define WAIT_DIE   0
 #define WOUND_WAIT 0
 
 // The lock table is just a hash map
@@ -31,21 +31,20 @@ typedef enum lock_type {
 typedef uint128 lock_req_id;
 
 typedef struct lock_req {
-   lock_type lt;
-   lock_req_id id;        // unique req id provided by the application
-   struct lock_req* next; // to form a linked list
+   lock_type        lt;
+   lock_req_id      id;   // unique req id provided by the application
+   struct lock_req *next; // to form a linked list
 } lock_req;
 
-// Each lock_entry in this lock table contains some certain state required to 
+// Each lock_entry in this lock table contains some certain state required to
 // implement the chosen locking policy
 typedef struct lock_entry {
 #if NO_WAIT == 1
    platform_mutex latch;
 #endif
-   lock_req* owners;
+   lock_req *owners;
 #if WAIT_DIE == 1 || WOUND_WAIT == 1
    platform_condvar condvar;
-   lock_req* waiters;
 #endif
 } lock_entry;
 
@@ -74,15 +73,15 @@ lock_table_rw_destroy(lock_table_rw *lock_tbl);
 
 lock_table_rw_rc
 lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
-                                     rw_entry *entry,
-                                     lock_type lt,
-                                     lock_req_id lid);
+                                     rw_entry      *entry,
+                                     lock_type      lt,
+                                     lock_req_id    lid);
 
 lock_table_rw_rc
 lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
-                                 rw_entry *entry,
-                                 lock_type lt,
-                                 lock_req_id lid);
+                                 rw_entry      *entry,
+                                 lock_type      lt,
+                                 lock_req_id    lid);
 
-//lock_table_rw_rc
-//lock_table_rw_get_entry_lock_state(lock_table_rw *lock_tbl, rw_entry *entry);
+// lock_table_rw_rc
+// lock_table_rw_get_entry_lock_state(lock_table_rw *lock_tbl, rw_entry *entry);

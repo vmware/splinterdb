@@ -22,8 +22,8 @@ typedef struct transactional_splinterdb {
 } transactional_splinterdb;
 
 typedef struct rw_entry {
-   slice   key;
-   message msg; // value + op
-   bool    is_read;
+   slice       key;
+   message     msg; // value + op
+   bool        is_read;
    lock_entry *le;
 } rw_entry;
