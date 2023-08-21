@@ -88,7 +88,6 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
       entry = rw_entry_create();
       rw_entry_set_key(entry, user_key, cfg);
       txn->rw_entries[txn->num_rw_entries++] = entry;
-      entry->is_locked                       = FALSE;
    }
 
    entry->is_read = entry->is_read || is_read;
@@ -107,8 +106,6 @@ transactional_splinterdb_config_init(
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
-
-   txn_splinterdb_cfg->lock_timeout_ns = 1000000;
 }
 
 static int
@@ -136,7 +133,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl = lock_table_create();
+   _txn_kvsb->lock_tbl = lock_table_rw_create();
 
    *txn_kvsb = _txn_kvsb;
 
@@ -162,7 +159,7 @@ void
 transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 {
    transactional_splinterdb *_txn_kvsb = *txn_kvsb;
-   lock_table_destroy(_txn_kvsb->lock_tbl);
+   lock_table_rw_destroy(_txn_kvsb->lock_tbl);
 
    splinterdb_close(&_txn_kvsb->kvsb);
 
@@ -233,8 +230,10 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
+         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, WRITE_LOCK, 0);
+      } else {
+         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, READ_LOCK, 0);
       }
-      lock_table_release_entry_lock(txn_kvsb->lock_tbl, entry);
    }
 
    transaction_deinit(txn_kvsb, txn);
@@ -249,8 +248,10 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
    // unlock all entries that are locked so far
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry *entry = txn->rw_entries[i];
-      if (entry->is_locked) {
-         lock_table_release_entry_lock(txn_kvsb->lock_tbl, entry);
+      if (rw_entry_is_write(entry)) {
+         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, WRITE_LOCK, 0);
+      } else {
+         lock_table_rw_release_entry_lock(txn_kvsb->lock_tbl, entry, READ_LOCK, 0);
       }
    }
 
@@ -279,11 +280,9 @@ local_write(transactional_splinterdb *txn_kvsb,
 
    if (!rw_entry_is_write(entry)) {
       // TODO: generate a transaction id to use as the unique lock request id
-      bool is_key_locked_by_another =
-         lock_table_rw_try_acquire_entry_lock=(
-            txn_kvsb->lock_tbl, entry, WRITE_LOCK, 0)
-         == LOCK_TABLE_RC_BUSY;
-      if (is_key_locked_by_another) {
+      if (lock_table_rw_try_acquire_entry_lock(
+            txn_kvsb->lock_tbl,
+            entry, WRITE_LOCK, 0) == LOCK_TABLE_RW_RC_BUSY) {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }
@@ -370,11 +369,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
              message_length(entry->msg));
    } else {
       // TODO: generate a transaction id to use as the unique lock request id
-      bool is_key_locked_by_another =
-         lock_table_rw_try_acquire_entry_lock(
-            txn_kvsb->lock_tbl, entry, READ_LOCK, 0)
-         == LOCK_TABLE_RC_BUSY;
-      if (is_key_locked_by_another) {
+      if (lock_table_rw_try_acquire_entry_lock(
+            txn_kvsb->lock_tbl,
+            entry, READ_LOCK, 0) == LOCK_TABLE_RW_RC_BUSY) {
          transactional_splinterdb_abort(txn_kvsb, txn);
          return 1;
       }

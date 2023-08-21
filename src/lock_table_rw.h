@@ -14,8 +14,8 @@
 #define LOCK_TABLE_DEBUG 0
 
 // locking policies
-#define NO_WAIT    1
-#define WAIT_DIE   0
+#define NO_WAIT    0
+#define WAIT_DIE   1
 #define WOUND_WAIT 0
 
 // The lock table is just a hash map
@@ -39,13 +39,13 @@ typedef struct lock_req {
 // Each lock_entry in this lock table contains some certain state required to 
 // implement the chosen locking policy
 typedef struct lock_entry {
-   platform_mutex latch;
-   lock_req* owners;
 #if NO_WAIT == 1
-#elif WAIT_DIE == 1
-#elif WOUND_WAIT == 1
-#else
-#   error "Locking policy unspecified" 
+   platform_mutex latch;
+#endif
+   lock_req* owners;
+#if WAIT_DIE == 1 || WOUND_WAIT == 1
+   platform_condvar condvar;
+   lock_req* waiters;
 #endif
 } lock_entry;
 

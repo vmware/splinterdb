@@ -25,6 +25,5 @@ typedef struct rw_entry {
    slice   key;
    message msg; // value + op
    bool    is_read;
-   bool    is_locked;
    lock_entry *le;
 } rw_entry;
