@@ -134,6 +134,7 @@ typedef struct trunk_node_config {
    uint64                target_leaf_kv_bytes;
    uint64                target_fanout;
    uint64                per_child_flush_threshold_kv_bytes;
+   uint64                max_tuples_per_node;
 } trunk_node_config;
 
 typedef struct trunk_node_context {
@@ -142,6 +143,7 @@ typedef struct trunk_node_context {
    cache                   *cc;
    allocator               *al;
    task_system             *ts;
+   uint64                   root_addr;
 } trunk_node_context;
 
 /***************************************************
@@ -1159,38 +1161,219 @@ branch_merger_deinit(branch_merger *merger)
    return rc;
 }
 
+/*************************
+ * generic code to apply changes to nodes in the tree.
+ ************************/
+
+typedef platform_status(apply_changes_fn)(trunk_node_context *context,
+                                          in_memory_node     *target,
+                                          void               *arg);
+
+platform_status
+apply_changes(trunk_node_context *context,
+              key                 minkey,
+              key                 maxkey,
+              uint64              height,
+              apply_changes_fn   *func,
+              void               *arg);
+
 /************************
  * bundle compaction
  ************************/
 
-void
-bundle_compaction_task(void *arg, void *scratch);
-
 typedef struct bundle_compaction_args {
    trunk_node_context *context;
    uint64              addr;
-   in_memory_node     *node;
+   in_memory_node      node;
+   uint64              next_child;
+   uint64              completed_compactions;
+   bool32              failed;
+   branch_merger      *mergers;
+   btree_pack_req     *pack_reqs;
 } bundle_compaction_args;
+
+void
+bundle_compaction_args_destroy(bundle_compaction_args *args)
+{
+   uint64 num_children = in_memory_node_num_children(&args->node);
+
+   for (uint64 i = 0; i < num_children; i++) {
+      branch_merger_deinit(&args->mergers[i]);
+   }
+   for (uint64 i = 0; i < num_children; i++) {
+      btree_pack_req_deinit(&args->pack_reqs[i], args->context->hid);
+   }
+   if (args->mergers != NULL) {
+      platform_free(args->context->hid, args->mergers);
+   }
+   if (args->pack_reqs != NULL) {
+      platform_free(args->context->hid, args->pack_reqs);
+   }
+
+   platform_free(args->context->hid, args);
+}
+
+bundle_compaction_args *
+bundle_compaction_args_create(trunk_node_context *context,
+                              uint64              addr,
+                              in_memory_node     *node)
+{
+   platform_status rc;
+   uint64          merger_num   = 0;
+   uint64          pack_req_num = 0;
+
+   uint64 num_children = in_memory_node_num_children(node);
+
+
+   bundle_compaction_args *args = TYPED_ZALLOC(context->hid, args);
+   if (args == NULL) {
+      return NULL;
+   }
+   args->context               = context;
+   args->addr                  = addr;
+   args->node                  = *node;
+   args->next_child            = 0;
+   args->completed_compactions = 0;
+   args->failed                = FALSE;
+
+   args->mergers =
+      TYPED_ARRAY_ZALLOC(context->hid, args->mergers, num_children);
+   args->pack_reqs =
+      TYPED_ARRAY_ZALLOC(context->hid, args->pack_reqs, num_children);
+   if (args->mergers == NULL || args->pack_reqs == NULL) {
+      goto cleanup;
+   }
+
+   for (uint64 merger_num = 0; merger_num < num_children; merger_num++) {
+      branch_merger_init(&args->mergers[merger_num],
+                         context->hid,
+                         context->cfg->data_cfg,
+                         in_memory_node_pivot_key(node, merger_num),
+                         in_memory_node_pivot_key(node, merger_num + 1),
+                         0);
+
+      for (uint64 i = node->num_old_bundles;
+           vector_length(&node->inflight_bundles);
+           i++)
+      {
+         in_memory_inflight_bundle *bundle =
+            vector_get_ptr(&node->inflight_bundles, i);
+         rc = branch_merger_add_inflight_bundle(&args->mergers[merger_num],
+                                                context->cc,
+                                                context->cfg->btree_cfg,
+                                                merger_num,
+                                                bundle);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+      }
+
+      rc = branch_merger_build_merge_itor(
+         &args->mergers[merger_num],
+         in_memory_node_is_leaf(node) ? MERGE_FULL : MERGE_INTERMEDIATE);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+   }
+
+   for (pack_req_num = 0; pack_req_num < num_children; pack_req_num++) {
+      btree_pack_req_init(&args->pack_reqs[pack_req_num],
+                          context->cc,
+                          context->cfg->btree_cfg,
+                          args->mergers[pack_req_num].merge_itor,
+                          context->cfg->max_tuples_per_node,
+                          context->cfg->filter_cfg->hash,
+                          context->cfg->filter_cfg->seed,
+                          context->hid);
+   }
+
+   return args;
+
+cleanup:
+   for (uint64 i = 0; i < merger_num; i++) {
+      branch_merger_deinit(&args->mergers[i]);
+   }
+   for (uint64 i = 0; i < pack_req_num; i++) {
+      btree_pack_req_deinit(&args->pack_reqs[i], context->hid);
+   }
+   if (args->mergers != NULL) {
+      platform_free(context->hid, args->mergers);
+   }
+   if (args->pack_reqs != NULL) {
+      platform_free(context->hid, args->pack_reqs);
+   }
+   platform_free(context->hid, args);
+   return NULL;
+}
+
+platform_status
+apply_bundle_compaction(trunk_node_context *context,
+                        in_memory_node     *target,
+                        void               *arg);
+
+void
+bundle_compaction_task(void *arg, void *scratch)
+{
+   platform_status         rc;
+   bundle_compaction_args *args = (bundle_compaction_args *)arg;
+
+   uint64 num_children = in_memory_node_num_children(&args->node);
+   uint64 my_child_num = __sync_fetch_and_add(&args->next_child, 1);
+
+   rc = btree_pack(&args->pack_reqs[my_child_num]);
+   if (!SUCCESS(rc)) {
+      args->failed = TRUE;
+   }
+
+   if (__sync_add_and_fetch(&args->completed_compactions, 1) == num_children) {
+      if (!args->failed) {
+         rc = apply_changes(args->context,
+                            in_memory_node_pivot_min_key(&args->node),
+                            in_memory_node_pivot_max_key(&args->node),
+                            in_memory_node_height(&args->node),
+                            apply_bundle_compaction,
+                            arg);
+      }
+      in_memory_node_deinit(&args->node, args->context);
+      on_disk_node_dec_ref(args->context, args->addr);
+      bundle_compaction_args_destroy(args);
+   }
+}
 
 platform_status
 enqueue_bundle_compaction(trunk_node_context *context,
                           uint64              addr,
                           in_memory_node     *node)
 {
-   bundle_compaction_args *args = TYPED_ZALLOC(context->hid, args);
+   bundle_compaction_args *args =
+      bundle_compaction_args_create(context, addr, node);
    if (args == NULL) {
       return STATUS_NO_MEMORY;
    }
-   args->context = context;
-   args->addr    = addr;
-   args->node    = node;
 
    on_disk_node_inc_ref(context, addr);
 
-   platform_status rc = task_enqueue(
-      context->ts, TASK_TYPE_NORMAL, bundle_compaction_task, args, FALSE);
+   platform_status rc;
+   uint64          num_children = in_memory_node_num_children(node);
+   uint64          enqueued_compactions;
+   for (enqueued_compactions = 0; enqueued_compactions < num_children;
+        enqueued_compactions++)
+   {
+      rc = task_enqueue(
+         context->ts, TASK_TYPE_NORMAL, bundle_compaction_task, args, FALSE);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+   }
+
    if (!SUCCESS(rc)) {
-      platform_free(context->hid, args);
+      args->failed         = TRUE;
+      uint64 num_completed = __sync_fetch_and_add(
+         &args->completed_compactions, num_children - enqueued_compactions);
+      if (num_completed == num_children) {
+         on_disk_node_dec_ref(context, addr);
+         bundle_compaction_args_destroy(args);
+      }
    }
 
    return rc;
@@ -2011,8 +2194,8 @@ restore_balance_index(trunk_node_context    *context,
                   return rc;
                }
 
-               // At this point, child has been moved into new_children, so we
-               // let it go out of scope.
+               // At this point, child has been moved into new_children, so
+               // we let it go out of scope.
             }
 
             vector_init(&new_pivots, context->hid);
@@ -2053,13 +2236,13 @@ restore_balance_index(trunk_node_context    *context,
 }
 
 /*
- * Flush the routed bundle and inflight bundles inflight[inflight_start...] to
- * the given node.
+ * Flush the routed bundle and inflight bundles inflight[inflight_start...]
+ * to the given node.
  *
- * num_tuples and num_kv_bytes are the stats for the incoming bundles (i.e. when
- * flushing from a parent node, they are the per-pivot stat information, when
- * performing a memtable incorporation, they are the stats for the incoming
- * memtable).
+ * num_tuples and num_kv_bytes are the stats for the incoming bundles (i.e.
+ * when flushing from a parent node, they are the per-pivot stat information,
+ * when performing a memtable incorporation, they are the stats for the
+ * incoming memtable).
  *
  * child_num is the child number of the node addr within its parent.
  *
@@ -2109,8 +2292,8 @@ build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
 
    debug_assert(1 < vector_length(nodes));
 
-   // Remember the height now, since we will lose ownership of the children when
-   // we enqueue compactions on them.
+   // Remember the height now, since we will lose ownership of the children
+   // when we enqueue compactions on them.
    uint64 height = in_memory_node_height(vector_get_ptr(nodes, 0));
 
    // Serialize the children and enqueue their compactions. This will give us
@@ -2145,8 +2328,8 @@ build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
    in_memory_node_init(
       &new_root, height + 1, pivots, pivot_bundles, 0, inflight);
 
-   // At this point, all our resources that we've allocated have been put into
-   // the new root.
+   // At this point, all our resources that we've allocated have been put
+   // into the new root.
 
    rc = in_memory_index_split(context, &new_root, nodes);
    if (!SUCCESS(rc)) {
@@ -2167,7 +2350,6 @@ cleanup_pivots:
 
 platform_status
 incorporate(trunk_node_context *context,
-            uint64              root_addr,
             routing_filter      filter,
             branch_ref          branch,
             uint64              num_tuples,
@@ -2184,13 +2366,13 @@ incorporate(trunk_node_context *context,
 
    // Read the old root.
    in_memory_node root;
-   rc = in_memory_node_deserialize(context, root_addr, &root);
+   rc = in_memory_node_deserialize(context, context->root_addr, &root);
    if (!SUCCESS(rc)) {
       goto cleanup_vectors;
    }
 
-   // Construct a vector of inflight bundles with one singleton bundle for the
-   // new branch.
+   // Construct a vector of inflight bundles with one singleton bundle for
+   // the new branch.
    rc = VECTOR_EMPLACE_APPEND(&inflight,
                               in_memory_inflight_bundle_init_singleton,
                               context->hid,
@@ -2214,9 +2396,9 @@ incorporate(trunk_node_context *context,
       goto cleanup_root;
    }
 
-   // At this point. root has been copied into new_nodes, so we should no longer
-   // clean it up on failure -- it will get cleaned up when we clean up
-   // new_nodes.
+   // At this point. root has been copied into new_nodes, so we should no
+   // longer clean it up on failure -- it will get cleaned up when we clean
+   // up new_nodes.
 
    // Build new roots, possibly splitting them, until we get down to a single
    // root with fanout that is within spec.

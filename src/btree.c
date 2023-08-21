@@ -3166,8 +3166,8 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 static inline void
 btree_pack_post_loop(btree_pack_req *req, key last_key)
 {
-   cache        *cc  = req->cc;
-   btree_config *cfg = req->cfg;
+   cache              *cc  = req->cc;
+   const btree_config *cfg = req->cfg;
    // we want to use the allocation node, so we copy the root created in the
    // loop into the btree_create root
    btree_node root;

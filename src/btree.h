@@ -148,13 +148,13 @@ typedef struct btree_iterator {
 
 typedef struct btree_pack_req {
    // inputs to the pack
-   cache        *cc;
-   btree_config *cfg;
-   iterator     *itor; // the itor which is being packed
-   uint64        max_tuples;
-   hash_fn       hash; // hash function used for calculating filter_hash
-   unsigned int  seed; // seed used for calculating filter_hash
-   uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
+   cache              *cc;
+   const btree_config *cfg;
+   iterator           *itor; // the itor which is being packed
+   uint64              max_tuples;
+   hash_fn             hash; // hash function used for calculating filter_hash
+   unsigned int        seed; // seed used for calculating filter_hash
+   uint32 *fingerprint_arr;  // IN/OUT: hashes of the keys in the tree
 
    // internal data
    uint16            height;
@@ -327,14 +327,14 @@ void
 btree_iterator_deinit(btree_iterator *itor);
 
 static inline void
-btree_pack_req_init(btree_pack_req  *req,
-                    cache           *cc,
-                    btree_config    *cfg,
-                    iterator        *itor,
-                    uint64           max_tuples,
-                    hash_fn          hash,
-                    unsigned int     seed,
-                    platform_heap_id hid)
+btree_pack_req_init(btree_pack_req     *req,
+                    cache              *cc,
+                    const btree_config *cfg,
+                    iterator           *itor,
+                    uint64              max_tuples,
+                    hash_fn             hash,
+                    unsigned int        seed,
+                    platform_heap_id    hid)
 {
    memset(req, 0, sizeof(*req));
    req->cc         = cc;
