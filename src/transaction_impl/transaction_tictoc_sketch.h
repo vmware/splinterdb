@@ -301,9 +301,11 @@ transactional_splinterdb_config_init(
 #if EXPERIMENTAL_MODE_TICTOC_COUNTER
    txn_splinterdb_cfg->sktch_config.rows = 1;
    txn_splinterdb_cfg->sktch_config.cols = 1;
-#else // if EXPERIMENTAL_MODE_TICTOC_SKETCH
+#elif EXPERIMENTAL_MODE_TICTOC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols = 131072;
+#else
+#   error "Invalid experimental mode"
 #endif
 }
 
