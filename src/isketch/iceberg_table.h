@@ -17,13 +17,6 @@ extern "C" {
 #define C_LV2       6
 #define MAX_RESIZES 32
 
-// typedef struct __attribute__((__packed__)) kv_pair {
-typedef struct kv_pair {
-   KeyType   key;
-   ValueType val;
-   uint64_t  refcount;
-} kv_pair;
-
 typedef struct __attribute__((__packed__)) iceberg_lv1_block {
    kv_pair slots[1 << SLOT_BITS];
 } iceberg_lv1_block;
@@ -41,21 +34,12 @@ typedef struct __attribute__((__packed__)) iceberg_lv2_block_md {
 } iceberg_lv2_block_md;
 
 typedef struct iceberg_lv3_node {
-   kv_pair kv;
-#ifdef PMEM
-   bool      in_use;
-   ptrdiff_t next_idx;
-#else
+   kv_pair                  kv;
    struct iceberg_lv3_node *next_node;
-#endif
 } iceberg_lv3_node __attribute__((aligned(64)));
 
 typedef struct iceberg_lv3_list {
-#ifdef PMEM
-   ptrdiff_t head_idx;
-#else
-   iceberg_lv3_node        *head;
-#endif
+   iceberg_lv3_node *head;
 } iceberg_lv3_list;
 
 typedef struct iceberg_metadata {
@@ -95,10 +79,8 @@ typedef struct iceberg_table {
    iceberg_lv1_block *level1[MAX_RESIZES];
    iceberg_lv2_block *level2[MAX_RESIZES];
    iceberg_lv3_list  *level3[MAX_RESIZES];
-#ifdef PMEM
-   iceberg_lv3_node *level3_nodes;
-#endif
-   sketch *sktch;
+   const data_config *spl_data_config;
+   sketch            *sktch;
 } iceberg_table;
 
 uint64_t
@@ -111,14 +93,24 @@ uint64_t
 tot_balls(iceberg_table *table);
 
 int
-iceberg_init(iceberg_table *table, uint64_t log_slots);
+iceberg_init(iceberg_table     *table,
+             uint64_t           log_slots,
+             const data_config *spl_data_config);
 int
-iceberg_init_with_sketch(iceberg_table *table,
-                         uint64_t       log_slots,
-                         sketch_config *config);
+iceberg_init_with_sketch(iceberg_table     *table,
+                         uint64_t           log_slots,
+                         const data_config *spl_data_config,
+                         sketch_config     *sktch_config);
 
 double
 iceberg_load_factor(iceberg_table *table);
+
+
+// When inserting a key and a value newly, it allocates a memory for
+// the key and copy it to the allocated memory.
+
+// All insert variants return the pointer of the key allocated in the
+// hash table.
 
 /**
  *
@@ -134,7 +126,7 @@ iceberg_load_factor(iceberg_table *table);
  */
 bool
 iceberg_insert(iceberg_table *table,
-               KeyType        key,
+               slice         *key,
                ValueType      value,
                uint8_t        thread_id);
 
@@ -149,7 +141,7 @@ iceberg_insert(iceberg_table *table,
  */
 bool
 iceberg_insert_without_increasing_refcount(iceberg_table *table,
-                                           KeyType        key,
+                                           slice         *key,
                                            ValueType      value,
                                            uint8_t        thread_id);
 
@@ -159,13 +151,13 @@ iceberg_insert_without_increasing_refcount(iceberg_table *table,
  */
 bool
 iceberg_insert_and_get(iceberg_table *table,
-                       KeyType        key,
+                       slice         *key,
                        ValueType    **value,
                        uint8_t        thread_id);
 
 bool
 iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
-                                                   KeyType        key,
+                                                   slice         *key,
                                                    ValueType    **value,
                                                    uint8_t        thread_id);
 
@@ -177,7 +169,7 @@ iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
  */
 bool
 iceberg_update(iceberg_table *table,
-               KeyType        key,
+               slice         *key,
                ValueType      value,
                uint8_t        thread_id);
 
@@ -189,12 +181,12 @@ iceberg_update(iceberg_table *table,
  */
 bool
 iceberg_put(iceberg_table *table,
-            KeyType        key,
+            slice         *key,
             ValueType      value,
             uint8_t        thread_id);
 
 bool
-iceberg_remove(iceberg_table *table, KeyType key, uint8_t thread_id);
+iceberg_remove(iceberg_table *table, slice key, uint8_t thread_id);
 
 
 /*
@@ -202,28 +194,21 @@ iceberg_remove(iceberg_table *table, KeyType key, uint8_t thread_id);
  */
 bool
 iceberg_get_and_remove(iceberg_table *table,
-                       KeyType       *key,
+                       slice          key,
                        ValueType     *value,
                        uint8_t        thread_id);
 
 bool
-iceberg_force_remove(iceberg_table *table, KeyType key, uint8_t thread_id);
+iceberg_force_remove(iceberg_table *table, slice key, uint8_t thread_id);
 
 bool
-iceberg_decrease_refcount(iceberg_table *table, KeyType key, uint8_t thread_id);
+iceberg_decrease_refcount(iceberg_table *table, slice key, uint8_t thread_id);
 
 bool
 iceberg_get_value(iceberg_table *table,
-                  KeyType        key,
+                  slice          key,
                   ValueType    **value,
                   uint8_t        thread_id);
-
-#ifdef PMEM
-uint64_t
-iceberg_dismount(iceberg_table *table);
-int
-iceberg_mount(iceberg_table *table, uint64_t log_slots, uint64_t resize_cnt);
-#endif
 
 #ifdef ENABLE_RESIZE
 void

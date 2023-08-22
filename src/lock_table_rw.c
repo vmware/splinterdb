@@ -4,11 +4,11 @@
 #include "poison.h"
 
 lock_table_rw *
-lock_table_rw_create()
+lock_table_rw_create(const data_config *spl_data_config)
 {
    lock_table_rw *lt;
    lt = TYPED_ZALLOC(0, lt);
-   iceberg_init(&lt->table, 20);
+   iceberg_init(&lt->table, 20, spl_data_config);
    return lt;
 }
 
@@ -182,10 +182,10 @@ _lock(lock_entry *le, lock_type lt, lock_req_id lid)
    platform_condvar_lock(&le->condvar);
    while (true) {
       if (le->owners == NULL) {
-            // we need to create a new lock_req and obtain the lock
-            le->owners = get_lock_req(lt, lid);
-            platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+         // we need to create a new lock_req and obtain the lock
+         le->owners = get_lock_req(lt, lid);
+         platform_condvar_unlock(&le->condvar);
+         return LOCK_TABLE_RW_RC_OK;
       }
 
       lock_req *iter = le->owners;
@@ -225,7 +225,7 @@ _lock(lock_entry *le, lock_type lt, lock_req_id lid)
                // there's still another reader besides
                // us holding the lock,
                // but we want exclusive access
-                if (iter->id < lid) {
+               if (iter->id < lid) {
                   platform_condvar_unlock(&le->condvar);
                   return LOCK_TABLE_RW_RC_BUSY;
                } else {
@@ -252,9 +252,9 @@ _lock(lock_entry *le, lock_type lt, lock_req_id lid)
             platform_condvar_unlock(&le->condvar);
             return LOCK_TABLE_RW_RC_OK;
          } else if (iter->next->id > lid) {
-            lock_req* lr = get_lock_req(lt, lid);
-            lr->next = iter->next;
-            iter->next = lr;
+            lock_req *lr = get_lock_req(lt, lid);
+            lr->next     = iter->next;
+            iter->next   = lr;
             platform_condvar_unlock(&le->condvar);
             return LOCK_TABLE_RW_RC_OK;
          }
@@ -322,9 +322,9 @@ lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
    // or create a new one
    lock_entry *le = lock_entry_init();
 
-   KeyType key = (KeyType)slice_data(entry->key);
+   slice entry_key = entry->key;
    iceberg_insert_and_get(
-      &lock_tbl->table, key, (ValueType **)&entry->le, get_tid());
+      &lock_tbl->table, &entry_key, (ValueType **)&entry->le, get_tid());
 
    if (le != entry->le) {
       // there's already a lock_entry for this key in the lock_table
@@ -346,16 +346,11 @@ lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
                    "Trying to release a lock using NULL lock entry");
 
    if (_unlock(entry->le, lt, lid) == LOCK_TABLE_RW_RC_OK) {
-      KeyType key = (KeyType)slice_data(entry->key);
       // platform_assert(iceberg_force_remove(&lock_tbl->table, key,
       // get_tid()));
       ValueType value = {0};
-      if (iceberg_get_and_remove(&lock_tbl->table, &key, &value, get_tid())) {
-         if (slice_data(entry->key) != key) {
-            // TODO: understand this part
-            platform_free_from_heap(0, key);
-         } else {
-         }
+      if (iceberg_get_and_remove(
+             &lock_tbl->table, entry->key, &value, get_tid())) {
          lock_entry_destroy(entry->le);
          return LOCK_TABLE_RW_RC_OK;
       }

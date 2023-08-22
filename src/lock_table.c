@@ -22,11 +22,11 @@ typedef struct lock_table {
 } lock_table;
 
 lock_table *
-lock_table_create()
+lock_table_create(const data_config *spl_data_config)
 {
    lock_table *lt;
    lt = TYPED_ZALLOC(0, lt);
-   iceberg_init(&lt->table, 20);
+   iceberg_init(&lt->table, 20, spl_data_config);
    return lt;
 }
 
@@ -54,10 +54,10 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
       return LOCK_TABLE_RC_DEADLK;
    }
 
-   KeyType   key        = (KeyType)slice_data(entry->key);
    ValueType lock_owner = get_tid();
+   slice     entry_key  = entry->key;
    if (iceberg_insert_without_increasing_refcount(
-          &lock_tbl->table, key, lock_owner, get_tid()))
+          &lock_tbl->table, &entry_key, lock_owner, get_tid()))
    {
 #   if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %d] Acquired lock on key %s\n",
@@ -93,12 +93,12 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
       return lock_table_try_acquire_entry_lock(lock_tbl, entry);
    }
 
-   KeyType   key        = (KeyType)slice_data(entry->key);
    ValueType lock_owner = get_tid();
    timestamp start_ns   = platform_get_timestamp();
    while (TRUE) {
+      slice entry_key = entry->key;
       if (iceberg_insert_without_increasing_refcount(
-             &lock_tbl->table, key, lock_owner, get_tid()))
+             &lock_tbl->table, &entry_key, lock_owner, get_tid()))
       {
 #   if LOCK_TABLE_DEBUG
          platform_default_log("[Thread %d] Acquired lock on key %s\n",
@@ -134,8 +134,8 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
                    get_tid(),
                    (char *)slice_data(entry->key));
 
-   KeyType key = (KeyType)slice_data(entry->key);
-   platform_assert(iceberg_force_remove(&lock_tbl->table, key, get_tid()));
+   platform_assert(
+      iceberg_force_remove(&lock_tbl->table, entry->key, get_tid()));
    entry->is_locked = 0;
 
 #   if LOCK_TABLE_DEBUG
@@ -150,9 +150,8 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 lock_table_rc
 lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
 {
-   KeyType    key   = (KeyType)slice_data(entry->key);
    ValueType *value = NULL;
-   if (iceberg_get_value(&lock_tbl->table, key, &value, get_tid())) {
+   if (iceberg_get_value(&lock_tbl->table, entry->key, &value, get_tid())) {
       return LOCK_TABLE_RC_BUSY;
    }
    return LOCK_TABLE_RC_OK;

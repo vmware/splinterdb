@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "splinterdb/data.h"
 #include "platform.h"
 
 // FIXME: This lock table assumes rw_entry has 'is_locked' field.
@@ -24,7 +25,7 @@ typedef enum lock_table_rc {
 typedef struct lock_table lock_table;
 
 lock_table *
-lock_table_create();
+lock_table_create(const data_config *spl_data_config);
 void
 lock_table_destroy(lock_table *lock_tbl);
 

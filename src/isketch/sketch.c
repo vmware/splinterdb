@@ -3,7 +3,6 @@
 #endif
 
 #include "sketch.h"
-#include "hashutil.h"
 #include <sys/mman.h>
 #include <assert.h>
 #include <stdio.h>
@@ -59,14 +58,14 @@ sketch_deinit(sketch *sktch)
 }
 
 static inline uint64_t
-get_index_in_row(sketch *sktch, KeyType key, uint64_t row)
+get_index_in_row(sketch *sktch, slice key, uint64_t row)
 {
    bool     should_compute_hash = sktch->config->cols > 1;
-   uint64_t col =
-      should_compute_hash
-         ? MurmurHash64A_inline((const void *)key, KEY_SIZE, sktch->hashes[row])
-              % sktch->config->cols
-         : 0;
+   uint64_t col = should_compute_hash ? platform_hash64(slice_data(key),
+                                                        slice_length(key),
+                                                        sktch->hashes[row])
+                                           % sktch->config->cols
+                                      : 0;
    return row * sktch->config->cols + col;
 }
 
@@ -86,7 +85,7 @@ unlock(bool *lck)
 }
 
 static inline void
-lock_all(sketch *sktch, KeyType key)
+lock_all(sketch *sktch, slice key)
 {
    uint64_t index;
    for (uint64_t row = 0; row < sktch->config->rows; ++row) {
@@ -96,7 +95,7 @@ lock_all(sketch *sktch, KeyType key)
 }
 
 static inline void
-unlock_all(sketch *sktch, KeyType key)
+unlock_all(sketch *sktch, slice key)
 {
    uint64_t index;
    for (uint64_t row = 0; row < sktch->config->rows; ++row) {
@@ -107,7 +106,7 @@ unlock_all(sketch *sktch, KeyType key)
 #endif
 
 inline static void
-update_value_at_row(sketch *sktch, KeyType key, ValueType value, uint64_t row)
+update_value_at_row(sketch *sktch, slice key, ValueType value, uint64_t row)
 {
    uint64_t  index = get_index_in_row(sktch, key, row);
    ValueType current_value =
@@ -120,14 +119,14 @@ update_value_at_row(sketch *sktch, KeyType key, ValueType value, uint64_t row)
       is_success = __atomic_compare_exchange_n(&sktch->table[index].value,
                                                &current_value,
                                                max_value,
-                                               true,
+                                               TRUE,
                                                __ATOMIC_SEQ_CST,
                                                __ATOMIC_SEQ_CST);
-   } while(!is_success);
+   } while (!is_success);
 }
 
 inline void
-sketch_insert(sketch *sktch, KeyType key, ValueType value)
+sketch_insert(sketch *sktch, slice key, ValueType value)
 {
    uint64_t row = 0;
 
@@ -151,7 +150,7 @@ sketch_insert(sketch *sktch, KeyType key, ValueType value)
 }
 
 inline ValueType
-sketch_get(sketch *sktch, KeyType key)
+sketch_get(sketch *sktch, slice key)
 {
    uint64_t row   = 0;
    uint64_t index = get_index_in_row(sktch, key, row);

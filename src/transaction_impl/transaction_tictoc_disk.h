@@ -178,7 +178,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       platform_free(0, txn_splinterdb_cfg);
       return rc;
    }
-   _txn_kvsb->lock_tbl = lock_table_create();
+   _txn_kvsb->lock_tbl = lock_table_create(kvsb_cfg->data_cfg);
    *txn_kvsb           = _txn_kvsb;
 
    return 0;
@@ -441,15 +441,6 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
-   // Call non-transactional insertion for YCSB loading..
-   if (txn == NULL) {
-      rw_entry tmp_entry;
-      rw_entry_set_key(&tmp_entry, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
-      splinterdb_insert(txn_kvsb->kvsb, tmp_entry.key, value);
-      platform_free_from_heap(0, (void *)slice_data(tmp_entry.key));
-      return 0;
-   }
-
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }

@@ -1,29 +1,22 @@
-#ifndef _TYPES_H_
-#define _TYPES_H_
+#pragma once
 
 #ifdef __cplusplus
 #   define __restrict__
 extern "C" {
 #endif
 
-#include <inttypes.h>
-#include <stdbool.h>
-#include <stddef.h>
+#include "splinterdb/public_util.h"
+#include "splinterdb/data.h"
+#include "data_internal.h"
 
-#define KEY_SIZE 24
-
-typedef char *KeyType;
-
-// typedef struct {
-//    uint64_t value : 58;
-//    uint64_t refcount : 6;
-// } ValueType;
-
-// typedef uint64_t ValueType;
 typedef unsigned __int128 ValueType;
+
+typedef struct kv_pair {
+   slice     key;
+   ValueType val;
+   uint64_t  refcount;
+} kv_pair;
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

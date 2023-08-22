@@ -1,5 +1,4 @@
-#ifndef _SKETCH_H_
-#define _SKETCH_H_
+#pragma once
 
 #ifdef __cplusplus
 #   define __restrict__
@@ -31,9 +30,9 @@ void
 sketch_deinit(sketch *sktch);
 
 void
-sketch_insert(sketch *sktch, KeyType key, ValueType value);
+sketch_insert(sketch *sktch, slice key, ValueType value);
 ValueType
-sketch_get(sketch *sktch, KeyType key);
+sketch_get(sketch *sktch, slice key);
 
 #ifndef MAX
 #   define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -44,6 +43,4 @@ sketch_get(sketch *sktch, KeyType key);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

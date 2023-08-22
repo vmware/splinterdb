@@ -47,8 +47,6 @@ typedef struct rw_entry {
    message        msg; // value + op
    timestamp_set *ts;
    bool           is_read;
-   bool           need_to_keep_key;
-   bool           need_to_decrease_refcount;
 } rw_entry;
 
 enum sto_access_rc { STO_ACCESS_OK, STO_ACCESS_BUSY, STO_ACCESS_ABORT };
@@ -93,22 +91,13 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       return FALSE;
    }
 
-   KeyType key_ht = (KeyType)slice_data(entry->key);
-   // ValueType value_ht = {0};
-   // bool is_new_item = iceberg_insert_without_increasing_refcount(
-   //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
-
+   // increase refcount for key
    timestamp_set ts = {0};
    entry->ts        = &ts;
-   bool is_new_item = iceberg_insert_and_get_without_increasing_refcount(
-      txn_kvsb->tscache,
-      key_ht,
-      (ValueType **)&entry->ts,
-      platform_get_tid() - 1);
-   platform_assert(entry->ts != &ts);
-
-   entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
-   return is_new_item;
+   return iceberg_insert_and_get(txn_kvsb->tscache,
+                                 &entry->key,
+                                 (ValueType **)&entry->ts,
+                                 platform_get_tid() - 1);
 }
 
 static inline void
@@ -146,23 +135,9 @@ rw_entry_create()
 static inline void
 rw_entry_deinit(rw_entry *entry)
 {
-   bool can_key_free = !slice_is_null(entry->key) && !entry->need_to_keep_key;
-   if (can_key_free) {
-      platform_free_from_heap(0, (void *)slice_data(entry->key));
-   }
-
    if (!message_is_null(entry->msg)) {
       platform_free_from_heap(0, (void *)message_data(entry->msg));
    }
-}
-
-static inline void
-rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
-{
-   char *key_buf;
-   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
-   memcpy(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(KEY_SIZE, key_buf);
 }
 
 /*
@@ -215,8 +190,8 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
    }
 
    if (need_to_create_new_entry) {
-      entry = rw_entry_create();
-      rw_entry_set_key(entry, user_key, cfg);
+      entry                                  = rw_entry_create();
+      entry->key                             = user_key;
       txn->rw_entries[txn->num_rw_entries++] = entry;
    }
 
@@ -364,7 +339,9 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
-   platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
+   platform_assert(iceberg_init(tscache,
+                                txn_splinterdb_cfg->tscache_log_slots,
+                                kvsb_cfg->data_cfg)
                    == 0);
 
    _txn_kvsb->tscache = tscache;
@@ -503,7 +480,6 @@ local_write(transactional_splinterdb *txn_kvsb,
             message                   msg)
 {
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
-   const key          ukey  = key_create_from_slice(user_key);
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
    /* if (message_class(msg) == MESSAGE_TYPE_UPDATE */
    /*     || message_class(msg) == MESSAGE_TYPE_DELETE) */
@@ -527,7 +503,8 @@ local_write(transactional_splinterdb *txn_kvsb,
       rw_entry_set_msg(entry, msg);
    } else {
       // TODO it needs to be checked later for upsert
-      key wkey = key_create_from_slice(entry->key);
+      key       wkey = key_create_from_slice(entry->key);
+      const key ukey = key_create_from_slice(user_key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
             platform_free_from_heap(0, (void *)message_data(entry->msg));
@@ -551,15 +528,6 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
-   // Call non-transactional insertion for YCSB loading..
-   if (txn == NULL) {
-      rw_entry tmp_entry;
-      rw_entry_set_key(&tmp_entry, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
-      splinterdb_insert(txn_kvsb->kvsb, tmp_entry.key, value);
-      platform_free_from_heap(0, (void *)slice_data(tmp_entry.key));
-      return 0;
-   }
-
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }

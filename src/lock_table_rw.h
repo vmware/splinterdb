@@ -67,7 +67,7 @@ typedef enum lock_table_rw_rc {
  * Lock Table Functions
  */
 lock_table_rw *
-lock_table_rw_create();
+lock_table_rw_create(const data_config *spl_data_config);
 void
 lock_table_rw_destroy(lock_table_rw *lock_tbl);
 
