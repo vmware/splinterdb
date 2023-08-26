@@ -433,11 +433,13 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
          ({ func(__VA_ARGS__); }));                                            \
    })
 
-#define VECTOR_FAILABLE_FOR_LOOP_GENERIC(v, func, ...)                         \
+#define VECTOR_FAILABLE_FOR_LOOP_GENERIC(v, start, end, func, ...)             \
    ({                                                                          \
       platform_status __rc     = STATUS_OK;                                    \
       uint64          __length = vector_length(v);                             \
-      for (uint64 __idx = 0; __idx < __length; __idx++) {                      \
+      uint64          __end    = (end);                                        \
+      debug_assert(__end <= __length);                                         \
+      for (uint64 __idx = (start); __idx < __end; __idx++) {                   \
          __rc =                                                                \
             VECTOR_CALL_FAILABLE(func, v, __idx __VA_OPT__(, __VA_ARGS__));    \
          if (!SUCCESS(__rc)) {                                                 \
@@ -447,13 +449,13 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
       __rc;                                                                    \
    })
 
-#define VECTOR_FAILABLE_FOR_LOOP_ELTS(v, func, ...)                            \
+#define VECTOR_FAILABLE_FOR_LOOP_ELTS(v, start, end, func, ...)                \
    VECTOR_FAILABLE_FOR_LOOP_GENERIC(                                           \
-      v, vector_apply_to_elt, func __VA_OPT__(, __VA_ARGS__))
+      v, start, end, vector_apply_to_elt, func __VA_OPT__(, __VA_ARGS__))
 
-#define VECTOR_FAILABLE_FOR_LOOP_PTRS(v, func, ...)                            \
+#define VECTOR_FAILABLE_FOR_LOOP_PTRS(v, start, end, func, ...)                \
    VECTOR_FAILABLE_FOR_LOOP_GENERIC(                                           \
-      v, vector_apply_to_ptr, func __VA_OPT__(, __VA_ARGS__))
+      v, start, end, vector_apply_to_ptr, func __VA_OPT__(, __VA_ARGS__))
 
 
 // allocates space for one more element, then calls
