@@ -316,7 +316,7 @@ routing_get_bucket_counts(const routing_config *cfg,
  *      routing filter at old_filter_addr and returns the result in
  *      filter_addr.
  *
- *      meta_head should be passed to routing_filter_zap
+ *      meta_head should be passed to routing_filter_dec_ref
  *----------------------------------------------------------------------
  */
 platform_status
@@ -1151,13 +1151,31 @@ routing_filter_lookup_async(cache              *cc,
 
 /*
  *----------------------------------------------------------------------
- * routing_filter_zap
+ * routing_filter_inc_ref
+ *
+ *      incs the ref count of the filter
+ *----------------------------------------------------------------------
+ */
+void
+routing_filter_inc_ref(cache *cc, routing_filter *filter)
+{
+   if (filter->num_fingerprints == 0) {
+      return;
+   }
+
+   uint64 meta_head = filter->meta_head;
+   mini_unkeyed_inc_ref(cc, meta_head);
+}
+
+/*
+ *----------------------------------------------------------------------
+ * routing_filter_dec_ref
  *
  *      decs the ref count of the filter and destroys it if it reaches 0
  *----------------------------------------------------------------------
  */
 void
-routing_filter_zap(cache *cc, routing_filter *filter)
+routing_filter_dec_ref(cache *cc, routing_filter *filter)
 {
    if (filter->num_fingerprints == 0) {
       return;

@@ -166,7 +166,10 @@ routing_filter_lookup_async(cache              *cc,
                             routing_async_ctxt *ctxt);
 
 void
-routing_filter_zap(cache *cc, routing_filter *filter);
+routing_filter_dec_ref(cache *cc, routing_filter *filter);
+
+void
+routing_filter_inc_ref(cache *cc, routing_filter *filter);
 
 uint32
 routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,

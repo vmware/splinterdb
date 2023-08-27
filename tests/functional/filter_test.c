@@ -134,7 +134,7 @@ test_filter_basic(cache           *cc,
       FRACTION_ARGS(false_positive_rate));
 
    for (uint64 i = 0; i < num_values; i++) {
-      routing_filter_zap(cc, &filter[i + 1]);
+      routing_filter_dec_ref(cc, &filter[i + 1]);
    }
 
 out:
@@ -200,7 +200,7 @@ test_filter_perf(cache           *cc,
          if (!SUCCESS(rc)) {
             goto out;
          }
-         routing_filter_zap(cc, &filter[k]);
+         routing_filter_dec_ref(cc, &filter[k]);
          filter[k] = new_filter;
       }
    }
@@ -264,7 +264,7 @@ test_filter_perf(cache           *cc,
 
 out:
    for (uint64 i = 0; i < num_trees; i++) {
-      routing_filter_zap(cc, &filter[i]);
+      routing_filter_dec_ref(cc, &filter[i]);
    }
    if (fp_arr) {
       platform_free(hid, fp_arr);

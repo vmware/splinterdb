@@ -3900,7 +3900,7 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
       return;
    }
    cache *cc = spl->cc;
-   routing_filter_zap(cc, filter);
+   routing_filter_dec_ref(cc, filter);
 }
 
 /*
