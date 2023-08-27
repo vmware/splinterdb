@@ -1315,8 +1315,12 @@ branch_merger_deinit(branch_merger *merger)
  ************************/
 
 typedef platform_status(apply_changes_fn)(trunk_node_context *context,
+                                          uint64              addr,
                                           in_memory_node     *target,
                                           void               *arg);
+
+void
+apply_changes_begin(trunk_node_context *context);
 
 platform_status
 apply_changes(trunk_node_context *context,
@@ -1325,6 +1329,9 @@ apply_changes(trunk_node_context *context,
               uint64              height,
               apply_changes_fn   *func,
               void               *arg);
+
+void
+apply_changes_end(trunk_node_context *context);
 
 /*******************************************************************************
  * maplet compaction input tracking
@@ -1410,19 +1417,108 @@ maplet_compaction_input_tracker_put(maplet_compaction_input_tracker *tracker,
    return rc;
 }
 
+/*********************************************
+ * maplet compaction
+ *********************************************/
+
+typedef struct maplet_compaction_args {
+   trunk_node_context *context;
+   key_buffer          lbkey;
+   uint64              height;
+   routing_filter      old_maplet;
+   uint64              old_num_branches;
+   branch_ref_vector   branches;
+   routing_filter      new_maplet;
+} maplet_compaction_args;
+
+maplet_compaction_args *
+maplet_compaction_args_create(trunk_node_context *context,
+                              in_memory_node     *node,
+                              uint64              child_num)
+{
+   platform_status         rc;
+   maplet_compaction_args *args = TYPED_ZALLOC(context->hid, args);
+   if (args == NULL) {
+      return NULL;
+   }
+   vector_init(&args->branches, context->hid);
+
+   args->context = context;
+   rc            = key_buffer_init_from_key(
+      &args->lbkey, context->hid, in_memory_node_pivot_key(node, child_num));
+   if (!SUCCESS(rc)) {
+      goto cleanup_branches;
+   }
+   args->height = node->height;
+   in_memory_routed_bundle *routed =
+      in_memory_node_pivot_bundle(node, child_num);
+   args->old_maplet       = routed->maplet;
+   args->old_num_branches = in_memory_routed_bundle_num_branches(routed);
+
+   in_memory_pivot *pivot      = in_memory_node_pivot(node, child_num);
+   uint64           bundle_num = in_memory_pivot_inflight_bundle_start(pivot);
+   while (bundle_num < vector_length(&node->inflight_bundles)) {
+      in_memory_inflight_bundle *inflight =
+         vector_get_ptr(&node->inflight_bundles, bundle_num);
+      if (in_memory_inflight_bundle_type(inflight)
+          == INFLIGHT_BUNDLE_TYPE_PER_CHILD) {
+         rc = vector_append(&args->branches,
+                            in_memory_per_child_bundle_branch(
+                               &inflight->u.per_child, child_num));
+         if (!SUCCESS(rc)) {
+            goto cleanup_lbkey;
+         }
+      } else {
+         break;
+      }
+      bundle_num++;
+   }
+
+   allocator_inc_ref(context->al, args->old_maplet.addr);
+
+   return args;
+
+cleanup_lbkey:
+   key_buffer_deinit(&args->lbkey);
+cleanup_branches:
+   vector_deinit(&args->branches);
+   platform_free(context->hid, args);
+   return NULL;
+}
+
+void
+maplet_compaction_args_destroy(maplet_compaction_args *args)
+{
+   if (!args) {
+      return;
+   }
+   allocator_dec_ref(
+      args->context->al, args->old_maplet.addr, PAGE_TYPE_FILTER);
+   key_buffer_deinit(&args->lbkey);
+   vector_deinit(&args->branches);
+   platform_free(args->context->hid, args);
+}
+
+platform_status
+enqueue_maplet_compaction(maplet_compaction_args *args);
+
 /************************
  * bundle compaction
  ************************/
 
+typedef VECTOR(maplet_compaction_args *) maplet_compaction_args_vector;
+
 typedef struct bundle_compaction_args {
-   trunk_node_context *context;
-   uint64              addr;
-   in_memory_node      node;
-   uint64              next_child;
-   uint64              completed_compactions;
-   bool32              failed;
-   branch_merger      *mergers;
-   btree_pack_req     *pack_reqs;
+   trunk_node_context            *context;
+   uint64                         addr;
+   in_memory_node                 node;
+   uint64                         next_child;
+   uint64                         completed_compactions;
+   bool32                         failed;
+   branch_merger                 *mergers;
+   btree_pack_req                *pack_reqs;
+   maplet_compaction_args_vector  maplet_compaction_args;
+   maplet_compaction_input_vector maplet_compaction_inputs;
 } bundle_compaction_args;
 
 void
@@ -1449,6 +1545,10 @@ bundle_compaction_args_destroy(bundle_compaction_args *args)
       platform_free(args->context->hid, args->pack_reqs);
    }
 
+   vector_deinit(&args->maplet_compaction_inputs);
+   VECTOR_APPLY_TO_ELTS(&args->maplet_compaction_args,
+                        maplet_compaction_args_destroy);
+   vector_deinit(&args->maplet_compaction_args);
    platform_free(args->context->hid, args);
 }
 
@@ -1474,6 +1574,13 @@ bundle_compaction_args_create(trunk_node_context *context,
    args->next_child            = 0;
    args->completed_compactions = 0;
    args->failed                = FALSE;
+
+   vector_init(&args->maplet_compaction_args, context->hid);
+   vector_init(&args->maplet_compaction_inputs, context->hid);
+   rc = vector_ensure_capacity(&args->maplet_compaction_inputs, num_children);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
 
    args->mergers =
       TYPED_ARRAY_ZALLOC(context->hid, args->mergers, num_children);
@@ -1554,6 +1661,8 @@ cleanup:
    if (args->pack_reqs != NULL) {
       platform_free(context->hid, args->pack_reqs);
    }
+   vector_deinit(&args->maplet_compaction_inputs);
+   vector_deinit(&args->maplet_compaction_args);
    platform_free(context->hid, args);
    return NULL;
 }
@@ -1580,86 +1689,123 @@ find_matching_bundles(in_memory_node *target, in_memory_node *src)
 
 platform_status
 apply_bundle_compaction(trunk_node_context *context,
+                        uint64              addr,
                         in_memory_node     *target,
                         void               *arg)
 {
    platform_status         rc;
    bundle_compaction_args *args = (bundle_compaction_args *)arg;
+   in_memory_node         *src  = &args->node;
 
+   // If this is a leaf and it has split, bail out.
    if (in_memory_node_is_leaf(target)
-       && (data_key_compare(args->context->cfg->data_cfg,
+       && (data_key_compare(context->cfg->data_cfg,
                             in_memory_node_pivot_min_key(target),
-                            in_memory_node_pivot_min_key(&args->node))
+                            in_memory_node_pivot_min_key(src))
               != 0
-           || data_key_compare(args->context->cfg->data_cfg,
+           || data_key_compare(context->cfg->data_cfg,
                                in_memory_node_pivot_max_key(target),
-                               in_memory_node_pivot_max_key(&args->node))
+                               in_memory_node_pivot_max_key(src))
                  != 0))
    {
       return STATUS_OK;
    }
 
-   uint64 bundle_match_offset = find_matching_bundles(target, &args->node);
+   // Find where these compacted bundles are currently located in the target.
+   uint64 bundle_match_offset = find_matching_bundles(target, src);
    if (bundle_match_offset == -1) {
+      // They've already been flushed to all children.  Nothing to do.
       return STATUS_OK;
    }
 
+   uint64 src_num_children = in_memory_node_num_children(src);
+   uint64 tgt_num_children = in_memory_node_num_children(target);
+
+
+   // Set up the branch vector for the per-child bundle we will be building.
    branch_ref_vector branches;
    vector_init(&branches, context->hid);
-   rc = vector_ensure_capacity(&branches, in_memory_node_num_children(target));
+   rc = vector_ensure_capacity(&branches, tgt_num_children);
    if (!SUCCESS(rc)) {
       vector_deinit(&branches);
       return rc;
    }
 
+   // For each child in the target, find the corresponding child in the source
    uint64 src_child_num = 0;
-   for (uint64 target_child_num = 0;
-        target_child_num < in_memory_node_num_children(target);
-        target_child_num++)
+   for (uint64 tgt_child_num = 0; tgt_child_num < tgt_num_children;
+        tgt_child_num++)
    {
-      in_memory_pivot *pivot = in_memory_node_pivot(target, target_child_num);
+      key              src_lbkey = in_memory_node_pivot_key(src, src_child_num);
+      in_memory_pivot *pivot     = in_memory_node_pivot(target, tgt_child_num);
+      key              tgt_lbkey = in_memory_pivot_key(pivot);
+      uint64 inflight_start      = in_memory_pivot_inflight_bundle_start(pivot);
 
-      key target_lbkey = in_memory_pivot_key(pivot);
-      key target_ubkey = in_memory_node_pivot_key(target, target_child_num + 1);
-
-      key src_lbkey = in_memory_node_pivot_key(&args->node, src_child_num);
-      while (src_child_num < in_memory_node_num_children(&args->node)
-             && data_key_compare(
-                   args->context->cfg->data_cfg, src_lbkey, target_lbkey)
+      while (src_child_num < src_num_children
+             && data_key_compare(context->cfg->data_cfg, src_lbkey, tgt_lbkey)
                    < 0)
       {
          src_child_num++;
          // Note that it is safe to do the following lookup because there is
          // always one more pivot that the number of children
-         src_lbkey = in_memory_node_pivot_key(&args->node, src_child_num);
+         src_lbkey = in_memory_node_pivot_key(src, src_child_num);
       }
 
-      branch_ref        bref;
-      trunk_pivot_stats stats_decrease = TRUNK_STATS_ZERO;
-      if (src_child_num < in_memory_node_num_children(&args->node)
-          && data_key_compare(
-                args->context->cfg->data_cfg, src_lbkey, target_lbkey)
-                == 0
-          && data_key_compare(
-                args->context->cfg->data_cfg,
-                in_memory_node_pivot_key(&args->node, src_child_num + 1),
-                target_ubkey)
-                == 0
-          && in_memory_pivot_inflight_bundle_start(pivot)
-                <= bundle_match_offset)
+      if (src_child_num < src_num_children
+          && data_key_compare(context->cfg->data_cfg, src_lbkey, tgt_lbkey) == 0
+          && inflight_start <= bundle_match_offset)
       {
-         bref = create_branch_ref(args->pack_reqs[src_child_num].root_addr);
-         stats_decrease = in_memory_pivot_received_bundles_stats(
-            in_memory_node_pivot(&args->node, src_child_num));
-      } else {
-         bref = NULL_BRANCH_REF;
-      }
+         // We found a match.  Add this compaction result to the branch vector
+         // of the per-child bundle.
+         branch_ref bref =
+            create_branch_ref(args->pack_reqs[src_child_num].root_addr);
+         rc = vector_append(&branches, bref);
+         platform_assert_status_ok(rc);
 
-      rc = vector_append(&branches, bref);
-      platform_assert_status_ok(rc);
-      in_memory_pivot_add_tuple_counts(pivot, -1, stats_decrease);
+         // Save the maplet_compaction input locally.  If this apply call
+         // finishes successfully, then we will add all the inputs to the global
+         // input tracker.
+         maplet_compaction_input input = {
+            .branch           = bref,
+            .num_fingerprints = args->pack_reqs[src_child_num].num_tuples,
+            .fingerprints     = args->pack_reqs[src_child_num].fingerprint_arr};
+         rc = vector_append(&args->maplet_compaction_inputs, input);
+         platform_assert_status_ok(rc);
+         args->pack_reqs[src_child_num].fingerprint_arr = NULL;
+
+         // Compute the tuple accounting delta that will occur when we replace
+         // the input branches with the compacted branch.
+         trunk_pivot_stats stats_decrease =
+            in_memory_pivot_received_bundles_stats(
+               in_memory_node_pivot(src, src_child_num));
+         in_memory_pivot_add_tuple_counts(pivot, -1, stats_decrease);
+
+         if (inflight_start == bundle_match_offset) {
+            // After we replace the input branches with the compacted branch,
+            // this pivot will be eligible for maplet compaction, so record that
+            // fact so we can enqueue a maplet compaction task after we finish
+            // applying the results of this bundle compaction.  All we need to
+            // remember is the index of this match in the src node.
+            maplet_compaction_args *mc_args;
+            mc_args =
+               maplet_compaction_args_create(context, target, tgt_child_num);
+            if (mc_args == NULL) {
+               vector_deinit(&branches);
+               return STATUS_NO_MEMORY;
+            }
+            rc = vector_append(&args->maplet_compaction_args, mc_args);
+            platform_assert_status_ok(rc);
+         }
+      } else {
+         // No match -- the input bundles have already been flushed to the
+         // child, so add a NULL branch to the per-child bundle.
+         rc = vector_append(&branches, NULL_BRANCH_REF);
+         platform_assert_status_ok(rc);
+      }
    }
 
+   // Build the per-child bundle from the compacted branches we've collected and
+   // the maplets from the input bundles
    uint64 num_bundles =
       vector_length(&args->node.inflight_bundles) - args->node.num_old_bundles;
    in_memory_inflight_bundle result_bundle;
@@ -1675,6 +1821,7 @@ apply_bundle_compaction(trunk_node_context *context,
       return rc;
    }
 
+   // Replace the input bundles with the new per-child bundle
    for (uint64 i = bundle_match_offset; i < bundle_match_offset + num_bundles;
         i++) {
       in_memory_inflight_bundle_deinit(
@@ -1689,6 +1836,7 @@ apply_bundle_compaction(trunk_node_context *context,
    platform_assert_status_ok(rc);
    vector_set(&target->inflight_bundles, bundle_match_offset, result_bundle);
 
+   // Adust all the pivots' inflight bundle start offsets
    for (uint64 i = 0; i < in_memory_node_num_children(target); i++) {
       in_memory_pivot *pivot    = in_memory_node_pivot(target, i);
       uint64 pivot_bundle_start = in_memory_pivot_inflight_bundle_start(pivot);
@@ -1698,8 +1846,6 @@ apply_bundle_compaction(trunk_node_context *context,
             pivot, pivot_bundle_start - num_bundles + 1);
       }
    }
-
-   // FIXME: unfinished -- need to handle filter merging
 
    return STATUS_OK;
 }
@@ -1718,19 +1864,74 @@ bundle_compaction_task(void *arg, void *scratch)
       args->failed = TRUE;
    }
 
-   if (__sync_add_and_fetch(&args->completed_compactions, 1) == num_children) {
-      if (!args->failed) {
-         rc = apply_changes(args->context,
-                            in_memory_node_pivot_min_key(&args->node),
-                            in_memory_node_pivot_max_key(&args->node),
-                            in_memory_node_height(&args->node),
-                            apply_bundle_compaction,
-                            arg);
-      }
-      in_memory_node_deinit(&args->node, args->context);
-      on_disk_node_dec_ref(args->context, args->addr);
-      bundle_compaction_args_destroy(args);
+   if (__sync_add_and_fetch(&args->completed_compactions, 1) != num_children) {
+      return;
    }
+
+   // We are the last btree_pack to finish, so it is our responsibility to apply
+   // the changes and enqueue maplet compactions.
+
+   if (args->failed) {
+      goto cleanup;
+   }
+
+   apply_changes_begin(args->context);
+   rc = apply_changes(args->context,
+                      in_memory_node_pivot_min_key(&args->node),
+                      in_memory_node_pivot_max_key(&args->node),
+                      in_memory_node_height(&args->node),
+                      apply_bundle_compaction,
+                      arg);
+   if (!SUCCESS(rc)) {
+      apply_changes_end(args->context);
+      goto cleanup;
+   }
+
+   // Add all the maplet_compaction_inputs to the global input tracker
+   for (uint64 i = 0; i < vector_length(&args->maplet_compaction_inputs); i++) {
+      maplet_compaction_input *input =
+         vector_get_ptr(&args->maplet_compaction_inputs, i);
+      rc = maplet_compaction_input_tracker_put(
+         &args->context->maplet_compaction_inputs,
+         input->branch,
+         input->num_fingerprints,
+         input->fingerprints);
+      if (!SUCCESS(rc)) {
+         apply_changes_end(args->context);
+         goto cleanup;
+      }
+   }
+
+   apply_changes_end(args->context);
+
+   // Enqueue maplet compactions
+   for (uint64 compaction_num = 0;
+        compaction_num < vector_length(&args->maplet_compaction_args);
+        compaction_num++)
+   {
+      maplet_compaction_args *mc_args =
+         vector_get(&args->maplet_compaction_args, compaction_num);
+      rc = enqueue_maplet_compaction(mc_args);
+      if (SUCCESS(rc)) {
+         // Remove the maplet_compaction_args from the vector so we don't
+         // destroy it in cleanup
+         vector_set(&args->maplet_compaction_args, compaction_num, NULL);
+      } else {
+         // Remove all the maplet_compaction_inputs for maplet compactions that
+         // aren't going to happen.
+         for (uint64 i = 0; i < vector_length(&mc_args->branches); i++) {
+            branch_ref              bref = vector_get(&mc_args->branches, i);
+            maplet_compaction_input input;
+            maplet_compaction_input_tracker_get(
+               &args->context->maplet_compaction_inputs, bref, &input);
+         }
+      }
+   }
+
+cleanup:
+   in_memory_node_deinit(&args->node, args->context);
+   on_disk_node_dec_ref(args->context, args->addr);
+   bundle_compaction_args_destroy(args);
 }
 
 platform_status
