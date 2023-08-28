@@ -175,13 +175,13 @@ typedef struct trunk_node_context {
  * branch_ref operations
  ***************************************************/
 
-branch_ref
+static inline branch_ref
 create_branch_ref(uint64 addr)
 {
    return (branch_ref){.addr = addr};
 }
 
-uint64
+static inline uint64
 branch_ref_addr(branch_ref bref)
 {
    return bref.addr;
@@ -189,7 +189,7 @@ branch_ref_addr(branch_ref bref)
 
 #define NULL_BRANCH_REF ((branch_ref){.addr = 0})
 
-bool32
+static inline bool32
 branches_equal(branch_ref a, branch_ref b)
 {
    return a.addr == b.addr;
@@ -199,7 +199,7 @@ branches_equal(branch_ref a, branch_ref b)
  * routed_bundle operations
  **************************/
 
-void
+static inline void
 in_memory_routed_bundle_init(in_memory_routed_bundle *bundle,
                              platform_heap_id         hid)
 {
@@ -207,7 +207,7 @@ in_memory_routed_bundle_init(in_memory_routed_bundle *bundle,
    vector_init(&bundle->branches, hid);
 }
 
-platform_status
+static inline platform_status
 in_memory_routed_bundle_init_copy(in_memory_routed_bundle       *dst,
                                   platform_heap_id               hid,
                                   const in_memory_routed_bundle *src)
@@ -223,20 +223,20 @@ in_memory_routed_bundle_init_copy(in_memory_routed_bundle       *dst,
    return rc;
 }
 
-void
+static inline void
 in_memory_routed_bundle_deinit(in_memory_routed_bundle *bundle)
 {
    vector_deinit(&bundle->branches);
 }
 
-void
+static inline void
 in_memory_routed_bundle_reset(in_memory_routed_bundle *bundle)
 {
    vector_truncate(&bundle->branches, 0);
    bundle->maplet = NULL_ROUTING_FILTER;
 }
 
-platform_status
+static inline platform_status
 in_memory_routed_bundle_add_branches(in_memory_routed_bundle *bundle,
                                      routing_filter           new_maplet,
                                      branch_ref_vector       *new_branches)
@@ -251,32 +251,26 @@ in_memory_routed_bundle_add_branches(in_memory_routed_bundle *bundle,
    return STATUS_OK;
 }
 
-routing_filter
+static inline routing_filter
 in_memory_routed_bundle_maplet(const in_memory_routed_bundle *bundle)
 {
    return bundle->maplet;
 }
 
-uint64
+static inline uint64
 in_memory_routed_bundle_num_branches(const in_memory_routed_bundle *bundle)
 {
    return vector_length(&bundle->branches);
 }
 
-const branch_ref_vector *
-in_memory_routed_bundle_branch_vector(const in_memory_routed_bundle *bundle)
-{
-   return &bundle->branches;
-}
-
-branch_ref
+static inline branch_ref
 in_memory_routed_bundle_branch(const in_memory_routed_bundle *bundle, uint64 i)
 {
    debug_assert(i < vector_length(&bundle->branches));
    return vector_get(&bundle->branches, i);
 }
 
-bool32
+static inline bool32
 in_memory_routed_bundles_equal(const in_memory_routed_bundle *a,
                                const in_memory_routed_bundle *b)
 {
@@ -289,7 +283,7 @@ in_memory_routed_bundles_equal(const in_memory_routed_bundle *a,
  *****************************/
 
 /* Note that init moves maplets and branches into the bundle */
-void
+static inline void
 in_memory_per_child_bundle_init(in_memory_per_child_bundle *bundle,
                                 routing_filter_vector      *maplets,
                                 branch_ref_vector          *branches)
@@ -298,7 +292,7 @@ in_memory_per_child_bundle_init(in_memory_per_child_bundle *bundle,
    bundle->branches = *branches;
 }
 
-platform_status
+static platform_status
 in_memory_per_child_bundle_init_from_split(
    in_memory_per_child_bundle       *bundle,
    platform_heap_id                  hid,
@@ -324,49 +318,21 @@ in_memory_per_child_bundle_init_from_split(
    return rc;
 }
 
-void
+static inline void
 in_memory_per_child_bundle_deinit(in_memory_per_child_bundle *bundle)
 {
    vector_deinit(&bundle->maplets);
    vector_deinit(&bundle->branches);
 }
 
-void
-in_memory_per_child_bundle_truncate(in_memory_per_child_bundle *bundle,
-                                    uint64 new_num_children)
-{
-   vector_truncate(&bundle->branches, new_num_children);
-}
-
-uint64
-in_memory_per_child_bundle_num_branches(
-   const in_memory_per_child_bundle *bundle)
-{
-   return vector_length(&bundle->branches);
-}
-
-branch_ref
+static inline branch_ref
 in_memory_per_child_bundle_branch(const in_memory_per_child_bundle *bundle,
                                   uint64                            i)
 {
    return vector_get(&bundle->branches, i);
 }
 
-uint64
-in_memory_per_child_bundle_num_maplets(const in_memory_per_child_bundle *bundle)
-{
-   return vector_length(&bundle->maplets);
-}
-
-routing_filter
-in_memory_per_child_bundle_maplet(const in_memory_per_child_bundle *bundle,
-                                  uint64                            i)
-{
-   debug_assert(i < vector_length(&bundle->maplets));
-   return vector_get(&bundle->maplets, i);
-}
-
-bool32
+static inline bool32
 in_memory_per_child_bundles_equal(const in_memory_per_child_bundle *a,
                                   const in_memory_per_child_bundle *b)
 {
@@ -379,7 +345,7 @@ in_memory_per_child_bundles_equal(const in_memory_per_child_bundle *a,
  * singleton_bundle operations
  *****************************/
 
-platform_status
+static inline platform_status
 in_memory_singleton_bundle_init(in_memory_singleton_bundle *bundle,
                                 platform_heap_id            hid,
                                 routing_filter              maplet,
@@ -395,7 +361,7 @@ in_memory_singleton_bundle_init(in_memory_singleton_bundle *bundle,
    return STATUS_OK;
 }
 
-platform_status
+static inline platform_status
 in_memory_singleton_bundle_init_copy(in_memory_singleton_bundle       *dst,
                                      platform_heap_id                  hid,
                                      const in_memory_singleton_bundle *src)
@@ -410,7 +376,7 @@ in_memory_singleton_bundle_init_copy(in_memory_singleton_bundle       *dst,
    return STATUS_OK;
 }
 
-platform_status
+static inline platform_status
 in_memory_singleton_bundle_init_from_per_child(
    in_memory_singleton_bundle       *bundle,
    platform_heap_id                  hid,
@@ -427,33 +393,19 @@ in_memory_singleton_bundle_init_from_per_child(
    return STATUS_OK;
 }
 
-void
+static inline void
 in_memory_singleton_bundle_deinit(in_memory_singleton_bundle *bundle)
 {
    vector_deinit(&bundle->maplets);
 }
 
-uint64
-in_memory_singleton_bundle_num_maplets(const in_memory_singleton_bundle *bundle)
-{
-   return vector_length(&bundle->maplets);
-}
-
-routing_filter
-in_memory_singleton_bundle_maplet(const in_memory_singleton_bundle *bundle,
-                                  uint64                            i)
-{
-   debug_assert(i < in_memory_singleton_bundle_num_maplets(bundle));
-   return vector_get(&bundle->maplets, i);
-}
-
-branch_ref
+static inline branch_ref
 in_memory_singleton_bundle_branch(const in_memory_singleton_bundle *bundle)
 {
    return bundle->branch;
 }
 
-bool32
+static inline bool32
 in_memory_singleton_bundles_equal(const in_memory_singleton_bundle *a,
                                   const in_memory_singleton_bundle *b)
 {
@@ -466,7 +418,7 @@ in_memory_singleton_bundles_equal(const in_memory_singleton_bundle *a,
  * inflight_bundle operations
  ****************************/
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_from_routed(
    in_memory_inflight_bundle     *bundle,
    platform_heap_id               hid,
@@ -476,7 +428,7 @@ in_memory_inflight_bundle_init_from_routed(
    return in_memory_routed_bundle_init_copy(&bundle->u.routed, hid, routed);
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_singleton(in_memory_inflight_bundle *bundle,
                                          platform_heap_id           hid,
                                          routing_filter             maplet,
@@ -487,7 +439,7 @@ in_memory_inflight_bundle_init_singleton(in_memory_inflight_bundle *bundle,
       &bundle->u.singleton, hid, maplet, branch);
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_from_singleton(
    in_memory_inflight_bundle        *bundle,
    platform_heap_id                  hid,
@@ -497,7 +449,7 @@ in_memory_inflight_bundle_init_from_singleton(
    return in_memory_singleton_bundle_init_copy(&bundle->u.singleton, hid, src);
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_singleton_from_per_child(
    in_memory_inflight_bundle        *bundle,
    platform_heap_id                  hid,
@@ -509,7 +461,7 @@ in_memory_inflight_bundle_init_singleton_from_per_child(
       &bundle->u.singleton, hid, src, child_num);
 }
 
-void
+static inline void
 in_memory_inflight_bundle_init_per_child(in_memory_inflight_bundle *bundle,
                                          platform_heap_id           hid,
                                          routing_filter_vector     *maplets,
@@ -519,7 +471,7 @@ in_memory_inflight_bundle_init_per_child(in_memory_inflight_bundle *bundle,
    in_memory_per_child_bundle_init(&bundle->u.per_child, maplets, branches);
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_per_child_from_split(
    in_memory_inflight_bundle        *bundle,
    platform_heap_id                  hid,
@@ -532,7 +484,7 @@ in_memory_inflight_bundle_init_per_child_from_split(
       &bundle->u.per_child, hid, src, branches_start, branches_end);
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_from_split(in_memory_inflight_bundle *bundle,
                                           platform_heap_id           hid,
                                           const in_memory_inflight_bundle *src,
@@ -558,25 +510,7 @@ in_memory_inflight_bundle_init_from_split(in_memory_inflight_bundle *bundle,
    }
 }
 
-void
-in_memory_inflight_bundle_truncate(in_memory_inflight_bundle *bundle,
-                                   uint64                     num_children)
-{
-   switch (bundle->type) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         break;
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         vector_truncate(&bundle->u.per_child.branches, num_children);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         break;
-      default:
-         platform_assert(0);
-         break;
-   }
-}
-
-platform_status
+static platform_status
 in_memory_inflight_bundle_vector_collect_maplets(
    const in_memory_inflight_bundle_vector *bundles,
    uint64                                  bundle_start,
@@ -622,7 +556,7 @@ in_memory_inflight_bundle_vector_collect_maplets(
 }
 
 /* Note: steals branches vector. */
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_per_child_from_compaction(
    in_memory_inflight_bundle              *bundle,
    platform_heap_id                        hid,
@@ -646,7 +580,7 @@ in_memory_inflight_bundle_init_per_child_from_compaction(
    return STATUS_OK;
 }
 
-void
+static inline void
 in_memory_inflight_bundle_deinit(in_memory_inflight_bundle *bundle)
 {
    switch (bundle->type) {
@@ -665,13 +599,13 @@ in_memory_inflight_bundle_deinit(in_memory_inflight_bundle *bundle)
    }
 }
 
-inflight_bundle_type
+static inline inflight_bundle_type
 in_memory_inflight_bundle_type(const in_memory_inflight_bundle *bundle)
 {
    return bundle->type;
 }
 
-bool32
+static inline bool32
 in_memory_inflight_bundles_equal(const in_memory_inflight_bundle *a,
                                  const in_memory_inflight_bundle *b)
 {
@@ -694,7 +628,7 @@ in_memory_inflight_bundles_equal(const in_memory_inflight_bundle *a,
    }
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_vector_init_split(
    in_memory_inflight_bundle_vector *result,
    in_memory_inflight_bundle_vector *src,
@@ -711,7 +645,7 @@ in_memory_inflight_bundle_vector_init_split(
                                   end_child_num);
 }
 
-platform_status
+static inline platform_status
 in_memory_inflight_bundle_init_from_flush(in_memory_inflight_bundle *bundle,
                                           platform_heap_id           hid,
                                           const in_memory_inflight_bundle *src,
@@ -740,7 +674,7 @@ in_memory_inflight_bundle_init_from_flush(in_memory_inflight_bundle *bundle,
  * Pivot stats
  ********************/
 
-trunk_pivot_stats
+static inline trunk_pivot_stats
 trunk_pivot_stats_from_btree_pivot_stats(btree_pivot_stats stats)
 {
    return (trunk_pivot_stats){.num_kv_bytes =
@@ -748,14 +682,7 @@ trunk_pivot_stats_from_btree_pivot_stats(btree_pivot_stats stats)
                               .num_tuples = stats.num_kvs};
 }
 
-trunk_pivot_stats
-trunk_pivot_stats_add(trunk_pivot_stats a, trunk_pivot_stats b)
-{
-   return (trunk_pivot_stats){.num_kv_bytes = a.num_kv_bytes + b.num_kv_bytes,
-                              .num_tuples   = a.num_tuples + b.num_tuples};
-}
-
-trunk_pivot_stats
+static inline trunk_pivot_stats
 trunk_pivot_stats_subtract(trunk_pivot_stats a, trunk_pivot_stats b)
 {
    platform_assert(a.num_kv_bytes >= b.num_kv_bytes);
@@ -771,7 +698,7 @@ trunk_pivot_stats_subtract(trunk_pivot_stats a, trunk_pivot_stats b)
 #define TRUNK_STATS_ZERO                                                       \
    ((trunk_pivot_stats){.num_kv_bytes = 0, .num_tuples = 0})
 
-in_memory_pivot *
+static inline in_memory_pivot *
 in_memory_pivot_create(platform_heap_id  hid,
                        key               k,
                        uint64            child_addr,
@@ -792,7 +719,7 @@ in_memory_pivot_create(platform_heap_id  hid,
    return result;
 }
 
-in_memory_pivot *
+static inline in_memory_pivot *
 in_memory_pivot_copy(platform_heap_id hid, in_memory_pivot *src)
 {
    return in_memory_pivot_create(hid,
@@ -803,55 +730,49 @@ in_memory_pivot_copy(platform_heap_id hid, in_memory_pivot *src)
                                  src->stats);
 }
 
-void
+static inline void
 in_memory_pivot_destroy(in_memory_pivot *pivot, platform_heap_id hid)
 {
    platform_free(hid, pivot);
 }
 
-key
+static inline key
 in_memory_pivot_key(const in_memory_pivot *pivot)
 {
    return ondisk_key_to_key(&pivot->key);
 }
 
-uint64
+static inline uint64
 in_memory_pivot_child_addr(const in_memory_pivot *pivot)
 {
    return pivot->child_addr;
 }
 
-trunk_pivot_stats
+static inline trunk_pivot_stats
 in_memory_pivot_stats(const in_memory_pivot *pivot)
 {
    return pivot->stats;
 }
 
-uint64
+static inline uint64
 in_memory_pivot_inflight_bundle_start(const in_memory_pivot *pivot)
 {
    return pivot->inflight_bundle_start;
 }
 
-void
+static inline void
 in_memory_pivot_set_inflight_bundle_start(in_memory_pivot *pivot, uint64 start)
 {
    pivot->inflight_bundle_start = start;
 }
 
-trunk_pivot_stats
+static inline trunk_pivot_stats
 in_memory_pivot_received_bundles_stats(const in_memory_pivot *pivot)
 {
    return trunk_pivot_stats_subtract(pivot->stats, pivot->prereceive_stats);
 }
 
-uint64
-in_memory_pivot_num_tuples(const in_memory_pivot *pivot)
-{
-   return pivot->stats.num_tuples;
-}
-
-uint64
+static inline uint64
 in_memory_pivot_num_kv_bytes(const in_memory_pivot *pivot)
 {
    return pivot->stats.num_kv_bytes;
@@ -861,7 +782,7 @@ in_memory_pivot_num_kv_bytes(const in_memory_pivot *pivot)
  * When new bundles get flushed to this pivot's node, you must
  * inform the pivot of the tuple counts of the new bundles.
  */
-void
+static inline void
 in_memory_pivot_add_tuple_counts(in_memory_pivot  *pivot,
                                  int               coefficient,
                                  trunk_pivot_stats stats)
@@ -879,20 +800,11 @@ in_memory_pivot_add_tuple_counts(in_memory_pivot  *pivot,
    }
 }
 
-void
-in_memory_pivot_reset_tuple_counts(in_memory_pivot *pivot)
-{
-   pivot->prereceive_stats.num_tuples   = 0;
-   pivot->prereceive_stats.num_kv_bytes = 0;
-   pivot->stats.num_tuples              = 0;
-   pivot->stats.num_kv_bytes            = 0;
-}
-
 /***********************
  * basic node operations
  ***********************/
 
-void
+static inline void
 in_memory_node_init(in_memory_node                  *node,
                     uint16                           height,
                     in_memory_pivot_vector           pivots,
@@ -907,7 +819,7 @@ in_memory_node_init(in_memory_node                  *node,
    node->inflight_bundles = inflight_bundles;
 }
 
-platform_status
+static platform_status
 in_memory_node_init_empty_leaf(in_memory_node  *node,
                                platform_heap_id hid,
                                key              lb,
@@ -968,62 +880,56 @@ cleanup_vectors:
    return rc;
 }
 
-uint64
-in_memory_node_num_pivots(const in_memory_node *node)
-{
-   return vector_length(&node->pivots) - 1;
-}
-
-uint64
+static inline uint64
 in_memory_node_num_children(const in_memory_node *node)
 {
    return vector_length(&node->pivots) - 1;
 }
 
-in_memory_pivot *
+static inline in_memory_pivot *
 in_memory_node_pivot(const in_memory_node *node, uint64 i)
 {
    return vector_get(&node->pivots, i);
 }
 
-key
+static inline key
 in_memory_node_pivot_key(const in_memory_node *node, uint64 i)
 {
    return in_memory_pivot_key(vector_get(&node->pivots, i));
 }
 
-key
+static inline key
 in_memory_node_pivot_min_key(const in_memory_node *node)
 {
    return in_memory_pivot_key(vector_get(&node->pivots, 0));
 }
 
-key
+static inline key
 in_memory_node_pivot_max_key(const in_memory_node *node)
 {
    return in_memory_pivot_key(
       vector_get(&node->pivots, vector_length(&node->pivots) - 1));
 }
 
-in_memory_routed_bundle *
+static inline in_memory_routed_bundle *
 in_memory_node_pivot_bundle(in_memory_node *node, uint64 i)
 {
    return vector_get_ptr(&node->pivot_bundles, i);
 }
 
-uint64
+static inline uint64
 in_memory_node_height(const in_memory_node *node)
 {
    return node->height;
 }
 
-bool32
+static inline bool32
 in_memory_node_is_leaf(const in_memory_node *node)
 {
    return node->height == 0;
 }
 
-uint64
+static inline uint64
 in_memory_leaf_num_tuples(const in_memory_node *node)
 {
    trunk_pivot_stats stats =
@@ -1031,7 +937,7 @@ in_memory_leaf_num_tuples(const in_memory_node *node)
    return stats.num_tuples;
 }
 
-uint64
+static inline uint64
 in_memory_leaf_num_kv_bytes(const in_memory_node *node)
 {
    trunk_pivot_stats stats =
@@ -1039,20 +945,20 @@ in_memory_leaf_num_kv_bytes(const in_memory_node *node)
    return stats.num_kv_bytes;
 }
 
-uint64
+static inline uint64
 in_memory_node_num_old_bundles(const in_memory_node *node)
 {
    return node->num_old_bundles;
 }
 
-bool32
+static inline bool32
 in_memory_node_pivot_has_received_bundles(const in_memory_node *node, uint64 i)
 {
    in_memory_pivot *pivot = vector_get(&node->pivots, i);
    return in_memory_pivot_inflight_bundle_start(pivot) <= node->num_old_bundles;
 }
 
-bool
+static inline bool
 in_memory_node_is_well_formed_leaf(const trunk_node_config *cfg,
                                    const in_memory_node    *node)
 {
@@ -1073,7 +979,7 @@ in_memory_node_is_well_formed_leaf(const trunk_node_config *cfg,
           && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
 }
 
-bool
+static bool
 in_memory_node_is_well_formed_index(const data_config    *data_cfg,
                                     const in_memory_node *node)
 {
@@ -1123,13 +1029,7 @@ in_memory_node_is_well_formed_index(const data_config    *data_cfg,
    return TRUE;
 }
 
-void
-in_memory_node_reset_num_old_bundles(in_memory_node *node)
-{
-   node->num_old_bundles = 0;
-}
-
-void
+static inline void
 in_memory_node_deinit(in_memory_node *node, trunk_node_context *context)
 {
    VECTOR_APPLY_TO_ELTS(
@@ -1165,7 +1065,7 @@ in_memory_node_deserialize(trunk_node_context *context,
                            uint64              addr,
                            in_memory_node     *result);
 
-platform_status
+static platform_status
 serialize_nodes(trunk_node_context     *context,
                 in_memory_node_vector  *nodes,
                 in_memory_pivot_vector *result)
@@ -1217,7 +1117,7 @@ typedef struct branch_merger {
    iterator_vector    itors;
 } branch_merger;
 
-void
+static inline void
 branch_merger_init(branch_merger     *merger,
                    platform_heap_id   hid,
                    const data_config *data_cfg,
@@ -1234,7 +1134,7 @@ branch_merger_init(branch_merger     *merger,
    vector_init(&merger->itors, hid);
 }
 
-platform_status
+static platform_status
 branch_merger_add_routed_bundle(branch_merger           *merger,
                                 cache                   *cc,
                                 const btree_config      *btree_cfg,
@@ -1265,7 +1165,7 @@ branch_merger_add_routed_bundle(branch_merger           *merger,
    return STATUS_OK;
 }
 
-platform_status
+static inline platform_status
 branch_merger_add_per_child_bundle(branch_merger              *merger,
                                    cache                      *cc,
                                    const btree_config         *btree_cfg,
@@ -1291,7 +1191,7 @@ branch_merger_add_per_child_bundle(branch_merger              *merger,
    return vector_append(&merger->itors, (iterator *)iter);
 }
 
-platform_status
+static inline platform_status
 branch_merger_add_singleton_bundle(branch_merger              *merger,
                                    cache                      *cc,
                                    const btree_config         *btree_cfg,
@@ -1316,7 +1216,7 @@ branch_merger_add_singleton_bundle(branch_merger              *merger,
    return vector_append(&merger->itors, (iterator *)iter);
 }
 
-platform_status
+static inline platform_status
 branch_merger_add_inflight_bundle(branch_merger             *merger,
                                   cache                     *cc,
                                   const btree_config        *btree_cfg,
@@ -1339,7 +1239,7 @@ branch_merger_add_inflight_bundle(branch_merger             *merger,
    }
 }
 
-platform_status
+static inline platform_status
 branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
 {
    platform_assert(merger == NULL);
@@ -1352,7 +1252,7 @@ branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
                                 &merger->merge_itor);
 }
 
-platform_status
+static platform_status
 branch_merger_deinit(branch_merger *merger)
 {
    platform_status rc;
@@ -1415,7 +1315,7 @@ maplet_compaction_input_tracker_deinit(maplet_compaction_input_tracker *tracker)
    vector_deinit(&tracker->inputs);
 }
 
-void
+static inline void
 maplet_compaction_input_tracker_lock(maplet_compaction_input_tracker *tracker)
 {
    uint64 wait = 1;
@@ -1425,13 +1325,13 @@ maplet_compaction_input_tracker_lock(maplet_compaction_input_tracker *tracker)
    }
 }
 
-void
+static inline void
 maplet_compaction_input_tracker_unlock(maplet_compaction_input_tracker *tracker)
 {
    tracker->lock = 0;
 }
 
-bool32
+static bool32
 maplet_compaction_input_tracker_get(maplet_compaction_input_tracker *tracker,
                                     branch_ref                       bref,
                                     maplet_compaction_input         *result)
@@ -1451,7 +1351,7 @@ maplet_compaction_input_tracker_get(maplet_compaction_input_tracker *tracker,
    return found;
 }
 
-platform_status
+static platform_status
 maplet_compaction_input_tracker_put(maplet_compaction_input_tracker *tracker,
                                     branch_ref                       bref,
                                     uint64  num_fingerprints,
@@ -1492,7 +1392,7 @@ typedef struct maplet_compaction_args {
    struct maplet_compaction_args *successor;
 } maplet_compaction_args;
 
-maplet_compaction_args *
+static maplet_compaction_args *
 maplet_compaction_args_create(trunk_node_context *context,
                               in_memory_node     *node,
                               uint64              child_num)
@@ -1552,7 +1452,7 @@ cleanup_branches:
    return NULL;
 }
 
-void
+static void
 maplet_compaction_args_destroy(maplet_compaction_args *args)
 {
    if (!args) {
@@ -1578,7 +1478,7 @@ maplet_compaction_args_destroy(maplet_compaction_args *args)
    platform_free(args->context->hid, args);
 }
 
-platform_status
+static platform_status
 apply_changes_maplet_compaction(trunk_node_context *context,
                                 uint64              addr,
                                 in_memory_node     *target,
@@ -1614,7 +1514,7 @@ apply_changes_maplet_compaction(trunk_node_context *context,
    return STATUS_OK;
 }
 
-void
+static void
 maplet_compaction_task(void *arg, void *scratch)
 {
    platform_status         rc;
@@ -1669,7 +1569,7 @@ cleanup:
    maplet_compaction_args_destroy(args);
 }
 
-platform_status
+static inline platform_status
 enqueue_maplet_compaction(maplet_compaction_args *args)
 {
    return task_enqueue(
@@ -1695,7 +1595,7 @@ typedef struct bundle_compaction_args {
    maplet_compaction_input_vector maplet_compaction_inputs;
 } bundle_compaction_args;
 
-void
+static void
 bundle_compaction_args_destroy(bundle_compaction_args *args)
 {
    uint64 num_children = in_memory_node_num_children(&args->node);
@@ -1726,7 +1626,7 @@ bundle_compaction_args_destroy(bundle_compaction_args *args)
    platform_free(args->context->hid, args);
 }
 
-bundle_compaction_args *
+static bundle_compaction_args *
 bundle_compaction_args_create(trunk_node_context *context,
                               uint64              addr,
                               in_memory_node     *node)
@@ -1841,7 +1741,7 @@ cleanup:
    return NULL;
 }
 
-int64
+static int64
 find_matching_bundles(in_memory_node *target, in_memory_node *src)
 {
    // Due to the always-flush-all-bundles rule, we need only find a match for
@@ -1861,7 +1761,7 @@ find_matching_bundles(in_memory_node *target, in_memory_node *src)
    return -1;
 }
 
-platform_status
+static platform_status
 apply_bundle_compaction(trunk_node_context *context,
                         uint64              addr,
                         in_memory_node     *target,
@@ -2024,7 +1924,7 @@ apply_bundle_compaction(trunk_node_context *context,
    return STATUS_OK;
 }
 
-void
+static void
 bundle_compaction_task(void *arg, void *scratch)
 {
    platform_status         rc;
@@ -2108,7 +2008,7 @@ cleanup:
    bundle_compaction_args_destroy(args);
 }
 
-platform_status
+static platform_status
 enqueue_bundle_compaction(trunk_node_context *context,
                           uint64              addr,
                           in_memory_node     *node)
@@ -2161,7 +2061,7 @@ cleanup:
    return rc;
 }
 
-platform_status
+static platform_status
 enqueue_bundle_compactions(trunk_node_context     *context,
                            in_memory_pivot_vector *pivots,
                            in_memory_node_vector  *nodes)
@@ -2182,7 +2082,7 @@ enqueue_bundle_compactions(trunk_node_context     *context,
    return STATUS_OK;
 }
 
-platform_status
+static inline platform_status
 serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
                                                in_memory_node_vector  *nodes,
                                                in_memory_pivot_vector *result)
@@ -2209,7 +2109,7 @@ serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
  * accounting maintenance
  ************************/
 
-platform_status
+static inline platform_status
 accumulate_branch_tuple_counts_in_range(branch_ref          bref,
                                         trunk_node_context *context,
                                         key                 minkey,
@@ -2230,7 +2130,7 @@ accumulate_branch_tuple_counts_in_range(branch_ref          bref,
    return STATUS_OK;
 }
 
-platform_status
+static inline platform_status
 accumulate_branches_tuple_counts_in_range(const branch_ref_vector *brefs,
                                           trunk_node_context      *context,
                                           key                      minkey,
@@ -2247,18 +2147,7 @@ accumulate_branches_tuple_counts_in_range(const branch_ref_vector *brefs,
                                         acc);
 }
 
-platform_status
-accumulate_routed_bundle_tuple_counts_in_range(in_memory_routed_bundle *bundle,
-                                               trunk_node_context      *context,
-                                               key                      minkey,
-                                               key                      maxkey,
-                                               btree_pivot_stats       *acc)
-{
-   return accumulate_branches_tuple_counts_in_range(
-      &bundle->branches, context, minkey, maxkey, acc);
-}
-
-platform_status
+static inline platform_status
 accumulate_inflight_bundle_tuple_counts_in_range(
    in_memory_inflight_bundle *bundle,
    trunk_node_context        *context,
@@ -2296,60 +2185,18 @@ accumulate_inflight_bundle_tuple_counts_in_range(
    }
 }
 
-platform_status
-accumulate_inflight_bundles_tuple_counts_in_range(
-   in_memory_inflight_bundle_vector *bundles,
-   uint64                            start,
-   trunk_node_context               *context,
-   in_memory_pivot_vector           *pivots,
-   uint64                            child_num,
-   btree_pivot_stats                *acc)
-{
-   return VECTOR_FAILABLE_FOR_LOOP_PTRS(
-      bundles,
-      start,
-      vector_length(bundles),
-      accumulate_inflight_bundle_tuple_counts_in_range,
-      context,
-      pivots,
-      child_num,
-      acc);
-}
-
-platform_status
-accumulate_bundles_tuple_counts_in_range(
-   in_memory_routed_bundle          *routed,
-   in_memory_inflight_bundle_vector *inflight,
-   uint64                            inflight_start,
-   trunk_node_context               *context,
-   in_memory_pivot_vector           *pivots,
-   uint64                            child_num,
-   btree_pivot_stats                *acc)
-{
-   platform_status rc;
-   key             min_key = in_memory_pivot_key(vector_get(pivots, child_num));
-   key max_key = in_memory_pivot_key(vector_get(pivots, child_num + 1));
-   rc          = accumulate_routed_bundle_tuple_counts_in_range(
-      routed, context, min_key, max_key, acc);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   rc = accumulate_inflight_bundles_tuple_counts_in_range(
-      inflight, inflight_start, context, pivots, child_num, acc);
-   return rc;
-}
-
 /*****************************************************
  * Receive bundles -- used in flushes and leaf splits
  *****************************************************/
 
-platform_status
+static platform_status
 in_memory_node_receive_bundles(trunk_node_context               *context,
                                in_memory_node                   *node,
                                in_memory_routed_bundle          *routed,
                                in_memory_inflight_bundle_vector *inflight,
                                uint64                            inflight_start,
-                               uint64                            child_num)
+                               uint64                            child_num,
+                               branch_ref_vector *cancelled_maplet_compactions)
 {
    platform_status rc;
 
@@ -2370,13 +2217,23 @@ in_memory_node_receive_bundles(trunk_node_context               *context,
    }
 
    for (uint64 i = 0; i < vector_length(inflight); i++) {
+      in_memory_inflight_bundle *bundle = vector_get_ptr(inflight, i);
       rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
                                  in_memory_inflight_bundle_init_from_flush,
                                  context->hid,
-                                 vector_get_ptr(inflight, i),
+                                 bundle,
                                  child_num);
       if (!SUCCESS(rc)) {
          return rc;
+      }
+      if (in_memory_inflight_bundle_type(bundle)
+          == INFLIGHT_BUNDLE_TYPE_PER_CHILD) {
+         rc = vector_append(
+            cancelled_maplet_compactions,
+            in_memory_per_child_bundle_branch(&bundle->u.per_child, child_num));
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
    }
 
@@ -2405,7 +2262,14 @@ in_memory_node_receive_bundles(trunk_node_context               *context,
  * leaf splits
  ************************/
 
-platform_status
+static inline bool
+leaf_might_need_to_split(const trunk_node_config *cfg, in_memory_node *leaf)
+{
+   return cfg->leaf_split_threshold_kv_bytes
+          < in_memory_leaf_num_kv_bytes(leaf);
+}
+
+static platform_status
 in_memory_leaf_estimate_unique_keys(trunk_node_context *context,
                                     in_memory_node     *leaf,
                                     uint64             *estimate)
@@ -2465,12 +2329,17 @@ cleanup:
    return STATUS_OK;
 }
 
-platform_status
+static inline platform_status
 leaf_split_target_num_leaves(trunk_node_context *context,
                              in_memory_node     *leaf,
                              uint64             *target)
 {
    debug_assert(in_memory_node_is_well_formed_leaf(context->cfg, leaf));
+
+   if (!leaf_might_need_to_split(context->cfg, leaf)) {
+      *target = 1;
+      return STATUS_OK;
+   }
 
    uint64          estimated_unique_keys;
    platform_status rc = in_memory_leaf_estimate_unique_keys(
@@ -2500,7 +2369,7 @@ leaf_split_target_num_leaves(trunk_node_context *context,
 
 typedef VECTOR(key_buffer) key_buffer_vector;
 
-platform_status
+static platform_status
 leaf_split_select_pivots(trunk_node_context *context,
                          in_memory_node     *leaf,
                          uint64              target_num_leaves,
@@ -2594,12 +2463,13 @@ cleanup:
    return deinit_rc;
 }
 
-platform_status
+static inline platform_status
 in_memory_leaf_split_init(in_memory_node     *new_leaf,
                           trunk_node_context *context,
                           in_memory_node     *leaf,
                           key                 min_key,
-                          key                 max_key)
+                          key                 max_key,
+                          branch_ref_vector  *cancelled_maplet_compactions)
 {
    platform_status rc;
    platform_assert(in_memory_node_is_leaf(leaf));
@@ -2618,53 +2488,15 @@ in_memory_leaf_split_init(in_memory_node     *new_leaf,
       in_memory_node_pivot_bundle(leaf, 0),
       &leaf->inflight_bundles,
       in_memory_pivot_inflight_bundle_start(pivot),
-      0);
+      0,
+      cancelled_maplet_compactions);
 }
 
-platform_status
-in_memory_leaf_split_truncate(in_memory_node     *leaf,
-                              trunk_node_context *context,
-                              key                 new_max_key)
-{
-   in_memory_pivot *newub = in_memory_pivot_create(
-      context->hid, new_max_key, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
-   if (newub == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-   in_memory_pivot *oldub = vector_get(&leaf->pivots, 1);
-   in_memory_pivot_destroy(oldub, context->hid);
-   vector_set(&leaf->pivots, 1, newub);
-
-   // Compute the tuple counts for the new leaf
-   btree_pivot_stats btree_stats;
-   ZERO_CONTENTS(&btree_stats);
-   platform_status rc = accumulate_bundles_tuple_counts_in_range(
-      vector_get_ptr(&leaf->pivot_bundles, 0),
-      &leaf->inflight_bundles,
-      0,
-      context,
-      &leaf->pivots,
-      0,
-      &btree_stats);
-   if (SUCCESS(rc)) {
-      trunk_pivot_stats trunk_stats =
-         trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
-      in_memory_pivot *pivot = in_memory_node_pivot(leaf, 0);
-      in_memory_pivot_reset_tuple_counts(pivot);
-      in_memory_pivot_add_tuple_counts(pivot, 1, trunk_stats);
-      in_memory_node_reset_num_old_bundles(leaf);
-   }
-
-   return rc;
-}
-
-// FIXME: extend to handle per-child bundles in leaves
-// FIXME: make sure this does the right thing with the pivot bundles -- they
-// need to become inflight bundles.
-platform_status
+static platform_status
 in_memory_leaf_split(trunk_node_context    *context,
                      in_memory_node        *leaf,
-                     in_memory_node_vector *new_leaves)
+                     in_memory_node_vector *new_leaves,
+                     branch_ref_vector     *cancelled_maplet_compactions)
 {
    platform_status rc;
    uint64          target_num_leaves;
@@ -2674,15 +2506,6 @@ in_memory_leaf_split(trunk_node_context    *context,
       return rc;
    }
 
-   rc = vector_append(new_leaves, *leaf);
-   if (!SUCCESS(rc)) {
-      goto cleanup_new_leaves;
-   }
-
-   if (target_num_leaves == 1) {
-      return STATUS_OK;
-   }
-
    key_buffer_vector pivots;
    vector_init(&pivots, context->hid);
    rc = leaf_split_select_pivots(context, leaf, target_num_leaves, &pivots);
@@ -2690,7 +2513,7 @@ in_memory_leaf_split(trunk_node_context    *context,
       goto cleanup_pivots;
    }
 
-   for (uint64 i = 1; i < vector_length(&pivots) - 1; i++) {
+   for (uint64 i = 0; i < vector_length(&pivots) - 1; i++) {
       key min_key = key_buffer_key(vector_get_ptr(&pivots, i));
       key max_key = key_buffer_key(vector_get_ptr(&pivots, i + 1));
       rc          = VECTOR_EMPLACE_APPEND(new_leaves,
@@ -2698,18 +2521,11 @@ in_memory_leaf_split(trunk_node_context    *context,
                                  context,
                                  leaf,
                                  min_key,
-                                 max_key);
+                                 max_key,
+                                 cancelled_maplet_compactions);
       if (!SUCCESS(rc)) {
          goto cleanup_new_leaves;
       }
-   }
-
-   rc =
-      in_memory_leaf_split_truncate(vector_get_ptr(new_leaves, 0),
-                                    context,
-                                    key_buffer_key(vector_get_ptr(&pivots, 1)));
-   if (!SUCCESS(rc)) {
-      goto cleanup_new_leaves;
    }
 
 cleanup_new_leaves:
@@ -2731,7 +2547,7 @@ cleanup_pivots:
  * index splits
  *********************************/
 
-platform_status
+static platform_status
 in_memory_index_init_split(in_memory_node  *new_index,
                            platform_heap_id hid,
                            in_memory_node  *index,
@@ -2740,28 +2556,22 @@ in_memory_index_init_split(in_memory_node  *new_index,
 {
    platform_status rc;
 
-   // We copy the first and last pivots, since those will be used by other
-   // nodes, but we steal the pivots in between, since those will be used by
-   // only this node.
    in_memory_pivot_vector pivots;
    vector_init(&pivots, hid);
    rc = vector_ensure_capacity(&pivots, end_child_num - start_child_num + 1);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
    }
-   vector_append(
-      &pivots,
-      in_memory_pivot_copy(hid, vector_get(&index->pivots, start_child_num)));
-   for (uint64 i = start_child_num; i < end_child_num; i++) {
+   for (uint64 i = start_child_num; i < end_child_num + 1; i++) {
       in_memory_pivot *pivot = vector_get(&index->pivots, i);
-      rc                     = vector_append(&pivots, pivot);
+      in_memory_pivot *copy  = in_memory_pivot_copy(hid, pivot);
+      if (copy == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto cleanup_pivots;
+      }
+      rc = vector_append(&pivots, copy);
       platform_assert_status_ok(rc);
-      vector_set(&index->pivots, i, NULL);
    }
-   rc = vector_append(
-      &pivots,
-      in_memory_pivot_copy(hid, vector_get(&index->pivots, end_child_num)));
-   platform_assert_status_ok(rc);
 
    in_memory_routed_bundle_vector pivot_bundles;
    vector_init(&pivot_bundles, hid);
@@ -2814,21 +2624,13 @@ cleanup_pivots:
    return rc;
 }
 
-void
-in_memory_index_split_truncate(in_memory_node *index, uint64 num_children)
-{
-   vector_truncate(&index->pivots, num_children + 1);
-   vector_truncate(&index->pivot_bundles, num_children);
-   VECTOR_APPLY_TO_PTRS(&index->inflight_bundles,
-                        in_memory_inflight_bundle_truncate,
-                        num_children);
-}
-
-platform_status
+static platform_status
 in_memory_index_split(trunk_node_context    *context,
                       in_memory_node        *index,
                       in_memory_node_vector *new_indexes)
 {
+   debug_assert(
+      in_memory_node_is_well_formed_index(context->cfg->data_cfg, index));
    platform_status rc;
    rc = vector_append(new_indexes, *index);
    if (!SUCCESS(rc)) {
@@ -2839,7 +2641,7 @@ in_memory_index_split(trunk_node_context    *context,
    uint64 num_nodes    = (num_children + context->cfg->target_fanout - 1)
                       / context->cfg->target_fanout;
 
-   for (uint64 i = 1; i < num_nodes; i++) {
+   for (uint64 i = 0; i < num_nodes; i++) {
       rc = VECTOR_EMPLACE_APPEND(new_indexes,
                                  in_memory_index_init_split,
                                  context->hid,
@@ -2850,9 +2652,6 @@ in_memory_index_split(trunk_node_context    *context,
          goto cleanup_new_indexes;
       }
    }
-
-   in_memory_index_split_truncate(vector_get_ptr(new_indexes, 0),
-                                  num_children / num_nodes);
 
 cleanup_new_indexes:
    if (!SUCCESS(rc)) {
@@ -2870,43 +2669,36 @@ cleanup_new_indexes:
  * flushing
  ***********************************/
 
-bool
-leaf_might_need_to_split(const trunk_node_config *cfg, in_memory_node *leaf)
-{
-   return cfg->leaf_split_threshold_kv_bytes
-          < in_memory_leaf_num_kv_bytes(leaf);
-}
-
-platform_status
+static inline platform_status
 restore_balance_leaf(trunk_node_context    *context,
                      in_memory_node        *leaf,
-                     in_memory_node_vector *new_leaves)
+                     in_memory_node_vector *new_leaves,
+                     branch_ref_vector     *cancelled_maplet_compactions)
 {
-   platform_status rc;
-   if (leaf_might_need_to_split(context->cfg, leaf)) {
-      rc = in_memory_leaf_split(context, leaf, new_leaves);
-   } else {
-      rc = vector_append(new_leaves, *leaf);
-   }
-
-   return rc;
+   return in_memory_leaf_split(
+      context, leaf, new_leaves, cancelled_maplet_compactions);
 }
 
-platform_status
+static platform_status
 flush_then_compact(trunk_node_context               *context,
                    in_memory_node                   *node,
                    in_memory_routed_bundle          *routed,
                    in_memory_inflight_bundle_vector *inflight,
                    uint64                            inflight_start,
                    uint64                            child_num,
-                   in_memory_node_vector            *new_nodes);
+                   in_memory_node_vector            *new_nodes,
+                   branch_ref_vector *cancelled_maplet_compactions);
 
-platform_status
+static platform_status
 restore_balance_index(trunk_node_context    *context,
                       in_memory_node        *index,
-                      in_memory_node_vector *new_indexes)
+                      in_memory_node_vector *new_indexes,
+                      branch_ref_vector     *cancelled_maplet_compactions)
 {
    platform_status rc;
+
+   debug_assert(
+      in_memory_node_is_well_formed_index(context->cfg->data_cfg, index));
 
    for (uint64 i = 0; i < in_memory_node_num_children(index); i++) {
       in_memory_pivot *pivot = in_memory_node_pivot(index, i);
@@ -2938,15 +2730,15 @@ restore_balance_index(trunk_node_context    *context,
                   &index->inflight_bundles,
                   in_memory_pivot_inflight_bundle_start(pivot),
                   i,
-                  &new_children);
+                  &new_children,
+                  cancelled_maplet_compactions);
                if (!SUCCESS(rc)) {
                   in_memory_node_deinit(&child, context);
                   vector_deinit(&new_children);
                   return rc;
                }
 
-               // At this point, child has been moved into new_children, so
-               // we let it go out of scope.
+               in_memory_node_deinit(&child, context);
             }
 
             vector_init(&new_pivots, context->hid);
@@ -3000,37 +2792,43 @@ restore_balance_index(trunk_node_context    *context,
  * flush_then_compact may choose to split the node.  The resulting
  * node/nodes are returned in new_nodes.
  */
-// FIXME: need to extend this code to update the maplet_compaction_input_tracker
-// during flushes, splits, etc
-platform_status
+static platform_status
 flush_then_compact(trunk_node_context               *context,
                    in_memory_node                   *node,
                    in_memory_routed_bundle          *routed,
                    in_memory_inflight_bundle_vector *inflight,
                    uint64                            inflight_start,
                    uint64                            child_num,
-                   in_memory_node_vector            *new_nodes)
+                   in_memory_node_vector            *new_nodes,
+                   branch_ref_vector *cancelled_maplet_compactions)
 {
    platform_status rc;
 
    // Add the bundles to the node
-   rc = in_memory_node_receive_bundles(
-      context, node, routed, inflight, inflight_start, child_num);
+   rc = in_memory_node_receive_bundles(context,
+                                       node,
+                                       routed,
+                                       inflight,
+                                       inflight_start,
+                                       child_num,
+                                       cancelled_maplet_compactions);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    // Perform any needed recursive flushes and node splits
    if (in_memory_node_is_leaf(node)) {
-      rc = restore_balance_leaf(context, node, new_nodes);
+      rc = restore_balance_leaf(
+         context, node, new_nodes, cancelled_maplet_compactions);
    } else {
-      rc = restore_balance_index(context, node, new_nodes);
+      rc = restore_balance_index(
+         context, node, new_nodes, cancelled_maplet_compactions);
    }
 
    return rc;
 }
 
-platform_status
+static platform_status
 build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
 {
    platform_status rc;
@@ -3049,6 +2847,8 @@ build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
    }
+   // The nodes in the nodes vector were stolen by the enqueued compaction
+   // tasks, so we can just truncate the vector.
    vector_truncate(nodes, 0);
 
    // Build a new vector of empty pivot bundles.
@@ -3097,7 +2897,8 @@ platform_status
 incorporate(trunk_node_context *context,
             routing_filter      filter,
             branch_ref          branch,
-            uint64             *new_root_addr)
+            uint64             *new_root_addr,
+            branch_ref_vector  *cancelled_maplet_compactions)
 {
    platform_status rc;
 
@@ -3126,14 +2927,18 @@ incorporate(trunk_node_context *context,
    }
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
-   rc = flush_then_compact(context, &root, NULL, &inflight, 0, 0, &new_nodes);
+   rc = flush_then_compact(context,
+                           &root,
+                           NULL,
+                           &inflight,
+                           0,
+                           0,
+                           &new_nodes,
+                           cancelled_maplet_compactions);
+   in_memory_node_deinit(&root, context);
    if (!SUCCESS(rc)) {
-      goto cleanup_root;
+      goto cleanup_vectors;
    }
-
-   // At this point. root has been copied into new_nodes, so we should no
-   // longer clean it up on failure -- it will get cleaned up when we clean
-   // up new_nodes.
 
    // Build new roots, possibly splitting them, until we get down to a single
    // root with fanout that is within spec.
