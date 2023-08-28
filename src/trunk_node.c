@@ -907,6 +907,66 @@ in_memory_node_init(in_memory_node                  *node,
    node->inflight_bundles = inflight_bundles;
 }
 
+platform_status
+in_memory_node_init_empty_leaf(in_memory_node  *node,
+                               platform_heap_id hid,
+                               key              lb,
+                               key              ub)
+{
+   in_memory_pivot_vector           pivots;
+   in_memory_routed_bundle_vector   pivot_bundles;
+   in_memory_inflight_bundle_vector inflight_bundles;
+   platform_status                  rc;
+
+   vector_init(&pivots, hid);
+   vector_init(&pivot_bundles, hid);
+   vector_init(&inflight_bundles, hid);
+
+   rc = vector_ensure_capacity(&pivots, 2);
+   if (!SUCCESS(rc)) {
+      goto cleanup_vectors;
+   }
+
+   rc = vector_ensure_capacity(&pivot_bundles, 1);
+   if (!SUCCESS(rc)) {
+      goto cleanup_vectors;
+   }
+
+   in_memory_pivot *lb_pivot =
+      in_memory_pivot_create(hid, lb, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
+   in_memory_pivot *ub_pivot =
+      in_memory_pivot_create(hid, ub, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
+   if (lb_pivot == NULL || ub_pivot == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto cleanup_pivots;
+   }
+   rc = vector_append(&pivots, lb_pivot);
+   platform_assert_status_ok(rc);
+   rc = vector_append(&pivots, ub_pivot);
+   platform_assert_status_ok(rc);
+
+   rc =
+      VECTOR_EMPLACE_APPEND(&pivot_bundles, in_memory_routed_bundle_init, hid);
+   platform_assert_status_ok(rc);
+
+   in_memory_node_init(node, 0, pivots, pivot_bundles, 0, inflight_bundles);
+   return STATUS_OK;
+
+cleanup_pivots:
+   if (lb_pivot != NULL) {
+      in_memory_pivot_destroy(lb_pivot, hid);
+   }
+   if (ub_pivot != NULL) {
+      in_memory_pivot_destroy(ub_pivot, hid);
+   }
+cleanup_vectors:
+   VECTOR_APPLY_TO_ELTS(&pivots, in_memory_pivot_destroy, hid);
+   vector_deinit(&pivots);
+   VECTOR_APPLY_TO_PTRS(&pivot_bundles, in_memory_routed_bundle_deinit);
+   vector_deinit(&pivot_bundles);
+   vector_deinit(&inflight_bundles);
+   return rc;
+}
 
 uint64
 in_memory_node_num_pivots(const in_memory_node *node)
@@ -2279,6 +2339,68 @@ accumulate_bundles_tuple_counts_in_range(
    return rc;
 }
 
+/*****************************************************
+ * Receive bundles -- used in flushes and leaf splits
+ *****************************************************/
+
+platform_status
+in_memory_node_receive_bundles(trunk_node_context               *context,
+                               in_memory_node                   *node,
+                               in_memory_routed_bundle          *routed,
+                               in_memory_inflight_bundle_vector *inflight,
+                               uint64                            inflight_start,
+                               uint64                            child_num)
+{
+   platform_status rc;
+
+   rc = vector_ensure_capacity(&node->inflight_bundles,
+                               (routed ? 1 : 0) + vector_length(inflight));
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (routed) {
+      rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
+                                 in_memory_inflight_bundle_init_from_routed,
+                                 context->hid,
+                                 routed);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   for (uint64 i = 0; i < vector_length(inflight); i++) {
+      rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
+                                 in_memory_inflight_bundle_init_from_flush,
+                                 context->hid,
+                                 vector_get_ptr(inflight, i),
+                                 child_num);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   for (uint64 i = 0; i < in_memory_node_num_children(node); i++) {
+      btree_pivot_stats btree_stats;
+      ZERO_CONTENTS(&btree_stats);
+      rc = accumulate_inflight_bundle_tuple_counts_in_range(
+         vector_get_ptr(&node->inflight_bundles, inflight_start),
+         context,
+         &node->pivots,
+         i,
+         &btree_stats);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      trunk_pivot_stats trunk_stats =
+         trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
+      in_memory_pivot *pivot = in_memory_node_pivot(node, i);
+      in_memory_pivot_add_tuple_counts(pivot, 1, trunk_stats);
+   }
+
+   return rc;
+}
+
 /************************
  * leaf splits
  ************************/
@@ -2482,79 +2604,21 @@ in_memory_leaf_split_init(in_memory_node     *new_leaf,
    platform_status rc;
    platform_assert(in_memory_node_is_leaf(leaf));
 
-   // Create the new pivots vector
-   in_memory_pivot *lb = in_memory_pivot_create(
-      context->hid, min_key, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
-   if (lb == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-   in_memory_pivot *ub = in_memory_pivot_create(
-      context->hid, max_key, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
-   if (ub == NULL) {
-      rc = STATUS_NO_MEMORY;
-      goto cleanup_lb;
-   }
-   in_memory_pivot_vector pivots;
-   vector_init(&pivots, context->hid);
-   rc = vector_append(&pivots, lb);
+   in_memory_pivot *pivot = in_memory_node_pivot(leaf, 0);
+
+   rc =
+      in_memory_node_init_empty_leaf(new_leaf, context->hid, min_key, max_key);
    if (!SUCCESS(rc)) {
-      goto cleanup_pivots;
-   }
-   rc = vector_append(&pivots, ub);
-   if (!SUCCESS(rc)) {
-      goto cleanup_pivots;
+      return rc;
    }
 
-   // Create the new pivot_bundles vector
-   in_memory_routed_bundle_vector pivot_bundles;
-   vector_init(&pivot_bundles, context->hid);
-   rc = VECTOR_EMPLACE_APPEND(&pivot_bundles,
-                              in_memory_routed_bundle_init_copy,
-                              context->hid,
-                              vector_get_ptr(&leaf->pivot_bundles, 0));
-   if (!SUCCESS(rc)) {
-      goto cleanup_pivot_bundles;
-   }
-
-   // Create the inflight bundles vector
-   in_memory_inflight_bundle_vector inflight_bundles;
-   rc = in_memory_inflight_bundle_vector_init_split(
-      &inflight_bundles, &leaf->inflight_bundles, context->hid, 0, 1);
-   if (!SUCCESS(rc)) {
-      goto cleanup_inflight_bundles;
-   }
-
-   // Compute the tuple counts for the new leaf
-   btree_pivot_stats stats;
-   ZERO_CONTENTS(&stats);
-   rc = accumulate_bundles_tuple_counts_in_range(
-      vector_get_ptr(&pivot_bundles, 0),
-      &inflight_bundles,
-      0,
+   return in_memory_node_receive_bundles(
       context,
-      &pivots,
-      0,
-      &stats);
-   if (!SUCCESS(rc)) {
-      goto cleanup_inflight_bundles;
-   }
-   in_memory_pivot_add_tuple_counts(
-      lb, 1, trunk_pivot_stats_from_btree_pivot_stats(stats));
-
-   in_memory_node_init(new_leaf, 0, pivots, pivot_bundles, 0, inflight_bundles);
-
-   return rc;
-
-cleanup_inflight_bundles:
-   VECTOR_APPLY_TO_PTRS(&inflight_bundles, in_memory_inflight_bundle_deinit);
-   vector_deinit(&inflight_bundles);
-cleanup_pivot_bundles:
-   vector_deinit(&pivot_bundles);
-cleanup_pivots:
-   vector_deinit(&pivots);
-cleanup_lb:
-   in_memory_pivot_destroy(lb, context->hid);
-   return rc;
+      new_leaf,
+      in_memory_node_pivot_bundle(leaf, 0),
+      &leaf->inflight_bundles,
+      in_memory_pivot_inflight_bundle_start(pivot),
+      0);
 }
 
 platform_status
@@ -2805,64 +2869,6 @@ cleanup_new_indexes:
 /***********************************
  * flushing
  ***********************************/
-
-platform_status
-in_memory_node_receive_bundles(trunk_node_context               *context,
-                               in_memory_node                   *node,
-                               in_memory_routed_bundle          *routed,
-                               in_memory_inflight_bundle_vector *inflight,
-                               uint64                            inflight_start,
-                               uint64                            child_num)
-{
-   platform_status rc;
-
-   rc = vector_ensure_capacity(&node->inflight_bundles,
-                               (routed ? 1 : 0) + vector_length(inflight));
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   if (routed) {
-      rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
-                                 in_memory_inflight_bundle_init_from_routed,
-                                 context->hid,
-                                 routed);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   }
-
-   for (uint64 i = 0; i < vector_length(inflight); i++) {
-      rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
-                                 in_memory_inflight_bundle_init_from_flush,
-                                 context->hid,
-                                 vector_get_ptr(inflight, i),
-                                 child_num);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   }
-
-   for (uint64 i = 0; i < in_memory_node_num_children(node); i++) {
-      btree_pivot_stats btree_stats;
-      ZERO_CONTENTS(&btree_stats);
-      rc = accumulate_inflight_bundle_tuple_counts_in_range(
-         vector_get_ptr(&node->inflight_bundles, inflight_start),
-         context,
-         &node->pivots,
-         i,
-         &btree_stats);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-      trunk_pivot_stats trunk_stats =
-         trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
-      in_memory_pivot *pivot = in_memory_node_pivot(node, i);
-      in_memory_pivot_add_tuple_counts(pivot, 1, trunk_stats);
-   }
-
-   return rc;
-}
 
 bool
 leaf_might_need_to_split(const trunk_node_config *cfg, in_memory_node *leaf)
