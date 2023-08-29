@@ -36,15 +36,6 @@ rw_entry_deinit(rw_entry *entry)
    }
 }
 
-static inline void
-rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
-{
-   char *key_buf;
-   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
-   memcpy(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(KEY_SIZE, key_buf);
-}
-
 /*
  * The msg is the msg from app.
  * In EXPERIMENTAL_MODE_TICTOC_DISK, this function adds timestamps at the begin
@@ -58,12 +49,6 @@ rw_entry_set_msg(rw_entry *e, message msg)
    memcpy(msg_buf, message_data(msg), message_length(msg));
    e->msg = message_create(message_class(msg),
                            slice_create(message_length(msg), msg_buf));
-}
-
-static inline bool
-rw_entry_is_read(const rw_entry *entry)
-{
-   return entry->is_read;
 }
 
 static inline bool
@@ -92,12 +77,11 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
    }
 
    if (need_to_create_new_entry) {
-      entry = rw_entry_create();
-      rw_entry_set_key(entry, user_key, cfg);
+      entry                                  = rw_entry_create();
+      entry->key                             = user_key;
       txn->rw_entries[txn->num_rw_entries++] = entry;
    }
 
-   entry->is_read = entry->is_read || is_read;
    return entry;
 }
 
@@ -140,7 +124,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl = lock_table_rw_create();
+   _txn_kvsb->lock_tbl = lock_table_rw_create(kvsb_cfg->data_cfg);
 
    *txn_kvsb = _txn_kvsb;
 
@@ -239,10 +223,10 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          }
 #endif
          lock_table_rw_release_entry_lock(
-            txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn->ts);
+            txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn);
       } else {
          lock_table_rw_release_entry_lock(
-            txn_kvsb->lock_tbl, entry, READ_LOCK, txn->ts);
+            txn_kvsb->lock_tbl, entry, READ_LOCK, txn);
       }
    }
 
@@ -260,10 +244,10 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
       rw_entry *entry = txn->rw_entries[i];
       if (rw_entry_is_write(entry)) {
          lock_table_rw_release_entry_lock(
-            txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn->ts);
+            txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn);
       } else {
          lock_table_rw_release_entry_lock(
-            txn_kvsb->lock_tbl, entry, READ_LOCK, txn->ts);
+            txn_kvsb->lock_tbl, entry, READ_LOCK, txn);
       }
    }
 
@@ -279,8 +263,10 @@ local_write(transactional_splinterdb *txn_kvsb,
             message                   msg)
 {
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
-   const key          ukey  = key_create_from_slice(user_key);
-   rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
+   char              *user_key_copy;
+   user_key_copy = TYPED_ARRAY_ZALLOC(0, user_key_copy, slice_length(user_key));
+   rw_entry *entry = rw_entry_get(
+      txn_kvsb, txn, slice_copy_contents(user_key_copy, user_key), cfg, FALSE);
    /* if (message_class(msg) == MESSAGE_TYPE_UPDATE */
    /*     || message_class(msg) == MESSAGE_TYPE_DELETE) */
    /* { */
@@ -293,7 +279,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    if (!rw_entry_is_write(entry)) {
       // TODO: generate a transaction id to use as the unique lock request id
       if (lock_table_rw_try_acquire_entry_lock(
-             txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn->ts)
+             txn_kvsb->lock_tbl, entry, WRITE_LOCK, txn)
           == LOCK_TABLE_RW_RC_BUSY)
       {
          transactional_splinterdb_abort(txn_kvsb, txn);
@@ -303,6 +289,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    } else {
       // TODO it needs to be checked later for upsert
       key wkey = key_create_from_slice(entry->key);
+      const key ukey = key_create_from_slice(user_key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
             platform_free_from_heap(0, (void *)message_data(entry->msg));
@@ -326,15 +313,6 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
-   // Call non-transactional insertion for YCSB loading..
-   if (txn == NULL) {
-      rw_entry tmp_entry;
-      rw_entry_set_key(&tmp_entry, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
-      splinterdb_insert(txn_kvsb->kvsb, tmp_entry.key, value);
-      platform_free_from_heap(0, (void *)slice_data(tmp_entry.key));
-      return 0;
-   }
-
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }
@@ -383,7 +361,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    } else {
       // TODO: generate a transaction id to use as the unique lock request id
       if (lock_table_rw_try_acquire_entry_lock(
-             txn_kvsb->lock_tbl, entry, READ_LOCK, txn->ts)
+             txn_kvsb->lock_tbl, entry, READ_LOCK, txn)
           == LOCK_TABLE_RW_RC_BUSY)
       {
          transactional_splinterdb_abort(txn_kvsb, txn);

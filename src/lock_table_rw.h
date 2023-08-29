@@ -5,6 +5,8 @@
 
 #include "platform.h"
 #include "isketch/iceberg_table.h"
+#include "splinterdb/transaction.h"
+#include "experimental_mode.h"
 
 /*
  * Implements a lock table that uses READ/WRITE locks and 3 locking policies:
@@ -12,11 +14,6 @@
  */
 
 #define LOCK_TABLE_DEBUG 0
-
-// locking policies
-#define NO_WAIT    1
-#define WAIT_DIE   0
-#define WOUND_WAIT 0
 
 // The lock table is just a hash map
 typedef struct lock_table_rw {
@@ -28,22 +25,20 @@ typedef enum lock_type {
    WRITE_LOCK     // exclusive lock
 } lock_type;
 
-typedef uint128 lock_req_id;
-
 typedef struct lock_req {
    lock_type        lt;
-   lock_req_id      id;   // unique req id provided by the application
+   transaction     *txn; // access to transaction ts as well 
    struct lock_req *next; // to form a linked list
 } lock_req;
 
 // Each lock_entry in this lock table contains some certain state required to
 // implement the chosen locking policy
 typedef struct lock_entry {
-#if NO_WAIT == 1
+#if EXPERIMENTAL_MODE_2PL_NO_WAIT == 1
    platform_mutex latch;
 #endif
    lock_req *owners;
-#if WAIT_DIE == 1 || WOUND_WAIT == 1
+#if EXPERIMENTAL_MODE_2PL_WOUND_WAIT == 1 || EXPERIMENTAL_MODE_2PL_WAIT_DIE == 1
    platform_condvar condvar;
 #endif
 } lock_entry;
@@ -71,17 +66,18 @@ lock_table_rw_create(const data_config *spl_data_config);
 void
 lock_table_rw_destroy(lock_table_rw *lock_tbl);
 
+// Assumption: transaction contains a TS field
 lock_table_rw_rc
 lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
                                      rw_entry      *entry,
                                      lock_type      lt,
-                                     lock_req_id    lid);
+                                     transaction   *txn);
 
 lock_table_rw_rc
 lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
                                  rw_entry      *entry,
                                  lock_type      lt,
-                                 lock_req_id    lid);
+                                 transaction   *txn);
 
 // lock_table_rw_rc
 // lock_table_rw_get_entry_lock_state(lock_table_rw *lock_tbl, rw_entry *entry);

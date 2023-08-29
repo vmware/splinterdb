@@ -16,7 +16,7 @@
 #   include "transaction_impl/transaction_sto.h"
 #elif EXPERIMENTAL_MODE_STO_SKETCH
 #   include "transaction_impl/transaction_sto.h"
-#elif EXPERIMENTAL_MODE_2PL
+#elif EXPERIMENTAL_MODE_2PL_NO_WAIT || EXPERIMENTAL_MODE_2PL_WAIT_DIE || EXPERIMENTAL_MODE_2PL_WOUND_WAIT
 #   include "transaction_impl/transaction_2pl.h"
 #elif EXPERIMENTAL_MODE_SILO_MEMORY
 #   include "transaction_impl/transaction_tictoc_lock_silo.h"

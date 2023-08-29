@@ -8,6 +8,7 @@
 #pragma once
 
 #include "splinterdb/splinterdb.h"
+#include "experimental_mode.h"
 
 typedef struct transactional_splinterdb transactional_splinterdb;
 
@@ -66,9 +67,12 @@ typedef struct rw_entry rw_entry;
 #define RW_SET_SIZE_LIMIT 64
 
 typedef struct transaction {
-   rw_entry *rw_entries[RW_SET_SIZE_LIMIT];
-   uint64    num_rw_entries;
-   uint64    ts;
+   rw_entry        *rw_entries[RW_SET_SIZE_LIMIT];
+   uint64           num_rw_entries;
+   txn_timestamp    ts;
+#if EXPERIMENTAL_MODE_2PL_WOUND_WAIT == 1
+   bool             wounded;
+#endif
 } transaction;
 
 int
