@@ -275,6 +275,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             platform_condvar_unlock(&le->condvar);
             return LOCK_TABLE_RW_RC_OK;
          } else {
+            platform_condvar_unlock(&le->condvar);
             return LOCK_TABLE_RW_RC_INVALID;
          }
       }
@@ -282,6 +283,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
       iter = iter->next;
    }
 
+   platform_condvar_unlock(&le->condvar);
    return LOCK_TABLE_RW_RC_NODATA;
 }
 
@@ -402,6 +404,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             platform_condvar_unlock(&le->condvar);
             return LOCK_TABLE_RW_RC_OK;
          } else {
+            platform_condvar_unlock(&le->condvar);
             return LOCK_TABLE_RW_RC_INVALID;
          }
       }
@@ -409,6 +412,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
       iter = iter->next;
    }
 
+   platform_condvar_unlock(&le->condvar);
    return LOCK_TABLE_RW_RC_NODATA;
 }
 
