@@ -42,7 +42,8 @@ get_lock_req(lock_type lt, transaction *txn)
 lock_entry *
 lock_entry_init()
 {
-   lock_entry *le = TYPED_MALLOC(0, le);
+   lock_entry *le;
+   le = TYPED_ZALLOC(0, le);
    platform_mutex_init(&le->latch, 0, 0);
    return le;
 }
@@ -159,7 +160,8 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
 lock_entry *
 lock_entry_init()
 {
-   lock_entry *le = TYPED_MALLOC(0, le);
+   lock_entry *le;
+   le = TYPED_ZALLOC(0, le);
    platform_condvar_init(&le->condvar, 0);
    return le;
 }
@@ -283,7 +285,8 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
 lock_entry *
 lock_entry_init()
 {
-   lock_entry *le = TYPED_MALLOC(0, le);
+   lock_entry *le;
+   le = TYPED_ZALLOC(0, le);
    platform_condvar_init(&le->condvar, 0);
    return le;
 }
@@ -422,6 +425,7 @@ lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
    // else we either get a pointer to an existing lock status
    // or create a new one
    lock_entry *le = lock_entry_init();
+   entry->le = le;
 
    iceberg_insert_and_get(
       &lock_tbl->table, &entry->key, (ValueType **)&entry->le, get_tid());
