@@ -28,7 +28,7 @@ static inline lock_req *
 get_lock_req(lock_type lt, transaction *txn)
 {
    lock_req *lreq;
-   lreq = TYPED_MALLOC(0, lreq);
+   lreq = TYPED_ZALLOC(0, lreq);
    lreq->next     = NULL;
    lreq->lt       = lt;
    lreq->txn      = txn;
