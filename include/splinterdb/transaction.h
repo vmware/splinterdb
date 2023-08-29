@@ -8,7 +8,6 @@
 #pragma once
 
 #include "splinterdb/splinterdb.h"
-#include "experimental_mode.h"
 
 typedef struct transactional_splinterdb transactional_splinterdb;
 
@@ -69,10 +68,9 @@ typedef struct rw_entry rw_entry;
 typedef struct transaction {
    rw_entry        *rw_entries[RW_SET_SIZE_LIMIT];
    uint64           num_rw_entries;
-   txn_timestamp    ts;
-#if EXPERIMENTAL_MODE_2PL_WOUND_WAIT == 1
+   uint128          ts;
+   // TODO: this should only be declared for WOUND_WAIT, move it in another data struct
    bool             wounded;
-#endif
 } transaction;
 
 int
