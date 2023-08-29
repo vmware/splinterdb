@@ -681,11 +681,11 @@ iceberg_setup_resize(iceberg_table *table)
 }
 
 static bool
-iceberg_lv1_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id);
+iceberg_lv1_move_block(iceberg_table *table, uint64_t bnum, threadid thread_id);
 static bool
-iceberg_lv2_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id);
+iceberg_lv2_move_block(iceberg_table *table, uint64_t bnum, threadid thread_id);
 static bool
-iceberg_lv3_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id);
+iceberg_lv3_move_block(iceberg_table *table, uint64_t bnum, threadid thread_id);
 
 // finish moving blocks that are left during the last resize.
 void
@@ -785,7 +785,7 @@ iceberg_lv3_insert(iceberg_table *table,
                    ValueType      value,
                    uint64_t       refcount,
                    uint64_t       lv3_index,
-                   uint8_t        thread_id)
+                   threadid        thread_id)
 {
 
 #ifdef ENABLE_RESIZE
@@ -859,7 +859,7 @@ iceberg_lv2_insert_internal(iceberg_table *table,
                             uint64_t       refcount,
                             uint8_t        fprint,
                             uint64_t       index,
-                            uint8_t        thread_id)
+                            threadid        thread_id)
 {
    uint64_t bindex, boffset;
    get_index_offset(table->metadata.log_init_size, index, &bindex, &boffset);
@@ -915,7 +915,7 @@ iceberg_lv2_insert(iceberg_table *table,
                    ValueType      value,
                    uint64_t       refcount,
                    uint64_t       lv3_index,
-                   uint8_t        thread_id)
+                   threadid        thread_id)
 {
 
    iceberg_metadata *metadata = &table->metadata;
@@ -1002,7 +1002,7 @@ iceberg_insert_internal(iceberg_table *table,
                         uint8_t        fprint,
                         uint64_t       bindex,
                         uint64_t       boffset,
-                        uint8_t        thread_id)
+                        threadid        thread_id)
 {
    iceberg_metadata  *metadata = &table->metadata;
    iceberg_lv1_block *blocks   = table->level1[bindex];
@@ -1048,7 +1048,7 @@ static bool
 iceberg_get_value_internal(iceberg_table *table,
                            slice          key,
                            kv_pair      **kv,
-                           uint8_t        thread_id,
+                           threadid        thread_id,
                            bool           should_lock,
                            bool           should_lookup_sketch);
 
@@ -1056,7 +1056,7 @@ static bool
 iceberg_put_or_insert(iceberg_table *table,
                       slice         *key,
                       ValueType    **value,
-                      uint8_t        thread_id,
+                      threadid        thread_id,
                       bool           increase_refcount,
                       bool           overwrite_value)
 {
@@ -1200,7 +1200,7 @@ __attribute__((always_inline)) bool
 iceberg_insert(iceberg_table *table,
                slice         *key,
                ValueType      value,
-               uint8_t        thread_id)
+               threadid        thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    ValueType *value_ptr = &value;
@@ -1211,7 +1211,7 @@ __attribute__((always_inline)) bool
 iceberg_insert_without_increasing_refcount(iceberg_table *table,
                                            slice         *key,
                                            ValueType      value,
-                                           uint8_t        thread_id)
+                                           threadid        thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    ValueType *value_ptr = &value;
@@ -1223,7 +1223,7 @@ __attribute__((always_inline)) bool
 iceberg_insert_and_get(iceberg_table *table,
                        slice         *key,
                        ValueType    **value,
-                       uint8_t        thread_id)
+                       threadid        thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    return iceberg_put_or_insert(table, key, value, thread_id, true, false);
@@ -1233,7 +1233,7 @@ __attribute__((always_inline)) bool
 iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
                                                    slice         *key,
                                                    ValueType    **value,
-                                                   uint8_t        thread_id)
+                                                   threadid        thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    return iceberg_put_or_insert(table, key, value, thread_id, false, false);
@@ -1243,7 +1243,7 @@ iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
 // iceberg_insert_and_get(iceberg_table *table,
 //                slice        key,
 //                ValueType      value,
-//                uint8_t        thread_id)
+//                threadid        thread_id)
 // {
 //    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 //    return iceberg_put_or_insert(table, key, value, thread_id, true, false);
@@ -1253,7 +1253,7 @@ iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
 // iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
 //                                            slice        key,
 //                                            ValueType      value,
-//                                            uint8_t        thread_id)
+//                                            threadid        thread_id)
 // {
 //    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 //    return iceberg_put_or_insert(table, key, value, thread_id, false, false);
@@ -1263,7 +1263,7 @@ bool
 iceberg_update(iceberg_table *table,
                slice         *key,
                ValueType      value,
-               uint8_t        thread_id)
+               threadid        thread_id)
 {
 
    iceberg_metadata *metadata = &table->metadata;
@@ -1298,7 +1298,7 @@ __attribute__((always_inline)) bool
 iceberg_put(iceberg_table *table,
             slice         *key,
             ValueType      value,
-            uint8_t        thread_id)
+            threadid        thread_id)
 {
    ValueType *value_ptr = &value;
    return iceberg_put_or_insert(table, key, &value_ptr, thread_id, true, true);
@@ -1317,7 +1317,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
                             uint64_t       lv3_index,
                             bool           delete_item,
                             bool           force_remove,
-                            uint8_t        thread_id)
+                            threadid        thread_id)
 {
    uint64_t bindex, boffset;
    get_index_offset(
@@ -1415,7 +1415,7 @@ iceberg_lv3_remove(iceberg_table *table,
                    uint64_t       lv3_index,
                    bool           delete_item,
                    bool           force_remove,
-                   uint8_t        thread_id)
+                   threadid        thread_id)
 {
 
    bool ret = iceberg_lv3_remove_internal(
@@ -1467,7 +1467,7 @@ iceberg_lv2_remove(iceberg_table *table,
                    uint64_t       lv3_index,
                    bool           delete_item,
                    bool           force_remove,
-                   uint8_t        thread_id)
+                   threadid        thread_id)
 {
    iceberg_metadata *metadata = &table->metadata;
 
@@ -1629,7 +1629,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                                   ValueType     *value,
                                   bool           delete_item,
                                   bool           force_remove,
-                                  uint8_t        thread_id)
+                                  threadid        thread_id)
 {
    iceberg_metadata *metadata = &table->metadata;
    uint8_t           fprint;
@@ -1801,7 +1801,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
 }
 
 __attribute__((always_inline)) bool
-iceberg_remove(iceberg_table *table, slice key, uint8_t thread_id)
+iceberg_remove(iceberg_table *table, slice key, threadid thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
@@ -1813,7 +1813,7 @@ __attribute__((always_inline)) bool
 iceberg_get_and_remove(iceberg_table *table,
                        slice          key,
                        ValueType     *value,
-                       uint8_t        thread_id)
+                       threadid        thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
@@ -1822,7 +1822,7 @@ iceberg_get_and_remove(iceberg_table *table,
 }
 
 __attribute__((always_inline)) bool
-iceberg_force_remove(iceberg_table *table, slice key, uint8_t thread_id)
+iceberg_force_remove(iceberg_table *table, slice key, threadid thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
@@ -1831,7 +1831,7 @@ iceberg_force_remove(iceberg_table *table, slice key, uint8_t thread_id)
 }
 
 __attribute__((always_inline)) bool
-iceberg_decrease_refcount(iceberg_table *table, slice key, uint8_t thread_id)
+iceberg_decrease_refcount(iceberg_table *table, slice key, threadid thread_id)
 {
    return iceberg_get_and_remove_with_force(
       table, key, NULL, false, false, thread_id);
@@ -2024,7 +2024,7 @@ static bool
 iceberg_put_nolock(iceberg_table *table,
                    slice          key,
                    ValueType      value,
-                   uint8_t        thread_id)
+                   threadid        thread_id)
 {
 #ifdef ENABLE_RESIZE
    if (unlikely(need_resize(table))) {
@@ -2088,7 +2088,7 @@ static bool
 iceberg_get_value_internal(iceberg_table                  *table,
                            slice                           key,
                            kv_pair                       **kv,
-                           __attribute__((unused)) uint8_t thread_id,
+                           __attribute__((unused)) threadid thread_id,
                            bool                            should_lock,
                            bool                            should_lookup_sketch)
 {
@@ -2236,7 +2236,7 @@ __attribute__((always_inline)) bool
 iceberg_get_value(iceberg_table *table,
                   slice          key,
                   ValueType    **value,
-                  uint8_t        thread_id)
+                  threadid        thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    kv_pair *kv = NULL;
@@ -2252,7 +2252,7 @@ iceberg_nuke_key(iceberg_table *table,
                  uint64_t       level,
                  uint64_t       index,
                  uint64_t       slot,
-                 uint64_t       thread_id)
+                 threadid       thread_id)
 {
    uint64_t bindex, boffset;
    get_index_offset(table->metadata.log_init_size, index, &bindex, &boffset);
@@ -2276,7 +2276,7 @@ iceberg_nuke_key(iceberg_table *table,
 }
 
 static bool
-iceberg_lv1_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id)
+iceberg_lv1_move_block(iceberg_table *table, uint64_t bnum, threadid thread_id)
 {
    // printf("tid %d %p %s %lu\n", thread_id, (void *)table, __func__, bnum);
 
@@ -2338,7 +2338,7 @@ iceberg_lv1_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id)
 }
 
 static bool
-iceberg_lv2_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id)
+iceberg_lv2_move_block(iceberg_table *table, uint64_t bnum, threadid thread_id)
 {
    // printf("tid %d %p %s %lu\n", thread_id, (void *)table, __func__, bnum);
 
@@ -2400,7 +2400,7 @@ iceberg_lv2_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id)
 }
 
 static bool
-iceberg_lv3_move_block(iceberg_table *table, uint64_t bnum, uint8_t thread_id)
+iceberg_lv3_move_block(iceberg_table *table, uint64_t bnum, threadid thread_id)
 {
    // printf("tid %d %p %s %lu\n", thread_id, (void *)table, __func__, bnum);
 

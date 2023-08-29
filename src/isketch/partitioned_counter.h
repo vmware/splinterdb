@@ -3,6 +3,7 @@
 
 #include <inttypes.h>
 #include <stdbool.h>
+#include "platform.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,7 +40,7 @@ void
 pc_destructor(pc_t *pc);
 
 void
-pc_add(pc_t *pc, int64_t count, uint8_t thread_id);
+pc_add(pc_t *pc, int64_t count, threadid thread_id);
 
 void
 pc_sync(pc_t *pc);

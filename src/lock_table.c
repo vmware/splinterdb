@@ -36,7 +36,7 @@ lock_table_destroy(lock_table *lock_tbl)
    platform_free(0, lock_tbl);
 }
 
-static inline uint8_t
+static inline threadid
 get_tid()
 {
    return platform_get_tid() - 1;

@@ -4,6 +4,7 @@
 #include "lock.h"
 #include "types.h"
 #include "sketch.h"
+#include "platform.h"
 
 #ifdef __cplusplus
 #   define __restrict__
@@ -128,7 +129,7 @@ bool
 iceberg_insert(iceberg_table *table,
                slice         *key,
                ValueType      value,
-               uint8_t        thread_id);
+               threadid        thread_id);
 
 /**
  *
@@ -143,7 +144,7 @@ bool
 iceberg_insert_without_increasing_refcount(iceberg_table *table,
                                            slice         *key,
                                            ValueType      value,
-                                           uint8_t        thread_id);
+                                           threadid        thread_id);
 
 /**
  * The following functions do the same thing as the above functions,
@@ -153,13 +154,13 @@ bool
 iceberg_insert_and_get(iceberg_table *table,
                        slice         *key,
                        ValueType    **value,
-                       uint8_t        thread_id);
+                       threadid        thread_id);
 
 bool
 iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
                                                    slice         *key,
                                                    ValueType    **value,
-                                                   uint8_t        thread_id);
+                                                   threadid        thread_id);
 
 /**
  *
@@ -171,7 +172,7 @@ bool
 iceberg_update(iceberg_table *table,
                slice         *key,
                ValueType      value,
-               uint8_t        thread_id);
+               threadid        thread_id);
 
 /**
  *
@@ -183,10 +184,10 @@ bool
 iceberg_put(iceberg_table *table,
             slice         *key,
             ValueType      value,
-            uint8_t        thread_id);
+            threadid        thread_id);
 
 bool
-iceberg_remove(iceberg_table *table, slice key, uint8_t thread_id);
+iceberg_remove(iceberg_table *table, slice key, threadid thread_id);
 
 
 /*
@@ -196,19 +197,19 @@ bool
 iceberg_get_and_remove(iceberg_table *table,
                        slice          key,
                        ValueType     *value,
-                       uint8_t        thread_id);
+                       threadid        thread_id);
 
 bool
-iceberg_force_remove(iceberg_table *table, slice key, uint8_t thread_id);
+iceberg_force_remove(iceberg_table *table, slice key, threadid thread_id);
 
 bool
-iceberg_decrease_refcount(iceberg_table *table, slice key, uint8_t thread_id);
+iceberg_decrease_refcount(iceberg_table *table, slice key, threadid thread_id);
 
 bool
 iceberg_get_value(iceberg_table *table,
                   slice          key,
                   ValueType    **value,
-                  uint8_t        thread_id);
+                  threadid        thread_id);
 
 #ifdef ENABLE_RESIZE
 void

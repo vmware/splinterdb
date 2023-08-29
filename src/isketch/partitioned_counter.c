@@ -53,7 +53,7 @@ pc_destructor(pc_t *pc)
 }
 
 void
-pc_add(pc_t *pc, int64_t count, uint8_t counter_id)
+pc_add(pc_t *pc, int64_t count, threadid counter_id)
 {
    // uint32_t counter_id = thread_id;
    int64_t cur_count = __atomic_add_fetch(
