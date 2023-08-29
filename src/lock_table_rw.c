@@ -27,7 +27,8 @@ get_tid()
 static inline lock_req *
 get_lock_req(lock_type lt, transaction *txn)
 {
-   lock_req *lreq = TYPED_MALLOC(0, lreq);
+   lock_req *lreq;
+   lreq = TYPED_MALLOC(0, lreq);
    lreq->next     = NULL;
    lreq->lt       = lt;
    lreq->txn      = txn;
@@ -137,6 +138,8 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             // request is valid, release the lock
             if (prev != NULL) {
                prev->next = iter->next;
+            } else {
+               le->owners = iter->next;
             }
             platform_free(0, iter);
             platform_mutex_unlock(&le->latch);
@@ -264,6 +267,8 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             // request is valid, release the lock
             if (prev != NULL) {
                prev->next = iter->next;
+            } else {
+               le->owners = iter->next;
             }
             platform_free(0, iter);
             platform_condvar_broadcast(&le->condvar);
@@ -389,6 +394,8 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             // request is valid, release the lock
             if (prev != NULL) {
                prev->next = iter->next;
+            } else {
+               le->owners = iter->next;
             }
             platform_free(0, iter);
             platform_condvar_broadcast(&le->condvar);
@@ -424,15 +431,16 @@ lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
 
    // else we either get a pointer to an existing lock status
    // or create a new one
-   lock_entry *le = lock_entry_init();
-   entry->le = le;
+   entry->le = lock_entry_init();
 
-   iceberg_insert_and_get(
-      &lock_tbl->table, &entry->key, (ValueType **)&entry->le, get_tid());
-
-   if (le != entry->le) {
+   ValueType value_to_be_inserted = (ValueType)entry->le;
+   ValueType *pointer_of_iceberg_value = &value_to_be_inserted;
+   bool is_newly_inserted = iceberg_insert_and_get(
+      &lock_tbl->table, &entry->key, (ValueType **)&pointer_of_iceberg_value, get_tid());
+   if(!is_newly_inserted) {
       // there's already a lock_entry for this key in the lock_table
-      lock_entry_destroy(le);
+      lock_entry_destroy(entry->le);
+      entry->le = (lock_entry *)*pointer_of_iceberg_value;
    }
 
    // get the latch then update the lock status
@@ -451,10 +459,10 @@ lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
    if (_unlock(entry->le, lt, txn) == LOCK_TABLE_RW_RC_OK) {
       // platform_assert(iceberg_force_remove(&lock_tbl->table, key,
       // get_tid()));
-      ValueType value = {0};
-      if (iceberg_get_and_remove(
-             &lock_tbl->table, entry->key, &value, get_tid())) {
+      if (iceberg_remove(
+             &lock_tbl->table, entry->key, get_tid())) {
          lock_entry_destroy(entry->le);
+         entry->le = NULL;
       }
    }
 

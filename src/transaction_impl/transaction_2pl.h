@@ -27,10 +27,6 @@ rw_entry_create()
 static inline void
 rw_entry_deinit(rw_entry *entry)
 {
-   if (!slice_is_null(entry->key)) {
-      platform_free_from_heap(0, (void *)slice_data(entry->key));
-   }
-
    if (!message_is_null(entry->msg)) {
       platform_free_from_heap(0, (void *)message_data(entry->msg));
    }
