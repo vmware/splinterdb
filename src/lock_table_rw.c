@@ -374,7 +374,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          platform_condvar_unlock(&le->condvar);
          return LOCK_TABLE_RW_RC_OK;
       }
-      platform_condvar_wait(&le->condvar);
+      platform_condvar_timedwait(&le->condvar, WOUND_WAIT_TIMEOUT);
    }
 
    // Should not get here

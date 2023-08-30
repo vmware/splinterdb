@@ -14,6 +14,7 @@
  */
 
 #define LOCK_TABLE_DEBUG 0
+#define WOUND_WAIT_TIMEOUT 10
 
 // The lock table is just a hash map
 typedef struct lock_table_rw {
