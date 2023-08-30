@@ -742,6 +742,9 @@ platform_status
 platform_condvar_wait(platform_condvar *cv);
 
 platform_status
+platform_condvar_timedwait(platform_condvar *cv, timestamp timeouts_ns);
+
+platform_status
 platform_condvar_signal(platform_condvar *cv);
 
 platform_status
