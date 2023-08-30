@@ -311,7 +311,6 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
    platform_condvar_lock(&le->condvar);
    while (true) {
       if (txn->wounded) {
-         // lazy wound; txn aborts on the next lock attempt
          platform_condvar_unlock(&le->condvar);
          return LOCK_TABLE_RW_RC_BUSY;
       }
@@ -349,6 +348,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          } else {
             // wound all younger readers (i.e., with ts > txn->ts)
             while(iter && iter->txn->ts > txn->ts) {
+               // lazy wound; txn aborts on the next lock attempt
                iter->txn->wounded = true;
                iter = iter->next;
             }
