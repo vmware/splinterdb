@@ -158,7 +158,7 @@ lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
 }
 #else
 lock_table *
-lock_table_create()
+lock_table_create(const data_config *spl_data_config)
 {
    platform_assert(FALSE, "Not implemented");
    return NULL;
