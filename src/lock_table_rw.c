@@ -24,6 +24,10 @@ get_tid()
    return platform_get_tid() - 1;
 }
 
+#if  EXPERIMENTAL_MODE_2PL_NO_WAIT == 1 || \
+     EXPERIMENTAL_MODE_2PL_WAIT_DIE == 1 || \
+     EXPERIMENTAL_MODE_2PL_WOUND_WAIT == 1
+
 static inline lock_req *
 get_lock_req(lock_type lt, transaction *txn)
 {
@@ -34,6 +38,7 @@ get_lock_req(lock_type lt, transaction *txn)
    lreq->txn      = txn;
    return lreq;
 }
+#endif
 
 //*******************************************
 #if  EXPERIMENTAL_MODE_2PL_NO_WAIT == 1
@@ -415,6 +420,35 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
    platform_condvar_unlock(&le->condvar);
    return LOCK_TABLE_RW_RC_NODATA;
 }
+#else
+
+lock_entry *
+lock_entry_init()
+{
+   platform_assert(FALSE, "Not implemented");
+   return NULL;
+}
+
+void
+lock_entry_destroy(lock_entry *le)
+{
+   platform_assert(FALSE, "Not implemented");
+}
+
+lock_table_rw_rc
+_lock(lock_entry *le, lock_type lt, transaction *txn)
+{
+   platform_assert(FALSE, "Not implemented");
+   return 0;
+}
+
+lock_table_rw_rc
+_unlock(lock_entry *le, lock_type lt, transaction *txn)
+{
+   platform_assert(FALSE, "Not implemented");
+   return 0;
+}
+
 #endif
 
 lock_table_rw_rc
