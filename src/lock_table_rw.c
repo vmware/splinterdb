@@ -415,11 +415,6 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
    platform_condvar_unlock(&le->condvar);
    return LOCK_TABLE_RW_RC_NODATA;
 }
-
-
-
-#else
-#   error("No locking policy selected")
 #endif
 
 lock_table_rw_rc
