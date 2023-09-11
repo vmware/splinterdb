@@ -149,19 +149,19 @@ typedef struct trunk_node_config {
 } trunk_node_config;
 
 typedef struct bundle_compaction_group {
-   uint64         refcount;
    uint64         addr;
    in_memory_node node;
-   uint64         next_pivot;
-   uint64         completed_pivots;
+   uint64         num_compactions;
+   uint64         completed_compactions;
    bool32         failed;
 } bundle_compaction_group;
 
 typedef enum bundle_compaction_state {
    BUNDLE_COMPACTION_NOT_STARTED,
-   BUNDLE_COMPACTION_INPROGRESS,
+   BUNDLE_COMPACTION_IN_PROGRESS,
    BUNDLE_COMPACTION_FAILED,
-   BUNDLE_COMPACTION_COMPLETED
+   BUNDLE_COMPACTION_COMPLETED,
+   BUNDLE_COMPACTION_APPLIED
 } bundle_compaction_state;
 
 typedef struct bundle_compaction {
@@ -173,73 +173,14 @@ typedef struct bundle_compaction {
 } bundle_compaction;
 
 typedef struct pivot_compaction_state {
-   trunk_node_context *context;
-   key_buffer          key;
-   uint64              height;
-   uint64              spinlock;
-   bool32              maplet_compaction_failed;
-   bundle_compaction  *bundle_compactions;
-} pivot_compaction_state;
-
-#if 0
-typedef struct maplet_compaction_input {
-   branch_ref branch;
-   uint64     num_fingerprints;
-   uint32    *fingerprints;
-} maplet_compaction_input;
-
-typedef VECTOR(maplet_compaction_input) maplet_compaction_input_vector;
-
-typedef struct maplet_compaction_args {
+   struct pivot_compaction_state *next;
    trunk_node_context            *context;
-   key_buffer                     lbkey;
+   key_buffer                     key;
    uint64                         height;
-   routing_filter                 old_maplet;
-   uint64                         old_num_branches;
-   branch_ref_vector              branches;
-   routing_filter                 new_maplet;
-   bool32                         can_delete_pivot_from_tracker;
-   struct maplet_compaction_args *successor;
-} maplet_compaction_args;
-
-typedef VECTOR(maplet_compaction_args *) maplet_compaction_args_vector;
-typedef VECTOR(uint64) uint64_vector;
-
-typedef struct bundle_compaction_args {
-   trunk_node_context           *context;
-   uint64                        addr;
-   in_memory_node                node;
-   uint64                        next_child;
-   uint64                        completed_compactions;
-   bool32                        failed;
-   branch_merger                *mergers;
-   btree_pack_req               *pack_reqs;
-   maplet_compaction_args_vector maplet_compaction_args;
-   uint64_vector                 installed_branch_indexes;
-} bundle_compaction_args;
-
-
-typedef struct maplet_compaction_tracker_entry {
-   struct maplet_compaction_tracker_entry *next;
-   key_buffer                              pivot;
-   uint64                                  height;
-   maplet_compaction_args                 *args;
-   maplet_compaction_input_vector          inputs;
-} maplet_compaction_tracker_entry;
-
-typedef struct maplet_compaction_tracker_bucket {
-   uint64                           lock;
-   maplet_compaction_tracker_entry *head;
-} maplet_compaction_tracker_bucket;
-
-#   define MAPLET_COMPACTION_TRACKER_BUCKETS 1024
-
-typedef struct maplet_compaction_input_tracker {
-   platform_heap_id                 hid;
-   data_config                     *data_cfg;
-   maplet_compaction_tracker_bucket buckets[MAPLET_COMPACTION_TRACKER_BUCKETS];
-} maplet_compaction_input_tracker;
-#endif
+   uint64                         spinlock;
+   bool32                         maplet_compaction_failed;
+   bundle_compaction             *bundle_compactions;
+} pivot_compaction_state;
 
 #define PIVOT_STATE_MAP_BUCKETS 1024
 
@@ -1461,401 +1402,130 @@ void
 apply_changes_end(trunk_node_context *context);
 
 /*******************************************************************************
- * maplet compaction input tracking
- *
- * This is a quick and simple implementation.  Better would be a concurrent hash
- * table.
+ * pivot state tracking
  *******************************************************************************/
 
-static void
-maplet_compaction_input_tracker_init(maplet_compaction_input_tracker *tracker,
-                                     data_config                     *data_cfg,
-                                     platform_heap_id                 hid)
-{
-   ZERO_CONTENTS(tracker);
-   tracker->data_cfg = data_cfg;
-   tracker->hid      = hid;
-}
-
 static uint64
-maplet_compaction_tracker_hash(const data_config *data_cfg,
-                               key                lbkey,
-                               uint64             height)
+pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
 {
    uint64 hash = data_cfg->key_hash(key_data(lbkey), key_length(lbkey), 271828);
    hash ^= height;
-   return hash % MAPLET_COMPACTION_TRACKER_BUCKETS;
+   return hash % PIVOT_STATE_MAP_BUCKETS;
 }
+
+typedef uint64 pivot_state_map_lock;
 
 static void
-maplet_compaction_input_tracker_unlock(maplet_compaction_input_tracker *tracker,
-                                       uint64 bucketidx)
+pivot_state_map_aquire_lock(pivot_state_map_lock *lock,
+                            trunk_node_context   *context,
+                            pivot_state_map      *map,
+                            key                   pivot,
+                            uint64                height)
 {
-   maplet_compaction_tracker_bucket *bucket = &tracker->buckets[bucketidx];
-   bucket->lock                             = 0;
-}
-
-static maplet_compaction_tracker_entry *
-maplet_compaction_input_tracker_get_locked(
-   maplet_compaction_input_tracker *tracker,
-   key                              lbkey,
-   uint64                           height,
-   uint64                           bucketidx)
-{
-   maplet_compaction_tracker_bucket *bucket = &tracker->buckets[bucketidx];
-   uint64                            wait   = 1;
-   while (__sync_val_compare_and_swap(&bucket->lock, 0, 1) != 0) {
+   *lock       = pivot_state_map_hash(context->cfg->data_cfg, pivot, height);
+   uint64 wait = 1;
+   while (__sync_val_compare_and_swap(&map->locks[*lock], 0, 1) != 0) {
       platform_sleep_ns(wait);
       wait = MIN(2 * wait, 2048);
    }
-
-   maplet_compaction_tracker_entry *entry = bucket->head;
-   while (entry) {
-      if (data_key_compare(
-             tracker->data_cfg, key_buffer_key(&entry->pivot), lbkey)
-             == 0
-          && entry->height == height)
-      {
-         return entry;
-      }
-      entry = entry->next;
-   }
-
-   return NULL;
-}
-
-static int64
-maplet_compaction_tracker_entry_find_input(
-   const maplet_compaction_tracker_entry *entry,
-   branch_ref                             bref)
-{
-   for (uint64 i = 0; i < vector_length(&entry->inputs); i++) {
-      maplet_compaction_input existing = vector_get(&entry->inputs, i);
-      if (branches_equal(existing.branch, bref)) {
-         return i;
-      }
-   }
-   return -1;
-}
-
-static maplet_compaction_tracker_entry *
-maplet_compaction_tracker_entry_create(key              lbkey,
-                                       uint64           height,
-                                       platform_heap_id hid)
-{
-   maplet_compaction_tracker_entry *entry = TYPED_ZALLOC(hid, entry);
-   if (entry == NULL) {
-      return NULL;
-   }
-   key_buffer_init_from_key(&entry->pivot, hid, lbkey);
-   entry->height = height;
-   vector_init(&entry->inputs, hid);
-   return entry;
 }
 
 static void
-maplet_compaction_tracker_entry_destroy(maplet_compaction_tracker_entry *entry,
-                                        platform_heap_id                 hid)
+pivot_state_map_release_lock(pivot_state_map_lock *lock, pivot_state_map *map)
 {
-   for (uint64 i = 0; i < vector_length(&entry->inputs); i++) {
-      maplet_compaction_input input = vector_get(&entry->inputs, i);
-      platform_free(input.fingerprints, hid);
-   }
-   vector_deinit(&entry->inputs);
-   key_buffer_deinit(&entry->pivot);
-   platform_free(hid, entry);
+   __sync_lock_release(&map->locks[*lock]);
 }
 
-static bool32
-maplet_compaction_tracker_lookup_inputs(
-   maplet_compaction_input_tracker *tracker,
-   key                              lbkey,
-   uint64                           height,
-   const branch_ref_vector         *branches,
-   maplet_compaction_input_vector  *inputs)
+static pivot_compaction_state *
+pivot_state_map_get(trunk_node_context   *context,
+                    pivot_state_map      *map,
+                    pivot_state_map_lock *lock,
+                    key                   pivot,
+                    uint64                height)
 {
-   platform_status rc = vector_ensure_capacity(inputs, vector_length(branches));
-   if (!SUCCESS(rc)) {
-      return FALSE;
-   }
-   vector_truncate(inputs, 0);
-
-   uint64 bucketidx =
-      maplet_compaction_tracker_hash(tracker->data_cfg, lbkey, height);
-   maplet_compaction_tracker_entry *entry =
-      maplet_compaction_input_tracker_get_locked(
-         tracker, lbkey, height, bucketidx);
-   if (entry == NULL) {
-      maplet_compaction_input_tracker_unlock(tracker, bucketidx);
-      return FALSE;
-   }
-
-   bool32 result = TRUE;
-   for (uint64 i = 0; i < vector_length(branches); i++) {
-      branch_ref bref = vector_get(branches, i);
-      int64      idx  = maplet_compaction_tracker_entry_find_input(entry, bref);
-      if (idx < 0) {
-         result = FALSE;
+   pivot_compaction_state *result = NULL;
+   for (pivot_compaction_state *state = map->buckets[*lock]; state != NULL;
+        state                         = state->next)
+   {
+      if (data_key_compare(
+             context->cfg->data_cfg, key_buffer_key(&state->key), pivot)
+             == 0
+          && state->height == height)
+      {
+         result = state;
          break;
-      } else {
-         rc = vector_append(inputs, vector_get(&entry->inputs, idx));
-         platform_assert_status_ok(rc);
       }
    }
-
-   maplet_compaction_input_tracker_unlock(tracker, bucketidx);
    return result;
 }
 
-static platform_status
-maplet_compaction_tracker_add_pivot(maplet_compaction_input_tracker *tracker,
-                                    key                              lbkey,
-                                    uint64                           height)
+static pivot_compaction_state *
+pivot_state_map_create(trunk_node_context   *context,
+                       pivot_state_map      *map,
+                       pivot_state_map_lock *lock,
+                       key                   pivot,
+                       uint64                height)
 {
-   uint64 bucketidx =
-      maplet_compaction_tracker_hash(tracker->data_cfg, lbkey, height);
-
-   platform_status                  rc           = STATUS_OK;
-   bool32                           entry_is_new = FALSE;
-   maplet_compaction_tracker_entry *entry =
-      maplet_compaction_input_tracker_get_locked(
-         tracker, lbkey, height, bucketidx);
-   if (entry == NULL) {
-      entry =
-         maplet_compaction_tracker_entry_create(lbkey, height, tracker->hid);
-      if (entry == NULL) {
-         rc = STATUS_NO_MEMORY;
-         goto cleanup;
-      }
-      entry_is_new = TRUE;
+   pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
+   if (state == NULL) {
+      return NULL;
    }
-
-   if (entry_is_new) {
-      maplet_compaction_tracker_bucket *bucket = &tracker->buckets[bucketidx];
-      entry->next                              = bucket->head;
-      bucket->head                             = entry;
-   }
-
-cleanup:
-   if (!SUCCESS(rc) && entry_is_new) {
-      maplet_compaction_tracker_entry_destroy(entry, tracker->hid);
-   }
-   maplet_compaction_input_tracker_unlock(tracker, bucketidx);
-   return rc;
-}
-
-static platform_status
-maplet_compaction_tracker_add_input(maplet_compaction_input_tracker *tracker,
-                                    key                              lbkey,
-                                    uint64                           height,
-                                    maplet_compaction_input          input)
-{
-   uint64 bucketidx =
-      maplet_compaction_tracker_hash(tracker->data_cfg, lbkey, height);
-
-   platform_status                  rc = STATUS_OK;
-   maplet_compaction_tracker_entry *entry =
-      maplet_compaction_input_tracker_get_locked(
-         tracker, lbkey, height, bucketidx);
-   if (entry == NULL) {
-      rc = STATUS_NOT_FOUND;
-      goto cleanup;
-   }
-
-   rc = vector_append(&entry->inputs, input);
+   platform_status rc =
+      key_buffer_init_from_key(&state->key, context->hid, pivot);
    if (!SUCCESS(rc)) {
-      goto cleanup;
+      platform_free(context->hid, state);
+      return NULL;
    }
+   state->height       = height;
+   state->next         = map->buckets[*lock];
+   map->buckets[*lock] = state;
+   return state;
+}
 
-cleanup:
-   maplet_compaction_input_tracker_unlock(tracker, bucketidx);
-   return rc;
+static pivot_compaction_state *
+pivot_state_map_get_or_create(trunk_node_context   *context,
+                              pivot_state_map      *map,
+                              pivot_state_map_lock *lock,
+                              key                   pivot,
+                              uint64                height)
+{
+   pivot_compaction_state *state =
+      pivot_state_map_get(context, map, lock, pivot, height);
+   if (state == NULL) {
+      state = pivot_state_map_create(context, map, lock, pivot, height);
+   }
+   return state;
 }
 
 static void
-maplet_compaction_tracker_entry_remove(maplet_compaction_tracker_bucket *bucket,
-                                       maplet_compaction_tracker_entry  *entry)
+pivot_state_map_remove(pivot_state_map        *map,
+                       pivot_state_map_lock   *lock,
+                       pivot_compaction_state *tgt)
 {
-   if (bucket->head == entry) {
-      bucket->head = entry->next;
-   } else {
-      maplet_compaction_tracker_entry *prev = bucket->head;
-      while (prev && prev->next != entry) {
-         prev = prev->next;
-      }
-      if (prev) {
-         prev->next = entry->next;
-      }
-   }
-}
-
-static void
-maplet_compaction_tracker_delete_inputs(
-   maplet_compaction_input_tracker *tracker,
-   key                              lbkey,
-   uint64                           height,
-   branch_ref_vector               *branches)
-{
-   uint64 bucketidx =
-      maplet_compaction_tracker_hash(tracker->data_cfg, lbkey, height);
-   maplet_compaction_tracker_entry *entry =
-      maplet_compaction_input_tracker_get_locked(
-         tracker, lbkey, height, bucketidx);
-   if (entry == NULL) {
-      maplet_compaction_input_tracker_unlock(tracker, bucketidx);
-      return;
-   }
-
-   for (uint64 i = 0; i < vector_length(branches); i++) {
-      branch_ref bref = vector_get(branches, i);
-      int64      idx  = maplet_compaction_tracker_entry_find_input(entry, bref);
-      if (idx >= 0) {
-         uint64 length = vector_length(&entry->inputs);
-         vector_set(
-            &entry->inputs, idx, vector_get(&entry->inputs, length - 1));
-         vector_truncate(&entry->inputs, length - 1);
+   pivot_compaction_state *prev = NULL;
+   for (pivot_compaction_state *state = map->buckets[*lock]; state != NULL;
+        prev = state, state = state->next)
+   {
+      if (state == tgt) {
+         if (prev == NULL) {
+            map->buckets[*lock] = state->next;
+         } else {
+            prev->next = state->next;
+         }
+         break;
       }
    }
-
-   if (vector_length(&entry->inputs) == 0) {
-      maplet_compaction_tracker_entry_remove(&tracker->buckets[bucketidx],
-                                             entry);
-      maplet_compaction_tracker_entry_destroy(entry, tracker->hid);
-   }
-
-   maplet_compaction_input_tracker_unlock(tracker, bucketidx);
 }
-
-static void
-maplet_compaction_tracker_remove_pivot_unconditionally(
-   maplet_compaction_input_tracker *tracker,
-   key                              lbkey,
-   uint64                           height)
-{
-   uint64 bucketidx =
-      maplet_compaction_tracker_hash(tracker->data_cfg, lbkey, height);
-   maplet_compaction_tracker_entry *entry =
-      maplet_compaction_input_tracker_get_locked(
-         tracker, lbkey, height, bucketidx);
-   if (entry != NULL) {
-      maplet_compaction_tracker_entry_remove(&tracker->buckets[bucketidx],
-                                             entry);
-      maplet_compaction_tracker_entry_destroy(entry, tracker->hid);
-   }
-   maplet_compaction_input_tracker_unlock(tracker, bucketidx);
-}
-
-static void
-maplet_compaction_tracker_remove_pivot_for_compaction_args(
-   maplet_compaction_input_tracker *tracker,
-   key                              lbkey,
-   uint64                           height,
-   maplet_compaction_args          *args)
-{
-   uint64 bucketidx =
-      maplet_compaction_tracker_hash(tracker->data_cfg, lbkey, height);
-   maplet_compaction_tracker_entry *entry =
-      maplet_compaction_input_tracker_get_locked(
-         tracker, lbkey, height, bucketidx);
-   if (entry != NULL && entry->args == args) {
-      maplet_compaction_tracker_entry_remove(&tracker->buckets[bucketidx],
-                                             entry);
-      maplet_compaction_tracker_entry_destroy(entry, tracker->hid);
-   }
-   maplet_compaction_input_tracker_unlock(tracker, bucketidx);
-}
-
 
 /*********************************************
  * maplet compaction
  *********************************************/
 
-static maplet_compaction_args *
-maplet_compaction_args_create(trunk_node_context *context,
-                              in_memory_node     *node,
-                              uint64              child_num)
-{
-   platform_status         rc;
-   maplet_compaction_args *args = TYPED_ZALLOC(context->hid, args);
-   if (args == NULL) {
-      return NULL;
-   }
-   vector_init(&args->branches, context->hid);
-
-   args->context = context;
-   rc            = key_buffer_init_from_key(
-      &args->lbkey, context->hid, in_memory_node_pivot_key(node, child_num));
-   if (!SUCCESS(rc)) {
-      goto cleanup_inputs;
-   }
-   args->height = node->height;
-   in_memory_routed_bundle *routed =
-      in_memory_node_pivot_bundle(node, child_num);
-   args->old_maplet       = routed->maplet;
-   args->old_num_branches = in_memory_routed_bundle_num_branches(routed);
-
-   in_memory_pivot *pivot      = in_memory_node_pivot(node, child_num);
-   uint64           bundle_num = in_memory_pivot_inflight_bundle_start(pivot);
-   while (bundle_num < vector_length(&node->inflight_bundles)) {
-      in_memory_inflight_bundle *inflight =
-         vector_get_ptr(&node->inflight_bundles, bundle_num);
-      if (in_memory_inflight_bundle_type(inflight)
-          == INFLIGHT_BUNDLE_TYPE_PER_CHILD) {
-         branch_ref bref = in_memory_per_child_bundle_branch(
-            &inflight->u.per_child, child_num);
-         btree_inc_ref_range(context->cc,
-                             context->cfg->btree_cfg,
-                             bref.addr,
-                             NEGATIVE_INFINITY_KEY,
-                             POSITIVE_INFINITY_KEY);
-         rc = vector_append(&args->branches, bref);
-         if (!SUCCESS(rc)) {
-            goto cleanup_lbkey;
-         }
-      } else {
-         break;
-      }
-      bundle_num++;
-   }
-
-   routing_filter_inc_ref(context->cc, &args->old_maplet);
-
-   return args;
-
-cleanup_lbkey:
-   key_buffer_deinit(&args->lbkey);
-cleanup_inputs:
-   vector_deinit(&args->branches);
-   platform_free(context->hid, args);
-   return NULL;
-}
-
-static void
-maplet_compaction_args_destroy(maplet_compaction_args *args)
-{
-   if (!args) {
-      return;
-   }
-
-   key_buffer_deinit(&args->lbkey);
-
-   routing_filter_dec_ref(args->context->cc, &args->old_maplet);
-   routing_filter_dec_ref(args->context->cc, &args->new_maplet);
-
-   for (uint64 i = 0; i < vector_length(&args->branches); i++) {
-      branch_ref bref = vector_get(&args->branches, i);
-      btree_dec_ref_range(args->context->cc,
-                          args->context->cfg->btree_cfg,
-                          branch_ref_addr(bref),
-                          NEGATIVE_INFINITY_KEY,
-                          POSITIVE_INFINITY_KEY);
-   }
-   vector_deinit(&args->branches);
-
-   maplet_compaction_args_destroy(args->successor);
-
-   platform_free(args->context->hid, args);
-}
+typedef struct maplet_compaction_apply_args {
+   routing_filter    old_maplet;
+   routing_filter    new_maplet;
+   branch_ref_vector branches;
+} maplet_compaction_apply_args;
 
 static platform_status
 apply_changes_maplet_compaction(trunk_node_context *context,
@@ -1863,8 +1533,8 @@ apply_changes_maplet_compaction(trunk_node_context *context,
                                 in_memory_node     *target,
                                 void               *arg)
 {
-   platform_status         rc;
-   maplet_compaction_args *args = (maplet_compaction_args *)arg;
+   platform_status               rc;
+   maplet_compaction_apply_args *args = (maplet_compaction_apply_args *)arg;
 
    for (uint64 i = 0; i < in_memory_node_num_children(target); i++) {
       in_memory_routed_bundle *bundle = in_memory_node_pivot_bundle(target, i);
@@ -1879,20 +1549,6 @@ apply_changes_maplet_compaction(trunk_node_context *context,
             pivot,
             in_memory_pivot_inflight_bundle_start(pivot)
                + vector_length(&args->branches));
-         if (in_memory_pivot_inflight_bundle_start(pivot)
-             < vector_length(&target->inflight_bundles))
-         {
-            in_memory_inflight_bundle *inflight =
-               vector_get_ptr(&target->inflight_bundles,
-                              in_memory_pivot_inflight_bundle_start(pivot));
-            if (in_memory_inflight_bundle_type(inflight)
-                == INFLIGHT_BUNDLE_TYPE_PER_CHILD) {
-               args->successor =
-                  maplet_compaction_args_create(context, target, i);
-            }
-         } else {
-            args->can_delete_pivot_from_tracker = TRUE;
-         }
          break;
       }
    }
@@ -1903,65 +1559,60 @@ apply_changes_maplet_compaction(trunk_node_context *context,
 static void
 maplet_compaction_task(void *arg, void *scratch)
 {
-   platform_status         rc   = STATUS_OK;
-   maplet_compaction_args *args = (maplet_compaction_args *)arg;
+   platform_status         rc    = STATUS_OK;
+   pivot_compaction_state *state = (pivot_compaction_state *)arg;
 
-   maplet_compaction_input_vector inputs;
-   vector_init(&inputs, args->context->hid);
+   routing_filter old_maplet = curr->old_maplet;
+   bool32         found      = maplet_compaction_tracker_lookup_inputs(
+      &curr->context->maplet_compaction_inputs,
+      key_buffer_key(&curr->lbkey),
+      curr->height,
+      &curr->branches,
+      &inputs);
+   if (!found) {
+      // This pivot got flushed or one of the bundle compactions encountered
+      // an error, so nothing to do.
+      goto cleanup;
+   }
 
-   for (maplet_compaction_args *curr = args; curr; curr = curr->successor) {
-      routing_filter old_maplet = curr->old_maplet;
-      bool32         found      = maplet_compaction_tracker_lookup_inputs(
-         &curr->context->maplet_compaction_inputs,
-         key_buffer_key(&curr->lbkey),
-         curr->height,
-         &curr->branches,
-         &inputs);
-      if (!found) {
-         // This pivot got flushed or one of the bundle compactions encountered
-         // an error, so nothing to do.
-         goto cleanup;
+   for (uint64 i = 0; i < vector_length(&inputs); i++) {
+      maplet_compaction_input input = vector_get(&inputs, i);
+
+      rc = routing_filter_add(curr->context->cc,
+                              curr->context->cfg->filter_cfg,
+                              curr->context->hid,
+                              &old_maplet,
+                              &curr->new_maplet,
+                              input.fingerprints,
+                              input.num_fingerprints,
+                              curr->old_num_branches + i);
+      if (0 < i) {
+         routing_filter_dec_ref(curr->context->cc, &old_maplet);
       }
-
-      for (uint64 i = 0; i < vector_length(&inputs); i++) {
-         maplet_compaction_input input = vector_get(&inputs, i);
-
-         rc = routing_filter_add(curr->context->cc,
-                                 curr->context->cfg->filter_cfg,
-                                 curr->context->hid,
-                                 &old_maplet,
-                                 &curr->new_maplet,
-                                 input.fingerprints,
-                                 input.num_fingerprints,
-                                 curr->old_num_branches + i);
-         if (0 < i) {
-            routing_filter_dec_ref(curr->context->cc, &old_maplet);
-         }
-         if (!SUCCESS(rc)) {
-            goto cleanup;
-         }
-         old_maplet = curr->new_maplet;
-      }
-
-      apply_changes_begin(curr->context);
-      rc = apply_changes(curr->context,
-                         key_buffer_key(&curr->lbkey),
-                         key_buffer_key(&curr->lbkey),
-                         curr->height,
-                         apply_changes_maplet_compaction,
-                         curr);
-      if (SUCCESS(rc) && curr->can_delete_pivot_from_tracker) {
-         debug_assert(curr->successor == NULL);
-         maplet_compaction_tracker_remove_pivot_for_compaction_args(
-            &curr->context->maplet_compaction_inputs,
-            key_buffer_key(&curr->lbkey),
-            curr->height,
-            args);
-      }
-      apply_changes_end(curr->context);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
+      old_maplet = curr->new_maplet;
+   }
+
+   apply_changes_begin(curr->context);
+   rc = apply_changes(curr->context,
+                      key_buffer_key(&curr->lbkey),
+                      key_buffer_key(&curr->lbkey),
+                      curr->height,
+                      apply_changes_maplet_compaction,
+                      curr);
+   if (SUCCESS(rc) && curr->can_delete_pivot_from_tracker) {
+      debug_assert(curr->successor == NULL);
+      maplet_compaction_tracker_remove_pivot_for_compaction_args(
+         &curr->context->maplet_compaction_inputs,
+         key_buffer_key(&curr->lbkey),
+         curr->height,
+         args);
+   }
+   apply_changes_end(curr->context);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
    }
 
 cleanup:
@@ -2159,23 +1810,44 @@ apply_bundle_compaction(trunk_node_context *context,
                         in_memory_node     *target,
                         void               *arg)
 {
-   platform_status         rc;
-   bundle_compaction_args *args = (bundle_compaction_args *)arg;
-   in_memory_node         *src  = &args->node;
+   platform_status rc;
 
-   // If this is a leaf and it has split, bail out.
-   if (in_memory_node_is_leaf(target)
-       && (data_key_compare(context->cfg->data_cfg,
-                            in_memory_node_pivot_min_key(target),
-                            in_memory_node_pivot_min_key(src))
-              != 0
-           || data_key_compare(context->cfg->data_cfg,
-                               in_memory_node_pivot_max_key(target),
-                               in_memory_node_pivot_max_key(src))
-                 != 0))
-   {
+   // FIXME: locking
+
+   // Find the first completed bundle compaction that has not yet been applied
+   pivot_state_map_lock lock;
+   pivot_state_map_aquire_lock(&lock,
+                               context,
+                               &context->pivot_states,
+                               in_memory_node_pivot_min_key(target),
+                               in_memory_node_height(target));
+   pivot_compaction_state *state =
+      pivot_state_map_get(context,
+                          &context->pivot_states,
+                          &lock,
+                          in_memory_node_pivot_min_key(target),
+                          in_memory_node_height(target));
+   if (state == NULL) {
+      pivot_state_map_release_lock(&lock, &context->pivot_states);
       return STATUS_OK;
    }
+
+   bundle_compaction *bc = &state->bundle_compactions;
+   while (bc
+          && (bc->state != BUNDLE_COMPACTION_COMPLETED
+              || bc->group->completed_compactions < bc->group->num_compactions
+              || bc->group->failed))
+   {
+      bc = bc->next;
+   }
+   pivot_state_map_release_lock(&lock, &context->pivot_states);
+
+   if (bc == NULL) {
+      return STATUS_OK;
+   }
+
+   bundle_compaction_group *group = bc->group;
+   in_memory_node          *src   = &group->node;
 
    // Find where these compacted bundles are currently located in the target.
    uint64 bundle_match_offset = find_matching_bundles(target, src);
@@ -2187,7 +1859,6 @@ apply_bundle_compaction(trunk_node_context *context,
    uint64 src_num_children = in_memory_node_num_children(src);
    uint64 tgt_num_children = in_memory_node_num_children(target);
 
-
    // Set up the branch vector for the per-child bundle we will be building.
    branch_ref_vector branches;
    vector_init(&branches, context->hid);
@@ -2197,77 +1868,60 @@ apply_bundle_compaction(trunk_node_context *context,
       return rc;
    }
 
-   // For each child in the target, find the corresponding child in the source
-   uint64 src_child_num = 0;
    for (uint64 tgt_child_num = 0; tgt_child_num < tgt_num_children;
         tgt_child_num++)
    {
-      key              src_lbkey = in_memory_node_pivot_key(src, src_child_num);
       in_memory_pivot *pivot     = in_memory_node_pivot(target, tgt_child_num);
       key              tgt_lbkey = in_memory_pivot_key(pivot);
       uint64 inflight_start      = in_memory_pivot_inflight_bundle_start(pivot);
 
-      while (src_child_num < src_num_children
-             && data_key_compare(context->cfg->data_cfg, src_lbkey, tgt_lbkey)
-                   < 0)
-      {
-         src_child_num++;
-         // Note that it is safe to do the following lookup because there is
-         // always one more pivot that the number of children
-         src_lbkey = in_memory_node_pivot_key(src, src_child_num);
-      }
-
-      if (src_child_num < src_num_children
-          && data_key_compare(context->cfg->data_cfg, src_lbkey, tgt_lbkey) == 0
-          && inflight_start <= bundle_match_offset)
-      {
-         // We found a match.  Add this compaction result to the branch vector
-         // of the per-child bundle.
-         branch_ref bref =
-            create_branch_ref(args->pack_reqs[src_child_num].root_addr);
-         rc = vector_append(&branches, bref);
-         platform_assert_status_ok(rc);
-
-         // Remember that we installed this branch so we can add an input for it
-         // to the maplet_compaction_input_tracker later
-         rc = vector_append(&args->installed_branch_indexes, src_child_num);
-         platform_assert_status_ok(rc);
-
-         // Compute the tuple accounting delta that will occur when we replace
-         // the input branches with the compacted branch.
-         trunk_pivot_stats stats_decrease =
-            in_memory_pivot_received_bundles_stats(
-               in_memory_node_pivot(src, src_child_num));
-         in_memory_pivot_add_tuple_counts(pivot, -1, stats_decrease);
-
-         if (inflight_start == bundle_match_offset) {
-            // After we replace the input branches with the compacted branch,
-            // this pivot will be eligible for maplet compaction, so record that
-            // fact so we can enqueue a maplet compaction task after we finish
-            // applying the results of this bundle compaction.  All we need to
-            // remember is the index of this match in the src node.
-            maplet_compaction_args *mc_args;
-            mc_args =
-               maplet_compaction_args_create(context, target, tgt_child_num);
-            if (mc_args == NULL) {
-               vector_deinit(&branches);
-               return STATUS_NO_MEMORY;
-            }
-            rc = vector_append(&args->maplet_compaction_args, mc_args);
-            platform_assert_status_ok(rc);
-         }
-      } else {
-         // No match -- the input bundles have already been flushed to the
-         // child, so add a NULL branch to the per-child bundle.
+      pivot_state_map_aquire_lock(&lock,
+                                  context,
+                                  &context->pivot_states,
+                                  tgt_lbkey,
+                                  in_memory_node_height(target));
+      pivot_compaction_state *state =
+         pivot_state_map_get(context,
+                             &context->pivot_states,
+                             &lock,
+                             tgt_lbkey,
+                             in_memory_node_height(target));
+      if (state == NULL) {
          rc = vector_append(&branches, NULL_BRANCH_REF);
          platform_assert_status_ok(rc);
+         pivot_state_map_release_lock(&lock, &context->pivot_states);
+         continue;
       }
+
+      bc = &state->bundle_compactions;
+      while (bc && bc->group != group) {
+         bc = bc->next;
+      }
+      pivot_state_map_release_lock(&lock, &context->pivot_states);
+      if (bc == NULL) {
+         rc = vector_append(&branches, NULL_BRANCH_REF);
+         platform_assert_status_ok(rc);
+         continue;
+      }
+
+      // We found a match.  Add this compaction result to the branch vector
+      // of the per-child bundle.
+      branch_ref bref = create_branch_ref(bc->pack_req.root_addr);
+      rc              = vector_append(&branches, bref);
+      platform_assert_status_ok(rc);
+      bc->state = BUNDLE_COMPACTION_APPLIED;
+
+      // Compute the tuple accounting delta that will occur when we replace
+      // the input branches with the compacted branch.
+      trunk_pivot_stats stats_decrease = in_memory_pivot_received_bundles_stats(
+         in_memory_node_pivot(src, src_child_num));
+      in_memory_pivot_add_tuple_counts(pivot, -1, stats_decrease);
    }
 
    // Build the per-child bundle from the compacted branches we've collected and
    // the maplets from the input bundles
    uint64 num_bundles =
-      vector_length(&args->node.inflight_bundles) - args->node.num_old_bundles;
+      vector_length(&src->inflight_bundles) - src->num_old_bundles;
    in_memory_inflight_bundle result_bundle;
    rc = in_memory_inflight_bundle_init_per_child_from_compaction(
       &result_bundle,
@@ -2313,91 +1967,67 @@ apply_bundle_compaction(trunk_node_context *context,
 static void
 bundle_compaction_task(void *arg, void *scratch)
 {
+   // FIXME: locking
    platform_status         rc;
-   bundle_compaction_args *args = (bundle_compaction_args *)arg;
+   pivot_compaction_state *state = (pivot_compaction_state *)arg;
 
-   uint64 num_children = in_memory_node_num_children(&args->node);
-   uint64 my_child_num = __sync_fetch_and_add(&args->next_child, 1);
-
-   rc = btree_pack(&args->pack_reqs[my_child_num]);
-   if (!SUCCESS(rc)) {
-      args->failed = TRUE;
-   }
-
-   if (__sync_add_and_fetch(&args->completed_compactions, 1) != num_children) {
-      return;
-   }
-
-   // We are the last btree_pack to finish, so it is our responsibility to apply
-   // the changes and enqueue maplet compactions.
-
-   if (args->failed) {
-      // Someboday failed to perform their btree_pack, so we have to abandon the
-      // whole thing.
-      goto cleanup;
-   }
-
-   apply_changes_begin(args->context);
-   rc = apply_changes(args->context,
-                      in_memory_node_pivot_min_key(&args->node),
-                      in_memory_node_pivot_max_key(&args->node),
-                      in_memory_node_height(&args->node),
-                      apply_bundle_compaction,
-                      arg);
-   if (!SUCCESS(rc)) {
-      apply_changes_end(args->context);
-      goto cleanup;
-   }
-
-   // Add all the maplet_compaction_inputs to the global input tracker
-   for (uint64 i = 0; i < vector_length(&args->installed_branch_indexes); i++) {
-      maplet_compaction_input input;
-      uint64 index           = vector_get(&args->installed_branch_indexes, i);
-      input.fingerprints     = args->pack_reqs[index].fingerprint_arr;
-      input.num_fingerprints = args->pack_reqs[index].num_tuples;
-      rc                     = maplet_compaction_tracker_add_input(
-         &args->context->maplet_compaction_inputs,
-         args->mergers[index].min_key,
-         in_memory_node_height(&args->node),
-         input);
-      if (!SUCCESS(rc)) {
-         apply_changes_end(args->context);
-         goto cleanup;
-      }
-      args->pack_reqs[index].fingerprint_arr = NULL;
-   }
-
-   apply_changes_end(args->context);
-
-   // Enqueue maplet compactions
-   for (uint64 compaction_num = 0;
-        compaction_num < vector_length(&args->maplet_compaction_args);
-        compaction_num++)
+   // Find a bundle compaction that needs doing for this pivot
+   bundle_compaction *bc = state->bundle_compactions;
+   while (bc != NULL
+          && !__sync_bool_compare_and_swap(&bc->state,
+                                           BUNDLE_COMPACTION_NOT_STARTED,
+                                           BUNDLE_COMPACTION_IN_PROGRESS))
    {
-      maplet_compaction_args *mc_args =
-         vector_get(&args->maplet_compaction_args, compaction_num);
-      rc = enqueue_maplet_compaction(mc_args);
-      if (SUCCESS(rc)) {
-         // Remove the maplet_compaction_args from the vector so we don't
-         // destroy it in cleanup
-         vector_set(&args->maplet_compaction_args, compaction_num, NULL);
-      } else {
-         // Remove all the maplet_compaction_inputs for maplet compactions that
-         // aren't going to happen.
+      bc = bc->next;
+   }
+   platform_assert(bc);
 
-         for (uint64 i = 0; i < vector_length(&mc_args->branches); i++) {
-            branch_ref              bref = vector_get(&mc_args->branches, i);
-            maplet_compaction_input input;
-            maplet_compaction_input_tracker_get(
-               &args->context->maplet_compaction_inputs, bref, &input);
-         }
+   // Now find our pivot in the compaction group for this compaction
+   bundle_compaction_group *group = bc->group;
+   uint64                   pivot_num;
+   for (pivot_num = 0; pivot_num < in_memory_node_num_children(&group->node);
+        pivot_num++)
+   {
+      if (data_key_compare(state->context->cfg->data_cfg,
+                           in_memory_node_pivot_key(&group->node, pivot_num),
+                           key_buffer_key(&state->key))
+          == 0)
+      {
+         break;
       }
    }
+   platform_assert(pivot_num < in_memory_node_num_children(&group->node));
 
-cleanup:
-   in_memory_node_deinit(&args->node, args->context);
-   on_disk_node_dec_ref(args->context, args->addr);
-   bundle_compaction_args_destroy(args);
+   rc = btree_pack(&bc->pack_req);
+   if (!SUCCESS(rc)) {
+      group->failed = TRUE;
+      bc->state     = BUNDLE_COMPACTION_FAILED;
+   }
+
+   if (__sync_add_and_fetch(&group->completed_compactions, 1)
+          == group->num_compactions
+       && !group->failed)
+   {
+      apply_changes_begin(state->context);
+      apply_changes(state->context,
+                    in_memory_node_pivot_min_key(&group->node),
+                    in_memory_node_pivot_max_key(&group->node),
+                    in_memory_node_height(&group->node),
+                    apply_bundle_compaction,
+                    NULL);
+      // FIXME: anything to do on failure?
+      apply_changes_end(state->context);
+   }
+
+   if (state->bundle_compactions == bc
+       && bc->state == BUNDLE_COMPACTION_COMPLETED) {
+      rc = task_enqueue(state->context->ts,
+                        TASK_TYPE_NORMAL,
+                        maplet_compaction_task,
+                        state,
+                        FALSE);
+      // FIXME: handle failure
+   }
 }
 
 static platform_status
@@ -2405,52 +2035,71 @@ enqueue_bundle_compaction(trunk_node_context *context,
                           uint64              addr,
                           in_memory_node     *node)
 {
-   bundle_compaction_args *args =
-      bundle_compaction_args_create(context, addr, node);
-   if (args == NULL) {
+   on_disk_node_inc_ref(context, addr);
+
+   bundle_compaction_group *group = bundle_compaction_group_create(addr, node);
+   if (group == NULL) {
       return STATUS_NO_MEMORY;
    }
 
-   on_disk_node_inc_ref(context, addr);
+   uint64 height       = in_memory_node_height(node);
+   uint64 num_children = in_memory_node_num_children(node);
 
-   platform_status rc           = STATUS_OK;
-   uint64          num_children = in_memory_node_num_children(node);
-   uint64          enqueued_compactions;
-   for (enqueued_compactions = 0; enqueued_compactions < num_children;
-        enqueued_compactions++)
-   {
-      if (!in_memory_node_pivot_has_received_bundles(node,
-                                                     enqueued_compactions)) {
-         uint64 num_completed =
-            __sync_fetch_and_add(&args->completed_compactions, 1);
-         if (num_completed == num_children) {
-            goto cleanup;
+   for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
+      if (in_memory_node_pivot_has_received_bundles(node, pivot_num)) {
+         group->num_compactions++;
+      }
+   }
+
+   for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
+      if (in_memory_node_pivot_has_received_bundles(node, pivot_num)) {
+         platform_status rc    = STATUS_OK;
+         key             pivot = in_memory_node_pivot_key(node, pivot_num);
+
+         pivot_state_map_lock lock;
+         pivot_state_map_aquire_lock(
+            &lock, context, &context->pivot_states, pivot, height);
+
+         pivot_compaction_state *state = pivot_state_map_get_or_create(
+            context, &context->pivot_states, &lock, pivot, height);
+         if (state == NULL) {
+            rc = STATUS_NO_MEMORY;
+            goto next;
          }
-         continue;
-      }
 
-      rc = task_enqueue(
-         context->ts, TASK_TYPE_NORMAL, bundle_compaction_task, args, FALSE);
-      if (!SUCCESS(rc)) {
-         break;
+         bundle_compaction *bc = bundle_compaction_create(group, context->hid);
+         if (bc == NULL) {
+            rc = STATUS_NO_MEMORY;
+            goto next;
+         }
+
+         pivot_compaction_state_append_compaction(context, state, bc);
+
+         rc = task_enqueue(context->ts,
+                           TASK_TYPE_NORMAL,
+                           bundle_compaction_task,
+                           state,
+                           FALSE);
+         if (!SUCCESS(rc)) {
+            goto next;
+         }
+
+      next:
+         if (!SUCCESS(rc)) {
+            if (bc) {
+               bc->state = BUNDLE_COMPACTION_FAILED;
+            }
+            group->failed = TRUE;
+            uint64 completed =
+               __sync_add_and_fetch(&group->completed_compactions, 1);
+            // FIXME: handle completion case
+         }
+
+         pivot_state_map_release_lock(&lock, &context->pivot_states);
       }
    }
 
-   if (!SUCCESS(rc)) {
-      args->failed         = TRUE;
-      uint64 num_completed = __sync_fetch_and_add(
-         &args->completed_compactions, num_children - enqueued_compactions);
-      if (num_completed == num_children) {
-         goto cleanup;
-      }
-   }
-
-   return rc;
-
-cleanup:
-   on_disk_node_dec_ref(context, addr);
-   bundle_compaction_args_destroy(args);
-   return rc;
+   return STATUS_OK;
 }
 
 static platform_status
@@ -2884,8 +2533,7 @@ in_memory_leaf_split_init(in_memory_node     *new_leaf,
                           trunk_node_context *context,
                           in_memory_node     *leaf,
                           key                 min_key,
-                          key                 max_key,
-                          branch_ref_vector  *cancelled_maplet_compactions)
+                          key                 max_key)
 {
    platform_status rc;
    platform_assert(in_memory_node_is_leaf(leaf));
@@ -2910,8 +2558,7 @@ in_memory_leaf_split_init(in_memory_node     *new_leaf,
 static platform_status
 in_memory_leaf_split(trunk_node_context    *context,
                      in_memory_node        *leaf,
-                     in_memory_node_vector *new_leaves,
-                     branch_ref_vector     *cancelled_maplet_compactions)
+                     in_memory_node_vector *new_leaves)
 {
    platform_status rc;
    uint64          target_num_leaves;
@@ -2936,18 +2583,11 @@ in_memory_leaf_split(trunk_node_context    *context,
                                  context,
                                  leaf,
                                  min_key,
-                                 max_key,
-                                 cancelled_maplet_compactions);
+                                 max_key);
       if (!SUCCESS(rc)) {
          goto cleanup_new_leaves;
       }
    }
-
-   rc = VECTOR_EMPLACE_APPEND(cancelled_maplet_compactions,
-                              maplet_compaction_cancellation_init,
-                              context,
-                              in_memory_node_pivot_min_key(leaf),
-                              in_memory_node_height(leaf));
 
 cleanup_new_leaves:
    if (!SUCCESS(rc)) {
@@ -3090,33 +2730,26 @@ cleanup_new_indexes:
  ***********************************/
 
 static inline platform_status
-restore_balance_leaf(
-   trunk_node_context                    *context,
-   in_memory_node                        *leaf,
-   in_memory_node_vector                 *new_leaves,
-   maplet_compaction_cancellation_vector *cancelled_maplet_compactions)
+restore_balance_leaf(trunk_node_context    *context,
+                     in_memory_node        *leaf,
+                     in_memory_node_vector *new_leaves)
 {
-   return in_memory_leaf_split(
-      context, leaf, new_leaves, cancelled_maplet_compactions);
+   return in_memory_leaf_split(context, leaf, new_leaves);
 }
 
 static platform_status
-flush_then_compact(
-   trunk_node_context                    *context,
-   in_memory_node                        *node,
-   in_memory_routed_bundle               *routed,
-   in_memory_inflight_bundle_vector      *inflight,
-   uint64                                 inflight_start,
-   uint64                                 child_num,
-   in_memory_node_vector                 *new_nodes,
-   maplet_compaction_cancellation_vector *cancelled_maplet_compactions);
+flush_then_compact(trunk_node_context               *context,
+                   in_memory_node                   *node,
+                   in_memory_routed_bundle          *routed,
+                   in_memory_inflight_bundle_vector *inflight,
+                   uint64                            inflight_start,
+                   uint64                            child_num,
+                   in_memory_node_vector            *new_nodes);
 
 static platform_status
-restore_balance_index(
-   trunk_node_context                    *context,
-   in_memory_node                        *index,
-   in_memory_node_vector                 *new_indexes,
-   maplet_compaction_cancellation_vector *cancelled_maplet_compactions)
+restore_balance_index(trunk_node_context    *context,
+                      in_memory_node        *index,
+                      in_memory_node_vector *new_indexes)
 {
    platform_status rc;
 
@@ -3153,19 +2786,7 @@ restore_balance_index(
                   &index->inflight_bundles,
                   in_memory_pivot_inflight_bundle_start(pivot),
                   i,
-                  &new_children,
-                  cancelled_maplet_compactions);
-               if (!SUCCESS(rc)) {
-                  in_memory_node_deinit(&child, context);
-                  vector_deinit(&new_children);
-                  return rc;
-               }
-
-               rc = VECTOR_EMPLACE_APPEND(cancelled_maplet_compactions,
-                                          maplet_compaction_cancellation_init,
-                                          context,
-                                          in_memory_pivot_key(pivot),
-                                          in_memory_node_height(index));
+                  &new_children);
                if (!SUCCESS(rc)) {
                   in_memory_node_deinit(&child, context);
                   vector_deinit(&new_children);
@@ -3227,15 +2848,13 @@ restore_balance_index(
  * node/nodes are returned in new_nodes.
  */
 static platform_status
-flush_then_compact(
-   trunk_node_context                    *context,
-   in_memory_node                        *node,
-   in_memory_routed_bundle               *routed,
-   in_memory_inflight_bundle_vector      *inflight,
-   uint64                                 inflight_start,
-   uint64                                 child_num,
-   in_memory_node_vector                 *new_nodes,
-   maplet_compaction_cancellation_vector *cancelled_maplet_compactions)
+flush_then_compact(trunk_node_context               *context,
+                   in_memory_node                   *node,
+                   in_memory_routed_bundle          *routed,
+                   in_memory_inflight_bundle_vector *inflight,
+                   uint64                            inflight_start,
+                   uint64                            child_num,
+                   in_memory_node_vector            *new_nodes)
 {
    platform_status rc;
 
@@ -3248,11 +2867,9 @@ flush_then_compact(
 
    // Perform any needed recursive flushes and node splits
    if (in_memory_node_is_leaf(node)) {
-      rc = restore_balance_leaf(
-         context, node, new_nodes, cancelled_maplet_compactions);
+      rc = restore_balance_leaf(context, node, new_nodes);
    } else {
-      rc = restore_balance_index(
-         context, node, new_nodes, cancelled_maplet_compactions);
+      rc = restore_balance_index(context, node, new_nodes);
    }
 
    return rc;
@@ -3324,11 +2941,10 @@ cleanup_pivots:
 
 
 platform_status
-incorporate(trunk_node_context                    *context,
-            routing_filter                         filter,
-            branch_ref                             branch,
-            uint64                                *new_root_addr,
-            maplet_compaction_cancellation_vector *cancelled_maplet_compactions)
+incorporate(trunk_node_context *context,
+            routing_filter      filter,
+            branch_ref          branch,
+            uint64             *new_root_addr)
 {
    platform_status rc;
 
@@ -3357,14 +2973,7 @@ incorporate(trunk_node_context                    *context,
    }
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
-   rc = flush_then_compact(context,
-                           &root,
-                           NULL,
-                           &inflight,
-                           0,
-                           0,
-                           &new_nodes,
-                           cancelled_maplet_compactions);
+   rc = flush_then_compact(context, &root, NULL, &inflight, 0, 0, &new_nodes);
    in_memory_node_deinit(&root, context);
    if (!SUCCESS(rc)) {
       goto cleanup_vectors;
