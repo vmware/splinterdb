@@ -58,23 +58,6 @@ typedef struct ONDISK singleton_bundle {
 } singleton_bundle;
 #endif
 
-typedef enum inflight_bundle_type {
-   INFLIGHT_BUNDLE_TYPE_ROUTED,
-   INFLIGHT_BUNDLE_TYPE_PER_CHILD,
-   INFLIGHT_BUNDLE_TYPE_SINGLETON
-} inflight_bundle_type;
-
-#if 0 // To be moved later in file
-typedef struct ONDISK inflight_bundle {
-   inflight_bundle_type type;
-   union {
-      routed_bundle    routed;
-      per_child_bundle per_child;
-      singleton_bundle singleton;
-   } u;
-} inflight_bundle;
-#endif
-
 typedef struct ONDISK trunk_pivot_stats {
    uint64 num_kv_bytes;
    uint64 num_tuples;
@@ -95,25 +78,6 @@ typedef struct in_memory_routed_bundle {
    branch_ref_vector branches;
 } in_memory_routed_bundle;
 
-typedef struct in_memory_per_child_bundle {
-   routing_filter_vector maplets;
-   branch_ref_vector     branches;
-} in_memory_per_child_bundle;
-
-typedef struct in_memory_singleton_bundle {
-   routing_filter_vector maplets;
-   branch_ref            branch;
-} in_memory_singleton_bundle;
-
-typedef struct in_memory_inflight_bundle {
-   inflight_bundle_type type;
-   union {
-      in_memory_routed_bundle    routed;
-      in_memory_per_child_bundle per_child;
-      in_memory_singleton_bundle singleton;
-   } u;
-} in_memory_inflight_bundle;
-
 typedef struct ONDISK in_memory_pivot {
    trunk_pivot_stats prereceive_stats;
    trunk_pivot_stats stats;
@@ -124,18 +88,66 @@ typedef struct ONDISK in_memory_pivot {
 
 typedef VECTOR(in_memory_pivot *) in_memory_pivot_vector;
 typedef VECTOR(in_memory_routed_bundle) in_memory_routed_bundle_vector;
-typedef VECTOR(in_memory_inflight_bundle) in_memory_inflight_bundle_vector;
 typedef VECTOR(trunk_pivot_stats) trunk_pivot_stats_vector;
 
 typedef struct in_memory_node {
-   uint16                           height;
-   in_memory_pivot_vector           pivots;
-   in_memory_routed_bundle_vector   pivot_bundles; // indexed by child
-   uint64                           num_old_bundles;
-   in_memory_inflight_bundle_vector inflight_bundles;
+   uint16                         height;
+   in_memory_pivot_vector         pivots;
+   in_memory_routed_bundle_vector pivot_bundles; // indexed by child
+   uint64                         num_old_bundles;
+   in_memory_routed_bundle_vector inflight_bundles;
 } in_memory_node;
 
 typedef VECTOR(in_memory_node) in_memory_node_vector;
+
+typedef VECTOR(iterator *) iterator_vector;
+
+typedef struct branch_merger {
+   platform_heap_id   hid;
+   const data_config *data_cfg;
+   key                min_key;
+   key                max_key;
+   uint64             height;
+   merge_iterator    *merge_itor;
+   iterator_vector    itors;
+} branch_merger;
+
+typedef enum bundle_compaction_state {
+   BUNDLE_COMPACTION_NOT_STARTED = 0,
+   BUNDLE_COMPACTION_IN_PROGRESS = 1,
+   BUNDLE_COMPACTION_MIN_ENDED   = 2,
+   BUNDLE_COMPACTION_FAILED      = 2,
+   BUNDLE_COMPACTION_SUCCEEDED   = 3
+} bundle_compaction_state;
+
+typedef struct bundle_compaction {
+   struct bundle_compaction *next;
+   bundle_compaction_state   state;
+   branch_merger             merger;
+   branch_ref                branch;
+   uint64                    num_fingerprints;
+   uint32                   *fingerprints;
+} bundle_compaction;
+
+typedef struct trunk_node_context trunk_node_context;
+
+typedef struct pivot_compaction_state {
+   struct pivot_compaction_state *next;
+   trunk_node_context            *context;
+   key_buffer                     key;
+   uint64                         height;
+   routing_filter                 maplet;
+   uint64                         num_branches;
+   bool32                         maplet_compaction_failed;
+   bundle_compaction             *bundle_compactions;
+} pivot_compaction_state;
+
+#define PIVOT_STATE_MAP_BUCKETS 1024
+
+typedef struct pivot_state_map {
+   uint64                  locks[PIVOT_STATE_MAP_BUCKETS];
+   pivot_compaction_state *buckets[PIVOT_STATE_MAP_BUCKETS];
+} pivot_state_map;
 
 typedef struct trunk_node_config {
    const data_config    *data_cfg;
@@ -148,48 +160,7 @@ typedef struct trunk_node_config {
    uint64                max_tuples_per_node;
 } trunk_node_config;
 
-typedef struct bundle_compaction_group {
-   uint64         addr;
-   in_memory_node node;
-   uint64         num_compactions;
-   uint64         completed_compactions;
-   bool32         failed;
-} bundle_compaction_group;
-
-typedef enum bundle_compaction_state {
-   BUNDLE_COMPACTION_NOT_STARTED,
-   BUNDLE_COMPACTION_IN_PROGRESS,
-   BUNDLE_COMPACTION_FAILED,
-   BUNDLE_COMPACTION_COMPLETED,
-   BUNDLE_COMPACTION_APPLIED
-} bundle_compaction_state;
-
-typedef struct bundle_compaction {
-   struct bundle_compaction *next;
-   bundle_compaction_group  *group;
-   bundle_compaction_state   state;
-   branch_merger             merger;
-   btree_pack_req            pack_req;
-} bundle_compaction;
-
-typedef struct pivot_compaction_state {
-   struct pivot_compaction_state *next;
-   trunk_node_context            *context;
-   key_buffer                     key;
-   uint64                         height;
-   uint64                         spinlock;
-   bool32                         maplet_compaction_failed;
-   bundle_compaction             *bundle_compactions;
-} pivot_compaction_state;
-
-#define PIVOT_STATE_MAP_BUCKETS 1024
-
-typedef struct pivot_state_map {
-   uint64                  locks[PIVOT_STATE_MAP_BUCKETS];
-   pivot_compaction_state *buckets[PIVOT_STATE_MAP_BUCKETS];
-} pivot_state_map;
-
-typedef struct trunk_node_context {
+struct trunk_node_context {
    const trunk_node_config *cfg;
    platform_heap_id         hid;
    cache                   *cc;
@@ -198,13 +169,13 @@ typedef struct trunk_node_context {
    pivot_state_map          pivot_states;
    uint64                   root_height;
    uint64                   root_addr;
-} trunk_node_context;
+};
 
 /***************************************************
  * branch_ref operations
  ***************************************************/
 
-static inline branch_ref
+/* static */ inline branch_ref
 create_branch_ref(uint64 addr)
 {
    return (branch_ref){.addr = addr};
@@ -234,6 +205,21 @@ in_memory_routed_bundle_init(in_memory_routed_bundle *bundle,
 {
    bundle->maplet = NULL_ROUTING_FILTER;
    vector_init(&bundle->branches, hid);
+}
+
+static inline platform_status
+in_memory_routed_bundle_init_single(in_memory_routed_bundle *bundle,
+                                    platform_heap_id         hid,
+                                    routing_filter           maplet,
+                                    branch_ref               branch)
+{
+   bundle->maplet = maplet;
+   vector_init(&bundle->branches, hid);
+   platform_status rc = vector_append(&bundle->branches, branch);
+   if (!SUCCESS(rc)) {
+      vector_deinit(&bundle->branches);
+   }
+   return rc;
 }
 
 static inline platform_status
@@ -297,406 +283,6 @@ in_memory_routed_bundle_branch(const in_memory_routed_bundle *bundle, uint64 i)
 {
    debug_assert(i < vector_length(&bundle->branches));
    return vector_get(&bundle->branches, i);
-}
-
-static inline bool32
-in_memory_routed_bundles_equal(const in_memory_routed_bundle *a,
-                               const in_memory_routed_bundle *b)
-{
-   return routing_filters_equal(&a->maplet, &b->maplet)
-          && VECTOR_ELTS_EQUAL(&a->branches, &b->branches, branches_equal);
-}
-
-/*****************************
- * per_child_bundle operations
- *****************************/
-
-/* Note that init moves maplets and branches into the bundle */
-static inline void
-in_memory_per_child_bundle_init(in_memory_per_child_bundle *bundle,
-                                routing_filter_vector      *maplets,
-                                branch_ref_vector          *branches)
-{
-   bundle->maplets  = *maplets;
-   bundle->branches = *branches;
-}
-
-static platform_status
-in_memory_per_child_bundle_init_from_split(
-   in_memory_per_child_bundle       *bundle,
-   platform_heap_id                  hid,
-   const in_memory_per_child_bundle *src,
-   uint64                            branches_start,
-   uint64                            branches_end)
-{
-   vector_init(&bundle->maplets, hid);
-   platform_status rc = vector_copy(&bundle->maplets, &src->maplets);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&bundle->maplets);
-      return rc;
-   }
-
-   vector_init(&bundle->branches, hid);
-   rc = vector_append_subvector(
-      &bundle->branches, &src->branches, branches_start, branches_end);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&bundle->maplets);
-      vector_deinit(&bundle->branches);
-   }
-
-   return rc;
-}
-
-static inline void
-in_memory_per_child_bundle_deinit(in_memory_per_child_bundle *bundle)
-{
-   vector_deinit(&bundle->maplets);
-   vector_deinit(&bundle->branches);
-}
-
-static inline branch_ref
-in_memory_per_child_bundle_branch(const in_memory_per_child_bundle *bundle,
-                                  uint64                            i)
-{
-   return vector_get(&bundle->branches, i);
-}
-
-static inline bool32
-in_memory_per_child_bundles_equal(const in_memory_per_child_bundle *a,
-                                  const in_memory_per_child_bundle *b)
-{
-   return VECTOR_ELTS_EQUAL_BY_PTR(
-             &a->maplets, &b->maplets, routing_filters_equal)
-          && VECTOR_ELTS_EQUAL(&a->branches, &b->branches, branches_equal);
-}
-
-/*****************************
- * singleton_bundle operations
- *****************************/
-
-static inline platform_status
-in_memory_singleton_bundle_init(in_memory_singleton_bundle *bundle,
-                                platform_heap_id            hid,
-                                routing_filter              maplet,
-                                branch_ref                  branch)
-{
-   vector_init(&bundle->maplets, hid);
-   platform_status rc = vector_append(&bundle->maplets, maplet);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&bundle->maplets);
-      return rc;
-   }
-   bundle->branch = branch;
-   return STATUS_OK;
-}
-
-static inline platform_status
-in_memory_singleton_bundle_init_copy(in_memory_singleton_bundle       *dst,
-                                     platform_heap_id                  hid,
-                                     const in_memory_singleton_bundle *src)
-{
-   vector_init(&dst->maplets, hid);
-   platform_status rc = vector_copy(&dst->maplets, &src->maplets);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&dst->maplets);
-      return rc;
-   }
-   dst->branch = src->branch;
-   return STATUS_OK;
-}
-
-static inline platform_status
-in_memory_singleton_bundle_init_from_per_child(
-   in_memory_singleton_bundle       *bundle,
-   platform_heap_id                  hid,
-   const in_memory_per_child_bundle *src,
-   uint64                            child_num)
-{
-   vector_init(&bundle->maplets, hid);
-   platform_status rc = vector_copy(&bundle->maplets, &src->maplets);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&bundle->maplets);
-      return rc;
-   }
-   bundle->branch = in_memory_per_child_bundle_branch(src, child_num);
-   return STATUS_OK;
-}
-
-static inline void
-in_memory_singleton_bundle_deinit(in_memory_singleton_bundle *bundle)
-{
-   vector_deinit(&bundle->maplets);
-}
-
-static inline branch_ref
-in_memory_singleton_bundle_branch(const in_memory_singleton_bundle *bundle)
-{
-   return bundle->branch;
-}
-
-static inline bool32
-in_memory_singleton_bundles_equal(const in_memory_singleton_bundle *a,
-                                  const in_memory_singleton_bundle *b)
-{
-   return VECTOR_ELTS_EQUAL_BY_PTR(
-             &a->maplets, &b->maplets, routing_filters_equal)
-          && branches_equal(a->branch, b->branch);
-}
-
-/****************************
- * inflight_bundle operations
- ****************************/
-
-static inline platform_status
-in_memory_inflight_bundle_init_from_routed(
-   in_memory_inflight_bundle     *bundle,
-   platform_heap_id               hid,
-   const in_memory_routed_bundle *routed)
-{
-   bundle->type = INFLIGHT_BUNDLE_TYPE_ROUTED;
-   return in_memory_routed_bundle_init_copy(&bundle->u.routed, hid, routed);
-}
-
-static inline platform_status
-in_memory_inflight_bundle_init_singleton(in_memory_inflight_bundle *bundle,
-                                         platform_heap_id           hid,
-                                         routing_filter             maplet,
-                                         branch_ref                 branch)
-{
-   bundle->type = INFLIGHT_BUNDLE_TYPE_SINGLETON;
-   return in_memory_singleton_bundle_init(
-      &bundle->u.singleton, hid, maplet, branch);
-}
-
-static inline platform_status
-in_memory_inflight_bundle_init_from_singleton(
-   in_memory_inflight_bundle        *bundle,
-   platform_heap_id                  hid,
-   const in_memory_singleton_bundle *src)
-{
-   bundle->type = INFLIGHT_BUNDLE_TYPE_SINGLETON;
-   return in_memory_singleton_bundle_init_copy(&bundle->u.singleton, hid, src);
-}
-
-static inline platform_status
-in_memory_inflight_bundle_init_singleton_from_per_child(
-   in_memory_inflight_bundle        *bundle,
-   platform_heap_id                  hid,
-   const in_memory_per_child_bundle *src,
-   uint64                            child_num)
-{
-   bundle->type = INFLIGHT_BUNDLE_TYPE_SINGLETON;
-   return in_memory_singleton_bundle_init_from_per_child(
-      &bundle->u.singleton, hid, src, child_num);
-}
-
-static inline void
-in_memory_inflight_bundle_init_per_child(in_memory_inflight_bundle *bundle,
-                                         platform_heap_id           hid,
-                                         routing_filter_vector     *maplets,
-                                         branch_ref_vector         *branches)
-{
-   bundle->type = INFLIGHT_BUNDLE_TYPE_PER_CHILD;
-   in_memory_per_child_bundle_init(&bundle->u.per_child, maplets, branches);
-}
-
-static inline platform_status
-in_memory_inflight_bundle_init_per_child_from_split(
-   in_memory_inflight_bundle        *bundle,
-   platform_heap_id                  hid,
-   const in_memory_per_child_bundle *src,
-   uint64                            branches_start,
-   uint64                            branches_end)
-{
-   bundle->type = INFLIGHT_BUNDLE_TYPE_PER_CHILD;
-   return in_memory_per_child_bundle_init_from_split(
-      &bundle->u.per_child, hid, src, branches_start, branches_end);
-}
-
-static inline platform_status
-in_memory_inflight_bundle_init_from_split(in_memory_inflight_bundle *bundle,
-                                          platform_heap_id           hid,
-                                          const in_memory_inflight_bundle *src,
-                                          uint64 branches_start,
-                                          uint64 branches_end)
-{
-   switch (src->type) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         return in_memory_inflight_bundle_init_from_routed(
-            bundle, hid, &src->u.routed);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         return in_memory_inflight_bundle_init_per_child_from_split(
-            bundle, hid, &src->u.per_child, branches_start, branches_end);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         return in_memory_inflight_bundle_init_from_singleton(
-            bundle, hid, &src->u.singleton);
-         break;
-      default:
-         platform_assert(0);
-         break;
-   }
-}
-
-static platform_status
-in_memory_inflight_bundle_vector_collect_maplets(
-   const in_memory_inflight_bundle_vector *bundles,
-   uint64                                  bundle_start,
-   uint64                                  bundle_end,
-   routing_filter_vector                  *maplets)
-{
-   platform_status rc;
-
-   for (uint64 i = bundle_start; i < bundle_end; i++) {
-      const in_memory_inflight_bundle *bundle = vector_get_ptr(bundles, i);
-      switch (bundle->type) {
-         case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         {
-            rc = vector_append(
-               maplets, in_memory_routed_bundle_maplet(&bundle->u.routed));
-            if (!SUCCESS(rc)) {
-               return rc;
-            }
-            break;
-         }
-         case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         {
-            rc = vector_append_vector(maplets, &bundle->u.per_child.maplets);
-            if (!SUCCESS(rc)) {
-               return rc;
-            }
-            break;
-         }
-         case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         {
-            rc = vector_append_vector(maplets, &bundle->u.singleton.maplets);
-            if (!SUCCESS(rc)) {
-               return rc;
-            }
-            break;
-         }
-         default:
-            platform_assert(0);
-      }
-   }
-
-   return STATUS_OK;
-}
-
-/* Note: steals branches vector. */
-static inline platform_status
-in_memory_inflight_bundle_init_per_child_from_compaction(
-   in_memory_inflight_bundle              *bundle,
-   platform_heap_id                        hid,
-   const in_memory_inflight_bundle_vector *bundles,
-   uint64                                  bundle_start,
-   uint64                                  bundle_end,
-   branch_ref_vector                      *branches)
-{
-   platform_status       rc;
-   routing_filter_vector maplets;
-   vector_init(&maplets, hid);
-
-   rc = in_memory_inflight_bundle_vector_collect_maplets(
-      bundles, bundle_start, bundle_end, &maplets);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&maplets);
-      return rc;
-   }
-
-   in_memory_inflight_bundle_init_per_child(bundle, hid, &maplets, branches);
-   return STATUS_OK;
-}
-
-static inline void
-in_memory_inflight_bundle_deinit(in_memory_inflight_bundle *bundle)
-{
-   switch (bundle->type) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         in_memory_routed_bundle_deinit(&bundle->u.routed);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         in_memory_per_child_bundle_deinit(&bundle->u.per_child);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         in_memory_singleton_bundle_deinit(&bundle->u.singleton);
-         break;
-      default:
-         platform_assert(0);
-         break;
-   }
-}
-
-static inline inflight_bundle_type
-in_memory_inflight_bundle_type(const in_memory_inflight_bundle *bundle)
-{
-   return bundle->type;
-}
-
-static inline bool32
-in_memory_inflight_bundles_equal(const in_memory_inflight_bundle *a,
-                                 const in_memory_inflight_bundle *b)
-{
-   if (a->type != b->type) {
-      return false;
-   }
-
-   switch (a->type) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         return in_memory_routed_bundles_equal(&a->u.routed, &b->u.routed);
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         return in_memory_per_child_bundles_equal(&a->u.per_child,
-                                                  &b->u.per_child);
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         return in_memory_singleton_bundles_equal(&a->u.singleton,
-                                                  &b->u.singleton);
-      default:
-         platform_assert(0);
-         return false;
-   }
-}
-
-static inline platform_status
-in_memory_inflight_bundle_vector_init_split(
-   in_memory_inflight_bundle_vector *result,
-   in_memory_inflight_bundle_vector *src,
-   platform_heap_id                  hid,
-   uint64                            start_child_num,
-   uint64                            end_child_num)
-{
-   vector_init(result, hid);
-   return VECTOR_EMPLACE_MAP_PTRS(result,
-                                  in_memory_inflight_bundle_init_from_split,
-                                  src,
-                                  hid,
-                                  start_child_num,
-                                  end_child_num);
-}
-
-static inline platform_status
-in_memory_inflight_bundle_init_from_flush(in_memory_inflight_bundle *bundle,
-                                          platform_heap_id           hid,
-                                          const in_memory_inflight_bundle *src,
-                                          uint64 child_num)
-{
-   switch (src->type) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         return in_memory_inflight_bundle_init_from_routed(
-            bundle, hid, &src->u.routed);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         return in_memory_inflight_bundle_init_singleton_from_per_child(
-            bundle, hid, &src->u.per_child, child_num);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         return in_memory_inflight_bundle_init_from_singleton(
-            bundle, hid, &src->u.singleton);
-         break;
-      default:
-         platform_assert(0);
-         break;
-   }
 }
 
 /********************
@@ -841,12 +427,12 @@ in_memory_pivot_add_tuple_counts(in_memory_pivot  *pivot,
  ***********************/
 
 static inline void
-in_memory_node_init(in_memory_node                  *node,
-                    uint16                           height,
-                    in_memory_pivot_vector           pivots,
-                    in_memory_routed_bundle_vector   pivot_bundles,
-                    uint64                           num_old_bundles,
-                    in_memory_inflight_bundle_vector inflight_bundles)
+in_memory_node_init(in_memory_node                *node,
+                    uint16                         height,
+                    in_memory_pivot_vector         pivots,
+                    in_memory_routed_bundle_vector pivot_bundles,
+                    uint64                         num_old_bundles,
+                    in_memory_routed_bundle_vector inflight_bundles)
 {
    node->height           = height;
    node->pivots           = pivots;
@@ -861,10 +447,10 @@ in_memory_node_init_empty_leaf(in_memory_node  *node,
                                key              lb,
                                key              ub)
 {
-   in_memory_pivot_vector           pivots;
-   in_memory_routed_bundle_vector   pivot_bundles;
-   in_memory_inflight_bundle_vector inflight_bundles;
-   platform_status                  rc;
+   in_memory_pivot_vector         pivots;
+   in_memory_routed_bundle_vector pivot_bundles;
+   in_memory_routed_bundle_vector inflight_bundles;
+   platform_status                rc;
 
    vector_init(&pivots, hid);
    vector_init(&pivot_bundles, hid);
@@ -1042,26 +628,6 @@ in_memory_node_is_well_formed_index(const data_config    *data_cfg,
       }
    }
 
-   for (uint64 i = 0; i < vector_length(&node->inflight_bundles); i++) {
-      const in_memory_inflight_bundle *bundle =
-         vector_get_ptr(&node->inflight_bundles, i);
-      switch (in_memory_inflight_bundle_type(bundle)) {
-         case INFLIGHT_BUNDLE_TYPE_ROUTED:
-            break;
-         case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-            if (vector_length(&bundle->u.per_child.branches)
-                != in_memory_node_num_children(node))
-            {
-               return FALSE;
-            }
-            break;
-         case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-            break;
-         default:
-            return FALSE;
-      }
-   }
-
    return TRUE;
 }
 
@@ -1072,7 +638,7 @@ in_memory_node_deinit(in_memory_node *node, trunk_node_context *context)
       &node->pivots, vector_apply_platform_free, context->hid);
    VECTOR_APPLY_TO_PTRS(&node->pivot_bundles, in_memory_routed_bundle_deinit);
    VECTOR_APPLY_TO_PTRS(&node->inflight_bundles,
-                        in_memory_inflight_bundle_deinit);
+                        in_memory_routed_bundle_deinit);
    vector_deinit(&node->pivots);
    vector_deinit(&node->pivot_bundles);
    vector_deinit(&node->inflight_bundles);
@@ -1141,18 +707,6 @@ finish:
  * (used in both leaf splits and compactions)
  *********************************************/
 
-typedef VECTOR(iterator *) iterator_vector;
-
-typedef struct branch_merger {
-   platform_heap_id   hid;
-   const data_config *data_cfg;
-   key                min_key;
-   key                max_key;
-   uint64             height;
-   merge_iterator    *merge_itor;
-   iterator_vector    itors;
-} branch_merger;
-
 static inline void
 branch_merger_init(branch_merger     *merger,
                    platform_heap_id   hid,
@@ -1199,80 +753,6 @@ branch_merger_add_routed_bundle(branch_merger           *merger,
       }
    }
    return STATUS_OK;
-}
-
-static inline platform_status
-branch_merger_add_per_child_bundle(branch_merger              *merger,
-                                   cache                      *cc,
-                                   const btree_config         *btree_cfg,
-                                   uint64                      child_num,
-                                   in_memory_per_child_bundle *bundle)
-{
-   btree_iterator *iter = TYPED_MALLOC(merger->hid, iter);
-   if (iter == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-   branch_ref bref = in_memory_per_child_bundle_branch(bundle, child_num);
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       iter,
-                       branch_ref_addr(bref),
-                       PAGE_TYPE_BRANCH,
-                       merger->min_key,
-                       merger->max_key,
-                       merger->min_key,
-                       greater_than_or_equal,
-                       TRUE,
-                       merger->height);
-   return vector_append(&merger->itors, (iterator *)iter);
-}
-
-static inline platform_status
-branch_merger_add_singleton_bundle(branch_merger              *merger,
-                                   cache                      *cc,
-                                   const btree_config         *btree_cfg,
-                                   in_memory_singleton_bundle *bundle)
-{
-   btree_iterator *iter = TYPED_MALLOC(merger->hid, iter);
-   if (iter == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-   branch_ref bref = in_memory_singleton_bundle_branch(bundle);
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       iter,
-                       branch_ref_addr(bref),
-                       PAGE_TYPE_BRANCH,
-                       merger->min_key,
-                       merger->max_key,
-                       merger->min_key,
-                       greater_than_or_equal,
-                       TRUE,
-                       merger->height);
-   return vector_append(&merger->itors, (iterator *)iter);
-}
-
-static inline platform_status
-branch_merger_add_inflight_bundle(branch_merger             *merger,
-                                  cache                     *cc,
-                                  const btree_config        *btree_cfg,
-                                  uint64                     child_num,
-                                  in_memory_inflight_bundle *bundle)
-{
-   switch (in_memory_inflight_bundle_type(bundle)) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         return branch_merger_add_routed_bundle(
-            merger, cc, btree_cfg, &bundle->u.routed);
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         return branch_merger_add_per_child_bundle(
-            merger, cc, btree_cfg, child_num, &bundle->u.per_child);
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         return branch_merger_add_singleton_bundle(
-            merger, cc, btree_cfg, &bundle->u.singleton);
-      default:
-         platform_assert(0);
-         break;
-   }
 }
 
 static inline platform_status
@@ -1405,6 +885,105 @@ apply_changes_end(trunk_node_context *context);
  * pivot state tracking
  *******************************************************************************/
 
+static void
+bundle_compaction_destroy(bundle_compaction  *compaction,
+                          trunk_node_context *context)
+{
+   branch_merger_deinit(&compaction->merger);
+   if (compaction->fingerprints) {
+      platform_free(context->hid, compaction->fingerprints);
+   }
+   if (!branches_equal(compaction->branch, NULL_BRANCH_REF)) {
+      btree_dec_ref(context->cc,
+                    context->cfg->btree_cfg,
+                    branch_ref_addr(compaction->branch),
+                    PAGE_TYPE_BRANCH);
+   }
+   platform_free(context->hid, compaction);
+}
+
+static bundle_compaction *
+bundle_compaction_create(in_memory_node     *node,
+                         uint64              pivot_num,
+                         trunk_node_context *context)
+{
+   platform_status    rc;
+   bundle_compaction *result = TYPED_ZALLOC(context->hid, result);
+   if (result == NULL) {
+      return NULL;
+   }
+   result->state = BUNDLE_COMPACTION_NOT_STARTED;
+   branch_merger_init(&result->merger,
+                      context->hid,
+                      context->cfg->data_cfg,
+                      in_memory_node_pivot_key(node, pivot_num),
+                      in_memory_node_pivot_key(node, pivot_num + 1),
+                      0);
+   for (uint64 i = node->num_old_bundles;
+        i < vector_length(&node->inflight_bundles);
+        i++)
+   {
+      rc = branch_merger_add_routed_bundle(
+         &result->merger,
+         context->cc,
+         context->cfg->btree_cfg,
+         vector_get_ptr(&node->inflight_bundles, i));
+      if (!SUCCESS(rc)) {
+         bundle_compaction_destroy(result, context);
+         return NULL;
+      }
+   }
+   return result;
+}
+
+static void
+pivot_state_destroy(pivot_compaction_state *state)
+{
+   key_buffer_deinit(&state->key);
+   routing_filter_dec_ref(state->context->cc, &state->maplet);
+   bundle_compaction *bc = state->bundle_compactions;
+   while (bc != NULL) {
+      bundle_compaction *next = bc->next;
+      bundle_compaction_destroy(bc, state->context);
+      bc = next;
+   }
+   platform_free(state->context->hid, state);
+}
+
+static bool
+pivot_compaction_state_is_done(const pivot_compaction_state *state)
+{
+   bool32             all_bundle_compactions_ended = TRUE;
+   bundle_compaction *bc;
+   for (bc = state->bundle_compactions; bc != NULL; bc = bc->next) {
+      if (bc->state < BUNDLE_COMPACTION_MIN_ENDED) {
+         all_bundle_compactions_ended = FALSE;
+         break;
+      }
+   }
+   bc = state->bundle_compactions;
+   bool32 maplet_compaction_in_progress =
+      bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED
+      && !state->maplet_compaction_failed;
+
+   return all_bundle_compactions_ended && !maplet_compaction_in_progress;
+}
+
+static void
+pivot_compaction_state_append_compaction(pivot_compaction_state *state,
+                                         bundle_compaction      *compaction)
+{
+   if (state->bundle_compactions == NULL) {
+      state->bundle_compactions = compaction;
+   } else {
+      bundle_compaction *last = state->bundle_compactions;
+      while (last->next != NULL) {
+         last = last->next;
+      }
+      last->next = compaction;
+   }
+}
+
 static uint64
 pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
 {
@@ -1522,9 +1101,9 @@ pivot_state_map_remove(pivot_state_map        *map,
  *********************************************/
 
 typedef struct maplet_compaction_apply_args {
-   routing_filter    old_maplet;
-   routing_filter    new_maplet;
-   branch_ref_vector branches;
+   pivot_compaction_state *state;
+   routing_filter          new_maplet;
+   branch_ref_vector       branches;
 } maplet_compaction_apply_args;
 
 static platform_status
@@ -1538,7 +1117,7 @@ apply_changes_maplet_compaction(trunk_node_context *context,
 
    for (uint64 i = 0; i < in_memory_node_num_children(target); i++) {
       in_memory_routed_bundle *bundle = in_memory_node_pivot_bundle(target, i);
-      if (routing_filters_equal(&bundle->maplet, &args->old_maplet)) {
+      if (routing_filters_equal(&bundle->maplet, &args->state->maplet)) {
          rc = in_memory_routed_bundle_add_branches(
             bundle, args->new_maplet, &args->branches);
          if (!SUCCESS(rc)) {
@@ -1556,79 +1135,103 @@ apply_changes_maplet_compaction(trunk_node_context *context,
    return STATUS_OK;
 }
 
+static inline platform_status
+enqueue_maplet_compaction(pivot_compaction_state *args);
+
 static void
 maplet_compaction_task(void *arg, void *scratch)
 {
-   platform_status         rc    = STATUS_OK;
-   pivot_compaction_state *state = (pivot_compaction_state *)arg;
+   platform_status              rc      = STATUS_OK;
+   pivot_compaction_state      *state   = (pivot_compaction_state *)arg;
+   trunk_node_context          *context = state->context;
+   maplet_compaction_apply_args apply_args;
+   apply_args.state = state;
+   vector_init(&apply_args.branches, context->hid);
 
-   routing_filter old_maplet = curr->old_maplet;
-   bool32         found      = maplet_compaction_tracker_lookup_inputs(
-      &curr->context->maplet_compaction_inputs,
-      key_buffer_key(&curr->lbkey),
-      curr->height,
-      &curr->branches,
-      &inputs);
-   if (!found) {
-      // This pivot got flushed or one of the bundle compactions encountered
-      // an error, so nothing to do.
-      goto cleanup;
-   }
+   routing_filter     new_maplet;
+   routing_filter     old_maplet  = state->maplet;
+   bundle_compaction *bc          = state->bundle_compactions;
+   uint64             num_bundles = 0;
+   while (bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
+      rc = vector_append(&apply_args.branches, bc->branch);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      bc->branch = NULL_BRANCH_REF;
 
-   for (uint64 i = 0; i < vector_length(&inputs); i++) {
-      maplet_compaction_input input = vector_get(&inputs, i);
-
-      rc = routing_filter_add(curr->context->cc,
-                              curr->context->cfg->filter_cfg,
-                              curr->context->hid,
+      rc = routing_filter_add(context->cc,
+                              context->cfg->filter_cfg,
+                              context->hid,
                               &old_maplet,
-                              &curr->new_maplet,
-                              input.fingerprints,
-                              input.num_fingerprints,
-                              curr->old_num_branches + i);
-      if (0 < i) {
-         routing_filter_dec_ref(curr->context->cc, &old_maplet);
+                              &new_maplet,
+                              bc->fingerprints,
+                              bc->num_fingerprints,
+                              state->num_branches + num_bundles);
+      if (0 < num_bundles) {
+         routing_filter_dec_ref(context->cc, &old_maplet);
       }
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
-      old_maplet = curr->new_maplet;
+      old_maplet = new_maplet;
+      bc         = bc->next;
+      num_bundles++;
    }
 
-   apply_changes_begin(curr->context);
-   rc = apply_changes(curr->context,
-                      key_buffer_key(&curr->lbkey),
-                      key_buffer_key(&curr->lbkey),
-                      curr->height,
+   platform_assert(0 < num_bundles);
+
+   apply_args.new_maplet = new_maplet;
+
+   apply_changes_begin(context);
+   rc = apply_changes(context,
+                      key_buffer_key(&state->key),
+                      key_buffer_key(&state->key),
+                      state->height,
                       apply_changes_maplet_compaction,
-                      curr);
-   if (SUCCESS(rc) && curr->can_delete_pivot_from_tracker) {
-      debug_assert(curr->successor == NULL);
-      maplet_compaction_tracker_remove_pivot_for_compaction_args(
-         &curr->context->maplet_compaction_inputs,
-         key_buffer_key(&curr->lbkey),
-         curr->height,
-         args);
-   }
-   apply_changes_end(curr->context);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
+                      &apply_args);
+   apply_changes_end(context);
 
 cleanup:
-   if (!SUCCESS(rc)) {
-      maplet_compaction_tracker_remove_pivot_for_compaction_args(
-         &args->context->maplet_compaction_inputs,
-         key_buffer_key(&args->lbkey),
-         args->height,
-         args);
+   vector_deinit(&apply_args.branches);
+
+   pivot_state_map_lock lock;
+   pivot_state_map_aquire_lock(&lock,
+                               context,
+                               &context->pivot_states,
+                               key_buffer_key(&state->key),
+                               state->height);
+
+   if (SUCCESS(rc)) {
+      routing_filter_dec_ref(context->cc, &state->maplet);
+      state->maplet = new_maplet;
+      state->num_branches += num_bundles;
+      while (state->bundle_compactions != bc) {
+         bundle_compaction *next = state->bundle_compactions->next;
+         bundle_compaction_destroy(state->bundle_compactions, context->hid);
+         state->bundle_compactions = next;
+      }
+      if (state->bundle_compactions
+          && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
+      {
+         enqueue_maplet_compaction(state);
+      }
+   } else {
+      state->maplet_compaction_failed = TRUE;
+      if (0 < num_bundles) {
+         routing_filter_dec_ref(context->cc, &new_maplet);
+      }
    }
-   vector_deinit(&inputs);
-   maplet_compaction_args_destroy(args);
+
+   if (pivot_compaction_state_is_done(state)) {
+      pivot_state_map_remove(&context->pivot_states, &lock, state);
+      pivot_state_destroy(state);
+   }
+
+   pivot_state_map_release_lock(&lock, &context->pivot_states);
 }
 
 static inline platform_status
-enqueue_maplet_compaction(maplet_compaction_args *args)
+enqueue_maplet_compaction(pivot_compaction_state *args)
 {
    return task_enqueue(
       args->context->ts, TASK_TYPE_NORMAL, maplet_compaction_task, args, FALSE);
@@ -1639,337 +1242,12 @@ enqueue_maplet_compaction(maplet_compaction_args *args)
  ************************/
 
 static void
-bundle_compaction_args_destroy(bundle_compaction_args *args)
-{
-   uint64 num_children = in_memory_node_num_children(&args->node);
-
-   for (uint64 i = 0; i < num_children; i++) {
-      if (!in_memory_node_pivot_has_received_bundles(&args->node, i)) {
-         continue;
-      }
-      branch_merger_deinit(&args->mergers[i]);
-   }
-   for (uint64 i = 0; i < num_children; i++) {
-      if (!in_memory_node_pivot_has_received_bundles(&args->node, i)) {
-         continue;
-      }
-      btree_pack_req_deinit(&args->pack_reqs[i], args->context->hid);
-   }
-   if (args->mergers != NULL) {
-      platform_free(args->context->hid, args->mergers);
-   }
-   if (args->pack_reqs != NULL) {
-      platform_free(args->context->hid, args->pack_reqs);
-   }
-
-   vector_deinit(&args->installed_branch_indexes);
-   VECTOR_APPLY_TO_ELTS(&args->maplet_compaction_args,
-                        maplet_compaction_args_destroy);
-   vector_deinit(&args->maplet_compaction_args);
-   platform_free(args->context->hid, args);
-}
-
-static bundle_compaction_args *
-bundle_compaction_args_create(trunk_node_context *context,
-                              uint64              addr,
-                              in_memory_node     *node)
-{
-   platform_status rc;
-   uint64          merger_num   = 0;
-   uint64          pack_req_num = 0;
-
-   uint64 num_children = in_memory_node_num_children(node);
-
-
-   bundle_compaction_args *args = TYPED_ZALLOC(context->hid, args);
-   if (args == NULL) {
-      return NULL;
-   }
-   args->context               = context;
-   args->addr                  = addr;
-   args->node                  = *node;
-   args->next_child            = 0;
-   args->completed_compactions = 0;
-   args->failed                = FALSE;
-
-   vector_init(&args->maplet_compaction_args, context->hid);
-   vector_init(&args->installed_branch_indexes, context->hid);
-   rc = vector_ensure_capacity(&args->installed_branch_indexes, num_children);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-
-   args->mergers =
-      TYPED_ARRAY_ZALLOC(context->hid, args->mergers, num_children);
-   args->pack_reqs =
-      TYPED_ARRAY_ZALLOC(context->hid, args->pack_reqs, num_children);
-   if (args->mergers == NULL || args->pack_reqs == NULL) {
-      goto cleanup;
-   }
-
-   for (uint64 merger_num = 0; merger_num < num_children; merger_num++) {
-      if (!in_memory_node_pivot_has_received_bundles(node, merger_num)) {
-         continue;
-      }
-
-      branch_merger_init(&args->mergers[merger_num],
-                         context->hid,
-                         context->cfg->data_cfg,
-                         in_memory_node_pivot_key(node, merger_num),
-                         in_memory_node_pivot_key(node, merger_num + 1),
-                         0);
-
-      for (uint64 i = node->num_old_bundles;
-           vector_length(&node->inflight_bundles);
-           i++)
-      {
-         in_memory_inflight_bundle *bundle =
-            vector_get_ptr(&node->inflight_bundles, i);
-         rc = branch_merger_add_inflight_bundle(&args->mergers[merger_num],
-                                                context->cc,
-                                                context->cfg->btree_cfg,
-                                                merger_num,
-                                                bundle);
-         if (!SUCCESS(rc)) {
-            goto cleanup;
-         }
-      }
-
-      rc = branch_merger_build_merge_itor(
-         &args->mergers[merger_num],
-         in_memory_node_is_leaf(node) ? MERGE_FULL : MERGE_INTERMEDIATE);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
-   }
-
-   for (pack_req_num = 0; pack_req_num < num_children; pack_req_num++) {
-      if (!in_memory_node_pivot_has_received_bundles(node, pack_req_num)) {
-         continue;
-      }
-      btree_pack_req_init(&args->pack_reqs[pack_req_num],
-                          context->cc,
-                          context->cfg->btree_cfg,
-                          &args->mergers[pack_req_num].merge_itor->super,
-                          context->cfg->max_tuples_per_node,
-                          context->cfg->filter_cfg->hash,
-                          context->cfg->filter_cfg->seed,
-                          context->hid);
-   }
-
-   return args;
-
-cleanup:
-   for (uint64 i = 0; i < merger_num; i++) {
-      if (!in_memory_node_pivot_has_received_bundles(node, i)) {
-         continue;
-      }
-      branch_merger_deinit(&args->mergers[i]);
-   }
-   for (uint64 i = 0; i < pack_req_num; i++) {
-      if (!in_memory_node_pivot_has_received_bundles(node, i)) {
-         continue;
-      }
-      btree_pack_req_deinit(&args->pack_reqs[i], context->hid);
-   }
-   if (args->mergers != NULL) {
-      platform_free(context->hid, args->mergers);
-   }
-   if (args->pack_reqs != NULL) {
-      platform_free(context->hid, args->pack_reqs);
-   }
-   vector_deinit(&args->installed_branch_indexes);
-   vector_deinit(&args->maplet_compaction_args);
-   platform_free(context->hid, args);
-   return NULL;
-}
-
-static int64
-find_matching_bundles(in_memory_node *target, in_memory_node *src)
-{
-   // Due to the always-flush-all-bundles rule, we need only find a match for
-   // the first new bundle in src.  We are guaranteed that the rest of the new
-   // bundles will be in the target, as well.
-
-   in_memory_inflight_bundle *needle =
-      vector_get_ptr(&src->inflight_bundles, src->num_old_bundles);
-
-   for (int64 i = 0; i < vector_length(&target->inflight_bundles); i++) {
-      if (in_memory_inflight_bundles_equal(
-             needle, vector_get_ptr(&target->inflight_bundles, i)))
-      {
-         return i;
-      }
-   }
-   return -1;
-}
-
-static platform_status
-apply_bundle_compaction(trunk_node_context *context,
-                        uint64              addr,
-                        in_memory_node     *target,
-                        void               *arg)
-{
-   platform_status rc;
-
-   // FIXME: locking
-
-   // Find the first completed bundle compaction that has not yet been applied
-   pivot_state_map_lock lock;
-   pivot_state_map_aquire_lock(&lock,
-                               context,
-                               &context->pivot_states,
-                               in_memory_node_pivot_min_key(target),
-                               in_memory_node_height(target));
-   pivot_compaction_state *state =
-      pivot_state_map_get(context,
-                          &context->pivot_states,
-                          &lock,
-                          in_memory_node_pivot_min_key(target),
-                          in_memory_node_height(target));
-   if (state == NULL) {
-      pivot_state_map_release_lock(&lock, &context->pivot_states);
-      return STATUS_OK;
-   }
-
-   bundle_compaction *bc = &state->bundle_compactions;
-   while (bc
-          && (bc->state != BUNDLE_COMPACTION_COMPLETED
-              || bc->group->completed_compactions < bc->group->num_compactions
-              || bc->group->failed))
-   {
-      bc = bc->next;
-   }
-   pivot_state_map_release_lock(&lock, &context->pivot_states);
-
-   if (bc == NULL) {
-      return STATUS_OK;
-   }
-
-   bundle_compaction_group *group = bc->group;
-   in_memory_node          *src   = &group->node;
-
-   // Find where these compacted bundles are currently located in the target.
-   uint64 bundle_match_offset = find_matching_bundles(target, src);
-   if (bundle_match_offset == -1) {
-      // They've already been flushed to all children.  Nothing to do.
-      return STATUS_OK;
-   }
-
-   uint64 src_num_children = in_memory_node_num_children(src);
-   uint64 tgt_num_children = in_memory_node_num_children(target);
-
-   // Set up the branch vector for the per-child bundle we will be building.
-   branch_ref_vector branches;
-   vector_init(&branches, context->hid);
-   rc = vector_ensure_capacity(&branches, tgt_num_children);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&branches);
-      return rc;
-   }
-
-   for (uint64 tgt_child_num = 0; tgt_child_num < tgt_num_children;
-        tgt_child_num++)
-   {
-      in_memory_pivot *pivot     = in_memory_node_pivot(target, tgt_child_num);
-      key              tgt_lbkey = in_memory_pivot_key(pivot);
-      uint64 inflight_start      = in_memory_pivot_inflight_bundle_start(pivot);
-
-      pivot_state_map_aquire_lock(&lock,
-                                  context,
-                                  &context->pivot_states,
-                                  tgt_lbkey,
-                                  in_memory_node_height(target));
-      pivot_compaction_state *state =
-         pivot_state_map_get(context,
-                             &context->pivot_states,
-                             &lock,
-                             tgt_lbkey,
-                             in_memory_node_height(target));
-      if (state == NULL) {
-         rc = vector_append(&branches, NULL_BRANCH_REF);
-         platform_assert_status_ok(rc);
-         pivot_state_map_release_lock(&lock, &context->pivot_states);
-         continue;
-      }
-
-      bc = &state->bundle_compactions;
-      while (bc && bc->group != group) {
-         bc = bc->next;
-      }
-      pivot_state_map_release_lock(&lock, &context->pivot_states);
-      if (bc == NULL) {
-         rc = vector_append(&branches, NULL_BRANCH_REF);
-         platform_assert_status_ok(rc);
-         continue;
-      }
-
-      // We found a match.  Add this compaction result to the branch vector
-      // of the per-child bundle.
-      branch_ref bref = create_branch_ref(bc->pack_req.root_addr);
-      rc              = vector_append(&branches, bref);
-      platform_assert_status_ok(rc);
-      bc->state = BUNDLE_COMPACTION_APPLIED;
-
-      // Compute the tuple accounting delta that will occur when we replace
-      // the input branches with the compacted branch.
-      trunk_pivot_stats stats_decrease = in_memory_pivot_received_bundles_stats(
-         in_memory_node_pivot(src, src_child_num));
-      in_memory_pivot_add_tuple_counts(pivot, -1, stats_decrease);
-   }
-
-   // Build the per-child bundle from the compacted branches we've collected and
-   // the maplets from the input bundles
-   uint64 num_bundles =
-      vector_length(&src->inflight_bundles) - src->num_old_bundles;
-   in_memory_inflight_bundle result_bundle;
-   rc = in_memory_inflight_bundle_init_per_child_from_compaction(
-      &result_bundle,
-      context->hid,
-      &target->inflight_bundles,
-      bundle_match_offset,
-      bundle_match_offset + num_bundles,
-      &branches);
-   if (!SUCCESS(rc)) {
-      vector_deinit(&branches);
-      return rc;
-   }
-
-   // Replace the input bundles with the new per-child bundle
-   for (uint64 i = bundle_match_offset; i < bundle_match_offset + num_bundles;
-        i++) {
-      in_memory_inflight_bundle_deinit(
-         vector_get_ptr(&target->inflight_bundles, i));
-   }
-   rc = vector_replace(&target->inflight_bundles,
-                       bundle_match_offset,
-                       num_bundles,
-                       &target->inflight_bundles,
-                       bundle_match_offset,
-                       1);
-   platform_assert_status_ok(rc);
-   vector_set(&target->inflight_bundles, bundle_match_offset, result_bundle);
-
-   // Adust all the pivots' inflight bundle start offsets
-   for (uint64 i = 0; i < in_memory_node_num_children(target); i++) {
-      in_memory_pivot *pivot    = in_memory_node_pivot(target, i);
-      uint64 pivot_bundle_start = in_memory_pivot_inflight_bundle_start(pivot);
-      if (bundle_match_offset < pivot_bundle_start) {
-         debug_assert(bundle_match_offset + num_bundles <= pivot_bundle_start);
-         in_memory_pivot_set_inflight_bundle_start(
-            pivot, pivot_bundle_start - num_bundles + 1);
-      }
-   }
-
-   return STATUS_OK;
-}
-
-static void
 bundle_compaction_task(void *arg, void *scratch)
 {
    // FIXME: locking
    platform_status         rc;
-   pivot_compaction_state *state = (pivot_compaction_state *)arg;
+   pivot_compaction_state *state   = (pivot_compaction_state *)arg;
+   trunk_node_context     *context = state->context;
 
    // Find a bundle compaction that needs doing for this pivot
    bundle_compaction *bc = state->bundle_compactions;
@@ -1980,54 +1258,56 @@ bundle_compaction_task(void *arg, void *scratch)
    {
       bc = bc->next;
    }
-   platform_assert(bc);
+   platform_assert(bc != NULL);
 
-   // Now find our pivot in the compaction group for this compaction
-   bundle_compaction_group *group = bc->group;
-   uint64                   pivot_num;
-   for (pivot_num = 0; pivot_num < in_memory_node_num_children(&group->node);
-        pivot_num++)
-   {
-      if (data_key_compare(state->context->cfg->data_cfg,
-                           in_memory_node_pivot_key(&group->node, pivot_num),
-                           key_buffer_key(&state->key))
-          == 0)
-      {
-         break;
-      }
+   btree_pack_req pack_req;
+   btree_pack_req_init(&pack_req,
+                       context->cc,
+                       context->cfg->btree_cfg,
+                       &bc->merger.merge_itor->super,
+                       context->cfg->max_tuples_per_node,
+                       context->cfg->filter_cfg->hash,
+                       context->cfg->filter_cfg->seed,
+                       context->hid);
+
+   // This is just a quick shortcut to avoid wasting time on a compaction when
+   // the pivot is already stuck due to an earlier maplet compaction failure.
+   if (state->maplet_compaction_failed) {
+      rc = STATUS_INVALID_STATE;
+      goto cleanup;
    }
-   platform_assert(pivot_num < in_memory_node_num_children(&group->node));
 
-   rc = btree_pack(&bc->pack_req);
+   rc = btree_pack(&pack_req);
    if (!SUCCESS(rc)) {
-      group->failed = TRUE;
-      bc->state     = BUNDLE_COMPACTION_FAILED;
+      goto cleanup;
    }
 
-   if (__sync_add_and_fetch(&group->completed_compactions, 1)
-          == group->num_compactions
-       && !group->failed)
-   {
-      apply_changes_begin(state->context);
-      apply_changes(state->context,
-                    in_memory_node_pivot_min_key(&group->node),
-                    in_memory_node_pivot_max_key(&group->node),
-                    in_memory_node_height(&group->node),
-                    apply_bundle_compaction,
-                    NULL);
-      // FIXME: anything to do on failure?
-      apply_changes_end(state->context);
-   }
+   bc->num_fingerprints     = pack_req.num_tuples;
+   bc->fingerprints         = pack_req.fingerprint_arr;
+   pack_req.fingerprint_arr = NULL;
 
-   if (state->bundle_compactions == bc
-       && bc->state == BUNDLE_COMPACTION_COMPLETED) {
-      rc = task_enqueue(state->context->ts,
-                        TASK_TYPE_NORMAL,
-                        maplet_compaction_task,
-                        state,
-                        FALSE);
-      // FIXME: handle failure
+cleanup:
+   btree_pack_req_deinit(&pack_req, context->hid);
+
+   pivot_state_map_lock lock;
+   pivot_state_map_aquire_lock(&lock,
+                               context,
+                               &context->pivot_states,
+                               key_buffer_key(&state->key),
+                               state->height);
+   if (SUCCESS(rc)) {
+      bc->state = BUNDLE_COMPACTION_SUCCEEDED;
+   } else {
+      bc->state = BUNDLE_COMPACTION_FAILED;
    }
+   if (bc->state == BUNDLE_COMPACTION_SUCCEEDED
+       && state->bundle_compactions == bc) {
+      enqueue_maplet_compaction(state);
+   } else if (pivot_compaction_state_is_done(state)) {
+      pivot_state_map_remove(&context->pivot_states, &lock, state);
+      pivot_state_destroy(state);
+   }
+   pivot_state_map_release_lock(&lock, &context->pivot_states);
 }
 
 static platform_status
@@ -2035,21 +1315,8 @@ enqueue_bundle_compaction(trunk_node_context *context,
                           uint64              addr,
                           in_memory_node     *node)
 {
-   on_disk_node_inc_ref(context, addr);
-
-   bundle_compaction_group *group = bundle_compaction_group_create(addr, node);
-   if (group == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-
    uint64 height       = in_memory_node_height(node);
    uint64 num_children = in_memory_node_num_children(node);
-
-   for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
-      if (in_memory_node_pivot_has_received_bundles(node, pivot_num)) {
-         group->num_compactions++;
-      }
-   }
 
    for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
       if (in_memory_node_pivot_has_received_bundles(node, pivot_num)) {
@@ -2067,13 +1334,14 @@ enqueue_bundle_compaction(trunk_node_context *context,
             goto next;
          }
 
-         bundle_compaction *bc = bundle_compaction_create(group, context->hid);
+         bundle_compaction *bc =
+            bundle_compaction_create(node, pivot_num, context->hid);
          if (bc == NULL) {
             rc = STATUS_NO_MEMORY;
             goto next;
          }
 
-         pivot_compaction_state_append_compaction(context, state, bc);
+         pivot_compaction_state_append_compaction(state, bc);
 
          rc = task_enqueue(context->ts,
                            TASK_TYPE_NORMAL,
@@ -2089,10 +1357,12 @@ enqueue_bundle_compaction(trunk_node_context *context,
             if (bc) {
                bc->state = BUNDLE_COMPACTION_FAILED;
             }
-            group->failed = TRUE;
-            uint64 completed =
-               __sync_add_and_fetch(&group->completed_compactions, 1);
-            // FIXME: handle completion case
+            if (state->bundle_compactions == bc) {
+               // We created this state entry but didn't enqueue a task for it,
+               // so destroy it.
+               pivot_state_map_remove(&context->pivot_states, &lock, state);
+               pivot_state_destroy(state);
+            }
          }
 
          pivot_state_map_release_lock(&lock, &context->pivot_states);
@@ -2190,87 +1460,30 @@ accumulate_branches_tuple_counts_in_range(const branch_ref_vector *brefs,
 
 static inline platform_status
 accumulate_inflight_bundle_tuple_counts_in_range(
-   in_memory_inflight_bundle *bundle,
-   trunk_node_context        *context,
-   in_memory_pivot_vector    *pivots,
-   uint64                     child_num,
-   btree_pivot_stats         *acc)
+   in_memory_routed_bundle *bundle,
+   trunk_node_context      *context,
+   in_memory_pivot_vector  *pivots,
+   uint64                   child_num,
+   btree_pivot_stats       *acc)
 {
    key minkey = in_memory_pivot_key(vector_get(pivots, child_num));
    key maxkey = in_memory_pivot_key(vector_get(pivots, child_num + 1));
 
-   switch (in_memory_inflight_bundle_type(bundle)) {
-      case INFLIGHT_BUNDLE_TYPE_ROUTED:
-         return accumulate_branches_tuple_counts_in_range(
-            &bundle->u.routed.branches, context, minkey, maxkey, acc);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_PER_CHILD:
-         return accumulate_branch_tuple_counts_in_range(
-            in_memory_per_child_bundle_branch(&bundle->u.per_child, child_num),
-            context,
-            minkey,
-            maxkey,
-            acc);
-         break;
-      case INFLIGHT_BUNDLE_TYPE_SINGLETON:
-         return accumulate_branch_tuple_counts_in_range(
-            in_memory_singleton_bundle_branch(&bundle->u.singleton),
-            context,
-            minkey,
-            maxkey,
-            acc);
-         break;
-      default:
-         platform_assert(0);
-         break;
-   }
+   return accumulate_branches_tuple_counts_in_range(
+      &bundle->branches, context, minkey, maxkey, acc);
 }
 
 /*****************************************************
  * Receive bundles -- used in flushes and leaf splits
  *****************************************************/
 
-typedef struct maplet_compaction_cancellation {
-   key_buffer pivot;
-   uint64     height;
-} maplet_compaction_cancellation;
-
-platform_status
-maplet_compaction_cancellation_init(
-   maplet_compaction_cancellation *cancellation,
-   trunk_node_context             *context,
-   key                             pivot,
-   uint64                          height)
-{
-   platform_status rc;
-
-   rc = key_buffer_init_from_key(&cancellation->pivot, context->hid, pivot);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   cancellation->height = height;
-
-   return STATUS_OK;
-}
-
-void
-maplet_compaction_cancellation_deinit(
-   maplet_compaction_cancellation *cancellation)
-{
-   key_buffer_deinit(&cancellation->pivot);
-}
-
-typedef VECTOR(maplet_compaction_cancellation)
-   maplet_compaction_cancellation_vector;
-
 static platform_status
-in_memory_node_receive_bundles(trunk_node_context               *context,
-                               in_memory_node                   *node,
-                               in_memory_routed_bundle          *routed,
-                               in_memory_inflight_bundle_vector *inflight,
-                               uint64                            inflight_start,
-                               uint64                            child_num)
+in_memory_node_receive_bundles(trunk_node_context             *context,
+                               in_memory_node                 *node,
+                               in_memory_routed_bundle        *routed,
+                               in_memory_routed_bundle_vector *inflight,
+                               uint64                          inflight_start,
+                               uint64                          child_num)
 {
    platform_status rc;
 
@@ -2282,7 +1495,7 @@ in_memory_node_receive_bundles(trunk_node_context               *context,
 
    if (routed) {
       rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
-                                 in_memory_inflight_bundle_init_from_routed,
+                                 in_memory_routed_bundle_init_copy,
                                  context->hid,
                                  routed);
       if (!SUCCESS(rc)) {
@@ -2291,12 +1504,11 @@ in_memory_node_receive_bundles(trunk_node_context               *context,
    }
 
    for (uint64 i = 0; i < vector_length(inflight); i++) {
-      in_memory_inflight_bundle *bundle = vector_get_ptr(inflight, i);
+      in_memory_routed_bundle *bundle = vector_get_ptr(inflight, i);
       rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
-                                 in_memory_inflight_bundle_init_from_flush,
+                                 in_memory_routed_bundle_init_copy,
                                  context->hid,
-                                 bundle,
-                                 child_num);
+                                 bundle);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -2346,25 +1558,22 @@ in_memory_leaf_estimate_unique_keys(trunk_node_context *context,
    routing_filter_vector maplets;
    vector_init(&maplets, context->hid);
 
+   rc = VECTOR_MAP_PTRS(
+      &maplets, in_memory_routed_bundle_maplet, &leaf->inflight_bundles);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
    in_memory_routed_bundle pivot_bundle = vector_get(&leaf->pivot_bundles, 0);
    rc = vector_append(&maplets, in_memory_routed_bundle_maplet(&pivot_bundle));
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
 
-   rc = in_memory_inflight_bundle_vector_collect_maplets(
-      &leaf->inflight_bundles,
-      0,
-      vector_length(&leaf->inflight_bundles),
-      &maplets);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-
    uint64 num_sb_fp     = 0;
    uint64 num_sb_unique = 0;
-   for (uint16 inflight_maplet_num = 1;
-        inflight_maplet_num < vector_length(&maplets);
+   for (uint16 inflight_maplet_num = 0;
+        inflight_maplet_num < vector_length(&maplets) - 1;
         inflight_maplet_num++)
    {
       routing_filter maplet = vector_get(&maplets, inflight_maplet_num);
@@ -2469,10 +1678,10 @@ leaf_split_select_pivots(trunk_node_context *context,
         bundle_num < vector_length(&leaf->inflight_bundles);
         bundle_num++)
    {
-      in_memory_inflight_bundle *bundle =
+      in_memory_routed_bundle *bundle =
          vector_get_ptr(&leaf->inflight_bundles, bundle_num);
-      rc = branch_merger_add_inflight_bundle(
-         &merger, context->cc, context->cfg->btree_cfg, 0, bundle);
+      rc = branch_merger_add_routed_bundle(
+         &merger, context->cc, context->cfg->btree_cfg, bundle);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -2649,16 +1858,15 @@ in_memory_index_init_split(in_memory_node  *new_index,
       }
    }
 
-   in_memory_inflight_bundle_vector inflight_bundles;
+   in_memory_routed_bundle_vector inflight_bundles;
    vector_init(&inflight_bundles, hid);
    if (!SUCCESS(rc)) {
       goto cleanup_inflight_bundles;
    }
-   rc = in_memory_inflight_bundle_vector_init_split(&inflight_bundles,
-                                                    &index->inflight_bundles,
-                                                    hid,
-                                                    start_child_num,
-                                                    end_child_num);
+   rc = VECTOR_EMPLACE_MAP_PTRS(&inflight_bundles,
+                                in_memory_routed_bundle_init_copy,
+                                &index->inflight_bundles,
+                                hid);
    if (!SUCCESS(rc)) {
       goto cleanup_inflight_bundles;
    }
@@ -2673,7 +1881,7 @@ in_memory_index_init_split(in_memory_node  *new_index,
    return rc;
 
 cleanup_inflight_bundles:
-   VECTOR_APPLY_TO_PTRS(&inflight_bundles, in_memory_inflight_bundle_deinit);
+   VECTOR_APPLY_TO_PTRS(&inflight_bundles, in_memory_routed_bundle_deinit);
    vector_deinit(&inflight_bundles);
 cleanup_pivot_bundles:
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, in_memory_routed_bundle_deinit);
@@ -2734,17 +1942,38 @@ restore_balance_leaf(trunk_node_context    *context,
                      in_memory_node        *leaf,
                      in_memory_node_vector *new_leaves)
 {
-   return in_memory_leaf_split(context, leaf, new_leaves);
+   platform_status rc = in_memory_leaf_split(context, leaf, new_leaves);
+
+   if (SUCCESS(rc)) {
+      pivot_state_map_lock lock;
+      pivot_state_map_aquire_lock(&lock,
+                                  context,
+                                  &context->pivot_states,
+                                  in_memory_node_pivot_min_key(leaf),
+                                  in_memory_node_height(leaf));
+      pivot_compaction_state *pivot_state =
+         pivot_state_map_get(context,
+                             &context->pivot_states,
+                             &lock,
+                             in_memory_node_pivot_min_key(leaf),
+                             in_memory_node_height(leaf));
+      if (pivot_state) {
+         pivot_state_map_remove(&context->pivot_states, &lock, pivot_state);
+      }
+      pivot_state_map_release_lock(&lock, &context->pivot_states);
+   }
+
+   return rc;
 }
 
 static platform_status
-flush_then_compact(trunk_node_context               *context,
-                   in_memory_node                   *node,
-                   in_memory_routed_bundle          *routed,
-                   in_memory_inflight_bundle_vector *inflight,
-                   uint64                            inflight_start,
-                   uint64                            child_num,
-                   in_memory_node_vector            *new_nodes);
+flush_then_compact(trunk_node_context             *context,
+                   in_memory_node                 *node,
+                   in_memory_routed_bundle        *routed,
+                   in_memory_routed_bundle_vector *inflight,
+                   uint64                          inflight_start,
+                   uint64                          child_num,
+                   in_memory_node_vector          *new_nodes);
 
 static platform_status
 restore_balance_index(trunk_node_context    *context,
@@ -2810,6 +2039,26 @@ restore_balance_index(trunk_node_context    *context,
             vector_deinit(&new_children);
          }
 
+         {
+            pivot_state_map_lock lock;
+            pivot_state_map_aquire_lock(&lock,
+                                        context,
+                                        &context->pivot_states,
+                                        in_memory_pivot_key(pivot),
+                                        in_memory_node_height(index));
+            pivot_compaction_state *pivot_state =
+               pivot_state_map_get(context,
+                                   &context->pivot_states,
+                                   &lock,
+                                   in_memory_pivot_key(pivot),
+                                   in_memory_node_height(index));
+            if (pivot_state) {
+               pivot_state_map_remove(
+                  &context->pivot_states, &lock, pivot_state);
+            }
+            pivot_state_map_release_lock(&lock, &context->pivot_states);
+         }
+
          for (uint64 j = 0; j < vector_length(&new_pivots); j++) {
             in_memory_pivot *new_pivot = vector_get(&new_pivots, j);
             in_memory_pivot_set_inflight_bundle_start(
@@ -2848,13 +2097,13 @@ restore_balance_index(trunk_node_context    *context,
  * node/nodes are returned in new_nodes.
  */
 static platform_status
-flush_then_compact(trunk_node_context               *context,
-                   in_memory_node                   *node,
-                   in_memory_routed_bundle          *routed,
-                   in_memory_inflight_bundle_vector *inflight,
-                   uint64                            inflight_start,
-                   uint64                            child_num,
-                   in_memory_node_vector            *new_nodes)
+flush_then_compact(trunk_node_context             *context,
+                   in_memory_node                 *node,
+                   in_memory_routed_bundle        *routed,
+                   in_memory_routed_bundle_vector *inflight,
+                   uint64                          inflight_start,
+                   uint64                          child_num,
+                   in_memory_node_vector          *new_nodes)
 {
    platform_status rc;
 
@@ -2912,7 +2161,7 @@ build_new_roots(trunk_node_context *context, in_memory_node_vector *nodes)
    }
 
    // Build a new empty inflight bundle vector
-   in_memory_inflight_bundle_vector inflight;
+   in_memory_routed_bundle_vector inflight;
    vector_init(&inflight, context->hid);
 
    // Build the new root
@@ -2948,7 +2197,7 @@ incorporate(trunk_node_context *context,
 {
    platform_status rc;
 
-   in_memory_inflight_bundle_vector inflight;
+   in_memory_routed_bundle_vector inflight;
    vector_init(&inflight, context->hid);
 
    in_memory_node_vector new_nodes;
@@ -2964,7 +2213,7 @@ incorporate(trunk_node_context *context,
    // Construct a vector of inflight bundles with one singleton bundle for
    // the new branch.
    rc = VECTOR_EMPLACE_APPEND(&inflight,
-                              in_memory_inflight_bundle_init_singleton,
+                              in_memory_routed_bundle_init_single,
                               context->hid,
                               filter,
                               branch);
@@ -3006,7 +2255,7 @@ cleanup_root:
 cleanup_vectors:
    VECTOR_APPLY_TO_PTRS(&new_nodes, in_memory_node_deinit, context);
    vector_deinit(&new_nodes);
-   VECTOR_APPLY_TO_PTRS(&inflight, in_memory_inflight_bundle_deinit);
+   VECTOR_APPLY_TO_PTRS(&inflight, in_memory_routed_bundle_deinit);
    vector_deinit(&inflight);
 
    return rc;
