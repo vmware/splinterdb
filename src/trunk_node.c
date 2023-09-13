@@ -34,41 +34,13 @@ typedef struct ONDISK routed_bundle {
    branch_ref     branches[];
 } routed_bundle;
 
-/*
- * A compaction produces a per-child bundle, which has one branch per
- * child of the node, plus several maplets, each of which acts like a
- * filter.
- */
-typedef struct ONDISK per_child_bundle {
-   uint64         num_maplets;
-   routing_filter maplets[];
-   /* Following the maplets is one branch per child. */
-} per_child_bundle;
-
-/*
- * When flushing a per-child bundle, only the branch for that child is
- * flushed to the child.  This results in a singleton bundle, i.e. a
- * bundle with a single branch and multiple maplets, each of which
- * acts as a filter.
- */
-typedef struct ONDISK singleton_bundle {
-   branch_ref     branch;
-   uint64         num_maplets;
-   routing_filter maplets[];
-} singleton_bundle;
-#endif
-
-typedef struct ONDISK trunk_pivot_stats {
-   uint64 num_kv_bytes;
-   uint64 num_tuples;
-} trunk_pivot_stats;
-
 typedef struct ONDISK pivot {
    trunk_pivot_stats stats;
    uint64            child_addr;
    uint64            inflight_bundle_start;
    ondisk_key        key;
 } pivot;
+#endif
 
 typedef VECTOR(routing_filter) routing_filter_vector;
 typedef VECTOR(branch_ref) branch_ref_vector;
@@ -77,6 +49,11 @@ typedef struct in_memory_routed_bundle {
    routing_filter    maplet;
    branch_ref_vector branches;
 } in_memory_routed_bundle;
+
+typedef struct ONDISK trunk_pivot_stats {
+   uint64 num_kv_bytes;
+   uint64 num_tuples;
+} trunk_pivot_stats;
 
 typedef struct ONDISK in_memory_pivot {
    trunk_pivot_stats prereceive_stats;
@@ -88,7 +65,6 @@ typedef struct ONDISK in_memory_pivot {
 
 typedef VECTOR(in_memory_pivot *) in_memory_pivot_vector;
 typedef VECTOR(in_memory_routed_bundle) in_memory_routed_bundle_vector;
-typedef VECTOR(trunk_pivot_stats) trunk_pivot_stats_vector;
 
 typedef struct in_memory_node {
    uint16                         height;
@@ -122,10 +98,12 @@ typedef enum bundle_compaction_state {
 
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
+   uint64                    num_bundles;
+   trunk_pivot_stats         input_stats;
    bundle_compaction_state   state;
    branch_merger             merger;
-   branch_ref                branch;
-   uint64                    num_fingerprints;
+   branch_ref                output_branch;
+   trunk_pivot_stats         output_stats;
    uint32                   *fingerprints;
 } bundle_compaction;
 
@@ -175,7 +153,7 @@ struct trunk_node_context {
  * branch_ref operations
  ***************************************************/
 
-/* static */ inline branch_ref
+static inline branch_ref
 create_branch_ref(uint64 addr)
 {
    return (branch_ref){.addr = addr};
@@ -304,6 +282,13 @@ trunk_pivot_stats_subtract(trunk_pivot_stats a, trunk_pivot_stats b)
    platform_assert(a.num_tuples >= b.num_tuples);
    return (trunk_pivot_stats){.num_kv_bytes = a.num_kv_bytes - b.num_kv_bytes,
                               .num_tuples   = a.num_tuples - b.num_tuples};
+}
+
+static inline trunk_pivot_stats
+trunk_pivot_stats_add(trunk_pivot_stats a, trunk_pivot_stats b)
+{
+   return (trunk_pivot_stats){.num_kv_bytes = a.num_kv_bytes + b.num_kv_bytes,
+                              .num_tuples   = a.num_tuples + b.num_tuples};
 }
 
 /******************
@@ -526,7 +511,7 @@ in_memory_node_pivot_min_key(const in_memory_node *node)
    return in_memory_pivot_key(vector_get(&node->pivots, 0));
 }
 
-static inline key
+debug_only static inline key
 in_memory_node_pivot_max_key(const in_memory_node *node)
 {
    return in_memory_pivot_key(
@@ -893,10 +878,10 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
    if (compaction->fingerprints) {
       platform_free(context->hid, compaction->fingerprints);
    }
-   if (!branches_equal(compaction->branch, NULL_BRANCH_REF)) {
+   if (!branches_equal(compaction->output_branch, NULL_BRANCH_REF)) {
       btree_dec_ref(context->cc,
                     context->cfg->btree_cfg,
-                    branch_ref_addr(compaction->branch),
+                    branch_ref_addr(compaction->output_branch),
                     PAGE_TYPE_BRANCH);
    }
    platform_free(context->hid, compaction);
@@ -907,16 +892,19 @@ bundle_compaction_create(in_memory_node     *node,
                          uint64              pivot_num,
                          trunk_node_context *context)
 {
-   platform_status    rc;
+   platform_status  rc;
+   in_memory_pivot *pivot = in_memory_node_pivot(node, pivot_num);
+
    bundle_compaction *result = TYPED_ZALLOC(context->hid, result);
    if (result == NULL) {
       return NULL;
    }
-   result->state = BUNDLE_COMPACTION_NOT_STARTED;
+   result->state       = BUNDLE_COMPACTION_NOT_STARTED;
+   result->input_stats = in_memory_pivot_received_bundles_stats(pivot);
    branch_merger_init(&result->merger,
                       context->hid,
                       context->cfg->data_cfg,
-                      in_memory_node_pivot_key(node, pivot_num),
+                      in_memory_pivot_key(pivot),
                       in_memory_node_pivot_key(node, pivot_num + 1),
                       0);
    for (uint64 i = node->num_old_bundles;
@@ -933,6 +921,8 @@ bundle_compaction_create(in_memory_node     *node,
          return NULL;
       }
    }
+   result->num_bundles =
+      vector_length(&node->inflight_bundles) - node->num_old_bundles;
    return result;
 }
 
@@ -1102,8 +1092,10 @@ pivot_state_map_remove(pivot_state_map        *map,
 
 typedef struct maplet_compaction_apply_args {
    pivot_compaction_state *state;
+   uint64                  num_input_bundles;
    routing_filter          new_maplet;
    branch_ref_vector       branches;
+   trunk_pivot_stats       delta;
 } maplet_compaction_apply_args;
 
 static platform_status
@@ -1127,7 +1119,8 @@ apply_changes_maplet_compaction(trunk_node_context *context,
          in_memory_pivot_set_inflight_bundle_start(
             pivot,
             in_memory_pivot_inflight_bundle_start(pivot)
-               + vector_length(&args->branches));
+               + args->num_input_bundles);
+         in_memory_pivot_add_tuple_counts(pivot, -1, args->delta);
          break;
       }
    }
@@ -1141,44 +1134,51 @@ enqueue_maplet_compaction(pivot_compaction_state *args);
 static void
 maplet_compaction_task(void *arg, void *scratch)
 {
+   pivot_state_map_lock         lock;
    platform_status              rc      = STATUS_OK;
    pivot_compaction_state      *state   = (pivot_compaction_state *)arg;
    trunk_node_context          *context = state->context;
    maplet_compaction_apply_args apply_args;
+   ZERO_STRUCT(apply_args);
    apply_args.state = state;
    vector_init(&apply_args.branches, context->hid);
 
    routing_filter     new_maplet;
-   routing_filter     old_maplet  = state->maplet;
-   bundle_compaction *bc          = state->bundle_compactions;
-   uint64             num_bundles = 0;
+   routing_filter     old_maplet = state->maplet;
+   bundle_compaction *bc         = state->bundle_compactions;
    while (bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
-      rc = vector_append(&apply_args.branches, bc->branch);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
-      bc->branch = NULL_BRANCH_REF;
-
       rc = routing_filter_add(context->cc,
                               context->cfg->filter_cfg,
                               context->hid,
                               &old_maplet,
                               &new_maplet,
                               bc->fingerprints,
-                              bc->num_fingerprints,
-                              state->num_branches + num_bundles);
-      if (0 < num_bundles) {
+                              bc->output_stats.num_tuples,
+                              state->num_branches
+                                 + vector_length(&apply_args.branches));
+      if (0 < apply_args.num_input_bundles) {
          routing_filter_dec_ref(context->cc, &old_maplet);
       }
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
+
+      rc = vector_append(&apply_args.branches, bc->output_branch);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      bc->output_branch = NULL_BRANCH_REF;
+
+      trunk_pivot_stats delta =
+         trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
+      apply_args.delta = trunk_pivot_stats_add(apply_args.delta, delta);
+
       old_maplet = new_maplet;
-      bc         = bc->next;
-      num_bundles++;
+      apply_args.num_input_bundles += bc->num_bundles;
+      bc = bc->next;
    }
 
-   platform_assert(0 < num_bundles);
+   platform_assert(0 < apply_args.num_input_bundles);
 
    apply_args.new_maplet = new_maplet;
 
@@ -1192,9 +1192,6 @@ maplet_compaction_task(void *arg, void *scratch)
    apply_changes_end(context);
 
 cleanup:
-   vector_deinit(&apply_args.branches);
-
-   pivot_state_map_lock lock;
    pivot_state_map_aquire_lock(&lock,
                                context,
                                &context->pivot_states,
@@ -1204,7 +1201,7 @@ cleanup:
    if (SUCCESS(rc)) {
       routing_filter_dec_ref(context->cc, &state->maplet);
       state->maplet = new_maplet;
-      state->num_branches += num_bundles;
+      state->num_branches += vector_length(&apply_args.branches);
       while (state->bundle_compactions != bc) {
          bundle_compaction *next = state->bundle_compactions->next;
          bundle_compaction_destroy(state->bundle_compactions, context->hid);
@@ -1217,7 +1214,7 @@ cleanup:
       }
    } else {
       state->maplet_compaction_failed = TRUE;
-      if (0 < num_bundles) {
+      if (0 < apply_args.num_input_bundles) {
          routing_filter_dec_ref(context->cc, &new_maplet);
       }
    }
@@ -1228,6 +1225,7 @@ cleanup:
    }
 
    pivot_state_map_release_lock(&lock, &context->pivot_states);
+   vector_deinit(&apply_args.branches);
 }
 
 static inline platform_status
@@ -1282,7 +1280,10 @@ bundle_compaction_task(void *arg, void *scratch)
       goto cleanup;
    }
 
-   bc->num_fingerprints     = pack_req.num_tuples;
+   bc->output_branch = create_branch_ref(pack_req.root_addr);
+   bc->output_stats  = (trunk_pivot_stats){
+       .num_tuples   = pack_req.num_tuples,
+       .num_kv_bytes = pack_req.key_bytes + pack_req.message_bytes};
    bc->fingerprints         = pack_req.fingerprint_arr;
    pack_req.fingerprint_arr = NULL;
 
@@ -1503,7 +1504,7 @@ in_memory_node_receive_bundles(trunk_node_context             *context,
       }
    }
 
-   for (uint64 i = 0; i < vector_length(inflight); i++) {
+   for (uint64 i = inflight_start; i < vector_length(inflight); i++) {
       in_memory_routed_bundle *bundle = vector_get_ptr(inflight, i);
       rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
                                  in_memory_routed_bundle_init_copy,
@@ -1518,7 +1519,7 @@ in_memory_node_receive_bundles(trunk_node_context             *context,
       btree_pivot_stats btree_stats;
       ZERO_CONTENTS(&btree_stats);
       rc = accumulate_inflight_bundle_tuple_counts_in_range(
-         vector_get_ptr(&node->inflight_bundles, inflight_start),
+         vector_get_ptr(inflight, inflight_start),
          context,
          &node->pivots,
          i,
