@@ -145,7 +145,7 @@ struct trunk_node_context {
    allocator               *al;
    task_system             *ts;
    pivot_state_map          pivot_states;
-   uint64                   root_height;
+   platform_batch_rwlock    root_lock;
    uint64                   root_addr;
 };
 
@@ -634,10 +634,18 @@ in_memory_node_deinit(in_memory_node *node, trunk_node_context *context)
  **************************************/
 
 void
-on_disk_node_inc_ref(trunk_node_context *context, uint64 addr);
+on_disk_node_inc_ref(trunk_node_context *context, uint64 addr)
+{
+   allocator_inc_ref(context->al, addr);
+}
 
 void
-on_disk_node_dec_ref(trunk_node_context *context, uint64 addr);
+on_disk_node_dec_ref(trunk_node_context *context, uint64 addr)
+{
+   uint8 refcount = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+   if (refcount == AL_NO_REFS) {
+   }
+}
 
 
 /*********************************************
@@ -772,6 +780,47 @@ branch_merger_deinit(branch_merger *merger)
 }
 
 /*************************
+ * concurrency in accessing the root
+ ************************/
+
+void
+trunk_read_begin(trunk_node_context *context)
+{
+   platform_batch_rwlock_get(&context->root_lock, 0);
+}
+
+void
+trunk_read_end(trunk_node_context *context)
+{
+   platform_batch_rwlock_unget(&context->root_lock, 0);
+}
+
+void
+trunk_modification_begin(trunk_node_context *context)
+{
+   platform_batch_rwlock_get(&context->root_lock, 0);
+   platform_batch_rwlock_claim_loop(&context->root_lock, 0);
+}
+
+void
+trunk_set_root_address(trunk_node_context *context, uint64 new_root_addr)
+{
+   uint64 old_root_addr;
+   platform_batch_rwlock_lock(&context->root_lock, 0);
+   old_root_addr      = context->root_addr;
+   context->root_addr = new_root_addr;
+   platform_batch_rwlock_unlock(&context->root_lock, 0);
+   on_disk_node_dec_ref(context, old_root_addr);
+}
+
+void
+trunk_modification_end(trunk_node_context *context)
+{
+   platform_batch_rwlock_unclaim(&context->root_lock, 0);
+   platform_batch_rwlock_unget(&context->root_lock, 0);
+}
+
+/*************************
  * generic code to apply changes to nodes in the tree.
  ************************/
 
@@ -779,9 +828,6 @@ typedef platform_status(apply_changes_fn)(trunk_node_context *context,
                                           uint64              addr,
                                           in_memory_node     *node,
                                           void               *arg);
-
-void
-apply_changes_begin(trunk_node_context *context);
 
 platform_status
 apply_changes_internal(trunk_node_context *context,
@@ -853,18 +899,22 @@ apply_changes(trunk_node_context *context,
               apply_changes_fn   *func,
               void               *arg)
 {
-   return apply_changes_internal(context,
-                                 context->root_addr,
-                                 minkey,
-                                 maxkey,
-                                 height,
-                                 func,
-                                 arg,
-                                 &context->root_addr);
+   uint64 new_root_addr;
+   trunk_modification_begin(context);
+   platform_status rc = apply_changes_internal(context,
+                                               context->root_addr,
+                                               minkey,
+                                               maxkey,
+                                               height,
+                                               func,
+                                               arg,
+                                               &new_root_addr);
+   if (SUCCESS(rc)) {
+      trunk_set_root_address(context, new_root_addr);
+   }
+   trunk_modification_end(context);
+   return rc;
 }
-
-void
-apply_changes_end(trunk_node_context *context);
 
 /*******************************************************************************
  * pivot state tracking
@@ -1182,14 +1232,12 @@ maplet_compaction_task(void *arg, void *scratch)
 
    apply_args.new_maplet = new_maplet;
 
-   apply_changes_begin(context);
    rc = apply_changes(context,
                       key_buffer_key(&state->key),
                       key_buffer_key(&state->key),
                       state->height,
                       apply_changes_maplet_compaction,
                       &apply_args);
-   apply_changes_end(context);
 
 cleanup:
    pivot_state_map_aquire_lock(&lock,
@@ -2188,7 +2236,6 @@ cleanup_pivots:
    vector_deinit(&pivots);
    return rc;
 }
-
 
 platform_status
 incorporate(trunk_node_context *context,
