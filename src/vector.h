@@ -529,3 +529,20 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
 #define VECTOR_EMPLACE_MAP_PTRS(dst, func, src, ...)                           \
    VECTOR_EMPLACE_MAP_GENERIC(                                                 \
       dst, vector_emplace_map_ptr, src, func __VA_OPT__(, __VA_ARGS__))
+
+void
+__vector_reverse(void *arr, uint64 nelts, uint64 eltsize, void *tmp)
+{
+   for (uint64 i = 0; i < nelts / 2; i++) {
+      memcpy(tmp, arr + i * eltsize, eltsize);
+      memcpy(arr + i * eltsize, arr + (nelts - i - 1) * eltsize, eltsize);
+      memcpy(arr + (nelts - i - 1) * eltsize, tmp, eltsize);
+   }
+}
+
+#define vector_reverse(v)                                                      \
+   {                                                                           \
+      vector_elt_type(v) __tmp;                                                \
+      __vector_reverse(                                                        \
+         vector_data(v), vector_length(v), vector_elt_size(v), &__tmp);        \
+   }
