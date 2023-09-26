@@ -254,11 +254,10 @@ bundle_num_branches(const bundle *bndl)
    return vector_length(&bndl->branches);
 }
 
-static branch_ref
-bundle_branch(const bundle *bndl, uint64 i)
+static const branch_ref *
+bundle_branch_array(const bundle *bndl)
 {
-   debug_assert(i < vector_length(&bndl->branches));
-   return vector_get(&bndl->branches, i);
+   return vector_data(&bndl->branches);
 }
 
 /********************
@@ -1282,17 +1281,18 @@ branch_merger_init(branch_merger     *merger,
 }
 
 static platform_status
-branch_merger_add_routed_bundle(branch_merger      *merger,
-                                cache              *cc,
-                                const btree_config *btree_cfg,
-                                bundle             *routed)
+branch_merger_add_branches(branch_merger      *merger,
+                           cache              *cc,
+                           const btree_config *btree_cfg,
+                           uint64              num_branches,
+                           const branch_ref   *branches)
 {
-   for (uint64 i = 0; i < bundle_num_branches(routed); i++) {
+   for (uint64 i = 0; i < num_branches; i++) {
       btree_iterator *iter = TYPED_MALLOC(merger->hid, iter);
       if (iter == NULL) {
          return STATUS_NO_MEMORY;
       }
-      branch_ref bref = bundle_branch(routed, i);
+      branch_ref bref = branches[i];
       btree_iterator_init(cc,
                           btree_cfg,
                           iter,
@@ -1311,6 +1311,30 @@ branch_merger_add_routed_bundle(branch_merger      *merger,
    }
    return STATUS_OK;
 }
+
+static platform_status
+branch_merger_add_bundle(branch_merger      *merger,
+                         cache              *cc,
+                         const btree_config *btree_cfg,
+                         bundle             *routed)
+{
+   return branch_merger_add_branches(merger,
+                                     cc,
+                                     btree_cfg,
+                                     bundle_num_branches(routed),
+                                     bundle_branch_array(routed));
+}
+
+static platform_status
+branch_merger_add_ondisk_bundle(branch_merger      *merger,
+                                cache              *cc,
+                                const btree_config *btree_cfg,
+                                ondisk_bundle      *routed)
+{
+   return branch_merger_add_branches(
+      merger, cc, btree_cfg, routed->num_branches, routed->branches);
+}
+
 
 static platform_status
 branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
@@ -1347,16 +1371,26 @@ branch_merger_deinit(branch_merger *merger)
  * concurrency in accessing the root
  ************************/
 
-void
+static void
 trunk_read_begin(trunk_node_context *context)
 {
    platform_batch_rwlock_get(&context->root_lock, 0);
 }
 
-void
+static void
 trunk_read_end(trunk_node_context *context)
 {
    platform_batch_rwlock_unget(&context->root_lock, 0);
+}
+
+platform_status
+trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle)
+{
+   platform_status rc;
+   trunk_read_begin(context);
+   rc = ondisk_node_handle_init(handle, context->cc, context->root_addr);
+   trunk_read_end(context);
+   return rc;
 }
 
 void
@@ -1525,11 +1559,10 @@ bundle_compaction_create(trunk_node         *node,
         i < vector_length(&node->inflight_bundles);
         i++)
    {
-      rc = branch_merger_add_routed_bundle(
-         &result->merger,
-         context->cc,
-         context->cfg->btree_cfg,
-         vector_get_ptr(&node->inflight_bundles, i));
+      rc = branch_merger_add_bundle(&result->merger,
+                                    context->cc,
+                                    context->cfg->btree_cfg,
+                                    vector_get_ptr(&node->inflight_bundles, i));
       if (!SUCCESS(rc)) {
          bundle_compaction_destroy(result, context);
          return NULL;
@@ -2267,11 +2300,10 @@ leaf_split_select_pivots(trunk_node_context *context,
    branch_merger_init(
       &merger, context->hid, context->cfg->data_cfg, min_key, max_key, 1);
 
-   rc =
-      branch_merger_add_routed_bundle(&merger,
-                                      context->cc,
-                                      context->cfg->btree_cfg,
-                                      vector_get_ptr(&leaf->pivot_bundles, 0));
+   rc = branch_merger_add_bundle(&merger,
+                                 context->cc,
+                                 context->cfg->btree_cfg,
+                                 vector_get_ptr(&leaf->pivot_bundles, 0));
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -2281,7 +2313,7 @@ leaf_split_select_pivots(trunk_node_context *context,
         bundle_num++)
    {
       bundle *bndl = vector_get_ptr(&leaf->inflight_bundles, bundle_num);
-      rc           = branch_merger_add_routed_bundle(
+      rc           = branch_merger_add_bundle(
          &merger, context->cc, context->cfg->btree_cfg, bndl);
       if (!SUCCESS(rc)) {
          goto cleanup;
@@ -2913,23 +2945,15 @@ ondisk_bundle_merge_lookup(trunk_node_context *context,
 
 platform_status
 trunk_merge_lookup(trunk_node_context *context,
+                   ondisk_node_handle *handle,
                    key                 tgt,
                    merge_accumulator  *result)
 {
    platform_status rc;
 
-   ondisk_node_handle handle;
-   trunk_read_begin(context);
-   rc = ondisk_node_handle_init(&handle, context->cc, context->root_addr);
-   if (!SUCCESS(rc)) {
-      trunk_read_end(context);
-      return rc;
-   }
-   trunk_read_end(context);
-
-   while (handle.header_page) {
+   while (handle->header_page) {
       uint64 pivot_num;
-      rc = ondisk_node_find_pivot(context, &handle, tgt, &pivot_num);
+      rc = ondisk_node_find_pivot(context, handle, tgt, &pivot_num);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -2938,7 +2962,7 @@ trunk_merge_lookup(trunk_node_context *context,
       uint64 num_inflight_bundles;
       {
          // Restrict the scope of odp
-         ondisk_pivot *odp = ondisk_node_get_pivot(&handle, pivot_num);
+         ondisk_pivot *odp = ondisk_node_get_pivot(handle, pivot_num);
          if (odp == NULL) {
             rc = STATUS_IO_ERROR;
             goto cleanup;
@@ -2948,7 +2972,7 @@ trunk_merge_lookup(trunk_node_context *context,
       }
 
       // Search the inflight bundles
-      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
+      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(handle);
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
          rc = ondisk_bundle_merge_lookup(context, bndl, tgt, result);
          if (!SUCCESS(rc)) {
@@ -2958,12 +2982,12 @@ trunk_merge_lookup(trunk_node_context *context,
             goto cleanup;
          }
          if (i < num_inflight_bundles - 1) {
-            bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
+            bndl = ondisk_node_get_next_inflight_bundle(handle, bndl);
          }
       }
 
       // Search the pivot bundle
-      bndl = ondisk_node_get_pivot_bundle(&handle, pivot_num);
+      bndl = ondisk_node_get_pivot_bundle(handle, pivot_num);
       if (bndl == NULL) {
          rc = STATUS_IO_ERROR;
          goto cleanup;
@@ -2983,16 +3007,90 @@ trunk_merge_lookup(trunk_node_context *context,
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
-         ondisk_node_handle_deinit(&handle);
-         handle = child_handle;
+         ondisk_node_handle_deinit(handle);
+         *handle = child_handle;
       } else {
-         ondisk_node_handle_deinit(&handle);
+         ondisk_node_handle_deinit(handle);
       }
    }
 
 cleanup:
-   if (handle.header_page) {
-      ondisk_node_handle_deinit(&handle);
+   if (handle->header_page) {
+      ondisk_node_handle_deinit(handle);
+   }
+   return rc;
+}
+
+platform_status
+trunk_collect_branches(trunk_node_context *context,
+                       ondisk_node_handle *handle,
+                       key                 tgt,
+                       branch_merger      *accumulator)
+{
+   platform_status rc;
+
+   while (handle->header_page) {
+      uint64 pivot_num;
+      rc = ondisk_node_find_pivot(context, handle, tgt, &pivot_num);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+
+      uint64 child_addr;
+      uint64 num_inflight_bundles;
+      {
+         // Restrict the scope of odp
+         ondisk_pivot *odp = ondisk_node_get_pivot(handle, pivot_num);
+         if (odp == NULL) {
+            rc = STATUS_IO_ERROR;
+            goto cleanup;
+         }
+         child_addr           = odp->child_addr;
+         num_inflight_bundles = odp->num_live_inflight_bundles;
+      }
+
+      // Add branches from the inflight bundles
+      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(handle);
+      for (uint64 i = 0; i < num_inflight_bundles; i++) {
+         rc = branch_merger_add_ondisk_bundle(
+            accumulator, context->cc, context->cfg->btree_cfg, bndl);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         if (i < num_inflight_bundles - 1) {
+            bndl = ondisk_node_get_next_inflight_bundle(handle, bndl);
+         }
+      }
+
+      // Add branches from the pivot bundle
+      bndl = ondisk_node_get_pivot_bundle(handle, pivot_num);
+      if (bndl == NULL) {
+         rc = STATUS_IO_ERROR;
+         goto cleanup;
+      }
+      rc = branch_merger_add_ondisk_bundle(
+         accumulator, context->cc, context->cfg->btree_cfg, bndl);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+
+      // Proceed to child the child
+      if (child_addr != 0) {
+         ondisk_node_handle child_handle;
+         rc = ondisk_node_handle_init(&child_handle, context->cc, child_addr);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         ondisk_node_handle_deinit(handle);
+         *handle = child_handle;
+      } else {
+         ondisk_node_handle_deinit(handle);
+      }
+   }
+
+cleanup:
+   if (handle->header_page) {
+      ondisk_node_handle_deinit(handle);
    }
    return rc;
 }
