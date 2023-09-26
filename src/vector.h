@@ -2,7 +2,7 @@
  * Type-safe vectors.  Implementation is entirely macros.
  *
  * Macros in lower_case behave like functions (i.e. they evaluate
- * their parameters at most once).
+ * their parameters exactly once).
  *
  * Macros in UPPER_CASE may evaluate any of their parameters any number of
  * times, so use them accordingly.
@@ -19,21 +19,24 @@
       elt_type        vector_element_type_handle[0];                           \
    }
 
+// These macros don't evaluate their parameters, so we can use them even in
+// function-like macros below.
 #define vector_elt_type(v)     typeof((v)->vector_element_type_handle[0])
 #define vector_elt_size(v)     sizeof((v)->vector_element_type_handle[0])
 #define vector_elt_ptr_type(v) typeof(&((v)->vector_element_type_handle[0]))
-#define vector_data(v)                                                         \
-   ((vector_elt_ptr_type(v))writable_buffer_data(&((v)->wb)))
 
 #define vector_init(v, hid) writable_buffer_init(&((v)->wb), hid)
 #define vector_deinit(v)    writable_buffer_deinit(&((v)->wb))
 
-// |v|
-#define vector_length(v)                                                       \
-   (writable_buffer_length(&((v)->wb)) / vector_elt_size(v))
+#define vector_data(v)                                                         \
+   ((vector_elt_ptr_type(v))writable_buffer_data(&((v)->wb)))
 
 #define vector_capacity(v)                                                     \
    (writable_buffer_capacity(&((v)->wb)) / vector_elt_size(v))
+
+// |v|
+#define vector_length(v)                                                       \
+   (writable_buffer_length(&((v)->wb)) / vector_elt_size(v))
 
 // v[i]
 #define vector_get(v, i)                                                       \
@@ -104,9 +107,9 @@ __vector_replace(writable_buffer       *dst,
                  uint64                 srcoff,
                  uint64                 srclen)
 {
-   platform_status rc           = STATUS_OK;
-   uint64          old_dst_size = writable_buffer_length(dst);
-   uint64          src_size     = writable_buffer_length(src);
+   platform_status   rc           = STATUS_OK;
+   uint64            old_dst_size = writable_buffer_length(dst);
+   debug_only uint64 src_size     = writable_buffer_length(src);
 
    debug_assert((dstoff + dstlen) * eltsize <= old_dst_size);
    debug_assert((srcoff + srclen) * eltsize <= src_size);
@@ -435,9 +438,9 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
 
 #define VECTOR_FAILABLE_FOR_LOOP_GENERIC(v, start, end, func, ...)             \
    ({                                                                          \
-      platform_status __rc     = STATUS_OK;                                    \
-      uint64          __length = vector_length(v);                             \
-      uint64          __end    = (end);                                        \
+      platform_status   __rc     = STATUS_OK;                                  \
+      debug_only uint64 __length = vector_length(v);                           \
+      uint64            __end    = (end);                                      \
       debug_assert(__end <= __length);                                         \
       for (uint64 __idx = (start); __idx < __end; __idx++) {                   \
          __rc =                                                                \

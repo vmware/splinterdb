@@ -566,7 +566,7 @@ node_pivot_has_received_bundles(const trunk_node *node, uint64 i)
    return pivot_inflight_bundle_start(pvt) <= node->num_old_bundles;
 }
 
-static bool
+debug_only static bool
 node_is_well_formed_leaf(const trunk_node_config *cfg, const trunk_node *node)
 {
    bool basics =
@@ -586,7 +586,7 @@ node_is_well_formed_leaf(const trunk_node_config *cfg, const trunk_node *node)
           && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
 }
 
-static bool
+debug_only static bool
 node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
 {
    bool basics =
