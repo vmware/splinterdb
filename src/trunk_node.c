@@ -695,6 +695,8 @@ ondisk_node_handle_deinit(ondisk_node_handle *handle)
       cache_unget(handle->cc, handle->content_page);
    }
    cache_unget(handle->cc, handle->header_page);
+   handle->header_page  = NULL;
+   handle->content_page = NULL;
 }
 
 static uint64
@@ -736,6 +738,13 @@ ondisk_node_handle_setup_content_page(ondisk_node_handle *handle, uint64 offset)
    }
 }
 
+static uint64
+ondisk_node_num_pivots(ondisk_node_handle *handle)
+{
+   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   return header->num_pivots;
+}
+
 static ondisk_pivot *
 ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
 {
@@ -747,6 +756,17 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
    }
    return (ondisk_pivot *)(handle->content_page->data + offset
                            - content_page_offset(handle));
+}
+
+static platform_status
+ondisk_node_get_pivot_key(ondisk_node_handle *handle, uint64 pivot_num, key *k)
+{
+   ondisk_pivot *odp = ondisk_node_get_pivot(handle, pivot_num);
+   if (odp == NULL) {
+      return STATUS_IO_ERROR;
+   }
+   *k = ondisk_key_to_key(&odp->key);
+   return STATUS_OK;
 }
 
 static ondisk_bundle *
@@ -967,7 +987,7 @@ bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
 }
 
 static void
-on_disk_node_dec_ref(trunk_node_context *context, uint64 addr)
+ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
 {
    uint8 refcount = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    if (refcount == AL_NO_REFS) {
@@ -976,7 +996,7 @@ on_disk_node_dec_ref(trunk_node_context *context, uint64 addr)
       if (SUCCESS(rc)) {
          for (uint64 i = 0; i < vector_length(&node.pivots); i++) {
             pivot *pvt = vector_get(&node.pivots, i);
-            on_disk_node_dec_ref(context, pvt->child_addr);
+            ondisk_node_dec_ref(context, pvt->child_addr);
          }
          for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
             bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
@@ -993,7 +1013,7 @@ on_disk_node_dec_ref(trunk_node_context *context, uint64 addr)
 }
 
 static void
-on_disk_node_inc_ref(trunk_node_context *context, uint64 addr)
+ondisk_node_inc_ref(trunk_node_context *context, uint64 addr)
 {
    allocator_inc_ref(context->al, addr);
 }
@@ -1003,7 +1023,7 @@ node_inc_all_refs(trunk_node_context *context, trunk_node *node)
 {
    for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
       pivot *pvt = vector_get(&node->pivots, i);
-      on_disk_node_inc_ref(context, pvt->child_addr);
+      ondisk_node_inc_ref(context, pvt->child_addr);
    }
    for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
       bundle *bndl = vector_get_ptr(&node->pivot_bundles, i);
@@ -1230,7 +1250,7 @@ serialize_nodes(trunk_node_context *context,
 finish:
    if (!SUCCESS(rc)) {
       for (uint64 i = 0; i < vector_length(result); i++) {
-         on_disk_node_dec_ref(context, pivot_child_addr(vector_get(result, i)));
+         ondisk_node_dec_ref(context, pivot_child_addr(vector_get(result, i)));
       }
       VECTOR_APPLY_TO_ELTS(result, pivot_destroy, context->hid);
       vector_truncate(result, 0);
@@ -1354,7 +1374,7 @@ trunk_set_root_address(trunk_node_context *context, uint64 new_root_addr)
    old_root_addr      = context->root_addr;
    context->root_addr = new_root_addr;
    platform_batch_rwlock_unlock(&context->root_lock, 0);
-   on_disk_node_dec_ref(context, old_root_addr);
+   ondisk_node_dec_ref(context, old_root_addr);
 }
 
 void
@@ -2753,10 +2773,10 @@ cleanup_pivots:
 }
 
 platform_status
-incorporate(trunk_node_context *context,
-            routing_filter      filter,
-            branch_ref          branch,
-            uint64             *new_root_addr)
+trunk_incorporate(trunk_node_context *context,
+                  routing_filter      filter,
+                  branch_ref          branch,
+                  uint64             *new_root_addr)
 {
    platform_status rc;
 
@@ -2818,5 +2838,161 @@ cleanup_vectors:
    VECTOR_APPLY_TO_PTRS(&inflight, bundle_deinit);
    vector_deinit(&inflight);
 
+   return rc;
+}
+
+/***********************************
+ * Point queries
+ ***********************************/
+
+static platform_status
+ondisk_node_find_pivot(trunk_node_context *context,
+                       ondisk_node_handle *handle,
+                       key                 tgt,
+                       uint64             *pivot)
+{
+   platform_status rc;
+   uint64          num_pivots = ondisk_node_num_pivots(handle);
+   uint64          min        = 0;
+   uint64          max        = num_pivots - 1;
+
+   // invariant: pivot[min] <= tgt < pivot[max]
+   while (min + 1 < max) {
+      uint64 mid = (min + max) / 2;
+      key    mid_key;
+      rc = ondisk_node_get_pivot_key(handle, mid, &mid_key);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (data_key_compare(context->cfg->data_cfg, tgt, mid_key) < 0) {
+         max = mid;
+      } else {
+         min = mid;
+      }
+   }
+   *pivot = min;
+   return STATUS_OK;
+}
+
+static platform_status
+ondisk_bundle_merge_lookup(trunk_node_context *context,
+                           ondisk_bundle      *bndl,
+                           key                 tgt,
+                           merge_accumulator  *result)
+{
+   uint64          found_values;
+   platform_status rc = routing_filter_lookup(
+      context->cc, context->cfg->filter_cfg, &bndl->maplet, tgt, &found_values);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   for (uint64 idx =
+           routing_filter_get_next_value(found_values, ROUTING_NOT_FOUND);
+        idx != ROUTING_NOT_FOUND;
+        idx = routing_filter_get_next_value(found_values, ROUTING_NOT_FOUND))
+   {
+      bool32 local_found;
+      rc = btree_lookup_and_merge(context->cc,
+                                  context->cfg->btree_cfg,
+                                  branch_ref_addr(bndl->branches[idx]),
+                                  PAGE_TYPE_BRANCH,
+                                  tgt,
+                                  result,
+                                  &local_found);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (merge_accumulator_is_definitive(result)) {
+         return STATUS_OK;
+      }
+   }
+
+   return STATUS_OK;
+}
+
+platform_status
+trunk_merge_lookup(trunk_node_context *context,
+                   key                 tgt,
+                   merge_accumulator  *result)
+{
+   platform_status rc;
+
+   ondisk_node_handle handle;
+   trunk_read_begin(context);
+   rc = ondisk_node_handle_init(&handle, context->cc, context->root_addr);
+   if (!SUCCESS(rc)) {
+      trunk_read_end(context);
+      return rc;
+   }
+   trunk_read_end(context);
+
+   while (handle.header_page) {
+      uint64 pivot_num;
+      rc = ondisk_node_find_pivot(context, &handle, tgt, &pivot_num);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+
+      uint64 child_addr;
+      uint64 num_inflight_bundles;
+      {
+         // Restrict the scope of odp
+         ondisk_pivot *odp = ondisk_node_get_pivot(&handle, pivot_num);
+         if (odp == NULL) {
+            rc = STATUS_IO_ERROR;
+            goto cleanup;
+         }
+         child_addr           = odp->child_addr;
+         num_inflight_bundles = odp->num_live_inflight_bundles;
+      }
+
+      // Search the inflight bundles
+      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
+      for (uint64 i = 0; i < num_inflight_bundles; i++) {
+         rc = ondisk_bundle_merge_lookup(context, bndl, tgt, result);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         if (merge_accumulator_is_definitive(result)) {
+            goto cleanup;
+         }
+         if (i < num_inflight_bundles - 1) {
+            bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
+         }
+      }
+
+      // Search the pivot bundle
+      bndl = ondisk_node_get_pivot_bundle(&handle, pivot_num);
+      if (bndl == NULL) {
+         rc = STATUS_IO_ERROR;
+         goto cleanup;
+      }
+      rc = ondisk_bundle_merge_lookup(context, bndl, tgt, result);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      if (merge_accumulator_is_definitive(result)) {
+         goto cleanup;
+      }
+
+      // Search the child
+      if (child_addr != 0) {
+         ondisk_node_handle child_handle;
+         rc = ondisk_node_handle_init(&child_handle, context->cc, child_addr);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         ondisk_node_handle_deinit(&handle);
+         handle = child_handle;
+      } else {
+         ondisk_node_handle_deinit(&handle);
+      }
+   }
+
+cleanup:
+   if (handle.header_page) {
+      ondisk_node_handle_deinit(&handle);
+   }
    return rc;
 }

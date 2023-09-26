@@ -810,11 +810,11 @@ routing_filter_estimate_unique_fp(cache                *cc,
  *----------------------------------------------------------------------
  */
 platform_status
-routing_filter_lookup(cache          *cc,
-                      routing_config *cfg,
-                      routing_filter *filter,
-                      key             target,
-                      uint64         *found_values)
+routing_filter_lookup(cache                *cc,
+                      const routing_config *cfg,
+                      routing_filter       *filter,
+                      key                   target,
+                      uint64               *found_values)
 {
    debug_assert(key_is_user_key(target));
 

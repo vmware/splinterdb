@@ -285,13 +285,13 @@ btree_found(merge_accumulator *result)
 }
 
 platform_status
-btree_lookup_and_merge(cache             *cc,
-                       btree_config      *cfg,
-                       uint64             root_addr,
-                       page_type          type,
-                       key                target,
-                       merge_accumulator *data,
-                       bool32            *local_found);
+btree_lookup_and_merge(cache              *cc,
+                       const btree_config *cfg,
+                       uint64              root_addr,
+                       page_type           type,
+                       key                 target,
+                       merge_accumulator  *data,
+                       bool32             *local_found);
 
 cache_async_result
 btree_lookup_async(cache             *cc,

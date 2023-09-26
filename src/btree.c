@@ -2088,14 +2088,14 @@ btree_lookup_node(cache              *cc,             // IN
 
 
 static inline void
-btree_lookup_with_ref(cache        *cc,        // IN
-                      btree_config *cfg,       // IN
-                      uint64        root_addr, // IN
-                      page_type     type,      // IN
-                      key           target,    // IN
-                      btree_node   *node,      // OUT
-                      message      *msg,       // OUT
-                      bool32       *found)           // OUT
+btree_lookup_with_ref(cache              *cc,        // IN
+                      const btree_config *cfg,       // IN
+                      uint64              root_addr, // IN
+                      page_type           type,      // IN
+                      key                 target,    // IN
+                      btree_node         *node,      // OUT
+                      message            *msg,       // OUT
+                      bool32             *found)                 // OUT
 {
    btree_lookup_node(cc, cfg, root_addr, target, 0, type, node, NULL);
    int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
@@ -2131,13 +2131,13 @@ btree_lookup(cache             *cc,        // IN
 }
 
 platform_status
-btree_lookup_and_merge(cache             *cc,        // IN
-                       btree_config      *cfg,       // IN
-                       uint64             root_addr, // IN
-                       page_type          type,      // IN
-                       key                target,    // IN
-                       merge_accumulator *data,      // OUT
-                       bool32            *local_found)          // OUT
+btree_lookup_and_merge(cache              *cc,        // IN
+                       const btree_config *cfg,       // IN
+                       uint64              root_addr, // IN
+                       page_type           type,      // IN
+                       key                 target,    // IN
+                       merge_accumulator  *data,      // OUT
+                       bool32             *local_found)           // OUT
 {
    btree_node      node;
    message         local_data;

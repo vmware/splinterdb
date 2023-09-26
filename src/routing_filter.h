@@ -102,11 +102,11 @@ routing_filter_add(cache                *cc,
                    uint16                value);
 
 platform_status
-routing_filter_lookup(cache          *cc,
-                      routing_config *cfg,
-                      routing_filter *filter,
-                      key             target,
-                      uint64         *found_values);
+routing_filter_lookup(cache                *cc,
+                      const routing_config *cfg,
+                      routing_filter       *filter,
+                      key                   target,
+                      uint64               *found_values);
 
 static inline uint16
 routing_filter_get_next_value(uint64 found_values, uint16 last_value)
