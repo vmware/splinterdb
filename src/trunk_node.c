@@ -139,12 +139,70 @@ typedef struct trunk_node_config {
    uint64                max_tuples_per_node;
 } trunk_node_config;
 
+#define TRUNK_NODE_MAX_HEIGHT 16
+
+typedef struct trunk_node_stats {
+   uint64 count_flushes[TRUNK_NODE_MAX_HEIGHT];
+   uint64 flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 flush_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 full_flushes[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 root_full_flushes;
+   // uint64 root_count_flushes;
+   // uint64 root_flush_time_ns;
+   // uint64 root_flush_time_max_ns;
+   // uint64 root_flush_wait_time_ns;
+   // uint64 failed_flushes[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 root_failed_flushes;
+   // uint64 memtable_failed_flushes;
+
+   // uint64 compactions[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_aborted_flushed[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_aborted_leaf_split[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_discarded_flushed[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_discarded_leaf_split[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_empty[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_tuples[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_max_tuples[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_pack_time_ns[TRUNK_NODE_MAX_HEIGHT];
+
+   // uint64 discarded_deletes;
+   // uint64 index_splits;
+   // uint64 leaf_splits;
+   // uint64 leaf_splits_leaves_created;
+   // uint64 leaf_split_time_ns;
+   // uint64 leaf_split_max_time_ns;
+
+   // uint64 single_leaf_splits;
+   // uint64 single_leaf_tuples;
+   // uint64 single_leaf_max_tuples;
+
+   uint64 filters_built[TRUNK_NODE_MAX_HEIGHT];
+   uint64 filter_tuples[TRUNK_NODE_MAX_HEIGHT];
+   uint64 filter_time_ns[TRUNK_NODE_MAX_HEIGHT];
+
+   // uint64 lookups_found;
+   // uint64 lookups_not_found;
+   // uint64 filter_lookups[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 branch_lookups[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 filter_false_positives[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 filter_negatives[TRUNK_NODE_MAX_HEIGHT];
+
+   // uint64 space_recs[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 space_rec_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 space_rec_tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];
+} PLATFORM_CACHELINE_ALIGNED trunk_node_stats;
+
 struct trunk_node_context {
    const trunk_node_config *cfg;
    platform_heap_id         hid;
    cache                   *cc;
    allocator               *al;
    task_system             *ts;
+   trunk_node_stats        *stats;
    pivot_state_map          pivot_states;
    platform_batch_rwlock    root_lock;
    uint64                   root_addr;
@@ -1783,6 +1841,14 @@ maplet_compaction_task(void *arg, void *scratch)
    pivot_compaction_state      *state   = (pivot_compaction_state *)arg;
    trunk_node_context          *context = state->context;
    maplet_compaction_apply_args apply_args;
+   threadid                     tid;
+   uint64                       filter_build_start;
+
+   if (context->stats) {
+      tid                = platform_get_tid();
+      filter_build_start = platform_get_timestamp();
+   }
+
    ZERO_STRUCT(apply_args);
    apply_args.state = state;
    vector_init(&apply_args.branches, context->hid);
@@ -1817,12 +1883,23 @@ maplet_compaction_task(void *arg, void *scratch)
          trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
       apply_args.delta = trunk_pivot_stats_add(apply_args.delta, delta);
 
+      if (context->stats) {
+         context->stats[tid].filters_built[state->height]++;
+         context->stats[tid].filter_tuples[state->height] +=
+            bc->output_stats.num_tuples;
+      }
+
       old_maplet = new_maplet;
       apply_args.num_input_bundles += bc->num_bundles;
       bc = bc->next;
    }
 
    platform_assert(0 < apply_args.num_input_bundles);
+
+   if (context->stats) {
+      context->stats[tid].filter_time_ns[state->height] +=
+         platform_timestamp_elapsed(filter_build_start);
+   }
 
    apply_args.new_maplet = new_maplet;
 
@@ -2608,10 +2685,21 @@ restore_balance_index(trunk_node_context *context,
 
    debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
 
+   threadid tid;
+   if (context->stats) {
+      tid = platform_get_tid();
+   }
+
    for (uint64 i = 0; i < node_num_children(index); i++) {
       pivot *pvt = node_pivot(index, i);
       if (context->cfg->per_child_flush_threshold_kv_bytes
           < pivot_num_kv_bytes(pvt)) {
+
+         uint64 flush_start;
+         if (context->stats) {
+            flush_start = platform_get_timestamp();
+         }
+
          bundle *pivot_bundle = node_pivot_bundle(index, i);
 
          pivot_vector new_pivots;
@@ -2622,6 +2710,7 @@ restore_balance_index(trunk_node_context *context,
             { // scope for child
                // Load the node we are flushing to.
                trunk_node child;
+
                rc = node_deserialize(context, pivot_child_addr(pvt), &child);
                if (!SUCCESS(rc)) {
                   return rc;
@@ -2694,6 +2783,15 @@ restore_balance_index(trunk_node_context *context,
          vector_deinit(&new_pivots);
 
          bundle_reset(pivot_bundle);
+
+         if (context->stats) {
+            uint64 flush_time = platform_timestamp_elapsed(flush_start);
+            context->stats[tid].count_flushes[node_height(index)]++;
+            context->stats[tid].flush_time_ns[node_height(index)] += flush_time;
+            context->stats[tid].flush_time_max_ns[node_height(index)] =
+               MAX(context->stats[tid].flush_time_max_ns[node_height(index)],
+                   flush_time);
+         }
       }
    }
 
@@ -2703,11 +2801,6 @@ restore_balance_index(trunk_node_context *context,
 /*
  * Flush the routed bundle and inflight bundles inflight[inflight_start...]
  * to the given node.
- *
- * num_tuples and num_kv_bytes are the stats for the incoming bundles (i.e.
- * when flushing from a parent node, they are the per-pivot stat information,
- * when performing a memtable incorporation, they are the stats for the
- * incoming memtable).
  *
  * child_num is the child number of the node addr within its parent.
  *
