@@ -1,162 +1,164 @@
+// Copyright 2023 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+/*
+ * trunk_node.h --
+ *
+ *     This file contains the interface of the SplinterDB trunk.
+ */
+
 #include "platform.h"
-#include "data_internal.h"
-#include "allocator.h"
+#include "vector.h"
 #include "cache.h"
+#include "allocator.h"
+#include "task.h"
 #include "btree.h"
 #include "routing_filter.h"
+#include "iterator.h"
+#include "merge.h"
+#include "data_internal.h"
 
 typedef struct trunk_node_config {
-   cache_config *cache_cfg;
-
-   // parameters
-   uint64 fanout; // children to trigger split
-   uint64 max_kv_bytes_per_node;
-   uint64 max_branches_per_node;
-   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
-   uint64 reclaim_threshold;    // start reclaming space when
-                                // free space < threshold
-   bool32         use_stats;    // stats
-   btree_config   btree_cfg;
-   routing_config filter_cfg;
-   data_config   *data_cfg;
-
-   // verbose logging
-   bool32               verbose_logging_enabled;
-   platform_log_handle *log_handle;
+   const data_config    *data_cfg;
+   const btree_config   *btree_cfg;
+   const routing_config *filter_cfg;
+   uint64                leaf_split_threshold_kv_bytes;
+   uint64                target_leaf_kv_bytes;
+   uint64                target_fanout;
+   uint64                per_child_flush_threshold_kv_bytes;
+   uint64                max_tuples_per_node;
 } trunk_node_config;
 
+#define TRUNK_NODE_MAX_HEIGHT 16
 
-typedef struct branch_ref branch_ref;
-typedef struct maplet_ref maplet_ref;
+typedef struct trunk_node_stats {
+   uint64 count_flushes[TRUNK_NODE_MAX_HEIGHT];
+   uint64 flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 flush_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 full_flushes[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 root_full_flushes;
+   // uint64 root_count_flushes;
+   // uint64 root_flush_time_ns;
+   // uint64 root_flush_time_max_ns;
+   // uint64 root_flush_wait_time_ns;
+   // uint64 failed_flushes[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 root_failed_flushes;
+   // uint64 memtable_failed_flushes;
 
-/*
- * Bundles are used to represent groups of branches that have not yet
- * been incorporated into the per-pivot filters.
- */
-typedef struct routed_bundle    routed_bundle;
-typedef struct compacted_bundle compacted_bundle;
-typedef struct inflight_bundle  inflight_bundle;
-typedef struct pivot            pivot;
+   // uint64 compactions[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_aborted_flushed[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_aborted_leaf_split[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_discarded_flushed[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_discarded_leaf_split[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compactions_empty[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_tuples[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_max_tuples[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 compaction_pack_time_ns[TRUNK_NODE_MAX_HEIGHT];
 
+   // uint64 discarded_deletes;
+   // uint64 index_splits;
+   // uint64 leaf_splits;
+   // uint64 leaf_splits_leaves_created;
+   // uint64 leaf_split_time_ns;
+   // uint64 leaf_split_max_time_ns;
 
-/*
- * Policy functions
- */
+   // uint64 single_leaf_splits;
+   // uint64 single_leaf_tuples;
+   // uint64 single_leaf_max_tuples;
 
-bool32
-trunk_node_needs_flush(trunk_node_config *cfg, in_memory_node *node);
+   uint64 filters_built[TRUNK_NODE_MAX_HEIGHT];
+   uint64 filter_tuples[TRUNK_NODE_MAX_HEIGHT];
+   uint64 filter_time_ns[TRUNK_NODE_MAX_HEIGHT];
 
-uint64
-trunk_node_flush_select_child(in_memory_node *node);
+   // uint64 lookups_found;
+   // uint64 lookups_not_found;
+   // uint64 filter_lookups[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 branch_lookups[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 filter_false_positives[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 filter_negatives[TRUNK_NODE_MAX_HEIGHT];
 
-uint64
-trunk_node_needs_split(trunk_node_config *cfg, in_memory_node *node);
+   // uint64 space_recs[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 space_rec_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 space_rec_tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];
+   // uint64 tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];
+} PLATFORM_CACHELINE_ALIGNED trunk_node_stats;
 
-platform_status
-trunk_node_leaf_select_split_pivots(trunk_node_config *cfg,
-                                    in_memory_node    *node,
-                                    uint64            *num_pivots,
-                                    key_buffer       **pivots);
+#define PIVOT_STATE_MAP_BUCKETS 1024
 
-/*
- * Incorporation and flushing-related functions
- */
+typedef struct pivot_compaction_state pivot_compaction_state;
 
-platform_status
-trunk_node_incorporate(trunk_node_config *cfg,
-                       in_memory_node    *node,
-                       uint64             branch_addr,
-                       uint64             maplet_addr,
-                       trunk_node_config *result);
+typedef struct pivot_state_map {
+   uint64                  locks[PIVOT_STATE_MAP_BUCKETS];
+   pivot_compaction_state *buckets[PIVOT_STATE_MAP_BUCKETS];
+} pivot_state_map;
 
-routed_bundle *
-trunk_node_extract_pivot_bundle(in_memory_node *node, uint64 child_num);
+typedef struct trunk_node_context {
+   const trunk_node_config *cfg;
+   platform_heap_id         hid;
+   cache                   *cc;
+   allocator               *al;
+   task_system             *ts;
+   trunk_node_stats        *stats;
+   pivot_state_map          pivot_states;
+   platform_batch_rwlock    root_lock;
+   uint64                   root_addr;
+} trunk_node_context;
 
-uint64
-trunk_node_extract_inflight_bundles(in_memory_node   *node,
-                                    uint64            child_num,
-                                    inflight_bundle **bundles);
+typedef struct ondisk_node_handle {
+   cache       *cc;
+   page_handle *header_page;
+   page_handle *content_page;
+} ondisk_node_handle;
 
-platform_status
-trunk_node_append_pivot_bundle(in_memory_node *node, routed_bundle *bundle);
+typedef VECTOR(iterator *) iterator_vector;
 
-platform_status
-trunk_node_append_inflight_bundles(in_memory_node  *node,
-                                   uint64           num_bundles,
-                                   inflight_bundle *bundles);
+typedef struct branch_merger {
+   platform_heap_id   hid;
+   const data_config *data_cfg;
+   key                min_key;
+   key                max_key;
+   uint64             height;
+   merge_iterator    *merge_itor;
+   iterator_vector    itors;
+} branch_merger;
 
-platform_status
-trunk_node_split_leaf(in_memory_node *node,
-                      uint64          num_pivots,
-                      key_buffer     *pivots,
-                      in_memory_node *results);
+/********************************
+ * Mutations
+ ********************************/
 
-platform_status
-trunk_node_split_index(in_memory_node  *node,
-                       uint64           max_fanout,
-                       uint64          *num_results,
-                       in_memory_node **results);
-
-platform_status
-trunk_node_create_root(in_memory_node *node);
-
-platform_status
-trunk_node_add_pivots(in_memory_node *node, uint64 num_pivots, pivot *pivots);
-
-/*
- * Branch and filter compaction-related functions
- */
-
-platform_status
-trunk_node_replace_inflight_bundles(in_memory_node  *node,
-                                    uint64           num_old_bundles,
-                                    inflight_bundle *old_bundles,
-                                    inflight_bundle *new_bundle);
-
-platform_status
-trunk_node_replace_pivot_maplets(in_memory_node   *node,
-                                 compacted_bundle *old_bundle,
-                                 maplet_ref       *old_maplets,
-                                 maplet_ref       *new_maplets);
-
-uint64
-trunk_node_height(in_memory_node *node);
-
-uint64
-trunk_node_child(in_memory_node *node, key target);
-
-/*
- * Marshalling and un-marshalling functions
- */
-
-platform_status
-trunk_node_marshall(in_memory_node *node,
-                    allocator      *al,
-                    cache          *cc,
-                    uint64         *addr);
+void
+trunk_modification_begin(trunk_node_context *context);
 
 platform_status
-trunk_node_unmarshall(platform_heap_id hid,
-                      cache           *cc,
-                      uint64           addr,
-                      in_memory_node  *result);
+trunk_incorporate(trunk_node_context *context,
+                  routing_filter      filter,
+                  uint64              branch,
+                  uint64             *new_root_addr);
 
-/*
- * Query functions
- */
+void
+trunk_set_root_address(trunk_node_context *context, uint64 new_root_addr);
+
+void
+trunk_modification_end(trunk_node_context *context);
+
+/********************************
+ * Queries
+ ********************************/
 
 platform_status
-trunk_node_lookup_and_merge(cache             *cc,
-                            uint64             addr,
-                            key                target,
-                            merge_accumulator *data,
-                            uint64            *child_addr);
+trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle);
 
 platform_status
-trunk_node_get_range_query_info(cache           *cc,
-                                uint64           addr,
-                                key              target,
-                                key_buffer      *lower_bound,
-                                key_buffer      *upper_bound,
-                                writable_buffer *branches,
-                                uint64          *child_addr);
+trunk_merge_lookup(trunk_node_context *context,
+                   ondisk_node_handle *handle,
+                   key                 tgt,
+                   merge_accumulator  *result);
+
+platform_status
+trunk_collect_branches(trunk_node_context *context,
+                       ondisk_node_handle *handle,
+                       key                 tgt,
+                       branch_merger      *accumulator);

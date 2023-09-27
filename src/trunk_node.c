@@ -7,7 +7,7 @@
  *     This file contains the implementation SplinterDB trunk nodes.
  */
 
-//#include "trunk_node.h"
+#include "trunk_node.h"
 #include "platform.h"
 #include "data_internal.h"
 #include "util.h"
@@ -77,18 +77,6 @@ typedef struct ONDISK ondisk_trunk_node {
 
 typedef VECTOR(trunk_node) trunk_node_vector;
 
-typedef VECTOR(iterator *) iterator_vector;
-
-typedef struct branch_merger {
-   platform_heap_id   hid;
-   const data_config *data_cfg;
-   key                min_key;
-   key                max_key;
-   uint64             height;
-   merge_iterator    *merge_itor;
-   iterator_vector    itors;
-} branch_merger;
-
 typedef enum bundle_compaction_state {
    BUNDLE_COMPACTION_NOT_STARTED = 0,
    BUNDLE_COMPACTION_IN_PROGRESS = 1,
@@ -110,7 +98,7 @@ typedef struct bundle_compaction {
 
 typedef struct trunk_node_context trunk_node_context;
 
-typedef struct pivot_compaction_state {
+struct pivot_compaction_state {
    struct pivot_compaction_state *next;
    trunk_node_context            *context;
    key_buffer                     key;
@@ -119,93 +107,6 @@ typedef struct pivot_compaction_state {
    uint64                         num_branches;
    bool32                         maplet_compaction_failed;
    bundle_compaction             *bundle_compactions;
-} pivot_compaction_state;
-
-#define PIVOT_STATE_MAP_BUCKETS 1024
-
-typedef struct pivot_state_map {
-   uint64                  locks[PIVOT_STATE_MAP_BUCKETS];
-   pivot_compaction_state *buckets[PIVOT_STATE_MAP_BUCKETS];
-} pivot_state_map;
-
-typedef struct trunk_node_config {
-   const data_config    *data_cfg;
-   const btree_config   *btree_cfg;
-   const routing_config *filter_cfg;
-   uint64                leaf_split_threshold_kv_bytes;
-   uint64                target_leaf_kv_bytes;
-   uint64                target_fanout;
-   uint64                per_child_flush_threshold_kv_bytes;
-   uint64                max_tuples_per_node;
-} trunk_node_config;
-
-#define TRUNK_NODE_MAX_HEIGHT 16
-
-typedef struct trunk_node_stats {
-   uint64 count_flushes[TRUNK_NODE_MAX_HEIGHT];
-   uint64 flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   uint64 flush_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 full_flushes[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 root_full_flushes;
-   // uint64 root_count_flushes;
-   // uint64 root_flush_time_ns;
-   // uint64 root_flush_time_max_ns;
-   // uint64 root_flush_wait_time_ns;
-   // uint64 failed_flushes[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 root_failed_flushes;
-   // uint64 memtable_failed_flushes;
-
-   // uint64 compactions[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_aborted_flushed[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_aborted_leaf_split[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_discarded_flushed[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_discarded_leaf_split[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_empty[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_tuples[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_max_tuples[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_pack_time_ns[TRUNK_NODE_MAX_HEIGHT];
-
-   // uint64 discarded_deletes;
-   // uint64 index_splits;
-   // uint64 leaf_splits;
-   // uint64 leaf_splits_leaves_created;
-   // uint64 leaf_split_time_ns;
-   // uint64 leaf_split_max_time_ns;
-
-   // uint64 single_leaf_splits;
-   // uint64 single_leaf_tuples;
-   // uint64 single_leaf_max_tuples;
-
-   uint64 filters_built[TRUNK_NODE_MAX_HEIGHT];
-   uint64 filter_tuples[TRUNK_NODE_MAX_HEIGHT];
-   uint64 filter_time_ns[TRUNK_NODE_MAX_HEIGHT];
-
-   // uint64 lookups_found;
-   // uint64 lookups_not_found;
-   // uint64 filter_lookups[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 branch_lookups[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 filter_false_positives[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 filter_negatives[TRUNK_NODE_MAX_HEIGHT];
-
-   // uint64 space_recs[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 space_rec_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 space_rec_tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];
-} PLATFORM_CACHELINE_ALIGNED trunk_node_stats;
-
-struct trunk_node_context {
-   const trunk_node_config *cfg;
-   platform_heap_id         hid;
-   cache                   *cc;
-   allocator               *al;
-   task_system             *ts;
-   trunk_node_stats        *stats;
-   pivot_state_map          pivot_states;
-   platform_batch_rwlock    root_lock;
-   uint64                   root_addr;
 };
 
 /***************************************************
@@ -725,12 +626,6 @@ ondisk_pivot_key(ondisk_pivot *odp)
 /********************************************************
  * Node serialization/deserialization and refcounting.
  ********************************************************/
-
-typedef struct ondisk_node_handle {
-   cache       *cc;
-   page_handle *header_page;
-   page_handle *content_page;
-} ondisk_node_handle;
 
 static platform_status
 ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
@@ -2900,10 +2795,12 @@ cleanup_pivots:
 platform_status
 trunk_incorporate(trunk_node_context *context,
                   routing_filter      filter,
-                  branch_ref          branch,
+                  uint64              branch_addr,
                   uint64             *new_root_addr)
 {
    platform_status rc;
+
+   branch_ref branch = create_branch_ref(branch_addr);
 
    bundle_vector inflight;
    vector_init(&inflight, context->hid);
