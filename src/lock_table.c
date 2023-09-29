@@ -47,7 +47,7 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
    if (entry->is_locked) {
 #   if LOCK_TABLE_DEBUG
-      platform_default_log("[Thread %d] Already acquired lock on key %s\n",
+      platform_default_log("[Thread %lu] Already acquired lock on key %s\n",
                            get_tid(),
                            (char *)slice_data(entry->key));
 #   endif
@@ -60,7 +60,7 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
           &lock_tbl->table, &entry_key, lock_owner, get_tid()))
    {
 #   if LOCK_TABLE_DEBUG
-      platform_default_log("[Thread %d] Acquired lock on key %s\n",
+      platform_default_log("[Thread %lu] Acquired lock on key %s\n",
                            get_tid(),
                            (char *)slice_data(entry->key));
 #   endif
@@ -68,7 +68,7 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
       return LOCK_TABLE_RC_OK;
    }
 #   if LOCK_TABLE_DEBUG
-   platform_default_log("[Thread %d] Fail to acquire lock on key %s\n",
+   platform_default_log("[Thread %lu] Fail to acquire lock on key %s\n",
                         get_tid(),
                         (char *)slice_data(entry->key));
 #   endif
@@ -82,7 +82,7 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
 {
    if (entry->is_locked) {
 #   if LOCK_TABLE_DEBUG
-      platform_default_log("[Thread %d] Already acquired lock on key %s\n",
+      platform_default_log("[Thread %lu] Already acquired lock on key %s\n",
                            get_tid(),
                            (char *)slice_data(entry->key));
 #   endif
@@ -101,7 +101,7 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
              &lock_tbl->table, &entry_key, lock_owner, get_tid()))
       {
 #   if LOCK_TABLE_DEBUG
-         platform_default_log("[Thread %d] Acquired lock on key %s\n",
+         platform_default_log("[Thread %lu] Acquired lock on key %s\n",
                               get_tid(),
                               (char *)slice_data(entry->key));
 #   endif
@@ -116,7 +116,7 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
    }
 
 #   if LOCK_TABLE_DEBUG
-   platform_default_log("[Thread %d] Fail to acquire lock on key %s\n",
+   platform_default_log("[Thread %lu] Fail to acquire lock on key %s\n",
                         get_tid(),
                         (char *)slice_data(entry->key));
 #   endif
@@ -129,7 +129,7 @@ lock_table_rc
 lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
    platform_assert(entry->is_locked,
-                   "[Thread %d] Trying to release lock that is not locked by "
+                   "[Thread %lu] Trying to release lock that is not locked by "
                    "this thread (key: %s)",
                    get_tid(),
                    (char *)slice_data(entry->key));
@@ -139,7 +139,7 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
    entry->is_locked = 0;
 
 #   if LOCK_TABLE_DEBUG
-   platform_default_log("[Thread %d] Release lock on key %s\n",
+   platform_default_log("[Thread %lu] Release lock on key %s\n",
                         get_tid(),
                         (char *)slice_data(entry->key));
 #   endif
