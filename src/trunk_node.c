@@ -639,7 +639,7 @@ ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
    return STATUS_OK;
 }
 
-static void
+void
 ondisk_node_handle_deinit(ondisk_node_handle *handle)
 {
    if (handle->content_page != NULL
@@ -1133,7 +1133,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       }
    }
 
-   uint64 min_inflight_bundle_start = node_first_live_inflight_bundle(node);
+   int64 min_inflight_bundle_start = node_first_live_inflight_bundle(node);
 
    for (int64 i = vector_length(&node->inflight_bundles) - 1;
         i >= min_inflight_bundle_start;
@@ -1154,6 +1154,17 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    }
 
    node_inc_all_refs(context, node);
+
+   if (current_page != header_page) {
+      cache_unlock(context->cc, current_page);
+      cache_unclaim(context->cc, current_page);
+      cache_unget(context->cc, current_page);
+   }
+
+   cache_unlock(context->cc, header_page);
+   cache_unclaim(context->cc, header_page);
+   cache_unget(context->cc, header_page);
+
    return result;
 
 cleanup:
@@ -1572,6 +1583,12 @@ pivot_compaction_state_append_compaction(pivot_compaction_state *state,
       }
       last->next = compaction;
    }
+}
+
+static void
+pivot_state_map_init(pivot_state_map *map)
+{
+   ZERO_CONTENTS(map);
 }
 
 static uint64
@@ -3083,4 +3100,129 @@ cleanup:
       ondisk_node_handle_deinit(handle);
    }
    return rc;
+}
+
+/************************************
+ * Lifecycle
+ ************************************/
+
+void
+trunk_node_config_init(trunk_node_config    *config,
+                       const data_config    *data_cfg,
+                       const btree_config   *btree_cfg,
+                       const routing_config *filter_cfg,
+                       uint64                leaf_split_threshold_kv_bytes,
+                       uint64                target_leaf_kv_bytes,
+                       uint64                target_fanout,
+                       uint64                per_child_flush_threshold_kv_bytes,
+                       uint64                max_tuples_per_node)
+{
+   config->data_cfg                      = data_cfg;
+   config->btree_cfg                     = btree_cfg;
+   config->filter_cfg                    = filter_cfg;
+   config->leaf_split_threshold_kv_bytes = leaf_split_threshold_kv_bytes;
+   config->target_leaf_kv_bytes          = target_leaf_kv_bytes;
+   config->target_fanout                 = target_fanout;
+   config->per_child_flush_threshold_kv_bytes =
+      per_child_flush_threshold_kv_bytes;
+   config->max_tuples_per_node = max_tuples_per_node;
+}
+
+
+platform_status
+trunk_node_create(trunk_node_context      *context,
+                  const trunk_node_config *cfg,
+                  platform_heap_id         hid,
+                  cache                   *cc,
+                  allocator               *al,
+                  task_system             *ts)
+{
+   platform_status rc;
+
+   context->cfg   = cfg;
+   context->hid   = hid;
+   context->cc    = cc;
+   context->al    = al;
+   context->ts    = ts;
+   context->stats = NULL;
+
+   platform_batch_rwlock_init(&context->root_lock);
+   pivot_state_map_init(&context->pivot_states);
+
+   trunk_node empty_node;
+   rc = node_init_empty_leaf(
+      &empty_node, hid, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   pivot *pvt = node_serialize(context, &empty_node);
+   node_deinit(&empty_node, context);
+   if (pvt == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
+   }
+
+   context->root_addr = pivot_child_addr(pvt);
+   pivot_destroy(pvt, hid);
+
+   return STATUS_OK;
+
+cleanup:
+   return rc;
+}
+
+void
+trunk_node_mount(trunk_node_context      *context,
+                 const trunk_node_config *cfg,
+                 platform_heap_id         hid,
+                 cache                   *cc,
+                 allocator               *al,
+                 task_system             *ts,
+                 uint64                   root_addr)
+{
+   context->cfg   = cfg;
+   context->hid   = hid;
+   context->cc    = cc;
+   context->al    = al;
+   context->ts    = ts;
+   context->stats = NULL;
+
+   platform_batch_rwlock_init(&context->root_lock);
+   pivot_state_map_init(&context->pivot_states);
+
+   context->root_addr = root_addr;
+}
+
+platform_status
+trunk_node_fork(trunk_node_context *dst, trunk_node_context *src)
+{
+   platform_status    rc;
+   ondisk_node_handle handle;
+   rc = trunk_init_root_handle(src, &handle);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 root_addr = handle.header_page->disk_addr;
+   ondisk_node_inc_ref(src, root_addr);
+   ondisk_node_handle_deinit(&handle);
+
+   trunk_node_mount(
+      dst, src->cfg, src->hid, src->cc, src->al, src->ts, root_addr);
+   return STATUS_OK;
+}
+
+platform_status
+trunk_node_make_durable(trunk_node_context *context)
+{
+   // FIXME: extend this to support multiple roots
+   cache_flush(context->cc);
+   return STATUS_OK;
+}
+
+platform_status
+trunk_node_unmount(trunk_node_context *context)
+{
+   // FIXME: need to wait for tasks on this trunk_context to complete.
+   return STATUS_OK;
 }

@@ -126,6 +126,52 @@ typedef struct branch_merger {
 } branch_merger;
 
 /********************************
+ * Lifecycle
+ ********************************/
+
+void
+trunk_node_config_init(trunk_node_config    *config,
+                       const data_config    *data_cfg,
+                       const btree_config   *btree_cfg,
+                       const routing_config *filter_cfg,
+                       uint64                leaf_split_threshold_kv_bytes,
+                       uint64                target_leaf_kv_bytes,
+                       uint64                target_fanout,
+                       uint64                per_child_flush_threshold_kv_bytes,
+                       uint64                max_tuples_per_node);
+
+/* Create an empty trunk */
+platform_status
+trunk_node_create(trunk_node_context      *context,
+                  const trunk_node_config *cfg,
+                  platform_heap_id         hid,
+                  cache                   *cc,
+                  allocator               *al,
+                  task_system             *ts);
+
+/* Mount an existing trunk */
+void
+trunk_node_mount(trunk_node_context      *context,
+                 const trunk_node_config *cfg,
+                 platform_heap_id         hid,
+                 cache                   *cc,
+                 allocator               *al,
+                 task_system             *ts,
+                 uint64                   root_addr);
+
+/* Create a writable snapshot of a trunk */
+platform_status
+trunk_fork(trunk_node_context *dst, trunk_node_context *src);
+
+/* Make a trunk durable */
+platform_status
+trunk__make_durable(trunk_node_context *context);
+
+/* Unmount a trunk.  Does NOT guarantee durability first. */
+platform_status
+trunk_node_unmount(trunk_node_context *context);
+
+/********************************
  * Mutations
  ********************************/
 
@@ -150,6 +196,9 @@ trunk_modification_end(trunk_node_context *context);
 
 platform_status
 trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle);
+
+void
+trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle);
 
 platform_status
 trunk_merge_lookup(trunk_node_context *context,

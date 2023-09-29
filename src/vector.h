@@ -533,7 +533,7 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
    VECTOR_EMPLACE_MAP_GENERIC(                                                 \
       dst, vector_emplace_map_ptr, src, func __VA_OPT__(, __VA_ARGS__))
 
-void
+static inline void
 __vector_reverse(void *arr, uint64 nelts, uint64 eltsize, void *tmp)
 {
    for (uint64 i = 0; i < nelts / 2; i++) {

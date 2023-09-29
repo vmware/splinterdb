@@ -17,7 +17,7 @@
 #define TRACE_ADDR  (UINT64_MAX - 1)
 #define TRACE_ENTRY (UINT32_MAX - 1)
 
-// #define RECORD_ACQUISITION_STACKS
+#define RECORD_ACQUISITION_STACKS
 
 /* how distributed the rw locks are */
 #define CC_RC_WIDTH 4
