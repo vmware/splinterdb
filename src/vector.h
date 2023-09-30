@@ -186,7 +186,7 @@ __vector_replace(writable_buffer       *dst,
    })
 
 #define vector_ensure_capacity(v, capacity)                                    \
-   (writable_buffer_ensure_space(&(v)->wb, capacity * vector_elt_size(v)))
+   (writable_buffer_ensure_space(&(v)->wb, (capacity)*vector_elt_size(v)))
 
 #define vector_copy(v, src)                                                    \
    ({                                                                          \

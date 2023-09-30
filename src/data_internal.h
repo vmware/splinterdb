@@ -551,6 +551,16 @@ data_key_compare(const data_config *cfg, key key1, key key2)
    }
 }
 
+static inline uint32
+data_key_hash(const data_config *cfg, key k, uint32 seed)
+{
+   if (key_is_user_key(k)) {
+      return cfg->key_hash(key_data(k), key_length(k), seed);
+   } else {
+      return seed * (uint32)k.kind;
+   }
+}
+
 static inline int
 data_merge_tuples(const data_config *cfg,
                   key                tuple_key,

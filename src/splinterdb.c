@@ -17,7 +17,6 @@
 #include "platform.h"
 #include "clockcache.h"
 #include "rc_allocator.h"
-#include "trunk_node.h"
 #include "trunk.h"
 #include "btree_private.h"
 #include "shard_log.h"
@@ -31,22 +30,18 @@ splinterdb_get_version()
 }
 
 typedef struct splinterdb {
-   task_system       *task_sys;
-   io_config          io_cfg;
-   platform_io_handle io_handle;
-   allocator_config   allocator_cfg;
-   rc_allocator       allocator_handle;
-   clockcache_config  cache_cfg;
-   clockcache         cache_handle;
-   shard_log_config   log_cfg;
-   task_system_config task_cfg;
-   allocator_root_id  trunk_id;
-   trunk_config       trunk_cfg;
-   trunk_handle      *spl;
-
-   trunk_node_config  trunk_node_cfg;
-   trunk_node_context trunk_context;
-
+   task_system         *task_sys;
+   io_config            io_cfg;
+   platform_io_handle   io_handle;
+   allocator_config     allocator_cfg;
+   rc_allocator         allocator_handle;
+   clockcache_config    cache_cfg;
+   clockcache           cache_handle;
+   shard_log_config     log_cfg;
+   task_system_config   task_cfg;
+   allocator_root_id    trunk_id;
+   trunk_config         trunk_cfg;
+   trunk_handle        *spl;
    platform_heap_handle heap_handle; // for platform_buffer_create
    platform_heap_id     heap_id;
    data_config         *data_cfg;
@@ -222,16 +217,6 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
-   trunk_node_config_init(&kvs->trunk_node_cfg,
-                          kvs->data_cfg,
-                          &kvs->trunk_cfg.btree_cfg,
-                          &kvs->trunk_cfg.filter_cfg,
-                          cfg.memtable_capacity * cfg.fanout,
-                          cfg.memtable_capacity,
-                          cfg.fanout,
-                          cfg.memtable_capacity,
-                          cfg.memtable_capacity * cfg.fanout);
-
    return STATUS_OK;
 }
 
@@ -323,16 +308,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                              kvs->task_sys,
                              kvs->trunk_id,
                              kvs->heap_id);
-      platform_assert(FALSE,
-                      "TODO: implement trunk_node_mount -- need to get the "
-                      "root_addr from the superblock");
-      trunk_node_mount(&kvs->trunk_context,
-                       &kvs->trunk_node_cfg,
-                       kvs->heap_id,
-                       (cache *)&kvs->cache_handle,
-                       (allocator *)&kvs->allocator_handle,
-                       kvs->task_sys,
-                       kvs->spl->root_addr);
    } else {
       kvs->spl = trunk_create(&kvs->trunk_cfg,
                               (allocator *)&kvs->allocator_handle,
@@ -340,12 +315,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                               kvs->task_sys,
                               kvs->trunk_id,
                               kvs->heap_id);
-      status   = trunk_node_create(&kvs->trunk_context,
-                                 &kvs->trunk_node_cfg,
-                                 kvs->heap_id,
-                                 (cache *)&kvs->cache_handle,
-                                 (allocator *)&kvs->allocator_handle,
-                                 kvs->task_sys);
    }
    if (kvs->spl == NULL || !SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB instance.\n",

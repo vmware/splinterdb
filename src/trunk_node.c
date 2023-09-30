@@ -799,18 +799,24 @@ pivot_deserialize(platform_heap_id   hid,
 static platform_status
 bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
 {
+   bundle_init(bndl, hid);
    platform_status rc =
-      bundle_init_single(bndl, hid, odb->maplet, odb->branches[0]);
+      vector_ensure_capacity(&bndl->branches, odb->num_branches);
    if (!SUCCESS(rc)) {
+      bundle_deinit(bndl);
       return rc;
    }
-   for (uint64 i = 1; i < odb->num_branches; i++) {
+
+   bndl->maplet = odb->maplet;
+
+   for (uint64 i = 0; i < odb->num_branches; i++) {
       rc = vector_append(&bndl->branches, odb->branches[i]);
       if (!SUCCESS(rc)) {
          bundle_deinit(bndl);
          return rc;
       }
    }
+
    return STATUS_OK;
 }
 
@@ -900,6 +906,8 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
              header->num_inflight_bundles,
              inflight_bundles);
 
+   return STATUS_OK;
+
 cleanup:
    VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, context->hid);
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
@@ -941,8 +949,8 @@ bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
 static void
 ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
 {
-   uint8 refcount = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
-   if (refcount == AL_NO_REFS) {
+   uint8 refcount = allocator_get_refcount(context->al, addr);
+   if (refcount == AL_ONE_REF) {
       trunk_node      node;
       platform_status rc = node_deserialize(context, addr, &node);
       if (SUCCESS(rc)) {
@@ -962,6 +970,7 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
       }
       allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    }
+   allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
 }
 
 static void
@@ -1303,7 +1312,7 @@ branch_merger_add_ondisk_bundle(branch_merger      *merger,
 static platform_status
 branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
 {
-   platform_assert(merger == NULL);
+   platform_assert(merger->merge_itor == NULL);
 
    return merge_iterator_create(merger->hid,
                                 merger->data_cfg,
@@ -1594,7 +1603,7 @@ pivot_state_map_init(pivot_state_map *map)
 static uint64
 pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
 {
-   uint64 hash = data_cfg->key_hash(key_data(lbkey), key_length(lbkey), 271828);
+   uint64 hash = data_key_hash(data_cfg, lbkey, 271828);
    hash ^= height;
    return hash % PIVOT_STATE_MAP_BUCKETS;
 }

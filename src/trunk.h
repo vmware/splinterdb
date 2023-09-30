@@ -19,6 +19,7 @@
 #include "allocator.h"
 #include "log.h"
 #include "srq.h"
+#include "trunk_node.h"
 
 /*
  * Max height of the Trunk Tree; Limited for convenience to allow for static
@@ -64,13 +65,14 @@ typedef struct trunk_config {
                                 // free space < threshold
    uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
                                 // task.h
-   bool32          use_stats;   // stats
-   memtable_config mt_cfg;
-   btree_config    btree_cfg;
-   routing_config  filter_cfg;
-   data_config    *data_cfg;
-   bool32          use_log;
-   log_config     *log_cfg;
+   bool32            use_stats; // stats
+   memtable_config   mt_cfg;
+   btree_config      btree_cfg;
+   routing_config    filter_cfg;
+   data_config      *data_cfg;
+   bool32            use_log;
+   log_config       *log_cfg;
+   trunk_node_config trunk_node_cfg;
 
    // verbose logging
    bool32               verbose_logging_enabled;
@@ -183,6 +185,8 @@ struct trunk_handle {
    trunk_config          cfg;
    platform_heap_id      heap_id;
    platform_batch_rwlock trunk_root_lock;
+
+   trunk_node_context trunk_context;
 
    // space reclamation
    uint64 est_tuples_in_compaction;

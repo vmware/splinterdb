@@ -788,7 +788,6 @@ static inline uint64               trunk_pivot_num_tuples          (trunk_handle
 static inline uint64               trunk_pivot_kv_bytes            (trunk_handle *spl, trunk_node *node, uint16 pivot_no);
 static inline void                 trunk_pivot_branch_tuple_counts (trunk_handle *spl, trunk_node  *node, uint16 pivot_no, uint16 branch_no, uint64 *num_tuples, uint64 *num_kv_bytes);
 void                               trunk_pivot_recount_num_tuples_and_kv_bytes  (trunk_handle *spl, trunk_node *node, uint64 pivot_no);
-static inline bool32                 trunk_has_vacancy               (trunk_handle *spl, trunk_node *node, uint16 num_new_branches);
 static inline uint16               trunk_add_bundle_number         (trunk_handle *spl, uint16 start, uint16 end);
 static inline uint16               trunk_subtract_bundle_number    (trunk_handle *spl, uint16 start, uint16 end);
 static inline trunk_bundle        *trunk_get_bundle                (trunk_handle *spl, trunk_node *node, uint16 bundle_no);
@@ -2728,14 +2727,6 @@ trunk_branch_count(trunk_handle *spl, trunk_node *node)
       spl, node->hdr->end_branch, node->hdr->start_branch);
 }
 
-static inline bool32
-trunk_has_vacancy(trunk_handle *spl, trunk_node *node, uint16 num_new_branches)
-{
-   uint16 branch_count = trunk_branch_count(spl, node);
-   uint16 max_branches = spl->cfg.hard_max_branches_per_node;
-   return branch_count + num_new_branches + 1 < max_branches;
-}
-
 static inline trunk_branch *
 trunk_get_branch(trunk_handle *spl, trunk_node *node, uint32 k)
 {
@@ -3573,65 +3564,6 @@ unlock_incorp_lock:
    return should_continue;
 }
 
-static inline void
-trunk_install_new_compacted_subbundle(trunk_handle             *spl,
-                                      trunk_node               *node,
-                                      trunk_branch             *new_branch,
-                                      routing_filter           *new_filter,
-                                      trunk_compact_bundle_req *req)
-{
-   req->spl                  = spl;
-   req->height               = trunk_node_height(node);
-   req->max_pivot_generation = trunk_pivot_generation(spl, node);
-   key_buffer_init_from_key(
-      &req->start_key, spl->heap_id, trunk_min_key(spl, node));
-   key_buffer_init_from_key(
-      &req->end_key, spl->heap_id, trunk_max_key(spl, node));
-   req->bundle_no = trunk_get_new_bundle(spl, node);
-
-   trunk_bundle    *bundle = trunk_get_bundle(spl, node, req->bundle_no);
-   trunk_subbundle *sb     = trunk_get_new_subbundle(spl, node, 1);
-   trunk_branch    *branch = trunk_get_new_branch(spl, node);
-   *branch                 = *new_branch;
-   bundle->start_subbundle = trunk_subbundle_no(spl, node, sb);
-   bundle->end_subbundle   = trunk_end_subbundle(spl, node);
-   sb->start_branch        = trunk_branch_no(spl, node, branch);
-   sb->end_branch          = trunk_end_branch(spl, node);
-   sb->state               = SB_STATE_COMPACTED;
-   routing_filter *filter  = trunk_subbundle_filter(spl, node, sb, 0);
-   *filter                 = *new_filter;
-
-   // count tuples for both the req and the pivot counts in the node
-   trunk_tuples_in_bundle(spl,
-                          node,
-                          bundle,
-                          req->output_pivot_tuple_count,
-                          req->output_pivot_kv_byte_count);
-   memmove(req->input_pivot_tuple_count,
-           req->output_pivot_tuple_count,
-           sizeof(req->input_pivot_tuple_count));
-   memmove(req->input_pivot_kv_byte_count,
-           req->output_pivot_kv_byte_count,
-           sizeof(req->input_pivot_kv_byte_count));
-   trunk_pivot_add_bundle_tuple_counts(spl,
-                                       node,
-                                       bundle,
-                                       req->input_pivot_tuple_count,
-                                       req->input_pivot_kv_byte_count);
-
-   // record the pivot generations and increment the boundaries
-   uint16 num_children = trunk_num_children(spl, node);
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      if (pivot_no != 0) {
-         key pivot = trunk_get_pivot(spl, node, pivot_no);
-         trunk_inc_intersection(spl, branch, pivot, FALSE);
-      }
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      req->pivot_generation[pivot_no] = pdata->generation;
-   }
-   debug_assert(trunk_subbundle_branch_count(spl, node, sb) != 0);
-}
-
 /*
  * Function to incorporate the memtable to the root.
  * Carries out the following steps :
@@ -3659,9 +3591,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
                                      const threadid tid)
 {
    trunk_node new_root;
-   uint64     old_root_addr; // unused
-   trunk_claim_and_copy_root(spl, &new_root, &old_root_addr);
-   platform_assert(trunk_has_vacancy(spl, &new_root, 1));
+   trunk_modification_begin(&spl->trunk_context);
 
    platform_stream_handle stream;
    platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
@@ -3680,8 +3610,14 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
    trunk_compact_bundle_req *req = cmt->req;
-   trunk_install_new_compacted_subbundle(
-      spl, &new_root, &cmt->branch, &cmt->filter, req);
+   uint64                    new_root_addr;
+   uint64                    flush_start;
+   if (spl->cfg.use_stats) {
+      flush_start = platform_get_timestamp();
+   }
+   rc = trunk_incorporate(
+      &spl->trunk_context, cmt->filter, cmt->branch.root_addr, &new_root_addr);
+   platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -3691,23 +3627,6 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
    trunk_log_stream_if_enabled(spl, &stream, "\n");
-
-   /*
-    * If root is full, flush until it is no longer full. Also flushes any full
-    * descendents.
-    */
-   uint64 flush_start;
-   if (spl->cfg.use_stats) {
-      flush_start = platform_get_timestamp();
-   }
-   while (trunk_node_is_full(spl, &new_root)) {
-      trunk_flush_fullest(spl, &new_root);
-   }
-
-   // If necessary, split the root
-   if (trunk_needs_split(spl, &new_root)) {
-      trunk_split_root(spl, &new_root);
-   }
 
    /*
     * Lock the lookup lock, blocking lookups.
@@ -3726,7 +3645,8 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
 
    // Switch in the new root and release all locks
-   trunk_update_claimed_root_and_unlock(spl, &new_root);
+   trunk_set_root_address(&spl->trunk_context, new_root_addr);
+   trunk_modification_end(&spl->trunk_context);
    memtable_unblock_lookups(spl->mt_ctxt);
 
    // Enqueue the filter building task.
@@ -3739,8 +3659,6 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
       req->height,
       req->bundle_no);
    trunk_close_log_stream_if_enabled(spl, &stream);
-   task_enqueue(
-      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
    /*
     * Decrement the now-incorporated memtable ref count and recycle if no
@@ -7632,6 +7550,9 @@ trunk_create(trunk_config     *cfg,
    trunk_node_unclaim(spl->cc, &root);
    trunk_node_unget(spl->cc, &root);
 
+   trunk_node_create(
+      &spl->trunk_context, &spl->cfg.trunk_node_cfg, hid, cc, al, ts);
+
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
       platform_assert(spl->stats);
@@ -9655,6 +9576,18 @@ trunk_config_init(trunk_config        *trunk_cfg,
       filter_cfg->index_size *= 2;
       filter_cfg->log_index_size++;
    }
+
+   trunk_node_config_init(&trunk_cfg->trunk_node_cfg,
+                          data_cfg,
+                          &trunk_cfg->btree_cfg,
+                          filter_cfg,
+                          memtable_capacity * fanout,
+                          memtable_capacity,
+                          fanout,
+                          memtable_capacity,
+                          memtable_capacity * fanout);
+
+
    // When everything succeeds, return success.
    return STATUS_OK;
 }
