@@ -883,18 +883,22 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
       }
    }
 
-   ondisk_bundle *odb = ondisk_node_get_first_inflight_bundle(&handle);
-   for (uint64 i = 0; i < header->num_inflight_bundles; i++) {
-      if (odb == NULL) {
-         rc = STATUS_IO_ERROR;
-         goto cleanup;
+   if (0 < header->num_inflight_bundles) {
+      ondisk_bundle *odb = ondisk_node_get_first_inflight_bundle(&handle);
+      for (uint64 i = 0; i < header->num_inflight_bundles; i++) {
+         if (odb == NULL) {
+            rc = STATUS_IO_ERROR;
+            goto cleanup;
+         }
+         rc = VECTOR_EMPLACE_APPEND(
+            &inflight_bundles, bundle_deserialize, context->hid, odb);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         if (i < header->num_inflight_bundles - 1) {
+            odb = ondisk_node_get_next_inflight_bundle(&handle, odb);
+         }
       }
-      rc = VECTOR_EMPLACE_APPEND(
-         &inflight_bundles, bundle_deserialize, context->hid, odb);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
-      odb = ondisk_node_get_next_inflight_bundle(&handle, odb);
    }
 
    vector_reverse(&inflight_bundles);
