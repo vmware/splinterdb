@@ -140,15 +140,6 @@ trunk_node_config_init(trunk_node_config    *config,
                        uint64                per_child_flush_threshold_kv_bytes,
                        uint64                max_tuples_per_node);
 
-/* Create an empty trunk */
-platform_status
-trunk_node_create(trunk_node_context      *context,
-                  const trunk_node_config *cfg,
-                  platform_heap_id         hid,
-                  cache                   *cc,
-                  allocator               *al,
-                  task_system             *ts);
-
 /* Mount an existing trunk */
 void
 trunk_node_mount(trunk_node_context      *context,
@@ -158,6 +149,16 @@ trunk_node_mount(trunk_node_context      *context,
                  allocator               *al,
                  task_system             *ts,
                  uint64                   root_addr);
+
+/* Create an empty trunk */
+void
+trunk_node_create(trunk_node_context      *context,
+                  const trunk_node_config *cfg,
+                  platform_heap_id         hid,
+                  cache                   *cc,
+                  allocator               *al,
+                  task_system             *ts);
+
 
 /* Create a writable snapshot of a trunk */
 platform_status
