@@ -1998,6 +1998,7 @@ bundle_compaction_task(void *arg, void *scratch)
    bc->output_stats  = (trunk_pivot_stats){
        .num_tuples   = pack_req.num_tuples,
        .num_kv_bytes = pack_req.key_bytes + pack_req.message_bytes};
+   trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
    bc->fingerprints         = pack_req.fingerprint_arr;
    pack_req.fingerprint_arr = NULL;
 
@@ -2228,14 +2229,20 @@ node_receive_bundles(trunk_node_context *context,
    for (uint64 i = 0; i < node_num_children(node); i++) {
       btree_pivot_stats btree_stats;
       ZERO_CONTENTS(&btree_stats);
-      rc = accumulate_inflight_bundle_tuple_counts_in_range(
-         vector_get_ptr(inflight, inflight_start),
-         context,
-         &node->pivots,
-         i,
-         &btree_stats);
-      if (!SUCCESS(rc)) {
-         return rc;
+      if (routed) {
+         rc = accumulate_inflight_bundle_tuple_counts_in_range(
+            routed, context, &node->pivots, i, &btree_stats);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+      }
+      for (uint64 j = inflight_start; j < vector_length(inflight); j++) {
+         bundle *bndl = vector_get_ptr(inflight, j);
+         rc           = accumulate_inflight_bundle_tuple_counts_in_range(
+            bndl, context, &node->pivots, i, &btree_stats);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
       trunk_pivot_stats trunk_stats =
          trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
