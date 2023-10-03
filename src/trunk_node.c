@@ -540,7 +540,7 @@ node_is_well_formed_leaf(const trunk_node_config *cfg, const trunk_node *node)
    pivot *ub    = vector_get(&node->pivots, 1);
    key    lbkey = pivot_key(lb);
    key    ubkey = pivot_key(ub);
-   return lb->child_addr == 0 && lb->inflight_bundle_start == 0
+   return lb->child_addr == 0
           && data_key_compare(cfg->data_cfg, lbkey, ubkey) < 0
           && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
 }
@@ -913,6 +913,13 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
              header->num_inflight_bundles,
              inflight_bundles);
 
+   if (node_is_leaf(result)) {
+      platform_assert(node_is_well_formed_leaf(context->cfg, result));
+   } else {
+      platform_assert(
+         node_is_well_formed_index(context->cfg->data_cfg, result));
+   }
+
    return STATUS_OK;
 
 cleanup:
@@ -1089,6 +1096,12 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    page_handle    *header_page  = NULL;
    page_handle    *current_page = NULL;
 
+   if (node_is_leaf(node)) {
+      platform_assert(node_is_well_formed_leaf(context->cfg, node));
+   } else {
+      platform_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
+   }
+
    pivot *result = pivot_create(context->hid,
                                 node_pivot_key(node, 0),
                                 0,
@@ -1112,10 +1125,13 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       goto cleanup;
    }
 
-   ondisk_trunk_node *odnode    = (ondisk_trunk_node *)header_page->data;
-   odnode->height               = node->height;
-   odnode->num_pivots           = vector_length(&node->pivots);
-   odnode->num_inflight_bundles = vector_length(&node->inflight_bundles);
+   int64 min_inflight_bundle_start = node_first_live_inflight_bundle(node);
+
+   ondisk_trunk_node *odnode = (ondisk_trunk_node *)header_page->data;
+   odnode->height            = node->height;
+   odnode->num_pivots        = vector_length(&node->pivots);
+   odnode->num_inflight_bundles =
+      vector_length(&node->inflight_bundles) - min_inflight_bundle_start;
 
    current_page = header_page;
    uint64 page_offset =
@@ -1150,8 +1166,6 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          page_offset += bundle_size;
       }
    }
-
-   int64 min_inflight_bundle_start = node_first_live_inflight_bundle(node);
 
    for (int64 i = vector_length(&node->inflight_bundles) - 1;
         i >= min_inflight_bundle_start;
@@ -1390,7 +1404,9 @@ trunk_set_root_address(trunk_node_context *context, uint64 new_root_addr)
    old_root_addr      = context->root_addr;
    context->root_addr = new_root_addr;
    platform_batch_rwlock_unlock(&context->root_lock, 0);
-   ondisk_node_dec_ref(context, old_root_addr);
+   if (old_root_addr != 0) {
+      ondisk_node_dec_ref(context, old_root_addr);
+   }
 }
 
 void
@@ -1455,14 +1471,14 @@ apply_changes_internal(trunk_node_context *context,
             pivot_set_child_addr(child_pivot, child_addr);
          }
       }
+   }
 
-      if (SUCCESS(rc)) {
-         pivot *pvt = node_serialize(context, &node);
-         if (pvt == NULL) {
-            rc = STATUS_NO_MEMORY;
-         } else {
-            *new_addr = pivot_child_addr(pvt);
-         }
+   if (SUCCESS(rc)) {
+      pivot *pvt = node_serialize(context, &node);
+      if (pvt == NULL) {
+         rc = STATUS_NO_MEMORY;
+      } else {
+         *new_addr = pivot_child_addr(pvt);
       }
    }
 
