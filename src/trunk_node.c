@@ -90,7 +90,7 @@ typedef struct bundle_compaction {
    uint64                    num_bundles;
    trunk_pivot_stats         input_stats;
    bundle_compaction_state   state;
-   branch_merger             merger;
+   branch_ref_vector         input_branches;
    branch_ref                output_branch;
    trunk_pivot_stats         output_stats;
    uint32                   *fingerprints;
@@ -102,6 +102,7 @@ struct pivot_compaction_state {
    struct pivot_compaction_state *next;
    trunk_node_context            *context;
    key_buffer                     key;
+   key_buffer                     ubkey;
    uint64                         height;
    routing_filter                 maplet;
    uint64                         num_branches;
@@ -961,9 +962,11 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
       trunk_node      node;
       platform_status rc = node_deserialize(context, addr, &node);
       if (SUCCESS(rc)) {
-         for (uint64 i = 0; i < vector_length(&node.pivots); i++) {
-            pivot *pvt = vector_get(&node.pivots, i);
-            ondisk_node_dec_ref(context, pvt->child_addr);
+         if (!node_is_leaf(&node)) {
+            for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
+               pivot *pvt = vector_get(&node.pivots, i);
+               ondisk_node_dec_ref(context, pvt->child_addr);
+            }
          }
          for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
             bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
@@ -989,9 +992,11 @@ ondisk_node_inc_ref(trunk_node_context *context, uint64 addr)
 static void
 node_inc_all_refs(trunk_node_context *context, trunk_node *node)
 {
-   for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
-      pivot *pvt = vector_get(&node->pivots, i);
-      ondisk_node_inc_ref(context, pvt->child_addr);
+   if (!node_is_leaf(node)) {
+      for (uint64 i = 0; i < vector_length(&node->pivots) - 1; i++) {
+         pivot *pvt = vector_get(&node->pivots, i);
+         ondisk_node_inc_ref(context, pvt->child_addr);
+      }
    }
    for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
       bundle *bndl = vector_get_ptr(&node->pivot_bundles, i);
@@ -1499,16 +1504,28 @@ static void
 bundle_compaction_destroy(bundle_compaction  *compaction,
                           trunk_node_context *context)
 {
-   branch_merger_deinit(&compaction->merger);
+   for (uint64 i = 0; i < vector_length(&compaction->input_branches); i++) {
+      btree_dec_ref_range(
+         context->cc,
+         context->cfg->btree_cfg,
+         branch_ref_addr(vector_get(&compaction->input_branches, i)),
+         NEGATIVE_INFINITY_KEY,
+         POSITIVE_INFINITY_KEY);
+   }
+   vector_deinit(&compaction->input_branches);
+
    if (compaction->fingerprints) {
       platform_free(context->hid, compaction->fingerprints);
    }
+
    if (!branches_equal(compaction->output_branch, NULL_BRANCH_REF)) {
-      btree_dec_ref(context->cc,
-                    context->cfg->btree_cfg,
-                    branch_ref_addr(compaction->output_branch),
-                    PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(context->cc,
+                          context->cfg->btree_cfg,
+                          branch_ref_addr(compaction->output_branch),
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
    }
+
    platform_free(context->hid, compaction);
 }
 
@@ -1526,23 +1543,28 @@ bundle_compaction_create(trunk_node         *node,
    }
    result->state       = BUNDLE_COMPACTION_NOT_STARTED;
    result->input_stats = pivot_received_bundles_stats(pvt);
-   branch_merger_init(&result->merger,
-                      context->hid,
-                      context->cfg->data_cfg,
-                      pivot_key(pvt),
-                      node_pivot_key(node, pivot_num + 1),
-                      0);
+   vector_init(&result->input_branches, context->hid);
    for (uint64 i = node->num_old_bundles;
         i < vector_length(&node->inflight_bundles);
         i++)
    {
-      rc = branch_merger_add_bundle(&result->merger,
-                                    context->cc,
-                                    context->cfg->btree_cfg,
-                                    vector_get_ptr(&node->inflight_bundles, i));
+      bundle *bndl = vector_get_ptr(&node->inflight_bundles, i);
+      rc           = vector_ensure_capacity(&result->input_branches,
+                                  vector_length(&result->input_branches)
+                                     + vector_length(&bndl->branches));
       if (!SUCCESS(rc)) {
          bundle_compaction_destroy(result, context);
          return NULL;
+      }
+      for (uint64 j = 0; j < bundle_num_branches(bndl); j++) {
+         branch_ref bref = vector_get(&bndl->branches, j);
+         btree_inc_ref_range(context->cc,
+                             context->cfg->btree_cfg,
+                             branch_ref_addr(bref),
+                             NEGATIVE_INFINITY_KEY,
+                             POSITIVE_INFINITY_KEY);
+         rc = vector_append(&result->input_branches, bref);
+         platform_assert_status_ok(rc);
       }
    }
    result->num_bundles =
@@ -1663,6 +1685,7 @@ pivot_state_map_create(trunk_node_context   *context,
                        pivot_state_map      *map,
                        pivot_state_map_lock *lock,
                        key                   pivot_key,
+                       key                   ubkey,
                        uint64                height)
 {
    pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
@@ -1672,6 +1695,12 @@ pivot_state_map_create(trunk_node_context   *context,
    platform_status rc =
       key_buffer_init_from_key(&state->key, context->hid, pivot_key);
    if (!SUCCESS(rc)) {
+      platform_free(context->hid, state);
+      return NULL;
+   }
+   rc = key_buffer_init_from_key(&state->ubkey, context->hid, ubkey);
+   if (!SUCCESS(rc)) {
+      key_buffer_deinit(&state->key);
       platform_free(context->hid, state);
       return NULL;
    }
@@ -1687,12 +1716,14 @@ pivot_state_map_get_or_create(trunk_node_context   *context,
                               pivot_state_map      *map,
                               pivot_state_map_lock *lock,
                               key                   pivot_key,
+                              key                   ubkey,
                               uint64                height)
 {
    pivot_compaction_state *state =
       pivot_state_map_get(context, map, lock, pivot_key, height);
    if (state == NULL) {
-      state = pivot_state_map_create(context, map, lock, pivot_key, height);
+      state =
+         pivot_state_map_create(context, map, lock, pivot_key, ubkey, height);
    }
    return state;
 }
@@ -1849,7 +1880,7 @@ cleanup:
       state->num_branches += vector_length(&apply_args.branches);
       while (state->bundle_compactions != bc) {
          bundle_compaction *next = state->bundle_compactions->next;
-         bundle_compaction_destroy(state->bundle_compactions, context->hid);
+         bundle_compaction_destroy(state->bundle_compactions, context);
          state->bundle_compactions = next;
       }
       if (state->bundle_compactions
@@ -1903,8 +1934,24 @@ bundle_compaction_task(void *arg, void *scratch)
    }
    platform_assert(bc != NULL);
 
+   branch_merger merger;
+   branch_merger_init(&merger,
+                      context->hid,
+                      context->cfg->data_cfg,
+                      key_buffer_key(&state->key),
+                      key_buffer_key(&state->ubkey),
+                      0);
+   rc = branch_merger_add_branches(&merger,
+                                   context->cc,
+                                   context->cfg->btree_cfg,
+                                   vector_length(&bc->input_branches),
+                                   vector_data(&bc->input_branches));
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
    rc = branch_merger_build_merge_itor(
-      &bc->merger, 0 < state->height ? MERGE_INTERMEDIATE : MERGE_FULL);
+      &merger, 0 < state->height ? MERGE_INTERMEDIATE : MERGE_FULL);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -1913,7 +1960,7 @@ bundle_compaction_task(void *arg, void *scratch)
    btree_pack_req_init(&pack_req,
                        context->cc,
                        context->cfg->btree_cfg,
-                       &bc->merger.merge_itor->super,
+                       &merger.merge_itor->super,
                        context->cfg->max_tuples_per_node,
                        context->cfg->filter_cfg->hash,
                        context->cfg->filter_cfg->seed,
@@ -1940,6 +1987,7 @@ bundle_compaction_task(void *arg, void *scratch)
 
 cleanup:
    btree_pack_req_deinit(&pack_req, context->hid);
+   branch_merger_deinit(&merger);
 
    pivot_state_map_lock lock;
    pivot_state_map_aquire_lock(&lock,
@@ -1974,13 +2022,14 @@ enqueue_bundle_compaction(trunk_node_context *context,
       if (node_pivot_has_received_bundles(node, pivot_num)) {
          platform_status rc        = STATUS_OK;
          key             pivot_key = node_pivot_key(node, pivot_num);
+         key             ubkey     = node_pivot_key(node, pivot_num + 1);
 
          pivot_state_map_lock lock;
          pivot_state_map_aquire_lock(
             &lock, context, &context->pivot_states, pivot_key, height);
 
          pivot_compaction_state *state = pivot_state_map_get_or_create(
-            context, &context->pivot_states, &lock, pivot_key, height);
+            context, &context->pivot_states, &lock, pivot_key, ubkey, height);
          if (state == NULL) {
             rc = STATUS_NO_MEMORY;
             goto next;
