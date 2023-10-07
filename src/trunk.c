@@ -6775,9 +6775,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
    merge_accumulator_set_to_null(result);
 
    memtable_begin_lookup(spl->mt_ctxt);
-   bool32 found_in_memtable = FALSE;
-   uint64 mt_gen_start      = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end        = memtable_generation_retired(spl->mt_ctxt);
+   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
+   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
    platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -6785,57 +6784,36 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
       rc = trunk_memtable_lookup(spl, mt_gen, target, result);
       platform_assert_status_ok(rc);
       if (merge_accumulator_is_definitive(result)) {
-         found_in_memtable = TRUE;
+         memtable_end_lookup(spl->mt_ctxt);
          goto found_final_answer_early;
       }
    }
 
-   trunk_node node;
-   trunk_root_get(spl, &node);
-
-   // release memtable lookup lock
+   ondisk_node_handle root_handle;
+   platform_status    rc;
+   rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
+   // release memtable lookup lock before we handle any errors
    memtable_end_lookup(spl->mt_ctxt);
-
-   // look in index nodes
-   uint16 height = trunk_node_height(&node);
-   for (uint16 h = height; h > 0; h--) {
-      uint16 pivot_no =
-         trunk_find_pivot(spl, &node, target, less_than_or_equal);
-      debug_assert(pivot_no < trunk_num_children(spl, &node));
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
-      bool32            should_continue =
-         trunk_pivot_lookup(spl, &node, pdata, target, result);
-      if (!should_continue) {
-         goto found_final_answer_early;
-      }
-      trunk_node child;
-      trunk_node_get(spl->cc, pdata->addr, &child);
-      trunk_node_unget(spl->cc, &node);
-      node = child;
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
-   // look in leaf
-   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, 0);
-   bool32            should_continue =
-      trunk_pivot_lookup(spl, &node, pdata, target, result);
-   if (!should_continue) {
-      goto found_final_answer_early;
+
+   rc = trunk_merge_lookup(&spl->trunk_context, &root_handle, target, result);
+   // Release the node handle before handling any errors
+   trunk_ondisk_node_handle_deinit(&root_handle);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
-   debug_assert(merge_accumulator_is_null(result)
-                || merge_accumulator_message_class(result)
-                      == MESSAGE_TYPE_UPDATE);
-   if (!merge_accumulator_is_null(result)) {
+   if (!merge_accumulator_is_null(result)
+       && !merge_accumulator_is_definitive(result))
+   {
       data_merge_tuples_final(spl->cfg.data_cfg, target, result);
    }
+
 found_final_answer_early:
 
-   if (found_in_memtable) {
-      // release memtable lookup lock
-      memtable_end_lookup(spl->mt_ctxt);
-   } else {
-      trunk_node_unget(spl->cc, &node);
-   }
    if (spl->cfg.use_stats) {
       threadid tid = platform_get_tid();
       if (!merge_accumulator_is_null(result)) {
@@ -7643,6 +7621,14 @@ trunk_mount(trunk_config     *cfg,
    }
 
    trunk_set_super_block(spl, FALSE, FALSE, FALSE);
+
+   trunk_node_mount(&spl->trunk_context,
+                    &spl->cfg.trunk_node_cfg,
+                    hid,
+                    cc,
+                    al,
+                    ts,
+                    super->root_addr);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);

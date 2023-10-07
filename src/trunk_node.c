@@ -641,7 +641,7 @@ ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
 }
 
 void
-ondisk_node_handle_deinit(ondisk_node_handle *handle)
+trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle)
 {
    if (handle->content_page != NULL
        && handle->content_page != handle->header_page) {
@@ -902,7 +902,7 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
       }
    }
 
-   ondisk_node_handle_deinit(&handle);
+   trunk_ondisk_node_handle_deinit(&handle);
 
    vector_reverse(&inflight_bundles);
 
@@ -929,7 +929,7 @@ cleanup:
    vector_deinit(&pivots);
    vector_deinit(&pivot_bundles);
    vector_deinit(&inflight_bundles);
-   ondisk_node_handle_deinit(&handle);
+   trunk_ondisk_node_handle_deinit(&handle);
    return rc;
 }
 
@@ -961,12 +961,45 @@ bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
    }
 }
 
+void
+ondisk_node_wait_for_readers(trunk_node_context *context, uint64 addr)
+{
+   page_handle *page    = cache_get(context->cc, addr, TRUE, PAGE_TYPE_TRUNK);
+   bool32       success = cache_try_claim(context->cc, page);
+   platform_assert(success);
+   cache_lock(context->cc, page);
+   cache_unlock(context->cc, page);
+   cache_unclaim(context->cc, page);
+   cache_unget(context->cc, page);
+}
+
 static void
 ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
 {
-   uint8 refcount = allocator_get_refcount(context->al, addr);
-   if (refcount == AL_ONE_REF) {
-      trunk_node      node;
+   // FIXME: the cache needs to allow accessing pages in the AL_NO_REFS state.
+   // Otherwise there is a crazy race here.  This is an attempt to handle it.
+   //
+   // The problem is that the cache doesn't let you access pages in the
+   // AL_NO_REFS state.  As a result, if we do a dec_ref while another thread is
+   // accessing the node, then it might do a cache_get on a page of the node
+   // after we've done the dec_ref, causing an assertion violation in the cache.
+   // So what we do is we wait for all readers to go away, and then we do a
+   // dec_ref.  If a reader comes in after we've done the dec_ref, then the
+   // refcount must have been more than 1 before we did the dec_ref, so it
+   // won't be in the AL_NO_REFS state, so the other reader will not have a
+   // problem.  Note that waiting for readers to go away is wasteful when the
+   // refcount is > 1, so it would be nice to get rid of this restriction that
+   // we are working around.
+   //
+   // If we do get AL_NO_REFS after the dec_ref, then we also face another
+   // problem: we need to deserialize the node to perform recursive dec_refs. So
+   // we have to temporarilty inc_ref the node, do our work, and then dec_ref it
+   // again.  Sigh.
+   ondisk_node_wait_for_readers(context, addr);
+   uint8 refcount = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+   if (refcount == AL_NO_REFS) {
+      trunk_node node;
+      allocator_inc_ref(context->al, addr);
       platform_status rc = node_deserialize(context, addr, &node);
       if (SUCCESS(rc)) {
          if (!node_is_leaf(&node)) {
@@ -3121,16 +3154,16 @@ trunk_merge_lookup(trunk_node_context *context,
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
-         ondisk_node_handle_deinit(handle);
+         trunk_ondisk_node_handle_deinit(handle);
          *handle = child_handle;
       } else {
-         ondisk_node_handle_deinit(handle);
+         trunk_ondisk_node_handle_deinit(handle);
       }
    }
 
 cleanup:
    if (handle->header_page) {
-      ondisk_node_handle_deinit(handle);
+      trunk_ondisk_node_handle_deinit(handle);
    }
    return rc;
 }
@@ -3195,16 +3228,16 @@ trunk_collect_branches(trunk_node_context *context,
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
-         ondisk_node_handle_deinit(handle);
+         trunk_ondisk_node_handle_deinit(handle);
          *handle = child_handle;
       } else {
-         ondisk_node_handle_deinit(handle);
+         trunk_ondisk_node_handle_deinit(handle);
       }
    }
 
 cleanup:
    if (handle->header_page) {
-      ondisk_node_handle_deinit(handle);
+      trunk_ondisk_node_handle_deinit(handle);
    }
    return rc;
 }
@@ -3280,7 +3313,7 @@ trunk_node_fork(trunk_node_context *dst, trunk_node_context *src)
    }
    uint64 root_addr = handle.header_page->disk_addr;
    ondisk_node_inc_ref(src, root_addr);
-   ondisk_node_handle_deinit(&handle);
+   trunk_ondisk_node_handle_deinit(&handle);
 
    trunk_node_mount(
       dst, src->cfg, src->hid, src->cc, src->al, src->ts, root_addr);
