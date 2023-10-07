@@ -91,6 +91,7 @@ typedef struct trunk_node_stats {
 typedef struct pivot_compaction_state pivot_compaction_state;
 
 typedef struct pivot_state_map {
+   uint64                  num_states;
    uint64                  locks[PIVOT_STATE_MAP_BUCKETS];
    pivot_compaction_state *buckets[PIVOT_STATE_MAP_BUCKETS];
 } pivot_state_map;

@@ -1547,7 +1547,10 @@ apply_changes(trunk_node_context *context,
 
 /*******************************************************************************
  * pivot state tracking
- *******************************************************************************/
+ ******************************************************************************/
+
+uint64 bc_incs = 0;
+uint64 bc_decs = 0;
 
 static void
 bundle_compaction_destroy(bundle_compaction  *compaction,
@@ -1560,6 +1563,7 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
          branch_ref_addr(vector_get(&compaction->input_branches, i)),
          NEGATIVE_INFINITY_KEY,
          POSITIVE_INFINITY_KEY);
+      __sync_fetch_and_add(&bc_decs, 1);
    }
    vector_deinit(&compaction->input_branches);
 
@@ -1614,12 +1618,15 @@ bundle_compaction_create(trunk_node         *node,
                              POSITIVE_INFINITY_KEY);
          rc = vector_append(&result->input_branches, bref);
          platform_assert_status_ok(rc);
+         __sync_fetch_and_add(&bc_incs, 1);
       }
    }
    result->num_bundles =
       vector_length(&node->inflight_bundles) - node->num_old_bundles;
    return result;
 }
+
+uint64 pivot_state_destructions = 0;
 
 static void
 pivot_state_destroy(pivot_compaction_state *state)
@@ -1633,6 +1640,7 @@ pivot_state_destroy(pivot_compaction_state *state)
       bc = next;
    }
    platform_free(state->context->hid, state);
+   __sync_fetch_and_add(&pivot_state_destructions, 1);
 }
 
 static bool
@@ -1729,6 +1737,8 @@ pivot_state_map_get(trunk_node_context   *context,
    return result;
 }
 
+uint64 pivot_state_creations = 0;
+
 static pivot_compaction_state *
 pivot_state_map_create(trunk_node_context   *context,
                        pivot_state_map      *map,
@@ -1757,6 +1767,8 @@ pivot_state_map_create(trunk_node_context   *context,
    state->height       = height;
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;
+   __sync_fetch_and_add(&map->num_states, 1);
+   __sync_fetch_and_add(&pivot_state_creations, 1);
    return state;
 }
 
@@ -1792,6 +1804,7 @@ pivot_state_map_remove(pivot_state_map        *map,
          } else {
             prev->next = state->next;
          }
+         __sync_fetch_and_sub(&map->num_states, 1);
          break;
       }
    }
@@ -1883,7 +1896,6 @@ maplet_compaction_task(void *arg, void *scratch)
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
-      bc->output_branch = NULL_BRANCH_REF;
 
       trunk_pivot_stats delta =
          trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
@@ -2441,7 +2453,7 @@ leaf_split_select_pivots(trunk_node_context *context,
 
    uint64 leaf_num            = 1;
    uint64 cumulative_kv_bytes = 0;
-   while (!iterator_can_next(&merger.merge_itor->super)
+   while (iterator_can_next(&merger.merge_itor->super)
           && leaf_num < target_num_leaves)
    {
       key     curr_key;
@@ -2461,8 +2473,10 @@ leaf_split_select_pivots(trunk_node_context *context,
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
+         leaf_num++;
       }
 
+      cumulative_kv_bytes = new_cumulative_kv_bytes;
       iterator_next(&merger.merge_itor->super);
    }
 
@@ -2675,6 +2689,8 @@ cleanup_new_indexes:
  * flushing
  ***********************************/
 
+uint64 abandoned_leaf_compactions = 0;
+
 static platform_status
 restore_balance_leaf(trunk_node_context *context,
                      trunk_node         *leaf,
@@ -2697,6 +2713,7 @@ restore_balance_leaf(trunk_node_context *context,
                              node_height(leaf));
       if (pivot_state) {
          pivot_state_map_remove(&context->pivot_states, &lock, pivot_state);
+         __sync_fetch_and_add(&abandoned_leaf_compactions, 1);
       }
       pivot_state_map_release_lock(&lock, &context->pivot_states);
    }
@@ -2902,7 +2919,7 @@ build_new_roots(trunk_node_context *context, trunk_node_vector *nodes)
    if (!SUCCESS(rc)) {
       goto cleanup_pivot_bundles;
    }
-   for (uint64 i = 0; i < vector_length(&pivots); i++) {
+   for (uint64 i = 0; i < vector_length(&pivots) - 1; i++) {
       rc = VECTOR_EMPLACE_APPEND(&pivot_bundles, bundle_init, context->hid);
       platform_assert_status_ok(rc);
    }

@@ -3618,6 +3618,11 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    rc = trunk_incorporate(
       &spl->trunk_context, cmt->filter, cmt->branch.root_addr, &new_root_addr);
    platform_assert_status_ok(rc);
+   btree_dec_ref_range(spl->cc,
+                       &spl->cfg.btree_cfg,
+                       cmt->branch.root_addr,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
