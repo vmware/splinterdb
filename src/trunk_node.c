@@ -522,7 +522,8 @@ static bool32
 node_pivot_has_received_bundles(const trunk_node *node, uint64 i)
 {
    pivot *pvt = vector_get(&node->pivots, i);
-   return pivot_inflight_bundle_start(pvt) <= node->num_old_bundles;
+   return pivot_inflight_bundle_start(pvt) <= node->num_old_bundles
+          && node->num_old_bundles < vector_length(&node->inflight_bundles);
 }
 
 debug_only static bool
