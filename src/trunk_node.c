@@ -526,7 +526,7 @@ node_pivot_has_received_bundles(const trunk_node *node, uint64 i)
 }
 
 debug_only static bool
-node_is_well_formed_leaf(const trunk_node_config *cfg, const trunk_node *node)
+node_is_well_formed_leaf(const data_config *data_cfg, const trunk_node *node)
 {
    bool basics =
       node->height == 0 && vector_length(&node->pivots) == 2
@@ -540,8 +540,7 @@ node_is_well_formed_leaf(const trunk_node_config *cfg, const trunk_node *node)
    pivot *ub    = vector_get(&node->pivots, 1);
    key    lbkey = pivot_key(lb);
    key    ubkey = pivot_key(ub);
-   return lb->child_addr == 0
-          && data_key_compare(cfg->data_cfg, lbkey, ubkey) < 0
+   return lb->child_addr == 0 && data_key_compare(data_cfg, lbkey, ubkey) < 0
           && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
 }
 
@@ -584,6 +583,64 @@ node_deinit(trunk_node *node, trunk_node_context *context)
    vector_deinit(&node->pivots);
    vector_deinit(&node->pivot_bundles);
    vector_deinit(&node->inflight_bundles);
+}
+
+
+void
+node_print(const trunk_node    *node,
+           platform_log_handle *log,
+           const data_config   *data_cfg)
+{
+   platform_log(log, "**************************************\n");
+   platform_log(log, "Node height: %lu\n", node_height(node));
+   platform_log(log, "Num old bundles: %lu\n", node->num_old_bundles);
+   platform_log(log, "--------------Pivots------------------\n");
+   platform_log(log,
+                "%5s %10s %10s %10s %10s %10s %10s %20s\n",
+                "i",
+                "pr_kvbytes",
+                "pr_tuples",
+                "kvbytes",
+                "tuples",
+                "child_addr",
+                "if_start",
+                "key");
+   for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+      pivot *pvt = vector_get(&node->pivots, i);
+      platform_log(log,
+                   "%5lu %10lu %10lu %10lu %10lu %10lu %10lu %20s\n",
+                   i,
+                   pvt->prereceive_stats.num_kv_bytes,
+                   pvt->prereceive_stats.num_tuples,
+                   pvt->stats.num_kv_bytes,
+                   pvt->stats.num_tuples,
+                   pvt->child_addr,
+                   pvt->inflight_bundle_start,
+                   key_string(data_cfg, pivot_key(pvt)));
+   }
+   platform_log(log, "--------------Pivot Bundles-----------\n");
+   platform_log(log, "%5s %10s %10s\n", "i", "maplet", "branches");
+   for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
+      const bundle *bndl = vector_get_ptr(&node->pivot_bundles, i);
+      platform_log(log, "%5lu %10lu ", i, bndl->maplet.addr);
+      for (uint64 j = 0; j < bundle_num_branches(bndl); j++) {
+         platform_log(
+            log, "%lu ", branch_ref_addr(bundle_branch_array(bndl)[j]));
+      }
+      platform_log(log, "\n");
+   }
+   platform_log(log, "--------------Inflight Bundles-----------\n");
+   platform_log(log, "%5s %10s %10s\n", "i", "maplet", "branches");
+   for (uint64 i = 0; i < vector_length(&node->inflight_bundles); i++) {
+      const bundle *bndl = vector_get_ptr(&node->inflight_bundles, i);
+      platform_log(log, "%5lu %10lu ", i, bndl->maplet.addr);
+      for (uint64 j = 0; j < bundle_num_branches(bndl); j++) {
+         platform_log(
+            log, "%lu ", branch_ref_addr(bundle_branch_array(bndl)[j]));
+      }
+      platform_log(log, "\n");
+   }
+   platform_log(log, "**************************************\n");
 }
 
 /**************************************************
@@ -914,7 +971,7 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
              inflight_bundles);
 
    if (node_is_leaf(result)) {
-      platform_assert(node_is_well_formed_leaf(context->cfg, result));
+      platform_assert(node_is_well_formed_leaf(context->cfg->data_cfg, result));
    } else {
       platform_assert(
          node_is_well_formed_index(context->cfg->data_cfg, result));
@@ -1130,7 +1187,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    page_handle    *current_page = NULL;
 
    if (node_is_leaf(node)) {
-      platform_assert(node_is_well_formed_leaf(context->cfg, node));
+      platform_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
    } else {
       platform_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
    }
@@ -2315,7 +2372,7 @@ leaf_estimate_unique_keys(trunk_node_context *context,
 {
    platform_status rc;
 
-   debug_assert(node_is_well_formed_leaf(context->cfg, leaf));
+   debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
    routing_filter_vector maplets;
    vector_init(&maplets, context->hid);
@@ -2369,7 +2426,7 @@ leaf_split_target_num_leaves(trunk_node_context *context,
                              trunk_node         *leaf,
                              uint64             *target)
 {
-   debug_assert(node_is_well_formed_leaf(context->cfg, leaf));
+   debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
    if (!leaf_might_need_to_split(context->cfg, leaf)) {
       *target = 1;
@@ -2514,6 +2571,7 @@ leaf_split_init(trunk_node         *new_leaf,
    if (!SUCCESS(rc)) {
       return rc;
    }
+   debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, new_leaf));
 
    return node_receive_bundles(context,
                                new_leaf,
@@ -2551,6 +2609,8 @@ leaf_split(trunk_node_context *context,
       if (!SUCCESS(rc)) {
          goto cleanup_new_leaves;
       }
+      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg,
+                                            vector_get_ptr(new_leaves, i)));
    }
 
 cleanup_new_leaves:
@@ -2661,7 +2721,7 @@ index_split(trunk_node_context *context,
    uint64 num_nodes    = (num_children + context->cfg->target_fanout - 1)
                       / context->cfg->target_fanout;
 
-   for (uint64 i = 0; i < num_nodes; i++) {
+   for (uint64 i = 1; i < num_nodes; i++) {
       rc = VECTOR_EMPLACE_APPEND(new_indexes,
                                  index_init_split,
                                  context->hid,
@@ -2671,6 +2731,8 @@ index_split(trunk_node_context *context,
       if (!SUCCESS(rc)) {
          goto cleanup_new_indexes;
       }
+      debug_assert(node_is_well_formed_index(context->cfg->data_cfg,
+                                             vector_get_ptr(new_indexes, i)));
    }
 
 cleanup_new_indexes:
@@ -2878,6 +2940,11 @@ flush_then_compact(trunk_node_context *context,
    if (!SUCCESS(rc)) {
       return rc;
    }
+   if (node_is_leaf(node)) {
+      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
+   } else {
+      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
+   }
 
    // Perform any needed recursive flushes and node splits
    if (node_is_leaf(node)) {
@@ -2896,6 +2963,10 @@ build_new_roots(trunk_node_context *context, trunk_node_vector *nodes)
 
    debug_assert(1 < vector_length(nodes));
 
+   platform_default_log("build_new_roots\n");
+   VECTOR_APPLY_TO_PTRS(
+      nodes, node_print, Platform_default_log_handle, context->cfg->data_cfg);
+
    // Remember the height now, since we will lose ownership of the children
    // when we enqueue compactions on them.
    uint64 height = node_height(vector_get_ptr(nodes, 0));
@@ -2904,6 +2975,10 @@ build_new_roots(trunk_node_context *context, trunk_node_vector *nodes)
    // back the pivots for the new root node.
    pivot_vector pivots;
    vector_init(&pivots, context->hid);
+   rc = vector_ensure_capacity(&pivots, vector_length(nodes) + 1);
+   if (!SUCCESS(rc)) {
+      goto cleanup_pivots;
+   }
    rc = serialize_nodes_and_enqueue_bundle_compactions(context, nodes, &pivots);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
@@ -2911,6 +2986,19 @@ build_new_roots(trunk_node_context *context, trunk_node_vector *nodes)
    // The nodes in the nodes vector were stolen by the enqueued compaction
    // tasks, so we can just truncate the vector.
    vector_truncate(nodes, 0);
+
+   pivot *ub_pivot = pivot_create(context->hid,
+                                  POSITIVE_INFINITY_KEY,
+                                  0,
+                                  0,
+                                  TRUNK_STATS_ZERO,
+                                  TRUNK_STATS_ZERO);
+   if (ub_pivot == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto cleanup_pivots;
+   }
+   rc = vector_append(&pivots, ub_pivot);
+   platform_assert_status_ok(rc);
 
    // Build a new vector of empty pivot bundles.
    bundle_vector pivot_bundles;
@@ -2931,6 +3019,10 @@ build_new_roots(trunk_node_context *context, trunk_node_vector *nodes)
    // Build the new root
    trunk_node new_root;
    node_init(&new_root, height + 1, pivots, pivot_bundles, 0, inflight);
+   debug_assert(node_is_well_formed_index(context->cfg->data_cfg, &new_root));
+
+   platform_default_log("new root\n");
+   node_print(&new_root, Platform_default_log_handle, context->cfg->data_cfg);
 
    // At this point, all our resources that we've allocated have been put
    // into the new root.
@@ -2939,6 +3031,10 @@ build_new_roots(trunk_node_context *context, trunk_node_vector *nodes)
    if (!SUCCESS(rc)) {
       node_deinit(&new_root, context);
    }
+
+   platform_default_log("new roots\n");
+   VECTOR_APPLY_TO_PTRS(
+      nodes, node_print, Platform_default_log_handle, context->cfg->data_cfg);
 
    return rc;
 
@@ -2984,6 +3080,7 @@ trunk_incorporate(trunk_node_context *context,
       if (!SUCCESS(rc)) {
          goto cleanup_vectors;
       }
+      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, &root));
    }
 
    // Construct a vector of inflight bundles with one singleton bundle for
