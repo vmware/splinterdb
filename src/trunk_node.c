@@ -237,11 +237,11 @@ bundle_vector_print(const bundle_vector *bv,
                     int                  indent)
 {
    platform_log(
-      log, "%*s%5s %10s %10s\n", indent, "", "i", "maplet", "branches");
+      log, "%*s%3s %12s %-12s\n", indent, "", "i", "maplet", "branches");
    for (uint64 i = 0; i < vector_length(bv); i++) {
       const bundle *bndl = vector_get_ptr(bv, i);
       platform_log(
-         log, "%*s%5lu %10lu ", indent, "", i, bundle_maplet(bndl).addr);
+         log, "%*s%3lu %12lu ", indent, "", i, bundle_maplet(bndl).addr);
       for (uint64 j = 0; j < bundle_num_branches(bndl); j++) {
          platform_log(
             log, "%lu ", branch_ref_addr(bundle_branch_array(bndl)[j]));
@@ -420,7 +420,7 @@ pivot_vector_print(const pivot_vector  *pivots,
                    int                  indent)
 {
    platform_log(log,
-                "%*s%5s %10s %10s %10s %10s %10s %10s %20s\n",
+                "%*s%3s %12s %12s %12s %12s %12s %12s %-24s\n",
                 indent,
                 "",
                 "i",
@@ -434,7 +434,7 @@ pivot_vector_print(const pivot_vector  *pivots,
    for (uint64 i = 0; i < vector_length(pivots); i++) {
       pivot *pvt = vector_get(pivots, i);
       platform_log(log,
-                   "%*s%5lu %10lu %10lu %10lu %10lu %10lu %10lu %20s\n",
+                   "%*s%3lu %12lu %12lu %12lu %12lu %12lu %12lu %-24s\n",
                    indent,
                    "",
                    i,
