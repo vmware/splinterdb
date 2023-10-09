@@ -237,11 +237,11 @@ bundle_vector_print(const bundle_vector *bv,
                     int                  indent)
 {
    platform_log(
-      log, "%*s%3s %12s %-12s\n", indent, "", "i", "maplet", "branches");
+      log, "%*s%3s %12s    %-12s\n", indent, "", "i", "maplet", "branches");
    for (uint64 i = 0; i < vector_length(bv); i++) {
       const bundle *bndl = vector_get_ptr(bv, i);
       platform_log(
-         log, "%*s%3lu %12lu ", indent, "", i, bundle_maplet(bndl).addr);
+         log, "%*s%3lu %12lu    ", indent, "", i, bundle_maplet(bndl).addr);
       for (uint64 j = 0; j < bundle_num_branches(bndl); j++) {
          platform_log(
             log, "%lu ", branch_ref_addr(bundle_branch_array(bndl)[j]));
@@ -1998,9 +1998,10 @@ pivot_state_map_create(trunk_node_context   *context,
       platform_free(context->hid, state);
       return NULL;
    }
-   state->context      = context;
-   state->height       = height;
-   state->maplet       = pivot_bundle->maplet;
+   state->context = context;
+   state->height  = height;
+   state->maplet  = pivot_bundle->maplet;
+   routing_filter_inc_ref(context->cc, &state->maplet);
    state->num_branches = bundle_num_branches(pivot_bundle);
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;
@@ -2214,6 +2215,7 @@ cleanup:
    if (SUCCESS(rc)) {
       routing_filter_dec_ref(context->cc, &state->maplet);
       state->maplet = new_maplet;
+      routing_filter_inc_ref(context->cc, &state->maplet);
       state->num_branches += vector_length(&apply_args.branches);
       while (state->bundle_compactions != bc) {
          bundle_compaction *next = state->bundle_compactions->next;
