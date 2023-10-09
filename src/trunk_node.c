@@ -180,13 +180,6 @@ bundle_deinit(bundle *bndl)
    vector_deinit(&bndl->branches);
 }
 
-static void
-bundle_reset(bundle *bndl)
-{
-   vector_truncate(&bndl->branches, 0);
-   bndl->maplet = NULL_ROUTING_FILTER;
-}
-
 static platform_status
 bundle_add_branches(bundle            *bndl,
                     routing_filter     new_maplet,
@@ -1077,8 +1070,9 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
          node_is_well_formed_index(context->cfg->data_cfg, result));
    }
 
-   platform_default_log("node_deserialize addr: %lu\n", addr);
-   node_print(result, Platform_default_log_handle, context->cfg->data_cfg, 4);
+   // platform_default_log("node_deserialize addr: %lu\n", addr);
+   // node_print(result, Platform_default_log_handle, context->cfg->data_cfg,
+   // 4);
 
    return STATUS_OK;
 
@@ -1394,8 +1388,8 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    cache_unclaim(context->cc, header_page);
    cache_unget(context->cc, header_page);
 
-   platform_default_log("node_serialize: addr=%lu\n", header_addr);
-   node_print(node, Platform_default_log_handle, context->cfg->data_cfg, 4);
+   // platform_default_log("node_serialize: addr=%lu\n", header_addr);
+   // node_print(node, Platform_default_log_handle, context->cfg->data_cfg, 4);
 
    return result;
 
@@ -3126,17 +3120,47 @@ restore_balance_index(trunk_node_context *context,
             pivot_set_inflight_bundle_start(
                new_pivot, vector_length(&index->inflight_bundles));
          }
+         bundle_vector new_pivot_bundles;
+         vector_init(&new_pivot_bundles, context->hid);
+         rc = vector_ensure_capacity(&new_pivot_bundles,
+                                     vector_length(&new_pivots));
+         if (!SUCCESS(rc)) {
+            VECTOR_APPLY_TO_ELTS(&new_pivots, pivot_destroy, context->hid);
+            vector_deinit(&new_pivots);
+            vector_deinit(&new_pivot_bundles);
+            return rc;
+         }
+         for (uint64 j = 0; j < vector_length(&new_pivots); j++) {
+            rc = VECTOR_EMPLACE_APPEND(
+               &new_pivot_bundles, bundle_init, context->hid);
+            platform_assert_status_ok(rc);
+         }
          rc = vector_replace(
             &index->pivots, i, 1, &new_pivots, 0, vector_length(&new_pivots));
          if (!SUCCESS(rc)) {
             VECTOR_APPLY_TO_ELTS(&new_pivots, pivot_destroy, context->hid);
             vector_deinit(&new_pivots);
+            VECTOR_APPLY_TO_PTRS(&new_pivot_bundles, bundle_deinit);
+            vector_deinit(&new_pivot_bundles);
+            return rc;
+         }
+         bundle_deinit(pivot_bundle);
+         rc = vector_replace(&index->pivot_bundles,
+                             i,
+                             1,
+                             &new_pivot_bundles,
+                             0,
+                             vector_length(&new_pivot_bundles));
+         if (!SUCCESS(rc)) {
+            VECTOR_APPLY_TO_ELTS(&new_pivots, pivot_destroy, context->hid);
+            vector_deinit(&new_pivots);
+            VECTOR_APPLY_TO_PTRS(&new_pivot_bundles, bundle_deinit);
+            vector_deinit(&new_pivot_bundles);
             return rc;
          }
          pivot_destroy(pvt, context->hid);
          vector_deinit(&new_pivots);
-
-         bundle_reset(pivot_bundle);
+         vector_deinit(&new_pivot_bundles);
 
          if (context->stats) {
             uint64 flush_time = platform_timestamp_elapsed(flush_start);
