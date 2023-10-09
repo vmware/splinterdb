@@ -136,7 +136,7 @@ typedef struct {
  */
 
 static inline key
-key_buffer_key(key_buffer *kb)
+key_buffer_key(const key_buffer *kb)
 {
    if (kb->kind == NEGATIVE_INFINITY) {
       return NEGATIVE_INFINITY_KEY;

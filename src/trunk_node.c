@@ -1793,11 +1793,74 @@ bundle_compaction_create(trunk_node         *node,
    return result;
 }
 
+debug_only static void
+pivot_compaction_state_print(const pivot_compaction_state *state,
+                             platform_log_handle          *log,
+                             const data_config            *data_cfg,
+                             int                           indent)
+{
+   platform_log(log, "%*sheight: %lu\n", indent, "", state->height);
+   platform_log(log,
+                "%*skey: %s\n",
+                indent,
+                "",
+                key_string(data_cfg, key_buffer_key(&state->key)));
+   platform_log(log,
+                "%*subkey: %s\n",
+                indent,
+                "",
+                key_string(data_cfg, key_buffer_key(&state->ubkey)));
+   platform_log(log, "%*smaplet: %lu\n", indent, "", state->maplet.addr);
+   platform_log(log, "%*snum_branches: %lu\n", indent, "", state->num_branches);
+   platform_log(log,
+                "%*smaplet_compaction_failed: %d\n",
+                indent,
+                "",
+                state->maplet_compaction_failed);
+   platform_log(log,
+                "%*s%10s %12s %12s %5s %12s %12s %12s %18s %s\n",
+                indent + 4,
+                "",
+                "nbundles",
+                "in_tuples",
+                "in_kvbytes",
+                "state",
+                "out_branch",
+                "out_tuples",
+                "out_kvbytes",
+                "fprints",
+                "in_branches");
+   for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
+        bc                    = bc->next)
+   {
+      platform_log(log,
+                   "%*s%10lu %12lu %12lu %5d %12lu %12lu %12lu %18p ",
+                   indent + 4,
+                   "",
+                   bc->num_bundles,
+                   bc->input_stats.num_tuples,
+                   bc->input_stats.num_kv_bytes,
+                   bc->state,
+                   branch_ref_addr(bc->output_branch),
+                   bc->output_stats.num_tuples,
+                   bc->output_stats.num_kv_bytes,
+                   bc->fingerprints);
+      for (uint64 i = 0; i < vector_length(&bc->input_branches); i++) {
+         platform_log(
+            log, "%lu ", branch_ref_addr(vector_get(&bc->input_branches, i)));
+      }
+      platform_log(log, "\n");
+   }
+}
+
 uint64 pivot_state_destructions = 0;
 
 static void
 pivot_state_destroy(pivot_compaction_state *state)
 {
+   platform_default_log("pivot_state_destroy: %p\n", state);
+   pivot_compaction_state_print(
+      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
    key_buffer_deinit(&state->key);
    routing_filter_dec_ref(state->context->cc, &state->maplet);
    bundle_compaction *bc = state->bundle_compactions;
@@ -1842,6 +1905,10 @@ pivot_compaction_state_append_compaction(pivot_compaction_state *state,
       }
       last->next = compaction;
    }
+   platform_default_log("pivot_compaction_state_append_compaction: %p\n",
+                        state);
+   pivot_compaction_state_print(
+      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
 }
 
 static void
@@ -1912,7 +1979,8 @@ pivot_state_map_create(trunk_node_context   *context,
                        pivot_state_map_lock *lock,
                        key                   pivot_key,
                        key                   ubkey,
-                       uint64                height)
+                       uint64                height,
+                       const bundle         *pivot_bundle)
 {
    pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
    if (state == NULL) {
@@ -1932,10 +2000,17 @@ pivot_state_map_create(trunk_node_context   *context,
    }
    state->context      = context;
    state->height       = height;
+   state->maplet       = pivot_bundle->maplet;
+   state->num_branches = bundle_num_branches(pivot_bundle);
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;
    __sync_fetch_and_add(&map->num_states, 1);
    __sync_fetch_and_add(&pivot_state_creations, 1);
+
+   platform_default_log("pivot_compaction_state_create: %p\n", state);
+   pivot_compaction_state_print(
+      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
+
    return state;
 }
 
@@ -1945,13 +2020,14 @@ pivot_state_map_get_or_create(trunk_node_context   *context,
                               pivot_state_map_lock *lock,
                               key                   pivot_key,
                               key                   ubkey,
-                              uint64                height)
+                              uint64                height,
+                              const bundle         *pivot_bundle)
 {
    pivot_compaction_state *state =
       pivot_state_map_get(context, map, lock, pivot_key, height);
    if (state == NULL) {
-      state =
-         pivot_state_map_create(context, map, lock, pivot_key, ubkey, height);
+      state = pivot_state_map_create(
+         context, map, lock, pivot_key, ubkey, height, pivot_bundle);
    }
    return state;
 }
@@ -1972,6 +2048,11 @@ pivot_state_map_remove(pivot_state_map        *map,
             prev->next = state->next;
          }
          __sync_fetch_and_sub(&map->num_states, 1);
+         platform_default_log("pivot_compaction_state_remove: %p\n", state);
+         pivot_compaction_state_print(state,
+                                      Platform_default_log_handle,
+                                      state->context->cfg->data_cfg,
+                                      4);
          break;
       }
    }
@@ -2277,16 +2358,23 @@ enqueue_bundle_compaction(trunk_node_context *context,
 
    for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
       if (node_pivot_has_received_bundles(node, pivot_num)) {
-         platform_status rc        = STATUS_OK;
-         key             pivot_key = node_pivot_key(node, pivot_num);
-         key             ubkey     = node_pivot_key(node, pivot_num + 1);
+         platform_status rc           = STATUS_OK;
+         key             pivot_key    = node_pivot_key(node, pivot_num);
+         key             ubkey        = node_pivot_key(node, pivot_num + 1);
+         bundle         *pivot_bundle = node_pivot_bundle(node, pivot_num);
 
          pivot_state_map_lock lock;
          pivot_state_map_aquire_lock(
             &lock, context, &context->pivot_states, pivot_key, height);
 
-         pivot_compaction_state *state = pivot_state_map_get_or_create(
-            context, &context->pivot_states, &lock, pivot_key, ubkey, height);
+         pivot_compaction_state *state =
+            pivot_state_map_get_or_create(context,
+                                          &context->pivot_states,
+                                          &lock,
+                                          pivot_key,
+                                          ubkey,
+                                          height,
+                                          pivot_bundle);
          if (state == NULL) {
             rc = STATUS_NO_MEMORY;
             goto next;
