@@ -9575,8 +9575,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
                           memtable_capacity * fanout,
                           memtable_capacity,
                           fanout,
-                          memtable_capacity,
-                          memtable_capacity * fanout);
+                          memtable_capacity);
 
 
    // When everything succeeds, return success.

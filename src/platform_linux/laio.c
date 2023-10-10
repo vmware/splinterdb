@@ -26,6 +26,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+#      include <sanitizer/msan_interface.h>
+#   endif
+#endif
 
 #define LAIO_HAND_BATCH_SIZE 32
 
@@ -201,6 +206,11 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 
    io  = (laio_handle *)ioh;
    ret = pread(io->fd, buf, bytes, addr);
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+   __msan_unpoison(buf, ret);
+#   endif
+#endif
    if (ret == bytes) {
       return STATUS_OK;
    }
@@ -302,6 +312,17 @@ laio_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 
    platform_assert(res2 == 0);
    req = (io_async_req *)((char *)iocb - offsetof(io_async_req, iocb));
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+   if (iocb->aio_lio_opcode == IO_CMD_PREAD
+       || iocb->aio_lio_opcode == IO_CMD_PREADV)
+   {
+      for (uint64 i = 0; i < req->count; i++) {
+         __msan_unpoison(req->iovec[i].iov_base, req->iovec[i].iov_len);
+      }
+   }
+#   endif
+#endif
    req->callback(req->metadata, req->iovec, req->count, status);
    req->busy = FALSE;
 }

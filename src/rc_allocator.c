@@ -62,30 +62,30 @@ rc_allocator_alloc_virtual(allocator *a, uint64 *addr, page_type type)
    return rc_allocator_alloc(al, addr, type);
 }
 
-uint8
+refcount
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr);
 
-uint8
+refcount
 rc_allocator_inc_ref_virtual(allocator *a, uint64 addr)
 {
    rc_allocator *al = (rc_allocator *)a;
    return rc_allocator_inc_ref(al, addr);
 }
 
-uint8
+refcount
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type);
 
-uint8
+refcount
 rc_allocator_dec_ref_virtual(allocator *a, uint64 addr, page_type type)
 {
    rc_allocator *al = (rc_allocator *)a;
    return rc_allocator_dec_ref(al, addr, type);
 }
 
-uint8
+refcount
 rc_allocator_get_ref(rc_allocator *al, uint64 addr);
 
-uint8
+refcount
 rc_allocator_get_ref_virtual(allocator *a, uint64 addr)
 {
    rc_allocator *al = (rc_allocator *)a;
@@ -351,7 +351,7 @@ rc_allocator_init(rc_allocator      *al,
       return rc;
    }
    // To ensure alignment always allocate in multiples of page size.
-   uint64 buffer_size = cfg->extent_capacity * sizeof(uint8);
+   uint64 buffer_size = cfg->extent_capacity * sizeof(refcount);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
    rc                 = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(rc)) {
@@ -434,7 +434,7 @@ rc_allocator_mount(rc_allocator      *al,
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 
-   uint64 buffer_size = cfg->extent_capacity * sizeof(uint8);
+   uint64 buffer_size = cfg->extent_capacity * sizeof(refcount);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
    status             = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(status)) {
@@ -497,7 +497,7 @@ rc_allocator_unmount(rc_allocator *al)
  *      freed.
  *----------------------------------------------------------------------
  */
-uint8
+refcount
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
    debug_assert(rc_allocator_valid_extent_addr(al, addr));
@@ -505,7 +505,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
 
-   uint8 ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
+   refcount ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != 1 && ref_count != 0);
    if (SHOULD_TRACE(addr)) {
       platform_default_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
@@ -516,7 +516,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
    return ref_count;
 }
 
-uint8
+refcount
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 {
    debug_assert(rc_allocator_valid_extent_addr(al, addr));
@@ -524,8 +524,8 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
 
-   uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
-   platform_assert(ref_count != UINT8_MAX);
+   refcount ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
+   platform_assert(ref_count != ((refcount)(-1)));
    if (ref_count == 0) {
       platform_assert(type != PAGE_TYPE_INVALID);
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
@@ -540,7 +540,7 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    return ref_count;
 }
 
-uint8
+refcount
 rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 {
    uint64 extent_no;
@@ -836,9 +836,9 @@ rc_allocator_print_stats(rc_allocator *al)
 void
 rc_allocator_print_allocated(rc_allocator *al)
 {
-   uint64 i;
-   uint8  ref;
-   uint64 nallocated = al->stats.curr_allocated;
+   uint64   i;
+   refcount ref;
+   uint64   nallocated = al->stats.curr_allocated;
 
    // For more than a few allocated extents, print enclosing { } tags.
    bool32 print_curly = (nallocated > 20);

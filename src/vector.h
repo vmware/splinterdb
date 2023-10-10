@@ -126,7 +126,7 @@ __vector_replace(writable_buffer       *dst,
    uint8 *srcdata = writable_buffer_data(src);
    memmove(dstdata + (dstoff + srclen) * eltsize,
            dstdata + (dstoff + dstlen) * eltsize,
-           (old_dst_size - (dstoff + dstlen)) * eltsize);
+           old_dst_size - (dstoff + dstlen) * eltsize);
    memmove(
       dstdata + dstoff * eltsize, srcdata + srcoff * eltsize, srclen * eltsize);
 

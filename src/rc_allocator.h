@@ -59,7 +59,7 @@ typedef struct rc_allocator {
    allocator               super;
    allocator_config       *cfg;
    buffer_handle           bh;
-   uint8                  *ref_count;
+   refcount               *ref_count;
    uint64                  hand;
    io_handle              *io;
    rc_allocator_meta_page *meta_page;

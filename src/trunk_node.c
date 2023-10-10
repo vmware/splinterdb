@@ -1150,8 +1150,8 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
    // we have to temporarilty inc_ref the node, do our work, and then dec_ref it
    // again.  Sigh.
    ondisk_node_wait_for_readers(context, addr);
-   uint8 refcount = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
-   if (refcount == AL_NO_REFS) {
+   refcount rfc = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+   if (rfc == AL_NO_REFS) {
       trunk_node node;
       allocator_inc_ref(context->al, addr);
       platform_status rc = node_deserialize(context, addr, &node);
@@ -2248,6 +2248,29 @@ enqueue_maplet_compaction(pivot_compaction_state *args)
  * bundle compaction
  ************************/
 
+static platform_status
+compute_tuple_bound(trunk_node_context *context,
+                    branch_ref_vector  *branches,
+                    key                 lb,
+                    key                 ub,
+                    uint64             *tuple_bound)
+{
+   *tuple_bound = 0;
+   for (uint64 i = 0; i < vector_length(branches); i++) {
+      branch_ref        bref = vector_get(branches, i);
+      btree_pivot_stats stats;
+      btree_count_in_range(context->cc,
+                           context->cfg->btree_cfg,
+                           branch_ref_addr(bref),
+                           lb,
+                           ub,
+                           &stats);
+      *tuple_bound += stats.num_kvs;
+   }
+   return STATUS_OK;
+}
+
+
 static void
 bundle_compaction_task(void *arg, void *scratch)
 {
@@ -2283,6 +2306,16 @@ bundle_compaction_task(void *arg, void *scratch)
       goto cleanup;
    }
 
+   uint64 tuple_bound;
+   rc = compute_tuple_bound(context,
+                            &bc->input_branches,
+                            key_buffer_key(&state->key),
+                            key_buffer_key(&state->ubkey),
+                            &tuple_bound);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
    rc = branch_merger_build_merge_itor(
       &merger, 0 < state->height ? MERGE_INTERMEDIATE : MERGE_FULL);
    if (!SUCCESS(rc)) {
@@ -2294,7 +2327,7 @@ bundle_compaction_task(void *arg, void *scratch)
                        context->cc,
                        context->cfg->btree_cfg,
                        &merger.merge_itor->super,
-                       context->cfg->max_tuples_per_node,
+                       tuple_bound,
                        context->cfg->filter_cfg->hash,
                        context->cfg->filter_cfg->seed,
                        context->hid);
@@ -2836,6 +2869,10 @@ leaf_split(trunk_node_context *context,
 
    key_buffer_vector pivots;
    vector_init(&pivots, context->hid);
+   rc = vector_ensure_capacity(&pivots, target_num_leaves + 1);
+   if (!SUCCESS(rc)) {
+      goto cleanup_pivots;
+   }
    rc = leaf_split_select_pivots(context, leaf, target_num_leaves, &pivots);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
@@ -3629,8 +3666,7 @@ trunk_node_config_init(trunk_node_config    *config,
                        uint64                leaf_split_threshold_kv_bytes,
                        uint64                target_leaf_kv_bytes,
                        uint64                target_fanout,
-                       uint64                per_child_flush_threshold_kv_bytes,
-                       uint64                max_tuples_per_node)
+                       uint64                per_child_flush_threshold_kv_bytes)
 {
    config->data_cfg                      = data_cfg;
    config->btree_cfg                     = btree_cfg;
@@ -3640,7 +3676,6 @@ trunk_node_config_init(trunk_node_config    *config,
    config->target_fanout                 = target_fanout;
    config->per_child_flush_threshold_kv_bytes =
       per_child_flush_threshold_kv_bytes;
-   config->max_tuples_per_node = max_tuples_per_node;
 }
 
 

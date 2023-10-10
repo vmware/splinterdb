@@ -26,7 +26,6 @@ typedef struct trunk_node_config {
    uint64                target_leaf_kv_bytes;
    uint64                target_fanout;
    uint64                per_child_flush_threshold_kv_bytes;
-   uint64                max_tuples_per_node;
 } trunk_node_config;
 
 #define TRUNK_NODE_MAX_HEIGHT 16
@@ -138,8 +137,7 @@ trunk_node_config_init(trunk_node_config    *config,
                        uint64                leaf_split_threshold_kv_bytes,
                        uint64                target_leaf_kv_bytes,
                        uint64                target_fanout,
-                       uint64                per_child_flush_threshold_kv_bytes,
-                       uint64                max_tuples_per_node);
+                       uint64 per_child_flush_threshold_kv_bytes);
 
 /* Mount an existing trunk */
 void

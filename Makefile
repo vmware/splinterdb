@@ -160,8 +160,8 @@ ifndef BUILD_MSAN
 endif
 
 ifeq "$(BUILD_MSAN)" "1"
-   CFLAGS  += -fsanitize=memory
-   LDFLAGS += -fsanitize=memory
+   CFLAGS  += -fsanitize=memory -fsanitize-memory-track-origins
+   LDFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
    BUILD_DIR:=$(BUILD_DIR)-msan
 else ifneq "$(BUILD_MSAN)" "0"
    $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
