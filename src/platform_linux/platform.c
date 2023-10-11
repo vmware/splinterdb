@@ -321,7 +321,7 @@ platform_condvar_timedwait(platform_condvar *cv, timestamp timeouts_ns)
    const timestamp one_second_ns = SEC_TO_NSEC(1);
    ts.tv_sec += (ts.tv_nsec + timeouts_ns) / one_second_ns;
    ts.tv_nsec = (ts.tv_nsec + timeouts_ns) % one_second_ns;
-   status = pthread_cond_timedwait(&cv->cond, &cv->lock, &ts);
+   status     = pthread_cond_timedwait(&cv->cond, &cv->lock, &ts);
    return CONST_STATUS(status);
 }
 

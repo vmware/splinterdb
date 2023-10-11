@@ -146,7 +146,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    return iceberg_insert_and_get(txn_kvsb->tscache,
                                  &entry->key,
                                  (ValueType **)&entry->tuple_ts,
-                                 platform_get_tid() - 1);
+                                 platform_get_tid());
 }
 
 static inline void
@@ -158,7 +158,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    entry->tuple_ts = NULL;
 
-   iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid() - 1);
+   iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
 }
 
 static rw_entry *
@@ -299,11 +299,11 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->sktch_config.get_value_fn = &sketch_get_timestamp_set;
 
 #if EXPERIMENTAL_MODE_TICTOC_COUNTER
-   txn_splinterdb_cfg->sktch_config.rows = 1;
+   txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols = 1;
 #elif EXPERIMENTAL_MODE_TICTOC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
-   txn_splinterdb_cfg->sktch_config.cols = 131072;
+   txn_splinterdb_cfg->sktch_config.cols = 1;
 #else
 #   error "Invalid experimental mode"
 #endif
@@ -640,6 +640,9 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
+   if (!txn) {
+      return splinterdb_insert(txn_kvsb->kvsb, user_key, value);
+   }
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }

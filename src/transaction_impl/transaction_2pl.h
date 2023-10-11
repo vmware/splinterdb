@@ -258,7 +258,7 @@ local_write(transactional_splinterdb *txn_kvsb,
             slice                     user_key,
             message                   msg)
 {
-   const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
+   const data_config *cfg = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    char              *user_key_copy;
    user_key_copy = TYPED_ARRAY_ZALLOC(0, user_key_copy, slice_length(user_key));
    rw_entry *entry = rw_entry_get(
@@ -284,7 +284,7 @@ local_write(transactional_splinterdb *txn_kvsb,
       rw_entry_set_msg(entry, msg);
    } else {
       // TODO it needs to be checked later for upsert
-      key wkey = key_create_from_slice(entry->key);
+      key       wkey = key_create_from_slice(entry->key);
       const key ukey = key_create_from_slice(user_key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
@@ -309,6 +309,10 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
+   if (!txn) {
+      return splinterdb_insert(txn_kvsb->kvsb, user_key, value);
+   }
+
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }

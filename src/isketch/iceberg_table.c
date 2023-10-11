@@ -785,7 +785,7 @@ iceberg_lv3_insert(iceberg_table *table,
                    ValueType      value,
                    uint64_t       refcount,
                    uint64_t       lv3_index,
-                   threadid        thread_id)
+                   threadid       thread_id)
 {
 
 #ifdef ENABLE_RESIZE
@@ -859,7 +859,7 @@ iceberg_lv2_insert_internal(iceberg_table *table,
                             uint64_t       refcount,
                             uint8_t        fprint,
                             uint64_t       index,
-                            threadid        thread_id)
+                            threadid       thread_id)
 {
    uint64_t bindex, boffset;
    get_index_offset(table->metadata.log_init_size, index, &bindex, &boffset);
@@ -915,7 +915,7 @@ iceberg_lv2_insert(iceberg_table *table,
                    ValueType      value,
                    uint64_t       refcount,
                    uint64_t       lv3_index,
-                   threadid        thread_id)
+                   threadid       thread_id)
 {
 
    iceberg_metadata *metadata = &table->metadata;
@@ -1002,7 +1002,7 @@ iceberg_insert_internal(iceberg_table *table,
                         uint8_t        fprint,
                         uint64_t       bindex,
                         uint64_t       boffset,
-                        threadid        thread_id)
+                        threadid       thread_id)
 {
    iceberg_metadata  *metadata = &table->metadata;
    iceberg_lv1_block *blocks   = table->level1[bindex];
@@ -1048,7 +1048,7 @@ static bool
 iceberg_get_value_internal(iceberg_table *table,
                            slice          key,
                            kv_pair      **kv,
-                           threadid        thread_id,
+                           threadid       thread_id,
                            bool           should_lock,
                            bool           should_lookup_sketch);
 
@@ -1056,7 +1056,7 @@ static bool
 iceberg_put_or_insert(iceberg_table *table,
                       slice         *key,
                       ValueType    **value,
-                      threadid        thread_id,
+                      threadid       thread_id,
                       bool           increase_refcount,
                       bool           overwrite_value)
 {
@@ -1200,7 +1200,7 @@ __attribute__((always_inline)) bool
 iceberg_insert(iceberg_table *table,
                slice         *key,
                ValueType      value,
-               threadid        thread_id)
+               threadid       thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    ValueType *value_ptr = &value;
@@ -1211,7 +1211,7 @@ __attribute__((always_inline)) bool
 iceberg_insert_without_increasing_refcount(iceberg_table *table,
                                            slice         *key,
                                            ValueType      value,
-                                           threadid        thread_id)
+                                           threadid       thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    ValueType *value_ptr = &value;
@@ -1223,7 +1223,7 @@ __attribute__((always_inline)) bool
 iceberg_insert_and_get(iceberg_table *table,
                        slice         *key,
                        ValueType    **value,
-                       threadid        thread_id)
+                       threadid       thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    return iceberg_put_or_insert(table, key, value, thread_id, true, false);
@@ -1233,7 +1233,7 @@ __attribute__((always_inline)) bool
 iceberg_insert_and_get_without_increasing_refcount(iceberg_table *table,
                                                    slice         *key,
                                                    ValueType    **value,
-                                                   threadid        thread_id)
+                                                   threadid       thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
    return iceberg_put_or_insert(table, key, value, thread_id, false, false);
@@ -1263,7 +1263,7 @@ bool
 iceberg_update(iceberg_table *table,
                slice         *key,
                ValueType      value,
-               threadid        thread_id)
+               threadid       thread_id)
 {
 
    iceberg_metadata *metadata = &table->metadata;
@@ -1298,7 +1298,7 @@ __attribute__((always_inline)) bool
 iceberg_put(iceberg_table *table,
             slice         *key,
             ValueType      value,
-            threadid        thread_id)
+            threadid       thread_id)
 {
    ValueType *value_ptr = &value;
    return iceberg_put_or_insert(table, key, &value_ptr, thread_id, true, true);
@@ -1317,7 +1317,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
                             uint64_t       lv3_index,
                             bool           delete_item,
                             bool           force_remove,
-                            threadid        thread_id)
+                            threadid       thread_id)
 {
    uint64_t bindex, boffset;
    get_index_offset(
@@ -1415,7 +1415,7 @@ iceberg_lv3_remove(iceberg_table *table,
                    uint64_t       lv3_index,
                    bool           delete_item,
                    bool           force_remove,
-                   threadid        thread_id)
+                   threadid       thread_id)
 {
 
    bool ret = iceberg_lv3_remove_internal(
@@ -1467,7 +1467,7 @@ iceberg_lv2_remove(iceberg_table *table,
                    uint64_t       lv3_index,
                    bool           delete_item,
                    bool           force_remove,
-                   threadid        thread_id)
+                   threadid       thread_id)
 {
    iceberg_metadata *metadata = &table->metadata;
 
@@ -1629,7 +1629,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                                   ValueType     *value,
                                   bool           delete_item,
                                   bool           force_remove,
-                                  threadid        thread_id)
+                                  threadid       thread_id)
 {
    iceberg_metadata *metadata = &table->metadata;
    uint8_t           fprint;
@@ -1755,6 +1755,11 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
              table->spl_data_config, blocks[boffset].slots[slot].key, key)
           == 0)
       {
+
+         // printf("tid %lu %p %s %s boffset=%lu slot=%d\n", thread_id, (void
+         // *)table,
+         // __func__, (char *)slice_data(key), boffset, slot);
+
          // printf("tid %d %p %s %s before decreasing %lu\n", thread_id, (void
          // *)table, __func__, key, blocks[boffset].slots[slot].refcount);
 
@@ -1784,9 +1789,9 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
          } else {
             blocks[boffset].slots[slot].refcount--;
          }
-         // printf("tid %d %p %s %s %s %d\n", thread_id, (void *)table,
-         // __func__, key, ret ? "DELETED" : "REFCOUNT DECREASED",
-         // blocks[boffset].slots[slot].val.refcount);
+         // printf("tid %lu %p %s %s %s %lu\n", thread_id, (void *)table,
+         // __func__, (char *)slice_data(key), ret ? "DELETED" : "REFCOUNT
+         // DECREASED", blocks[boffset].slots[slot].refcount);
 
          unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
          return ret;
@@ -1813,7 +1818,7 @@ __attribute__((always_inline)) bool
 iceberg_get_and_remove(iceberg_table *table,
                        slice          key,
                        ValueType     *value,
-                       threadid        thread_id)
+                       threadid       thread_id)
 {
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
@@ -2024,7 +2029,7 @@ static bool
 iceberg_put_nolock(iceberg_table *table,
                    slice          key,
                    ValueType      value,
-                   threadid        thread_id)
+                   threadid       thread_id)
 {
 #ifdef ENABLE_RESIZE
    if (unlikely(need_resize(table))) {
@@ -2085,12 +2090,12 @@ iceberg_put_nolock(iceberg_table *table,
 }
 
 static bool
-iceberg_get_value_internal(iceberg_table                  *table,
-                           slice                           key,
-                           kv_pair                       **kv,
+iceberg_get_value_internal(iceberg_table                   *table,
+                           slice                            key,
+                           kv_pair                        **kv,
                            __attribute__((unused)) threadid thread_id,
-                           bool                            should_lock,
-                           bool                            should_lookup_sketch)
+                           bool                             should_lock,
+                           bool should_lookup_sketch)
 {
    iceberg_metadata *metadata = &table->metadata;
 
@@ -2192,9 +2197,14 @@ iceberg_get_value_internal(iceberg_table                  *table,
              table->spl_data_config, blocks[boffset].slots[slot].key, key)
           == 0)
       {
-         // printf("tid %d %p %s %s refcount: %d Found in lv1\n", thread_id,
-         // (void *)table, __func__, key,
-         // blocks[boffset].slots[slot].val.refcount);
+         // printf("tid %lu %p %s %s boffset=%lu slot=%d\n", thread_id, (void
+         // *)table,
+         // __func__, (char *)slice_data(key), boffset, slot);
+
+         // printf("tid %lu %p %s %s refcount: %lu Found in lv1\n", thread_id,
+         // (void *)table, __func__, (char *)slice_data(key),
+         // blocks[boffset].slots[slot].refcount);
+
          *kv = &blocks[boffset].slots[slot];
 
          // printf("tid %d %p %s %s refcount: %d Found in lv1\n", thread_id,
@@ -2211,8 +2221,8 @@ iceberg_get_value_internal(iceberg_table                  *table,
 
    bool ret = iceberg_lv2_get_value(table, key, kv, index);
 
-   // printf("tid %d %p %s %s %s\n", thread_id, (void *)table, __func__, key ,
-   // ret ? "Found in lv2" : "Not found");
+   // printf("tid %lu %p %s %s %s\n", thread_id, (void *)table, __func__, (char
+   // *)slice_data(key) , ret ? "Found in lv2" : "Not found");
 
    // If there is a sketch and the key is not found, insert the key
    // and the value which is from the sketch into the table. Then,
@@ -2236,9 +2246,10 @@ __attribute__((always_inline)) bool
 iceberg_get_value(iceberg_table *table,
                   slice          key,
                   ValueType    **value,
-                  threadid        thread_id)
+                  threadid       thread_id)
 {
-   // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
+   // printf("tid %lu %p %s %s\n", thread_id, (void *)table, __func__, (char
+   // *)slice_data(key));
    kv_pair *kv = NULL;
    bool     found =
       iceberg_get_value_internal(table, key, &kv, thread_id, true, true);

@@ -13,7 +13,7 @@
  * NO_WAIT, WAIT-DIE, and WOUND-WAIT
  */
 
-#define LOCK_TABLE_DEBUG 0
+#define LOCK_TABLE_DEBUG   0
 #define WOUND_WAIT_TIMEOUT 10
 
 // The lock table is just a hash map
@@ -28,7 +28,7 @@ typedef enum lock_type {
 
 typedef struct lock_req {
    lock_type        lt;
-   transaction     *txn; // access to transaction ts as well 
+   transaction     *txn;  // access to transaction ts as well
    struct lock_req *next; // to form a linked list
 } lock_req;
 

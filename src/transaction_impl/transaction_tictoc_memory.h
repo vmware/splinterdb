@@ -109,7 +109,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       txn_kvsb->tscache,
       &entry->key,
       (ValueType **)&entry->tuple_ts,
-      platform_get_tid() - 1);
+      platform_get_tid());
 }
 
 static inline void
@@ -124,7 +124,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //    KeyType   key_ht   = (KeyType)slice_data(entry->key);
    //    ValueType value_ht = {0};
    //    if (iceberg_get_and_remove(
-   //           txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
+   //           txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
    //    {
    //       if (slice_data(entry->key) != key_ht) {
    //          platform_free_from_heap(0, key_ht);
@@ -342,7 +342,7 @@ transactional_splinterdb_register_thread(transactional_splinterdb *kvs)
    splinterdb_register_thread(kvs->kvsb);
 
 #if USE_TRANSACTION_STATS
-   transaction_stats_init(&kvs->txn_stats, platform_get_tid() - 1);
+   transaction_stats_init(&kvs->txn_stats, platform_get_tid());
 #endif
 }
 
@@ -350,8 +350,8 @@ void
 transactional_splinterdb_deregister_thread(transactional_splinterdb *kvs)
 {
 #if USE_TRANSACTION_STATS
-   transaction_stats_dump(&kvs->txn_stats, platform_get_tid() - 1);
-   transaction_stats_deinit(&kvs->txn_stats, platform_get_tid() - 1);
+   transaction_stats_dump(&kvs->txn_stats, platform_get_tid());
+   transaction_stats_deinit(&kvs->txn_stats, platform_get_tid());
 #endif
 
    splinterdb_deregister_thread(kvs->kvsb);
@@ -365,7 +365,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    memset(txn, 0, sizeof(*txn));
 
 #if USE_TRANSACTION_STATS
-   transaction_stats_begin(&txn_kvsb->txn_stats, platform_get_tid() - 1);
+   transaction_stats_begin(&txn_kvsb->txn_stats, platform_get_tid());
 #endif
    return 0;
 }
@@ -386,7 +386,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 {
 
 #if USE_TRANSACTION_STATS
-   transaction_stats_commit_start(&txn_kvsb->txn_stats, platform_get_tid() - 1);
+   transaction_stats_commit_start(&txn_kvsb->txn_stats, platform_get_tid());
 #endif
 
    txn_timestamp commit_ts = 0;
@@ -498,8 +498,7 @@ RETRY_LOCK_WRITE_SET:
 
    if (!is_abort) {
 #if USE_TRANSACTION_STATS
-      transaction_stats_write_start(&txn_kvsb->txn_stats,
-                                    platform_get_tid() - 1);
+      transaction_stats_write_start(&txn_kvsb->txn_stats, platform_get_tid());
 #endif
 
       int rc = 0;
@@ -550,10 +549,9 @@ RETRY_LOCK_WRITE_SET:
 
 #if USE_TRANSACTION_STATS
    if (is_abort) {
-      transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid() - 1);
+      transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid());
    } else {
-      transaction_stats_commit_end(&txn_kvsb->txn_stats,
-                                   platform_get_tid() - 1);
+      transaction_stats_commit_end(&txn_kvsb->txn_stats, platform_get_tid());
    }
 #endif
 
@@ -629,6 +627,9 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
+   if (!txn) {
+      return splinterdb_insert(txn_kvsb->kvsb, user_key, value);
+   }
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }

@@ -5,6 +5,8 @@
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
 #   include "transaction_impl/tictoc_disk_internal.h"
+#elif EXPERIMENTAL_MODE_STO_DISK
+#   include "transaction_impl/sto_disk_internal.h"
 #elif EXPERIMENTAL_MODE_SILO_MEMORY
 #   include "transaction_impl/fantasticc_internal.h"
 #else
@@ -13,6 +15,7 @@
 #endif
 
 #if USE_LOCK_TABLE
+#   include "isketch/iceberg_table.h"
 #   include "poison.h"
 
 #   define LOCK_TABLE_DEBUG 0
@@ -39,7 +42,7 @@ lock_table_destroy(lock_table *lock_tbl)
 static inline threadid
 get_tid()
 {
-   return platform_get_tid() - 1;
+   return platform_get_tid();
 }
 
 lock_table_rc
@@ -60,9 +63,10 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
           &lock_tbl->table, &entry_key, lock_owner, get_tid()))
    {
 #   if LOCK_TABLE_DEBUG
-      platform_default_log("[Thread %lu] Acquired lock on key %s\n",
+      platform_default_log("[Thread %lu] Acquired lock on key %s(%p)\n",
                            get_tid(),
-                           (char *)slice_data(entry->key));
+                           (char *)slice_data(entry->key),
+                           slice_data(entry->key));
 #   endif
       entry->is_locked = 1;
       return LOCK_TABLE_RC_OK;
@@ -134,15 +138,16 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
                    get_tid(),
                    (char *)slice_data(entry->key));
 
+#   if LOCK_TABLE_DEBUG
+   platform_default_log("[Thread %lu] Release lock on key %s(%p)\n",
+                        get_tid(),
+                        (char *)slice_data(entry->key),
+                        slice_data(entry->key));
+#   endif
+
    platform_assert(
       iceberg_force_remove(&lock_tbl->table, entry->key, get_tid()));
    entry->is_locked = 0;
-
-#   if LOCK_TABLE_DEBUG
-   platform_default_log("[Thread %lu] Release lock on key %s\n",
-                        get_tid(),
-                        (char *)slice_data(entry->key));
-#   endif
 
    return LOCK_TABLE_RC_OK;
 }
@@ -150,6 +155,14 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 lock_table_rc
 lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
 {
+
+   // #   if LOCK_TABLE_DEBUG
+   //    platform_default_log("[Thread %lu] Get a lock state on key %s(%p)\n",
+   //                         get_tid(),
+   //                         (char *)slice_data(entry->key),
+   //                         slice_data(entry->key));
+   // #   endif
+
    ValueType *value = NULL;
    if (iceberg_get_value(&lock_tbl->table, entry->key, &value, get_tid())) {
       return LOCK_TABLE_RC_BUSY;

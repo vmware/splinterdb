@@ -3,7 +3,7 @@
 
 #pragma once
 
-#if EXPERIMENTAL_MODE_TICTOC_DISK
+#if EXPERIMENTAL_MODE_TICTOC_DISK || EXPERIMENTAL_MODE_STO_DISK
 
 #   include "splinterdb/data.h"
 

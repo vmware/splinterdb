@@ -66,11 +66,12 @@ typedef struct rw_entry rw_entry;
 #define RW_SET_SIZE_LIMIT 64
 
 typedef struct transaction {
-   rw_entry        *rw_entries[RW_SET_SIZE_LIMIT];
-   uint64           num_rw_entries;
-   uint128          ts;
-   // TODO: this should only be declared for WOUND_WAIT, move it in another data struct
-   bool             wounded;
+   rw_entry *rw_entries[RW_SET_SIZE_LIMIT];
+   uint64    num_rw_entries;
+   uint128   ts;
+   // TODO: this should only be declared for WOUND_WAIT, move it in another data
+   // struct
+   bool wounded;
 } transaction;
 
 int

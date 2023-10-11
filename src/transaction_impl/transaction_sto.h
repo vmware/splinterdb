@@ -128,7 +128,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    return iceberg_insert_and_get(txn_kvsb->tscache,
                                  &entry->key,
                                  (ValueType **)&entry->ts,
-                                 platform_get_tid() - 1);
+                                 platform_get_tid());
 }
 
 static inline void
@@ -140,7 +140,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    entry->ts = NULL;
 
-   iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid() - 1);
+   iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
 }
 
 static rw_entry *
@@ -568,6 +568,9 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
+   if (!txn) {
+      return splinterdb_insert(txn_kvsb->kvsb, user_key, value);
+   }
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
 }

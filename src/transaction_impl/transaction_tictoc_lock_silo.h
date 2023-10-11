@@ -30,7 +30,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       txn_kvsb->tscache,
       key_ht,
       (ValueType **)&entry->tuple_ts,
-      platform_get_tid() - 1);
+      platform_get_tid());
    platform_assert(entry->tuple_ts != &ts);
 
    // get the pointer of the value from the iceberg
@@ -58,7 +58,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    // KeyType   key_ht   = (KeyType)slice_data(entry->key);
    // ValueType value_ht = {0};
    // if (iceberg_get_and_remove(
-   //        txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
+   //        txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
    // {
    //    // if (entry->is_read)
    //    //    platform_error_log("remove %s refcount: %d %lu\n",
@@ -540,13 +540,8 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
-   // Call non-transactional insertion for YCSB loading..
-   if (txn == NULL) {
-      rw_entry tmp_entry;
-      rw_entry_set_key(&tmp_entry, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
-      splinterdb_insert(txn_kvsb->kvsb, tmp_entry.key, value);
-      platform_free_from_heap(0, (void *)slice_data(tmp_entry.key));
-      return 0;
+   if (!txn) {
+      return splinterdb_insert(txn_kvsb->kvsb, user_key, value);
    }
 
    return local_write(

@@ -21,27 +21,26 @@ lock_table_rw_destroy(lock_table_rw *lock_tbl)
 static inline threadid
 get_tid()
 {
-   return platform_get_tid() - 1;
+   return platform_get_tid();
 }
 
-#if  EXPERIMENTAL_MODE_2PL_NO_WAIT == 1 || \
-     EXPERIMENTAL_MODE_2PL_WAIT_DIE == 1 || \
-     EXPERIMENTAL_MODE_2PL_WOUND_WAIT == 1
+#if EXPERIMENTAL_MODE_2PL_NO_WAIT == 1 || EXPERIMENTAL_MODE_2PL_WAIT_DIE == 1  \
+   || EXPERIMENTAL_MODE_2PL_WOUND_WAIT == 1
 
 static inline lock_req *
 get_lock_req(lock_type lt, transaction *txn)
 {
    lock_req *lreq;
-   lreq = TYPED_ZALLOC(0, lreq);
-   lreq->next     = NULL;
-   lreq->lt       = lt;
-   lreq->txn      = txn;
+   lreq       = TYPED_ZALLOC(0, lreq);
+   lreq->next = NULL;
+   lreq->lt   = lt;
+   lreq->txn  = txn;
    return lreq;
 }
 #endif
 
 //*******************************************
-#if  EXPERIMENTAL_MODE_2PL_NO_WAIT == 1
+#if EXPERIMENTAL_MODE_2PL_NO_WAIT == 1
 //*******************************************
 // we're not using pthread_rw_lock because it does not
 // support upgrading from shared to exclusive
@@ -339,9 +338,9 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
                iter->txn->wounded = true;
             }
          } else {
-               // we already hold an exclusive lock
-               platform_condvar_unlock(&le->condvar);
-               return LOCK_TABLE_RW_RC_OK;
+            // we already hold an exclusive lock
+            platform_condvar_unlock(&le->condvar);
+            return LOCK_TABLE_RW_RC_OK;
          }
       } else if (lt == WRITE_LOCK) {
          if (iter->txn->ts == txn->ts && iter->next == NULL) {
@@ -352,10 +351,10 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
             return LOCK_TABLE_RW_RC_OK;
          } else {
             // wound all younger readers (i.e., with ts > txn->ts)
-            while(iter && iter->txn->ts > txn->ts) {
+            while (iter && iter->txn->ts > txn->ts) {
                // lazy wound; txn aborts on the next lock attempt
                iter->txn->wounded = true;
-               iter = iter->next;
+               iter               = iter->next;
             }
          }
       } else if (lt == READ_LOCK) {
@@ -466,11 +465,14 @@ lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
    // or create a new one
    entry->le = lock_entry_init();
 
-   ValueType value_to_be_inserted = (ValueType)entry->le;
+   ValueType  value_to_be_inserted     = (ValueType)entry->le;
    ValueType *pointer_of_iceberg_value = &value_to_be_inserted;
-   bool is_newly_inserted = iceberg_insert_and_get(
-      &lock_tbl->table, &entry->key, (ValueType **)&pointer_of_iceberg_value, get_tid());
-   if(!is_newly_inserted) {
+   bool       is_newly_inserted =
+      iceberg_insert_and_get(&lock_tbl->table,
+                             &entry->key,
+                             (ValueType **)&pointer_of_iceberg_value,
+                             get_tid());
+   if (!is_newly_inserted) {
       // there's already a lock_entry for this key in the lock_table
       lock_entry_destroy(entry->le);
       entry->le = (lock_entry *)*pointer_of_iceberg_value;
@@ -492,8 +494,7 @@ lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
    if (_unlock(entry->le, lt, txn) == LOCK_TABLE_RW_RC_OK) {
       // platform_assert(iceberg_force_remove(&lock_tbl->table, key,
       // get_tid()));
-      if (iceberg_remove(
-             &lock_tbl->table, entry->key, get_tid())) {
+      if (iceberg_remove(&lock_tbl->table, entry->key, get_tid())) {
          lock_entry_destroy(entry->le);
          entry->le = NULL;
       }

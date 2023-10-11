@@ -16,7 +16,7 @@
 #define EXPERIMENTAL_MODE_SILO_MEMORY       0
 #define EXPERIMENTAL_MODE_BYPASS_SPLINTERDB 0
 
-#if EXPERIMENTAL_MODE_TICTOC_DISK
+#if EXPERIMENTAL_MODE_TICTOC_DISK || EXPERIMENTAL_MODE_STO_DISK
 typedef uint32 txn_timestamp;
 #else
 typedef uint128 txn_timestamp;
@@ -67,7 +67,7 @@ print_current_experimental_modes()
    if (EXPERIMENTAL_MODE_2PL_NO_WAIT) {
       platform_default_log("EXPERIMENTAL_MODE_2PL_NO_WAIT\n");
    }
-      if (EXPERIMENTAL_MODE_2PL_WAIT_DIE) {
+   if (EXPERIMENTAL_MODE_2PL_WAIT_DIE) {
       platform_default_log("EXPERIMENTAL_MODE_2PL_WAIT_DIE\n");
    }
    if (EXPERIMENTAL_MODE_2PL_WOUND_WAIT) {
