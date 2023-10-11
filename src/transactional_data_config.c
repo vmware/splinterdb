@@ -146,25 +146,29 @@ transactional_data_config_init(data_config               *in_cfg, // IN
 static inline bool
 is_message_rts_update(message msg)
 {
-   return message_length(msg) == sizeof(timestamp_set);
+   tuple_header *tuple = (tuple_header *)message_data(msg);
+   return tuple->ts.magic == TIMESTAMP_UPDATE_MAGIC && ((tuple->ts.type & TIMESTAMP_UPDATE_RTS) == TIMESTAMP_UPDATE_RTS);
 }
 
 static inline bool
 is_message_wts_update(message msg)
 {
-   return message_length(msg) == sizeof(txn_timestamp);
+   tuple_header *tuple = (tuple_header *)message_data(msg);
+   return tuple->ts.magic == TIMESTAMP_UPDATE_MAGIC && ((tuple->ts.type & TIMESTAMP_UPDATE_WTS) == TIMESTAMP_UPDATE_WTS);
 }
 
 static inline bool
 is_merge_accumulator_rts_update(merge_accumulator *ma)
 {
-   return merge_accumulator_length(ma) == sizeof(timestamp_set);
+   tuple_header *tuple = (tuple_header *)merge_accumulator_data(ma);
+   return tuple->ts.magic == TIMESTAMP_UPDATE_MAGIC && ((tuple->ts.type & TIMESTAMP_UPDATE_RTS) == TIMESTAMP_UPDATE_RTS);
 }
 
 static inline bool
 is_merge_accumulator_wts_update(merge_accumulator *ma)
 {
-   return merge_accumulator_length(ma) == sizeof(txn_timestamp);
+   tuple_header *tuple = (tuple_header *)merge_accumulator_data(ma);
+   return tuple->ts.magic == TIMESTAMP_UPDATE_MAGIC && ((tuple->ts.type & TIMESTAMP_UPDATE_WTS) == TIMESTAMP_UPDATE_WTS);
 }
 
 static inline message
@@ -191,34 +195,58 @@ merge_sto_tuple(const data_config *cfg,
                 message            old_message, // IN
                 merge_accumulator *new_message) // IN/OUT
 {
-   if (is_message_rts_update(old_message) || is_message_wts_update(old_message))
-   {
-      // Just discard
+   // old message is timestamp updates --> merge the timestamp to new message
+   if (is_message_rts_update(old_message) || is_message_wts_update(old_message)) {
+      timestamp_set *old_ts = (timestamp_set *)message_data(old_message);
+      timestamp_set *new_ts = (timestamp_set *)merge_accumulator_data(new_message);
+      if (is_message_rts_update(old_message))
+      {
+         new_ts->rts = MAX(new_ts->rts, old_ts->rts);
+      }
+      
+      if (is_message_wts_update(old_message))
+      {
+         new_ts->wts = MAX(new_ts->wts, old_ts->wts);
+      }
+
+      if (is_merge_accumulator_rts_update(new_message) || is_merge_accumulator_wts_update(new_message))
+      {
+         new_ts->magic = TIMESTAMP_UPDATE_MAGIC;
+         new_ts->type = new_ts->type | new_ts->type;
+      } else {
+         new_ts->magic = 0;
+         new_ts->type = 0;
+      }
+
       return 0;
    }
 
+   // old message is not timestamp updates, but new message is timestamp updates.
    if (is_merge_accumulator_rts_update(new_message)) {
       timestamp_set new_ts =
          *((timestamp_set *)merge_accumulator_data(new_message));
       merge_accumulator_copy_message(new_message, old_message);
-      tuple_header *new_tuple =
-         (tuple_header *)merge_accumulator_data(new_message);
-      new_tuple->ts.rts = new_ts.rts;
+      timestamp_set *new_tuple =
+         (timestamp_set *)merge_accumulator_data(new_message);
+      new_tuple->rts = new_ts.rts;
+      new_tuple->magic = 0;
 
       return 0;
    }
 
    if (is_merge_accumulator_wts_update(new_message)) {
-      txn_timestamp new_wts =
-         *((txn_timestamp *)merge_accumulator_data(new_message));
+      timestamp_set new_ts =
+         *((timestamp_set *)merge_accumulator_data(new_message));
       merge_accumulator_copy_message(new_message, old_message);
-      tuple_header *new_tuple =
-         (tuple_header *)merge_accumulator_data(new_message);
-      new_tuple->ts.wts = new_wts;
+      timestamp_set *new_tuple =
+         (timestamp_set *)merge_accumulator_data(new_message);
+      new_tuple->wts = new_ts.wts;
+      new_tuple->magic = 0;
 
       return 0;
    }
 
+   // both are not timestamp updates.
    message old_value_message = get_app_value_from_message(old_message);
    message new_value_message =
       get_app_value_from_merge_accumulator(new_message);
@@ -256,9 +284,17 @@ merge_sto_tuple_final(const data_config *cfg,
                       slice              key,
                       merge_accumulator *oldest_message)
 {
-   platform_assert(!is_merge_accumulator_rts_update(oldest_message)
-                      && !is_merge_accumulator_wts_update(oldest_message),
-                   "oldest_message shouldn't be a rts/wts update\n");
+   // platform_assert(!is_merge_accumulator_rts_update(oldest_message)
+   //                    && !is_merge_accumulator_wts_update(oldest_message),
+   //                 "oldest_message shouldn't be a rts/wts update\n");
+
+   if (!is_merge_accumulator_rts_update(oldest_message)
+                      && !is_merge_accumulator_wts_update(oldest_message)) {
+      // TODO
+      // The transaction inserts timestamps during execution, but it is aborted.
+      // So, the record remains in the database.
+      return 0;
+   }
 
    message oldest_message_value =
       get_app_value_from_merge_accumulator(oldest_message);
