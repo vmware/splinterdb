@@ -3,7 +3,7 @@
 
 /*
  * -----------------------------------------------------------------------------
- * test_splinterdb_apis.h --
+ * splinterdb_test_apis.h --
  *
  * Header file with extern prototypes for testing-hooks provided in diff source
  * files.
@@ -17,8 +17,8 @@
 void
 splinterdb_cache_flush(const splinterdb *kvs);
 
-void *
-splinterdb_get_heap_handle(const splinterdb *kvs);
+platform_heap_id
+splinterdb_get_heap_id(const splinterdb *kvs);
 
 const void *
 splinterdb_get_task_system_handle(const splinterdb *kvs);

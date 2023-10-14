@@ -22,7 +22,7 @@
 #include "splinterdb/splinterdb.h"
 #include "shmem.h"
 #include "config.h"
-#include "test_splinterdb_apis.h"
+#include "splinterdb_test_apis.h"
 #include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -135,41 +135,38 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       // Verify that child process sees the same handle to a running Splinter
       // as seen by the parent. (We cross-check using the copy saved off in
       // shared memory.)
-      /* FIXME: RESOLVE -- these interfaces are now withdrawn. Rework test.
-      ASSERT_TRUE((void *)spl_handle
-                  == platform_heap_get_splinterdb_handle(
-                     splinterdb_get_heap_handle(spl_handle)));
+      platform_heap_id spl_heap_id = splinterdb_get_heap_id(spl_handle);
+
+      void *child_splinterdb_handle =
+         platform_heap_get_splinterdb_handle(spl_heap_id);
+
+      ASSERT_TRUE((void *)spl_handle == child_splinterdb_handle,
+                  "spl_handle=%p != child_splinterdb_handle=%p\n",
+                  spl_handle,
+                  child_splinterdb_handle);
 
       // Verify that the splinter handle and handles to other sub-systems are
       // all valid addresses allocated from the shared segment setup by the main
       // process.
-      ASSERT_TRUE(platform_valid_addr_in_shm(
-         splinterdb_get_heap_handle(spl_handle), spl_handle));
 
-      ASSERT_TRUE(platform_valid_addr_in_shm(
-         splinterdb_get_heap_handle(spl_handle),
-         splinterdb_get_task_system_handle(spl_handle)));
+      ASSERT_TRUE(platform_valid_addr_in_heap(
+         spl_heap_id, splinterdb_get_task_system_handle(spl_handle)));
 
       ASSERT_TRUE(
-         platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
-                                    splinterdb_get_io_handle(spl_handle)));
+         platform_valid_addr_in_heap(splinterdb_get_heap_id(spl_handle),
+                                     splinterdb_get_io_handle(spl_handle)));
 
-      ASSERT_TRUE(platform_valid_addr_in_shm(
-         splinterdb_get_heap_handle(spl_handle),
-         splinterdb_get_allocator_handle(spl_handle)));
+      ASSERT_TRUE(platform_valid_addr_in_heap(
+         spl_heap_id, splinterdb_get_allocator_handle(spl_handle)));
 
-      ASSERT_TRUE(
-         platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
-                                    splinterdb_get_cache_handle(spl_handle)));
+      ASSERT_TRUE(platform_valid_addr_in_heap(
+         spl_heap_id, splinterdb_get_cache_handle(spl_handle)));
 
-      ASSERT_TRUE(
-         platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
-                                    splinterdb_get_trunk_handle(spl_handle)));
+      ASSERT_TRUE(platform_valid_addr_in_heap(
+         spl_heap_id, splinterdb_get_trunk_handle(spl_handle)));
 
-      ASSERT_TRUE(platform_valid_addr_in_shm(
-         splinterdb_get_heap_handle(spl_handle),
-         splinterdb_get_memtable_context_handle(spl_handle)));
-      */
+      ASSERT_TRUE(platform_valid_addr_in_heap(
+         spl_heap_id, splinterdb_get_memtable_context_handle(spl_handle)));
 
       // Before registering w/Splinter, child process is still at tid==0.
       ASSERT_EQUAL(0, platform_get_tid());

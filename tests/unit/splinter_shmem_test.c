@@ -175,12 +175,14 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
 
    // After accounting for the control block, next-free-addr should be
    // exactly past the 2 allocations + their pad-bytes.
-   next_free = platform_shm_next_free_addr(data->hid);
-   /* RESOLVE: Fix this.
-   ASSERT_TRUE(next_free
-               == ((void *)data->hh + platform_shm_ctrlblock_size()
-                   + keybuf_size + keybuf_pad + msgbuf_size + msgbuf_pad));
-    */
+   next_free      = platform_shm_next_free_addr(data->hid);
+   void *exp_free = ((void *)platform_heap_id_to_shmaddr(data->hid)
+                     + platform_shm_ctrlblock_size() + keybuf_size + keybuf_pad
+                     + msgbuf_size + msgbuf_pad);
+   ASSERT_TRUE(next_free == exp_free,
+               "next_free=%p != exp_free=%p\n",
+               next_free,
+               exp_free);
 }
 
 /*
@@ -576,37 +578,6 @@ CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
 
    platform_free(data->hid, keybuf_2MiB);
    platform_free(data->hid, keybuf_5MiB);
-}
-
-/*
- * ---------------------------------------------------------------------------
- * Test case to verify that configuration checks that shared segment size
- * is "big enough" to allocate memory for RC-allocator cache's lookup
- * array. For very large devices, with insufficiently sized shared memory
- * config, we will not be able to boot-up.
- * RESOLVE - This test case is still incomplete.
- * ---------------------------------------------------------------------------
- */
-CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
-{
-   splinterdb       *kvsb;
-   splinterdb_config cfg;
-   data_config       default_data_cfg;
-
-   platform_disable_tracing_shm_ops();
-
-   ZERO_STRUCT(cfg);
-   ZERO_STRUCT(default_data_cfg);
-
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   setup_cfg_for_test(&cfg, &default_data_cfg);
-
-   int rc = splinterdb_create(&cfg, &kvsb);
-   ASSERT_EQUAL(0, rc);
-
-   splinterdb_close(&kvsb);
-
-   platform_enable_tracing_shm_ops();
 }
 
 static void

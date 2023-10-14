@@ -660,6 +660,8 @@ platform_strnlen(const char *s, size_t maxlen);
 platform_log_handle *
 platform_get_stdout_stream(void);
 
+typedef struct shmem_heap shmem_heap;
+
 platform_status
 platform_heap_create(platform_module_id module_id,
                      size_t             max,
@@ -668,6 +670,12 @@ platform_heap_create(platform_module_id module_id,
 
 void
 platform_heap_destroy(platform_heap_id *heap_id);
+
+void
+platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr);
+
+shmem_heap *
+platform_heap_id_to_shmaddr(platform_heap_id hid);
 
 platform_status
 platform_buffer_init(buffer_handle *bh, size_t length);
@@ -710,16 +718,6 @@ platform_thread_id_self();
 
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
-
-void
-platform_enable_tracing_shm_ops();
-
-void
-platform_enable_tracing_shm_allocs();
-
-void
-platform_enable_tracing_shm_frees();
-
 
 /*
  * Section 5:

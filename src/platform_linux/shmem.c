@@ -169,12 +169,13 @@ platform_shm_heap_valid(shmem_heap *shmheap);
  * the heap-ID handle to the shared memory's start address, from which the
  * location of the next-free-byte can be tracked.
  */
-static inline shmem_heap *
+shmem_heap *
 platform_heap_id_to_shmaddr(platform_heap_id hid)
 {
    debug_assert(hid != NULL);
-   void *shmaddr = ((void *)hid - offsetof(shmem_heap, shm_id));
-   return (shmem_heap *)shmaddr;
+   shmem_heap *shmaddr =
+      (shmem_heap *)((void *)hid - offsetof(shmem_heap, shm_id));
+   return shmaddr;
 }
 
 /* Evaluates to valid 'low' address within shared segment. */
@@ -304,7 +305,7 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
 void
 platform_shm_print_usage(platform_heap_id hid)
 {
-   shmem_heap         *shminfo = (shmem_heap *)platform_heap_id_to_shmaddr(hid);
+   shmem_heap         *shminfo = platform_heap_id_to_shmaddr(hid);
    shminfo_usage_stats usage;
    ZERO_STRUCT(usage);
 
@@ -1174,12 +1175,10 @@ platform_shm_heap_valid(shmem_heap *shmheap)
 }
 
 /*
- * FIXME: RESOLVE - Do we need to rework these testing hooks to use heap-ID?
  * -----------------------------------------------------------------------------
- * Warning! Testing interfaces, which are written to support verification of
- * splinterdb handle from forked child processes when running Splinter
- * configured with shared-segment. These interfaces are provided mainly as
- * a diagnostic & testing hooks.
+ * Warning! Testing & Diagnostics interfaces, which are written to support
+ * verification of splinterdb handle from forked child processes when running
+ * Splinter configured with shared-segment.
  *
  * platform_heap_set_splinterdb_handle() - Save-off the handle to splinterdb *
  *    in the shared segment's control block.
@@ -1187,23 +1186,29 @@ platform_shm_heap_valid(shmem_heap *shmheap)
  * platform_heap_get_splinterdb_handle() - Return the handle to splinterdb *
  *    saved-off in the shared segment's control block.
  * -----------------------------------------------------------------------------
- **
-void
-platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle, void *addr)
+ */
+bool
+platform_shm_heap_id_valid(const platform_heap_id heap_id)
 {
-   debug_assert(platform_shm_heap_handle_valid(heap_handle));
-   shmem_info *shmaddr            = (shmem_info *)heap_handle;
-   shmaddr->shm_splinterdb_handle = addr;
+   const shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
+   return (shm->shm_magic == SPLINTERDB_SHMEM_MAGIC);
+}
+
+void
+platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr)
+{
+   debug_assert(platform_shm_heap_id_valid(heap_id));
+   shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
+   shm->shm_splinterdb_handle = addr;
 }
 
 void *
-platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle)
+platform_heap_get_splinterdb_handle(const platform_heap_id heap_id)
 {
-   debug_assert(platform_shm_heap_handle_valid(heap_handle));
-   shmem_info *shmaddr = (shmem_info *)heap_handle;
-   return shmaddr->shm_splinterdb_handle;
+   debug_assert(platform_shm_heap_id_valid(heap_id));
+   shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
+   return shm->shm_splinterdb_handle;
 }
-*/
 
 /*
  * Initialize tracing of shared memory allocs / frees. This is invoked as a
