@@ -83,7 +83,6 @@ typedef struct io_ops {
    io_deregister_thread_fn   deregister_thread;
    io_max_latency_elapsed_fn max_latency_elapsed;
    io_get_context_fn         get_context;
-   io_get_io_async_req_fn    get_io_async_req;
 } io_ops;
 
 /*
@@ -193,15 +192,6 @@ static inline void *
 io_get_context(io_handle *io)
 {
    return io->ops->get_context(io);
-}
-
-// Return start of allocated Async IO requests array.
-// NOTE: Not to be confused with io_get_async_req(), which returns
-// the next available async-request for use by requesting thread.
-static inline io_async_req *
-io_get_io_async_req(io_handle *io)
-{
-   return io->ops->get_io_async_req(io);
 }
 
 /*

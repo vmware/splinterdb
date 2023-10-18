@@ -300,16 +300,14 @@ splinter_io_apis_test(int argc, char *argv[])
    if (Verbose_progress) {
       platform_default_log("Before fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
                            ", Parent io_hdl=%p"
-                           ", IO context[%lu]: %p (%d bytes)"
-                           ", Async IO request array: %p\n",
+                           ", IO context[%lu]: %p (%d bytes)\n",
                            pid,
                            main_thread_idx,
                            whoami,
                            io_hdl,
                            main_thread_idx,
                            io_ctxt,
-                           (int)sizeof(io_ctxt),
-                           io_get_io_async_req((io_handle *)io_hdl));
+                           (int)sizeof(io_ctxt));
    }
 
    /*
@@ -401,14 +399,12 @@ splinter_io_apis_test(int argc, char *argv[])
          if (Verbose_progress) {
             platform_default_log("%s after  thread registration"
                                  ", Parent io_handle=%p, child io_hdl=%p"
-                                 ", IO context[%lu]: "
-                                 "%p, Async IO request array: %p\n",
+                                 ", IO context[%lu]: %p\n",
                                  whoami,
                                  Parent_io_handle,
                                  io_hdl,
                                  this_thread_idx,
-                                 io_ctxt,
-                                 io_get_io_async_req((io_handle *)io_hdl));
+                                 io_ctxt);
          }
       }
 

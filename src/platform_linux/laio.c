@@ -47,9 +47,6 @@ laio_get_metadata(io_handle *ioh, io_async_req *req);
 static void *
 laio_get_context(io_handle *ioh);
 
-static io_async_req *
-laio_get_io_async_req(io_handle *ioh);
-
 static platform_status
 laio_read_async(io_handle     *ioh,
                 io_async_req  *req,
@@ -95,7 +92,6 @@ static io_ops laio_ops = {
    .register_thread   = laio_register_thread,
    .deregister_thread = laio_deregister_thread,
    .get_context       = laio_get_context,
-   .get_io_async_req  = laio_get_io_async_req,
 };
 
 /*
@@ -137,38 +133,28 @@ io_context_setup(laio_handle *io)
  * some threads' IO-context may not have been cleaned up previously; so be
  * a bit little lax on the assertion checks.
  *
+ * NOTE: This should only be called if the thread has a valid IO context
  * Returns: 0, for successful destroy; 1, otherwise.
  */
 static int
-io_context_cleanup(laio_handle *io, threadid tid, bool from_deregister)
+io_context_cleanup(laio_handle *io, threadid tid)
 {
    // Expect that this was setup previously; otherwise it's a coding error.
-   if (from_deregister) {
-      platform_assert((io->ctx[tid] != NULL),
-                      "IO-context for ThreadID=%lu should be non-NULL"
-                      " for cleanup.\n",
-                      tid);
+   platform_assert((io->ctx[tid] != NULL),
+                   "IO-context for ThreadID=%lu should be non-NULL"
+                   " for cleanup.\n",
+                   tid);
+
+   int status = io_destroy(io->ctx[tid]);
+   if (status != 0) {
+      platform_error_log("io_destroy() on IO-context at %p"
+                         " for threadID=%lu failed with error=%d: %s\n",
+                         io->ctx[tid],
+                         tid,
+                         -status,
+                         strerror(-status));
    }
-
-   int status = 0;
-   if (from_deregister || io->ctx[tid]) {
-      status = io_destroy(io->ctx[tid]);
-
-      if (status != 0) {
-         platform_error_log("io_destroy() (from_deregister=%d) on IO-context "
-                            "at %p for threadID=%lu failed with error=%d: %s\n",
-                            from_deregister,
-                            io->ctx[tid],
-                            tid,
-                            -status,
-                            strerror(-status));
-      } else {
-
-         // Clear this handle out, so we don't try to destroy it again when
-         // the entire IO-sub-system is being de-init'ed.
-         io->ctx[tid] = NULL;
-      }
-   }
+   io->ctx[tid] = NULL;
    return ((status == 0) ? 0 : 1);
 }
 
@@ -181,9 +167,10 @@ static void
 io_handle_deinit_ctxts(laio_handle *io)
 {
    int nfails = 0;
-   // FALSE => We are de'initing; so be loose on assert checks.
    for (int tid = 0; tid < ARRAY_SIZE(io->ctx); tid++) {
-      nfails += io_context_cleanup(io, tid, FALSE);
+      if (io->ctx[tid]) {
+         nfails += io_context_cleanup(io, tid);
+      }
    }
    // We should have destroyed all IO contexts.
    platform_assert(
@@ -402,17 +389,6 @@ laio_get_context(io_handle *ioh)
    return ((laio_handle *)ioh)->ctx[tid];
 }
 
-/*
- * Accessor method: Return start of allocated Async IO requests array.
- * NOTE: Not to be confused with laio_get_async_req(), which returns
- * the next available async-request for use by a requesting thread.
- */
-static io_async_req *
-laio_get_io_async_req(io_handle *ioh)
-{
-   return ((laio_handle *)ioh)->req;
-}
-
 void
 laio_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 {
@@ -535,17 +511,7 @@ laio_cleanup(io_handle *ioh, uint64 count)
             -status,
             strerror(-status));
          i--;
-
-         // We got a hard-error probably because some code-flow messed-up
-         // using the per-thread IO-context. No point in trying again and
-         // again if we are checking for completion of all outstanding
-         // events.
-         if (count == 0) {
-            break;
-         } else {
-            // Retry a few times for a finite # of pending events
-            continue;
-         }
+         continue;
       }
       // No event has completed, so we are done. Exit.
       if (status == 0) {
@@ -605,7 +571,7 @@ laio_deregister_thread(io_handle *ioh)
 
    // Process pending AIO-requests for this thread before deregistering it
    laio_cleanup(ioh, 0);
-   io_context_cleanup((laio_handle *)ioh, tid, TRUE);
+   io_context_cleanup((laio_handle *)ioh, tid);
 }
 
 static inline bool32
