@@ -700,14 +700,18 @@ function run_slower_unit_tests() {
 # ##################################################################
 function run_slower_forked_process_tests() {
 
-    local msg="Splinter tests using forked child processes"
+    local msg="Splinter tests using default number of forked child processes"
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
+
+    num_forked_procs=4
+    msg="Splinter tests using ${num_forked_procs} forked child processes"
+    run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
+                                        --num-processes ${num_forked_procs}
 
     # ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
     # using forked child process execution.
     msg="Splinter large inserts test using shared memory, 1 forked child"
     local num_rows=$((2 * 1000 * 1000))
-    local n_threads=4
     # shellcheck disable=SC2086
     run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
                                         --use-shmem \

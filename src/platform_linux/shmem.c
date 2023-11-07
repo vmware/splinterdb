@@ -173,9 +173,7 @@ shmem_heap *
 platform_heap_id_to_shmaddr(platform_heap_id hid)
 {
    debug_assert(hid != NULL);
-   shmem_heap *shmaddr =
-      (shmem_heap *)((void *)hid - offsetof(shmem_heap, shm_id));
-   return shmaddr;
+   return (shmem_heap *)hid;
 }
 
 /* Evaluates to valid 'low' address within shared segment. */
@@ -376,9 +374,9 @@ platform_shmcreate(size_t            size,
    shm->shm_id             = shmid;
    shm->shm_magic          = SPLINTERDB_SHMEM_MAGIC;
 
-   // Return 'heap-ID' handle, if requested, pointing to shared segment handle.
+   // Return 'heap-ID' handle pointing to start addr of shared segment.
    if (heap_id) {
-      *heap_id = (platform_heap_id *)&shm->shm_id;
+      *heap_id = (platform_heap_id *)shmaddr;
    }
 
    platform_spinlock_init(

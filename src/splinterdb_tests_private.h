@@ -3,7 +3,7 @@
 
 /*
  * -----------------------------------------------------------------------------
- * splinterdb_test_apis.h --
+ * splinterdb_tests_private.h -
  *
  * Header file with extern prototypes for testing-hooks provided in diff source
  * files.
@@ -37,9 +37,3 @@ splinterdb_get_trunk_handle(const splinterdb *kvs);
 
 const void *
 splinterdb_get_memtable_context_handle(const splinterdb *kvs);
-
-void
-platform_enable_tracing_large_frags();
-
-void
-platform_disable_tracing_large_frags();

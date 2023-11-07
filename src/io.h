@@ -63,8 +63,6 @@ typedef void (*io_deregister_thread_fn)(io_handle *io);
 typedef bool32 (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
 
 typedef void *(*io_get_context_fn)(io_handle *io);
-typedef io_async_req *(*io_get_io_async_req_fn)(io_handle *io);
-
 
 /*
  * An abstract IO interface, holding different IO Ops function pointers.

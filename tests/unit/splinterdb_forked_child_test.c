@@ -22,7 +22,7 @@
 #include "splinterdb/splinterdb.h"
 #include "shmem.h"
 #include "config.h"
-#include "splinterdb_test_apis.h"
+#include "splinterdb_tests_private.h"
 #include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -53,7 +53,7 @@ CTEST_DATA(splinterdb_forked_child)
 {
    master_config master_cfg;
    uint64        num_inserts;      // per main() process or per thread
-   uint64        num_forked_procs; // Passed down using --num-threads
+   uint64        num_forked_procs; // Passed down using --num-processes
    bool          am_parent;
 };
 
@@ -80,7 +80,7 @@ CTEST_SETUP(splinterdb_forked_child)
       ASSERT_EQUAL(0, (data->num_inserts % MILLION));
       return;
    }
-   data->num_forked_procs = data->master_cfg.num_forked_processes;
+   data->num_forked_procs = data->master_cfg.num_processes;
    if (!data->num_forked_procs) {
       data->num_forked_procs = TEST_NUM_FORKED_PROCS;
    }

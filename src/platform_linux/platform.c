@@ -434,13 +434,14 @@ platform_status
 platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 {
    platform_status status;
+   bool32          pth_condattr_setpshared_failed = FALSE;
 
    // Init mutex so it can be shared between processes, if so configured
    pthread_mutexattr_t mattr;
    pthread_mutexattr_init(&mattr);
    status.r = pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
    if (!SUCCESS(status)) {
-      return status;
+      goto mutexattr_setpshared_failed;
    }
 
    // clang-format off
@@ -448,11 +449,11 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
                                 ((heap_id == PROCESS_PRIVATE_HEAP_ID)
                                     ? NULL : &mattr));
    // clang-format on
-   __attribute__((unused)) int rv = pthread_mutexattr_destroy(&mattr);
+   debug_only int rv = pthread_mutexattr_destroy(&mattr);
    debug_assert(rv == 0);
 
    if (!SUCCESS(status)) {
-      return status;
+      goto mutex_init_failed;
    }
 
    // Init condition so it can be shared between processes, if so configured
@@ -460,7 +461,8 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
    pthread_condattr_init(&cattr);
    status.r = pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
    if (!SUCCESS(status)) {
-      return status;
+      pth_condattr_setpshared_failed = TRUE;
+      goto condattr_setpshared_failed;
    }
 
    // clang-format off
@@ -474,14 +476,28 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 
    // Upon a failure, before exiting, release mutex init'ed above ...
    if (!SUCCESS(status)) {
-      int ret = pthread_mutex_destroy(&cv->lock);
-      // Yikes! Even this failed. We will lose the prev errno ...
-      if (ret) {
-         // Return most recent failure rc
-         return CONST_STATUS(ret);
-      }
+      goto cond_init_failed;
    }
 
+   return status;
+
+   int ret = 0;
+cond_init_failed:
+condattr_setpshared_failed:
+   ret = pthread_mutex_destroy(&cv->lock);
+   // Yikes! Even this failed. We will lose the prev errno ...
+   if (ret) {
+      platform_error_log("%s() failed with error: %s\n",
+                         (pth_condattr_setpshared_failed
+                             ? "pthread_condattr_setpshared"
+                             : "pthread_cond_init"),
+                         platform_status_to_string(status));
+
+      // Return most recent failure rc
+      return CONST_STATUS(ret);
+   }
+mutex_init_failed:
+mutexattr_setpshared_failed:
    return status;
 }
 

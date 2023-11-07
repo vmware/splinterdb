@@ -20,6 +20,7 @@
 #include "trunk.h"
 #include "btree_private.h"
 #include "shard_log.h"
+#include "splinterdb_tests_private.h"
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;

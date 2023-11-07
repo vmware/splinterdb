@@ -8,7 +8,6 @@
  *     This file contains the implementation for a routing filter
  *----------------------------------------------------------------------
  */
-#include <unistd.h>
 #include "platform.h"
 #include "routing_filter.h"
 #include "PackedArray.h"
