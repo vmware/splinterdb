@@ -110,7 +110,7 @@ test_key(key_buffer   *keywb,
    return key_buffer_key(keywb);
 }
 
-static inline bool
+static inline bool32
 test_period_complete(uint64 idx, uint64 period)
 {
    return idx % period == 0;
@@ -174,7 +174,11 @@ generate_test_message(const test_message_generator *generator,
       + (idx % (generator->max_payload_size - generator->min_payload_size + 1));
    uint64 total_size = sizeof(data_handle) + payload_size;
    merge_accumulator_set_class(msg, generator->type);
-   merge_accumulator_resize(msg, total_size);
+   bool resize_rv = merge_accumulator_resize(msg, total_size);
+   platform_assert(resize_rv,
+                   "merge_accumulator_resize() for %lu bytes failed "
+                   "to allocate memory.",
+                   total_size);
    data_handle *raw_data = merge_accumulator_data(msg);
    memset(raw_data, idx, total_size);
    raw_data->ref_count = 1;
@@ -279,7 +283,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 typedef struct test_exec_config {
    uint64 seed;
    uint64 num_inserts;
-   bool   verbose_progress; // --verbose-progress: During test execution
+   bool32 verbose_progress; // --verbose-progress: During test execution
 } test_exec_config;
 
 /*
@@ -317,6 +321,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
       config_set_defaults(&master_cfg[i]);
    }
 
+   // Parse config-related command-line arguments
    rc = config_parse(master_cfg, num_config, argc, argv);
    if (!SUCCESS(rc)) {
       goto out;

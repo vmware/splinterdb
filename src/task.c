@@ -3,6 +3,7 @@
 
 #include "platform.h"
 #include "task.h"
+#include "util.h"
 
 #include "poison.h"
 
@@ -220,8 +221,12 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
-   platform_free(thread_started->ts->heap_id,
-                 thread_started->ts->thread_scratch[thread_started->tid]);
+   // Some [test] callers may have created a task w/o requesting for any
+   // scratch space. So, check before trying to free memory.
+   void *scratchptr = thread_started->ts->thread_scratch[thread_started->tid];
+   if (scratchptr) {
+      platform_free(thread_started->ts->heap_id, scratchptr);
+   }
 
    platform_set_tid(INVALID_TID);
    task_deallocate_threadid(thread_started->ts, thread_started->tid);
@@ -235,7 +240,7 @@ task_invoke_with_hooks(void *func_and_args)
  */
 static platform_status
 task_create_thread_with_hooks(platform_thread       *thread,
-                              bool                   detached,
+                              bool32                 detached,
                               platform_thread_worker func,
                               void                  *arg,
                               size_t                 scratch_size,
@@ -447,7 +452,10 @@ task_group_get_next_task(task_group *group)
    if (tq->head == NULL) {
       platform_assert(tq->tail == assigned_task);
       tq->tail = NULL;
-      platform_assert(outstanding_tasks == 1);
+      platform_assert((outstanding_tasks == 1),
+                      "outstanding_tasks=%lu\n",
+                      outstanding_tasks);
+      ;
    }
 
    return assigned_task;
@@ -563,7 +571,7 @@ task_group_deinit(task_group *group)
 static platform_status
 task_group_init(task_group  *group,
                 task_system *ts,
-                bool         use_stats,
+                bool32       use_stats,
                 uint8        num_bg_threads,
                 uint64       scratch_size)
 {
@@ -608,7 +616,7 @@ task_enqueue(task_system *ts,
              task_type    type,
              task_fn      func,
              void        *arg,
-             bool         at_head)
+             bool32       at_head)
 {
    task *new_task = TYPED_ZALLOC(ts->heap_id, new_task);
    if (new_task == NULL) {
@@ -647,13 +655,12 @@ task_enqueue(task_system *ts,
 
    if (group->use_stats) {
       new_task->enqueue_time = platform_get_timestamp();
-   }
-   if (group->use_stats) {
-      const threadid tid = platform_get_tid();
+      const threadid tid     = platform_get_tid();
       if (group->current_waiting_tasks
           > group->stats[tid].max_outstanding_tasks) {
          group->stats[tid].max_outstanding_tasks = group->current_waiting_tasks;
       }
+      group->stats[tid].total_tasks_enqueued += 1;
    }
    platform_condvar_signal(&group->cv);
    return task_group_unlock(group);
@@ -742,12 +749,12 @@ task_perform_all(task_system *ts)
    } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
 }
 
-bool
+bool32
 task_system_is_quiescent(task_system *ts)
 {
    platform_status rc;
    task_type       ttlocked;
-   bool            result = FALSE;
+   bool32          result = FALSE;
 
    for (ttlocked = TASK_TYPE_FIRST; ttlocked < NUM_TASK_TYPES; ttlocked++) {
       rc = task_group_lock(&ts->group[ttlocked]);
@@ -817,7 +824,7 @@ task_config_valid(const uint64 num_background_threads[NUM_TASK_TYPES])
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
-                        bool                use_stats,
+                        bool32              use_stats,
                         const uint64        num_bg_threads[NUM_TASK_TYPES],
                         uint64              scratch_size)
 {
@@ -978,6 +985,7 @@ task_group_print_stats(task_group *group, task_type type)
       }
       global.max_outstanding_tasks = MAX(global.max_outstanding_tasks,
                                          group->stats[i].max_outstanding_tasks);
+      global.total_tasks_enqueued += group->stats[i].total_tasks_enqueued;
    }
 
    switch (type) {
@@ -1000,6 +1008,14 @@ task_group_print_stats(task_group *group, task_type type)
                         global.total_queue_wait_time_ns);
    platform_default_log("| max queue_wait_time (ns)     : %10lu\n",
                         global.max_queue_wait_time_ns);
+
+   uint64 nbytes = (global.total_tasks_enqueued * sizeof(task));
+   platform_default_log("| total tasks enqueued : %lu consumed=%lu bytes (%s) "
+                        "of memory\n",
+                        global.total_tasks_enqueued,
+                        nbytes,
+                        size_str(nbytes));
+
    platform_default_log("| total bg tasks run      : %10lu\n",
                         global.total_bg_task_executions);
    platform_default_log("| total fg tasks run      : %10lu\n",

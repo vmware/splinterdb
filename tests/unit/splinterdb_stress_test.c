@@ -16,6 +16,7 @@
 #include "unit_tests.h"
 #include "util.h"
 #include "../functional/random.h"
+#include "config.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #define TEST_KEY_SIZE   20
@@ -56,6 +57,9 @@ CTEST_SETUP(splinterdb_stress)
                                              .num_normal_bg_threads   = 2};
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
+
+   data->cfg.use_shmem =
+      config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -137,6 +141,82 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
                          slice_create(sizeof(start_key_data), start_key_data),
                          num_to_delete);
    }
+}
+
+/*
+ * Test case that inserts a large number of KV-pairs and then performs a
+ * range query over them, backwards and then forwards.
+ */
+#define KEY_SIZE 13
+CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
+{
+   char         key_str[KEY_SIZE];
+   char        *value_str = "This is the value string\0";
+   const uint32 inserts   = 1 << 25; // 16 million
+   for (int i = 0; i < inserts; i++) {
+      snprintf(key_str, sizeof(key_str), "key-%08x", i);
+      slice key = slice_create(sizeof(key_str), key_str);
+      slice val = slice_create(sizeof(value_str), value_str);
+      ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, val));
+   }
+
+   // create an iterator at end of keys
+   splinterdb_iterator *it = NULL;
+   snprintf(key_str, sizeof(key_str), "key-%08x", inserts);
+   slice start_key = slice_create(sizeof(key_str), key_str);
+   ASSERT_EQUAL(0, splinterdb_iterator_init(data->kvsb, &it, start_key));
+
+   // assert that the iterator is in the state we expect
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_FALSE(splinterdb_iterator_can_next(it));
+   ASSERT_TRUE(splinterdb_iterator_can_prev(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+
+   splinterdb_iterator_prev(it);
+
+   // iterate down all the keys
+   for (int i = inserts - 1; i >= 0; i--) {
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      slice key;
+      slice val;
+      splinterdb_iterator_get_current(it, &key, &val);
+      snprintf(key_str, sizeof(key_str), "key-%08x", i);
+
+      ASSERT_EQUAL(KEY_SIZE, slice_length(key));
+      int comp = memcmp(slice_data(key), key_str, slice_length(key));
+      ASSERT_EQUAL(0, comp);
+      splinterdb_iterator_prev(it);
+   }
+
+   // assert that the iterator is in the state we expect
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_TRUE(splinterdb_iterator_can_next(it));
+   ASSERT_FALSE(splinterdb_iterator_can_prev(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+
+   splinterdb_iterator_next(it);
+
+   // iterate back up all the keys
+   for (int i = 0; i < inserts; i++) {
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      slice key;
+      slice val;
+      splinterdb_iterator_get_current(it, &key, &val);
+      snprintf(key_str, sizeof(key_str), "key-%08x", i);
+
+      ASSERT_EQUAL(KEY_SIZE, slice_length(key));
+      int comp = memcmp(slice_data(key), key_str, slice_length(key));
+      ASSERT_EQUAL(0, comp);
+      splinterdb_iterator_next(it);
+   }
+
+   // assert that the iterator is in the state we expect
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_FALSE(splinterdb_iterator_can_next(it));
+   ASSERT_TRUE(splinterdb_iterator_can_prev(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+
+   splinterdb_iterator_deinit(it);
 }
 
 /*

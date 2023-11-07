@@ -30,6 +30,7 @@ typedef struct {
    uint64    total_queue_wait_time_ns;
    uint64    total_bg_task_executions;
    uint64    total_fg_task_executions;
+   uint64    total_tasks_enqueued;
 } PLATFORM_CACHELINE_ALIGNED task_stats;
 
 typedef struct task_queue {
@@ -38,7 +39,7 @@ typedef struct task_queue {
 } task_queue;
 
 typedef struct task_bg_thread_group {
-   bool            stop;
+   bool32          stop;
    uint8           num_threads;
    platform_thread threads[MAX_THREADS];
 } task_bg_thread_group;
@@ -58,7 +59,7 @@ typedef struct task_group {
    task_bg_thread_group bg;
 
    // Per thread stats.
-   bool       use_stats;
+   bool32     use_stats;
    task_stats stats[MAX_THREADS];
 } task_group;
 
@@ -77,14 +78,14 @@ typedef enum task_type {
 } task_type;
 
 typedef struct task_system_config {
-   bool   use_stats;
+   bool32 use_stats;
    uint64 num_background_threads[NUM_TASK_TYPES];
    uint64 scratch_size;
 } task_system_config;
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
-                        bool                use_stats,
+                        bool32              use_stats,
                         const uint64 num_background_threads[NUM_TASK_TYPES],
                         uint64       scratch_size);
 
@@ -199,7 +200,7 @@ task_enqueue(task_system *ts,
              task_type    type,
              task_fn      func,
              void        *arg,
-             bool         at_head);
+             bool32       at_head);
 
 /*
  * Possibly performs one background task if there is one waiting,
@@ -248,7 +249,7 @@ void
 task_perform_all(task_system *ts);
 
 /* TRUE if there are no running or waiting tasks. */
-bool
+bool32
 task_system_is_quiescent(task_system *ts);
 
 /*

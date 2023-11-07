@@ -80,7 +80,7 @@ slice_copy_contents(void *dst, const slice src)
    return slice_create(src.length, dst);
 }
 
-static inline bool
+static inline bool32
 slice_equals(const slice a, const slice b)
 {
    return a.length == b.length && a.data == b.data;
@@ -119,13 +119,14 @@ slice_lex_cmp(const slice a, const slice b)
  * When initializing a writable_buffer, you can provide an initial
  * buffer for it to use.  The writable_buffer will _never_ free the
  * buffer you give it during initialization.
+ * ----------------------------------------------------------------------
  */
 typedef struct writable_buffer {
    platform_heap_id heap_id;
    void            *buffer;
    uint64           buffer_capacity;
    uint64           length;
-   bool             can_free;
+   bool32           can_free;
 } writable_buffer;
 
 #define WRITABLE_BUFFER_NULL_LENGTH UINT64_MAX
@@ -154,7 +155,7 @@ writable_buffer_data(const writable_buffer *wb)
    }
 }
 
-static inline bool
+static inline bool32
 writable_buffer_is_null(const writable_buffer *wb)
 {
    return wb->length == WRITABLE_BUFFER_NULL_LENGTH;
@@ -260,8 +261,9 @@ writable_buffer_to_slice(const writable_buffer *wb)
 static inline uint64
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
-   uint64 oldsize = writable_buffer_length(wb);
-   platform_assert(SUCCESS(writable_buffer_resize(wb, oldsize + length)));
+   uint64          oldsize = writable_buffer_length(wb);
+   platform_status rc      = writable_buffer_resize(wb, oldsize + length);
+   platform_assert(SUCCESS(rc));
    char *data = writable_buffer_data(wb);
    memcpy(data + oldsize, newdata, length);
    return oldsize;
@@ -297,35 +299,35 @@ writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
  *
  * Base is automatically detected based on the regular expressions above
  */
-bool
+bool32
 try_string_to_uint64(const char *nptr, // IN
                      uint64     *n);       // OUT
 
-bool
+bool32
 try_string_to_int64(const char *nptr, // IN
                     int64      *n);        // OUT
 
-bool
+bool32
 try_string_to_uint32(const char *nptr, // IN
                      uint32     *n);       // OUT
 
-bool
+bool32
 try_string_to_int32(const char *nptr, // IN
                     int32      *n);        // OUT
 
-bool
+bool32
 try_string_to_uint16(const char *nptr, // IN
                      uint16     *n);       // OUT
 
-bool
+bool32
 try_string_to_int16(const char *nptr, // IN
                     int16      *n);        // OUT
 
-bool
+bool32
 try_string_to_uint8(const char *nptr, // IN
                     uint8      *n);        // OUT
 
-bool
+bool32
 try_string_to_int8(const char *nptr, // IN
                    int8       *n);         // OUT
 
@@ -370,7 +372,6 @@ debug_hex_dump(platform_log_handle *,
 
 void
 debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
-
 
 /*
  * Evaluates to a print format specifier based on the value being printed.

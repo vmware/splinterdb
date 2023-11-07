@@ -18,14 +18,19 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
       minspace = 2 * wb->buffer_capacity;
    }
 
-   void *oldptr  = wb->can_free ? wb->buffer : NULL;
-   void *newdata = platform_realloc(wb->heap_id, oldptr, minspace);
+   void *newdata = NULL;
+   if (wb->can_free) {
+      newdata = platform_realloc(
+         wb->heap_id, wb->buffer_capacity, wb->buffer, minspace);
+   } else {
+      char *newbuf = TYPED_MANUAL_MALLOC(wb->heap_id, newbuf, minspace);
+      if (newbuf && writable_buffer_data(wb)) {
+         memcpy(newbuf, wb->buffer, wb->length);
+      }
+      newdata = (void *)newbuf;
+   }
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
-   }
-
-   if (oldptr == NULL && wb->length != WRITABLE_BUFFER_NULL_LENGTH) {
-      memcpy(newdata, wb->buffer, wb->length);
    }
 
    wb->buffer_capacity = minspace;
@@ -52,7 +57,7 @@ writable_buffer_resize(writable_buffer *wb, uint64 newlength)
  * negative_limit and positive_limit are absolute values
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 try_string_to_uint64_limit(const char  *nptr,           // IN
                            const uint64 negative_limit, // IN
                            const uint64 positive_limit, // IN
@@ -67,7 +72,7 @@ try_string_to_uint64_limit(const char  *nptr,           // IN
    } while (isspace(c));
 
    // Skip (single) leading '+', treat single leading '-' as negative
-   bool negative = FALSE;
+   bool32 negative = FALSE;
    if (c == '-') {
       if (negative_limit == 0) {
          goto negative_disallowed;
@@ -109,7 +114,7 @@ try_string_to_uint64_limit(const char  *nptr,           // IN
    const int    cutlim = limit % (uint64)base;
 
    uint64 value;
-   bool   converted_any = FALSE;
+   bool32 converted_any = FALSE;
    for (value = 0; c != '\0'; c = *s++) {
       if (isspace(c)) {
          break;
@@ -195,7 +200,7 @@ multiple_strings:
  * Base is automatically detected based on the regular expressions above
  *----------------------------------------------------------------------
  */
-bool
+bool32
 try_string_to_uint64(const char *nptr, // IN
                      uint64     *n)        // OUT
 {
@@ -204,7 +209,7 @@ try_string_to_uint64(const char *nptr, // IN
    return try_string_to_uint64_limit(nptr, negative_limit, positive_limit, n);
 }
 
-bool
+bool32
 try_string_to_int64(const char *nptr, // IN
                     int64      *n)         // OUT
 {
@@ -220,7 +225,7 @@ try_string_to_int64(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint32(const char *nptr, // IN
                      uint32     *n)        // OUT
 {
@@ -232,7 +237,7 @@ try_string_to_uint32(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint16(const char *nptr, // IN
                      uint16     *n)        // OUT
 {
@@ -244,7 +249,7 @@ try_string_to_uint16(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint8(const char *nptr, // IN
                     uint8      *n)         // OUT
 {
@@ -256,7 +261,7 @@ try_string_to_uint8(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int32(const char *nptr, // IN
                     int32      *n)         // OUT
 {
@@ -268,7 +273,7 @@ try_string_to_int32(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int16(const char *nptr, // IN
                     int16      *n)         // OUT
 {
@@ -280,7 +285,7 @@ try_string_to_int16(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int8(const char *nptr, // IN
                    int8       *n)          // OUT
 {
@@ -375,7 +380,7 @@ size_to_str(char *outbuf, size_t outbuflen, size_t size)
    debug_assert(outbuflen >= SIZE_TO_STR_LEN, "outbuflen=%lu.\n", outbuflen);
    size_t unit_val  = 0;
    size_t frac_val  = 0;
-   bool   is_approx = FALSE;
+   bool32 is_approx = FALSE;
 
    char *units = NULL;
    if (size >= TiB) {

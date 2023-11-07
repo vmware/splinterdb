@@ -126,7 +126,7 @@ platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx);
  * Callers still hold a shared lock after a failed claim attempt.
  * Callers _must_ release their shared lock after a failed claim attempt.
  */
-bool
+bool32
 platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx);
 
 /* shared-lock -> claim, BUT(!) may temporarily release the shared-lock in the
@@ -161,7 +161,6 @@ typedef struct {
 typedef struct laio_handle platform_io_handle;
 
 typedef void *platform_module_id;
-typedef void *platform_heap_handle;
 typedef void *platform_heap_id;
 
 typedef struct {

@@ -28,6 +28,7 @@
  * compiler/processor.
  */
 #include <stdint.h>
+#include <stdbool.h>
 
 // Types
 typedef unsigned char uchar;
@@ -60,8 +61,6 @@ static_assert(sizeof(uint64) == 8, "incorrect type");
 #ifndef FALSE
 #   define FALSE (0)
 #endif
-
-typedef uint8 bool8;
 
 typedef FILE platform_log_handle;
 

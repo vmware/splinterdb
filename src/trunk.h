@@ -64,16 +64,16 @@ typedef struct trunk_config {
                                 // free space < threshold
    uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
                                 // task.h
-   bool            use_stats;   // stats
+   bool32          use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
    routing_config  filter_cfg;
    data_config    *data_cfg;
-   bool            use_log;
+   bool32          use_log;
    log_config     *log_cfg;
 
    // verbose logging
-   bool                 verbose_logging_enabled;
+   bool32               verbose_logging_enabled;
    platform_log_handle *log_handle;
 } trunk_config;
 
@@ -229,12 +229,14 @@ typedef struct trunk_range_iterator {
    uint64          num_memtable_branches;
    uint64          memtable_start_gen;
    uint64          memtable_end_gen;
-   bool            compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   bool32          compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator *merge_itor;
-   bool            at_end;
+   bool32          can_prev;
+   bool32          can_next;
    key_buffer      min_key;
    key_buffer      max_key;
-   key_buffer      rebuild_key;
+   key_buffer      local_min_key;
+   key_buffer      local_max_key;
    btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 
@@ -310,7 +312,7 @@ typedef struct trunk_async_ctxt {
    uint16 branch_no;        // branch number (newest)
    uint16 branch_no_end;    // branch number end (oldest,
                             // exclusive)
-   bool          was_async; // Did an async IO for trunk ?
+   bool32        was_async; // Did an async IO for trunk ?
    trunk_branch *branch;    // Current branch
    union {
       routing_async_ctxt filter_ctxt; // Filter async context
@@ -334,7 +336,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data);
 platform_status
 trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result);
 
-static inline bool
+static inline bool32
 trunk_lookup_found(merge_accumulator *result)
 {
    return !merge_accumulator_is_null(result);
@@ -350,6 +352,8 @@ trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
                           key                   min_key,
                           key                   max_key,
+                          key                   start_key,
+                          comparison            start_type,
                           uint64                num_tuples);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
@@ -407,7 +411,7 @@ void
 trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
 void
 trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
-bool
+bool32
 trunk_verify_tree(trunk_handle *spl);
 
 static inline uint64
@@ -461,9 +465,9 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   uint64               filter_index_size,
                   uint64               reclaim_threshold,
                   uint64               queue_scale_percent,
-                  bool                 use_log,
-                  bool                 use_stats,
-                  bool                 verbose_logging,
+                  bool32               use_log,
+                  bool32               use_stats,
+                  bool32               verbose_logging,
                   platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();

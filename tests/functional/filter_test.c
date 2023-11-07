@@ -41,7 +41,7 @@ test_filter_basic(cache           *cc,
       fp_arr[i] = TYPED_ARRAY_MALLOC(hid, fp_arr[i], num_fingerprints);
    }
 
-   bool *used_keys =
+   bool32 *used_keys =
       TYPED_ARRAY_ZALLOC(hid, used_keys, (num_values + 1) * num_fingerprints);
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
@@ -69,14 +69,8 @@ test_filter_basic(cache           *cc,
 
    routing_filter filter[MAX_FILTERS] = {{0}};
    for (uint64 i = 0; i < num_values; i++) {
-      rc = routing_filter_add(cc,
-                              cfg,
-                              hid,
-                              &filter[i],
-                              &filter[i + 1],
-                              fp_arr[i],
-                              num_fingerprints,
-                              i);
+      rc = routing_filter_add(
+         cc, cfg, &filter[i], &filter[i + 1], fp_arr[i], num_fingerprints, i);
       // platform_default_log("FILTER %lu\n", i);
       // routing_filter_print(cc, cfg, &filter);
       uint32 estimated_input_keys =
@@ -191,7 +185,6 @@ test_filter_perf(cache           *cc,
             k * num_fingerprints * num_values + i * num_fingerprints;
          platform_status rc = routing_filter_add(cc,
                                                  cfg,
-                                                 hid,
                                                  &filter[k],
                                                  &new_filter,
                                                  &fp_arr[fp_start],
@@ -298,7 +291,7 @@ filter_test(int argc, char *argv[])
    clockcache            *cc;
    int                    config_argc;
    char                 **config_argv;
-   bool                   run_perf_test;
+   bool32                 run_perf_test;
    platform_status        rc;
    uint64                 seed;
    test_message_generator gen;
@@ -313,10 +306,12 @@ filter_test(int argc, char *argv[])
       config_argv   = argv + 1;
    }
 
+   bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
+
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   platform_heap_id hid = NULL;
+   rc =
+      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
    uint64 num_memtable_bg_threads_unused = 0;
@@ -350,7 +345,7 @@ filter_test(int argc, char *argv[])
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hh, hid);
+   rc = io_handle_init(io, &io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
@@ -418,7 +413,7 @@ free_iohandle:
    r = 0;
 cleanup:
    platform_free(hid, cfg);
-   platform_heap_destroy(&hh);
+   platform_heap_destroy(&hid);
 
    return r;
 }

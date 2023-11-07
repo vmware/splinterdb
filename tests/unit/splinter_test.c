@@ -29,6 +29,7 @@
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"
+#include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -40,7 +41,7 @@ typedef struct shadow_entry {
 
 typedef struct trunk_shadow {
    data_config    *data_cfg;
-   bool            sorted;
+   bool32          sorted;
    writable_buffer entries;
    writable_buffer data;
 } trunk_shadow;
@@ -49,7 +50,7 @@ typedef struct trunk_shadow {
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
-                    bool          verify,
+                    bool32        verify,
                     trunk_shadow *shadow); // Out
 
 static platform_status
@@ -76,8 +77,7 @@ test_lookup_by_range(void         *datap,
 CTEST_DATA(splinter)
 {
    // Declare head handles for io, allocator, cache and splinter allocation.
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
 
    // Thread-related config parameters. These don't change for unit tests
    uint32 num_insert_threads;
@@ -114,13 +114,15 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
+   bool use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
+
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;
    data->max_async_inflight = 64;
    data->spl_num_tables = 1;
 
-   bool cache_per_table = FALSE;
+   bool32 cache_per_table = FALSE;
    int num_tables       = data->spl_num_tables; // Cache, for re-use below
    uint8 num_caches     = (cache_per_table ? num_tables : 1);
    uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB * num_tables);
@@ -130,7 +132,7 @@ CTEST_SETUP(splinter)
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
                                              heap_capacity,
-                                             &data->hh,
+                                             use_shmem,
                                              &data->hid);
    platform_assert_status_ok(rc);
 
@@ -178,7 +180,7 @@ CTEST_SETUP(splinter)
    // Allocate and initialize the IO sub-system.
    data->io = TYPED_MALLOC(data->hid, data->io);
    ASSERT_TRUE((data->io != NULL));
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
 
    data->tasks = NULL;
    rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->task_cfg);
@@ -232,7 +234,7 @@ CTEST_TEARDOWN(splinter)
       platform_free(data->hid, data->splinter_cfg);
    }
 
-   platform_heap_destroy(&data->hh);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -692,7 +694,7 @@ CTEST2(splinter, test_splinter_print_diags)
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
-                    bool          verify,
+                    bool32        verify,
                     trunk_shadow *shadow) // Out
 {
    // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
@@ -745,7 +747,7 @@ splinter_do_inserts(void         *datap,
 
       if (verify && (insert_num != 0)
           && (insert_num % TEST_VERIFY_GRANULARITY) == 0) {
-         bool result = trunk_verify_tree(spl);
+         bool32 result = trunk_verify_tree(spl);
          ASSERT_TRUE(result,
                      "trunk_verify_tree() failed after %d inserts. ",
                      insert_num);
@@ -817,7 +819,7 @@ shadow_check_tuple_func(key returned_key, message value, void *varg)
       trunk_message_to_string(arg->spl, shadow_value, expected_value);
       trunk_message_to_string(arg->spl, value, actual_value);
 
-      CTEST_LOG_INFO("expected: '%s' | '%s'\n", expected_key, expected_value);
+      CTEST_LOG_INFO("\nexpected: '%s' | '%s'\n", expected_key, expected_value);
       CTEST_LOG_INFO("actual  : '%s' | '%s'\n", actual_key, actual_value);
       arg->errors++;
    }
