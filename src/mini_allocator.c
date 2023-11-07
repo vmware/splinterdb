@@ -1000,7 +1000,7 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
  *      Deallocation/cache side effects when external ref count hits 0
  *-----------------------------------------------------------------------------
  */
-uint8
+refcount
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head)
 {
    allocator *al  = cache_get_allocator(cc);
@@ -1021,7 +1021,7 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
    return TRUE;
 }
 
-uint8
+refcount
 mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
 {
    if (type == PAGE_TYPE_MEMTABLE) {

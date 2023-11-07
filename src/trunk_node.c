@@ -158,7 +158,7 @@ bundle_init_single(bundle          *bndl,
       platform_error_log("%s():%d: vector_append() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       vector_deinit(&bndl->branches);
    }
    return rc;
@@ -173,7 +173,7 @@ bundle_init_copy(bundle *dst, const bundle *src, platform_heap_id hid)
       platform_error_log("%s():%d: vector_copy() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       vector_deinit(&dst->branches);
       return rc;
    }
@@ -199,7 +199,7 @@ bundle_add_branches(bundle            *bndl,
       platform_error_log("%s():%d: vector_append_vector() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       return rc;
    }
    bndl->maplet = new_maplet;
@@ -491,7 +491,7 @@ node_copy_init(trunk_node *dst, const trunk_node *src, platform_heap_id hid)
       platform_error_log("%s():%d: VECTOR_MAP_ELTS() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       goto cleanup_vectors;
    }
    rc = VECTOR_EMPLACE_MAP_PTRS(
@@ -500,7 +500,7 @@ node_copy_init(trunk_node *dst, const trunk_node *src, platform_heap_id hid)
       platform_error_log("%s():%d: VECTOR_EMPLACE_MAP_PTRS() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       goto cleanup_vectors;
    }
    rc = VECTOR_EMPLACE_MAP_PTRS(
@@ -509,7 +509,7 @@ node_copy_init(trunk_node *dst, const trunk_node *src, platform_heap_id hid)
       platform_error_log("%s():%d: VECTOR_EMPLACE_MAP_PTRS() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       goto cleanup_vectors;
    }
 
@@ -548,7 +548,7 @@ node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
       platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       goto cleanup_vectors;
    }
 
@@ -557,7 +557,7 @@ node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
       platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       goto cleanup_vectors;
    }
 
@@ -912,7 +912,7 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
                          "failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       return NULL;
    }
    return (ondisk_pivot *)(handle->content_page->data + offset
@@ -961,7 +961,7 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
                          "failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       return NULL;
    }
    ondisk_bundle *result = (ondisk_bundle *)(handle->content_page->data + offset
@@ -977,7 +977,7 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
                             "failed: %s",
                             __func__,
                             __LINE__,
-                            platform_status_string(rc));
+                            platform_status_to_string(rc));
          return NULL;
       }
       result = (ondisk_bundle *)(handle->content_page->data + offset
@@ -1040,7 +1040,7 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
       platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
                          __func__,
                          __LINE__,
-                         platform_status_string(rc));
+                         platform_status_to_string(rc));
       bundle_deinit(bndl);
       return rc;
    }
