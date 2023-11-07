@@ -1266,8 +1266,8 @@ btree_dec_ref(cache              *cc,
               page_type           type)
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
+   uint64   meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
+   refcount ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
    return ref == 0;
 }
 

@@ -155,6 +155,10 @@ bundle_init_single(bundle          *bndl,
    vector_init(&bndl->branches, hid);
    platform_status rc = vector_append(&bndl->branches, branch);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_append() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       vector_deinit(&bndl->branches);
    }
    return rc;
@@ -166,6 +170,10 @@ bundle_init_copy(bundle *dst, const bundle *src, platform_heap_id hid)
    vector_init(&dst->branches, hid);
    platform_status rc = vector_copy(&dst->branches, &src->branches);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_copy() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       vector_deinit(&dst->branches);
       return rc;
    }
@@ -188,6 +196,10 @@ bundle_add_branches(bundle            *bndl,
    platform_status rc;
    rc = vector_append_vector(&bndl->branches, new_branches);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_append_vector() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       return rc;
    }
    bndl->maplet = new_maplet;
@@ -289,6 +301,8 @@ pivot_create(platform_heap_id  hid,
    pivot *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, result, key.bytes, ondisk_key_required_data_capacity(k));
    if (result == NULL) {
+      platform_error_log(
+         "%s():%d: TYPED_FLEXIBLE_STRUCT_ZALLOC() failed", __func__, __LINE__);
       return NULL;
    }
    copy_key_to_ondisk_key(&result->key, k);
@@ -474,16 +488,28 @@ node_copy_init(trunk_node *dst, const trunk_node *src, platform_heap_id hid)
 
    rc = VECTOR_MAP_ELTS(&pivots, pivot_copy, &src->pivots, hid);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: VECTOR_MAP_ELTS() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       goto cleanup_vectors;
    }
    rc = VECTOR_EMPLACE_MAP_PTRS(
       &pivot_bundles, bundle_init_copy, &src->pivot_bundles, hid);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: VECTOR_EMPLACE_MAP_PTRS() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       goto cleanup_vectors;
    }
    rc = VECTOR_EMPLACE_MAP_PTRS(
       &inflight_bundles, bundle_init_copy, &src->inflight_bundles, hid);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: VECTOR_EMPLACE_MAP_PTRS() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       goto cleanup_vectors;
    }
 
@@ -519,11 +545,19 @@ node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
 
    rc = vector_ensure_capacity(&pivots, 2);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       goto cleanup_vectors;
    }
 
    rc = vector_ensure_capacity(&pivot_bundles, 1);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       goto cleanup_vectors;
    }
 
@@ -532,6 +566,12 @@ node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
    pivot *ub_pivot =
       pivot_create(hid, ub, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
    if (lb_pivot == NULL || ub_pivot == NULL) {
+      platform_error_log(
+         "%s():%d: pivot_create() failed. lb_pivot=%p ub_pivot=%p",
+         __func__,
+         __LINE__,
+         lb_pivot,
+         ub_pivot);
       rc = STATUS_NO_MEMORY;
       goto cleanup_pivots;
    }
@@ -650,67 +690,6 @@ node_pivot_has_received_bundles(const trunk_node *node, uint64 i)
           && node->num_old_bundles < vector_length(&node->inflight_bundles);
 }
 
-debug_only static bool
-node_is_well_formed_leaf(const data_config *data_cfg, const trunk_node *node)
-{
-   bool basics =
-      node->height == 0 && vector_length(&node->pivots) == 2
-      && vector_length(&node->pivot_bundles) == 1
-      && node->num_old_bundles <= vector_length(&node->inflight_bundles);
-   if (!basics) {
-      return FALSE;
-   }
-
-   pivot *lb    = vector_get(&node->pivots, 0);
-   pivot *ub    = vector_get(&node->pivots, 1);
-   key    lbkey = pivot_key(lb);
-   key    ubkey = pivot_key(ub);
-   return lb->child_addr == 0 && data_key_compare(data_cfg, lbkey, ubkey) < 0
-          && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
-}
-
-debug_only static bool
-node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
-{
-   bool basics =
-      0 < node->height && 1 < vector_length(&node->pivots)
-      && vector_length(&node->pivot_bundles) == vector_length(&node->pivots) - 1
-      && node->num_old_bundles <= vector_length(&node->inflight_bundles);
-   if (!basics) {
-      return FALSE;
-   }
-
-   for (uint64 i = 0; i < node_num_children(node); i++) {
-      pivot *lb    = vector_get(&node->pivots, i);
-      pivot *ub    = vector_get(&node->pivots, i + 1);
-      key    lbkey = pivot_key(lb);
-      key    ubkey = pivot_key(ub);
-      bool   valid_pivots =
-         lb->child_addr != 0
-         && lb->inflight_bundle_start <= vector_length(&node->inflight_bundles)
-         && data_key_compare(data_cfg, lbkey, ubkey) < 0
-         && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
-      if (!valid_pivots) {
-         return FALSE;
-      }
-   }
-
-   return TRUE;
-}
-
-static void
-node_deinit(trunk_node *node, trunk_node_context *context)
-{
-   VECTOR_APPLY_TO_ELTS(
-      &node->pivots, vector_apply_platform_free, context->hid);
-   VECTOR_APPLY_TO_PTRS(&node->pivot_bundles, bundle_deinit);
-   VECTOR_APPLY_TO_PTRS(&node->inflight_bundles, bundle_deinit);
-   vector_deinit(&node->pivots);
-   vector_deinit(&node->pivot_bundles);
-   vector_deinit(&node->inflight_bundles);
-}
-
-
 void
 node_print(const trunk_node    *node,
            platform_log_handle *log,
@@ -731,6 +710,79 @@ node_print(const trunk_node    *node,
       log, "%*s--------------Inflight Bundles-----------\n", indent, "");
    bundle_vector_print(&node->inflight_bundles, log, indent + 4);
 }
+
+debug_only static bool
+node_is_well_formed_leaf(const data_config *data_cfg, const trunk_node *node)
+{
+   bool basics =
+      node->height == 0 && vector_length(&node->pivots) == 2
+      && vector_length(&node->pivot_bundles) == 1
+      && node->num_old_bundles <= vector_length(&node->inflight_bundles);
+   if (!basics) {
+      platform_error_log("ILL-FORMED LEAF: basics failed\n");
+      node_print(node, Platform_error_log_handle, data_cfg, 4);
+      return FALSE;
+   }
+
+   pivot *lb    = vector_get(&node->pivots, 0);
+   pivot *ub    = vector_get(&node->pivots, 1);
+   key    lbkey = pivot_key(lb);
+   key    ubkey = pivot_key(ub);
+   bool32 ret   = lb->child_addr == 0
+                && data_key_compare(data_cfg, lbkey, ubkey) < 0
+                && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
+   if (!ret) {
+      platform_error_log("ILL-FORMED LEAF:\n");
+      node_print(node, Platform_error_log_handle, data_cfg, 4);
+   }
+   return ret;
+}
+
+debug_only static bool
+node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
+{
+   bool basics =
+      0 < node->height && 1 < vector_length(&node->pivots)
+      && vector_length(&node->pivot_bundles) == vector_length(&node->pivots) - 1
+      && node->num_old_bundles <= vector_length(&node->inflight_bundles);
+   if (!basics) {
+      platform_error_log("ILL-FORMED INDEX: basics failed\n");
+      node_print(node, Platform_error_log_handle, data_cfg, 4);
+      return FALSE;
+   }
+
+   for (uint64 i = 0; i < node_num_children(node); i++) {
+      pivot *lb    = vector_get(&node->pivots, i);
+      pivot *ub    = vector_get(&node->pivots, i + 1);
+      key    lbkey = pivot_key(lb);
+      key    ubkey = pivot_key(ub);
+      bool   valid_pivots =
+         lb->child_addr != 0
+         && lb->inflight_bundle_start <= vector_length(&node->inflight_bundles)
+         && data_key_compare(data_cfg, lbkey, ubkey) < 0
+         && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
+      if (!valid_pivots) {
+         platform_error_log("ILL-FORMED INDEX: invalid pivots\n");
+         node_print(node, Platform_error_log_handle, data_cfg, 4);
+         return FALSE;
+      }
+   }
+
+   return TRUE;
+}
+
+static void
+node_deinit(trunk_node *node, trunk_node_context *context)
+{
+   VECTOR_APPLY_TO_ELTS(
+      &node->pivots, vector_apply_platform_free, context->hid);
+   VECTOR_APPLY_TO_PTRS(&node->pivot_bundles, bundle_deinit);
+   VECTOR_APPLY_TO_PTRS(&node->inflight_bundles, bundle_deinit);
+   vector_deinit(&node->pivots);
+   vector_deinit(&node->pivot_bundles);
+   vector_deinit(&node->inflight_bundles);
+}
+
 
 /**************************************************
  * Basic accessors for ondisk bundles
@@ -780,6 +832,7 @@ ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
    handle->cc          = cc;
    handle->header_page = cache_get(cc, addr, TRUE, PAGE_TYPE_TRUNK);
    if (handle->header_page == NULL) {
+      platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
    }
    handle->content_page = NULL;
@@ -833,7 +886,11 @@ ondisk_node_handle_setup_content_page(ondisk_node_handle *handle, uint64 offset)
       uint64 addr = handle->header_page->disk_addr + offset;
       addr -= (addr % page_size);
       handle->content_page = cache_get(handle->cc, addr, TRUE, PAGE_TYPE_TRUNK);
-      return handle->content_page == NULL ? STATUS_IO_ERROR : STATUS_OK;
+      if (handle->content_page == NULL) {
+         platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
+         return STATUS_IO_ERROR;
+      }
+      return STATUS_OK;
    }
 }
 
@@ -851,6 +908,11 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
    uint64             offset = header->pivot_offsets[pivot_num];
    platform_status rc = ondisk_node_handle_setup_content_page(handle, offset);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
+                         "failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       return NULL;
    }
    return (ondisk_pivot *)(handle->content_page->data + offset
@@ -862,6 +924,8 @@ ondisk_node_get_pivot_key(ondisk_node_handle *handle, uint64 pivot_num, key *k)
 {
    ondisk_pivot *odp = ondisk_node_get_pivot(handle, pivot_num);
    if (odp == NULL) {
+      platform_error_log(
+         "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
    }
    *k = ondisk_key_to_key(&odp->key);
@@ -873,6 +937,8 @@ ondisk_node_get_pivot_bundle(ondisk_node_handle *handle, uint64 pivot_num)
 {
    ondisk_pivot *pivot = ondisk_node_get_pivot(handle, pivot_num);
    if (pivot == NULL) {
+      platform_error_log(
+         "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return NULL;
    }
    return (ondisk_bundle *)(((char *)pivot) + sizeof_ondisk_pivot(pivot));
@@ -891,6 +957,11 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
 
    platform_status rc = ondisk_node_handle_setup_content_page(handle, offset);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
+                         "failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       return NULL;
    }
    ondisk_bundle *result = (ondisk_bundle *)(handle->content_page->data + offset
@@ -902,6 +973,11 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
       offset += page_size - (offset % page_size);
       rc = ondisk_node_handle_setup_content_page(handle, offset);
       if (!SUCCESS(rc)) {
+         platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
+                            "failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_string(rc));
          return NULL;
       }
       result = (ondisk_bundle *)(handle->content_page->data + offset
@@ -935,6 +1011,8 @@ pivot_deserialize(platform_heap_id hid, ondisk_node_handle *handle, uint64 i)
    ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
    ondisk_pivot      *odp    = ondisk_node_get_pivot(handle, i);
    if (odp == NULL) {
+      platform_error_log(
+         "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return NULL;
    }
    uint64 inflight_bundle_start;
@@ -959,6 +1037,10 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
    platform_status rc =
       vector_ensure_capacity(&bndl->branches, odb->num_branches);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_string(rc));
       bundle_deinit(bndl);
       return rc;
    }
@@ -967,10 +1049,7 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
 
    for (uint64 i = 0; i < odb->num_branches; i++) {
       rc = vector_append(&bndl->branches, odb->branches[i]);
-      if (!SUCCESS(rc)) {
-         bundle_deinit(bndl);
-         return rc;
-      }
+      platform_assert_status_ok(rc);
    }
 
    return STATUS_OK;
