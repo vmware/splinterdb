@@ -873,7 +873,7 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
           */                                                                   \
          const size_t _size = sizeof(*p);                                      \
          const size_t _reqd =                                                  \
-            (_size + platform_alignment(PLATFORM_CACHELINE_SIZE, _size));      \
+            (_size + platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, _size));      \
          platform_free_mem((hid), (p), _reqd, STRINGIFY(p));                   \
          (p) = NULL;                                                           \
       }                                                                        \
