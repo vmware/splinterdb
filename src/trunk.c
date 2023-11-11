@@ -696,17 +696,16 @@ typedef enum trunk_compaction_type {
 
 /*
  *-----------------------------------------------------------------------------
- * Compact Bundle Requests
+ * Compact Bundle Requests: Arguments to a compact_bundle job.
  *
  * Arguments and scratch space to compact bundle number <bundle_no> in the
  * node[s] at height <height> spanning the range [start_key, end_key). <addr>
  * is the address of the node where the bundle was initially created, and is
  * used to revisit the node to create the iterators which become inputs to the
  * compaction.
- *-----------------------------------------------------------------------------
- * Arguments to a compact_bundle job.
  * Memory for the fingerprint array will be allocated, when needed,
  * and hung off of breq_fingerprint.
+ *-----------------------------------------------------------------------------
  */
 struct trunk_compact_bundle_req {
 
@@ -718,18 +717,21 @@ struct trunk_compact_bundle_req {
    uint16                height;
    uint16                bundle_no;
    trunk_compaction_type type;
-   uint64                generation; // node generation
-   uint64                pivot_generation[TRUNK_MAX_PIVOTS];
-   uint64                max_pivot_generation;
-   uint64                input_pivot_tuple_count[TRUNK_MAX_PIVOTS];
-   uint64                output_pivot_tuple_count[TRUNK_MAX_PIVOTS];
-   uint64                input_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
-   uint64                output_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
-   uint64                tuples_reclaimed;
-   uint64                kv_bytes_reclaimed;
-   fp_hdr                breq_fingerprint;
-   uint64                num_tuples;
-   uint64                enq_line; // Where task was enqueued
+
+   // Computed as part of the compaction process
+   uint64  pivot_generation[TRUNK_MAX_PIVOTS];
+   uint64  max_pivot_generation;
+   uint64  input_pivot_tuple_count[TRUNK_MAX_PIVOTS];
+   uint64  output_pivot_tuple_count[TRUNK_MAX_PIVOTS];
+   uint64  input_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
+   uint64  output_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
+   uint64  tuples_reclaimed;
+   uint64  kv_bytes_reclaimed;
+   uint32 *fp_arr_unused;
+
+   fp_hdr breq_fingerprint;
+   uint64 num_tuples;
+   uint64 enq_line; // Where task was enqueued
 };
 
 // an iterator which skips masked pivots
@@ -3515,19 +3517,17 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                       "Init of duplicate fingerprint array failed"
                       ", likely due to insufficient memory.");
    }
-
    fingerprint_copy(&dup_fp_arr, &cmt->req->breq_fingerprint);
 
    routing_filter empty_filter = {0};
 
-   platform_status rc = routing_filter_add(spl->cc,
-                                           &spl->cfg.filter_cfg,
-                                           &empty_filter,
-                                           &cmt->filter,
-                                           cmt->req->fp_arr,
-                                           req.num_tuples,
-                                           0);
-
+   rc = routing_filter_add(spl->cc,
+                           &spl->cfg.filter_cfg,
+                           &empty_filter,
+                           &cmt->filter,
+                           fingerprint_start(&cmt->req->breq_fingerprint),
+                           req.num_tuples,
+                           0);
    platform_assert(SUCCESS(rc));
 
    if (spl->cfg.use_stats) {
@@ -3664,15 +3664,8 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       req->pivot_generation[pivot_no] = pdata->generation;
    }
-   debug_assert(trunk_subbundle_branch_count(spl, &root, sb) != 0);
-   trunk_log_stream_if_enabled(spl,
-                               &stream,
-                               "enqueuing build filter %lu-%u\n",
-                               req->addr,
-                               req->bundle_no);
-   req->enq_line = __LINE__;
-   task_enqueue(
-      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
+   debug_assert(trunk_subbundle_branch_count(spl, node, sb) != 0);
+}
 
 /*
  * Function to incorporate the memtable to the root.
@@ -3781,6 +3774,8 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
       req->height,
       req->bundle_no);
    trunk_close_log_stream_if_enabled(spl, &stream);
+
+   req->enq_line = __LINE__;
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
@@ -3968,7 +3963,37 @@ typedef struct trunk_filter_scratch {
    routing_filter filter[TRUNK_MAX_PIVOTS];
    fp_hdr         filter_fingerprint;
    uint64         num_tuples;
-} trunk_filter_req;
+} trunk_filter_scratch;
+
+/*
+ * Initialize fingerprint object in input 'filter_req'.
+ * Here, we use the fingerprint object [already] initialized in the
+ * compact_req, and alias it (point to it) from filter_req.
+ *
+ * Returns: TRUE - if aliasing was successful; FALSE - otherwise.
+ */
+static inline bool
+trunk_filter_scratch_init(trunk_compact_bundle_req *compact_req,
+                          trunk_filter_scratch     *filter_req)
+{
+   debug_assert(fingerprint_is_empty(&filter_req->filter_fingerprint),
+                "addr=%p, size=%lu, init'ed at line=%u",
+                fingerprint_start(&filter_req->filter_fingerprint),
+                fingerprint_size(&filter_req->filter_fingerprint),
+                fingerprint_line(&filter_req->filter_fingerprint));
+
+   ZERO_CONTENTS(filter_req);
+   // Returns start of aliased fingerprint
+   uint32 *fp_start = fingerprint_alias(&filter_req->filter_fingerprint,
+                                        &compact_req->breq_fingerprint);
+   return (fp_start != NULL);
+}
+
+static inline void
+trunk_filter_req_fp_deinit(trunk_filter_scratch *filter_req)
+{
+   fingerprint_unalias(&filter_req->filter_fingerprint);
+}
 
 static inline bool32
 trunk_compact_bundle_node_has_split(trunk_handle             *spl,
@@ -3986,36 +4011,6 @@ trunk_compact_bundle_node_get(trunk_handle             *spl,
 {
    return trunk_node_get_by_key_and_height(
       spl, key_buffer_key(&req->start_key), req->height, node);
-}
-
-/*
- * Initialize fingerprint object in input 'filter_req'.
- * Here, we use the fingerprint object [already] initialized in the
- * compact_req, and alias it (point to it) from filter_req.
- *
- * Returns: TRUE - if aliasing was successful; FALSE - otherwise.
- */
-static inline bool
-trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
-                      trunk_filter_req         *filter_req)
-{
-   debug_assert(fingerprint_is_empty(&filter_req->filter_fingerprint),
-                "addr=%p, size=%lu, init'ed at line=%u",
-                fingerprint_start(&filter_req->filter_fingerprint),
-                fingerprint_size(&filter_req->filter_fingerprint),
-                fingerprint_line(&filter_req->filter_fingerprint));
-
-   ZERO_CONTENTS(filter_req);
-   // Returns start of aliased fingerprint
-   uint32 *fp_start = fingerprint_alias(&filter_req->filter_fingerprint,
-                                        &compact_req->breq_fingerprint);
-   return (fp_start != NULL);
-}
-
-static inline void
-trunk_filter_req_fp_deinit(trunk_filter_req *filter_req)
-{
-   fingerprint_unalias(&filter_req->filter_fingerprint);
 }
 
 static inline void
@@ -4111,7 +4106,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    platform_assert(compact_req->height == height);
    platform_assert(compact_req->bundle_no == trunk_start_bundle(spl, node));
 
-   bool fp_aliased = trunk_filter_req_init(compact_req, filter_req);
+   bool fp_aliased = trunk_filter_scratch_init(compact_req, filter_scratch);
 
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
@@ -4136,6 +4131,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    key_buffer_init_from_key(
       &filter_scratch->end_key, spl->heap_id, trunk_max_key(spl, node));
    filter_scratch->height = height;
+
    return fp_aliased;
 }
 
@@ -4182,7 +4178,6 @@ trunk_build_filters(trunk_handle             *spl,
 
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr           = filter_scratch->fp_arr + fp_start;
 
       uint32 num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
@@ -4195,17 +4190,17 @@ trunk_build_filters(trunk_handle             *spl,
 
       // Early-check; otherwise, assert trips in fingerprint_nth() below.
       debug_assert(
-         (fp_start < fingerprint_ntuples(&filter_req->filter_fingerprint)),
+         (fp_start < fingerprint_ntuples(&filter_scratch->filter_fingerprint)),
          "Requested fp_start=%u should be < "
          "fingerprint for %lu tuples."
          " Compact bundle req type=%d, enqueued at line=%lu",
          fp_start,
-         fingerprint_ntuples(&filter_req->filter_fingerprint),
+         fingerprint_ntuples(&filter_scratch->filter_fingerprint),
          compact_req->type,
          compact_req->enq_line);
 
       uint32 *fp_arr =
-         fingerprint_nth(&filter_req->filter_fingerprint, fp_start);
+         fingerprint_nth(&filter_scratch->filter_fingerprint, fp_start);
 
       routing_filter  new_filter;
       routing_config *filter_cfg = &spl->cfg.filter_cfg;
@@ -4320,13 +4315,16 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    trunk_compact_bundle_req *compact_req = (trunk_compact_bundle_req *)arg;
    trunk_handle             *spl         = compact_req->spl;
 
-   uint64           generation;
-   bool             filter_req_inited = FALSE;
-   trunk_filter_req filter_req        = {0};
+   // Referenced in goto label; so declare at the top.
+   trunk_filter_scratch filter_scratch = {0};
 
-   do {
-      trunk_node node;
-      trunk_node_get_maybe_descend(spl, compact_req, &node);
+   bool32 should_continue_build_filters = TRUE;
+   bool   filter_req_inited             = FALSE;
+   while (should_continue_build_filters) {
+      trunk_node      node;
+      platform_status rc =
+         trunk_compact_bundle_node_get(spl, compact_req, &node);
+      platform_assert_status_ok(rc);
 
       platform_stream_handle stream;
       trunk_open_log_stream_if_enabled(spl, &stream);
@@ -4360,7 +4358,6 @@ trunk_bundle_build_filters(void *arg, void *scratch)
                       trunk_bundle_build_filters,
                       compact_req,
                       FALSE);
-
          trunk_log_stream_if_enabled(
             spl, &stream, "out of order, reequeuing\n");
          trunk_close_log_stream_if_enabled(spl, &stream);
@@ -4370,12 +4367,10 @@ trunk_bundle_build_filters(void *arg, void *scratch)
 
       debug_assert(trunk_verify_node(spl, &node));
 
-      // prepare below will setup the fingerprint in this filter_req
+      // prepare below will setup the fingerprint in this filter_scratch
       // aliased to the fingerprint tracked by compact_req.
       filter_req_inited =
-         trunk_prepare_build_filter(spl, compact_req, &filter_req, &node);
-
-      uint64 filter_generation = trunk_generation(spl, &node);
+         trunk_prepare_build_filter(spl, compact_req, &filter_scratch, &node);
       trunk_node_unget(spl->cc, &node);
 
       trunk_build_filters(spl, compact_req, &filter_scratch);
@@ -4463,15 +4458,13 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          trunk_dec_filter(spl, &filter_scratch.filter[pos]);
       }
 
+      // cleanup filter_scratch
+      key_buffer_deinit(&filter_scratch.start_key);
+      key_buffer_deinit(&filter_scratch.end_key);
       if (filter_req_inited) {
-         trunk_filter_req_fp_deinit(&filter_req);
+         trunk_filter_req_fp_deinit(&filter_scratch);
          filter_req_inited = FALSE;
       }
-
-      trunk_log_node_if_enabled(&stream, spl, &node);
-      trunk_log_stream_if_enabled(
-         spl, &stream, "----------------------------------------\n");
-      trunk_log_stream_if_enabled(spl, &stream, "\n");
 
    next_node:
       debug_assert(trunk_verify_node(spl, &node));
@@ -4495,15 +4488,18 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          debug_assert(compact_req->height != 0);
       }
       trunk_close_log_stream_if_enabled(spl, &stream);
-
-   } while (compact_req->generation != generation);
+   }
+   while (should_continue_build_filters)
+      ;
 
 out:
    // Deallocate memory
    if (filter_req_inited) {
-      trunk_filter_req_fp_deinit(&filter_req);
+      trunk_filter_req_fp_deinit(&filter_scratch);
    }
    fingerprint_deinit(spl->heap_id, &compact_req->breq_fingerprint);
+   key_buffer_deinit(&compact_req->start_key);
+   key_buffer_deinit(&compact_req->end_key);
    platform_free(spl->heap_id, compact_req);
    trunk_maybe_reclaim_space(spl);
    return;
@@ -4713,6 +4709,7 @@ trunk_compact_bundle_enqueue(trunk_handle             *spl,
    key start_key = key_buffer_key(&req->start_key);
    key end_key   = key_buffer_key(&req->end_key);
    platform_assert(trunk_key_compare(spl, start_key, end_key) < 0);
+   req->enq_line = __LINE__;
    return task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
 }
@@ -4774,16 +4771,19 @@ trunk_flush(trunk_handle     *spl,
    trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
    trunk_bundle             *bundle =
       trunk_flush_into_bundle(spl, parent, &new_child, pdata, req);
+
    trunk_tuples_in_bundle(spl,
                           &new_child,
                           bundle,
                           req->input_pivot_tuple_count,
                           req->input_pivot_kv_byte_count);
+
    trunk_pivot_add_bundle_tuple_counts(spl,
                                        &new_child,
                                        bundle,
                                        req->input_pivot_tuple_count,
                                        req->input_pivot_kv_byte_count);
+
    trunk_bundle_inc_pivot_rc(spl, &new_child, bundle);
    debug_assert(allocator_page_valid(spl->al, req->addr));
    req->type = is_space_rec ? TRUNK_COMPACTION_TYPE_FLUSH
@@ -4804,13 +4804,19 @@ trunk_flush(trunk_handle     *spl,
 
    debug_assert(trunk_verify_node(spl, &new_child));
 
-   trunk_default_log_if_enabled(
-      spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
-   req->enq_line = __LINE__;
-   rc =
-      task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
-   platform_assert_status_ok(rc);
+   // flush the child if full
+   while (trunk_node_is_full(spl, &new_child)) {
+      platform_assert(!trunk_node_is_leaf(&new_child),
+                      "Full leaf after leaf split\n");
+      trunk_flush_fullest(spl, &new_child);
+   }
 
+   trunk_node_unlock(spl->cc, &new_child);
+   trunk_node_unclaim(spl->cc, &new_child);
+   trunk_node_unget(spl->cc, &new_child);
+
+   rc = trunk_compact_bundle_enqueue(spl, "enqueue", req);
+   platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       flush_start = platform_timestamp_elapsed(flush_start);
       if (parent->addr == spl->root_addr) {
@@ -5201,7 +5207,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_handle             *spl          = req->spl;
    threadid                  tid;
 
-   // We may be enqueueing tasks of this type from several points of
+   // We may be enqueueing tasks of this type from several call sites.
    // code-flow. Fingerprint mgmt is done inside here, so we claim that
    // the queued task's handle did not have any memory allocated for the
    // fingerprint array. (Otherwise, this might lead to memory leaks.)
@@ -5231,51 +5237,20 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       spl->stats[tid].compactions[height]++;
    }
 
-   /*
-    * 3. If the node has split before this call (interaction 4), this
-    *    bundle was copied to the new sibling[s], so issue compact_bundles for
-    *    those nodes
-    */
-   if (req->generation < trunk_generation(spl, &node)) {
-      if (height != 0) {
-         debug_assert(trunk_next_addr(&node) != 0);
-
-         trunk_compact_bundle_req *next_req =
-            TYPED_MALLOC(spl->heap_id, next_req);
-
-         memmove(next_req, req, sizeof(trunk_compact_bundle_req));
-         next_req->addr = trunk_next_addr(&node);
-         debug_assert(next_req->addr != 0);
-
-         req->generation = trunk_generation(spl, &node);
-
-         trunk_default_log_if_enabled(spl,
-                                      "compact_bundle split from %lu to %lu\n",
-                                      req->addr,
-                                      next_req->addr);
-         next_req->enq_line = __LINE__;
-         rc                 = task_enqueue(
-            spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, next_req, FALSE);
-         platform_assert_status_ok(rc);
-      } else {
-         /*
-          * 4. Abort if node is a splitting leaf (interaction 6)
-          */
-         trunk_node_unget(spl->cc, &node);
-         trunk_default_log_if_enabled(
-            spl, "compact_bundle abort leaf split %lu\n", req->addr);
-         platform_free(spl->heap_id, req);
-         if (spl->cfg.use_stats) {
-            spl->stats[tid].compactions_aborted_leaf_split[height]++;
-            spl->stats[tid].compaction_time_wasted_ns[height] +=
-               platform_timestamp_elapsed(compaction_start);
-         }
-         return;
-      }
-   }
-
-   // store the generation of the node so we can detect splits after compaction
-   uint64 start_generation = trunk_generation(spl, &node);
+   platform_assert(
+      !trunk_compact_bundle_node_has_split(spl, req, &node),
+      "compact_bundle unexpected node split\n"
+      "addr: %lu\n"
+      "node range: %s-%s\n"
+      "req range:  %s-%s\n"
+      "key compare: %d\n",
+      node.addr,
+      key_string(trunk_data_config(spl), trunk_min_key(spl, &node)),
+      key_string(trunk_data_config(spl), trunk_max_key(spl, &node)),
+      key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+      key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+      trunk_key_compare(
+         spl, trunk_max_key(spl, &node), key_buffer_key(&req->end_key)));
 
    /*
     * 2. The bundle may have been completely flushed, if so abort
@@ -5373,7 +5348,6 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                               merge_mode,
                               &merge_itor);
    platform_assert_status_ok(rc);
-
    btree_pack_req pack_req;
    rc = trunk_btree_pack_req_init(spl, &merge_itor->super, &pack_req);
    if (!SUCCESS(rc)) {
@@ -5382,7 +5356,6 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
       trunk_compact_bundle_cleanup_iterators(
          spl, &merge_itor, num_branches, skip_itor_arr);
-      btree_pack_req_deinit(&pack_req, spl->heap_id);
 
       // Ensure this. Otherwise we may be exiting w/o releasing memory.
       debug_assert(fingerprint_is_empty(&req->breq_fingerprint),
@@ -5394,12 +5367,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       platform_free(spl->heap_id, req);
       goto out;
    }
-   pack_req.line = __LINE__;
-
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
    }
-
+   pack_req.line               = __LINE__;
    platform_status pack_status = btree_pack(&pack_req);
    if (!SUCCESS(pack_status)) {
       platform_default_log("btree_pack failed: %s\n",
@@ -5582,11 +5553,14 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             spl->stats[tid].compaction_time_max_ns[height] = compaction_start;
          }
       }
-      trunk_log_stream_if_enabled(spl,
-                                  &stream,
-                                  "enqueuing build filter %lu-%u\n",
-                                  req->addr,
-                                  req->bundle_no);
+      trunk_log_stream_if_enabled(
+         spl,
+         &stream,
+         "build_filter enqueue: range %s-%s, height %u, bundle %u\n",
+         key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+         key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+         req->height,
+         req->bundle_no);
       req->enq_line = __LINE__;
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
@@ -6110,15 +6084,8 @@ trunk_split_leaf(trunk_handle *spl,
          key_buffer_init_from_key(
             &req->end_key, spl->heap_id, trunk_max_key(spl, leaf));
 
-         trunk_default_log_if_enabled(spl,
-                                      "enqueuing compact_bundle %lu-%u\n",
-                                      req->addr,
-                                      req->bundle_no);
-         req->enq_line = __LINE__;
-
-         rc = task_enqueue(
-            spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
-         platform_assert(SUCCESS(rc));
+         rc = trunk_compact_bundle_enqueue(spl, "enqueue", req);
+         platform_assert_status_ok(rc);
 
          trunk_log_node_if_enabled(&stream, spl, leaf);
 
@@ -6152,13 +6119,8 @@ trunk_split_leaf(trunk_handle *spl,
       &req->end_key, spl->heap_id, trunk_max_key(spl, leaf));
 
    // issue compact_bundle for leaf and release
-   trunk_default_log_if_enabled(
-      spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
-
-   req->enq_line = __LINE__;
-   rc =
-      task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
-   platform_assert(SUCCESS(rc));
+   rc = trunk_compact_bundle_enqueue(spl, "enqueue", req);
+   platform_assert_status_ok(rc);
 
    trunk_log_node_if_enabled(&stream, spl, parent);
    trunk_log_node_if_enabled(&stream, spl, leaf);
@@ -6720,12 +6682,8 @@ trunk_compact_leaf(trunk_handle *spl, trunk_node *leaf)
    key_buffer_init_from_key(
       &req->end_key, spl->heap_id, trunk_max_key(spl, leaf));
 
-   trunk_default_log_if_enabled(
-      spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
-   req->enq_line = __LINE__;
-   rc =
-      task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
-   platform_assert(SUCCESS(rc));
+   rc = trunk_compact_bundle_enqueue(spl, "enqueue", req);
+   platform_assert_status_ok(rc);
 
    trunk_log_node_if_enabled(&stream, spl, leaf);
 
@@ -7754,7 +7712,9 @@ trunk_stats_init(trunk_handle *spl)
       TYPED_ARRAY_ZALLOC_MF(spl->heap_id, spl->stats, MAX_THREADS, &memfrag);
    platform_assert(spl->stats);
 
+   // Remember this; it's needed for free
    spl->stats_size = memfrag_size(&memfrag);
+
    for (uint64 i = 0; i < MAX_THREADS; i++) {
       platform_status rc;
       rc = platform_histo_create(spl->heap_id,
@@ -7777,6 +7737,24 @@ trunk_stats_init(trunk_handle *spl)
 }
 
 /*
+ * Deallocate memory for stats-related structures hanging off the trunk.
+ */
+static void
+trunk_stats_deinit(trunk_handle *spl)
+{
+   debug_assert(spl->cfg.use_stats);
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      platform_histo_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
+      platform_histo_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
+      platform_histo_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
+   }
+   platform_memfrag  memfrag = {0};
+   platform_memfrag *mf      = &memfrag;
+   memfrag_init_size(mf, spl->stats, spl->stats_size);
+   platform_free(spl->heap_id, mf);
+}
+
+/*
  * Allocate memory for trunk handle and do initialization that is common between
  * 'create' and 'mount' operations.
  */
@@ -7792,6 +7770,8 @@ trunk_handle_init(trunk_config     *cfg,
    trunk_handle    *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
    platform_assert(spl != NULL);
+
+   // Remember this; it's needed for free
    spl->size = memfrag_size(&memfrag_spl);
 
    memmove(&spl->cfg, cfg, sizeof(*cfg));
@@ -7975,6 +7955,7 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
        * memtable_force_finalize is not thread safe. Note also, we do not hold
        * the insert lock or rotate while flushing the memtable.
        */
+
       uint64 generation = memtable_force_finalize(spl->mt_ctxt);
       trunk_memtable_flush(spl, generation);
    }
@@ -8049,20 +8030,11 @@ trunk_destroy(trunk_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
+   if (spl->cfg.use_stats) {
+      trunk_stats_deinit(spl);
+   }
    platform_memfrag  memfrag = {0};
    platform_memfrag *mf      = &memfrag;
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
-      }
-      memfrag_init_size(mf, spl->stats, spl->stats_size);
-      platform_free(spl->heap_id, mf);
-   }
    memfrag_init_size(mf, spl, spl->size);
    platform_free(spl->heap_id, mf);
 }
@@ -8078,25 +8050,13 @@ trunk_unmount(trunk_handle **spl_in)
    srq_deinit(&spl->srq);
    trunk_prepare_for_shutdown(spl);
    trunk_set_super_block(spl, FALSE, TRUE, FALSE);
-
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
-
    if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
-      }
-      memfrag_init_size(mf, spl->stats, spl->stats_size);
-      platform_free(spl->heap_id, mf);
+      trunk_stats_deinit(spl);
    }
+   platform_memfrag  memfrag = {0};
+   platform_memfrag *mf      = &memfrag;
    memfrag_init_size(mf, spl, spl->size);
    platform_free(spl->heap_id, mf);
-
    *spl_in = (trunk_handle *)NULL;
 }
 

@@ -1166,13 +1166,13 @@ destroy_btrees:
    platform_free(hid, mf);
 
    mf = &memfrag_pivot;
-   platform_free(hid, pivot);
+   platform_free(hid, mf);
    for (uint64 pivot_no = 0; pivot_no < arity + 1; pivot_no++) {
       key_buffer_deinit(&pivot_key[pivot_no]);
    }
 
    mf = &memfrag_pivot_key;
-   platform_free(hid, pivot_key);
+   platform_free(hid, mf);
 
    mf = &memfrag_btree_itor_arr;
    platform_free(hid, mf);
@@ -1552,10 +1552,10 @@ destroy_btrees:
    platform_free(hid, mf);
 
    mf = &memfrag_btree_itor_arr;
-   platform_free(hid, btree_itor_arr);
+   platform_free(hid, mf);
 
    mf = &memfrag_itor_arr;
-   platform_free(hid, itor_arr);
+   platform_free(hid, mf);
 
    return rc;
 }

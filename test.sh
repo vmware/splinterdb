@@ -666,6 +666,7 @@ function run_slower_unit_tests() {
 
     # Test runs w/ default of 1M rows for --num-inserts
     n_mills=1
+    local n_threads=8
     num_rows=$((n_mills * 1000 * 1000))
     msg="Large inserts stress test, ${n_mills}M rows, ${use_msg}"
 
@@ -689,9 +690,10 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
-                                                      --num-threads ${n_threads} \
-                                                      --num-normal-bg-threads 4 \
-                                                      --num-memtable-bg-threads 3
+                                                 --num-threads ${n_threads} \
+                                                 --num-normal-bg-threads 4 \
+                                                 --num-memtable-bg-threads 3
+    set -e
 }
 
 # ##################################################################
@@ -714,7 +716,7 @@ function run_slower_forked_process_tests() {
     #
     # main pr-clang job also failed with this error:
     # splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1182, OS-tid=1182, Thread-ID=3, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
-    # So -- this test scenario is unearthing some existing bugs. Comment out for now.
+    # As this test scenario is unearthing some existing bugs, comment it out for now.
     # --------------------------------------------------------------------------
     #
     # num_forked_procs=4
@@ -897,8 +899,9 @@ function run_tests_with_shared_memory() {
    run_with_timing "Filter tests using shared memory" \
                    "$BINDIR"/driver_test filter_test --use-shmem
 
+   # If supplied, --perf needs to be the 1st arg as it's parsed-away first.
    run_with_timing "Filter perf tests using shared memory" \
-                   "$BINDIR"/driver_test filter_test --use-shmem --perf
+                   "$BINDIR"/driver_test filter_test --perf --use-shmem
 
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi

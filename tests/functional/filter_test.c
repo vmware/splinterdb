@@ -17,7 +17,6 @@
 #include "cache.h"
 #include "clockcache.h"
 #include "util.h"
-#include "test_misc_common.h"
 
 #include "poison.h"
 
@@ -325,13 +324,6 @@ filter_test(int argc, char *argv[])
    argc--;
    argv++;
 
-   // If --use-shmem was provided, parse past that argument.
-   bool use_shmem = (argc >= 1) && test_using_shmem(argc, (char **)argv);
-   if (use_shmem) {
-      argc--;
-      argv++;
-   }
-
    if (argc && strncmp(argv[0], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
       config_argc   = argc - 1;
@@ -345,10 +337,11 @@ filter_test(int argc, char *argv[])
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_id hid = NULL;
-   size_t               heap_size = ((use_shmem ? 3 : 1) * GiB);
-   rc =
-      platform_heap_create(platform_get_module_id(), heap_size * GiB, use_shmem, &hid);
+   platform_heap_id hid       = NULL;
+   size_t           heap_size = ((use_shmem ? 3 : 1) * GiB);
+
+   rc = platform_heap_create(
+      platform_get_module_id(), heap_size, use_shmem, &hid);
 
    platform_assert_status_ok(rc);
 

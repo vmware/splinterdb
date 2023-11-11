@@ -149,23 +149,23 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       // all valid addresses allocated from the shared segment setup by the main
       // process.
 
-      ASSERT_TRUE(platform_valid_addr_in_heap(
+      ASSERT_TRUE(platform_isvalid_addr_in_heap(
          spl_heap_id, splinterdb_get_task_system_handle(spl_handle)));
 
       ASSERT_TRUE(
-         platform_valid_addr_in_heap(splinterdb_get_heap_id(spl_handle),
-                                     splinterdb_get_io_handle(spl_handle)));
+         platform_isvalid_addr_in_heap(splinterdb_get_heap_id(spl_handle),
+                                       splinterdb_get_io_handle(spl_handle)));
 
-      ASSERT_TRUE(platform_valid_addr_in_heap(
+      ASSERT_TRUE(platform_isvalid_addr_in_heap(
          spl_heap_id, splinterdb_get_allocator_handle(spl_handle)));
 
-      ASSERT_TRUE(platform_valid_addr_in_heap(
+      ASSERT_TRUE(platform_isvalid_addr_in_heap(
          spl_heap_id, splinterdb_get_cache_handle(spl_handle)));
 
-      ASSERT_TRUE(platform_valid_addr_in_heap(
+      ASSERT_TRUE(platform_isvalid_addr_in_heap(
          spl_heap_id, splinterdb_get_trunk_handle(spl_handle)));
 
-      ASSERT_TRUE(platform_valid_addr_in_heap(
+      ASSERT_TRUE(platform_isvalid_addr_in_heap(
          spl_heap_id, splinterdb_get_memtable_context_handle(spl_handle)));
 
       // Before registering w/Splinter, child process is still at tid==0.

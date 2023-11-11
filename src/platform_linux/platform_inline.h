@@ -516,15 +516,19 @@ platform_do_realloc(const platform_heap_id heap_id,
       // As this is the case of realloc, we assume that it would suffice to
       // align at platform's natural cacheline boundary.
       const size_t padding =
-         platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, newsize);
-      const size_t required = (newsize + padding);
+         platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, *newsize);
+      *newsize += padding;
       return platform_shm_realloc(
-         heap_id, ptr, oldsize, required, __func__, __FILE__, __LINE__);
-   } else {
-      return realloc(ptr, newsize);
+         heap_id, ptr, oldsize, newsize, __func__, __FILE__, __LINE__);
    }
 }
 
+/*
+ * platform_free_from_heap() - Free memory from the heap.
+ *
+ * If Splinter is running with shared memory configured, this calls into
+ * shared-memory based free() method. Othewise, run standard free().
+ */
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,
                         void            *ptr,

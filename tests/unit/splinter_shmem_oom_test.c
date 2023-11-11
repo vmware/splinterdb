@@ -56,20 +56,16 @@ exec_thread_memalloc(void *arg);
 CTEST_DATA(splinter_shmem_oom)
 {
    // Declare heap handles to shake out shared memory based allocation.
-   size_t               shmem_capacity; // In bytes
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   size_t           shmem_capacity; // In bytes
+   platform_heap_id hid;
 };
 
 // By default, all test cases will deal with small shared memory segment.
 CTEST_SETUP(splinter_shmem_oom)
 {
    data->shmem_capacity = (256 * MiB); // bytes
-   platform_status rc   = platform_heap_create(platform_get_module_id(),
-                                             data->shmem_capacity,
-                                             TRUE,
-                                             &data->hh,
-                                             &data->hid);
+   platform_status rc   = platform_heap_create(
+      platform_get_module_id(), data->shmem_capacity, TRUE, &data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Enable tracing all allocs / frees from shmem for this test.
@@ -79,7 +75,7 @@ CTEST_SETUP(splinter_shmem_oom)
 // Tear down the test shared segment.
 CTEST_TEARDOWN(splinter_shmem_oom)
 {
-   platform_status rc = platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 }
 
@@ -111,7 +107,7 @@ CTEST2(splinter_shmem_oom, test_allocations_causing_OOMs)
    size_t space_left =
       (data->shmem_capacity - (keybuf_size + platform_shm_ctrlblock_size()));
 
-   ASSERT_EQUAL(space_left, platform_shmfree(data->hid));
+   ASSERT_EQUAL(space_left, platform_shmbytes_free(data->hid));
 
    platform_error_log("\nNOTE: Test case intentionally triggers out-of-space"
                       " errors in shared segment. 'Insufficient memory'"
@@ -127,7 +123,7 @@ CTEST2(splinter_shmem_oom, test_allocations_causing_OOMs)
    ASSERT_TRUE(keybuf_oom == NULL);
 
    // Free space counter is not touched if allocation fails.
-   ASSERT_EQUAL(space_left, platform_shmfree(data->hid));
+   ASSERT_EQUAL(space_left, platform_shmbytes_free(data->hid));
 
    // As every memory request is rounded-up for alignment, the space left
    // counter should always be an integral multiple of this constant.
@@ -145,7 +141,7 @@ CTEST2(splinter_shmem_oom, test_allocations_causing_OOMs)
                   space_left);
 
    // We should be out of space by now.
-   ASSERT_EQUAL(0, platform_shmfree(data->hid));
+   ASSERT_EQUAL(0, platform_shmbytes_free(data->hid));
 
    // This should fail.
    keybuf_size = 1;

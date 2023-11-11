@@ -545,8 +545,9 @@ CTEST2(task_system, test_create_thread_using_all_avail_mem_for_scratch_space)
    // allocated. Tickling this code-flow exercises backout code path where there
    // were some bugs due to improper use of platform_free().
 
-   size_t scratch_space = (data->use_shmem ? (platform_shmfree(data->hid) - 16)
-                                           : trunk_get_scratch_size());
+   size_t scratch_space =
+      (data->use_shmem ? (platform_shmbytes_free(data->hid) - 16)
+                       : trunk_get_scratch_size());
 
    rc = task_thread_create("test_one_thread",
                            exec_one_thread_use_extern_apis,

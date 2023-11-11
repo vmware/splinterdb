@@ -81,7 +81,7 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
    return STATUS_OK;
 }
 
-void
+platform_status
 platform_heap_destroy(platform_heap_id *heap_id)
 {
    // If shared segment was allocated, it's being tracked thru heap ID.
@@ -561,8 +561,6 @@ platform_histo_destroy(platform_heap_id       heap_id,
 {
    platform_assert(histo_out);
    platform_histo_handle histo = *histo_out;
-   // RESOLVE: This needs a test to see why it didn't trip asserts.
-   // platform_free(heap_id, histo);
    platform_memfrag  memfrag;
    platform_memfrag *mf = &memfrag;
    memfrag_init_size(mf, histo, histo->size);

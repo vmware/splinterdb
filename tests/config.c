@@ -394,6 +394,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          // Test-execution configuration parameters
          config_set_uint64("seed", cfg, seed) {}
          config_set_uint64("num-inserts", cfg, num_inserts) {}
+         config_set_uint64("num-threads", cfg, num_threads) {}
          config_set_uint64("num-processes", cfg, num_processes) {}
 
          config_set_else

@@ -17,11 +17,10 @@
  */
 #define SHM_LARGE_FRAG_SIZE (32 * KiB)
 
->>>>>>> c2c4379 (Support free-fragment recycling in shared-segment. Add fingerprint object mgmt)
 platform_status
 platform_shmcreate(size_t size, platform_heap_id *heap_id);
 
-void
+platform_status
 platform_shmdestroy(platform_heap_id *heap_id);
 
 /*
@@ -116,8 +115,9 @@ void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
 
 bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
+platform_isvalid_addr_in_heap(platform_heap_id heap_id, const void *addr);
 
+bool
 platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id);
 
 size_t
