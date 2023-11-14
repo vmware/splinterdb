@@ -345,10 +345,10 @@ filter_test(int argc, char *argv[])
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_id hid = NULL;
-   size_t               heap_size = ((use_shmem ? 3 : 1) * GiB);
-   rc =
-      platform_heap_create(platform_get_module_id(), heap_size * GiB, use_shmem, &hid);
+   platform_heap_id hid       = NULL;
+   size_t           heap_size = ((use_shmem ? 3 : 1) * GiB);
+   rc                         = platform_heap_create(
+      platform_get_module_id(), heap_size * GiB, use_shmem, &hid);
 
    platform_assert_status_ok(rc);
 

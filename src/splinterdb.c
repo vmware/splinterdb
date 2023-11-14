@@ -446,8 +446,9 @@ splinterdb_close(splinterdb **kvs_in) // IN
    platform_heap_id heap_id         = kvs->heap_id;
    bool             we_created_heap = kvs->we_created_heap;
    platform_free(kvs->heap_id, kvs);
+   platform_status rc = STATUS_OK;
    if (we_created_heap) {
-      platform_heap_destroy(&heap_id);
+      rc = platform_heap_destroy(&heap_id);
    }
    *kvs_in = (splinterdb *)NULL;
 

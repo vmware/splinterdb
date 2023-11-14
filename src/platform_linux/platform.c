@@ -81,7 +81,7 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
    return STATUS_OK;
 }
 
-void
+platform_status
 platform_heap_destroy(platform_heap_id *heap_id)
 {
    // If shared segment was allocated, it's being tracked thru heap ID.

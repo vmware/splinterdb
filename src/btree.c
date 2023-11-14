@@ -3257,8 +3257,8 @@ btree_pack(btree_pack_req *req)
    key     tuple_key = NEGATIVE_INFINITY_KEY;
    message data;
 
-   while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
-      iterator_get_curr(req->itor, &tuple_key, &data);
+   while (iterator_can_next(req->itor)) {
+      iterator_curr(req->itor, &tuple_key, &data);
       if (!btree_pack_can_fit_tuple(req)) {
          platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
                             "limit, req->max_tuples=%lu\n",
