@@ -3520,13 +3520,13 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
 
    routing_filter empty_filter = {0};
 
-   platform_status rc = routing_filter_add(spl->cc,
-                                           &spl->cfg.filter_cfg,
-                                           &empty_filter,
-                                           &cmt->filter,
-                                           cmt->req->fp_arr,
-                                           req.num_tuples,
-                                           0);
+   rc = routing_filter_add(spl->cc,
+                           &spl->cfg.filter_cfg,
+                           &empty_filter,
+                           &cmt->filter,
+                           fingerprint_start(&cmt->req->breq_fingerprint),
+                           req.num_tuples,
+                           0);
 
    platform_assert(SUCCESS(rc));
 
@@ -3665,6 +3665,9 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
       req->pivot_generation[pivot_no] = pdata->generation;
    }
    debug_assert(trunk_subbundle_branch_count(spl, &root, sb) != 0);
+   platform_stream_handle stream;
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
    trunk_log_stream_if_enabled(spl,
                                &stream,
                                "enqueuing build filter %lu-%u\n",
@@ -3673,6 +3676,7 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
    req->enq_line = __LINE__;
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
+}
 
 /*
  * Function to incorporate the memtable to the root.
@@ -4104,7 +4108,7 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
 static inline bool
 trunk_prepare_build_filter(trunk_handle             *spl,
                            trunk_compact_bundle_req *compact_req,
-                           trunk_filter_scratch     *filter_scratch,
+                           trunk_filter_req         *filter_req,
                            trunk_node               *node)
 {
    uint16 height = trunk_node_height(node);
@@ -4122,20 +4126,20 @@ trunk_prepare_build_filter(trunk_handle             *spl,
          uint64 pos = trunk_process_generation_to_pos(
             spl, compact_req, pdata->generation);
          platform_assert(pos != TRUNK_MAX_PIVOTS);
-         filter_scratch->old_filter[pos] = pdata->filter;
-         filter_scratch->value[pos] =
+         filter_req->old_filter[pos] = pdata->filter;
+         filter_req->value[pos] =
             trunk_pivot_whole_branch_count(spl, node, pdata);
-         filter_scratch->should_build[pos] = TRUE;
+         filter_req->should_build[pos] = TRUE;
       }
    }
 
    // copy the node's start and end key so that replacement can determine when
    // to stop
    key_buffer_init_from_key(
-      &filter_scratch->start_key, spl->heap_id, trunk_min_key(spl, node));
+      &filter_req->start_key, spl->heap_id, trunk_min_key(spl, node));
    key_buffer_init_from_key(
-      &filter_scratch->end_key, spl->heap_id, trunk_max_key(spl, node));
-   filter_scratch->height = height;
+      &filter_req->end_key, spl->heap_id, trunk_max_key(spl, node));
+   filter_req->height = height;
    return fp_aliased;
 }
 
@@ -4161,7 +4165,7 @@ trunk_process_generation_to_fp_bounds(trunk_handle             *spl,
 static inline void
 trunk_build_filters(trunk_handle             *spl,
                     trunk_compact_bundle_req *compact_req,
-                    trunk_filter_scratch     *filter_scratch)
+                    trunk_filter_req         *filter_req)
 {
    threadid tid;
    uint64   filter_build_start;
@@ -4173,23 +4177,23 @@ trunk_build_filters(trunk_handle             *spl,
    }
 
    for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-      if (!filter_scratch->should_build[pos]) {
+      if (!filter_req->should_build[pos]) {
          continue;
       }
-      routing_filter old_filter = filter_scratch->old_filter[pos];
+      routing_filter old_filter = filter_req->old_filter[pos];
       uint32         fp_start, fp_end;
       uint64         generation = compact_req->pivot_generation[pos];
 
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr           = filter_scratch->fp_arr + fp_start;
+      uint32 *fp_arr = filter_req->fp_arr + fp_start;
 
       uint32 num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
          if (old_filter.addr != 0) {
             trunk_inc_filter(spl, &old_filter);
          }
-         filter_scratch->filter[pos] = old_filter;
+         filter_req->filter[pos] = old_filter;
          continue;
       }
 
@@ -4209,7 +4213,7 @@ trunk_build_filters(trunk_handle             *spl,
 
       routing_filter  new_filter;
       routing_config *filter_cfg = &spl->cfg.filter_cfg;
-      uint16          value      = filter_scratch->value[pos];
+      uint16          value      = filter_req->value[pos];
       platform_status rc         = routing_filter_add(spl->cc,
                                               filter_cfg,
                                               &old_filter,
@@ -4219,8 +4223,8 @@ trunk_build_filters(trunk_handle             *spl,
                                               value);
       platform_assert(SUCCESS(rc));
 
-      filter_scratch->filter[pos]       = new_filter;
-      filter_scratch->should_build[pos] = FALSE;
+      filter_req->filter[pos]       = new_filter;
+      filter_req->should_build[pos] = FALSE;
       if (spl->cfg.use_stats) {
          spl->stats[tid].filters_built[height]++;
          spl->stats[tid].filter_tuples[height] += num_fingerprints;
@@ -4236,7 +4240,7 @@ trunk_build_filters(trunk_handle             *spl,
 static inline void
 trunk_replace_routing_filter(trunk_handle             *spl,
                              trunk_compact_bundle_req *compact_req,
-                             trunk_filter_scratch     *filter_scratch,
+                             trunk_filter_req         *filter_req,
                              trunk_node               *node)
 {
    uint16 num_children = trunk_num_children(spl, node);
@@ -4246,16 +4250,16 @@ trunk_replace_routing_filter(trunk_handle             *spl,
          trunk_process_generation_to_pos(spl, compact_req, pdata->generation);
       if (!trunk_bundle_live_for_pivot(
              spl, node, compact_req->bundle_no, pivot_no)) {
-         if (pos != TRUNK_MAX_PIVOTS && filter_scratch->filter[pos].addr != 0) {
-            trunk_dec_filter(spl, &filter_scratch->filter[pos]);
-            ZERO_CONTENTS(&filter_scratch->filter[pos]);
+         if (pos != TRUNK_MAX_PIVOTS && filter_req->filter[pos].addr != 0) {
+            trunk_dec_filter(spl, &filter_req->filter[pos]);
+            ZERO_CONTENTS(&filter_req->filter[pos]);
          }
          continue;
       }
       platform_assert(pos != TRUNK_MAX_PIVOTS);
       debug_assert(pdata->generation < compact_req->max_pivot_generation);
-      pdata->filter = filter_scratch->filter[pos];
-      ZERO_CONTENTS(&filter_scratch->filter[pos]);
+      pdata->filter = filter_req->filter[pos];
+      ZERO_CONTENTS(&filter_req->filter[pos]);
 
       // Move the tuples count from the bundle to whole branch
       uint64 bundle_num_tuples = compact_req->output_pivot_tuple_count[pos];
@@ -4378,15 +4382,15 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       uint64 filter_generation = trunk_generation(spl, &node);
       trunk_node_unget(spl->cc, &node);
 
-      trunk_build_filters(spl, compact_req, &filter_scratch);
+      trunk_build_filters(spl, compact_req, &filter_req);
 
       trunk_log_stream_if_enabled(spl, &stream, "Filters built\n");
 
       bool32 should_continue_replacing_filters = TRUE;
       while (should_continue_replacing_filters) {
          uint64 old_root_addr;
-         key    start_key = key_buffer_key(&filter_scratch.start_key);
-         uint16 height    = filter_scratch.height;
+         key    start_key = key_buffer_key(&filter_req.start_key);
+         uint16 height    = filter_req.height;
          trunk_copy_path_by_key_and_height(
             spl, start_key, height, &node, &old_root_addr);
          platform_assert_status_ok(rc);
@@ -4399,15 +4403,15 @@ trunk_bundle_build_filters(void *arg, void *scratch)
             trunk_node_unclaim(spl->cc, &node);
             trunk_node_unget(spl->cc, &node);
             for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-               trunk_dec_filter(spl, &filter_scratch.filter[pos]);
+               trunk_dec_filter(spl, &filter_req.filter[pos]);
             }
-            // cleanup filter_scratch
-            key_buffer_deinit(&filter_scratch.start_key);
-            key_buffer_deinit(&filter_scratch.end_key);
+            // cleanup filter_req
+            key_buffer_deinit(&filter_req.start_key);
+            key_buffer_deinit(&filter_req.end_key);
             goto out;
          }
 
-         trunk_replace_routing_filter(spl, compact_req, &filter_scratch, &node);
+         trunk_replace_routing_filter(spl, compact_req, &filter_req, &node);
 
          if (trunk_bundle_live(spl, &node, compact_req->bundle_no)) {
             trunk_clear_bundle(spl, &node, compact_req->bundle_no);
@@ -4434,12 +4438,11 @@ trunk_bundle_build_filters(void *arg, void *scratch)
             key_string(trunk_data_config(spl),
                        key_buffer_key(&compact_req->end_key)));
 
-         key_buffer_copy_key(&filter_scratch.start_key,
-                             trunk_max_key(spl, &node));
+         key_buffer_copy_key(&filter_req.start_key, trunk_max_key(spl, &node));
          should_continue_replacing_filters =
             trunk_key_compare(spl,
-                              key_buffer_key(&filter_scratch.start_key),
-                              key_buffer_key(&filter_scratch.end_key));
+                              key_buffer_key(&filter_req.start_key),
+                              key_buffer_key(&filter_req.end_key));
 
          trunk_garbage_collect_filters(spl, old_root_addr, compact_req);
 
