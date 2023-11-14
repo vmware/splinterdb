@@ -17,7 +17,6 @@
 #include "cache.h"
 #include "clockcache.h"
 #include "util.h"
-#include "test_misc_common.h"
 
 #include "poison.h"
 
@@ -320,17 +319,6 @@ filter_test(int argc, char *argv[])
    platform_status        rc;
    uint64                 seed;
    test_message_generator gen;
-
-   // Move past the 1st arg which will be the driving tag, 'filter_test'.
-   argc--;
-   argv++;
-
-   // If --use-shmem was provided, parse past that argument.
-   bool use_shmem = (argc >= 1) && test_using_shmem(argc, (char **)argv);
-   if (use_shmem) {
-      argc--;
-      argv++;
-   }
 
    if (argc && strncmp(argv[0], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
