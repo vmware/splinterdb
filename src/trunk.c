@@ -4186,7 +4186,6 @@ trunk_build_filters(trunk_handle             *spl,
 
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr = filter_req->fp_arr + fp_start;
 
       uint32 num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
@@ -4318,6 +4317,7 @@ trunk_garbage_collect_filters(trunk_handle             *spl,
  * Asynchronous task function which builds routing filters for a compacted
  * bundle
  */
+/*
 void
 trunk_bundle_build_filters(void *arg, void *scratch)
 {
@@ -4500,6 +4500,191 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       trunk_close_log_stream_if_enabled(spl, &stream);
 
    } while (compact_req->generation != generation);
+
+out:
+   // Deallocate memory
+   if (filter_req_inited) {
+      trunk_filter_req_fp_deinit(&filter_req);
+   }
+   fingerprint_deinit(spl->heap_id, &compact_req->breq_fingerprint);
+   platform_free(spl->heap_id, compact_req);
+   trunk_maybe_reclaim_space(spl);
+   return;
+}
+*/
+
+void
+trunk_bundle_build_filters(void *arg, void *scratch)
+{
+   trunk_compact_bundle_req *compact_req = (trunk_compact_bundle_req *)arg;
+   trunk_handle             *spl         = compact_req->spl;
+
+   bool32           should_continue_build_filters = TRUE;
+   bool             filter_req_inited             = FALSE;
+   trunk_filter_req filter_req                    = {0};
+   while (should_continue_build_filters) {
+      trunk_node      node;
+      platform_status rc =
+         trunk_compact_bundle_node_get(spl, compact_req, &node);
+      platform_assert_status_ok(rc);
+
+      platform_stream_handle stream;
+      trunk_open_log_stream_if_enabled(spl, &stream);
+      trunk_log_stream_if_enabled(
+         spl,
+         &stream,
+         "build_filter: range %s-%s, height %u, bundle %u\n",
+         key_string(trunk_data_config(spl),
+                    key_buffer_key(&compact_req->start_key)),
+         key_string(trunk_data_config(spl),
+                    key_buffer_key(&compact_req->end_key)),
+         compact_req->height,
+         compact_req->bundle_no);
+      trunk_log_node_if_enabled(&stream, spl, &node);
+      if (trunk_build_filter_should_abort(compact_req, &node)) {
+         trunk_log_stream_if_enabled(spl, &stream, "leaf split, aborting\n");
+         trunk_node_unget(spl->cc, &node);
+         goto out;
+      }
+      if (trunk_build_filter_should_skip(compact_req, &node)) {
+         trunk_log_stream_if_enabled(
+            spl, &stream, "bundle flushed, skipping\n");
+         goto next_node;
+      }
+
+      if (trunk_build_filter_should_reenqueue(compact_req, &node)) {
+         task_enqueue(spl->ts,
+                      TASK_TYPE_NORMAL,
+                      trunk_bundle_build_filters,
+                      compact_req,
+                      FALSE);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "out of order, reequeuing\n");
+         trunk_close_log_stream_if_enabled(spl, &stream);
+         trunk_node_unget(spl->cc, &node);
+         return;
+      }
+
+      debug_assert(trunk_verify_node(spl, &node));
+
+      // prepare below will setup the fingerprint in this filter_req
+      // aliased to the fingerprint tracked by compact_req.
+      filter_req_inited =
+         trunk_prepare_build_filter(spl, compact_req, &filter_req, &node);
+
+      trunk_build_filters(spl, compact_req, &filter_req);
+
+      trunk_log_stream_if_enabled(spl, &stream, "Filters built\n");
+
+      bool32 should_continue_replacing_filters = TRUE;
+      while (should_continue_replacing_filters) {
+         uint64 old_root_addr;
+         key    start_key = key_buffer_key(&filter_req.start_key);
+         uint16 height    = filter_req.height;
+         trunk_copy_path_by_key_and_height(
+            spl, start_key, height, &node, &old_root_addr);
+         platform_assert_status_ok(rc);
+
+         if (trunk_build_filter_should_abort(compact_req, &node)) {
+            trunk_log_stream_if_enabled(
+               spl, &stream, "replace_filter abort leaf split\n");
+            trunk_root_full_unclaim(spl);
+            trunk_node_unlock(spl->cc, &node);
+            trunk_node_unclaim(spl->cc, &node);
+            trunk_node_unget(spl->cc, &node);
+            for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
+               trunk_dec_filter(spl, &filter_req.filter[pos]);
+            }
+            // cleanup filter_scratch
+            key_buffer_deinit(&filter_req.start_key);
+            key_buffer_deinit(&filter_req.end_key);
+            goto out;
+         }
+
+         trunk_replace_routing_filter(spl, compact_req, &filter_req, &node);
+
+         if (trunk_bundle_live(spl, &node, compact_req->bundle_no)) {
+            trunk_clear_bundle(spl, &node, compact_req->bundle_no);
+         }
+
+         trunk_node_unlock(spl->cc, &node);
+         trunk_node_unclaim(spl->cc, &node);
+         debug_assert(trunk_verify_node(spl, &node));
+
+         trunk_log_node_if_enabled(&stream, spl, &node);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "Filters replaced in &node:\n");
+         trunk_log_stream_if_enabled(spl,
+                                     &stream,
+                                     "addr: %lu, height: %u\n",
+                                     node.addr,
+                                     trunk_node_height(&node));
+         trunk_log_stream_if_enabled(
+            spl,
+            &stream,
+            "range: %s-%s\n",
+            key_string(trunk_data_config(spl),
+                       key_buffer_key(&compact_req->start_key)),
+            key_string(trunk_data_config(spl),
+                       key_buffer_key(&compact_req->end_key)));
+
+         key_buffer_copy_key(&filter_req.start_key, trunk_max_key(spl, &node));
+         should_continue_replacing_filters =
+            trunk_key_compare(spl,
+                              key_buffer_key(&filter_req.start_key),
+                              key_buffer_key(&filter_req.end_key));
+
+         trunk_garbage_collect_filters(spl, old_root_addr, compact_req);
+
+         if (should_continue_replacing_filters) {
+            trunk_log_stream_if_enabled(
+               spl,
+               &stream,
+               "replace_filter split: range %s-%s, height %u, bundle %u\n",
+               key_string(trunk_data_config(spl),
+                          key_buffer_key(&compact_req->start_key)),
+               key_string(trunk_data_config(spl),
+                          key_buffer_key(&compact_req->end_key)),
+               compact_req->height,
+               compact_req->bundle_no);
+            debug_assert(compact_req->height != 0);
+            trunk_node_unget(spl->cc, &node);
+         }
+      }
+
+      for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
+         trunk_dec_filter(spl, &filter_req.filter[pos]);
+      }
+
+      // cleanup filter_req structure
+      key_buffer_deinit(&filter_req.start_key);
+      key_buffer_deinit(&filter_req.end_key);
+
+   next_node:
+      debug_assert(trunk_verify_node(spl, &node));
+      key_buffer_copy_key(&compact_req->start_key, trunk_max_key(spl, &node));
+      trunk_node_unget(spl->cc, &node);
+      should_continue_build_filters =
+         trunk_key_compare(spl,
+                           key_buffer_key(&compact_req->start_key),
+                           key_buffer_key(&compact_req->end_key));
+      if (should_continue_build_filters) {
+         trunk_log_stream_if_enabled(
+            spl,
+            &stream,
+            "build_filter split: range %s-%s, height %u, bundle %u\n",
+            key_string(trunk_data_config(spl),
+                       key_buffer_key(&compact_req->start_key)),
+            key_string(trunk_data_config(spl),
+                       key_buffer_key(&compact_req->end_key)),
+            compact_req->height,
+            compact_req->bundle_no);
+         debug_assert(compact_req->height != 0);
+      }
+      trunk_close_log_stream_if_enabled(spl, &stream);
+   }
+   while (should_continue_build_filters)
+      ;
 
 out:
    // Deallocate memory
@@ -5194,6 +5379,7 @@ trunk_compact_bundle_cleanup_iterators(trunk_handle           *spl,
  *        a. node if leaf which has split, in which case discard (interaction 6)
  *        b. node is internal and bundle has been flushed
  */
+#if UNDEF
 void
 trunk_compact_bundle(void *arg, void *scratch_buf)
 {
@@ -5591,6 +5777,383 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                   req->addr,
                                   req->bundle_no);
       req->enq_line = __LINE__;
+      task_enqueue(
+         spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
+   }
+out:
+   trunk_log_stream_if_enabled(spl, &stream, "\n");
+   trunk_close_log_stream_if_enabled(spl, &stream);
+}
+#endif /* UNDEF */
+void
+trunk_compact_bundle(void *arg, void *scratch_buf)
+{
+   platform_status           rc;
+   trunk_compact_bundle_req *req          = arg;
+   trunk_task_scratch       *task_scratch = scratch_buf;
+   compact_bundle_scratch   *scratch      = &task_scratch->compact_bundle;
+   trunk_handle             *spl          = req->spl;
+   threadid                  tid;
+
+   // We may be enqueueing tasks of this type from several points of
+   // code-flow. Fingerprint mgmt is done inside here, so we claim that
+   // the queued task's handle did not have any memory allocated for the
+   // fingerprint array. (Otherwise, this might lead to memory leaks.)
+   platform_assert(fingerprint_is_empty(&req->breq_fingerprint),
+                   "Fingerprint array is expected to be empty for this task"
+                   ", enqueued at line=%lu, addr=%lu, height=%u"
+                   ", compaction type=%d."
+                   " Fingerprint object init'ed on line %d.",
+                   req->enq_line,
+                   req->addr,
+                   req->height,
+                   req->type,
+                   fingerprint_line(&req->breq_fingerprint));
+
+   /*
+    * 1. Acquire node read lock
+    */
+   trunk_node node;
+   trunk_node_get(spl->cc, req->addr, &node);
+
+   // timers for stats if enabled
+   uint64 compaction_start, pack_start;
+   uint16 height = trunk_node_height(&node);
+   if (spl->cfg.use_stats) {
+      tid              = platform_get_tid();
+      compaction_start = platform_get_timestamp();
+      spl->stats[tid].compactions[height]++;
+   }
+
+   platform_assert(
+      !trunk_compact_bundle_node_has_split(spl, req, &node),
+      "compact_bundle unexpected node split\n"
+      "addr: %lu\n"
+      "node range: %s-%s\n"
+      "req range:  %s-%s\n"
+      "key compare: %d\n",
+      node.addr,
+      key_string(trunk_data_config(spl), trunk_min_key(spl, &node)),
+      key_string(trunk_data_config(spl), trunk_max_key(spl, &node)),
+      key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+      key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+      trunk_key_compare(
+         spl, trunk_max_key(spl, &node), key_buffer_key(&req->end_key)));
+
+   /*
+    * 2. The bundle may have been completely flushed, if so abort
+    */
+   if (!trunk_bundle_live(spl, &node, req->bundle_no)) {
+      debug_assert(height != 0);
+      trunk_node_unget(spl->cc, &node);
+      trunk_default_log_if_enabled(
+         spl,
+         "compact_bundle abort flushed: range %s-%s, height %u, bundle %u\n",
+         key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+         key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+         req->height,
+         req->bundle_no);
+      platform_free(spl->heap_id, req);
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].compactions_aborted_flushed[height]++;
+         spl->stats[tid].compaction_time_wasted_ns[height] +=
+            platform_timestamp_elapsed(compaction_start);
+      }
+      return;
+   }
+
+   trunk_bundle *bundle       = trunk_get_bundle(spl, &node, req->bundle_no);
+   uint16 bundle_start_branch = trunk_bundle_start_branch(spl, &node, bundle);
+   uint16 bundle_end_branch   = trunk_bundle_end_branch(spl, &node, bundle);
+   uint16 num_branches        = trunk_bundle_branch_count(spl, &node, bundle);
+
+   /*
+    * Update and delete messages need to be kept around until/unless they have
+    * been applied all the way down to the very last branch tree.  Even once it
+    * reaches the leaf, it isn't going to be applied to the last branch tree
+    * unless the compaction includes the oldest B-tree in the leaf (the start
+    * branch).
+    */
+   merge_behavior merge_mode;
+   if (height == 0 && bundle_start_branch == trunk_start_branch(spl, &node)) {
+      merge_mode = MERGE_FULL;
+   } else {
+      merge_mode = MERGE_INTERMEDIATE;
+   }
+
+   platform_stream_handle stream;
+   rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(
+      spl,
+      &stream,
+      "compact_bundle starting: addr %lu, range %s-%s, height %u, bundle %u\n",
+      node.addr,
+      key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+      key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+      req->height,
+      req->bundle_no);
+
+   /*
+    * 5. Build iterators
+    */
+   platform_assert(num_branches <= ARRAY_SIZE(scratch->skip_itor));
+   trunk_btree_skiperator *skip_itor_arr = scratch->skip_itor;
+   iterator              **itor_arr      = scratch->itor_arr;
+
+   save_pivots_to_compact_bundle_scratch(spl, &node, scratch);
+
+   uint16 tree_offset = 0;
+   for (uint16 branch_no = bundle_start_branch; branch_no != bundle_end_branch;
+        branch_no        = trunk_add_branch_number(spl, branch_no, 1))
+   {
+      /*
+       * We are iterating from oldest to newest branch
+       */
+      trunk_btree_skiperator_init(spl,
+                                  &skip_itor_arr[tree_offset],
+                                  &node,
+                                  branch_no,
+                                  scratch->saved_pivot_keys);
+      itor_arr[tree_offset] = &skip_itor_arr[tree_offset].super;
+      tree_offset++;
+   }
+   trunk_log_node_if_enabled(&stream, spl, &node);
+
+   /*
+    * 6. Release read lock
+    */
+   trunk_node_unget(spl->cc, &node);
+
+   /*
+    * 7. Perform compaction
+    */
+   merge_iterator *merge_itor;
+   rc = merge_iterator_create(spl->heap_id,
+                              spl->cfg.data_cfg,
+                              num_branches,
+                              itor_arr,
+                              merge_mode,
+                              &merge_itor);
+   platform_assert_status_ok(rc);
+
+   btree_pack_req pack_req;
+   rc = trunk_btree_pack_req_init(spl, &merge_itor->super, &pack_req);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_btree_pack_req_init failed: %s\n",
+                         platform_status_to_string(rc));
+
+      trunk_compact_bundle_cleanup_iterators(
+         spl, &merge_itor, num_branches, skip_itor_arr);
+
+      // Ensure this. Otherwise we may be exiting w/o releasing memory.
+      debug_assert(fingerprint_is_empty(&req->breq_fingerprint),
+                   "addr=%p, size=%lu, init'ed at line=%u",
+                   fingerprint_start(&req->breq_fingerprint),
+                   fingerprint_size(&req->breq_fingerprint),
+                   fingerprint_line(&req->breq_fingerprint));
+
+      platform_free(spl->heap_id, req);
+      goto out;
+   }
+   pack_req.line = __LINE__;
+
+   // RESOLVE: Delete this if not needed ...
+   // req->fp_arr = pack_req.fingerprint_arr;
+   if (spl->cfg.use_stats) {
+      pack_start = platform_get_timestamp();
+   }
+
+   platform_status pack_status = btree_pack(&pack_req);
+   if (!SUCCESS(pack_status)) {
+      platform_default_log("btree_pack failed: %s\n",
+                           platform_status_to_string(pack_status));
+      trunk_compact_bundle_cleanup_iterators(
+         spl, &merge_itor, num_branches, skip_itor_arr);
+      btree_pack_req_deinit(&pack_req, spl->heap_id);
+      platform_free(spl->heap_id, req);
+      goto out;
+   }
+
+   if (spl->cfg.use_stats) {
+      spl->stats[tid].compaction_pack_time_ns[height] +=
+         platform_timestamp_elapsed(pack_start);
+   }
+
+   trunk_branch new_branch;
+   new_branch.root_addr = pack_req.root_addr;
+   uint64 num_tuples    = pack_req.num_tuples;
+
+   // BTree pack is successful. Prepare to deinit pack request struct.
+   // But, retain the fingerprint generated by pack for further processing.
+   fingerprint_move(&req->breq_fingerprint, &pack_req.fingerprint);
+   btree_pack_req_deinit(&pack_req, spl->heap_id);
+
+   trunk_log_stream_if_enabled(
+      spl, &stream, "output: %lu\n", new_branch.root_addr);
+
+   if (spl->cfg.use_stats) {
+      if (num_tuples == 0) {
+         spl->stats[tid].compactions_empty[height]++;
+      }
+      spl->stats[tid].compaction_tuples[height] += num_tuples;
+      if (num_tuples > spl->stats[tid].compaction_max_tuples[height]) {
+         spl->stats[tid].compaction_max_tuples[height] = num_tuples;
+      }
+   }
+
+   /*
+    * 9. Clean up
+    */
+   trunk_compact_bundle_cleanup_iterators(
+      spl, &merge_itor, num_branches, skip_itor_arr);
+
+   deinit_saved_pivots_in_scratch(scratch);
+
+   /*
+    * 11. For each newly split sibling replace bundle with new branch
+    */
+   uint64 num_replacements = 0;
+   bool32 should_continue  = TRUE;
+   while (should_continue) {
+      uint64 old_root_addr;
+      trunk_compact_bundle_node_copy_path(spl, req, &node, &old_root_addr);
+      trunk_log_node_if_enabled(&stream, spl, &node);
+
+      /*
+       * 11a. ...unless node is a leaf which has split, in which case discard
+       *      (interaction 6)
+       *
+       *      For leaves, the split will cover the compaction and we do not
+       *      need to look for the bundle in the split siblings, so simply
+       *      exit.
+       */
+      if (trunk_node_is_leaf(&node)
+          && trunk_compact_bundle_node_has_split(spl, req, &node))
+      {
+         trunk_log_stream_if_enabled(
+            spl,
+            &stream,
+            "compact_bundle discard split: range %s-%s, height %u, bundle %u\n",
+            key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+            key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+            req->height,
+            req->bundle_no);
+         if (spl->cfg.use_stats) {
+            spl->stats[tid].compactions_discarded_leaf_split[height]++;
+            spl->stats[tid].compaction_time_wasted_ns[height] +=
+               platform_timestamp_elapsed(compaction_start);
+         }
+         trunk_node_unlock(spl->cc, &node);
+         trunk_node_unclaim(spl->cc, &node);
+         trunk_node_unget(spl->cc, &node);
+
+         // Here is where we would garbage collect the old path
+
+         if (num_tuples != 0) {
+            trunk_dec_ref(spl, &new_branch, FALSE);
+         }
+         // Free fingerprint and req struct memory
+         fingerprint_deinit(spl->heap_id, &req->breq_fingerprint);
+         platform_free(spl->heap_id, req);
+         goto out;
+      }
+
+      if (trunk_bundle_live(spl, &node, req->bundle_no)) {
+         if (num_tuples != 0) {
+            trunk_replace_bundle_branches(spl, &node, &new_branch, req);
+            num_replacements++;
+            trunk_log_stream_if_enabled(spl,
+                                        &stream,
+                                        "inserted %lu into %lu\n",
+                                        new_branch.root_addr,
+                                        node.addr);
+         } else {
+            trunk_replace_bundle_branches(spl, &node, NULL, req);
+            trunk_log_stream_if_enabled(
+               spl, &stream, "compact_bundle empty %lu\n", node.addr);
+         }
+
+      } else {
+         /*
+          * 11b. ...unless node is internal and bundle has been flushed
+          */
+         platform_assert(height != 0);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "compact_bundle discarded flushed %lu\n", node.addr);
+      }
+      trunk_log_node_if_enabled(&stream, spl, &node);
+
+      should_continue = trunk_compact_bundle_node_has_split(spl, req, &node);
+      if (!should_continue && num_replacements != 0 && pack_req.num_tuples != 0)
+      {
+         key max_key = trunk_max_key(spl, &node);
+         trunk_zap_branch_range(
+            spl, &new_branch, max_key, max_key, PAGE_TYPE_BRANCH);
+      }
+
+      debug_assert(trunk_verify_node(spl, &node));
+
+      if (should_continue) {
+         debug_assert(height != 0);
+         key_buffer_copy_key(&req->start_key, trunk_max_key(spl, &node));
+      }
+
+      // garbage collect the old path and bundle
+      trunk_garbage_collect_bundle(spl, old_root_addr, req);
+
+      // only release locks on node after the garbage collection is complete
+      trunk_node_unlock(spl->cc, &node);
+      trunk_node_unclaim(spl->cc, &node);
+      trunk_node_unget(spl->cc, &node);
+
+      if (should_continue) {
+         rc = trunk_compact_bundle_node_get(spl, req, &node);
+         platform_assert_status_ok(rc);
+      }
+   }
+
+   if (spl->cfg.use_stats) {
+      if (req->type == TRUNK_COMPACTION_TYPE_SPACE_REC) {
+         spl->stats[tid].space_rec_tuples_reclaimed[height] +=
+            req->tuples_reclaimed;
+      }
+      if (req->type == TRUNK_COMPACTION_TYPE_SINGLE_LEAF_SPLIT) {
+         spl->stats[tid].single_leaf_tuples += num_tuples;
+         if (num_tuples > spl->stats[tid].single_leaf_max_tuples) {
+            spl->stats[tid].single_leaf_max_tuples = num_tuples;
+         }
+      }
+   }
+   if (num_replacements == 0) {
+      if (num_tuples != 0) {
+         trunk_dec_ref(spl, &new_branch, FALSE);
+      }
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].compactions_discarded_flushed[height]++;
+         spl->stats[tid].compaction_time_wasted_ns[height] +=
+            platform_timestamp_elapsed(compaction_start);
+      }
+      // Free fingerprint and req struct memory
+      fingerprint_deinit(spl->heap_id, &req->breq_fingerprint);
+      platform_free(spl->heap_id, req);
+   } else {
+      if (spl->cfg.use_stats) {
+         compaction_start = platform_timestamp_elapsed(compaction_start);
+         spl->stats[tid].compaction_time_ns[height] += compaction_start;
+         if (compaction_start > spl->stats[tid].compaction_time_max_ns[height])
+         {
+            spl->stats[tid].compaction_time_max_ns[height] = compaction_start;
+         }
+      }
+      trunk_log_stream_if_enabled(
+         spl,
+         &stream,
+         "build_filter enqueue: range %s-%s, height %u, bundle %u\n",
+         key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
+         key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+         req->height,
+         req->bundle_no);
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
    }
