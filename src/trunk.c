@@ -3664,18 +3664,7 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       req->pivot_generation[pivot_no] = pdata->generation;
    }
-   debug_assert(trunk_subbundle_branch_count(spl, &root, sb) != 0);
-   platform_stream_handle stream;
-   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
-   platform_assert_status_ok(rc);
-   trunk_log_stream_if_enabled(spl,
-                               &stream,
-                               "enqueuing build filter %lu-%u\n",
-                               req->addr,
-                               req->bundle_no);
-   req->enq_line = __LINE__;
-   task_enqueue(
-      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
+   debug_assert(trunk_subbundle_branch_count(spl, node, sb) != 0);
 }
 
 /*
