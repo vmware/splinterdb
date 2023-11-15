@@ -155,7 +155,8 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
    ASSERT_TRUE(next_free == (void *)keybuf + keybuf_size + keybuf_pad);
 
    int msgbuf_size = 100;
-   int msgbuf_pad  = platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, msgbuf_size);
+   int msgbuf_pad =
+      platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, msgbuf_size);
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf = TYPED_ARRAY_MALLOC(data->hid, msgbuf, msgbuf_size);
 
@@ -230,7 +231,8 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
 
    // Memory allocation would have padded bytes up to cache line alignment.
    size_t exp_memfrag_size = keybuf_size;
-   exp_memfrag_size += platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, keybuf_size);
+   exp_memfrag_size +=
+      platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, keybuf_size);
    ASSERT_EQUAL(exp_memfrag_size, memfrag_size(mf));
 
    platform_free(data->hid, mf);

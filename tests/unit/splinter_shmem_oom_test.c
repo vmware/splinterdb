@@ -56,18 +56,16 @@ exec_thread_memalloc(void *arg);
 CTEST_DATA(splinter_shmem_oom)
 {
    // Declare heap handles to shake out shared memory based allocation.
-   size_t               shmem_capacity; // In bytes
-   platform_heap_id     hid;
+   size_t           shmem_capacity; // In bytes
+   platform_heap_id hid;
 };
 
 // By default, all test cases will deal with small shared memory segment.
 CTEST_SETUP(splinter_shmem_oom)
 {
    data->shmem_capacity = (256 * MiB); // bytes
-   platform_status rc   = platform_heap_create(platform_get_module_id(),
-                                             data->shmem_capacity,
-                                             TRUE,
-                                             &data->hid);
+   platform_status rc   = platform_heap_create(
+      platform_get_module_id(), data->shmem_capacity, TRUE, &data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Enable tracing all allocs / frees from shmem for this test.
