@@ -155,7 +155,7 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
    ASSERT_TRUE(next_free == (void *)keybuf + keybuf_size + keybuf_pad);
 
    int msgbuf_size = 100;
-   int msgbuf_pad  = platform_alignment(PLATFORM_CACHELINE_SIZE, msgbuf_size);
+   int msgbuf_pad  = platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, msgbuf_size);
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf = TYPED_ARRAY_MALLOC(data->hid, msgbuf, msgbuf_size);
 
@@ -230,7 +230,7 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
 
    // Memory allocation would have padded bytes up to cache line alignment.
    size_t exp_memfrag_size = keybuf_size;
-   exp_memfrag_size += platform_alignment(PLATFORM_CACHELINE_SIZE, keybuf_size);
+   exp_memfrag_size += platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, keybuf_size);
    ASSERT_EQUAL(exp_memfrag_size, memfrag_size(mf));
 
    platform_free(data->hid, mf);
@@ -251,7 +251,7 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
    // Fragment will be "incorrectly" freed to this larger free-list size.
    size_t free_frags_wrong_list_size = wrong_frag_size;
    free_frags_wrong_list_size +=
-      platform_alignment(PLATFORM_CACHELINE_SIZE, wrong_frag_size);
+      platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, wrong_frag_size);
 
    memfrag_init_size(mf, keybuf, wrong_frag_size);
    /*
@@ -305,7 +305,7 @@ CTEST2(splinter_shmem, test_free)
 
    // Space used should go down as a fragment has been freed.
    mem_used -= keybuf_size;
-   ASSERT_EQUAL(mem_used, platform_shmused(data->hid));
+   ASSERT_EQUAL(mem_used, platform_shmbytes_used(data->hid));
 
    // The freed fragment should be re-allocated, upon re-request.
    // Note, that there is a small discrepancy creeping in here. The caller may
@@ -320,7 +320,7 @@ CTEST2(splinter_shmem, test_free)
    // Even though we only asked for a smaller fragment, a larger free-fragemnt
    // was allocated. Check the book-keeping.
    mem_used += keybuf_size;
-   ASSERT_EQUAL(mem_used, platform_shmused(data->hid));
+   ASSERT_EQUAL(mem_used, platform_shmbytes_used(data->hid));
 }
 
 /*
@@ -580,8 +580,8 @@ CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
  */
 CTEST2(splinter_shmem, test_small_frag_platform_realloc)
 {
-   size_t shmused_initial = platform_shmused(data->hid);
-   size_t shmfree_initial = platform_shmfree(data->hid);
+   size_t shmused_initial = platform_shmbytes_used(data->hid);
+   size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
    // As memory allocated is rounded-up to PLATFORM_CACHELINE_SIZE, ask for
    // memory just short of a cache line size. This way, when we double our
@@ -593,8 +593,8 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
 
    char *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
 
-   size_t old_shmfree = platform_shmfree(data->hid);
-   size_t old_shmused = platform_shmused(data->hid);
+   size_t old_shmfree = platform_shmbytes_free(data->hid);
+   size_t old_shmused = platform_shmbytes_used(data->hid);
 
    // Free-memory should have gone down by size of memfrag allocated
    ASSERT_EQUAL(old_shmfree, (shmfree_initial - memfrag_size(&memfrag_oldptr)));
@@ -628,7 +628,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
 
    // Check free space accounting
    newsize            = adjusted_newsize;
-   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t new_shmfree = platform_shmbytes_free(data->hid);
    size_t exp_shmfree = (old_shmfree + memfrag_size(&memfrag_oldptr) - newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
                "Expected free space=%lu bytes != actual free space=%lu bytes"
@@ -638,7 +638,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
                diff_size_t(exp_shmfree, new_shmfree));
 
    // Check used space accounting after realloc()
-   size_t new_shmused = platform_shmused(data->hid);
+   size_t new_shmused = platform_shmbytes_used(data->hid);
    size_t exp_shmused = (old_shmused - memfrag_size(&memfrag_oldptr) + newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
                "Expected used space=%lu bytes != actual used space=%lu bytes"
@@ -673,8 +673,8 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    platform_free(data->hid, mf);
 
    // Confirm that free/used space metrics go back to initial values
-   new_shmused = platform_shmused(data->hid);
-   new_shmfree = platform_shmfree(data->hid);
+   new_shmused = platform_shmbytes_used(data->hid);
+   new_shmfree = platform_shmbytes_free(data->hid);
 
    ASSERT_EQUAL(shmused_initial,
                 new_shmused,
@@ -703,16 +703,16 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
  */
 CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
 {
-   size_t shmused_initial = platform_shmused(data->hid);
-   size_t shmfree_initial = platform_shmfree(data->hid);
+   size_t shmused_initial = platform_shmbytes_used(data->hid);
+   size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
    // Allocate a small fragment here
    size_t oldsize = ((2 * PLATFORM_CACHELINE_SIZE) - 2 * sizeof(void *));
    platform_memfrag memfrag_oldptr;
    char            *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
 
-   size_t old_shmfree = platform_shmfree(data->hid);
-   size_t old_shmused = platform_shmused(data->hid);
+   size_t old_shmfree = platform_shmbytes_free(data->hid);
+   size_t old_shmused = platform_shmbytes_used(data->hid);
 
    size_t old_memfrag_size = memfrag_size(&memfrag_oldptr);
    // Free-memory should have gone down by size of memfrag allocated
@@ -726,7 +726,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    size_t adjusted_newsize  = newsize;
    size_t expected_newsisze = newsize;
    expected_newsisze +=
-      platform_alignment(PLATFORM_CACHELINE_SIZE, expected_newsisze);
+      platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, expected_newsisze);
 
    // realloc interface is a bit tricky, due to our cache-alignment based
    // memory fragment management. Even though user requested 'oldsize'
@@ -749,7 +749,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
                 adjusted_newsize);
 
    // Check free space accounting
-   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t new_shmfree = platform_shmbytes_free(data->hid);
    size_t exp_shmfree =
       (old_shmfree + memfrag_size(&memfrag_oldptr) - adjusted_newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
@@ -760,7 +760,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
                diff_size_t(exp_shmfree, new_shmfree));
 
    // Check used space accounting after realloc() allocated a new large fragment
-   size_t new_shmused = platform_shmused(data->hid);
+   size_t new_shmused = platform_shmbytes_used(data->hid);
    size_t exp_shmused =
       (old_shmused - memfrag_size(&memfrag_oldptr) + adjusted_newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
@@ -778,8 +778,8 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    // used/free bytes metrics. This is because, these large-fragments are
    // already 'used', waiting to be re-cycled to the new request.
    // Confirm that free/used space metrics go back to expected values.
-   new_shmused = platform_shmused(data->hid);
-   new_shmfree = platform_shmfree(data->hid);
+   new_shmused = platform_shmbytes_used(data->hid);
+   new_shmfree = platform_shmbytes_free(data->hid);
 
    ASSERT_EQUAL(exp_shmfree,
                 new_shmfree,
@@ -808,16 +808,16 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
  */
 CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
 {
-   size_t shmused_initial = platform_shmused(data->hid);
-   size_t shmfree_initial = platform_shmfree(data->hid);
+   size_t shmused_initial = platform_shmbytes_used(data->hid);
+   size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
    // Allocate a small fragment here
    size_t           oldsize = (2 * SHM_LARGE_FRAG_SIZE);
    platform_memfrag memfrag_oldptr;
    char            *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
 
-   size_t old_shmfree = platform_shmfree(data->hid);
-   size_t old_shmused = platform_shmused(data->hid);
+   size_t old_shmfree = platform_shmbytes_free(data->hid);
+   size_t old_shmused = platform_shmbytes_used(data->hid);
 
    size_t old_memfrag_size = memfrag_size(&memfrag_oldptr);
    // Free-memory should have gone down by size of memfrag allocated
@@ -831,7 +831,7 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
    size_t adjusted_newsize  = newsize;
    size_t expected_newsisze = newsize;
    expected_newsisze +=
-      platform_alignment(PLATFORM_CACHELINE_SIZE, expected_newsisze);
+      platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, expected_newsisze);
 
    // realloc interface is a bit tricky, due to our cache-alignment based
    // memory fragment management. Even though user requested 'oldsize'
@@ -855,7 +855,7 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
 
    // Check free space accounting. Memory used by old large-fragment being
    // freed is not accounted in shared memory's memory metrics
-   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t new_shmfree = platform_shmbytes_free(data->hid);
    size_t exp_shmfree = (old_shmfree - adjusted_newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
                "Expected free space=%lu bytes != actual free space=%lu bytes"
@@ -865,7 +865,7 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
                diff_size_t(exp_shmfree, new_shmfree));
 
    // Check used space accounting after realloc() allocated a new large fragment
-   size_t new_shmused = platform_shmused(data->hid);
+   size_t new_shmused = platform_shmbytes_used(data->hid);
    size_t exp_shmused = (old_shmused + adjusted_newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
                "Expected used space=%lu bytes != actual used space=%lu bytes"
@@ -886,8 +886,8 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
    // used/free bytes metrics. This is because, these large-fragments are
    // already 'used', waiting to be re-cycled to the new request.
    // Confirm that free/used space metrics go back to expected values.
-   new_shmused = platform_shmused(data->hid);
-   new_shmfree = platform_shmfree(data->hid);
+   new_shmused = platform_shmbytes_used(data->hid);
+   new_shmfree = platform_shmbytes_free(data->hid);
 
    ASSERT_EQUAL(exp_shmfree,
                 new_shmfree,
@@ -915,15 +915,15 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
  */
 CTEST2(splinter_shmem, test_writable_buffer_resize_empty_buffer)
 {
-   size_t shmused_initial = platform_shmused(data->hid);
-   size_t shmfree_initial = platform_shmfree(data->hid);
+   size_t shmused_initial = platform_shmbytes_used(data->hid);
+   size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
    writable_buffer_init(wb, data->hid);
    uint64 new_length = 20;
-   writable_buffer_resize(wb, 0, new_length);
+   writable_buffer_resize(wb, new_length);
 
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
 
@@ -933,8 +933,8 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_empty_buffer)
    writable_buffer_deinit(wb);
 
    // Confirm that free/used space metrics go back to initial values
-   size_t new_shmused = platform_shmused(data->hid);
-   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t new_shmused = platform_shmbytes_used(data->hid);
+   size_t new_shmfree = platform_shmbytes_free(data->hid);
 
    ASSERT_EQUAL(shmused_initial,
                 new_shmused,
@@ -959,8 +959,8 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_empty_buffer)
  */
 CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
 {
-   size_t shmused_initial = platform_shmused(data->hid);
-   size_t shmfree_initial = platform_shmfree(data->hid);
+   size_t shmused_initial = platform_shmbytes_used(data->hid);
+   size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
@@ -970,7 +970,7 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
       wb, data->hid, sizeof(buf), (void *)buf, WRITABLE_BUFFER_NULL_LENGTH);
 
    size_t new_length = (10 * sizeof(buf));
-   writable_buffer_resize(wb, sizeof(buf), new_length);
+   writable_buffer_resize(wb, new_length);
 
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
 
@@ -984,8 +984,8 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
    writable_buffer_deinit(wb);
 
    // Confirm that free/used space metrics go back to initial values
-   size_t new_shmused = platform_shmused(data->hid);
-   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t new_shmused = platform_shmbytes_used(data->hid);
+   size_t new_shmfree = platform_shmbytes_free(data->hid);
 
    ASSERT_EQUAL(shmused_initial,
                 new_shmused,
@@ -1012,8 +1012,8 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
  */
 CTEST2(splinter_shmem, test_writable_buffer_resize_vs_capacity)
 {
-   size_t shmused_initial = platform_shmused(data->hid);
-   size_t shmfree_initial = platform_shmfree(data->hid);
+   size_t shmused_initial = platform_shmbytes_used(data->hid);
+   size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
@@ -1066,8 +1066,8 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_vs_capacity)
    writable_buffer_deinit(wb);
 
    // Confirm that free/used space metrics go back to initial values
-   size_t new_shmused = platform_shmused(data->hid);
-   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t new_shmused = platform_shmbytes_used(data->hid);
+   size_t new_shmfree = platform_shmbytes_free(data->hid);
 
    ASSERT_EQUAL(shmused_initial,
                 new_shmused,
@@ -1091,7 +1091,7 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_vs_capacity)
  */
 CTEST2(splinter_shmem, test_fingerprint_basic)
 {
-   size_t mem_free_prev = platform_shmfree(data->hid);
+   size_t mem_free_prev = platform_shmbytes_free(data->hid);
 
    size_t  nitems = (1 * KiB);
    fp_hdr  fp;
@@ -1100,12 +1100,12 @@ CTEST2(splinter_shmem, test_fingerprint_basic)
    ASSERT_EQUAL(nitems, fingerprint_ntuples(&fp));
    ASSERT_FALSE(fingerprint_is_empty(&fp));
 
-   size_t mem_free_now = platform_shmfree(data->hid);
+   size_t mem_free_now = platform_shmbytes_free(data->hid);
    ASSERT_TRUE(mem_free_now == (mem_free_prev - fingerprint_size(&fp)));
 
    fingerprint_deinit(data->hid, &fp);
    ASSERT_TRUE(fingerprint_is_empty(&fp));
-   mem_free_now = platform_shmfree(data->hid);
+   mem_free_now = platform_shmbytes_free(data->hid);
    ASSERT_TRUE(mem_free_now == mem_free_prev);
 }
 

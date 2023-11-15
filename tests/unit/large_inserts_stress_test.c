@@ -22,7 +22,7 @@
 #include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
-#include "test_splinterdb_apis.h"
+#include "splinterdb_tests_private.h"
 
 // Nothing particularly significant about these constants.
 #define TEST_KEY_SIZE   30
@@ -157,7 +157,7 @@ CTEST_SETUP(large_inserts_stress)
       (splinterdb_config){.filename = "splinterdb_large_inserts_stress_test_db",
                           .cache_size = 4 * Giga,
                           .disk_size  = 40 * Giga,
-                          .use_shmem  = use_shmem,
+                          .use_shmem  = data->master_cfg.use_shmem,
                           .shmem_size = (1 * GiB),
                           .data_cfg   = &data->default_data_config};
 
@@ -169,6 +169,7 @@ CTEST_SETUP(large_inserts_stress)
    if (!data->master_cfg.num_threads) {
       data->master_cfg.num_threads = NUM_THREADS;
    }
+   data->num_insert_threads = data->master_cfg.num_threads;
 
    if ((data->num_inserts % MILLION) != 0) {
       platform_error_log("Test expects --num-inserts parameter to be an"
@@ -204,8 +205,8 @@ CTEST_TEARDOWN(large_inserts_stress)
       ASSERT_EQUAL(0, rv);
 
       platform_disable_tracing_large_frags();
-      platform_status rc = platform_heap_destroy(&data->hh);
-      platform_heap_destroy(&data->hid);
+      platform_status rc = platform_heap_destroy(&data->hid);
+      ASSERT_TRUE(SUCCESS(rc));
    }
 }
 
@@ -702,7 +703,7 @@ do_inserts_n_threads(splinterdb      *kvsb,
                      uint64           num_insert_threads)
 {
    platform_memfrag memfrag_wcfg;
-   worker_config   *wcfg = TYPED_ARRAY_ZALLOC(hid, wcfg, num_threads);
+   worker_config   *wcfg = TYPED_ARRAY_ZALLOC(hid, wcfg, num_insert_threads);
 
    // Setup thread-specific insert parameters
    for (int ictr = 0; ictr < num_insert_threads; ictr++) {

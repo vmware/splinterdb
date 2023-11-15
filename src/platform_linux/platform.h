@@ -691,6 +691,9 @@ platform_heap_destroy(platform_heap_id *heap_id);
 void
 platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr);
 
+void *
+platform_heap_get_splinterdb_handle(const platform_heap_id heap_id);
+
 shmem_heap *
 platform_heap_id_to_shmaddr(platform_heap_id hid);
 
