@@ -693,8 +693,7 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
    platform_status rc;
    task           *assigned_task = NULL;
 
-   /* We do the queue size comparison in this round-about way to avoid
-      integer overflow. */
+   /* Round-about queue-size comparison done to avoid integer overflow */
    if (queue_scale_percent
        && 100 * group->current_waiting_tasks / queue_scale_percent
              < group->bg.num_threads)
