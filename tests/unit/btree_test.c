@@ -111,12 +111,8 @@ CTEST_SETUP(btree)
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(btree)
 {
-<<<<<<< HEAD
-   platform_heap_destroy(&data->hid);
-=======
-   platform_status rc = platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hid);
    ASSERT_TRUE(SUCCESS(rc));
->>>>>>> c2c4379 (Support free-fragment recycling in shared-segment. Add fingerprint object mgmt)
 }
 
 /*

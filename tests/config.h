@@ -102,6 +102,7 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 num_threads;
    uint64 num_processes; // # of [forked] processes
    bool   wait_for_gdb;  // To debug child processes.
 } master_config;

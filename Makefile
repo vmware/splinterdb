@@ -489,10 +489,10 @@ $(BINDIR)/$(UNITDIR)/splinterdb_forked_child_test: $(OBJDIR)/$(TESTS_DIR)/config
                                                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                    $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/large_inserts_bugs_stress_test: $(UTIL_SYS)                      \
-                                                     $(OBJDIR)/$(TESTS_DIR)/config.o  \
-                                                     $(COMMON_UNIT_TESTOBJ)           \
-                                                     $(LIBDIR)/libsplinterdb.so
+$(BINDIR)/$(UNITDIR)/large_inserts_stress_test: $(UTIL_SYS)                      \
+                                                $(OBJDIR)/$(TESTS_DIR)/config.o  \
+                                                $(COMMON_UNIT_TESTOBJ)           \
+                                                $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinterdb_heap_id_mgmt_test: $(COMMON_TESTOBJ)         \
                                                    $(COMMON_UNIT_TESTOBJ)    \
