@@ -75,7 +75,7 @@ iterator_seek_tests(cache           *cc,
                     uint64           root_addr,
                     int              nkvs,
                     platform_heap_id hid);
-#endif  // UNDEF
+#endif // UNDEF
 
 static uint64
 pack_tests(cache           *cc,
@@ -254,7 +254,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
-// RESOLVE -- Comment out these funcs till other builds / tests succeed.
+   // RESOLVE -- Comment out these funcs till other builds / tests succeed.
    /*
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
@@ -296,7 +296,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                     nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
-// RESOLVE -- Comment out these funcs till other builds / tests succeed.
+   // RESOLVE -- Comment out these funcs till other builds / tests succeed.
    /*
    rc = iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
@@ -663,7 +663,7 @@ iterator_seek_tests(cache           *cc,
 
    return 1;
 }
-#endif  // UNDEF
+#endif // UNDEF
 
 static uint64
 pack_tests(cache           *cc,

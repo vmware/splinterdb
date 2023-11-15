@@ -39,7 +39,7 @@ CTEST_DATA(platform_api)
    // Declare heap handles for platform heap memory.
    platform_heap_id   hid;
    platform_module_id mid;
-   bool                 use_shmem;
+   bool               use_shmem;
 };
 
 CTEST_SETUP(platform_api)
@@ -293,26 +293,30 @@ CTEST2(platform_api, test_large_TYPED_MALLOC_free_and_MALLOC)
 
 CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)
 {
-   size_t old_mem_used = (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
+   size_t old_mem_used =
+      (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
 
    platform_memfrag  memfrag_structp;
    any_struct       *structp = TYPED_ARRAY_MALLOC(data->hid, structp, 20);
    platform_memfrag *mf      = &memfrag_structp;
    platform_free(data->hid, mf);
 
-   size_t new_mem_used = (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
+   size_t new_mem_used =
+      (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
    ASSERT_EQUAL(old_mem_used, new_mem_used);
 }
 
 CTEST2(platform_api, test_TYPED_ARRAY_ZALLOC_MF)
 {
-   size_t old_mem_used = (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
+   size_t old_mem_used =
+      (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
 
    platform_memfrag  memfrag_structp;
    any_struct       *structp = TYPED_ARRAY_ZALLOC(data->hid, structp, 10);
    platform_memfrag *mf      = &memfrag_structp;
    platform_free(data->hid, mf);
 
-   size_t new_mem_used = (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
+   size_t new_mem_used =
+      (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
    ASSERT_EQUAL(old_mem_used, new_mem_used);
 }
