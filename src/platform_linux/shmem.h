@@ -115,7 +115,7 @@ void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
 
 bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
+platform_isvalid_addr_in_heap(platform_heap_id heap_id, const void *addr);
 
 bool
 platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id);
