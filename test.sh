@@ -689,9 +689,10 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
-                                                      --num-threads ${n_threads} \
-                                                      --num-normal-bg-threads 4 \
-                                                      --num-memtable-bg-threads 3
+                                                 --num-threads ${n_threads} \
+                                                 --num-normal-bg-threads 4 \
+                                                 --num-memtable-bg-threads 3
+    set -e
 }
 
 # ##################################################################
