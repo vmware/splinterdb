@@ -720,7 +720,6 @@ platform_shm_alloc(platform_heap_id  hid,
          return retptr;
       }
    }
-
    _Static_assert(sizeof(void *) == sizeof(size_t),
                   "check our casts are valid");
 
@@ -755,7 +754,6 @@ platform_shm_alloc(platform_heap_id  hid,
       if (Trace_large_frags) {
          platform_shm_print_usage(hid);
       }
-
       return NULL;
    }
 
@@ -1098,53 +1096,26 @@ platform_shm_find_frag_in_freed_lists(const shmem_heap *shm,
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_track_free() - Track 'free' of small and large fragments.
+ * platform_shm_track_free_small_frag() - Track 'free' of small fragments.
  *
- * Small fragments: Free this fragment, and using the 'size' specified,
- *   connect it to the free-list tracking fragments of this size.
-
- * Large fragments: See if this memory fragment being freed is
- *   already being tracked. If so, it's a large fragment allocation, which
- *   can be re-cycled after this free. Do the book-keeping accordingly to
- *   record that this large-fragment is no longer in-use and can be recycled.
+ * Free this small fragment, and using the 'size' specified, connect it to
+ * the free-list tracking fragments of this size.
  * -----------------------------------------------------------------------------
  */
 static void
-platform_shm_track_free(shmem_heap  *shm,
-                        void        *addr,
-                        const size_t size,
-                        const char  *objname,
-                        const char  *func,
-                        const char  *file,
-                        const int    line)
+platform_shm_track_free_small_frag(shmem_heap  *shm,
+                                   void        *addr,
+                                   const size_t size)
 {
-   // All callers of either platform_free() or platform_free_mem() are required
-   // to declare the size of the memory fragment being freed. We use that info
-   // to manage free lists.
-   platform_assert((size > 0),
-                   "objname=%s, func=%s, file=%s, line=%d",
-                   objname,
-                   func,
-                   file,
-                   line);
-
    shm_lock_mem_frags(shm);
    shm->usage.nfrees++;
    shm->usage.bytes_freed += size;
+   // If this fragment-being-free'd is one of a size we track, find
+   // the free-list into which the free'd-fragment should be linked.
+   free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+   if (next_frag) {
 
-   /* **** Tracking 'free' on smaller fragments. **** */
-
-   // If we are freeing a fragment beyond the high-address of all
-   // large fragments tracked, then this is certainly not a large
-   // fragment. So, no further need to see if it's a tracked fragment.
-   if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
-   {
-      // If this fragment-being-free'd is one of a size we track, find
-      // the free-list into which the free'd-fragment should be linked.
-      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
-      if (next_frag) {
-
-         // clang-format off
+      // clang-format off
          debug_code(size_t found_in_free_list_size = 0);
          debug_code(size_t free_frag_size = 0);
          debug_assert(((found_in_free_list_size
@@ -1156,70 +1127,96 @@ platform_shm_track_free(shmem_heap  *shm,
                         " was found in freed-fragment-list of size=%lu bytes"
                         ", and marked as %lu bytes size.",
                         addr, size, found_in_free_list_size, free_frag_size);
-         // clang-format on
+      // clang-format on
 
-         /*
-          * ------------------------------------------------------------------
-          * Hook this now-free fragment into its free-list.
-          *
-          * NOTE: There is a potential for a small memory-leak, which may
-          * just be benign. We may have allocated via TYPED_MALLOC() for a
-          * single structure. alloc() and free() interfaces -do- round-up
-          * the sizeof(struct) for alignment. But it could well be that we
-          * recycled a small fragment from a free-list, where the fragment's
-          * original size was larger than sizeof(struct). So, come now to
-          * free()-time, caller only knows of sizeof(struct) which will be
-          * smaller than the actual fragment's size. This leads to a small
-          * bit of unused space in the to-be-freed-fragment, but should not
-          * cause any memory corruption.
-          * ------------------------------------------------------------------
-          */
-         platform_shm_hook_free_frag(next_frag, addr, size);
-      }
-
-      // Maintain metrics here onwards
-      shm->usage.nf_search_skipped++; // Track # of optimizations done
-
-      if (size == 0) {
-         shm->usage.nfrees_eq0++;
-      } else if (size <= 32) {
-         shm->usage.nfrees_le32++;
-      } else if (size <= 64) {
-         shm->usage.nfrees_le64++;
-      } else if (size <= 128) {
-         shm->usage.nfrees_le128++;
-      } else if (size <= 256) {
-         shm->usage.nfrees_le256++;
-      } else if (size <= 512) {
-         shm->usage.nfrees_le512++;
-      } else if (size <= KiB) {
-         shm->usage.nfrees_le1K++;
-      } else if (size <= (2 * KiB)) {
-         shm->usage.nfrees_le2K++;
-      } else if (size <= (4 * KiB)) {
-         shm->usage.nfrees_le4K++;
-      }
-      shm->usage.used_bytes -= size;
-      shm->usage.free_bytes += size;
-
-      shm_unlock_mem_frags(shm);
-      return;
+      /*
+       * ------------------------------------------------------------------
+       * Hook this now-free fragment into its free-list.
+       *
+       * NOTE: There is a potential for a small memory-leak, which may
+       * just be benign. We may have allocated via TYPED_MALLOC() for a
+       * single structure. alloc() and free() interfaces -do- round-up
+       * the sizeof(struct) for alignment. But it could well be that we
+       * recycled a small fragment from a free-list, where the fragment's
+       * original size was larger than sizeof(struct). So, come now to
+       * free()-time, caller only knows of sizeof(struct) which will be
+       * smaller than the actual fragment's size. This leads to a small
+       * bit of unused space in the to-be-freed-fragment, but should not
+       * cause any memory corruption.
+       * ------------------------------------------------------------------
+       */
+      platform_shm_hook_free_frag(next_frag, addr, size);
    }
 
-   /* **** Tracking 'free' on large fragments. **** */
+   // Maintain metrics here onwards
+   shm->usage.nf_search_skipped++; // Track # of optimizations done
 
+   if (size == 0) {
+      shm->usage.nfrees_eq0++;
+   } else if (size <= 32) {
+      shm->usage.nfrees_le32++;
+   } else if (size <= 64) {
+      shm->usage.nfrees_le64++;
+   } else if (size <= 128) {
+      shm->usage.nfrees_le128++;
+   } else if (size <= 256) {
+      shm->usage.nfrees_le256++;
+   } else if (size <= 512) {
+      shm->usage.nfrees_le512++;
+   } else if (size <= KiB) {
+      shm->usage.nfrees_le1K++;
+   } else if (size <= (2 * KiB)) {
+      shm->usage.nfrees_le2K++;
+   } else if (size <= (4 * KiB)) {
+      shm->usage.nfrees_le4K++;
+   }
+   shm->usage.used_bytes -= size;
+   shm->usage.free_bytes += size;
+
+   shm_unlock_mem_frags(shm);
+   return;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_shm_track_free_large_frag() - Track 'free' of large fragments.
+ *
+ * See if this large memory fragment being freed is already being tracked. If
+ * so, it can be re-cycled after this free. Do the book-keeping accordingly to
+ * record that this large-fragment is no longer in-use and can be recycled.
+ * -----------------------------------------------------------------------------
+ */
+static void
+platform_shm_track_free_large_frag(shmem_heap  *shm,
+                                   void        *addr,
+                                   const size_t size,
+                                   const char  *objname,
+                                   const char  *func,
+                                   const char  *file,
+                                   const int    line)
+{
+   shm_lock_mem_frags(shm);
+   shm->usage.nfrees++;
+   shm->usage.bytes_freed += size;
    shm->usage.nfrees_large_frags++;
+
    bool found_tracked_frag = FALSE;
    bool trace_shmem        = (Trace_shmem || Trace_shmem_frees);
 
    shm_frag_info *frag = shm->shm_mem_frags;
+   int            fctr = 0;
 
    // Search the large-fragment tracking array for this fragment being freed.
    // If found, mark its tracker that this fragment is free & can be recycled.
-   for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
-      if (!frag->frag_addr || (frag->frag_addr != addr)) {
-         continue;
-      }
+   while ((fctr < ARRAY_SIZE(shm->shm_mem_frags))
+          && (!frag->frag_addr || (frag->frag_addr != addr)))
+   {
+      fctr++;
+      frag++;
+   }
+
+   if (fctr < ARRAY_SIZE(shm->shm_mem_frags)) {
+      debug_assert(frag->frag_addr == addr);
       found_tracked_frag = TRUE;
 
       // Cross-check the recording we did when fragment was allocated
@@ -1296,6 +1293,45 @@ platform_shm_track_free(shmem_heap  *shm,
                            func,
                            addr,
                            objname);
+   }
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_shm_track_free() - Track 'free' of small and large fragments.
+ * -----------------------------------------------------------------------------
+ */
+static void
+platform_shm_track_free(shmem_heap  *shm,
+                        void        *addr,
+                        const size_t size,
+                        const char  *objname,
+                        const char  *func,
+                        const char  *file,
+                        const int    line)
+{
+   // All callers of either platform_free() or platform_free_mem() are required
+   // to declare the size of the memory fragment being freed. We use that info
+   // to manage free lists.
+   platform_assert((size > 0),
+                   "objname=%s, func=%s, file=%s, line=%d",
+                   objname,
+                   func,
+                   file,
+                   line);
+
+   // If we are freeing a fragment beyond the high-address of all
+   // large fragments tracked, then this is certainly not a large
+   // fragment. So, no further need to see if it's a tracked large-fragment.
+   if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
+   {
+      /* **** Tracking 'free' on smaller fragments. **** */
+      platform_shm_track_free_small_frag(shm, addr, size);
+   } else {
+
+      /* **** Tracking 'free' on large fragments. **** */
+      platform_shm_track_free_large_frag(
+         shm, addr, size, objname, func, file, line);
    }
 }
 
