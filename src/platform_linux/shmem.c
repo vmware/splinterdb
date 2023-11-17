@@ -127,14 +127,14 @@ typedef struct shm_frag_info {
 /*
  * Currently, we track free-fragments in lists limited to these sizes.
  * Each such free-list has a head-list field in shared memory control block.
- * of sizes.This list can be easily expanded.
+ * of sizes.This list of tracked small-fragments can be easily expanded.
  */
 #define SHM_SMALL_FRAG_MIN_SIZE 64  // Will not track for size < min bytes
 #define SHM_SMALL_FRAG_MAX_SIZE 512 // Will not track for size > max bytes
 
 /*
- * Each free fragment that is hooked into the free-list is described by this
- * tiny tracking structure.
+ * Each free small fragment that is hooked into the free-list is described
+ * by this tiny tracking structure.
  */
 typedef struct free_frag_hdr {
    struct free_frag_hdr *free_frag_next;
@@ -211,9 +211,11 @@ typedef struct shmem_heap {
    void *shm_large_frag_hip; // Highest addr of large-fragments tracked
 
    platform_mutex shm_mem_mutex; // To synchronize alloc & free
+
    platform_mutex shm_mem_frags_mutex;
    // Protected by shm_mem_frags_mutex. Must hold to read or modify.
    shm_frag_info shm_mem_frags[SHM_NUM_LARGE_FRAGS];
+
    uint32        shm_num_frags_tracked;
    int           shm_id; // Shared memory ID returned by shmget()
 
