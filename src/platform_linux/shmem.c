@@ -15,7 +15,7 @@
  *
  *  platform_shm_alloc() - Main allocation interface
  *   │
- *   ├──►platform_shm_find_large() - Find (or rRecycle) a large free fragment
+ *   ├──►platform_shm_find_large() - Find (or recycle) a large free fragment
  *   │
  *   └──► platform_shm_find_frag() - Find (or recycle) a small free fragment
  *
@@ -974,6 +974,7 @@ platform_shm_track_large_alloc(shmem_heap *shm,
       if (shm->shm_large_frag_hip < addr) {
          shm->shm_large_frag_hip = addr;
       }
+      break;
    }
    if (!found_free_slot) {
       shm->usage.nlarge_frags_full++;
