@@ -322,12 +322,12 @@ filter_test(int argc, char *argv[])
 
    if (argc && strncmp(argv[0], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
-      config_argc   = argc - 1;
-      config_argv   = argv + 1;
+      config_argc   = argc - 2;
+      config_argv   = argv + 2;
    } else {
       run_perf_test = FALSE;
-      config_argc   = argc;
-      config_argv   = argv;
+      config_argc   = argc - 1;
+      config_argv   = argv + 1;
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
@@ -335,8 +335,9 @@ filter_test(int argc, char *argv[])
    // Create a heap for io, allocator, cache and splinter
    platform_heap_id hid       = NULL;
    size_t           heap_size = ((use_shmem ? 3 : 1) * GiB);
-   rc                         = platform_heap_create(
-      platform_get_module_id(), heap_size * GiB, use_shmem, &hid);
+
+   rc = platform_heap_create(
+      platform_get_module_id(), heap_size, use_shmem, &hid);
 
    platform_assert_status_ok(rc);
 
