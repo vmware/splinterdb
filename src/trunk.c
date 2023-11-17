@@ -8051,17 +8051,12 @@ trunk_unmount(trunk_handle **spl_in)
    trunk_prepare_for_shutdown(spl);
    trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+      trunk_stats_deinit(spl);
    }
-   platform_free(spl->heap_id, spl);
+   platform_memfrag  memfrag = {0};
+   platform_memfrag *mf      = &memfrag;
+   memfrag_init_size(mf, spl, spl->size);
+   platform_free(spl->heap_id, mf);
    *spl_in = (trunk_handle *)NULL;
 }
 
