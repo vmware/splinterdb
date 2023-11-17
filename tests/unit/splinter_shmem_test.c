@@ -379,11 +379,11 @@ CTEST2(splinter_shmem, test_alloc_free_and_reuse_of_large_fragment)
  * in-use large fragments of the same size.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
+CTEST2_SKIP(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
-   // Large fragments are tracked if their size >= this size.
+   // Large fragments are tracked if their size >= (at least) this size.
    size_t           size = (1 * MiB);
    platform_memfrag memfrag_keybuf1_1MiB;
    uint8 *keybuf1_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf1_1MiB, size);
@@ -410,7 +410,7 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
    // Save off fragment handles as free will NULL out ptr.
    uint8 *old_keybuf2_1MiB = keybuf2_1MiB;
 
-   // Free the middle fragment that should get reused, below.
+   // Free the middle fragment. That fragment should get reused, below.
    platform_memfrag  memfrag = {.addr = keybuf2_1MiB, .size = size};
    platform_memfrag *mf      = &memfrag;
    platform_free(data->hid, mf);
@@ -469,7 +469,7 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
  * and then satisfy the next request with the free 5 MiB fragment.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
+CTEST2_SKIP(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 

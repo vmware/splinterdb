@@ -666,6 +666,7 @@ function run_slower_unit_tests() {
 
     # Test runs w/ default of 1M rows for --num-inserts
     n_mills=1
+    local n_threads=8
     num_rows=$((n_mills * 1000 * 1000))
     msg="Large inserts stress test, ${n_mills}M rows, ${use_msg}"
 
