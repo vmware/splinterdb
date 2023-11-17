@@ -198,17 +198,15 @@ typedef struct shminfo_usage_stats {
  * -----------------------------------------------------------------------------
  */
 typedef struct shmem_heap {
-   void *shm_start; // Points to start address of shared segment.
-   void *shm_end;   // Points to end address; one past end of sh segment
-   void *shm_next;  // Points to next 'free' address to allocate from.
-
+   void          *shm_start; // Points to start address of shared segment.
+   void          *shm_end;  // Points to end address; one past end of sh segment
+   void          *shm_next; // Points to next 'free' address to allocate from.
    free_frag_hdr *shm_free_le64;  // Chain of free-fragments <= 64 bytes
    free_frag_hdr *shm_free_le128; // Chain of free-fragments <= 128 bytes
    free_frag_hdr *shm_free_le256; // Chain of free-fragments <= 256 bytes
    free_frag_hdr *shm_free_le512; // Chain of free-fragments <= 512 bytes
-
-   void *shm_splinterdb_handle;
-   void *shm_large_frag_hip; // Highest addr of large-fragments tracked
+   void          *shm_splinterdb_handle;
+   void          *shm_large_frag_hip; // Highest addr of large-fragments tracked
 
    platform_mutex shm_mem_mutex; // To synchronize alloc & free
 
@@ -216,12 +214,10 @@ typedef struct shmem_heap {
    // Protected by shm_mem_frags_mutex. Must hold to read or modify.
    shm_frag_info shm_mem_frags[SHM_NUM_LARGE_FRAGS];
 
-   uint32        shm_num_frags_tracked;
-   int           shm_id; // Shared memory ID returned by shmget()
-
+   uint32              shm_num_frags_tracked;
+   int                 shm_id; // Shared memory ID returned by shmget()
    shminfo_usage_stats usage;
-
-   uint64 shm_magic; // Magic identifier for shared memory segment
+   uint64              shm_magic; // Magic identifier for shared memory segment
 
 } PLATFORM_CACHELINE_ALIGNED shmem_heap;
 
