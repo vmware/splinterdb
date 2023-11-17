@@ -379,7 +379,7 @@ CTEST2(splinter_shmem, test_alloc_free_and_reuse_of_large_fragment)
  * in-use large fragments of the same size.
  * ---------------------------------------------------------------------------
  */
-CTEST2_SKIP(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
+CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -469,7 +469,7 @@ CTEST2_SKIP(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
  * and then satisfy the next request with the free 5 MiB fragment.
  * ---------------------------------------------------------------------------
  */
-CTEST2_SKIP(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
+CTEST2(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
