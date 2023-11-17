@@ -320,14 +320,18 @@ filter_test(int argc, char *argv[])
    uint64                 seed;
    test_message_generator gen;
 
+   // Move past the 1st arg which will be the driving tag, 'filter_test'.
+   argc--;
+   argv++;
+
    if (argc && strncmp(argv[0], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
-      config_argc   = argc - 2;
-      config_argv   = argv + 2;
-   } else {
-      run_perf_test = FALSE;
       config_argc   = argc - 1;
       config_argv   = argv + 1;
+   } else {
+      run_perf_test = FALSE;
+      config_argc   = argc;
+      config_argv   = argv;
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);

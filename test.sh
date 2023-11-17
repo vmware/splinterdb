@@ -899,8 +899,9 @@ function run_tests_with_shared_memory() {
    run_with_timing "Filter tests using shared memory" \
                    "$BINDIR"/driver_test filter_test --use-shmem
 
+   # If supplied, --perf needs to be the 1st arg as it's parsed-away first.
    run_with_timing "Filter perf tests using shared memory" \
-                   "$BINDIR"/driver_test filter_test --use-shmem --perf
+                   "$BINDIR"/driver_test filter_test --perf --use-shmem
 
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
