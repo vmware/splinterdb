@@ -523,6 +523,12 @@ platform_do_realloc(const platform_heap_id heap_id,
    }
 }
 
+/*
+ * platform_free_from_heap() - Free memory from the heap.
+ *
+ * If Splinter is running with shared memory configured, this calls into
+ * shared-memory based free() method. Othewise, run standard free().
+ */
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,
                         void            *ptr,

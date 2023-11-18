@@ -186,18 +186,65 @@ CTEST2(platform_api, test_platform_condvar_init_destroy)
  * ----------------------------------------------------------------------------
  * Exercise all the memory allocation interfaces, followed by a free, to ensure
  * that all combinations work cleanly, w/ and w/o shared memory.
+ *
+ * - TYPED_MALLOC(), TYPED_ZALLOC() -
+ * - TYPED_ALIGNED_MALLOC(), TYPED_ALIGNED_ZALLOC() - Memory allocation is done
+ *   the conventional way, directly without the need for an on-stack
+ *   platform_memfrag{}.
+ *   platform_free() can directly pass the addr of the allocated memory, w/o
+ *   the need to supply platform_memfrag{} *.
+ *
+ * - TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
+ *   TYPED_FLEXIBLE_STRUCT_MALLOC(), TYPED_FLEXIBLE_STRUCT_ZALLOC()
+ *   These interfaces need an on-stack platform_memfrag{} struct for allocation
+ *   and to call the free() interface.
+ *
+ * For case of test execution with shared memory, do small verification
+ * that used / free memory metrics are correct before/after allocation/free.
  * ----------------------------------------------------------------------------
  */
 CTEST2(platform_api, test_TYPED_MALLOC)
 {
+   size_t used_bytes_before_alloc = 0;
+   size_t free_bytes_before_alloc = 0;
+   size_t used_bytes_after_free   = 0;
+   size_t free_bytes_after_free   = 0;
+
+   if (data->use_shmem) {
+      used_bytes_before_alloc = platform_shmbytes_used(data->hid);
+      free_bytes_before_alloc = platform_shmbytes_free(data->hid);
+   }
    any_struct *structp = TYPED_MALLOC(data->hid, structp);
    platform_free(data->hid, structp);
+   if (data->use_shmem) {
+      used_bytes_after_free = platform_shmbytes_used(data->hid);
+      free_bytes_after_free = platform_shmbytes_free(data->hid);
+
+      ASSERT_EQUAL(used_bytes_before_alloc, used_bytes_after_free);
+      ASSERT_EQUAL(free_bytes_before_alloc, free_bytes_after_free);
+   }
 }
 
 CTEST2(platform_api, test_TYPED_ZALLOC)
 {
+   size_t used_bytes_before_alloc = 0;
+   size_t free_bytes_before_alloc = 0;
+   size_t used_bytes_after_free   = 0;
+   size_t free_bytes_after_free   = 0;
+
+   if (data->use_shmem) {
+      used_bytes_before_alloc = platform_shmbytes_used(data->hid);
+      free_bytes_before_alloc = platform_shmbytes_free(data->hid);
+   }
    any_struct *structp = TYPED_ZALLOC(data->hid, structp);
    platform_free(data->hid, structp);
+   if (data->use_shmem) {
+      used_bytes_after_free = platform_shmbytes_used(data->hid);
+      free_bytes_after_free = platform_shmbytes_free(data->hid);
+
+      ASSERT_EQUAL(used_bytes_before_alloc, used_bytes_after_free);
+      ASSERT_EQUAL(free_bytes_before_alloc, free_bytes_after_free);
+   }
 }
 
 CTEST2(platform_api, test_TYPED_MALLOC_free_and_MALLOC)
@@ -212,14 +259,54 @@ CTEST2(platform_api, test_TYPED_MALLOC_free_and_MALLOC)
    ASSERT_TRUE(!data->use_shmem || (save_structp == new_structp));
 }
 
+CTEST2(platform_api, test_TYPED_ALIGNED_ZALLOC)
+{
+   size_t used_bytes_before_alloc = 0;
+   size_t free_bytes_before_alloc = 0;
+   size_t used_bytes_after_free   = 0;
+   size_t free_bytes_after_free   = 0;
+
+   if (data->use_shmem) {
+      used_bytes_before_alloc = platform_shmbytes_used(data->hid);
+      free_bytes_before_alloc = platform_shmbytes_free(data->hid);
+   }
+   any_struct *structp = TYPED_ALIGNED_ZALLOC(
+      data->hid, PLATFORM_CACHELINE_SIZE, structp, sizeof(*structp) * 7);
+
+   platform_free(data->hid, structp);
+   if (data->use_shmem) {
+      used_bytes_after_free = platform_shmbytes_used(data->hid);
+      free_bytes_after_free = platform_shmbytes_free(data->hid);
+
+      ASSERT_EQUAL(used_bytes_before_alloc, used_bytes_after_free);
+      ASSERT_EQUAL(free_bytes_before_alloc, free_bytes_after_free);
+   }
+}
+
 CTEST2(platform_api, test_TYPED_ARRAY_MALLOC)
 {
-   int              nitems = 10;
+   int    nitems                  = 10;
+   size_t used_bytes_before_alloc = 0;
+   size_t free_bytes_before_alloc = 0;
+   size_t used_bytes_after_free   = 0;
+   size_t free_bytes_after_free   = 0;
+
+   if (data->use_shmem) {
+      used_bytes_before_alloc = platform_shmbytes_used(data->hid);
+      free_bytes_before_alloc = platform_shmbytes_free(data->hid);
+   }
    platform_memfrag memfrag_structp;
    any_struct      *structp = TYPED_ARRAY_MALLOC(data->hid, structp, nitems);
 
    platform_memfrag *mf = &memfrag_structp;
    platform_free(data->hid, mf);
+   if (data->use_shmem) {
+      used_bytes_after_free = platform_shmbytes_used(data->hid);
+      free_bytes_after_free = platform_shmbytes_free(data->hid);
+
+      ASSERT_EQUAL(used_bytes_before_alloc, used_bytes_after_free);
+      ASSERT_EQUAL(free_bytes_before_alloc, free_bytes_after_free);
+   }
 }
 
 /*
@@ -295,6 +382,8 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)
 {
    size_t old_mem_used =
       (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
+   size_t old_mem_free =
+      (data->use_shmem ? platform_shmbytes_free(data->hid) : 0);
 
    platform_memfrag  memfrag_structp;
    any_struct       *structp = TYPED_ARRAY_MALLOC(data->hid, structp, 20);
@@ -303,7 +392,10 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)
 
    size_t new_mem_used =
       (data->use_shmem ? platform_shmbytes_used(data->hid) : 0);
+   size_t new_mem_free =
+      (data->use_shmem ? platform_shmbytes_free(data->hid) : 0);
    ASSERT_EQUAL(old_mem_used, new_mem_used);
+   ASSERT_EQUAL(old_mem_free, new_mem_free);
 }
 
 CTEST2(platform_api, test_TYPED_ARRAY_ZALLOC_MF)
