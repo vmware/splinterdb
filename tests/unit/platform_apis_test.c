@@ -49,6 +49,7 @@ CTEST_SETUP(platform_api)
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    data->mid            = platform_get_module_id();
+   data->use_shmem      = use_shmem;
    rc = platform_heap_create(data->mid, heap_capacity, use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 }
@@ -306,6 +307,51 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC)
 
       ASSERT_EQUAL(used_bytes_before_alloc, used_bytes_after_free);
       ASSERT_EQUAL(free_bytes_before_alloc, free_bytes_after_free);
+   }
+}
+
+/*
+ * Dumb test-case to show how -not- to invoke the platform_free() API.
+ * If you allocate using platform_memfrag{}, but free the allocated memory
+ * directly, you will certainly get a memory leak.
+ */
+CTEST2(platform_api, test_incorrect_usage_of_free)
+{
+   int    nitems                  = 13;
+   size_t used_bytes_before_alloc = 0;
+   size_t free_bytes_before_alloc = 0;
+   size_t memory_allocated        = 0;
+   size_t used_bytes_after_free   = 0;
+   size_t free_bytes_after_free   = 0;
+
+   if (data->use_shmem) {
+      used_bytes_before_alloc = platform_shmbytes_used(data->hid);
+      free_bytes_before_alloc = platform_shmbytes_free(data->hid);
+   }
+   platform_memfrag memfrag_structp;
+   any_struct      *structp = TYPED_ARRAY_MALLOC(data->hid, structp, nitems);
+   memory_allocated         = memfrag_structp.size;
+
+   // Incorrect usage of free ... Memory fragment will be freed but there will
+   // be an error in computing memory usage metrics, resulting in a slow
+   // memory leak (of sorts).
+   platform_free(data->hid, structp);
+   if (data->use_shmem) {
+      used_bytes_after_free = platform_shmbytes_used(data->hid);
+      free_bytes_after_free = platform_shmbytes_free(data->hid);
+
+      // These asserts document "an error condition", just so the test can pass.
+      ASSERT_NOT_EQUAL(used_bytes_before_alloc, used_bytes_after_free);
+      ASSERT_NOT_EQUAL(free_bytes_before_alloc, free_bytes_after_free);
+
+      printf("memory_allocated=%lu"
+             ", used_bytes_after_free=%lu (!= used_bytes_before_alloc=%lu)"
+             ", free_bytes_after_free=%lu (!= free_bytes_before_alloc=%lu)\n",
+             memory_allocated,
+             used_bytes_after_free,
+             used_bytes_before_alloc,
+             free_bytes_after_free,
+             free_bytes_before_alloc);
    }
 }
 
