@@ -367,14 +367,26 @@ extern platform_heap_id Heap_id;
 #define TYPED_ALIGNED_MALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(                                      \
-         hid, (a), (n), NULL, STRINGIFY(v), __func__, __FILE__, __LINE__);     \
+      (typeof(v))platform_aligned_malloc(hid,                                  \
+                                         (a),                                  \
+                                         (n),                                  \
+                                         (platform_memfrag *)NULL,             \
+                                         STRINGIFY(v),                         \
+                                         __func__,                             \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(                                      \
-         hid, (a), (n), NULL, STRINGIFY(v), __func__, __FILE__, __LINE__);     \
+      (typeof(v))platform_aligned_zalloc(hid,                                  \
+                                         (a),                                  \
+                                         (n),                                  \
+                                         (platform_memfrag *)NULL,             \
+                                         STRINGIFY(v),                         \
+                                         __func__,                             \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 
 /*
@@ -462,8 +474,11 @@ extern platform_heap_id Heap_id;
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  */
-#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC_MF(hid, v, 1, NULL)
-#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC_MF(hid, v, 1, NULL)
+#define TYPED_MALLOC(hid, v)                                                   \
+   TYPED_ARRAY_MALLOC_MF(hid, v, 1, (platform_memfrag *)NULL)
+
+#define TYPED_ZALLOC(hid, v)                                                   \
+   TYPED_ARRAY_ZALLOC_MF(hid, v, 1, (platform_memfrag *)NULL)
 
 /*
  * -----------------------------------------------------------------------------
@@ -768,7 +783,7 @@ typedef struct platform_memfrag {
 
 /*
  * Utility macro to test if an argument to platform_free() is a
- * platform_memfrag{}.
+ * platform_memfrag *.
  */
 #define IS_MEM_FRAG(x)                                                         \
    __builtin_choose_expr(                                                      \
@@ -785,7 +800,8 @@ typedef struct platform_memfrag {
  *                          size_t nbytes)
  *
  * Macro to initialize a memory fragment that was allocated for nitems-items of
- * an object pointed at by 'ptr'. Sets it up to free the fragment.
+ * an object pointed at by 'ptr'. Sets 'mf' up so that we can eventually use
+ * 'mf' to free the fragment.
  */
 #define memfrag_init_size(mf, ptr, nbytes)                                     \
    do {                                                                        \
@@ -858,9 +874,26 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
          platform_free_mem((hid), _mf->addr, _mf->size, STRINGIFY(p));         \
          _mf->addr = NULL;                                                     \
          _mf->size = 0;                                                        \
-      } else {                                                                 \
-         platform_assert((((hid) == PROCESS_PRIVATE_HEAP_ID)                   \
-                          || (sizeof(*p) > sizeof(uint64))),                   \
+                                                                               \
+      } else if (((hid) != PROCESS_PRIVATE_HEAP_ID)                            \
+                 && (sizeof(*p) == sizeof(void *))) {                          \
+         /*                                                                    \
+          * This check catches the most common abuse of this interface where   \
+          * some code may have done:                                           \
+          *                                                                    \
+          *  platform_memfrag memfrag_pivot_key;                               \
+          *  key_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, num);  \
+          *                                                                    \
+          * and while freeing this memory, calls this interface (in the        \
+          * conventional way) as:                                              \
+          *                                                                    \
+          *  platform_free(hid, pivot_key);                                    \
+          *                                                                    \
+          * As opposed to calling this interface the right way, i.e.,          \
+          *  platform_memfrag *mf = &memfrag_pivot_key;                        \
+          *  platform_free(hid, mf);                                           \
+          */                                                                   \
+         platform_assert(FALSE,                                                \
                          "Attempt to free memory using '%s', which is a "      \
                          " pointer to an object of size %lu bytes"             \
                          ", from '%s', line=%d\n",                             \
@@ -868,6 +901,7 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
                          sizeof(*p),                                           \
                          __func__,                                             \
                          __LINE__);                                            \
+      } else {                                                                 \
          /*                                                                    \
           * Expect that 'p' is pointing to a struct. So get its size.          \
           * Except that while allocating memory for objects, we had previously \
@@ -887,9 +921,11 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
  * void = platform_free_mem(platform_heap_id hid, void *p, size_t size,
  *                          const char *objname);
  *
- * Free a memory chunk at address 'p' of size 'size' bytes. This exists to
- * facilitate re-cycling of free'd fragments in a shared-memory usage. That
- * machinery works off of the fragment's 'size', hence we need to provide that.
+ * Free a memory chunk at address 'p' of size 'size' bytes.
+ *
+ * This exists to facilitate re-cycling of free'd fragments in a shared-memory
+ * usage. That machinery works off of the fragment's 'size', hence we need to
+ * provide 'size' through this interface.
  */
 #define platform_free_mem(hid, p, size, objname)                               \
    do {                                                                        \
@@ -905,9 +941,9 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
  *
  * Similar to platform_free(), except it exists to free volatile ptr to
  * allocated memory. The interface expects that the (single-) caller has
- * packaged the memory fragment to-be-freed in a platform_memfrag *p arg.
+ * packaged the memory fragment to-be-freed in a platform_memfrag *p * arg.
  * There is just one consumer of this interface, so we don't go to the full
- * distance as its sibling interface.
+ * distance as its sibling interface, to do error checking of args etc.
  * ----------------------------------------------------------------------------
  */
 #define platform_free_volatile(hid, p)                                         \
@@ -972,7 +1008,8 @@ max_size_t(size_t a, size_t b)
    return a > b ? a : b;
 }
 
-// Return absolute diff between two unsigned long values.
+// Return absolute diff between two unsigned long
+// values.
 static inline size_t
 diff_size_t(size_t a, size_t b)
 {

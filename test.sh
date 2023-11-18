@@ -716,7 +716,7 @@ function run_slower_forked_process_tests() {
     #
     # main pr-clang job also failed with this error:
     # splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1182, OS-tid=1182, Thread-ID=3, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
-    # So -- this test scenario is unearthing some existing bugs. Comment out for now.
+    # As this test scenario is unearthing some existing bugs, comment it out for now.
     # --------------------------------------------------------------------------
     #
     # num_forked_procs=4

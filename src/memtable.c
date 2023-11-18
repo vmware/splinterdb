@@ -345,6 +345,9 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
    }
 
    platform_mutex_destroy(&ctxt->incorporation_mutex);
+   // RESOLVE: Fishy - add unit-test to exercise
+   // platform_batch_rwlock_init
+   // followed by platform_batch_rwlock_init().
    platform_free(hid, ctxt->rwlock);
 
    platform_memfrag  memfrag_ctxt;
