@@ -46,7 +46,7 @@ resource_types:
   source:
     #! this image is built from https://github.com/cloudfoundry-community/github-pr-resource
     #! which is maintained by VMware staff
-    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/loggregatorbot/github-pr-resource:latest
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/loggregatorbot/github-pr-resource
 
 #! Attempt to fix a problem with image pulls failing
 #! see: https://vmware.slack.com/archives/CEUC18KQA/p1689754476227109?thread_ts=1689753436.440569&cid=CEUC18KQA
