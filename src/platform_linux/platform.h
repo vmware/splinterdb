@@ -140,7 +140,6 @@ typedef void (*platform_thread_worker)(void *);
 
 typedef int (*platform_sort_cmpfn)(const void *a, const void *b, void *arg);
 
-
 /*
  * Helper macro that takes a pointer, type of the container, and the
  * name of the member the pointer refers to. The macro expands to a
@@ -185,7 +184,6 @@ typedef struct {
 extern bool32 platform_use_hugetlb;
 extern bool32 platform_use_mlock;
 
-
 /*
  * Section 3:
  * Shared types/typedefs that rely on platform-specific types/typedefs
@@ -194,7 +192,6 @@ extern bool32 platform_use_mlock;
  */
 extern platform_log_handle *Platform_default_log_handle;
 extern platform_log_handle *Platform_error_log_handle;
-
 
 /*
  * Section 4:
