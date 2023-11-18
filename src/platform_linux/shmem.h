@@ -75,6 +75,12 @@ platform_disable_tracing_shm_allocs();
 void
 platform_disable_tracing_shm_frees();
 
+void
+platform_enable_tracing_large_frags();
+
+void
+platform_disable_tracing_large_frags();
+
 size_t
 platform_shm_ctrlblock_size();
 
@@ -94,8 +100,8 @@ platform_shmbytes_used(platform_heap_id heap_id);
 void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
 
-void
-platform_enable_tracing_large_frags();
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
 
-void
-platform_disable_tracing_large_frags();
+void *
+platform_heap_get_splinterdb_handle(platform_heap_id heap_id);
