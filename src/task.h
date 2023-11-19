@@ -17,6 +17,7 @@ typedef struct task {
    void        *arg;
    task_system *ts;
    timestamp    enqueue_time;
+   size_t       mf_size;
 } task;
 
 /*
@@ -121,12 +122,14 @@ struct task_system {
    // max thread id so far.
    threadid max_tid;
    void    *thread_scratch[MAX_THREADS];
-   size_t   thread_scratch_mem_size;
+   size_t   scratch_mf_size[MAX_THREADS];
+   ;
    // task groups
    task_group group[NUM_TASK_TYPES];
 
    int       hook_init_done;
    int       num_hooks;
+   size_t    mf_size;
    task_hook hooks[TASK_MAX_HOOKS];
 };
 

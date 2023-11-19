@@ -218,8 +218,7 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
    // Fragment is still allocated, so should not be in any free-list(s).
    ASSERT_EQUAL(0, platform_shm_find_freed_frag(data->hid, keybuf, NULL));
 
-   platform_memfrag *mf = &memfrag_keybuf;
-   platform_free(data->hid, mf);
+   platform_free(data->hid, &memfrag_keybuf);
 
    // A freed-fragment should go its appropriate free-list by-size.
    ASSERT_EQUAL(keybuf_size,
@@ -233,46 +232,11 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
    size_t exp_memfrag_size = keybuf_size;
    exp_memfrag_size +=
       platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, keybuf_size);
-   ASSERT_EQUAL(exp_memfrag_size, memfrag_size(mf));
+   ASSERT_EQUAL(exp_memfrag_size, memfrag_size(&memfrag_keybuf));
 
-   platform_free(data->hid, mf);
+   platform_free(data->hid, &memfrag_keybuf);
    ASSERT_EQUAL(exp_memfrag_size,
                 platform_shm_find_freed_frag(data->hid, keybuf, NULL));
-
-   // Allocate another fragment of 100 bytes, but free it to with a wrong size.
-   keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
-
-   /*
-    * NOTE: This is --NOT-- what one should do. The free machinery just trusts
-    * the input fragment's size, and will free it to that free-list. It seems to
-    * work now, but in future, freed-fragment will be reallocated appearing to
-    * be of a larger size. But it's really of a smaller size.
-    */
-   size_t wrong_frag_size = 240;
-
-   // Fragment will be "incorrectly" freed to this larger free-list size.
-   size_t free_frags_wrong_list_size = wrong_frag_size;
-   free_frags_wrong_list_size +=
-      platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, wrong_frag_size);
-
-   memfrag_init_size(mf, keybuf, wrong_frag_size);
-   /*
-    * This will work, appearing as if the fragment is freed to the larger sized
-    * free-list. CAUTION: This is a sure way to induce memory corruption. The
-    * test case is
-    *   ** cautioning ** you how to be careful with your frees.
-    */
-   platform_free(data->hid, mf);
-   size_t freed_frag_size_as_found = 0;
-   ASSERT_EQUAL(free_frags_wrong_list_size,
-                platform_shm_find_freed_frag(
-                   data->hid, keybuf, &freed_frag_size_as_found));
-   /*
-    * The wrong size specified at the time of the free will be inscribed into
-    * the free fragment. This is incorrect and can lead to memory corruption
-    * bugs.
-    */
-   ASSERT_EQUAL(wrong_frag_size, freed_frag_size_as_found);
 }
 
 /*
@@ -390,17 +354,20 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
 
    // Throw-in allocation for some random struct, to ensure that these large
    // fragments are not contiguous
-   thread_config *filler_cfg1 = TYPED_MALLOC(data->hid, filler_cfg1);
+   platform_memfrag memfrag_filler_cfg1;
+   thread_config   *filler_cfg1 = TYPED_MALLOC(data->hid, filler_cfg1);
 
    platform_memfrag memfrag_keybuf2_1MiB;
    uint8 *keybuf2_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf2_1MiB, size);
 
-   thread_config *filler_cfg2 = TYPED_MALLOC(data->hid, filler_cfg2);
+   platform_memfrag memfrag_filler_cfg2;
+   thread_config   *filler_cfg2 = TYPED_MALLOC(data->hid, filler_cfg2);
 
    platform_memfrag memfrag_keybuf3_1MiB;
    uint8 *keybuf3_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf3_1MiB, size);
 
-   thread_config *filler_cfg3 = TYPED_MALLOC(data->hid, filler_cfg3);
+   platform_memfrag memfrag_filler_cfg3;
+   thread_config   *filler_cfg3 = TYPED_MALLOC(data->hid, filler_cfg3);
 
    // Re-establish next-free-ptr after this large allocation. We will use it
    // below to assert that this location will not change when we re-use a
@@ -449,9 +416,9 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
    platform_free(data->hid, mf);
 
    // Memory fragments of typed objects can be freed directly.
-   platform_free(data->hid, filler_cfg1);
-   platform_free(data->hid, filler_cfg2);
-   platform_free(data->hid, filler_cfg3);
+   platform_free(data->hid, &memfrag_filler_cfg1);
+   platform_free(data->hid, &memfrag_filler_cfg2);
+   platform_free(data->hid, &memfrag_filler_cfg3);
 }
 
 /*
@@ -670,9 +637,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    // went up from what was tracked in its memfrag_oldptr to adjusted_newsize.
    // So, to correctly get free space accounting, and to not 'leak' memory, we
    // need to re-establish the fragment's correct identity before freeing it.
-   mf = &memfrag_oldptr;
-   memfrag_init_size(mf, newptr, newsize);
-   platform_free(data->hid, mf);
+   platform_free(data->hid, memfrag_init_size(newptr, newsize));
 
    // Confirm that free/used space metrics go back to initial values
    new_shmused = platform_shmbytes_used(data->hid);
@@ -772,9 +737,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
                new_shmused,
                diff_size_t(exp_shmused, new_shmused));
 
-   platform_memfrag *mf = &memfrag_oldptr;
-   memfrag_init_size(mf, newptr, expected_newsisze);
-   platform_free(data->hid, mf);
+   platform_free(data->hid, memfrag_init_size(newptr, expected_newsisze));
 
    // When large fragments are 'freed', they are not really accounted in the
    // used/free bytes metrics. This is because, these large-fragments are
@@ -876,12 +839,9 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
                new_shmused,
                diff_size_t(exp_shmused, new_shmused));
 
-   platform_memfrag *mf = &memfrag_oldptr;
-
    // You -must- specify the right size when free'ing even a large fragment.
    // Otherwise, debug asserts will trip.
-   memfrag_init_size(mf, newptr, adjusted_newsize);
-   platform_free(data->hid, mf);
+   platform_free(data->hid, memfrag_init_size(newptr, adjusted_newsize));
    return;
 
    // When large fragments are 'freed', they are not really accounted in the

@@ -187,7 +187,8 @@ CTEST_SETUP(splinter)
    }
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
+   platform_memfrag memfrag_io;
+   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
    ASSERT_TRUE((data->io != NULL));
    rc = io_handle_init(data->io, &data->io_cfg, data->hid);
 

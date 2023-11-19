@@ -274,8 +274,9 @@ log_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
-   trunk_config *cfg                            = TYPED_MALLOC(hid, cfg);
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   platform_memfrag memfrag_cfg;
+   trunk_config    *cfg                            = TYPED_MALLOC(hid, cfg);
+   uint64           num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
    status = test_parse_args(cfg,
                             &data_cfg,
@@ -302,6 +303,7 @@ log_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    status = io_handle_init(io, &io_cfg, hid);
@@ -322,7 +324,8 @@ log_test(int argc, char *argv[])
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
    platform_assert_status_ok(status);
 
-   clockcache *cc = TYPED_MALLOC(hid, cc);
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc != NULL);
    status = clockcache_init(cc,
                             &cache_cfg,
@@ -333,7 +336,8 @@ log_test(int argc, char *argv[])
                             platform_get_module_id());
    platform_assert_status_ok(status);
 
-   shard_log *log = TYPED_MALLOC(hid, log);
+   platform_memfrag memfrag_log;
+   shard_log       *log = TYPED_MALLOC(hid, log);
    platform_assert(log != NULL);
    if (run_perf_test) {
       ret = test_log_perf(

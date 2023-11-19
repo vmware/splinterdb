@@ -542,7 +542,7 @@ platform_histo_create(platform_heap_id       heap_id,
    if (!hh) {
       return STATUS_NO_MEMORY;
    }
-   hh->size          = memfrag_size(&memfrag_hh);
+   hh->mf_size       = memfrag_size(&memfrag_hh);
    hh->num_buckets   = num_buckets;
    hh->bucket_limits = bucket_limits;
    hh->total         = 0;
@@ -561,11 +561,9 @@ platform_histo_destroy(platform_heap_id       heap_id,
 {
    platform_assert(histo_out);
    platform_histo_handle histo = *histo_out;
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
-   memfrag_init_size(mf, histo, histo->size);
-   platform_free(heap_id, mf);
-   *histo_out = NULL;
+   platform_free(heap_id, memfrag_init_size(histo, histo->mf_size));
+   histo->mf_size = 0;
+   *histo_out     = NULL;
 }
 
 void

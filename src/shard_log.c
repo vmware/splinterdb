@@ -326,6 +326,7 @@ shard_log_compare(const void *p1, const void *p2, void *unused)
 log_handle *
 log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
 {
+   platform_memfrag  memfrag_slog;
    shard_log_config *cfg  = (shard_log_config *)lcfg;
    shard_log        *slog = TYPED_MALLOC(hid, slog);
    platform_status   rc   = shard_log_init(slog, cc, cfg);
@@ -437,16 +438,11 @@ finished_second_pass:
 void
 shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 {
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
-
-   memfrag_init_size(mf, itor->contents, itor->contents_size);
-   platform_free(hid, mf);
+   platform_free(hid, memfrag_init_size(itor->contents, itor->contents_size));
    itor->contents      = NULL;
    itor->contents_size = 0;
 
-   memfrag_init_size(mf, itor->entries, itor->num_entries);
-   platform_free(hid, mf);
+   platform_free(hid, memfrag_init_size(itor->entries, itor->num_entries));
    itor->entries      = NULL;
    itor->entries_size = 0;
 }

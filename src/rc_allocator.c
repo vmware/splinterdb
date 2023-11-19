@@ -240,13 +240,16 @@ rc_allocator_init_meta_page(rc_allocator *al)
    platform_assert((1 + RC_ALLOCATOR_MAX_ROOT_IDS) * al->cfg->io_cfg->page_size
                    <= al->cfg->io_cfg->extent_size);
 
-   al->meta_page = TYPED_ALIGNED_ZALLOC(al->heap_id,
-                                        al->cfg->io_cfg->page_size,
-                                        al->meta_page,
-                                        al->cfg->io_cfg->page_size);
+   platform_memfrag memfrag_meta_page;
+   al->meta_page = TYPED_ALIGNED_ZALLOC_MF(al->heap_id,
+                                           al->cfg->io_cfg->page_size,
+                                           al->meta_page,
+                                           al->cfg->io_cfg->page_size,
+                                           &memfrag_meta_page);
    if (al->meta_page == NULL) {
       return STATUS_NO_MEMORY;
    }
+   al->meta_page_mf_size = memfrag_size(&memfrag_meta_page);
 
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
@@ -388,7 +391,8 @@ rc_allocator_deinit(rc_allocator *al)
    platform_buffer_deinit(&al->bh);
    al->ref_count = NULL;
    platform_mutex_destroy(&al->lock);
-   platform_free(al->heap_id, al->meta_page);
+   platform_free(al->heap_id,
+                 memfrag_init_size(al->meta_page, al->meta_page_mf_size));
 }
 
 /*

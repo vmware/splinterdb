@@ -827,11 +827,10 @@ test_trunk_destroy_tables(trunk_handle   **spl_tables,
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       trunk_destroy(spl_tables[spl_idx]);
    }
-   platform_memfrag memfrag_spl_tables;
-   memfrag_init_size(
-      &memfrag_spl_tables, spl_tables, (num_tables * sizeof(*spl_tables)));
-   platform_memfrag *mf = &memfrag_spl_tables;
-   platform_free(hid, mf);
+   // clang-format off
+   platform_free(hid, memfrag_init_size(*spl_tables,
+                                        (num_tables * sizeof(*spl_tables))));
+   // clang-format on
 }
 
 /*
@@ -2841,6 +2840,7 @@ splinter_test(int argc, char *argv[])
                            io_cfg.kernel_queue_size);
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);

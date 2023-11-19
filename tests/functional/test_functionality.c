@@ -236,6 +236,7 @@ verify_range_against_shadow(trunk_handle               *spl,
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
+   platform_memfrag      memfrag_range_itor;
    trunk_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
    status = trunk_range_iterator_init(spl,

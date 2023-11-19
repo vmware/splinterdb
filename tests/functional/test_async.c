@@ -106,10 +106,7 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
       key_buffer_deinit(&async_lookup->ctxt[i].key);
       merge_accumulator_deinit(&async_lookup->ctxt[i].data);
    }
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
-   memfrag_init_size(mf, async_lookup, async_lookup->size);
-   platform_free(hid, mf);
+   platform_free(hid, memfrag_init_size(async_lookup, async_lookup->size));
 }
 
 

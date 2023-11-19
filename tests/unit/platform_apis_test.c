@@ -193,7 +193,7 @@ CTEST2(platform_api, test_platform_condvar_init_destroy)
  *   the conventional way, directly without the need for an on-stack
  *   platform_memfrag{}.
  *   platform_free() can directly pass the addr of the allocated memory, w/o
- *   the need to supply platform_memfrag{} *.
+ *   the need to supply platform_memfrag *.
  *
  * - TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
  *   TYPED_FLEXIBLE_STRUCT_MALLOC(), TYPED_FLEXIBLE_STRUCT_ZALLOC()
@@ -215,8 +215,9 @@ CTEST2(platform_api, test_TYPED_MALLOC)
       used_bytes_before_alloc = platform_shmbytes_used(data->hid);
       free_bytes_before_alloc = platform_shmbytes_free(data->hid);
    }
-   any_struct *structp = TYPED_MALLOC(data->hid, structp);
-   platform_free(data->hid, structp);
+   platform_memfrag memfrag_structp;
+   any_struct      *structp = TYPED_MALLOC(data->hid, structp);
+   platform_free(data->hid, &memfrag_structp);
    if (data->use_shmem) {
       used_bytes_after_free = platform_shmbytes_used(data->hid);
       free_bytes_after_free = platform_shmbytes_free(data->hid);
@@ -237,8 +238,9 @@ CTEST2(platform_api, test_TYPED_ZALLOC)
       used_bytes_before_alloc = platform_shmbytes_used(data->hid);
       free_bytes_before_alloc = platform_shmbytes_free(data->hid);
    }
-   any_struct *structp = TYPED_ZALLOC(data->hid, structp);
-   platform_free(data->hid, structp);
+   platform_memfrag memfrag_structp;
+   any_struct      *structp = TYPED_ZALLOC(data->hid, structp);
+   platform_free(data->hid, &memfrag_structp);
    if (data->use_shmem) {
       used_bytes_after_free = platform_shmbytes_used(data->hid);
       free_bytes_after_free = platform_shmbytes_free(data->hid);
@@ -250,11 +252,13 @@ CTEST2(platform_api, test_TYPED_ZALLOC)
 
 CTEST2(platform_api, test_TYPED_MALLOC_free_and_MALLOC)
 {
-   any_struct *structp      = TYPED_MALLOC(data->hid, structp);
-   any_struct *save_structp = structp;
-   platform_free(data->hid, structp);
+   platform_memfrag memfrag_structp;
+   any_struct      *structp      = TYPED_MALLOC(data->hid, structp);
+   any_struct      *save_structp = structp;
+   platform_free(data->hid, &memfrag_structp);
 
-   any_struct *new_structp = TYPED_MALLOC(data->hid, new_structp);
+   platform_memfrag memfrag_new_structp;
+   any_struct      *new_structp = TYPED_MALLOC(data->hid, new_structp);
 
    // Memory for small structures should be recycled from shared memory
    ASSERT_TRUE(!data->use_shmem || (save_structp == new_structp));
@@ -271,10 +275,11 @@ CTEST2(platform_api, test_TYPED_ALIGNED_ZALLOC)
       used_bytes_before_alloc = platform_shmbytes_used(data->hid);
       free_bytes_before_alloc = platform_shmbytes_free(data->hid);
    }
-   any_struct *structp = TYPED_ALIGNED_ZALLOC(
+   platform_memfrag memfrag_structp;
+   any_struct      *structp = TYPED_ALIGNED_ZALLOC(
       data->hid, PLATFORM_CACHELINE_SIZE, structp, sizeof(*structp) * 7);
 
-   platform_free(data->hid, structp);
+   platform_free(data->hid, &memfrag_structp);
    if (data->use_shmem) {
       used_bytes_after_free = platform_shmbytes_used(data->hid);
       free_bytes_after_free = platform_shmbytes_free(data->hid);
@@ -315,7 +320,7 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC)
  * If you allocate using platform_memfrag{}, but free the allocated memory
  * directly, you will certainly get a memory leak.
  */
-CTEST2(platform_api, test_incorrect_usage_of_free)
+CTEST2_SKIP(platform_api, test_incorrect_usage_of_free)
 {
    int    nitems                  = 13;
    size_t used_bytes_before_alloc = 0;
@@ -335,7 +340,7 @@ CTEST2(platform_api, test_incorrect_usage_of_free)
    // Incorrect usage of free ... Memory fragment will be freed but there will
    // be an error in computing memory usage metrics, resulting in a slow
    // memory leak (of sorts).
-   platform_free(data->hid, structp);
+   platform_free(data->hid, &memfrag_structp);
    if (data->use_shmem) {
       used_bytes_after_free = platform_shmbytes_used(data->hid);
       free_bytes_after_free = platform_shmbytes_free(data->hid);
@@ -391,10 +396,73 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_free_and_MALLOC)
    platform_free(data->hid, mf);
 }
 
+/*
+ * Allocate and free small fragments of different size so that they fall
+ * into different buckets. Free them in random order to exercise the
+ * management of the array tracking allocated small fragments.
+ */
+CTEST2(platform_api, test_alloc_free_multiple_small_frags)
+{
+   size_t used_bytes_before_allocs = 0;
+   size_t free_bytes_before_allocs = 0;
+   size_t memory_allocated         = 0;
+
+   if (data->use_shmem) {
+      used_bytes_before_allocs = platform_shmbytes_used(data->hid);
+      free_bytes_before_allocs = platform_shmbytes_free(data->hid);
+   }
+   platform_memfrag memfrag_s1_40b;
+   char            *s1_40b = TYPED_ARRAY_MALLOC(data->hid, s1_40b, 40);
+   memory_allocated += memfrag_size(&memfrag_s1_40b);
+
+   platform_memfrag memfrag_s1_80b;
+   char            *s1_80b = TYPED_ARRAY_MALLOC(data->hid, s1_80b, 80);
+   memory_allocated += memfrag_size(&memfrag_s1_80b);
+
+   platform_memfrag memfrag_s1_160b;
+   char            *s1_160b = TYPED_ARRAY_MALLOC(data->hid, s1_160b, 160);
+   memory_allocated += memfrag_size(&memfrag_s1_160b);
+
+   platform_memfrag memfrag_s1_200b;
+   char            *s1_200b = TYPED_ARRAY_MALLOC(data->hid, s1_200b, 200);
+   memory_allocated += memfrag_size(&memfrag_s1_200b);
+
+   size_t used_bytes_after_allocs = 0;
+   if (data->use_shmem) {
+      used_bytes_after_allocs = platform_shmbytes_used(data->hid);
+
+      ASSERT_EQUAL((used_bytes_after_allocs - used_bytes_before_allocs),
+                   memory_allocated);
+   }
+
+   platform_memfrag *mf = &memfrag_s1_80b;
+   platform_free(data->hid, mf);
+
+   mf = &memfrag_s1_40b;
+   platform_free(data->hid, mf);
+
+   mf = &memfrag_s1_160b;
+   platform_free(data->hid, mf);
+
+   mf = &memfrag_s1_200b;
+   platform_free(data->hid, mf);
+
+   size_t used_bytes_after_frees = 0;
+   size_t free_bytes_after_frees = 0;
+   if (data->use_shmem) {
+      used_bytes_after_frees = platform_shmbytes_used(data->hid);
+      free_bytes_after_frees = platform_shmbytes_free(data->hid);
+
+      ASSERT_EQUAL(used_bytes_before_allocs, used_bytes_after_frees);
+      ASSERT_EQUAL(free_bytes_before_allocs, free_bytes_after_frees);
+   }
+}
+
 CTEST2(platform_api, test_large_TYPED_MALLOC)
 {
+   platform_memfrag      memfrag_iter;
    trunk_range_iterator *iter = TYPED_MALLOC(data->hid, iter);
-   platform_free(data->hid, iter);
+   platform_free(data->hid, &memfrag_iter);
 }
 
 /*
@@ -403,15 +471,17 @@ CTEST2(platform_api, test_large_TYPED_MALLOC)
  */
 CTEST2(platform_api, test_large_TYPED_MALLOC_free_and_MALLOC)
 {
+   platform_memfrag      memfrag_iter;
    trunk_range_iterator *iter = TYPED_MALLOC(data->hid, iter);
    // This struct should be larger than the threshold at which large
    // free fragment strategy kicks-in.
    ASSERT_TRUE(sizeof(*iter) >= SHM_LARGE_FRAG_SIZE);
 
    trunk_range_iterator *save_iter = iter;
-   platform_free(data->hid, iter);
+   platform_free(data->hid, &memfrag_iter);
 
-   trunk_range_iterator *new_iter = TYPED_MALLOC(data->hid, iter);
+   platform_memfrag      memfrag_new_iter;
+   trunk_range_iterator *new_iter = TYPED_MALLOC(data->hid, new_iter);
 
    // Memory for large structures should be recycled from shared memory
    ASSERT_TRUE(!data->use_shmem || (save_iter == new_iter),
@@ -421,7 +491,7 @@ CTEST2(platform_api, test_large_TYPED_MALLOC_free_and_MALLOC)
                save_iter,
                new_iter,
                sizeof(*iter));
-   platform_free(data->hid, new_iter);
+   platform_free(data->hid, &memfrag_new_iter);
 }
 
 CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)

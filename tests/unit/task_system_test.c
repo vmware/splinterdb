@@ -115,7 +115,8 @@ CTEST_SETUP(task_system)
 
 
    // Allocate and initialize the IO sub-system.
-   data->ioh = TYPED_MALLOC(data->hid, data->ioh);
+   platform_memfrag memfrag_ioh;
+   data->ioh = TYPED_MALLOC_MF(data->hid, data->ioh, &memfrag_ioh);
    ASSERT_TRUE((data->ioh != NULL));
 
    // Do minimal IO config setup, using default IO values.

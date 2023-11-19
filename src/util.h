@@ -218,11 +218,8 @@ static inline void
 writable_buffer_deinit(writable_buffer *wb)
 {
    if (wb->can_free) {
-      platform_memfrag  memfrag;
-      platform_memfrag *wb_deinit_mf = &memfrag;
-      memfrag_init_size(wb_deinit_mf, wb->buffer, wb->buffer_capacity);
-
-      platform_free(wb->heap_id, wb_deinit_mf);
+      platform_free(wb->heap_id,
+                    memfrag_init_size(wb->buffer, wb->buffer_capacity));
    }
    wb->buffer          = NULL;
    wb->buffer_capacity = 0;

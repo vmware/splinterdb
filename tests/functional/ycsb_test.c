@@ -293,6 +293,7 @@ typedef struct ycsb_log_params {
    latency_tables tables;
 
    task_system *ts;
+   size_t       frag_size; // of memory fragment allocated.
 } ycsb_log_params;
 
 typedef struct ycsb_phase {
@@ -303,6 +304,7 @@ typedef struct ycsb_phase {
    running_times    times;
    latency_tables   tables;
    char            *measurement_command;
+   size_t           frag_size; // of memory fragment allocated.
 } ycsb_phase;
 
 static void
@@ -572,16 +574,15 @@ parse_ycsb_log_file(void *arg)
    }
    uint64 num_lines = req->end_line - req->start_line;
 
-   platform_memfrag  memfrag_result;
-   platform_memfrag *mf = &memfrag_result;
-   ;
-   ycsb_op *result = TYPED_ARRAY_MALLOC(hid, result, num_lines);
+   platform_memfrag memfrag_result;
+   ycsb_op         *result = TYPED_ARRAY_MALLOC(hid, result, num_lines);
    if (result == NULL) {
       platform_error_log("Failed to allocate memory for log\n");
       goto close_file;
    }
    if (lock && mlock(result, num_lines * sizeof(ycsb_op))) {
       platform_error_log("Failed to lock log into RAM.\n");
+      platform_memfrag *mf = &memfrag_result;
       platform_free(hid, mf);
       goto close_file;
    }
@@ -622,12 +623,10 @@ parse_ycsb_log_file(void *arg)
    *num_ops = num_lines;
 
 close_file:
-   // RESOLVE - -Fix this ...
    if (buffer) {
       platform_free(hid, buffer);
    }
    fclose(fp);
-   mf = &memfrag_result;
    platform_assert(result != NULL);
    *req->ycsb_ops = result;
    platform_free(hid, req);
@@ -727,15 +726,27 @@ load_ycsb_logs(int          argc,
    platform_memfrag *mf = NULL;
    platform_memfrag  memfrag_phases;
    ycsb_phase       *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
-   log_size_bytes += _nphases * sizeof(ycsb_phase);
+   platform_assert(phases);
+
+   // Ensure that memset() is not clobbering memory ...
+   size_t nbytes = (_nphases * sizeof(*phases));
+   platform_assert(memfrag_size(&memfrag_phases) >= nbytes);
+   phases->frag_size = memfrag_size(&memfrag_phases);
+   memset(phases, 0, nbytes);
+
+   log_size_bytes += nbytes;
 
    platform_memfrag memfrag_params;
    ycsb_log_params *params = TYPED_ARRAY_MALLOC(hid, params, num_threads);
-   log_size_bytes += num_threads * sizeof(ycsb_log_params);
-   platform_assert(phases && params);
+   platform_assert(params);
 
-   memset(phases, 0, _nphases * sizeof(ycsb_phase));
-   memset(params, 0, num_threads * sizeof(ycsb_log_params));
+   // Ensure that memset() is not clobbering memory ...
+   nbytes = (num_threads * sizeof(*params));
+   platform_assert(memfrag_size(&memfrag_params) >= nbytes);
+   params->frag_size = memfrag_size(&memfrag_params);
+   memset(params, 0, nbytes);
+
+   log_size_bytes += nbytes;
 
    phases[0].params = params;
 
@@ -752,21 +763,25 @@ load_ycsb_logs(int          argc,
       params[lognum].nthreads   = 1;
       params[lognum].batch_size = batch_size;
       params[lognum].filename   = trace_filename;
-      parse_ycsb_log_req *req   = TYPED_MALLOC(hid, req);
-      req->filename             = trace_filename;
-      req->lock                 = mlock_log;
-      req->num_ops              = &params[lognum].total_ops;
-      req->ycsb_ops             = &params[lognum].ycsb_ops;
-      req->start_line           = start_line;
-      req->end_line             = start_line + num_lines / num_threads;
-      req->max_range_len        = &max_range_len;
+      // Freed in parse_ycsb_log_file()
+      platform_memfrag    memfrag_req;
+      parse_ycsb_log_req *req = TYPED_MALLOC(hid, req);
+      req->filename           = trace_filename;
+      req->lock               = mlock_log;
+      req->num_ops            = &params[lognum].total_ops;
+      req->ycsb_ops           = &params[lognum].ycsb_ops;
+      req->start_line         = start_line;
+      req->end_line           = start_line + num_lines / num_threads;
+      req->max_range_len      = &max_range_len;
       if (lognum < num_lines % num_threads) {
          req->end_line++;
       }
       uint64 num_lines = req->end_line - req->start_line;
       log_size_bytes += num_lines * sizeof(ycsb_op);
       start_line = req->end_line;
-      ret        = platform_thread_create(
+
+      // Each thread frees up memory allocated, above, for req struct.
+      ret = platform_thread_create(
          &params[lognum].thread, FALSE, parse_ycsb_log_file, req, hid);
       platform_assert_status_ok(ret);
       phases[0].nlogs++;
@@ -794,19 +809,6 @@ bad_params:
    mf = &memfrag_params;
    platform_free(hid, mf);
    return STATUS_BAD_PARAM;
-}
-
-void
-unload_ycsb_logs(ycsb_phase *phases, uint64 nphases)
-{
-   int i, j;
-
-   for (i = 0; i < nphases; i++)
-      for (j = 0; j < phases[i].nlogs; j++)
-         unload_ycsb_log(phases[i].params[j].ycsb_ops,
-                         phases[i].params[j].total_ops);
-   platform_free(platform_get_heap_id(), phases[0].params);
-   platform_free(platform_get_heap_id(), phases);
 }
 
 void
@@ -1205,9 +1207,10 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hid);
    platform_assert_status_ok(rc);
 
-   data_config  *data_cfg;
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   data_config     *data_cfg;
+   platform_memfrag memfrag_splinter_cfg;
+   trunk_config    *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64           num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
    rc = test_parse_args(splinter_cfg,
                         &data_cfg,
@@ -1287,6 +1290,7 @@ ycsb_test(int argc, char *argv[])
    // platform_assert(sys_rc == 0);
    // platform_free(hid, resize_hugetlb_command);
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    if (!SUCCESS(rc)) {
@@ -1304,9 +1308,10 @@ ycsb_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   rc_allocator  al;
-   clockcache   *cc = TYPED_MALLOC(hid, cc);
-   trunk_handle *spl;
+   rc_allocator     al;
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
+   trunk_handle    *spl;
 
    if (use_existing) {
       rc_allocator_mount(
@@ -1371,7 +1376,7 @@ ycsb_test(int argc, char *argv[])
       }
       platform_free(hid, phases[i].params);
    }
-   platform_free(hid, phases);
+   platform_free(hid, memfrag_init_size(phases, phases->frag_size));
 
 deinit_iohandle:
    io_handle_deinit(io);
