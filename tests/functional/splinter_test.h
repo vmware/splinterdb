@@ -84,9 +84,8 @@ test_config_parse(test_config *cfg,
       char key_type[MAX_STRING_LENGTH];
    } temp_config;
 
-   platform_memfrag  memfrag_temp_cfg;
-   platform_memfrag *mf = &memfrag_temp_cfg;
-   temp_config      *temp_cfg =
+   platform_memfrag memfrag_temp_cfg;
+   temp_config     *temp_cfg =
       TYPED_ARRAY_MALLOC(platform_get_heap_id(), temp_cfg, num_config);
 
    for (i = 0; i < argc; i++) {
@@ -132,7 +131,7 @@ test_config_parse(test_config *cfg,
          }
       }
    out:
-      platform_free(platform_get_heap_id(), mf);
+      platform_free(platform_get_heap_id(), &memfrag_temp_cfg);
       return rc;
    }
 

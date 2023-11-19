@@ -68,10 +68,7 @@ pcq_is_full(const pcq *q)
 static inline void
 pcq_free(platform_heap_id hid, pcq **q)
 {
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
-   memfrag_init_size(mf, *q, (*q)->size);
-   platform_free(hid, mf);
+   platform_free(hid, memfrag_init_size(*q, (*q)->size));
    *q = NULL;
 }
 

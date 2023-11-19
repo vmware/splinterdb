@@ -27,6 +27,7 @@ typedef struct test_splinter_shadow_tree {
    uint64                     currentAllocIdx;
    buffer_handle              nodes_buffer;
    test_splinter_shadow_node *nodes;
+   size_t                     mf_size;
 } test_splinter_shadow_tree;
 
 

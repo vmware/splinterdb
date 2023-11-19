@@ -152,8 +152,8 @@ out:
       mf             = &memfrag_fp_arr_i;
       size_t fp_size = memfrag_size(mf);
       for (uint64 i = 0; i < num_values; i++) {
-         memfrag_init_size(mf, fp_arr[i], fp_size);
-         platform_free(hid, mf);
+         platform_free(hid, memfrag_init_size(fp_arr[i], fp_size));
+         fp_arr[i] = NULL;
       }
    }
    mf = &memfrag_fp_arr;
@@ -348,7 +348,8 @@ filter_test(int argc, char *argv[])
    uint64 num_memtable_bg_threads_unused = 0;
    uint64 num_normal_bg_threads_unused   = 0;
 
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
+   platform_memfrag memfrag_cfg;
+   trunk_config    *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         &data_cfg,
@@ -374,6 +375,7 @@ filter_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -389,6 +391,7 @@ filter_test(int argc, char *argv[])
       &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
+   platform_memfrag memfrag_cc;
    cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc);
    rc = clockcache_init(cc,
@@ -435,15 +438,15 @@ filter_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    task_system_destroy(hid, &ts);
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
    r = 0;
 cleanup:
-   platform_free(hid, cfg);
+   platform_free(hid, &memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return r;

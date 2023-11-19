@@ -202,7 +202,7 @@ struct trunk_handle {
 
    // stats
    trunk_stats *stats;
-   size_t       stats_size; // Of allocated memory fragment.
+   size_t       stats_mf_size; // Of allocated memory fragment.
 
    // Link inside the splinter list
    List_Links links;
@@ -219,7 +219,7 @@ struct trunk_handle {
    // space rec queue
    srq srq;
 
-   size_t size; // of memory fragment allocated to init trunk_handle{}
+   size_t mf_size; // of memory fragment allocated to init trunk_handle{}
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 
@@ -231,6 +231,7 @@ typedef struct trunk_range_iterator {
    uint64          num_memtable_branches;
    uint64          memtable_start_gen;
    uint64          memtable_end_gen;
+   size_t          mf_size;
    bool32          compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator *merge_itor;
    bool32          can_prev;

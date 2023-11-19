@@ -102,9 +102,11 @@ CTEST_DATA(splinter)
    task_system           *tasks;
    test_message_generator gen;
 
-   size_t splinter_cfg_size;
-   size_t cache_cfg_size;
-   size_t clock_cache_size;
+   // Sizes of memory fragments allocated for these structs.
+   size_t splinter_cfg_mf_size;
+   size_t io_mf_size;
+   size_t cache_cfg_mf_size;
+   size_t clock_cache_mf_size;
 
    // Test execution related configuration
    test_exec_config test_exec_cfg;
@@ -144,12 +146,12 @@ CTEST_SETUP(splinter)
    platform_memfrag memfrag_splinter_cfg;
    data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(data->hid, data->splinter_cfg,
                                               num_tables, &memfrag_splinter_cfg);
-   data->splinter_cfg_size = memfrag_size(&memfrag_splinter_cfg);
+   data->splinter_cfg_mf_size = memfrag_size(&memfrag_splinter_cfg);
 
    platform_memfrag memfrag_cache_cfg;
    data->cache_cfg = TYPED_ARRAY_MALLOC_MF(data->hid, data->cache_cfg,
                                            num_tables, &memfrag_cache_cfg);
-   data->cache_cfg_size = memfrag_size(&memfrag_cache_cfg);
+   data->cache_cfg_mf_size = memfrag_size(&memfrag_cache_cfg);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
@@ -187,8 +189,10 @@ CTEST_SETUP(splinter)
    }
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
+   platform_memfrag memfrag_io;
+   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
    ASSERT_TRUE((data->io != NULL));
+   data->io_mf_size = memfrag_size(&memfrag_io);
    rc = io_handle_init(data->io, &data->io_cfg, data->hid);
 
    data->tasks = NULL;
@@ -203,7 +207,7 @@ CTEST_SETUP(splinter)
    platform_memfrag memfrag_clock_cache;
    data->clock_cache = TYPED_ARRAY_MALLOC_MF(data->hid, data->clock_cache, num_caches, &memfrag_clock_cache);
    ASSERT_TRUE((data->clock_cache != NULL));
-   data->clock_cache_size = memfrag_size(&memfrag_clock_cache);
+   data->clock_cache_mf_size = memfrag_size(&memfrag_clock_cache);
 
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&data->clock_cache[idx],
@@ -226,7 +230,9 @@ CTEST_SETUP(splinter)
 CTEST_TEARDOWN(splinter)
 {
    clockcache_deinit(data->clock_cache);
-   platform_free(data->hid, data->clock_cache);
+   platform_free(
+      data->hid,
+      memfrag_init_size(data->clock_cache, data->clock_cache_mf_size));
 
    allocator *alp = (allocator *)&data->al;
    allocator_assert_noleaks(alp);
@@ -235,14 +241,18 @@ CTEST_TEARDOWN(splinter)
    test_deinit_task_system(data->hid, &data->tasks);
 
    io_handle_deinit(data->io);
-   platform_free(data->hid, data->io);
+   platform_free(data->hid, memfrag_init_size(data->io, data->io_mf_size));
 
    if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
+      platform_free(
+         data->hid,
+         memfrag_init_size(data->cache_cfg, data->cache_cfg_mf_size));
    }
 
    if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+      platform_free(
+         data->hid,
+         memfrag_init_size(data->splinter_cfg, data->splinter_cfg_mf_size));
    }
 
    platform_heap_destroy(&data->hid);

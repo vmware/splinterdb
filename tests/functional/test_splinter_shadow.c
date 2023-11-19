@@ -98,11 +98,13 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
 {
    platform_status rc = STATUS_NO_MEMORY;
 
+   platform_memfrag           memfrag_shadow;
    test_splinter_shadow_tree *shadow = TYPED_ZALLOC(hid, shadow);
    if (shadow == NULL) {
       platform_default_log("Failed to allocate memory for shadow init");
       return rc;
    }
+   shadow->mf_size = memfrag_size(&memfrag_shadow);
 
    /*
     * XXX : We are allocating for the worst case here. In the future, if need
@@ -115,7 +117,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
                            sizeof(test_splinter_shadow_node) * max_operations);
    if (!SUCCESS(rc)) {
       platform_default_log("Failed to pre allocate nodes for shadow tree\n");
-      platform_free(hid, shadow);
+      platform_free(hid, &memfrag_shadow);
       return rc;
    }
    shadow->nodes = platform_buffer_getaddr(&shadow->nodes_buffer);
@@ -264,7 +266,7 @@ test_splinter_shadow_destroy(platform_heap_id           hid,
 {
    platform_buffer_deinit(&tree->nodes_buffer);
    tree->numKeys = 0;
-   platform_free(hid, tree);
+   platform_free(hid, memfrag_init_size(tree, tree->mf_size));
 }
 
 /*

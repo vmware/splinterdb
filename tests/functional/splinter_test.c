@@ -782,7 +782,13 @@ out:
    }
 }
 
-
+/*
+ * Multiple memory allocations are performed here.
+ *
+ * Returns:
+ *  - platform_status - to indicate success / failure.
+ *  - size of memory fragment allocated for top-level array of trunk_handles.
+ */
 static platform_status
 test_trunk_create_tables(trunk_handle  ***spl_handles,
                          trunk_config    *cfg,
@@ -791,13 +797,15 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
                          task_system     *ts,
                          platform_heap_id hid,
                          uint8            num_tables,
-                         uint8            num_caches)
+                         uint8            num_caches,
+                         size_t          *spl_tables_mf_size) // Out
 {
-   trunk_handle **spl_tables =
-      TYPED_ARRAY_ZALLOC_MF(hid, spl_tables, num_tables, NULL);
+   platform_memfrag memfrag_spl_tables;
+   trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    if (spl_tables == NULL) {
       return STATUS_NO_MEMORY;
    }
+   *spl_tables_mf_size = memfrag_size(&memfrag_spl_tables);
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       cache *cache_to_use = num_caches > 1 ? cc[spl_idx] : *cc;
@@ -811,7 +819,7 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
          for (uint8 del_idx = 0; del_idx < spl_idx; del_idx++) {
             trunk_destroy(spl_tables[del_idx]);
          }
-         platform_free(hid, spl_tables);
+         platform_free(hid, &memfrag_spl_tables);
          return STATUS_NO_MEMORY;
       }
    }
@@ -822,16 +830,15 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
 static void
 test_trunk_destroy_tables(trunk_handle   **spl_tables,
                           platform_heap_id hid,
-                          uint8            num_tables)
+                          uint8            num_tables,
+                          size_t           spl_tables_mf_size)
 {
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       trunk_destroy(spl_tables[spl_idx]);
    }
-   platform_memfrag memfrag_spl_tables;
-   memfrag_init_size(
-      &memfrag_spl_tables, spl_tables, (num_tables * sizeof(*spl_tables)));
-   platform_memfrag *mf = &memfrag_spl_tables;
-   platform_free(hid, mf);
+   // clang-format off
+   platform_free(hid, memfrag_init_size(spl_tables, spl_tables_mf_size));
+   // clang-format on
 }
 
 /*
@@ -1374,15 +1381,21 @@ test_splinter_perf(trunk_config    *cfg,
    trunk_handle  **spl_tables;
    platform_status rc;
 
-   rc = test_trunk_create_tables(
-      &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
+   size_t spl_tables_mf_size;
+   rc = test_trunk_create_tables(&spl_tables,
+                                 cfg,
+                                 al,
+                                 cc,
+                                 ts,
+                                 hid,
+                                 num_tables,
+                                 num_caches,
+                                 &spl_tables_mf_size);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to create splinter table(s): %s\n",
                          platform_status_to_string(rc));
       return rc;
    }
-
-   platform_memfrag *mf = NULL;
 
    platform_memfrag memfrag_per_table_inserts;
    uint64          *per_table_inserts =
@@ -1473,22 +1486,18 @@ test_splinter_perf(trunk_config    *cfg,
    }
 
 destroy_splinter:
-   test_trunk_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables, spl_tables_mf_size);
    platform_default_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   mf = &memfrag_params;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_params);
 
-   mf = &memfrag_curr_op;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_curr_op);
 
-   mf = &memfrag_per_table_ranges;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_per_table_ranges);
 
-   mf = &memfrag_per_table_inserts;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_per_table_inserts);
    return rc;
 }
 
@@ -1514,8 +1523,16 @@ test_splinter_periodic(trunk_config    *cfg,
    trunk_handle  **spl_tables;
    platform_status rc;
 
-   rc = test_trunk_create_tables(
-      &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
+   size_t spl_tables_mf_size;
+   rc = test_trunk_create_tables(&spl_tables,
+                                 cfg,
+                                 al,
+                                 cc,
+                                 ts,
+                                 hid,
+                                 num_tables,
+                                 num_caches,
+                                 &spl_tables_mf_size);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to create splinter table(s): %s\n",
                          platform_status_to_string(rc));
@@ -1962,7 +1979,7 @@ test_splinter_periodic(trunk_config    *cfg,
    }
 
 destroy_splinter:
-   test_trunk_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables, spl_tables_mf_size);
    platform_default_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
@@ -2019,8 +2036,16 @@ test_splinter_parallel_perf(trunk_config    *cfg,
 
    platform_assert(num_inserts_per_thread <= num_lookups_per_thread);
 
-   rc = test_trunk_create_tables(
-      &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
+   size_t spl_tables_mf_size;
+   rc = test_trunk_create_tables(&spl_tables,
+                                 cfg,
+                                 al,
+                                 cc,
+                                 ts,
+                                 hid,
+                                 num_tables,
+                                 num_caches,
+                                 &spl_tables_mf_size);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to create splinter table(s): %s\n",
                          platform_status_to_string(rc));
@@ -2184,7 +2209,7 @@ test_splinter_parallel_perf(trunk_config    *cfg,
    }
 
 destroy_splinter:
-   test_trunk_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables, spl_tables_mf_size);
    platform_default_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
@@ -2218,8 +2243,16 @@ test_splinter_delete(trunk_config    *cfg,
    trunk_handle  **spl_tables;
    platform_status rc;
 
-   rc = test_trunk_create_tables(
-      &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
+   size_t spl_tables_mf_size;
+   rc = test_trunk_create_tables(&spl_tables,
+                                 cfg,
+                                 al,
+                                 cc,
+                                 ts,
+                                 hid,
+                                 num_tables,
+                                 num_caches,
+                                 &spl_tables_mf_size);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to initialize splinter table(s): %s\n",
                          platform_status_to_string(rc));
@@ -2414,7 +2447,7 @@ test_splinter_delete(trunk_config    *cfg,
    }
 
 destroy_splinter:
-   test_trunk_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables, spl_tables_mf_size);
    platform_default_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
@@ -2752,9 +2785,8 @@ splinter_test(int argc, char *argv[])
    /*
     * 2. Parse test_config options, see test_config_usage()
     */
-   platform_memfrag *mf = NULL;
-   platform_memfrag  memfrag_test_cfg;
-   test_config      *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
+   platform_memfrag memfrag_test_cfg;
+   test_config     *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
 
    for (uint8 i = 0; i < num_tables; i++) {
       test_config_set_defaults(test, &test_cfg[i]);
@@ -2841,6 +2873,7 @@ splinter_test(int argc, char *argv[])
                            io_cfg.kernel_queue_size);
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -3021,11 +3054,9 @@ splinter_test(int argc, char *argv[])
       clockcache_deinit(&cc[idx]);
    }
 
-   mf = &memfrag_caches;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_caches);
 
-   mf = &memfrag_cc;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_cc);
 
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
@@ -3033,16 +3064,13 @@ splinter_test(int argc, char *argv[])
 handle_deinit:
    io_handle_deinit(io);
 io_free:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cfg_free:
-   mf = &memfrag_cache_cfg;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_cache_cfg);
 
-   mf = &memfrag_splinter_cfg;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_splinter_cfg);
 
-   mf = &memfrag_test_cfg;
-   platform_free(hid, test_cfg);
+   platform_free(hid, &memfrag_test_cfg);
 heap_destroy:
    platform_heap_destroy(&hid);
 

@@ -120,7 +120,6 @@ task_deallocate_threadid(task_system *ts, threadid tid)
    }
 }
 
-
 /*
  * Return the max thread-index across all active tasks.
  * Mainly intended as a testing hook.
@@ -198,6 +197,7 @@ typedef struct {
    task_system     *ts;
    threadid         tid;
    platform_heap_id heap_id;
+   size_t           mf_size;
 } thread_invoke;
 
 /*
@@ -230,7 +230,8 @@ task_invoke_with_hooks(void *func_and_args)
    // For background threads, also, IO-deregistration will happen here.
    task_deregister_this_thread(thread_started->ts);
 
-   platform_free(thread_started->heap_id, thread_started);
+   platform_free(thread_started->heap_id,
+                 memfrag_init_size(thread_started, thread_started->mf_size));
 }
 
 /*
@@ -256,18 +257,19 @@ task_create_thread_with_hooks(platform_thread       *thread,
       return STATUS_BUSY;
    }
 
-   platform_memfrag  memfrag_scratch = {0};
-   platform_memfrag *mf              = &memfrag_scratch;
+   platform_memfrag memfrag_scratch = {0};
    if (0 < scratch_size) {
       char *scratch = TYPED_ARRAY_MALLOC(ts->heap_id, scratch, scratch_size);
       if (scratch == NULL) {
          ret = STATUS_NO_MEMORY;
          goto dealloc_tid;
       }
-      ts->thread_scratch[newtid] = scratch;
+      ts->thread_scratch[newtid]  = scratch;
+      ts->scratch_mf_size[newtid] = memfrag_size(&memfrag_scratch);
    }
 
-   thread_invoke *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
+   platform_memfrag memfrag_thread_to_create = {0};
+   thread_invoke   *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
    if (thread_to_create == NULL) {
       ret = STATUS_NO_MEMORY;
       goto free_scratch;
@@ -278,6 +280,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
    thread_to_create->heap_id = hid;
    thread_to_create->ts      = ts;
    thread_to_create->tid     = newtid;
+   thread_to_create->mf_size = memfrag_size(&memfrag_thread_to_create);
 
    ret = platform_thread_create(
       thread, detached, task_invoke_with_hooks, thread_to_create, hid);
@@ -288,9 +291,9 @@ task_create_thread_with_hooks(platform_thread       *thread,
    return ret;
 
 free_thread:
-   platform_free(hid, thread_to_create);
+   platform_free(hid, &memfrag_thread_to_create);
 free_scratch:
-   platform_free(ts->heap_id, mf);
+   platform_free(ts->heap_id, &memfrag_scratch);
 dealloc_tid:
    task_deallocate_threadid(ts, newtid);
    return ret;
@@ -381,8 +384,8 @@ task_register_thread(task_system *ts,
          task_deallocate_threadid(ts, thread_tid);
          return STATUS_NO_MEMORY;
       }
-      ts->thread_scratch[thread_tid] = scratch;
-      ts->thread_scratch_mem_size    = memfrag_size(&memfrag_scratch);
+      ts->thread_scratch[thread_tid]  = scratch;
+      ts->scratch_mf_size[thread_tid] = memfrag_size(&memfrag_scratch);
    }
 
    platform_set_tid(thread_tid);
@@ -418,11 +421,10 @@ task_deregister_thread(task_system *ts,
    // scratch space. So, check before trying to free memory.
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
-      platform_memfrag  memfrag = {.addr = scratch,
-                                   .size = ts->thread_scratch_mem_size};
-      platform_memfrag *mf      = &memfrag;
-      platform_free(ts->heap_id, mf);
-      ts->thread_scratch[tid] = NULL;
+      platform_free(ts->heap_id,
+                    memfrag_init_size(scratch, ts->scratch_mf_size[tid]));
+      ts->thread_scratch[tid]  = NULL;
+      ts->scratch_mf_size[tid] = 0;
    }
 
    task_system_io_deregister_thread(ts);
@@ -535,8 +537,11 @@ task_worker_thread(void *arg)
          task_group_unlock(group);
          const threadid tid = platform_get_tid();
          group->stats[tid].total_bg_task_executions++;
+
          task_group_run_task(group, task_to_run);
-         platform_free(group->ts->heap_id, task_to_run);
+         platform_free(group->ts->heap_id,
+                       memfrag_init_size(task_to_run, task_to_run->mf_size));
+
          rc = task_group_lock(group);
          platform_assert(SUCCESS(rc));
          __sync_fetch_and_sub(&group->current_executing_tasks, 1);
@@ -634,13 +639,15 @@ task_enqueue(task_system *ts,
              void        *arg,
              bool32       at_head)
 {
-   task *new_task = TYPED_ZALLOC(ts->heap_id, new_task);
+   platform_memfrag memfrag_new_task = {0};
+   task            *new_task         = TYPED_ZALLOC(ts->heap_id, new_task);
    if (new_task == NULL) {
       return STATUS_NO_MEMORY;
    }
-   new_task->func = func;
-   new_task->arg  = arg;
-   new_task->ts   = ts;
+   new_task->func    = func;
+   new_task->arg     = arg;
+   new_task->ts      = ts;
+   new_task->mf_size = memfrag_size(&memfrag_new_task);
 
    task_group     *group = &ts->group[type];
    task_queue     *tq    = &group->tq;
@@ -648,7 +655,7 @@ task_enqueue(task_system *ts,
 
    rc = task_group_lock(group);
    if (!SUCCESS(rc)) {
-      platform_free(ts->heap_id, new_task);
+      platform_free(ts->heap_id, &memfrag_new_task);
       return rc;
    }
 
@@ -727,7 +734,8 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
       group->stats[tid].total_fg_task_executions++;
       task_group_run_task(group, assigned_task);
       __sync_fetch_and_sub(&group->current_executing_tasks, 1);
-      platform_free(group->ts->heap_id, assigned_task);
+      platform_free(group->ts->heap_id,
+                    memfrag_init_size(assigned_task, assigned_task->mf_size));
    } else {
       rc = STATUS_TIMEDOUT;
    }
@@ -877,7 +885,8 @@ task_system_create(platform_heap_id          hid,
       return rc;
    }
 
-   task_system *ts = TYPED_ZALLOC(hid, ts);
+   platform_memfrag memfrag_ts = {0};
+   task_system     *ts         = TYPED_ZALLOC(hid, ts);
    if (ts == NULL) {
       *system = NULL;
       return STATUS_NO_MEMORY;
@@ -885,6 +894,7 @@ task_system_create(platform_heap_id          hid,
    ts->cfg     = cfg;
    ts->ioh     = ioh;
    ts->heap_id = hid;
+   ts->mf_size = memfrag_size(&memfrag_ts);
    task_init_tid_bitmask(&ts->tid_bitmask);
 
    // task initialization
@@ -947,7 +957,7 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
          tid,
          ts->tid_bitmask);
    }
-   platform_free(hid, ts);
+   platform_free(hid, memfrag_init_size(ts, ts->mf_size));
    *ts_in = (task_system *)NULL;
 }
 

@@ -949,8 +949,10 @@ test_cache_async(cache             *cc,
 
    mf = &memfrag;
    for (i = 0; i < total_threads; i++) {
-      memfrag_init_size(mf, params[i].handle_arr, params[i].handle_arr_size);
-      platform_free(hid, mf);
+      platform_free(
+         hid,
+         memfrag_init_size(params[i].handle_arr, params[i].handle_arr_size));
+      params[i].handle_arr = NULL;
    }
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
@@ -1024,8 +1026,9 @@ cache_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64           num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   platform_memfrag memfrag_splinter_cfg;
+   trunk_config    *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
                         &data_cfg,
@@ -1060,6 +1063,7 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -1078,8 +1082,9 @@ cache_test(int argc, char *argv[])
    rc_allocator_init(
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
-   clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc             = clockcache_init(cc,
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
+   rc                  = clockcache_init(cc,
                         &cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,
@@ -1152,16 +1157,16 @@ cache_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, &memfrag_splinter_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

@@ -52,6 +52,7 @@ typedef struct splinterdb {
    platform_heap_id   heap_id;
    data_config       *data_cfg;
    bool               we_created_heap;
+   size_t             mf_size;
 } splinterdb;
 
 
@@ -263,6 +264,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    platform_assert(kvs_out != NULL);
 
+   platform_memfrag memfrag_kvs;
    kvs = TYPED_ZALLOC(use_this_heap_id, kvs);
    if (kvs == NULL) {
       status = STATUS_NO_MEMORY;
@@ -270,6 +272,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    }
    // Remember, so at close() we only destroy heap if we created it here.
    kvs->we_created_heap = we_created_heap;
+   kvs->mf_size         = memfrag_size(&memfrag_kvs);
 
    // All memory allocation after this call should -ONLY- use heap handles
    // from the handle to the running Splinter instance; i.e. 'kvs'.
@@ -384,7 +387,7 @@ deinit_kvhandle:
       // => Caller did not setup a platform-heap on entry.
       debug_assert(kvs_cfg->heap_id == NULL);
 
-      platform_free(use_this_heap_id, kvs);
+      platform_free(use_this_heap_id, &memfrag_kvs);
       platform_heap_destroy(&use_this_heap_id);
    }
 
@@ -445,7 +448,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_id heap_id         = kvs->heap_id;
    bool             we_created_heap = kvs->we_created_heap;
-   platform_free(kvs->heap_id, kvs);
+   platform_free(kvs->heap_id, memfrag_init_size(kvs, kvs->mf_size));
    platform_status rc = STATUS_OK;
    if (we_created_heap) {
       rc = platform_heap_destroy(&heap_id);
@@ -657,6 +660,7 @@ struct splinterdb_iterator {
    trunk_range_iterator sri;
    platform_status      last_rc;
    const splinterdb    *parent;
+   size_t               mf_size;
 };
 
 int
@@ -665,12 +669,14 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                          slice                 user_start_key // IN
 )
 {
+   platform_memfrag     memfrag_it;
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
    if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
    it->last_rc = STATUS_OK;
+   it->mf_size = memfrag_size(&memfrag_it);
 
    trunk_range_iterator *range_itor = &(it->sri);
    key                   start_key;
@@ -690,7 +696,7 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                                                   UINT64_MAX);
    if (!SUCCESS(rc)) {
       // Backout: Release memory alloc'ed for iterator above.
-      platform_free(kvs->spl->heap_id, it);
+      platform_free(kvs->spl->heap_id, memfrag_init_size(it, it->mf_size));
       return platform_status_to_int(rc);
    }
    it->parent = kvs;
@@ -706,7 +712,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
    trunk_range_iterator_deinit(range_itor);
 
    trunk_handle *spl = range_itor->spl;
-   platform_free(spl->heap_id, iter);
+   platform_free(spl->heap_id, memfrag_init_size(iter, iter->mf_size));
 }
 
 _Bool

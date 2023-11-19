@@ -236,6 +236,7 @@ verify_range_against_shadow(trunk_handle               *spl,
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
+   platform_memfrag      memfrag_range_itor;
    trunk_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
    status = trunk_range_iterator_init(spl,
@@ -315,7 +316,7 @@ destroy:
    trunk_range_iterator_deinit(range_itor);
 
 out:
-   platform_free(hid, range_itor);
+   platform_free(hid, &memfrag_range_itor);
 
    return status;
 }
@@ -499,7 +500,8 @@ validate_tree_against_shadow(trunk_handle              *spl,
 
    rc = verify_against_shadow(spl, &sharr, async_lookup);
    if (!SUCCESS(rc)) {
-      platform_free(hid, async_lookup);
+      platform_free(hid,
+                    memfrag_init_size(async_lookup, async_lookup->mf_size));
       platform_error_log("Failed to verify inserted items in Splinter: %s\n",
                          platform_status_to_string(rc));
       goto cleanup;

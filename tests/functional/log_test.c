@@ -164,7 +164,6 @@ test_log_perf(cache                  *cc,
 
 {
    platform_memfrag        memfrag_params;
-   platform_memfrag       *mf = &memfrag_params;
    test_log_thread_params *params =
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
@@ -207,7 +206,7 @@ test_log_perf(cache                  *cc,
                            / platform_timestamp_elapsed(start_time));
 
 cleanup:
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_params);
 
    return ret;
 }
@@ -274,8 +273,9 @@ log_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
-   trunk_config *cfg                            = TYPED_MALLOC(hid, cfg);
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   platform_memfrag memfrag_cfg;
+   trunk_config    *cfg                            = TYPED_MALLOC(hid, cfg);
+   uint64           num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
    status = test_parse_args(cfg,
                             &data_cfg,
@@ -302,6 +302,7 @@ log_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    status = io_handle_init(io, &io_cfg, hid);
@@ -322,7 +323,8 @@ log_test(int argc, char *argv[])
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
    platform_assert_status_ok(status);
 
-   clockcache *cc = TYPED_MALLOC(hid, cc);
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc != NULL);
    status = clockcache_init(cc,
                             &cache_cfg,
@@ -333,7 +335,8 @@ log_test(int argc, char *argv[])
                             platform_get_module_id());
    platform_assert_status_ok(status);
 
-   shard_log *log = TYPED_MALLOC(hid, log);
+   platform_memfrag memfrag_log;
+   shard_log       *log = TYPED_MALLOC(hid, log);
    platform_assert(log != NULL);
    if (run_perf_test) {
       ret = test_log_perf(
@@ -369,16 +372,16 @@ log_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, log);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_log);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, cfg);
+   platform_free(hid, &memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return rc == 0 ? 0 : -1;

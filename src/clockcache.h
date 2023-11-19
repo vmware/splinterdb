@@ -145,13 +145,11 @@ struct clockcache {
    size_t      batch_busy_size;
 };
 
-
 /*
  *-----------------------------------------------------------------------------
  * Function declarations
  *-----------------------------------------------------------------------------
  */
-
 void
 clockcache_config_init(clockcache_config *cache_config,
                        io_config         *io_cfg,

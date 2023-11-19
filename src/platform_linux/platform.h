@@ -361,30 +361,25 @@ extern platform_heap_id Heap_id;
  *	v   - Structure to allocate memory for.
  *	n   - Number of bytes of memory to allocate.
  */
+#define TYPED_ALIGNED_MALLOC_MF(hid, a, v, n, mf)                              \
+   ({                                                                          \
+      debug_assert((n) >= sizeof(*(v)));                                       \
+      (typeof(v))platform_aligned_malloc(                                      \
+         hid, (a), (n), (mf), STRINGIFY(v), __func__, __FILE__, __LINE__);     \
+   })
+
 #define TYPED_ALIGNED_MALLOC(hid, a, v, n)                                     \
+   TYPED_ALIGNED_MALLOC_MF(hid, a, v, n, (platform_memfrag *)NULL)
+
+#define TYPED_ALIGNED_ZALLOC_MF(hid, a, v, n, mf)                              \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid,                                  \
-                                         (a),                                  \
-                                         (n),                                  \
-                                         (platform_memfrag *)NULL,             \
-                                         STRINGIFY(v),                         \
-                                         __func__,                             \
-                                         __FILE__,                             \
-                                         __LINE__);                            \
+      (typeof(v))platform_aligned_zalloc(                                      \
+         hid, (a), (n), (mf), STRINGIFY(v), __func__, __FILE__, __LINE__);     \
    })
+
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
-   ({                                                                          \
-      debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid,                                  \
-                                         (a),                                  \
-                                         (n),                                  \
-                                         (platform_memfrag *)NULL,             \
-                                         STRINGIFY(v),                         \
-                                         __func__,                             \
-                                         __FILE__,                             \
-                                         __LINE__);                            \
-   })
+   TYPED_ALIGNED_ZALLOC_MF(hid, a, v, n, &memfrag_##v)
 
 /*
  * FLEXIBLE_STRUCT_SIZE(): Compute the size of a structure 'v' with a nested
@@ -471,11 +466,20 @@ extern platform_heap_id Heap_id;
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  */
-#define TYPED_MALLOC(hid, v)                                                   \
-   TYPED_ARRAY_MALLOC_MF(hid, v, 1, (platform_memfrag *)NULL)
+#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC_MF(hid, v, 1, &memfrag_##v)
 
-#define TYPED_ZALLOC(hid, v)                                                   \
-   TYPED_ARRAY_ZALLOC_MF(hid, v, 1, (platform_memfrag *)NULL)
+#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC_MF(hid, v, 1, &memfrag_##v)
+
+/*
+ * Allocate a single-element of structure of type 'v'.
+ * Parameters:
+ *  hid - Platform heap-ID to allocate memory from.
+ *  v   - Structure to allocate memory for.
+ *  mf  - Addr of memfrag to use for allocation.
+ */
+#define TYPED_MALLOC_MF(hid, v, mf) TYPED_ARRAY_MALLOC_MF(hid, v, 1, mf)
+
+#define TYPED_ZALLOC_MF(hid, v, mf) TYPED_ARRAY_ZALLOC_MF(hid, v, 1, mf)
 
 /*
  * -----------------------------------------------------------------------------
@@ -793,18 +797,19 @@ typedef struct platform_memfrag {
 #define memfrag_size(mf)  ((mf)->size)
 
 /*
- * void = memfrag_init_size(platform_memfrag *mf, <something> *ptr,
- *                          size_t nbytes)
+ * platform_memfrag *memfrag_init_size(void *ptr, size_t nbytes)
  *
- * Macro to initialize a memory fragment that was allocated for nitems-items of
+ * Initialize a memory fragment that was allocated for nitems-items of
  * an object pointed at by 'ptr'. Sets 'mf' up so that we can eventually use
  * 'mf' to free the fragment.
+ *
+ * Returns: Ptr to platform_memfrag{}, populated to invoke free().
  */
-#define memfrag_init_size(mf, ptr, nbytes)                                     \
-   do {                                                                        \
-      (mf)->addr = (void *)ptr;                                                \
-      (mf)->size = (nbytes);                                                   \
-   } while (0)
+#define memfrag_init_size(ptr, nbytes)                                         \
+   ({                                                                          \
+      platform_memfrag memfrag = {.addr = (ptr), .size = (nbytes)};            \
+      &memfrag;                                                                \
+   })
 
 static inline bool
 memfrag_is_empty(const platform_memfrag *mf)
@@ -858,6 +863,9 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
  *
  * - Defenses are built-in to protect callers which may be incorrectly using
  *   this interface to free memory allocated from shared-segment or the heap.
+      _Static_assert((IS_MEM_FRAG(p) || ((hid) == PROCESS_PRIVATE_HEAP_ID)), \
+      _Static_assert((IS_MEM_FRAG(p)),     \
+                     "Incorrect arguments to platform_free()");                \
  * ----------------------------------------------------------------------------
  */
 #define platform_free(hid, p)                                                  \
@@ -887,8 +895,7 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
           *  platform_free(hid, pivot_key);                                    \
           *                                                                    \
           * As opposed to calling this interface the right way, i.e.,          \
-          *  platform_memfrag *mf = &memfrag_pivot_key;                        \
-          *  platform_free(hid, mf);                                           \
+          *  platform_free(hid, &memfrag_pivot_key);                           \
           */                                                                   \
          platform_assert(FALSE,                                                \
                          "Attempt to free memory using '%s', which is a "      \
@@ -898,19 +905,15 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
                          sizeof(*p),                                           \
                          __func__,                                             \
                          __LINE__);                                            \
-      } else {                                                                 \
+      } else if ((hid) != PROCESS_PRIVATE_HEAP_ID) {                           \
          /*                                                                    \
-          * Expect that 'p' is pointing to a struct. So get its size.          \
-          * Except that while allocating memory for objects, we had previously \
-          * aligned the required size to PLATFORM_CACHELINE_SIZE. Redo that    \
-          * work here, so we correctly tell shared-memory the size to free.    \
+          * Expect that 'p' is pointing to a platform_memfrag struct.          \
           */                                                                   \
-         const size_t _size = sizeof(*p);                                      \
-         const size_t _reqd =                                                  \
-            (_size                                                             \
-             + platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, _size));     \
-         platform_free_mem((hid), (p), _reqd, STRINGIFY(p));                   \
-         (p) = NULL;                                                           \
+         platform_assert(FALSE,                                                \
+                         "Invalid typeof(p) arg to platform_free()."           \
+                         " Should be platform_memfrag *");                     \
+      } else {                                                                 \
+         platform_free_mem((hid), (p), 0, STRINGIFY(p));                       \
       }                                                                        \
    } while (0)
 
@@ -928,7 +931,6 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
    do {                                                                        \
       platform_free_from_heap(                                                 \
          hid, (p), (size), objname, __func__, __FILE__, __LINE__);             \
-      (p) = NULL;                                                              \
    } while (0)
 
 /*

@@ -294,6 +294,7 @@ exec_thread_memalloc(void *arg)
 
    // Keep allocating fragments till we run out of memory.
    // Build a linked list of memory fragments for this thread.
+   platform_memfrag memfrag_new_frag;
    while ((new_frag = TYPED_ZALLOC(platform_get_heap_id(), new_frag)) != NULL) {
       *fragpp         = new_frag;
       new_frag->owner = this_thread_idx;
