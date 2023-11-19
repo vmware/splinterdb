@@ -245,6 +245,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // For this test, we allocate this structure. In a running Splinter
    // instance, this struct is nested inside the splinterdb{} handle.
+   platform_memfrag    memfrag_io_hdl;
    platform_io_handle *io_hdl = TYPED_ZALLOC(hid, io_hdl);
    if (!io_hdl) {
       goto heap_destroy;
@@ -432,7 +433,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
 io_free:
    if (pid > 0) {
-      platform_free(hid, io_hdl);
+      platform_free(hid, &memfrag_io_hdl);
    }
 heap_destroy:
    if (pid > 0) {

@@ -127,7 +127,8 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
+   platform_memfrag memfrag_io;
+   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
    ASSERT_TRUE((data->io != NULL));
 
    // Hard-fix the configured default page-size to an illegal value
@@ -154,17 +155,14 @@ CTEST2(limitations, test_io_init_invalid_page_size)
 
    // Release resources acquired in this test case.
    io_handle_deinit(data->io);
-   platform_free(data->hid, data->io);
+   platform_free(data->hid, &memfrag_io);
 
-   platform_memfrag *mf = NULL;
    if (data->cache_cfg) {
-      mf = &memfrag_cache_cfg;
-      platform_free(data->hid, mf);
+      platform_free(data->hid, &memfrag_cache_cfg);
    }
 
    if (data->splinter_cfg) {
-      mf = &memfrag_splinter_cfg;
-      platform_free(data->hid, mf);
+      platform_free(data->hid, &memfrag_splinter_cfg);
    }
 }
 
@@ -204,7 +202,8 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
+   platform_memfrag memfrag_io;
+   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
    ASSERT_TRUE((data->io != NULL));
 
    uint64 pages_per_extent =
@@ -241,15 +240,12 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    // Release resources acquired in this test case.
    io_handle_deinit(data->io);
 
-   platform_memfrag *mf = NULL;
    if (data->cache_cfg) {
-      mf = &memfrag_cache_cfg;
-      platform_free(data->hid, mf);
+      platform_free(data->hid, &memfrag_cache_cfg);
    }
 
    if (data->splinter_cfg) {
-      mf = &memfrag_splinter_cfg;
-      platform_free(data->hid, mf);
+      platform_free(data->hid, &memfrag_splinter_cfg);
    }
 }
 
@@ -437,15 +433,12 @@ CTEST2(limitations, test_trunk_config_init_fails_for_invalid_configs)
    ASSERT_FALSE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
-   platform_memfrag *mf = NULL;
    if (data->cache_cfg) {
-      mf = &memfrag_cache_cfg;
-      platform_free(data->hid, mf);
+      platform_free(data->hid, &memfrag_cache_cfg);
    }
 
    if (data->splinter_cfg) {
-      mf = &memfrag_splinter_cfg;
-      platform_free(data->hid, mf);
+      platform_free(data->hid, &memfrag_splinter_cfg);
    }
 }
 

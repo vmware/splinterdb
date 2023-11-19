@@ -98,6 +98,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
 {
    platform_status rc = STATUS_NO_MEMORY;
 
+   platform_memfrag           memfrag_shadow;
    test_splinter_shadow_tree *shadow = TYPED_ZALLOC(hid, shadow);
    if (shadow == NULL) {
       platform_default_log("Failed to allocate memory for shadow init");

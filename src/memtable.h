@@ -132,7 +132,8 @@ typedef struct memtable_context {
    volatile uint64 generation_retired;
 
    bool   is_empty;
-   size_t mt_ctxt_size; // # of bytes of memory allocated to this struct
+   size_t mf_size;        // # of bytes of memory allocated to this struct
+   size_t rwlock_mf_size; // # of bytes of memory allocated to rwlock
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];

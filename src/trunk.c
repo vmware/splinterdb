@@ -732,6 +732,7 @@ struct trunk_compact_bundle_req {
    fp_hdr breq_fingerprint;
    uint64 num_tuples;
    uint64 enq_line; // Where task was enqueued
+   size_t mf_size;
 };
 
 // an iterator which skips masked pivots
@@ -3502,9 +3503,11 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       filter_build_start = platform_get_timestamp();
    }
 
-   cmt->req       = TYPED_ZALLOC(spl->heap_id, cmt->req);
-   cmt->req->spl  = spl;
-   cmt->req->type = TRUNK_COMPACTION_TYPE_MEMTABLE;
+   platform_memfrag memfrag_req = {0};
+   cmt->req          = TYPED_ZALLOC_MF(spl->heap_id, cmt->req, &memfrag_req);
+   cmt->req->spl     = spl;
+   cmt->req->type    = TRUNK_COMPACTION_TYPE_MEMTABLE;
+   cmt->req->mf_size = memfrag_size(&memfrag_req);
 
    // Alias to the BTree-pack's fingerprint, for use further below.
    fingerprint_alias(&cmt->req->breq_fingerprint, &req.fingerprint);
@@ -4500,7 +4503,8 @@ out:
    fingerprint_deinit(spl->heap_id, &compact_req->breq_fingerprint);
    key_buffer_deinit(&compact_req->start_key);
    key_buffer_deinit(&compact_req->end_key);
-   platform_free(spl->heap_id, compact_req);
+   platform_free(spl->heap_id,
+                 memfrag_init_size(compact_req, compact_req->mf_size));
    trunk_maybe_reclaim_space(spl);
    return;
 }
@@ -4768,8 +4772,16 @@ trunk_flush(trunk_handle     *spl,
    }
 
    // flush the branch references into a new bundle in the child
-   trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   trunk_bundle             *bundle =
+   platform_memfrag          memfrag_req = {0};
+   trunk_compact_bundle_req *req         = TYPED_ZALLOC(spl->heap_id, req);
+   if (!req) {
+      platform_error_log(
+         "Failed to allocate memory for trunk_compact_bundle_req{}.");
+      return STATUS_NO_MEMORY;
+   }
+   req->mf_size = memfrag_size(&memfrag_req);
+
+   trunk_bundle *bundle =
       trunk_flush_into_bundle(spl, parent, &new_child, pdata, req);
 
    trunk_tuples_in_bundle(spl,
@@ -5677,7 +5689,10 @@ trunk_split_index(trunk_handle             *spl,
    trunk_close_log_stream_if_enabled(spl, &stream);
 
    if (req != NULL) {
+      platform_memfrag          memfrag_next_req = {0};
       trunk_compact_bundle_req *next_req = TYPED_MALLOC(spl->heap_id, next_req);
+      next_req->mf_size                  = memfrag_size(&memfrag_next_req);
+
       memmove(next_req, req, sizeof(trunk_compact_bundle_req));
       next_req->addr = right_node.addr;
       key_buffer_init_from_key(
@@ -6070,11 +6085,13 @@ trunk_split_leaf(trunk_handle *spl,
          /*
           * 6. Issue compact_bundle for leaf and release
           */
+         platform_memfrag          memfrag_req = {0};
          trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
          req->spl                      = spl;
          req->addr                     = leaf->addr;
          req->type                     = comp_type;
          req->bundle_no                = bundle_no;
+         req->mf_size                  = memfrag_size(&memfrag_req);
          req->max_pivot_generation     = trunk_pivot_generation(spl, leaf);
          req->pivot_generation[0]      = trunk_pivot_generation(spl, leaf) - 1;
          req->input_pivot_tuple_count[0] = trunk_pivot_num_tuples(spl, leaf, 0);
@@ -6103,9 +6120,11 @@ trunk_split_leaf(trunk_handle *spl,
    }
 
    // set next_addr of leaf (from last iteration)
-   trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   req->spl                      = spl;
-   req->addr                     = leaf->addr;
+   platform_memfrag          memfrag_req = {0};
+   trunk_compact_bundle_req *req         = TYPED_ZALLOC(spl->heap_id, req);
+   req->spl                              = spl;
+   req->addr                             = leaf->addr;
+   req->mf_size                          = memfrag_size(&memfrag_req);
    // req->height already 0
    req->bundle_no                    = bundle_no;
    req->max_pivot_generation         = trunk_pivot_generation(spl, leaf);
@@ -6667,9 +6686,11 @@ trunk_compact_leaf(trunk_handle *spl, trunk_node *leaf)
       trunk_leaf_rebundle_all_branches(spl, leaf, num_tuples, kv_bytes, TRUE);
 
    // Issue compact_bundle for leaf and release
-   trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   req->spl                      = spl;
-   req->addr                     = leaf->addr;
+   platform_memfrag          memfrag_req = {0};
+   trunk_compact_bundle_req *req         = TYPED_ZALLOC(spl->heap_id, req);
+   req->spl                              = spl;
+   req->addr                             = leaf->addr;
+   req->mf_size                          = memfrag_size(&memfrag_req);
    // req->height already 0
    req->bundle_no                    = bundle_no;
    req->max_pivot_generation         = trunk_pivot_generation(spl, leaf);
@@ -7670,6 +7691,7 @@ trunk_range(trunk_handle  *spl,
             tuple_function func,
             void          *arg)
 {
+   platform_memfrag      memfrag_range_itor;
    trunk_range_iterator *range_itor =
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
    platform_status rc = trunk_range_iterator_init(spl,
@@ -7713,7 +7735,7 @@ trunk_stats_init(trunk_handle *spl)
    platform_assert(spl->stats);
 
    // Remember this; it's needed for free
-   spl->stats_size = memfrag_size(&memfrag);
+   spl->stats_mf_size = memfrag_size(&memfrag);
 
    for (uint64 i = 0; i < MAX_THREADS; i++) {
       platform_status rc;
@@ -7748,10 +7770,8 @@ trunk_stats_deinit(trunk_handle *spl)
       platform_histo_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
       platform_histo_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
    }
-   platform_memfrag  memfrag = {0};
-   platform_memfrag *mf      = &memfrag;
-   memfrag_init_size(mf, spl->stats, spl->stats_size);
-   platform_free(spl->heap_id, mf);
+   platform_free(spl->heap_id,
+                 memfrag_init_size(spl->stats, spl->stats_mf_size));
 }
 
 /*
@@ -8033,10 +8053,7 @@ trunk_destroy(trunk_handle *spl)
    if (spl->cfg.use_stats) {
       trunk_stats_deinit(spl);
    }
-   platform_memfrag  memfrag = {0};
-   platform_memfrag *mf      = &memfrag;
-   memfrag_init_size(mf, spl, spl->size);
-   platform_free(spl->heap_id, mf);
+   platform_free(spl->heap_id, memfrag_init_size(spl, spl->size));
 }
 
 /*
@@ -8053,10 +8070,7 @@ trunk_unmount(trunk_handle **spl_in)
    if (spl->cfg.use_stats) {
       trunk_stats_deinit(spl);
    }
-   platform_memfrag  memfrag = {0};
-   platform_memfrag *mf      = &memfrag;
-   memfrag_init_size(mf, spl, spl->size);
-   platform_free(spl->heap_id, mf);
+   platform_free(spl->heap_id, memfrag_init_size(spl, spl->size));
    *spl_in = (trunk_handle *)NULL;
 }
 
@@ -8937,6 +8951,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
    trunk_stats *global;
 
+   platform_memfrag memfrag_global;
    global = TYPED_ZALLOC(spl->heap_id, global);
    if (global == NULL) {
       platform_error_log("Out of memory for statistics");
@@ -9232,7 +9247,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
+   platform_free(spl->heap_id, &memfrag_global);
 }
 
 void
@@ -9254,6 +9269,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
    trunk_stats *global;
 
+   platform_memfrag memfrag_global;
    global = TYPED_ZALLOC(spl->heap_id, global);
    if (global == NULL) {
       platform_error_log("Out of memory for stats\n");
@@ -9319,7 +9335,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
    }
    platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
+   platform_free(spl->heap_id, &memfrag_global);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");

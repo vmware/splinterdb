@@ -58,6 +58,7 @@ test_memtable_context_create(cache             *cc,
                              uint64             num_mt,
                              platform_heap_id   hid)
 {
+   platform_memfrag       memfrag_ctxt;
    test_memtable_context *ctxt = TYPED_ZALLOC(hid, ctxt);
    platform_assert(ctxt);
    ctxt->cc      = cc;
@@ -549,7 +550,8 @@ test_btree_basic(cache             *cc,
 
    test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
    memtable              *mt   = &ctxt->mt_ctxt->mt[0];
-   data_config           *data_cfg       = mt->cfg->data_cfg;
+   data_config           *data_cfg = mt->cfg->data_cfg;
+   platform_memfrag       memfrag_async_lookup;
    btree_test_async_lookup *async_lookup = TYPED_MALLOC(hid, async_lookup);
 
    platform_assert(async_lookup);
@@ -1620,8 +1622,9 @@ btree_test(int argc, char *argv[])
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
-   data_config  *data_cfg;
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
+   data_config     *data_cfg;
+   platform_memfrag memfrag_cfg;
+   trunk_config    *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         &data_cfg,
@@ -1669,6 +1672,7 @@ btree_test(int argc, char *argv[])
       }
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -1687,8 +1691,9 @@ btree_test(int argc, char *argv[])
    rc_allocator_init(
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
-   clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc             = clockcache_init(cc,
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
+   rc                  = clockcache_init(cc,
                         &cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,

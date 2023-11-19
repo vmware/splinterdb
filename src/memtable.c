@@ -307,17 +307,19 @@ memtable_context_create(platform_heap_id hid,
                         process_fn       process,
                         void            *process_ctxt)
 {
-   platform_memfrag  memfrag_ctxt;
+   platform_memfrag  memfrag_ctxt = {0};
    memtable_context *ctxt =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ctxt, mt, cfg->max_memtables);
-   ctxt->mt_ctxt_size = memfrag_size(&memfrag_ctxt);
-   ctxt->cc           = cc;
+   ctxt->mf_size = memfrag_size(&memfrag_ctxt);
+   ctxt->cc      = cc;
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
    platform_mutex_init(
       &ctxt->incorporation_mutex, platform_get_module_id(), hid);
-   ctxt->rwlock = TYPED_MALLOC(hid, ctxt->rwlock);
+   platform_memfrag memfrag_rwlock = {0};
+   ctxt->rwlock = TYPED_MALLOC_MF(hid, ctxt->rwlock, &memfrag_rwlock);
    platform_batch_rwlock_init(ctxt->rwlock);
+   ctxt->rwlock_mf_size = memfrag_size(&memfrag_rwlock);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
       uint64 generation = mt_no;
@@ -345,15 +347,9 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
    }
 
    platform_mutex_destroy(&ctxt->incorporation_mutex);
-   // RESOLVE: Fishy - add unit-test to exercise
-   // platform_batch_rwlock_init
-   // followed by platform_batch_rwlock_init().
-   platform_free(hid, ctxt->rwlock);
+   platform_free(hid, memfrag_init_size(ctxt->rwlock, ctxt->rwlock_mf_size));
 
-   platform_memfrag  memfrag_ctxt;
-   platform_memfrag *mf = &memfrag_ctxt;
-   memfrag_init_size(mf, ctxt, ctxt->mt_ctxt_size);
-   platform_free(hid, mf);
+   platform_free(hid, memfrag_init_size(ctxt, ctxt->mf_size));
 }
 
 void

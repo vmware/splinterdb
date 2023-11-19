@@ -218,11 +218,13 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    platform_memfrag memfrag_threads;
    platform_thread *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
+   platform_memfrag memfrag_scratch;
    for (uint64 i = 0; i < nthreads; i++) {
-      params[i].cc        = (cache *)&data->cc;
-      params[i].cfg       = &data->dbtree_cfg;
-      params[i].hid       = data->hid;
-      params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
+      params[i].cc  = (cache *)&data->cc;
+      params[i].cfg = &data->dbtree_cfg;
+      params[i].hid = data->hid;
+      params[i].scratch =
+         TYPED_MALLOC_MF(data->hid, params[i].scratch, &memfrag_scratch);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
       params[i].start     = i * (nkvs / nthreads);
