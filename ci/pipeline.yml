@@ -32,6 +32,14 @@
 ---
 
 resource_types:
+#! Attempt to fix a problem with image pulls failing
+#! see: https://vmware.slack.com/archives/CEUC18KQA/p1689754476227109?thread_ts=1689753436.440569&cid=CEUC18KQA
+- name: registry-image
+  type: registry-image
+  source:
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/registry-image-resource
+    tag: 1.9.0
+
 #! Enables GitHub status on commits
 - name: cogito
   type: registry-image
@@ -47,14 +55,7 @@ resource_types:
     #! this image is built from https://github.com/cloudfoundry-community/github-pr-resource
     #! which is maintained by VMware staff
     repository: harbor-repo.vmware.com/dockerhub-proxy-cache/loggregatorbot/github-pr-resource
-
-#! Attempt to fix a problem with image pulls failing
-#! see: https://vmware.slack.com/archives/CEUC18KQA/p1689754476227109?thread_ts=1689753436.440569&cid=CEUC18KQA
-- name: registry-image
-  type: registry-image
-  source:
-    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/registry-image-resource
-    tag: 1.8.0
+    tag: "latest"
 
 resources:
 
