@@ -322,7 +322,9 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {
-      platform_free(data->hid, params[i].scratch);
+      platform_free(
+         data->hid,
+         memfrag_init_size(params[i].scratch, memfrag_size(&memfrag_scratch)));
    }
    mf = &memfrag_params;
    platform_free(hid, mf);
