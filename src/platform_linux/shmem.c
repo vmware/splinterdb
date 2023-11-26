@@ -127,7 +127,7 @@ typedef struct shm_large_frag_info {
 /*
  * Currently, we track free-fragments in lists limited to these sizes.
  * Each such free-list has a head-list field in shared memory control block.
- * of sizes.This list of tracked small-fragments can be easily expanded.
+ * of sizes. This list of tracked small-fragments can be easily expanded.
  */
 #define SHM_SMALL_FRAG_MIN_SIZE 64  // Will not track for size < min bytes
 #define SHM_SMALL_FRAG_MAX_SIZE 512 // Will not track for size > max bytes
@@ -141,7 +141,8 @@ typedef struct frag_hdr {
    size_t frag_size;
 } frag_hdr;
 
-// Number of allocated small fragments tracked
+// Small number of allocated small fragments are tracked, for assertion
+// checking of fragment-addr-vs-its-size at the time of free.
 #define SHM_NUM_SMALL_FRAGS (MAX_THREADS * 32)
 
 /*
@@ -780,10 +781,12 @@ platform_shm_alloc(platform_heap_id  hid,
       shm->usage.used_bytes_HWM = shm->usage.used_bytes;
    }
    // Track new fragment being allocated ...
-   frag_hdr *newfrag  = &shm->shm_allocated_frag[shm->usage.nfrags_allocated];
-   newfrag->frag_addr = retptr;
-   newfrag->frag_size = size;
-   shm->usage.nfrags_allocated++;
+   if (shm->usage.nfrags_allocated < SHM_NUM_SMALL_FRAGS) {
+      frag_hdr *newfrag = &shm->shm_allocated_frag[shm->usage.nfrags_allocated];
+      newfrag->frag_addr = retptr;
+      newfrag->frag_size = size;
+      shm->usage.nfrags_allocated++;
+   }
 
    shm_unlock_mem(shm);
 
@@ -1173,33 +1176,29 @@ platform_shm_track_free_small_frag(shmem_heap  *shm,
 
    int frag_idx = platform_shm_find_small_frag_in_allocated_list(shm, addr);
 
-   // A fragment being freed should have been allocated, with the right 'size'
-   platform_assert((frag_idx >= 0),
-                   "Attempt to free small fragment at %p of size=%lu bytes"
-                   " which is not allocated, found index=%d.",
-                   addr,
-                   size,
-                   frag_idx);
+   if (frag_idx >= 0) {
+      // A fragment being freed should be freed with the same size it
+      // was allocated with.
+      platform_assert((shm->shm_allocated_frag[frag_idx].frag_size == size),
+                      "Attempt to free fragment at %p of size=%lu bytes"
+                      ", but size, %lu bytes of the small fragment"
+                      ", tracked at index=%d, does not match requested size.",
+                      addr,
+                      size,
+                      shm->shm_allocated_frag[frag_idx].frag_size,
+                      frag_idx);
 
-   platform_assert((shm->shm_allocated_frag[frag_idx].frag_size == size),
-                   "Attempt to free fragment at %p of size=%lu bytes"
-                   ", but size, %lu bytes of the small fragment"
-                   ", tracked at index=%d, does not match requested size.",
-                   addr,
-                   size,
-                   shm->shm_allocated_frag[frag_idx].frag_size,
-                   frag_idx);
+      // Allocated fragment is being freed; shuffle remaining items to the left.
+      int items_to_move = (shm->usage.nfrags_allocated - (frag_idx + 1));
+      debug_assert((items_to_move >= 0), "items_to_move=%d", items_to_move);
+      if (items_to_move > 0) {
+         memmove(&shm->shm_allocated_frag[frag_idx],
+                 &shm->shm_allocated_frag[frag_idx + 1],
+                 (items_to_move * sizeof(shm->shm_allocated_frag[0])));
+      }
 
-   // Allocated fragment is being freed; shuffle remaining items to the left.
-   int items_to_move = (shm->usage.nfrags_allocated - (frag_idx + 1));
-   debug_assert((items_to_move >= 0), "items_to_move=%d", items_to_move);
-   if (items_to_move > 0) {
-      memmove(&shm->shm_allocated_frag[frag_idx],
-              &shm->shm_allocated_frag[frag_idx + 1],
-              (items_to_move * sizeof(shm->shm_allocated_frag[0])));
+      shm->usage.nfrags_allocated--;
    }
-
-   shm->usage.nfrags_allocated--;
 
    shm->usage.nfrees++;
    shm->usage.bytes_freed += size;
@@ -1611,11 +1610,12 @@ platform_shm_find_small(shmem_heap *shm,
    shm->usage.free_bytes -= retptr->free_frag_size;
 
    // Track new fragment being allocated ...
-   frag_hdr *newfrag  = &shm->shm_allocated_frag[shm->usage.nfrags_allocated];
-   newfrag->frag_addr = retptr;
-   newfrag->frag_size = retptr->free_frag_size;
-   shm->usage.nfrags_allocated++;
-   debug_assert(shm->usage.nfrags_allocated < SHM_NUM_SMALL_FRAGS);
+   if (shm->usage.nfrags_allocated < SHM_NUM_SMALL_FRAGS) {
+      frag_hdr *newfrag = &shm->shm_allocated_frag[shm->usage.nfrags_allocated];
+      newfrag->frag_addr = retptr;
+      newfrag->frag_size = retptr->free_frag_size;
+      shm->usage.nfrags_allocated++;
+   }
 
    shm_unlock_mem(shm);
    return (void *)retptr;
