@@ -537,8 +537,11 @@ task_worker_thread(void *arg)
          task_group_unlock(group);
          const threadid tid = platform_get_tid();
          group->stats[tid].total_bg_task_executions++;
+
          task_group_run_task(group, task_to_run);
-         platform_free(group->ts->heap_id, task_to_run);
+         platform_free(group->ts->heap_id,
+                       memfrag_init_size(task_to_run, task_to_run->mf_size));
+
          rc = task_group_lock(group);
          platform_assert(SUCCESS(rc));
          __sync_fetch_and_sub(&group->current_executing_tasks, 1);

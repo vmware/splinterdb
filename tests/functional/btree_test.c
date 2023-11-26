@@ -38,6 +38,7 @@ typedef struct test_memtable_context {
    platform_heap_id   heap_id;
    memtable_context  *mt_ctxt;
    uint64             max_generation;
+   size_t             mf_size;
 } test_memtable_context;
 
 btree_config *
@@ -64,6 +65,7 @@ test_memtable_context_create(cache             *cc,
    ctxt->cc      = cc;
    ctxt->cfg     = cfg;
    ctxt->heap_id = hid;
+   ctxt->mf_size = memfrag_size(&memfrag_ctxt);
    ctxt->mt_ctxt = memtable_context_create(
       hid, cc, cfg->mt_cfg, test_btree_process_noop, NULL);
    ctxt->max_generation = num_mt;
@@ -74,7 +76,7 @@ void
 test_memtable_context_destroy(test_memtable_context *ctxt, platform_heap_id hid)
 {
    memtable_context_destroy(hid, ctxt->mt_ctxt);
-   platform_free(hid, ctxt);
+   platform_free(hid, memfrag_init_size(ctxt, ctxt->mf_size));
 }
 
 platform_status
@@ -229,7 +231,6 @@ test_btree_perf(cache             *cc,
    platform_status ret                    = STATUS_OK;
 
    platform_memfrag          memfrag_params = {0};
-   platform_memfrag         *mf             = &memfrag_params;
    test_btree_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
    platform_assert(params);
@@ -302,7 +303,7 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_params);
 
    return ret;
 }
@@ -802,7 +803,7 @@ destroy_btree:
       platform_default_log("btree_test: btree basic test failed\n");
    platform_default_log("\n");
    test_memtable_context_destroy(ctxt, hid);
-   platform_free(hid, async_lookup);
+   platform_free(hid, &memfrag_async_lookup);
    merge_accumulator_deinit(&expected_data);
    return rc;
 }
@@ -1738,16 +1739,16 @@ btree_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, cfg);
+   platform_free(hid, &memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

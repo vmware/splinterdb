@@ -218,8 +218,13 @@ static inline void
 writable_buffer_deinit(writable_buffer *wb)
 {
    if (wb->can_free) {
+      /*
       platform_free(wb->heap_id,
                     memfrag_init_size(wb->buffer, wb->buffer_capacity));
+      */
+      platform_memfrag memfrag = {.addr = wb->buffer,
+                                  .size = wb->buffer_capacity};
+      platform_free(wb->heap_id, &memfrag);
    }
    wb->buffer          = NULL;
    wb->buffer_capacity = 0;
@@ -384,8 +389,7 @@ fingerprint_do_deinit(platform_heap_id hid, fp_hdr *fp, uint32 line)
                 fp->alias_line,
                 line);
 
-   platform_memfrag *mf = &fp->mf;
-   platform_free(hid, mf);
+   platform_free(hid, &fp->mf);
    fp->ntuples   = -1; // Indicates that fingerprint went thru deinit()
    fp->init_line = line;
 }

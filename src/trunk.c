@@ -4804,7 +4804,7 @@ trunk_flush(trunk_handle     *spl,
    // split child if necessary
    if (trunk_needs_split(spl, &new_child)) {
       if (trunk_node_is_leaf(&new_child)) {
-         platform_free(spl->heap_id, req);
+         platform_free(spl->heap_id, memfrag_init_size(req, req->mf_size));
          uint16 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
          trunk_split_leaf(spl, parent, &new_child, child_idx);
          return STATUS_OK;
@@ -5277,7 +5277,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
          req->height,
          req->bundle_no);
-      platform_free(spl->heap_id, req);
+
+      platform_free(spl->heap_id, memfrag_init_size(req, req->mf_size));
       if (spl->cfg.use_stats) {
          spl->stats[tid].compactions_aborted_flushed[height]++;
          spl->stats[tid].compaction_time_wasted_ns[height] +=
@@ -5376,7 +5377,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                    fingerprint_size(&req->breq_fingerprint),
                    fingerprint_line(&req->breq_fingerprint));
 
-      platform_free(spl->heap_id, req);
+      platform_free(spl->heap_id, memfrag_init_size(req, req->mf_size));
       goto out;
    }
    if (spl->cfg.use_stats) {
@@ -5390,7 +5391,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_compact_bundle_cleanup_iterators(
          spl, &merge_itor, num_branches, skip_itor_arr);
       btree_pack_req_deinit(&pack_req, spl->heap_id);
-      platform_free(spl->heap_id, req);
+      platform_free(spl->heap_id, memfrag_init_size(req, req->mf_size));
       goto out;
    }
 
@@ -5474,7 +5475,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          }
          // Free fingerprint and req struct memory
          fingerprint_deinit(spl->heap_id, &req->breq_fingerprint);
-         platform_free(spl->heap_id, req);
+         platform_free(spl->heap_id, memfrag_init_size(req, req->mf_size));
          goto out;
       }
 
@@ -5555,7 +5556,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
       // Free fingerprint and req struct memory
       fingerprint_deinit(spl->heap_id, &req->breq_fingerprint);
-      platform_free(spl->heap_id, req);
+      platform_free(spl->heap_id, memfrag_init_size(req, req->mf_size));
    } else {
       if (spl->cfg.use_stats) {
          compaction_start = platform_timestamp_elapsed(compaction_start);
@@ -7930,7 +7931,7 @@ trunk_mount(trunk_config     *cfg,
          super,
          meta_tail,
          latest_timestamp);
-      platform_free(hid, spl);
+      platform_free(hid, memfrag_init_size(spl, spl->size));
       return (trunk_handle *)NULL;
    }
    uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
@@ -7989,7 +7990,9 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
 
    // release the log
    if (spl->cfg.use_log) {
-      platform_free(spl->heap_id, spl->log);
+      platform_free(
+         spl->heap_id,
+         memfrag_init_size(spl->log, ((shard_log *)spl->log)->mf_size));
    }
 
    // release the trunk mini allocator

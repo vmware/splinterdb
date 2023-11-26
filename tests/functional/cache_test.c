@@ -1157,16 +1157,16 @@ cache_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, &memfrag_splinter_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;
