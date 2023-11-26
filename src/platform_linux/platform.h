@@ -863,6 +863,9 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
  *
  * - Defenses are built-in to protect callers which may be incorrectly using
  *   this interface to free memory allocated from shared-segment or the heap.
+      _Static_assert((IS_MEM_FRAG(p) || ((hid) == PROCESS_PRIVATE_HEAP_ID)), \
+      _Static_assert((IS_MEM_FRAG(p)),     \
+                     "Incorrect arguments to platform_free()");                \
  * ----------------------------------------------------------------------------
  */
 #define platform_free(hid, p)                                                  \
@@ -871,8 +874,6 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
                       "Attempt to free a NULL ptr from '%s', line=%d",         \
                       __func__,                                                \
                       __LINE__);                                               \
-      _Static_assert(IS_MEM_FRAG(p) || ((hid) == PROCESS_PRIVATE_HEAP_ID),     \
-                     "Incorrect arguments to platform_free()");                \
       if (IS_MEM_FRAG(p)) {                                                    \
          platform_memfrag *_mf = (platform_memfrag *)(p);                      \
          platform_free_mem((hid), _mf->addr, _mf->size, STRINGIFY(p));         \

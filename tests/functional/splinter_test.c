@@ -828,7 +828,7 @@ test_trunk_destroy_tables(trunk_handle   **spl_tables,
       trunk_destroy(spl_tables[spl_idx]);
    }
    // clang-format off
-   platform_free(hid, memfrag_init_size(*spl_tables,
+   platform_free(hid, memfrag_init_size(spl_tables,
                                         (num_tables * sizeof(*spl_tables))));
    // clang-format on
 }
