@@ -248,6 +248,7 @@ typedef struct ycsb_op {
    uint64 range_len;
    uint64 start_time;
    uint64 end_time;
+   size_t mf_size;
    bool32 found;
 } ycsb_op;
 
@@ -304,7 +305,7 @@ typedef struct ycsb_phase {
    running_times    times;
    latency_tables   tables;
    char            *measurement_command;
-   size_t           frag_size; // of memory fragment allocated.
+   size_t           mf_size; // of memory fragment allocated.
 } ycsb_phase;
 
 static void
@@ -431,8 +432,7 @@ run_ycsb_phase(trunk_handle    *spl,
    for (i = 0; i < phase->nlogs; i++)
       nthreads += phase->params[i].nthreads;
 
-   platform_memfrag *mf = NULL;
-   platform_memfrag  memfrag_threads;
+   platform_memfrag memfrag_threads;
    threads = TYPED_ARRAY_MALLOC(hid, threads, nthreads);
    if (threads == NULL)
       return -1;
@@ -474,8 +474,7 @@ shutdown:
       }
       nthreads--;
    }
-   mf = &memfrag_threads;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_threads);
 
    if (phase->measurement_command) {
       const size_t     bufsize = 1024;
@@ -498,18 +497,16 @@ shutdown:
          if (num_written != num_read) {
             platform_error_log(
                "Could not write to measurement output file %s\n", filename);
-            platform_free(hid, filename);
-            platform_free(hid, buffer);
+            platform_free(hid, &memfrag_filename);
+            platform_free(hid, &memfrag_buffer);
             exit(1);
          }
       } while (!feof(measurement_cmd));
       fclose(measurement_output);
       pclose(measurement_cmd);
 
-      mf = &memfrag_filename;
-      platform_free(hid, mf);
-      mf = &memfrag_buffer;
-      platform_free(hid, mf);
+      platform_free(hid, &memfrag_filename);
+      platform_free(hid, &memfrag_buffer);
    }
 
    return success;
@@ -542,6 +539,7 @@ typedef struct parse_ycsb_log_req {
    bool32    lock;
    uint64    start_line;
    uint64    end_line;
+   size_t    mf_size;
    uint64   *num_ops;
    ycsb_op **ycsb_ops;
    uint64   *max_range_len;
@@ -580,10 +578,10 @@ parse_ycsb_log_file(void *arg)
       platform_error_log("Failed to allocate memory for log\n");
       goto close_file;
    }
+   result->mf_size = memfrag_size(&memfrag_result);
    if (lock && mlock(result, num_lines * sizeof(ycsb_op))) {
       platform_error_log("Failed to lock log into RAM.\n");
-      platform_memfrag *mf = &memfrag_result;
-      platform_free(hid, mf);
+      platform_free(hid, &memfrag_result);
       goto close_file;
    }
 
@@ -624,19 +622,21 @@ parse_ycsb_log_file(void *arg)
 
 close_file:
    if (buffer) {
-      platform_free(hid, buffer);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, buffer);
    }
    fclose(fp);
    platform_assert(result != NULL);
    *req->ycsb_ops = result;
-   platform_free(hid, req);
+   platform_free(hid, memfrag_init_size(req, req->mf_size));
 }
 
+// RESOLVE: Fn is never called. Should it be called at end of
+// parse_ycsb_log_file()?
 void
 unload_ycsb_log(ycsb_op *log, uint64 num_ops)
 {
    munlock(log, num_ops * sizeof(*log));
-   platform_free(platform_get_heap_id(), log);
+   platform_free(platform_get_heap_id(), memfrag_init_size(log, log->mf_size));
 }
 
 static void
@@ -723,15 +723,14 @@ load_ycsb_logs(int          argc,
    // platform_assert(rc == 0);
    // platform_free(hid, resize_cgroup_command);
 
-   platform_memfrag *mf = NULL;
-   platform_memfrag  memfrag_phases;
-   ycsb_phase       *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
+   platform_memfrag memfrag_phases;
+   ycsb_phase      *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
    platform_assert(phases);
 
    // Ensure that memset() is not clobbering memory ...
    size_t nbytes = (_nphases * sizeof(*phases));
    platform_assert(memfrag_size(&memfrag_phases) >= nbytes);
-   phases->frag_size = memfrag_size(&memfrag_phases);
+   phases->mf_size = memfrag_size(&memfrag_phases);
    memset(phases, 0, nbytes);
 
    log_size_bytes += nbytes;
@@ -766,6 +765,7 @@ load_ycsb_logs(int          argc,
       // Freed in parse_ycsb_log_file()
       platform_memfrag    memfrag_req;
       parse_ycsb_log_req *req = TYPED_MALLOC(hid, req);
+      req->mf_size            = memfrag_size(&memfrag_req);
       req->filename           = trace_filename;
       req->lock               = mlock_log;
       req->num_ops            = &params[lognum].total_ops;
@@ -804,10 +804,8 @@ load_ycsb_logs(int          argc,
    return STATUS_OK;
 
 bad_params:
-   mf = &memfrag_phases;
-   platform_free(hid, mf);
-   mf = &memfrag_params;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_phases);
+   platform_free(hid, &memfrag_params);
    return STATUS_BAD_PARAM;
 }
 
@@ -1355,7 +1353,7 @@ ycsb_test(int argc, char *argv[])
 
    trunk_unmount(&spl);
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_unmount(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
@@ -1370,20 +1368,22 @@ ycsb_test(int argc, char *argv[])
 
    compute_all_report_data(phases, nphases);
    write_all_reports(phases, nphases);
+   // RESOLVE: Fix all refs to PROCESS_PRIVATE_HEAP_ID to use hid
+   // and fix call to platform_free().
    for (uint64 i = 0; i < nphases; i++) {
       for (uint64 j = 0; j < phases[i].nlogs; j++) {
-         platform_free(hid, phases[i].params[j].ycsb_ops);
+         platform_free(PROCESS_PRIVATE_HEAP_ID, phases[i].params[j].ycsb_ops);
       }
-      platform_free(hid, phases[i].params);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, phases[i].params);
    }
-   platform_free(hid, memfrag_init_size(phases, phases->frag_size));
+   platform_free(hid, memfrag_init_size(phases, phases->mf_size));
 
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, &memfrag_splinter_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

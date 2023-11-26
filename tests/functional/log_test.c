@@ -164,7 +164,6 @@ test_log_perf(cache                  *cc,
 
 {
    platform_memfrag        memfrag_params;
-   platform_memfrag       *mf = &memfrag_params;
    test_log_thread_params *params =
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
@@ -207,7 +206,7 @@ test_log_perf(cache                  *cc,
                            / platform_timestamp_elapsed(start_time));
 
 cleanup:
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_params);
 
    return ret;
 }
@@ -373,16 +372,16 @@ log_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, log);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_log);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, cfg);
+   platform_free(hid, &memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return rc == 0 ? 0 : -1;

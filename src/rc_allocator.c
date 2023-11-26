@@ -359,7 +359,8 @@ rc_allocator_init(rc_allocator      *al,
    rc                 = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(rc)) {
       platform_mutex_destroy(&al->lock);
-      platform_free(al->heap_id, al->meta_page);
+      platform_free(al->heap_id,
+                    memfrag_init_size(al->meta_page, al->meta_page_mf_size));
       platform_error_log("Failed to create buffer for ref counts\n");
       return STATUS_NO_MEMORY;
    }
@@ -442,7 +443,8 @@ rc_allocator_mount(rc_allocator      *al,
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
    status             = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(status)) {
-      platform_free(al->heap_id, al->meta_page);
+      platform_free(al->heap_id,
+                    memfrag_init_size(al->meta_page, al->meta_page_mf_size));
       platform_mutex_destroy(&al->lock);
       platform_error_log("Failed to create buffer to load ref counts\n");
       return STATUS_NO_MEMORY;

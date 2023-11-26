@@ -387,8 +387,7 @@ deinit_kvhandle:
       // => Caller did not setup a platform-heap on entry.
       debug_assert(kvs_cfg->heap_id == NULL);
 
-      platform_memfrag *mf = &memfrag_kvs;
-      platform_free(use_this_heap_id, mf);
+      platform_free(use_this_heap_id, &memfrag_kvs);
       platform_heap_destroy(&use_this_heap_id);
    }
 
@@ -697,7 +696,7 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                                                   UINT64_MAX);
    if (!SUCCESS(rc)) {
       // Backout: Release memory alloc'ed for iterator above.
-      platform_free(kvs->spl->heap_id, it);
+      platform_free(kvs->spl->heap_id, memfrag_init_size(it, it->mf_size));
       return platform_status_to_int(rc);
    }
    it->parent = kvs;
