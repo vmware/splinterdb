@@ -895,8 +895,7 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
           *  platform_free(hid, pivot_key);                                    \
           *                                                                    \
           * As opposed to calling this interface the right way, i.e.,          \
-          *  platform_memfrag *mf = &memfrag_pivot_key;                        \
-          *  platform_free(hid, mf);                                           \
+          *  platform_free(hid, &memfrag_pivot_key);                           \
           */                                                                   \
          platform_assert(FALSE,                                                \
                          "Attempt to free memory using '%s', which is a "      \
