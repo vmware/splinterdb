@@ -1170,7 +1170,11 @@ platform_shm_find_small_frag_in_allocated_list(shmem_heap *shm, void *addr)
 static void
 platform_shm_track_free_small_frag(shmem_heap  *shm,
                                    void        *addr,
-                                   const size_t size)
+                                   const size_t size,
+                                   const char  *objname,
+                                   const char  *func,
+                                   const char  *file,
+                                   const int    line)
 {
    shm_lock_mem(shm);
 
@@ -1180,9 +1184,14 @@ platform_shm_track_free_small_frag(shmem_heap  *shm,
       // A fragment being freed should be freed with the same size it
       // was allocated with.
       platform_assert((shm->shm_allocated_frag[frag_idx].frag_size == size),
+                      "objname=%s, func=%s, file=%s, line=%d: "
                       "Attempt to free fragment at %p of size=%lu bytes"
-                      ", but size, %lu bytes of the small fragment"
+                      ", but the size of the small fragment, %lu bytes"
                       ", tracked at index=%d, does not match requested size.",
+                      objname,
+                      func,
+                      file,
+                      line,
                       addr,
                       size,
                       shm->shm_allocated_frag[frag_idx].frag_size,
@@ -1418,7 +1427,8 @@ platform_shm_track_free(shmem_heap  *shm,
    if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
    {
       /* **** Tracking 'free' on smaller fragments. **** */
-      platform_shm_track_free_small_frag(shm, addr, size);
+      platform_shm_track_free_small_frag(
+         shm, addr, size, objname, func, file, line);
    } else {
 
       /* **** Tracking 'free' on large fragments. **** */

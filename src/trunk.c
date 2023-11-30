@@ -7793,7 +7793,7 @@ trunk_handle_init(trunk_config     *cfg,
    platform_assert(spl != NULL);
 
    // Remember this; it's needed for free
-   spl->size = memfrag_size(&memfrag_spl);
+   spl->mf_size = memfrag_size(&memfrag_spl);
 
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
@@ -7931,7 +7931,7 @@ trunk_mount(trunk_config     *cfg,
          super,
          meta_tail,
          latest_timestamp);
-      platform_free(hid, memfrag_init_size(spl, spl->size));
+      platform_free(hid, memfrag_init_size(spl, spl->mf_size));
       return (trunk_handle *)NULL;
    }
    uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
@@ -8056,7 +8056,7 @@ trunk_destroy(trunk_handle *spl)
    if (spl->cfg.use_stats) {
       trunk_stats_deinit(spl);
    }
-   platform_free(spl->heap_id, memfrag_init_size(spl, spl->size));
+   platform_free(spl->heap_id, memfrag_init_size(spl, spl->mf_size));
 }
 
 /*
@@ -8073,7 +8073,7 @@ trunk_unmount(trunk_handle **spl_in)
    if (spl->cfg.use_stats) {
       trunk_stats_deinit(spl);
    }
-   platform_free(spl->heap_id, memfrag_init_size(spl, spl->size));
+   platform_free(spl->heap_id, memfrag_init_size(spl, spl->mf_size));
    *spl_in = (trunk_handle *)NULL;
 }
 
