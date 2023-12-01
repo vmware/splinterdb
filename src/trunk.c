@@ -4503,8 +4503,12 @@ out:
    fingerprint_deinit(spl->heap_id, &compact_req->breq_fingerprint);
    key_buffer_deinit(&compact_req->start_key);
    key_buffer_deinit(&compact_req->end_key);
+   /*
    platform_free(spl->heap_id,
                  memfrag_init_size(compact_req, compact_req->mf_size));
+   */
+   platform_memfrag mf = {.addr = compact_req, .size = compact_req->mf_size};
+   platform_free(spl->heap_id, &mf);
    trunk_maybe_reclaim_space(spl);
    return;
 }
