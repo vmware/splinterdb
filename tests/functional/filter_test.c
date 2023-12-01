@@ -152,7 +152,7 @@ out:
       mf             = &memfrag_fp_arr_i;
       size_t fp_size = memfrag_size(mf);
       for (uint64 i = 0; i < num_values; i++) {
-         platform_free(hid, memfrag_init_size(fp_arr[i], fp_size));
+         platform_free_mem(hid, fp_arr[i], fp_size);
          fp_arr[i] = NULL;
       }
    }

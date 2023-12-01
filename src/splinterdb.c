@@ -257,7 +257,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
             (open_existing ? "open existing" : "initialize"),
             kvs_cfg->filename,
             platform_status_to_string(status));
-         goto deinit_kvhandle;
+         goto heap_create_failed;
       }
       we_created_heap = TRUE;
    }
@@ -283,7 +283,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                          (open_existing ? "open existing" : "initialize"),
                          kvs_cfg->filename,
                          platform_status_to_string(status));
-      goto deinit_kvhandle;
+      goto init_config_failed;
    }
 
    // All future memory allocation should come from shared memory, if so
@@ -379,6 +379,8 @@ deinit_system:
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 io_handle_init_failed:
+init_config_failed:
+   platform_free(use_this_heap_id, &memfrag_kvs);
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
    // us to here via a 'goto', heap_id handle, if in use, may be in a
@@ -387,10 +389,10 @@ deinit_kvhandle:
       // => Caller did not setup a platform-heap on entry.
       debug_assert(kvs_cfg->heap_id == NULL);
 
-      platform_free(use_this_heap_id, &memfrag_kvs);
       platform_heap_destroy(&use_this_heap_id);
    }
 
+heap_create_failed:
    return platform_status_to_int(status);
 }
 
@@ -448,7 +450,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_id heap_id         = kvs->heap_id;
    bool             we_created_heap = kvs->we_created_heap;
-   platform_free(kvs->heap_id, memfrag_init_size(kvs, kvs->mf_size));
+   platform_free_mem(kvs->heap_id, kvs, kvs->mf_size);
    platform_status rc = STATUS_OK;
    if (we_created_heap) {
       rc = platform_heap_destroy(&heap_id);
@@ -696,7 +698,7 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                                                   UINT64_MAX);
    if (!SUCCESS(rc)) {
       // Backout: Release memory alloc'ed for iterator above.
-      platform_free(kvs->spl->heap_id, memfrag_init_size(it, it->mf_size));
+      platform_free_mem(kvs->spl->heap_id, it, it->mf_size);
       return platform_status_to_int(rc);
    }
    it->parent = kvs;
@@ -712,7 +714,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
    trunk_range_iterator_deinit(range_itor);
 
    trunk_handle *spl = range_itor->spl;
-   platform_free(spl->heap_id, memfrag_init_size(iter, iter->mf_size));
+   platform_free_mem(spl->heap_id, iter, iter->mf_size);
 }
 
 _Bool

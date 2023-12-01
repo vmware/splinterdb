@@ -347,9 +347,8 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
    }
 
    platform_mutex_destroy(&ctxt->incorporation_mutex);
-   platform_free(hid, memfrag_init_size(ctxt->rwlock, ctxt->rwlock_mf_size));
-
-   platform_free(hid, memfrag_init_size(ctxt, ctxt->mf_size));
+   platform_free_mem(hid, ctxt->rwlock, ctxt->rwlock_mf_size);
+   platform_free_mem(hid, ctxt, ctxt->mf_size);
 }
 
 void

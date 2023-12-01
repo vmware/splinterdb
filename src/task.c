@@ -230,8 +230,8 @@ task_invoke_with_hooks(void *func_and_args)
    // For background threads, also, IO-deregistration will happen here.
    task_deregister_this_thread(thread_started->ts);
 
-   platform_free(thread_started->heap_id,
-                 memfrag_init_size(thread_started, thread_started->mf_size));
+   platform_free_mem(
+      thread_started->heap_id, thread_started, thread_started->mf_size);
 }
 
 /*
@@ -421,8 +421,7 @@ task_deregister_thread(task_system *ts,
    // scratch space. So, check before trying to free memory.
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
-      platform_free(ts->heap_id,
-                    memfrag_init_size(scratch, ts->scratch_mf_size[tid]));
+      platform_free_mem(ts->heap_id, scratch, ts->scratch_mf_size[tid]);
       ts->thread_scratch[tid]  = NULL;
       ts->scratch_mf_size[tid] = 0;
    }
@@ -473,7 +472,6 @@ task_group_get_next_task(task_group *group)
       platform_assert((outstanding_tasks == 1),
                       "outstanding_tasks=%lu\n",
                       outstanding_tasks);
-      ;
    }
 
    return assigned_task;
@@ -529,8 +527,7 @@ task_worker_thread(void *arg)
 
    while (group->bg.stop != TRUE) {
       /* Invariant: we hold the lock */
-      task *task_to_run = NULL;
-      task_to_run       = task_group_get_next_task(group);
+      task *task_to_run = task_group_get_next_task(group);
 
       if (task_to_run != NULL) {
          __sync_fetch_and_add(&group->current_executing_tasks, 1);
@@ -539,8 +536,8 @@ task_worker_thread(void *arg)
          group->stats[tid].total_bg_task_executions++;
 
          task_group_run_task(group, task_to_run);
-         platform_free(group->ts->heap_id,
-                       memfrag_init_size(task_to_run, task_to_run->mf_size));
+         platform_free_mem(
+            group->ts->heap_id, task_to_run, task_to_run->tmf_size);
 
          rc = task_group_lock(group);
          platform_assert(SUCCESS(rc));
@@ -644,10 +641,10 @@ task_enqueue(task_system *ts,
    if (new_task == NULL) {
       return STATUS_NO_MEMORY;
    }
-   new_task->func    = func;
-   new_task->arg     = arg;
-   new_task->ts      = ts;
-   new_task->mf_size = memfrag_size(&memfrag_new_task);
+   new_task->func     = func;
+   new_task->arg      = arg;
+   new_task->ts       = ts;
+   new_task->tmf_size = memfrag_size(&memfrag_new_task);
 
    task_group     *group = &ts->group[type];
    task_queue     *tq    = &group->tq;
@@ -734,8 +731,8 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
       group->stats[tid].total_fg_task_executions++;
       task_group_run_task(group, assigned_task);
       __sync_fetch_and_sub(&group->current_executing_tasks, 1);
-      platform_free(group->ts->heap_id,
-                    memfrag_init_size(assigned_task, assigned_task->mf_size));
+      platform_free_mem(
+         group->ts->heap_id, assigned_task, assigned_task->tmf_size);
    } else {
       rc = STATUS_TIMEDOUT;
    }
@@ -957,7 +954,7 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
          tid,
          ts->tid_bitmask);
    }
-   platform_free(hid, memfrag_init_size(ts, ts->mf_size));
+   platform_free_mem(hid, ts, ts->mf_size);
    *ts_in = (task_system *)NULL;
 }
 

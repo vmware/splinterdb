@@ -949,9 +949,7 @@ test_cache_async(cache             *cc,
 
    mf = &memfrag;
    for (i = 0; i < total_threads; i++) {
-      platform_free(
-         hid,
-         memfrag_init_size(params[i].handle_arr, params[i].handle_arr_size));
+      platform_free_mem(hid, params[i].handle_arr, params[i].handle_arr_size);
       params[i].handle_arr = NULL;
    }
    // Deallocate all the entries.

@@ -17,7 +17,7 @@ typedef struct task {
    void        *arg;
    task_system *ts;
    timestamp    enqueue_time;
-   size_t       mf_size;
+   size_t       tmf_size;
 } task;
 
 /*

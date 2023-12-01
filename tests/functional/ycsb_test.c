@@ -627,7 +627,7 @@ close_file:
    fclose(fp);
    platform_assert(result != NULL);
    *req->ycsb_ops = result;
-   platform_free(hid, memfrag_init_size(req, req->mf_size));
+   platform_free_mem(hid, req, req->mf_size);
 }
 
 // RESOLVE: Fn is never called. Should it be called at end of
@@ -636,7 +636,7 @@ void
 unload_ycsb_log(ycsb_op *log, uint64 num_ops)
 {
    munlock(log, num_ops * sizeof(*log));
-   platform_free(platform_get_heap_id(), memfrag_init_size(log, log->mf_size));
+   platform_free_mem(platform_get_heap_id(), log, log->mf_size);
 }
 
 static void
@@ -1376,7 +1376,7 @@ ycsb_test(int argc, char *argv[])
       }
       platform_free(PROCESS_PRIVATE_HEAP_ID, phases[i].params);
    }
-   platform_free(hid, memfrag_init_size(phases, phases->mf_size));
+   platform_free_mem(hid, phases, phases->mf_size);
 
 deinit_iohandle:
    io_handle_deinit(io);
