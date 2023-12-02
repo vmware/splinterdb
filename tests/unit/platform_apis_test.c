@@ -262,6 +262,8 @@ CTEST2(platform_api, test_TYPED_MALLOC_free_and_MALLOC)
 
    // Memory for small structures should be recycled from shared memory
    ASSERT_TRUE(!data->use_shmem || (save_structp == new_structp));
+
+   platform_free(data->hid, &memfrag_new_structp);
 }
 
 CTEST2(platform_api, test_TYPED_ALIGNED_ZALLOC)
@@ -315,6 +317,12 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC)
    }
 }
 
+CTEST2(platform_api, test_platform_free_interface)
+{
+   platform_memfrag memfrag_structp;
+   any_struct      *structp = TYPED_MALLOC(data->hid, structp);
+   platform_free_mem(data->hid, structp, memfrag_size(&memfrag_structp));
+}
 /*
  * Dumb test-case to show how -not- to invoke the platform_free() API.
  * If you allocate using platform_memfrag{}, but free the allocated memory

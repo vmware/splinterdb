@@ -1915,12 +1915,11 @@ clockcache_deinit(clockcache *cc) // IN/OUT
    }
 
    if (cc->lookup) {
-      platform_free(cc->heap_id,
-                    memfrag_init_size(cc->lookup, cc->lookup_size));
+      platform_free_mem(cc->heap_id, cc->lookup, cc->lookup_size);
       cc->lookup = NULL;
    }
    if (cc->entry) {
-      platform_free(cc->heap_id, memfrag_init_size(cc->entry, cc->entry_size));
+      platform_free_mem(cc->heap_id, cc->entry, cc->entry_size);
       cc->entry = NULL;
    }
 
@@ -1940,15 +1939,14 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       cc->refcount = NULL;
    }
 
+   platform_memfrag mf = {0};
    if (cc->pincount) {
-      platform_free_volatile(
-         cc->heap_id,
-         memfrag_init_size((void *)cc->pincount, cc->pincount_size));
+      memfrag_init(&mf, (void *)cc->pincount, cc->pincount_size);
+      platform_free_volatile(cc->heap_id, &mf);
    }
    if (cc->batch_busy) {
-      platform_free_volatile(
-         cc->heap_id,
-         memfrag_init_size((void *)cc->batch_busy, cc->batch_busy_size));
+      memfrag_init(&mf, (void *)cc->batch_busy, cc->batch_busy_size);
+      platform_free_volatile(cc->heap_id, &mf);
    }
 }
 

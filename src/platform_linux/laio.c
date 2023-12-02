@@ -275,7 +275,7 @@ io_handle_deinit(laio_handle *io)
    }
    platform_assert(status == 0);
 
-   platform_free(io->heap_id, memfrag_init_size(io->req, io->req_size));
+   platform_free_mem(io->heap_id, io->req, io->req_size);
    io->req      = NULL;
    io->req_size = 0;
 }

@@ -637,7 +637,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    // went up from what was tracked in its memfrag_oldptr to adjusted_newsize.
    // So, to correctly get free space accounting, and to not 'leak' memory, we
    // need to re-establish the fragment's correct identity before freeing it.
-   platform_free(data->hid, memfrag_init_size(newptr, newsize));
+   platform_free_mem(data->hid, newptr, newsize);
 
    // Confirm that free/used space metrics go back to initial values
    new_shmused = platform_shmbytes_used(data->hid);
@@ -737,7 +737,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
                new_shmused,
                diff_size_t(exp_shmused, new_shmused));
 
-   platform_free(data->hid, memfrag_init_size(newptr, expected_newsisze));
+   platform_free_mem(data->hid, newptr, expected_newsisze);
 
    // When large fragments are 'freed', they are not really accounted in the
    // used/free bytes metrics. This is because, these large-fragments are
@@ -841,7 +841,7 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
 
    // You -must- specify the right size when free'ing even a large fragment.
    // Otherwise, debug asserts will trip.
-   platform_free(data->hid, memfrag_init_size(newptr, adjusted_newsize));
+   platform_free_mem(data->hid, newptr, adjusted_newsize);
    return;
 
    // When large fragments are 'freed', they are not really accounted in the

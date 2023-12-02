@@ -76,7 +76,7 @@ void
 test_memtable_context_destroy(test_memtable_context *ctxt, platform_heap_id hid)
 {
    memtable_context_destroy(hid, ctxt->mt_ctxt);
-   platform_free(hid, memfrag_init_size(ctxt, ctxt->mf_size));
+   platform_free_mem(hid, ctxt, ctxt->mf_size);
 }
 
 platform_status

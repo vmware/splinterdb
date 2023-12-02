@@ -266,7 +266,7 @@ test_splinter_shadow_destroy(platform_heap_id           hid,
 {
    platform_buffer_deinit(&tree->nodes_buffer);
    tree->numKeys = 0;
-   platform_free(hid, memfrag_init_size(tree, tree->mf_size));
+   platform_free_mem(hid, tree, tree->mf_size);
 }
 
 /*

@@ -448,7 +448,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_id heap_id         = kvs->heap_id;
    bool             we_created_heap = kvs->we_created_heap;
-   platform_free(kvs->heap_id, memfrag_init_size(kvs, kvs->mf_size));
+   platform_free_mem(kvs->heap_id, kvs, kvs->mf_size);
    platform_status rc = STATUS_OK;
    if (we_created_heap) {
       rc = platform_heap_destroy(&heap_id);
@@ -696,7 +696,7 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                                                   UINT64_MAX);
    if (!SUCCESS(rc)) {
       // Backout: Release memory alloc'ed for iterator above.
-      platform_free(kvs->spl->heap_id, memfrag_init_size(it, it->mf_size));
+      platform_free_mem(kvs->spl->heap_id, it, it->mf_size);
       return platform_status_to_int(rc);
    }
    it->parent = kvs;
@@ -712,7 +712,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
    trunk_range_iterator_deinit(range_itor);
 
    trunk_handle *spl = range_itor->spl;
-   platform_free(spl->heap_id, memfrag_init_size(iter, iter->mf_size));
+   platform_free_mem(spl->heap_id, iter, iter->mf_size);
 }
 
 _Bool

@@ -230,9 +230,7 @@ CTEST_SETUP(splinter)
 CTEST_TEARDOWN(splinter)
 {
    clockcache_deinit(data->clock_cache);
-   platform_free(
-      data->hid,
-      memfrag_init_size(data->clock_cache, data->clock_cache_mf_size));
+   platform_free_mem(data->hid, data->clock_cache, data->clock_cache_mf_size);
 
    allocator *alp = (allocator *)&data->al;
    allocator_assert_noleaks(alp);
@@ -241,18 +239,15 @@ CTEST_TEARDOWN(splinter)
    test_deinit_task_system(data->hid, &data->tasks);
 
    io_handle_deinit(data->io);
-   platform_free(data->hid, memfrag_init_size(data->io, data->io_mf_size));
+   platform_free_mem(data->hid, data->io, data->io_mf_size);
 
    if (data->cache_cfg) {
-      platform_free(
-         data->hid,
-         memfrag_init_size(data->cache_cfg, data->cache_cfg_mf_size));
+      platform_free_mem(data->hid, data->cache_cfg, data->cache_cfg_mf_size);
    }
 
    if (data->splinter_cfg) {
-      platform_free(
-         data->hid,
-         memfrag_init_size(data->splinter_cfg, data->splinter_cfg_mf_size));
+      platform_free_mem(
+         data->hid, data->splinter_cfg, data->splinter_cfg_mf_size);
    }
 
    platform_heap_destroy(&data->hid);
