@@ -562,8 +562,7 @@ platform_histo_destroy(platform_heap_id       heap_id,
    platform_assert(histo_out);
    platform_histo_handle histo = *histo_out;
    platform_free_mem(heap_id, histo, histo->mf_size);
-   histo->mf_size = 0;
-   *histo_out     = NULL;
+   *histo_out = NULL;
 }
 
 void

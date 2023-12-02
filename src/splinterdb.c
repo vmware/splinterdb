@@ -257,7 +257,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
             (open_existing ? "open existing" : "initialize"),
             kvs_cfg->filename,
             platform_status_to_string(status));
-         goto deinit_kvhandle;
+         goto heap_create_failed;
       }
       we_created_heap = TRUE;
    }
@@ -283,7 +283,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                          (open_existing ? "open existing" : "initialize"),
                          kvs_cfg->filename,
                          platform_status_to_string(status));
-      goto deinit_kvhandle;
+      goto init_config_failed;
    }
 
    // All future memory allocation should come from shared memory, if so
@@ -379,6 +379,8 @@ deinit_system:
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 io_handle_init_failed:
+init_config_failed:
+   platform_free(use_this_heap_id, &memfrag_kvs);
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
    // us to here via a 'goto', heap_id handle, if in use, may be in a
@@ -387,10 +389,10 @@ deinit_kvhandle:
       // => Caller did not setup a platform-heap on entry.
       debug_assert(kvs_cfg->heap_id == NULL);
 
-      platform_free(use_this_heap_id, &memfrag_kvs);
       platform_heap_destroy(&use_this_heap_id);
    }
 
+heap_create_failed:
    return platform_status_to_int(status);
 }
 
