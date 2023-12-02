@@ -528,7 +528,7 @@ CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
    // This config should cause a failure while trying to allocate
    // clockcache for very-large-device in small shared memory.
    cfg.shmem_size = (1 * Giga);
-   cfg.disk_size = (10 * Tera);
+   cfg.disk_size  = (10 * Tera);
 
    int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_NOT_EQUAL(0, rc);
