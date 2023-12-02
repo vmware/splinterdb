@@ -471,7 +471,10 @@ extern platform_heap_id Heap_id;
 #define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC_MF(hid, v, 1, &memfrag_##v)
 
 /*
- * Allocate a single-element of structure of type 'v'.
+ * TYPED_MALLOC_MF(), TYPED_ZALLOC_MF():
+ * Allocate a single-element of structure of type 'v', using a named memory
+ * frag.
+
  * Parameters:
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.

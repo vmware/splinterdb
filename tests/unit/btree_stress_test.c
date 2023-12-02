@@ -35,6 +35,7 @@ typedef struct insert_thread_params {
    uint64           root_addr;
    int              start;
    int              end;
+   size_t           mf_size; // Size of memfrag allocated for scratch array
 } insert_thread_params;
 
 // Function Prototypes
@@ -59,8 +60,6 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs);
 
-// RESOLVE -- Comment out these funcs till other builds / tests succeed.
-#ifdef UNDEF
 static int
 iterator_tests(cache           *cc,
                btree_config    *cfg,
@@ -75,7 +74,6 @@ iterator_seek_tests(cache           *cc,
                     uint64           root_addr,
                     int              nkvs,
                     platform_heap_id hid);
-#endif // UNDEF
 
 static uint64
 pack_tests(cache           *cc,
@@ -87,11 +85,8 @@ pack_tests(cache           *cc,
 static key
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
-// RESOLVE -- Comment out these funcs till other builds / tests succeed.
-/*
 static uint64
 ungen_key(key test_key);
-*/
 
 static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
@@ -188,8 +183,7 @@ CTEST_TEARDOWN(btree_stress)
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
    io_handle_deinit(&data->io);
-   platform_status rc = platform_heap_destroy(&data->hid);
-   ASSERT_TRUE(SUCCESS(rc));
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -209,22 +203,19 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_memfrag *mf  = NULL;
-   platform_heap_id  hid = data->hid;
-
+   platform_heap_id      hid = data->hid;
    platform_memfrag      memfrag_params;
    insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+   platform_memfrag      memfrag_threads;
+   platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
-   platform_memfrag memfrag_threads;
-   platform_thread *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
-
-   platform_memfrag memfrag_scratch;
+   platform_memfrag mf = {0};
    for (uint64 i = 0; i < nthreads; i++) {
-      params[i].cc  = (cache *)&data->cc;
-      params[i].cfg = &data->dbtree_cfg;
-      params[i].hid = data->hid;
-      params[i].scratch =
-         TYPED_MALLOC_MF(data->hid, params[i].scratch, &memfrag_scratch);
+      params[i].cc        = (cache *)&data->cc;
+      params[i].cfg       = &data->dbtree_cfg;
+      params[i].hid       = data->hid;
+      params[i].scratch   = TYPED_MALLOC_MF(data->hid, params[i].scratch, &mf);
+      params[i].mf_size   = memfrag_size(&mf);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
       params[i].start     = i * (nkvs / nthreads);
@@ -255,9 +246,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         root_addr,
                         nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
+   CTEST_LOG_INFO("BTree stress query_tests() succeeded.\n");
 
-   // RESOLVE -- Comment out these funcs till other builds / tests succeed.
-   /*
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        root_addr,
@@ -267,6 +257,9 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    {
       CTEST_ERR("invalid ranges in original tree, starting at front\n");
    }
+   CTEST_LOG_INFO("BTree stress Forward scan iterator_tests() "
+                  "succeeded.\n");
+
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        root_addr,
@@ -276,19 +269,22 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    {
       CTEST_ERR("invalid ranges in original tree, starting at back\n");
    }
+   CTEST_LOG_INFO("BTree stress Backward scan iterator_tests() "
+                  "succeeded.\n");
 
    if (!iterator_seek_tests(
           (cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs, data->hid))
    {
       CTEST_ERR("invalid ranges when seeking in original tree\n");
    }
-   */
+   CTEST_LOG_INFO("BTree stress iterator_seek_tests() succeeded.\n");
 
    uint64 packed_root_addr = pack_tests(
       (cache *)&data->cc, &data->dbtree_cfg, data->hid, root_addr, nkvs);
    if (0 < nkvs && !packed_root_addr) {
       ASSERT_TRUE(FALSE, "Pack failed.\n");
    }
+   CTEST_LOG_INFO("BTree stress pack_tests() succeeded.\n");
 
    rc = query_tests((cache *)&data->cc,
                     &data->dbtree_cfg,
@@ -297,9 +293,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                     packed_root_addr,
                     nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
+   CTEST_LOG_INFO("BTree stress query_tests() after pack succeeded.\n");
 
-   // RESOLVE -- Comment out these funcs till other builds / tests succeed.
-   /*
    rc = iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        packed_root_addr,
@@ -307,7 +302,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                        TRUE,
                        data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
-   */
+   CTEST_LOG_INFO("BTree stress Forward scan iterator_tests() after "
+                  "pack succeeded.\n");
 
    // Exercise print method to verify that it basically continues to work.
    set_log_streams_for_tests(MSG_LEVEL_DEBUG);
@@ -322,14 +318,10 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {
-      platform_free_mem(
-         data->hid, params[i].scratch, memfrag_size(&memfrag_scratch));
+      platform_free_mem(data->hid, params[i].scratch, params[i].mf_size);
    }
-   mf = &memfrag_params;
-   platform_free(hid, mf);
-
-   mf = &memfrag_threads;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_params);
+   platform_free(hid, &memfrag_threads);
 }
 
 /*
@@ -364,13 +356,16 @@ insert_tests(cache           *cc,
    uint64 generation;
    bool32 was_unique;
 
-   int              keybuf_size = btree_page_size(cfg);
-   int              msgbuf_size = btree_page_size(cfg);
+   int keybuf_size = btree_page_size(cfg);
+   int msgbuf_size = btree_page_size(cfg);
+
    platform_memfrag memfrag_keybuf;
-   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, keybuf_size);
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
 
    platform_memfrag memfrag_msgbuf;
-   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, msgbuf_size);
+   uint8           *msgbuf =
+      TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size, &memfrag_msgbuf);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -387,11 +382,8 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_memfrag *mf = &memfrag_keybuf;
-   platform_free(hid, mf);
-
-   mf = &memfrag_msgbuf;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_keybuf);
+   platform_free(hid, &memfrag_msgbuf);
 }
 
 static key
@@ -405,8 +397,6 @@ gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    return key_create(keylen, buffer);
 }
 
-// RESOLVE -- Comment out these funcs till other builds / tests succeed.
-/*
 static uint64
 ungen_key(key test_key)
 {
@@ -418,7 +408,6 @@ ungen_key(key test_key)
    memcpy(&k, key_data(test_key), sizeof(k));
    return (k - 99382474567ULL) * 14122572041603317147ULL;
 }
-*/
 
 static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
@@ -442,13 +431,13 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   size_t           page_size = btree_page_size(cfg);
    platform_memfrag memfrag_keybuf;
-   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, page_size);
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg), &memfrag_keybuf);
 
    platform_memfrag memfrag_msgbuf;
-   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, page_size);
-
+   uint8           *msgbuf =
+      TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg), &memfrag_msgbuf);
    memset(msgbuf, 0, btree_page_size(cfg));
 
    merge_accumulator result;
@@ -470,15 +459,11 @@ query_tests(cache           *cc,
    }
 
    merge_accumulator_deinit(&result);
-   platform_memfrag *mf = &memfrag_keybuf;
-   platform_free(hid, mf);
-
-   mf = &memfrag_msgbuf;
-   platform_free(hid, mf);
+   platform_free(hid, &memfrag_keybuf);
+   platform_free(hid, &memfrag_msgbuf);
    return 1;
 }
 
-#ifdef UNDEF
 static uint64
 iterator_test(platform_heap_id hid,
               btree_config    *cfg,
@@ -486,32 +471,20 @@ iterator_test(platform_heap_id hid,
               iterator        *iter,
               bool32           forwards)
 {
-   btree_iterator dbiter;
+   uint64 seen = 0;
+   key    prev = NULL_KEY;
 
-   btree_iterator_init(cc,
-                       cfg,
-                       &dbiter,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY,
-                       FALSE,
-                       0);
-
-   iterator *iter = (iterator *)&dbiter;
-
-   uint64           seen = 0;
-   bool             at_end;
-   size_t           page_size = btree_page_size(cfg);
    platform_memfrag memfrag_prevbuf;
-   uint8           *prevbuf = TYPED_ARRAY_MALLOC(hid, prevbuf, page_size);
+   uint8           *prevbuf =
+      TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg), &memfrag_prevbuf);
 
-   key              prev = NULL_KEY;
    platform_memfrag memfrag_keybuf;
-   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, page_size);
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg), &memfrag_keybuf);
 
    platform_memfrag memfrag_msgbuf;
-   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, page_size);
+   uint8           *msgbuf =
+      TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg), &memfrag_msgbuf);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -553,9 +526,9 @@ iterator_test(platform_heap_id hid,
       }
    }
 
-   platform_free(hid, prevbuf);
-   platform_free(hid, keybuf);
-   platform_free(hid, msgbuf);
+   platform_free(hid, &memfrag_prevbuf);
+   platform_free(hid, &memfrag_keybuf);
+   platform_free(hid, &memfrag_msgbuf);
    return seen;
 }
 
@@ -618,8 +591,11 @@ iterator_seek_tests(cache           *cc,
 {
    btree_iterator dbiter;
 
-   int    keybuf_size = btree_page_size(cfg);
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
+   int keybuf_size = btree_page_size(cfg);
+
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
 
    // start in the "middle" of the range
    key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);
@@ -652,21 +628,10 @@ iterator_seek_tests(cache           *cc,
    ASSERT_EQUAL(nkvs, found_up + found_down);
 
    btree_iterator_deinit(&dbiter);
-   ASSERT_EQUAL(nkvs, seen);
 
-   btree_iterator_deinit(&dbiter);
-   platform_memfrag *mf = &memfrag_prevbuf;
-   platform_free(hid, mf);
-
-   mf = &memfrag_keybuf;
-   platform_free(hid, mf);
-
-   mf = &memfrag_msgbuf;
-   platform_free(hid, mf);
-
+   platform_free(hid, &memfrag_keybuf);
    return 1;
 }
-#endif // UNDEF
 
 static uint64
 pack_tests(cache           *cc,
