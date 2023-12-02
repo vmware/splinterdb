@@ -509,7 +509,6 @@ CTEST2(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
  * is "big enough" to allocate memory for RC-allocator cache's lookup
  * array. For very large devices, with insufficiently sized shared memory
  * config, we will not be able to boot-up.
- * RESOLVE - This test case is still incomplete.
  * ---------------------------------------------------------------------------
  */
 CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
@@ -526,11 +525,13 @@ CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
    setup_cfg_for_test(&cfg, &default_data_cfg);
 
-   int rc = splinterdb_create(&cfg, &kvsb);
-   ASSERT_EQUAL(0, rc);
+   // This config should cause a failure while trying to allocate
+   // clockcache for very-large-device in small shared memory.
+   cfg.shmem_size = (1 * Giga);
+   cfg.disk_size = (10 * Tera);
 
-   rc = splinterdb_close(&kvsb);
-   ASSERT_EQUAL(0, rc);
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
 
    platform_enable_tracing_shm_ops();
 }
