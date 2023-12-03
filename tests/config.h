@@ -29,6 +29,10 @@ _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
 #define TEST_CONFIG_DEFAULT_EXTENT_SIZE                                        \
    (TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT * TEST_CONFIG_DEFAULT_PAGE_SIZE)
 
+// There are open issues in some tests for smaller key-sizes.
+// For now, restrict tests to use this minimum key-size.
+#define TEST_CONFIG_MIN_KEY_SIZE ((int)sizeof(uint64))
+
 /*
  * --------------------------------------------------------------------------
  * Convenience structure to hold configuration options for all sub-systems.
