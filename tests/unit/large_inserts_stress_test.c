@@ -394,6 +394,23 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_packed_inserts)
    exec_worker_thread(&wcfg);
 }
 
+CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
+   wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
 /*
  * Fails due to assertion failure as reported in issue #560.
  */
@@ -940,6 +957,12 @@ exec_worker_thread(void *w)
       key_len = sizeof(key_data_be);
    }
 
+   int32 key_data_he; // int-32 keys generated in host-endian-32 notation
+   if (wcfg->key_type == SEQ_KEY_HOST_ENDIAN_32) {
+      key_buf = (char *)&key_data_he;
+      key_len = sizeof(key_data_he);
+   }
+
    // Insert fully-packed wider-values so we fill pages faster.
    // This value-data will be chosen when random_key_fd < 0.
    uint64 val_len = val_buf_size;
@@ -954,6 +977,8 @@ exec_worker_thread(void *w)
          if (wcfg->key_type == SEQ_KEY_BIG_ENDIAN_32) {
             // Generate sequential key data, stored in big-endian order
             key_data_be = htobe32(id);
+         } else if (wcfg->key_type == SEQ_KEY_HOST_ENDIAN_32) {
+            key_data_he = id;
          } else {
             platform_assert(FALSE,
                             "Unknown key-data strategy %d (%s)",
