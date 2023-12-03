@@ -8,6 +8,29 @@
  * This test exercises simple very large #s of inserts which have found to
  * trigger some bugs in some code paths. This is just a miscellaneous collection
  * of test cases for different issues reported / encountered over time.
+ *
+ * Regression fix test cases:
+ *  test_issue_458_mini_destroy_unused_debug_assert
+ *  test_fp_num_tuples_out_of_bounds_bug_trunk_build_filters
+ *
+ * Single-client test cases:
+ *  - test_seq_key_seq_values_inserts
+ *  - test_seq_htobe32_key_random_6byte_values_inserts
+ *  - test_random_key_seq_values_inserts
+ *  - test_seq_key_random_values_inserts
+ *  - test_random_key_random_values_inserts
+ *
+ * Test-case with forked process:
+ *  - test_seq_key_seq_values_inserts_forked
+ *
+ * Multiple-threads test cases:
+ *  - test_seq_key_seq_values_inserts_threaded
+ *  - test_seq_key_seq_values_inserts_threaded_same_start_keyid
+ *  - test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid
+ *  - test_random_keys_seq_values_threaded
+ *  - test_seq_keys_random_values_threaded
+ *  - test_seq_keys_random_values_threaded_same_start_keyid
+ *  - test_random_keys_random_values_threaded
  * -----------------------------------------------------------------------------
  */
 #include <fcntl.h>
@@ -34,14 +57,18 @@
  * data distribution during inserts.
  */
 typedef struct {
-   splinterdb    *kvsb;
-   master_config *master_cfg;
-   uint64         start_value;
-   uint64         num_inserts;
-   uint64         num_insert_threads;
-   int            random_key_fd; // Options to choose the type of key inserted
-   int            random_val_fd; // Options to choose the type of value inserted
-   bool           is_thread;     // Is main() or thread executing worker fn
+   platform_heap_id hid;
+   splinterdb      *kvsb;
+   uint64           start_value;
+   uint64           num_inserts;
+   uint64           num_insert_threads;
+   size_t           key_size;      // --key-size test execution argument
+   size_t           val_size;      // --data-size test execution argument
+   int              random_key_fd; // Options to choose the type of key inserted
+   int  random_val_fd; // Options to choose the type of value inserted
+   bool fork_child;
+   bool is_thread; // Is main() or thread executing worker fn
+   bool verbose_progress;
 } worker_config;
 
 /*
@@ -83,7 +110,6 @@ exec_worker_thread(void *w);
 
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
-                     master_config   *master_cfg,
                      platform_heap_id hid,
                      int              random_key_fd,
                      int              random_val_fd,
@@ -123,16 +149,21 @@ CTEST_DATA(large_inserts_stress)
    splinterdb       *kvsb;
    splinterdb_config cfg;
    data_config       default_data_config;
-   master_config     master_cfg;
    uint64            num_inserts; // per main() process or per thread
    uint64            num_insert_threads;
+   size_t            key_size; // --key-size test execution argument
+   size_t            val_size; // --data-size test execution argument
    int               this_pid;
+   bool              fork_child;
+   bool              verbose_progress;
    bool              am_parent;
+   bool              key_val_sizes_printed;
 };
 
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(large_inserts_stress)
 {
+   master_config master_cfg = {0};
    // First, register that main() is being run as a parent process
    data->am_parent = TRUE;
    data->this_pid  = getpid();
@@ -140,16 +171,16 @@ CTEST_SETUP(large_inserts_stress)
    platform_status rc;
    uint64          heap_capacity = (64 * MiB); // small heap is sufficient.
 
-   config_set_defaults(&data->master_cfg);
+   config_set_defaults(&master_cfg);
 
    // Expected args to parse --num-inserts, --use-shmem, --verbose-progress.
-   rc = config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
+   rc = config_parse(&master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Create a heap for allocating on-stack buffers for various arrays.
    rc = platform_heap_create(platform_get_module_id(),
                              heap_capacity,
-                             data->master_cfg.use_shmem,
+                             master_cfg.use_shmem,
                              &data->hid);
    platform_assert_status_ok(rc);
 
@@ -157,43 +188,53 @@ CTEST_SETUP(large_inserts_stress)
       (splinterdb_config){.filename = "splinterdb_large_inserts_stress_test_db",
                           .cache_size = 4 * Giga,
                           .disk_size  = 40 * Giga,
-                          .use_shmem  = data->master_cfg.use_shmem,
+                          .use_shmem  = master_cfg.use_shmem,
                           .shmem_size = (1 * GiB),
                           .data_cfg   = &data->default_data_config};
 
    data->num_inserts =
-      (data->master_cfg.num_inserts ? data->master_cfg.num_inserts
-                                    : (2 * MILLION));
+      (master_cfg.num_inserts ? master_cfg.num_inserts : (2 * MILLION));
 
    // If num_threads is unspecified, use default for this test.
-   if (!data->master_cfg.num_threads) {
-      data->master_cfg.num_threads = NUM_THREADS;
+   if (!master_cfg.num_threads) {
+      master_cfg.num_threads = NUM_THREADS;
    }
-   data->num_insert_threads = data->master_cfg.num_threads;
+   data->num_insert_threads = master_cfg.num_threads;
 
    if ((data->num_inserts % MILLION) != 0) {
-      platform_error_log("Test expects --num-inserts parameter to be an"
-                         " integral multiple of a million.\n");
-      ASSERT_EQUAL(0, (data->num_inserts % MILLION));
-      return;
+      size_t num_million = (data->num_inserts / MILLION);
+      data->num_inserts  = (num_million * MILLION);
+      CTEST_LOG_INFO("Test expects --num-inserts parameter to be an"
+                     " integral multiple of a million."
+                     " Reset --num-inserts to %lu million.\n",
+                     num_million);
    }
 
    // Run with higher configured shared memory, if specified
-   if (data->master_cfg.shmem_size > data->cfg.shmem_size) {
-      data->cfg.shmem_size = data->master_cfg.shmem_size;
+   if (master_cfg.shmem_size > data->cfg.shmem_size) {
+      data->cfg.shmem_size = master_cfg.shmem_size;
    }
    // Setup Splinter's background thread config, if specified
-   data->cfg.num_memtable_bg_threads = data->master_cfg.num_memtable_bg_threads;
-   data->cfg.num_normal_bg_threads   = data->master_cfg.num_normal_bg_threads;
-   data->cfg.use_stats               = data->master_cfg.use_stats;
+   data->cfg.num_memtable_bg_threads = master_cfg.num_memtable_bg_threads;
+   data->cfg.num_normal_bg_threads   = master_cfg.num_normal_bg_threads;
+   data->cfg.use_stats               = master_cfg.use_stats;
 
-   size_t max_key_size = TEST_KEY_SIZE;
-   default_data_config_init(max_key_size, data->cfg.data_cfg);
+   data->key_size =
+      (master_cfg.max_key_size ? master_cfg.max_key_size : TEST_KEY_SIZE);
+   data->val_size =
+      (master_cfg.message_size ? master_cfg.message_size : TEST_VALUE_SIZE);
+   default_data_config_init(data->key_size, data->cfg.data_cfg);
 
+   data->fork_child       = master_cfg.fork_child;
+   data->verbose_progress = master_cfg.verbose_progress;
    platform_enable_tracing_large_frags();
 
    int rv = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rv);
+
+   CTEST_LOG_INFO("... with key-size=%lu, value-size=%lu bytes\n",
+                  data->key_size,
+                  data->val_size);
 }
 
 // Optional teardown function for suite, called after every test in suite
@@ -276,10 +317,13 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = SEQ_KEY_HOST_ENDIAN_FD;
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.random_key_fd    = SEQ_KEY_HOST_ENDIAN_FD;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.fork_child       = data->fork_child;
+   wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
@@ -294,11 +338,14 @@ CTEST2_SKIP(large_inserts_stress,
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = SEQ_KEY_BIG_ENDIAN_32_FD;
-   wcfg.random_val_fd = RANDOM_VAL_FIXED_LEN_FD;
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.random_key_fd    = SEQ_KEY_BIG_ENDIAN_32_FD;
+   wcfg.random_val_fd    = RANDOM_VAL_FIXED_LEN_FD;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.fork_child       = data->fork_child;
+   wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
@@ -309,10 +356,13 @@ CTEST2(large_inserts_stress, test_random_key_seq_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.random_key_fd    = open("/dev/urandom", O_RDONLY);
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.fork_child       = data->fork_child;
+   wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 
@@ -325,10 +375,15 @@ CTEST2(large_inserts_stress, test_seq_key_random_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.random_val_fd    = open("/dev/urandom", O_RDONLY);
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.fork_child       = data->fork_child;
+   wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 
@@ -341,11 +396,14 @@ CTEST2(large_inserts_stress, test_random_key_random_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
-   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.random_key_fd    = open("/dev/urandom", O_RDONLY);
+   wcfg.random_val_fd    = open("/dev/urandom", O_RDONLY);
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.fork_child       = data->fork_child;
+   wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 
@@ -384,12 +442,11 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
 
    // Load worker config params
    wcfg.kvsb        = data->kvsb;
-   wcfg.master_cfg  = &data->master_cfg;
    wcfg.num_inserts = data->num_inserts;
 
    int pid = getpid();
 
-   if (wcfg.master_cfg->fork_child) {
+   if (wcfg.fork_child) {
       pid = fork();
 
       if (pid < 0) {
@@ -418,7 +475,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
 
       CTEST_LOG_INFO("OS-pid=%d Running as %s process ...\n",
                      data->this_pid,
-                     (wcfg.master_cfg->fork_child ? "forked child" : "parent"));
+                     (wcfg.fork_child ? "forked child" : "parent"));
 
       splinterdb_register_thread(wcfg.kvsb);
 
@@ -453,7 +510,6 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_threaded)
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
                         TEST_INSERT_SEQ_VALUES_FD,
@@ -475,7 +531,6 @@ CTEST2_SKIP(large_inserts_stress,
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         TEST_INSERT_SEQ_VALUES_FD,
@@ -495,7 +550,6 @@ CTEST2_SKIP(large_inserts_stress,
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         TEST_INSERT_FULLY_PACKED_CONSTANT_VALUE_FD,
@@ -510,7 +564,6 @@ CTEST2(large_inserts_stress, test_random_keys_seq_values_threaded)
 
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         random_key_fd,
                         TEST_INSERT_SEQ_VALUES_FD,
@@ -527,7 +580,6 @@ CTEST2(large_inserts_stress, test_seq_keys_random_values_threaded)
 
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
                         random_val_fd,
@@ -549,7 +601,6 @@ CTEST2_SKIP(large_inserts_stress,
 
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         random_val_fd,
@@ -569,7 +620,6 @@ CTEST2(large_inserts_stress, test_random_keys_random_values_threaded)
 
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
-                        &data->master_cfg,
                         data->hid,
                         random_key_fd,
                         random_val_fd,
@@ -602,15 +652,15 @@ CTEST2(large_inserts_stress,
    // Test is written to insert multiples of millions per thread.
    ASSERT_EQUAL(0, (data->num_inserts % MILLION));
 
-   platform_default_log("%s()::%d:Thread-%-lu inserts %lu (%lu million)"
-                        ", sequential key, sequential value, "
-                        "KV-pairs starting from %lu ...\n",
-                        __func__,
-                        __LINE__,
-                        thread_idx,
-                        data->num_inserts,
-                        (data->num_inserts / MILLION),
-                        start_key);
+   CTEST_LOG_INFO("%s()::%d:Thread-%-lu inserts %lu (%lu million)"
+                  ", sequential key, sequential value, "
+                  "KV-pairs starting from %lu ...\n",
+                  __func__,
+                  __LINE__,
+                  thread_idx,
+                  data->num_inserts,
+                  (data->num_inserts / MILLION),
+                  start_key);
 
    uint64 ictr = 0;
    uint64 jctr = 0;
@@ -635,7 +685,7 @@ CTEST2(large_inserts_stress,
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {
-         platform_default_log(
+         CTEST_LOG_INFO(
             "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
             __func__,
             __LINE__,
@@ -649,14 +699,14 @@ CTEST2(large_inserts_stress,
       elapsed_s = 1;
    }
 
-   platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
-                        "%lu s, %lu rows/s\n",
-                        __func__,
-                        __LINE__,
-                        thread_idx,
-                        ictr, // outer-loop ends at #-of-Millions inserted
-                        elapsed_s,
-                        (data->num_inserts / elapsed_s));
+   CTEST_LOG_INFO("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
+                  "%lu s, %lu rows/s\n",
+                  __func__,
+                  __LINE__,
+                  thread_idx,
+                  ictr, // outer-loop ends at #-of-Millions inserted
+                  elapsed_s,
+                  (data->num_inserts / elapsed_s));
 }
 
 /*
@@ -695,7 +745,6 @@ CTEST2(large_inserts_stress,
  */
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
-                     master_config   *master_cfg,
                      platform_heap_id hid,
                      int              random_key_fd,
                      int              random_val_fd,
@@ -708,7 +757,6 @@ do_inserts_n_threads(splinterdb      *kvsb,
    // Setup thread-specific insert parameters
    for (int ictr = 0; ictr < num_insert_threads; ictr++) {
       wcfg[ictr].kvsb        = kvsb;
-      wcfg[ictr].master_cfg  = master_cfg;
       wcfg[ictr].num_inserts = num_inserts;
 
       // Choose the same or diff start key-ID for each thread.
@@ -763,13 +811,17 @@ do_inserts_n_threads(splinterdb      *kvsb,
 static void *
 exec_worker_thread(void *w)
 {
-   char   key_buf[TEST_KEY_SIZE];
-   char  *key_data = key_buf;
+   worker_config *wcfg = (worker_config *)w;
+
+   platform_memfrag memfrag_key_buf;
+   char  *key_buf      = TYPED_ARRAY_MALLOC(wcfg->hid, key_buf, wcfg->key_size);
+   char  *key_data     = key_buf;
+   size_t key_buf_size = wcfg->key_size;
    uint64 key_len;
 
-   char val_data[TEST_VALUE_SIZE];
-
-   worker_config *wcfg = (worker_config *)w;
+   size_t           val_buf_size = wcfg->val_size;
+   platform_memfrag memfrag_val_buf;
+   char *val_buf = TYPED_ARRAY_MALLOC(wcfg->hid, val_buf, (val_buf_size + 1));
 
    splinterdb *kvsb          = wcfg->kvsb;
    uint64      start_key     = wcfg->start_value;
@@ -815,15 +867,15 @@ exec_worker_thread(void *w)
    uint64 ictr = 0;
    uint64 jctr = 0;
 
-   bool verbose_progress = wcfg->master_cfg->verbose_progress;
+   bool verbose_progress = wcfg->verbose_progress;
 
-   // Initialize on-stack buffer to avoid MSAN failures
-   memset(key_buf, 'X', sizeof(key_buf));
+   // Initialize allocated buffer to avoid MSAN failures
+   memset(key_buf, 'X', key_buf_size);
 
    // Insert fully-packed wider-values so we fill pages faster.
    // This value-data will be chosen when random_key_fd < 0.
-   memset(val_data, 'V', sizeof(val_data));
-   uint64 val_len = sizeof(val_data);
+   uint64 val_len = val_buf_size;
+   memset(val_buf, 'V', val_buf_size);
 
    bool val_length_msg_printed = FALSE;
 
@@ -842,7 +894,7 @@ exec_worker_thread(void *w)
             key_len = result;
          } else if (random_key_fd == SEQ_KEY_HOST_ENDIAN_FD) {
             // Generate sequential key data, stored in host-endian order
-            snprintf(key_buf, sizeof(key_buf), "%lu", id);
+            snprintf(key_buf, key_buf_size, "%lu", id);
             key_len = strlen(key_buf);
          } else if (random_key_fd == SEQ_KEY_BIG_ENDIAN_32_FD) {
             // Generate sequential key data, stored in big-endian order
@@ -855,9 +907,9 @@ exec_worker_thread(void *w)
             // Generate random value choosing the width of value generated.
             val_len = ((random_val_fd == RANDOM_VAL_FIXED_LEN_FD)
                           ? RANDOM_VAL_FIXED_LEN_FD
-                          : sizeof(val_data));
+                          : val_buf_size);
 
-            size_t result = read(random_val_fd, val_data, val_len);
+            size_t result = read(random_val_fd, val_buf, val_len);
             ASSERT_TRUE(result >= 0);
 
             if (!val_length_msg_printed) {
@@ -871,8 +923,8 @@ exec_worker_thread(void *w)
             }
          } else if (random_val_fd == SEQ_VAL_SMALL_LENGTH_FD) {
             // Generate small-length sequential value data
-            snprintf(val_data, sizeof(val_data), "Row-%lu", id);
-            val_len = strlen(val_data);
+            snprintf(val_buf, val_buf_size, "Row-%lu", id);
+            val_len = val_buf_size;
 
             if (!val_length_msg_printed) {
                CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
@@ -896,19 +948,19 @@ exec_worker_thread(void *w)
 
          key_len   = 4;
          slice key = slice_create(key_len, key_data);
-         val_len   = sizeof(val_data);
-         slice val = slice_create(val_len, val_data);
+         val_len   = val_buf_size;
+         slice val = slice_create(val_len, val_buf);
 
          int rc = splinterdb_insert(kvsb, key, val);
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {
-         CTEST_LOG_INFO(
-            "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
-            __func__,
-            __LINE__,
-            thread_idx,
-            (ictr + 1));
+         CTEST_LOG_INFO("%s()::%d:Thread-%lu Inserted %lu million "
+                        "KV-pairs ...\n",
+                        __func__,
+                        __LINE__,
+                        thread_idx,
+                        (ictr + 1));
       }
    }
    // Deal with low ns-elapsed times when inserting small #s of rows
@@ -931,5 +983,7 @@ exec_worker_thread(void *w)
       splinterdb_deregister_thread(kvsb);
    }
 
+   platform_free(wcfg->hid, &memfrag_key_buf);
+   platform_free(wcfg->hid, &memfrag_val_buf);
    return 0;
 }
