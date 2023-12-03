@@ -53,7 +53,7 @@
 
 /*
  * Configuration for each worker thread. See the selection of 'fd'-semantics
- * as implemented in exec_worker_thread(), to select diff types of key/value's
+ * as implemented in exec_worker_thread0(), to select diff types of key/value's
  * data distribution during inserts.
  */
 typedef struct {
@@ -106,7 +106,7 @@ typedef struct {
 
 // Function Prototypes
 static void *
-exec_worker_thread(void *w);
+exec_worker_thread0(void *w);
 
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
@@ -302,7 +302,7 @@ CTEST2_SKIP(large_inserts_stress,
 }
 
 /*
- * Test cases exercise the thread's worker-function, exec_worker_thread(),
+ * Test cases exercise the thread's worker-function, exec_worker_thread0(),
  * from the main connection to splinter, for specified number of inserts.
  *
  * We play with 4 combinations just to get some basic coverage:
@@ -325,7 +325,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
    wcfg.fork_child       = data->fork_child;
    wcfg.verbose_progress = data->verbose_progress;
 
-   exec_worker_thread(&wcfg);
+   exec_worker_thread0(&wcfg);
 }
 
 /*
@@ -347,7 +347,7 @@ CTEST2_SKIP(large_inserts_stress,
    wcfg.fork_child       = data->fork_child;
    wcfg.verbose_progress = data->verbose_progress;
 
-   exec_worker_thread(&wcfg);
+   exec_worker_thread0(&wcfg);
 }
 
 CTEST2(large_inserts_stress, test_random_key_seq_values_inserts)
@@ -364,7 +364,7 @@ CTEST2(large_inserts_stress, test_random_key_seq_values_inserts)
    wcfg.fork_child       = data->fork_child;
    wcfg.verbose_progress = data->verbose_progress;
 
-   exec_worker_thread(&wcfg);
+   exec_worker_thread0(&wcfg);
 
    close(wcfg.random_key_fd);
 }
@@ -385,7 +385,7 @@ CTEST2(large_inserts_stress, test_seq_key_random_values_inserts)
    wcfg.fork_child       = data->fork_child;
    wcfg.verbose_progress = data->verbose_progress;
 
-   exec_worker_thread(&wcfg);
+   exec_worker_thread0(&wcfg);
 
    close(wcfg.random_val_fd);
 }
@@ -405,7 +405,7 @@ CTEST2(large_inserts_stress, test_random_key_random_values_inserts)
    wcfg.fork_child       = data->fork_child;
    wcfg.verbose_progress = data->verbose_progress;
 
-   exec_worker_thread(&wcfg);
+   exec_worker_thread0(&wcfg);
 
    close(wcfg.random_key_fd);
    close(wcfg.random_val_fd);
@@ -479,7 +479,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
 
       splinterdb_register_thread(wcfg.kvsb);
 
-      exec_worker_thread(&wcfg);
+      exec_worker_thread0(&wcfg);
 
       CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu, Child process"
                      ", completed inserts.\n",
@@ -774,7 +774,7 @@ do_inserts_n_threads(splinterdb      *kvsb,
    // Fire-off the threads to drive inserts ...
    for (int tctr = 0; tctr < num_insert_threads; tctr++) {
       int rc = pthread_create(
-         &thread_ids[tctr], NULL, &exec_worker_thread, &wcfg[tctr]);
+         &thread_ids[tctr], NULL, &exec_worker_thread0, &wcfg[tctr]);
       ASSERT_EQUAL(0, rc);
    }
 
@@ -800,7 +800,7 @@ do_inserts_n_threads(splinterdb      *kvsb,
 
 /*
  * ----------------------------------------------------------------------------
- * exec_worker_thread() - Thread-specific insert work-horse function.
+ * exec_worker_thread0() - Thread-specific insert work-horse function.
  *
  * Each thread inserts 'num_inserts' KV-pairs from a 'start_value' ID.
  * Nature of the inserts is controlled by wcfg config parameters. Caller can
@@ -809,7 +809,7 @@ do_inserts_n_threads(splinterdb      *kvsb,
  * ----------------------------------------------------------------------------
  */
 static void *
-exec_worker_thread(void *w)
+exec_worker_thread0(void *w)
 {
    worker_config *wcfg = (worker_config *)w;
 
