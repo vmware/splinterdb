@@ -411,6 +411,23 @@ CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
+CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_packed_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
+   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
 /*
  * Fails due to assertion failure as reported in issue #560.
  */
