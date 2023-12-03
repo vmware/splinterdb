@@ -68,6 +68,11 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
                "Lookup array Key_strategy_names[] is incorrectly sized for "
                "NUM_KEY_DATA_STRATEGIES");
 
+#define Key_strategy_name(id)                                                  \
+   ((((id) > 0) && ((id) < NUM_KEY_DATA_STRATEGIES))                           \
+       ? Key_strategy_names[(id)]                                              \
+       : Key_strategy_names[0])
+
 typedef enum {
    SEQ_VAL_SMALL = 1, // 'Row-%d'
    SEQ_VAL_PACKED,    // 'Row-%d' padded to value data buffer size
@@ -84,6 +89,11 @@ const char *Val_strategy_names[] = {
 _Static_assert(ARRAY_SIZE(Val_strategy_names) == NUM_VALUE_DATA_STRATEGIES,
                "Lookup array Key_strategy_names[] is incorrectly sized for "
                "NUM_VALUE_DATA_STRATEGIES");
+
+#define Val_strategy_name(id)                                                  \
+   ((((id) > 0) && ((id) < NUM_VALUE_DATA_STRATEGIES))                         \
+       ? Val_strategy_names[(id)]                                              \
+       : Val_strategy_names[0])
 
 /*
  * Configuration for each worker thread. See the selection of 'fd'-semantics
@@ -362,6 +372,23 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
    wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_seq_key_seq_values_packed_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
+   wcfg.val_type         = SEQ_VAL_PACKED;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -927,12 +954,27 @@ exec_worker_thread(void *w)
          if (wcfg->key_type == SEQ_KEY_BIG_ENDIAN_32) {
             // Generate sequential key data, stored in big-endian order
             key_data_be = htobe32(id);
+         } else {
+            platform_assert(FALSE,
+                            "Unknown key-data strategy %d (%s)",
+                            wcfg->key_type,
+                            Key_strategy_name(wcfg->key_type));
          }
 
          // Generate value-data based on value-strategy specified.
          if (wcfg->val_type == SEQ_VAL_SMALL) {
             // Generate small-length sequential value data
             val_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
+         } else if (wcfg->val_type == SEQ_VAL_PACKED) {
+            // Generate small-length sequential value packed-data
+            int tmp_len      = snprintf(val_buf, val_buf_size, "Row-%lu", id);
+            val_buf[tmp_len] = 'V';
+
+         } else {
+            platform_assert(FALSE,
+                            "Unknown value-data strategy %d (%s)",
+                            wcfg->val_type,
+                            Val_strategy_name(wcfg->val_type));
          }
          slice key = slice_create(key_len, key_buf);
          slice val = slice_create(val_len, val_buf);
