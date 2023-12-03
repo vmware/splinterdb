@@ -294,7 +294,7 @@ typedef struct ycsb_log_params {
    latency_tables tables;
 
    task_system *ts;
-   size_t       frag_size; // of memory fragment allocated.
+   size_t       mf_size; // of memory fragment allocated.
 } ycsb_log_params;
 
 typedef struct ycsb_phase {
@@ -742,7 +742,7 @@ load_ycsb_logs(int          argc,
    // Ensure that memset() is not clobbering memory ...
    nbytes = (num_threads * sizeof(*params));
    platform_assert(memfrag_size(&memfrag_params) >= nbytes);
-   params->frag_size = memfrag_size(&memfrag_params);
+   params->mf_size = memfrag_size(&memfrag_params);
    memset(params, 0, nbytes);
 
    log_size_bytes += nbytes;
@@ -1369,7 +1369,8 @@ ycsb_test(int argc, char *argv[])
    compute_all_report_data(phases, nphases);
    write_all_reports(phases, nphases);
    // RESOLVE: Fix all refs to PROCESS_PRIVATE_HEAP_ID to use hid
-   // and fix call to platform_free().
+   // and fix call to platform_free(). Help! This area needs attn.
+   // What should be memfrag's size to be supplied to platform_free_mem()?
    for (uint64 i = 0; i < nphases; i++) {
       for (uint64 j = 0; j < phases[i].nlogs; j++) {
          platform_free(PROCESS_PRIVATE_HEAP_ID, phases[i].params[j].ycsb_ops);
