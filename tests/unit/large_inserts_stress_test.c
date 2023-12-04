@@ -418,6 +418,7 @@ CTEST2(large_inserts_stress, test_seq_key_rand_length_values_inserts)
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -457,6 +458,24 @@ CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_packed_inserts)
    exec_worker_thread(&wcfg);
 }
 
+CTEST2(large_inserts_stress, test_seq_key_he32_rand_length_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
+   wcfg.val_type         = RAND_VAL_RAND_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
 CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_inserts)
 {
    worker_config wcfg;
@@ -491,6 +510,25 @@ CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_packed_inserts)
    exec_worker_thread(&wcfg);
 }
 
+CTEST2(large_inserts_stress,
+       test_seq_key_packed_he32_rand_length_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
+   wcfg.val_type         = RAND_VAL_RAND_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
 CTEST2(large_inserts_stress, test_rand_key_seq_values_inserts)
 {
    worker_config wcfg;
@@ -519,8 +557,27 @@ CTEST2(large_inserts_stress, test_rand_key_seq_values_packed_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
    wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_rand_key_rand_length_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = RAND_KEY_RAND_LENGTH;
+   wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
