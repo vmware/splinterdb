@@ -58,6 +58,7 @@ typedef enum {
    SEQ_KEY_HOST_ENDIAN_32,
    SEQ_KEY_PACKED_HOST_ENDIAN_32,
    RAND_KEY_RAND_LENGTH,
+   RAND_KEY_PACKED_LENGTH,
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
@@ -67,7 +68,8 @@ const char *Key_strategy_names[] = {
    "Sequential key, 32-bit big-endian",
    "Sequential key, 32-bit host-endian",
    "Sequential key, fully-packed to key-data buffer, 32-bit host-endian",
-   "Random key-data, random length"};
+   "Random key-data, random length",
+   "Random key-data, fully-packed to key-data buffer"};
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
@@ -499,6 +501,42 @@ CTEST2(large_inserts_stress, test_rand_key_seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
+   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
+   wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_packed_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
    wcfg.val_type         = SEQ_VAL_PACKED;
    wcfg.verbose_progress = data->verbose_progress;
 
@@ -1068,6 +1106,9 @@ exec_worker_thread(void *w)
          key_len = key_buf_size;
          break;
 
+      case RAND_KEY_PACKED_LENGTH:
+         key_len = key_buf_size;
+         // Fall-through
       case RAND_KEY_RAND_LENGTH:
          random_init(&key_rs, wcfg->rand_seed, 0);
          break;
@@ -1100,13 +1141,19 @@ exec_worker_thread(void *w)
                key_buf[tmp_len] = 'K';
                break;
             }
+
             case RAND_KEY_RAND_LENGTH:
                // Fill-up key-data buffer with random data for random length.
                key_len = random_next_int(
                   &key_rs, TEST_CONFIG_MIN_KEY_SIZE, key_buf_size);
                random_bytes(&key_rs, key_buf, key_len);
-
                break;
+
+            case RAND_KEY_PACKED_LENGTH:
+               // Pack-up key-data buffer with random data
+               random_bytes(&key_rs, key_buf, key_len);
+               break;
+
             default:
                break;
          }
