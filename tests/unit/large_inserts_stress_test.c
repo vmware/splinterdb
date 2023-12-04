@@ -46,6 +46,7 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "splinterdb_tests_private.h"
+#include "functional/random.h"
 
 // Nothing particularly significant about these constants.
 #define TEST_KEY_SIZE   30
@@ -56,6 +57,7 @@ typedef enum {
    SEQ_KEY_BIG_ENDIAN_32 = 1,
    SEQ_KEY_HOST_ENDIAN_32,
    SEQ_KEY_PACKED_HOST_ENDIAN_32,
+   RAND_KEY_RAND_LENGTH,
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
@@ -64,7 +66,8 @@ const char *Key_strategy_names[] = {
    "Undefined key-data strategy",
    "Sequential key, 32-bit big-endian",
    "Sequential key, 32-bit host-endian",
-   "Sequential key, fully-packed to key-data buffer, 32-bit host-endian"};
+   "Sequential key, fully-packed to key-data buffer, 32-bit host-endian",
+   "Random key-data, random length"};
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
@@ -111,6 +114,7 @@ typedef struct {
    uint64           num_insert_threads;
    size_t           key_size; // --key-size test execution argument
    size_t           val_size; // --data-size test execution argument
+   uint64           rand_seed;
    int              random_key_fd;
    int              random_val_fd;
    key_strategy     key_type;
@@ -204,6 +208,7 @@ CTEST_DATA(large_inserts_stress)
    uint64            num_insert_threads;
    size_t            key_size; // --key-size test execution argument
    size_t            val_size; // --data-size test execution argument
+   uint64            rand_seed;
    int               this_pid;
    bool              fork_child;
    bool              verbose_progress;
@@ -459,6 +464,41 @@ CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
+   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_rand_key_seq_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = RAND_KEY_RAND_LENGTH;
+   wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_rand_key_seq_values_packed_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = RAND_KEY_RAND_LENGTH;
    wcfg.val_type         = SEQ_VAL_PACKED;
    wcfg.verbose_progress = data->verbose_progress;
 
@@ -1005,13 +1045,14 @@ exec_worker_thread(void *w)
    memset(key_buf, 'K', key_buf_size);
 
    // Insert fully-packed wider-values so we fill pages faster.
-   // This value-data will be chosen when random_key_fd < 0.
    uint64 val_len = val_buf_size;
    memset(val_buf, 'V', val_buf_size);
 
    int32  key_data_be; // int-32 keys generated in big-endian-32 notation
    int32  key_data_he; // int-32 keys generated in host-endian-32 notation
    uint64 key_len;
+
+   random_state key_rs;
    switch (wcfg->key_type) {
       case SEQ_KEY_BIG_ENDIAN_32:
          key_buf = (char *)&key_data_be;
@@ -1025,6 +1066,10 @@ exec_worker_thread(void *w)
 
       case SEQ_KEY_PACKED_HOST_ENDIAN_32:
          key_len = key_buf_size;
+         break;
+
+      case RAND_KEY_RAND_LENGTH:
+         random_init(&key_rs, wcfg->rand_seed, 0);
          break;
 
       default:
@@ -1055,6 +1100,13 @@ exec_worker_thread(void *w)
                key_buf[tmp_len] = 'K';
                break;
             }
+            case RAND_KEY_RAND_LENGTH:
+               // Fill-up key-data buffer with random data for random length.
+               key_len = random_next_int(
+                  &key_rs, TEST_CONFIG_MIN_KEY_SIZE, key_buf_size);
+               random_bytes(&key_rs, key_buf, key_len);
+
+               break;
             default:
                break;
          }
@@ -1115,6 +1167,7 @@ exec_worker_thread(void *w)
       splinterdb_deregister_thread(kvsb);
    }
 
+   // Cleanup resources opened in this call.
    platform_free(wcfg->hid, &memfrag_key_buf);
    platform_free(wcfg->hid, &memfrag_val_buf);
    return 0;
