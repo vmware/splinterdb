@@ -74,23 +74,27 @@
  *  size.
  * ----------------------------------------------------------------------------
  */
-typedef enum {
-   SEQ_KEY_BIG_ENDIAN_32 = 1,
-   SEQ_KEY_HOST_ENDIAN_32,
-   SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,
-   RAND_KEY_RAND_LENGTH,
-   RAND_KEY_DATA_BUF_SIZE,
+// clang-format off
+typedef enum {                              // Test-case
+   SEQ_KEY_BIG_ENDIAN_32 = 1,               // 1
+   SEQ_KEY_HOST_ENDIAN_32,                  // 2
+   SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,    // 3
+   RAND_KEY_RAND_LENGTH,                    // 4
+   RAND_KEY_DATA_BUF_SIZE,                  // 5
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
 // Key-data strategy names, indexed by key_strategy enum values.
 const char *Key_strategy_names[] = {
-   "Undefined key-data strategy",
-   "Sequential key, 32-bit big-endian",
-   "Sequential key, 32-bit host-endian",
-   "Sequential key, fully-packed to key-data buffer, 32-bit host-endian",
-   "Random key-data, random length",
-   "Random key-data, fully-packed to key-data buffer"};
+     "Undefined key-data strategy"
+   , "Sequential key, 32-bit big-endian"
+   , "Sequential key, 32-bit host-endian"
+   , "Sequential key, fully-packed to key-data buffer, 32-bit host-endian"
+   , "Random key-data, random length"
+   , "Random key-data, fully-packed to key-data buffer"
+};
+
+// clang-format on
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
@@ -121,21 +125,25 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
  * length of the payload when integrating SplinterDB with Postgres.
  * ----------------------------------------------------------------------------
  */
-typedef enum {
-   SEQ_VAL_SMALL = 1,     // 'Row-%d'
-   SEQ_VAL_PADDED_LENGTH, // 'Row-%d' padded to value data buffer size
-   RAND_VAL_RAND_LENGTH,
-   RAND_6BYTE_VAL,
+// clang-format off
+typedef enum {            // Sub-case
+   SEQ_VAL_SMALL = 1,     // (a) 'Row-%d'
+   SEQ_VAL_PADDED_LENGTH, // (b) 'Row-%d' padded to value data buffer size
+   RAND_VAL_RAND_LENGTH,  // (c)
+   RAND_6BYTE_VAL,        // (d)
    NUM_VALUE_DATA_STRATEGIES
 } val_strategy;
 
 // Value-data strategy names, indexed by val_strategy enum values.
 const char *Val_strategy_names[] = {
-   "Undefined value-data strategy",
-   "Small length sequential value",
-   "Sequential value, fully-packed to value-data buffer",
-   "Random value, of random-length",
-   "Random value, 6-bytes length"};
+     "Undefined value-data strategy"
+   , "Small length sequential value"
+   , "Sequential value, fully-packed to value-data buffer"
+   , "Random value, of random-length"
+   , "Random value, 6-bytes length"
+};
+
+// clang-format on
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Val_strategy_names) == NUM_VALUE_DATA_STRATEGIES,
@@ -470,7 +478,7 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts)
 }
 
 /*
- * Fails due to assertion failure as reported in issue #560.
+ * Fails, sometimes, due to assertion failure as reported in issue #560.
  */
 // Case 1(d) - SEQ_KEY_BIG_ENDIAN_32
 // clang-format off
@@ -549,7 +557,7 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts)
 }
 
 /*
- * Fails due to assertion failure as reported in issue #560.
+ * Fails, sometimes, due to assertion failure as reported in issue #560.
  */
 // Case 2(d) - SEQ_KEY_HOST_ENDIAN_32
 // clang-format off
