@@ -84,6 +84,7 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
 typedef enum {
    SEQ_VAL_SMALL = 1, // 'Row-%d'
    SEQ_VAL_PACKED,    // 'Row-%d' padded to value data buffer size
+   RAND_VAL_RAND_LENGTH,
    NUM_VALUE_DATA_STRATEGIES
 } val_strategy;
 
@@ -91,7 +92,8 @@ typedef enum {
 const char *Val_strategy_names[] = {
    "Undefined value-data strategy",
    "Small length sequential value",
-   "Sequential value, fully-packed to value-data buffer"};
+   "Sequential value, fully-packed to value-data buffer",
+   "Random value, of random-length"};
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Val_strategy_names) == NUM_VALUE_DATA_STRATEGIES,
@@ -399,6 +401,23 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_packed_inserts)
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
    wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_seq_key_rand_length_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
+   wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -1090,7 +1109,7 @@ exec_worker_thread(void *w)
    int32  key_data_he; // int-32 keys generated in host-endian-32 notation
    uint64 key_len;
 
-   random_state key_rs;
+   random_state key_rs = {0};
    switch (wcfg->key_type) {
       case SEQ_KEY_BIG_ENDIAN_32:
          key_buf = (char *)&key_data_be;
@@ -1119,6 +1138,17 @@ exec_worker_thread(void *w)
                          wcfg->key_type,
                          Key_strategy_name(wcfg->key_type));
    }
+
+   random_state val_rs = {0};
+   switch (wcfg->val_type) {
+      case RAND_VAL_RAND_LENGTH:
+         random_init(&val_rs, wcfg->rand_seed, 0);
+         break;
+
+      default:
+         break;
+   }
+
 
    for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
       for (jctr = 0; jctr < MILLION; jctr++) {
@@ -1172,6 +1202,12 @@ exec_worker_thread(void *w)
                val_buf[tmp_len] = 'V';
                break;
             }
+            case RAND_VAL_RAND_LENGTH:
+               // Fill-up value-data buffer with random data for random length.
+               val_len = random_next_int(&val_rs, 1, val_buf_size);
+               random_bytes(&val_rs, val_buf, val_len);
+               break;
+
             default:
                platform_assert(FALSE,
                                "Unknown value-data strategy %d (%s)",
