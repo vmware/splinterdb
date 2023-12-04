@@ -55,13 +55,16 @@
 typedef enum {
    SEQ_KEY_BIG_ENDIAN_32 = 1,
    SEQ_KEY_HOST_ENDIAN_32,
+   SEQ_KEY_PACKED_HOST_ENDIAN_32,
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
 // Key-data strategy names, indexed by key_strategy enum values.
-const char *Key_strategy_names[] = {"Undefined key-data strategy",
-                                    "32-bit sequential key, big-endian",
-                                    "32-bit sequential key, host-endian"};
+const char *Key_strategy_names[] = {
+   "Undefined key-data strategy",
+   "Sequential key, 32-bit big-endian",
+   "Sequential key, 32-bit host-endian",
+   "Sequential key, fully-packed to key-data buffer, 32-bit host-endian"};
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
@@ -422,6 +425,40 @@ CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
+   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
+   wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_packed_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
    wcfg.val_type         = SEQ_VAL_PACKED;
    wcfg.verbose_progress = data->verbose_progress;
 
@@ -926,7 +963,6 @@ exec_worker_thread(void *w)
    platform_memfrag memfrag_key_buf;
    char  *key_buf      = TYPED_ARRAY_MALLOC(wcfg->hid, key_buf, wcfg->key_size);
    size_t key_buf_size = wcfg->key_size;
-   uint64 key_len;
 
    size_t           val_buf_size = wcfg->val_size;
    platform_memfrag memfrag_val_buf;
@@ -965,25 +1001,38 @@ exec_worker_thread(void *w)
 
    bool verbose_progress = wcfg->verbose_progress;
 
-   // Initialize allocated buffer to avoid MSAN failures
-   memset(key_buf, 'X', key_buf_size);
-
-   int32 key_data_be; // int-32 keys generated in big-endian-32 notation
-   if (wcfg->key_type == SEQ_KEY_BIG_ENDIAN_32) {
-      key_buf = (char *)&key_data_be;
-      key_len = sizeof(key_data_be);
-   }
-
-   int32 key_data_he; // int-32 keys generated in host-endian-32 notation
-   if (wcfg->key_type == SEQ_KEY_HOST_ENDIAN_32) {
-      key_buf = (char *)&key_data_he;
-      key_len = sizeof(key_data_he);
-   }
+   // Initialize allocated buffers to avoid MSAN failures
+   memset(key_buf, 'K', key_buf_size);
 
    // Insert fully-packed wider-values so we fill pages faster.
    // This value-data will be chosen when random_key_fd < 0.
    uint64 val_len = val_buf_size;
    memset(val_buf, 'V', val_buf_size);
+
+   int32  key_data_be; // int-32 keys generated in big-endian-32 notation
+   int32  key_data_he; // int-32 keys generated in host-endian-32 notation
+   uint64 key_len;
+   switch (wcfg->key_type) {
+      case SEQ_KEY_BIG_ENDIAN_32:
+         key_buf = (char *)&key_data_be;
+         key_len = sizeof(key_data_be);
+         break;
+
+      case SEQ_KEY_HOST_ENDIAN_32:
+         key_buf = (char *)&key_data_he;
+         key_len = sizeof(key_data_he);
+         break;
+
+      case SEQ_KEY_PACKED_HOST_ENDIAN_32:
+         key_len = key_buf_size;
+         break;
+
+      default:
+         platform_assert(FALSE,
+                         "Unknown key-data strategy %d (%s)",
+                         wcfg->key_type,
+                         Key_strategy_name(wcfg->key_type));
+   }
 
    for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
       for (jctr = 0; jctr < MILLION; jctr++) {
@@ -991,32 +1040,45 @@ exec_worker_thread(void *w)
          uint64 id = (start_key + (ictr * MILLION) + jctr);
 
          // Generate key-data based on key-strategy specified.
-         if (wcfg->key_type == SEQ_KEY_BIG_ENDIAN_32) {
-            // Generate sequential key data, stored in big-endian order
-            key_data_be = htobe32(id);
-         } else if (wcfg->key_type == SEQ_KEY_HOST_ENDIAN_32) {
-            key_data_he = id;
-         } else {
-            platform_assert(FALSE,
-                            "Unknown key-data strategy %d (%s)",
-                            wcfg->key_type,
-                            Key_strategy_name(wcfg->key_type));
+         switch (wcfg->key_type) {
+            case SEQ_KEY_BIG_ENDIAN_32:
+               // Generate sequential key data, stored in big-endian order
+               key_data_be = htobe32(id);
+               break;
+
+            case SEQ_KEY_HOST_ENDIAN_32:
+               key_data_he = id;
+               break;
+            case SEQ_KEY_PACKED_HOST_ENDIAN_32:
+            {
+               int tmp_len      = snprintf(key_buf, key_buf_size, "%lu", id);
+               key_buf[tmp_len] = 'K';
+               break;
+            }
+            default:
+               break;
          }
 
          // Generate value-data based on value-strategy specified.
-         if (wcfg->val_type == SEQ_VAL_SMALL) {
-            // Generate small-length sequential value data
-            val_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
-         } else if (wcfg->val_type == SEQ_VAL_PACKED) {
-            // Generate small-length sequential value packed-data
-            int tmp_len      = snprintf(val_buf, val_buf_size, "Row-%lu", id);
-            val_buf[tmp_len] = 'V';
+         switch (wcfg->val_type) {
+            case SEQ_VAL_SMALL:
+               // Generate small-length sequential value data
+               val_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
+               break;
 
-         } else {
-            platform_assert(FALSE,
-                            "Unknown value-data strategy %d (%s)",
-                            wcfg->val_type,
-                            Val_strategy_name(wcfg->val_type));
+            case SEQ_VAL_PACKED:
+            {
+               // Generate small-length sequential value packed-data
+               int tmp_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
+               val_buf[tmp_len] = 'V';
+               break;
+            }
+            default:
+               platform_assert(FALSE,
+                               "Unknown value-data strategy %d (%s)",
+                               wcfg->val_type,
+                               Val_strategy_name(wcfg->val_type));
+               break;
          }
          slice key = slice_create(key_len, key_buf);
          slice val = slice_create(val_len, val_buf);
