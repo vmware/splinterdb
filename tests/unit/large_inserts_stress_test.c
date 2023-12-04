@@ -82,8 +82,8 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
        : Key_strategy_names[0])
 
 typedef enum {
-   SEQ_VAL_SMALL = 1, // 'Row-%d'
-   SEQ_VAL_PACKED,    // 'Row-%d' padded to value data buffer size
+   SEQ_VAL_SMALL = 1,     // 'Row-%d'
+   SEQ_VAL_PACKED_LENGTH, // 'Row-%d' padded to value data buffer size
    RAND_VAL_RAND_LENGTH,
    NUM_VALUE_DATA_STRATEGIES
 } val_strategy;
@@ -372,7 +372,8 @@ CTEST2_SKIP(large_inserts_stress,
  *  - sequential keys, random values
  *  - random keys, random values
  */
-CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
+// Case 1(a) - SEQ_KEY_BIG_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_Seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -389,7 +390,8 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_seq_values_packed_inserts)
+// Case 1(b) - SEQ_KEY_BIG_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_Seq_values_packed_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -400,13 +402,14 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
-   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_rand_length_values_inserts)
+// Case 1(c) - SEQ_KEY_BIG_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_Rand_length_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -424,7 +427,8 @@ CTEST2(large_inserts_stress, test_seq_key_rand_length_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_inserts)
+// Case 2(a) - SEQ_KEY_HOST_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -441,7 +445,8 @@ CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_packed_inserts)
+// Case 2(b) - SEQ_KEY_HOST_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_packed_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -452,13 +457,14 @@ CTEST2(large_inserts_stress, test_seq_key_he32_seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
-   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_he32_rand_length_values_inserts)
+// Case 2(c) - SEQ_KEY_HOST_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -476,7 +482,8 @@ CTEST2(large_inserts_stress, test_seq_key_he32_rand_length_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_inserts)
+// Case 3(a) - SEQ_KEY_PACKED_HOST_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -493,7 +500,8 @@ CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_packed_inserts)
+// Case 3(b) - SEQ_KEY_PACKED_HOST_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_packed_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -504,14 +512,16 @@ CTEST2(large_inserts_stress, test_seq_key_packed_he32_seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
-   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress,
-       test_seq_key_packed_he32_rand_length_values_inserts)
+// Case 3(c) - SEQ_KEY_PACKED_HOST_ENDIAN_32
+// clang-format off
+CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts)
+// clang-format on
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -529,7 +539,8 @@ CTEST2(large_inserts_stress,
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_rand_key_seq_values_inserts)
+// Case 4(a) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -547,7 +558,8 @@ CTEST2(large_inserts_stress, test_rand_key_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_rand_key_seq_values_packed_inserts)
+// Case 4(b) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Seq_values_packed_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -559,13 +571,14 @@ CTEST2(large_inserts_stress, test_rand_key_seq_values_packed_inserts)
    wcfg.val_size         = data->val_size;
    wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
-   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_rand_key_rand_length_values_inserts)
+// Case 4(c) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Rand_length_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -583,7 +596,8 @@ CTEST2(large_inserts_stress, test_rand_key_rand_length_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_inserts)
+// Case 5(a) - RAND_KEY_PACKED_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -601,7 +615,8 @@ CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_packed_inserts)
+// Case 5(b) - RAND_KEY_PACKED_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_packed_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -613,7 +628,26 @@ CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_packed_inserts)
    wcfg.val_size         = data->val_size;
    wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
-   wcfg.val_type         = SEQ_VAL_PACKED;
+   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+// Case 5(c) - RAND_KEY_PACKED_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
+   wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -622,8 +656,9 @@ CTEST2(large_inserts_stress, test_rand_key_packed_seq_values_packed_inserts)
 /*
  * Fails due to assertion failure as reported in issue #560.
  */
-CTEST2_SKIP(large_inserts_stress,
-            test_seq_htobe32_key_random_6byte_values_inserts)
+// clang-format off
+CTEST2_SKIP(large_inserts_stress, test_seq_htobe32_key_random_6byte_values_inserts)
+// clang-format on
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -827,8 +862,9 @@ CTEST2_SKIP(large_inserts_stress, test_seq_key_seq_values_inserts_threaded)
  * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
  * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
-CTEST2_SKIP(large_inserts_stress,
-            test_seq_key_seq_values_inserts_threaded_same_start_keyid)
+// clang-format off
+CTEST2_SKIP(large_inserts_stress, test_seq_key_seq_values_inserts_threaded_same_start_keyid)
+// clang-format on
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
@@ -846,8 +882,9 @@ CTEST2_SKIP(large_inserts_stress,
  * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
  * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
-CTEST2_SKIP(large_inserts_stress,
-            test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
+// clang-format off
+CTEST2_SKIP(large_inserts_stress, test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
+// clang-format on
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
@@ -894,8 +931,9 @@ CTEST2(large_inserts_stress, test_seq_keys_random_values_threaded)
  * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
  * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
-CTEST2_SKIP(large_inserts_stress,
-            test_seq_keys_random_values_threaded_same_start_keyid)
+// clang-format off
+CTEST2_SKIP(large_inserts_stress, test_seq_keys_random_values_threaded_same_start_keyid)
+// clang-format on
 {
    int random_val_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_val_fd > 0);
@@ -1252,7 +1290,7 @@ exec_worker_thread(void *w)
                val_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
                break;
 
-            case SEQ_VAL_PACKED:
+            case SEQ_VAL_PACKED_LENGTH:
             {
                // Generate small-length sequential value packed-data
                int tmp_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
