@@ -116,12 +116,16 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
  * RAND_VAL_RAND_LENGTH - Randomly generated random number of bytes of length
  *  within [1, value-data-buffer-size]. This is the most general use-case to
  *  exercise random message payloads of varying lengths.
+ *
+ * RAND_6BYTE_VAL - Randomly generated value 6-bytes length. (6 bytes is the
+ * length of the payload when integrating SplinterDB with Postgres.
  * ----------------------------------------------------------------------------
  */
 typedef enum {
    SEQ_VAL_SMALL = 1,     // 'Row-%d'
    SEQ_VAL_PADDED_LENGTH, // 'Row-%d' padded to value data buffer size
    RAND_VAL_RAND_LENGTH,
+   RAND_6BYTE_VAL,
    NUM_VALUE_DATA_STRATEGIES
 } val_strategy;
 
@@ -130,7 +134,8 @@ const char *Val_strategy_names[] = {
    "Undefined value-data strategy",
    "Small length sequential value",
    "Sequential value, fully-packed to value-data buffer",
-   "Random value, of random-length"};
+   "Random value, of random-length",
+   "Random value, 6-bytes length"};
 
 // Ensure that the strategy name-lookup array is adequately sized.
 _Static_assert(ARRAY_SIZE(Val_strategy_names) == NUM_VALUE_DATA_STRATEGIES,
@@ -410,7 +415,7 @@ CTEST2_SKIP(large_inserts_stress,
  *  - random keys, random values
  */
 // Case 1(a) - SEQ_KEY_BIG_ENDIAN_32
-CTEST2(large_inserts_stress, test_Seq_key_Seq_values_inserts)
+CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -428,7 +433,7 @@ CTEST2(large_inserts_stress, test_Seq_key_Seq_values_inserts)
 }
 
 // Case 1(b) - SEQ_KEY_BIG_ENDIAN_32
-CTEST2(large_inserts_stress, test_Seq_key_Seq_values_packed_inserts)
+CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_packed_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -446,7 +451,7 @@ CTEST2(large_inserts_stress, test_Seq_key_Seq_values_packed_inserts)
 }
 
 // Case 1(c) - SEQ_KEY_BIG_ENDIAN_32
-CTEST2(large_inserts_stress, test_Seq_key_Rand_length_values_inserts)
+CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -459,6 +464,30 @@ CTEST2(large_inserts_stress, test_Seq_key_Rand_length_values_inserts)
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.rand_seed        = data->rand_seed;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+/*
+ * Fails due to assertion failure as reported in issue #560.
+ */
+// Case 1(d) - SEQ_KEY_BIG_ENDIAN_32
+// clang-format off
+CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts)
+// clang-format on
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
+   wcfg.val_type         = RAND_6BYTE_VAL;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -514,6 +543,30 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts)
    wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.rand_seed        = data->rand_seed;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+/*
+ * Fails due to assertion failure as reported in issue #560.
+ */
+// Case 2(d) - SEQ_KEY_HOST_ENDIAN_32
+// clang-format off
+CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_6byte_values_inserts)
+// clang-format on
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
+   wcfg.val_type         = RAND_6BYTE_VAL;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -688,29 +741,6 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts)
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
-}
-
-/*
- * Fails due to assertion failure as reported in issue #560.
- */
-// clang-format off
-CTEST2_SKIP(large_inserts_stress, test_seq_htobe32_key_random_6byte_values_inserts)
-// clang-format on
-{
-   worker_config wcfg;
-   ZERO_STRUCT(wcfg);
-
-   // Load worker config params
-   wcfg.kvsb             = data->kvsb;
-   wcfg.num_inserts      = data->num_inserts;
-   wcfg.random_key_fd    = SEQ_KEY_BIG_ENDIAN_32_FD;
-   wcfg.random_val_fd    = RANDOM_VAL_FIXED_LEN_FD;
-   wcfg.key_size         = data->key_size;
-   wcfg.val_size         = data->val_size;
-   wcfg.fork_child       = data->fork_child;
-   wcfg.verbose_progress = data->verbose_progress;
-
-   exec_worker_thread0(&wcfg);
 }
 
 CTEST2(large_inserts_stress, test_random_key_seq_values_inserts)
@@ -1273,6 +1303,9 @@ exec_worker_thread(void *w)
 
    random_state val_rs = {0};
    switch (wcfg->val_type) {
+      case RAND_6BYTE_VAL:
+         val_len = 6;
+         // Fall-through
       case RAND_VAL_RAND_LENGTH:
          random_init(&val_rs, wcfg->rand_seed, 0);
          break;
@@ -1337,6 +1370,11 @@ exec_worker_thread(void *w)
             case RAND_VAL_RAND_LENGTH:
                // Fill-up value-data buffer with random data for random length.
                val_len = random_next_int(&val_rs, 1, val_buf_size);
+               random_bytes(&val_rs, val_buf, val_len);
+               break;
+
+            case RAND_6BYTE_VAL:
+               // Fill-up value-data buffer with random data for 6-bytes
                random_bytes(&val_rs, val_buf, val_len);
                break;
 
