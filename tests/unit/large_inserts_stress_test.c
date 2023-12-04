@@ -52,13 +52,34 @@
 #define TEST_KEY_SIZE   30
 #define TEST_VALUE_SIZE 32
 
-// Strategies for different combinations of key / value data distribution.
+/*
+ * ----------------------------------------------------------------------------
+ * Key-data test strategies:
+ *
+ * SEQ_KEY_BIG_ENDIAN_32 - Sequential int32 key-data in big-endian format.
+ *
+ * SEQ_KEY_HOST_ENDIAN_32 - Sequential int32 key-data in host-endian format.
+ *
+ * SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH - Sequential int32 key-data in
+ *  host-endian format, packed-out with 'K' to the length of the key-data
+ *  buffer. The sorted-ness exercises different tree management algorithms,
+ *  while the padding bytes increases the key-size to trigger different tree
+ *  management operations.
+ *
+ * RAND_KEY_RAND_LENGTH - Randomly generated random number of bytes of length
+ *  within [1, key-data-buffer-size]. This is the most general use-case to
+ *  exercise random key payloads of varying lengths.
+ *
+ * RAND_KEY_DATA_BUF_SIZE - Randomly generated key of length == key-data-buffer
+ *  size.
+ * ----------------------------------------------------------------------------
+ */
 typedef enum {
    SEQ_KEY_BIG_ENDIAN_32 = 1,
    SEQ_KEY_HOST_ENDIAN_32,
-   SEQ_KEY_PACKED_HOST_ENDIAN_32,
+   SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,
    RAND_KEY_RAND_LENGTH,
-   RAND_KEY_PACKED_LENGTH,
+   RAND_KEY_DATA_BUF_SIZE,
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
@@ -81,9 +102,25 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
        ? Key_strategy_names[(id)]                                              \
        : Key_strategy_names[0])
 
+/*
+ * ----------------------------------------------------------------------------
+ * Value-data test strategies:
+ *
+ * SEQ_VAL_SMALL - Generate sprintf("Row-%d")'ed small value, whose length will
+ *  be few bytes
+ *
+ * SEQ_VAL_PADDED_LENGTH - Similarly sprintf()'ed value but padded-out to the
+ *  length of the value-data buffer. This exercises large-values so we can
+ *  fill-up pages more easily.
+ *
+ * RAND_VAL_RAND_LENGTH - Randomly generated random number of bytes of length
+ *  within [1, value-data-buffer-size]. This is the most general use-case to
+ *  exercise random message payloads of varying lengths.
+ * ----------------------------------------------------------------------------
+ */
 typedef enum {
    SEQ_VAL_SMALL = 1,     // 'Row-%d'
-   SEQ_VAL_PACKED_LENGTH, // 'Row-%d' padded to value data buffer size
+   SEQ_VAL_PADDED_LENGTH, // 'Row-%d' padded to value data buffer size
    RAND_VAL_RAND_LENGTH,
    NUM_VALUE_DATA_STRATEGIES
 } val_strategy;
@@ -402,7 +439,7 @@ CTEST2(large_inserts_stress, test_Seq_key_Seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
-   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
+   wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -457,7 +494,7 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
-   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
+   wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -482,7 +519,7 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-// Case 3(a) - SEQ_KEY_PACKED_HOST_ENDIAN_32
+// Case 3(a) - SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH
 CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_inserts)
 {
    worker_config wcfg;
@@ -493,14 +530,14 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH;
    wcfg.val_type         = SEQ_VAL_SMALL;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-// Case 3(b) - SEQ_KEY_PACKED_HOST_ENDIAN_32
+// Case 3(b) - SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH
 CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_packed_inserts)
 {
    worker_config wcfg;
@@ -511,14 +548,14 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_packed_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
-   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH;
+   wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-// Case 3(c) - SEQ_KEY_PACKED_HOST_ENDIAN_32
+// Case 3(c) - SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH
 // clang-format off
 CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts)
 // clang-format on
@@ -531,7 +568,7 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.key_type         = SEQ_KEY_PACKED_HOST_ENDIAN_32;
+   wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
@@ -571,7 +608,7 @@ CTEST2(large_inserts_stress, test_Rand_key_Seq_values_packed_inserts)
    wcfg.val_size         = data->val_size;
    wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
-   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
+   wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -596,7 +633,7 @@ CTEST2(large_inserts_stress, test_Rand_key_Rand_length_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-// Case 5(a) - RAND_KEY_PACKED_LENGTH
+// Case 5(a) - RAND_KEY_DATA_BUF_SIZE
 CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_inserts)
 {
    worker_config wcfg;
@@ -608,14 +645,14 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.rand_seed        = data->rand_seed;
-   wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
+   wcfg.key_type         = RAND_KEY_DATA_BUF_SIZE;
    wcfg.val_type         = SEQ_VAL_SMALL;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-// Case 5(b) - RAND_KEY_PACKED_LENGTH
+// Case 5(b) - RAND_KEY_DATA_BUF_SIZE
 CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_packed_inserts)
 {
    worker_config wcfg;
@@ -627,14 +664,14 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_packed_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.rand_seed        = data->rand_seed;
-   wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
-   wcfg.val_type         = SEQ_VAL_PACKED_LENGTH;
+   wcfg.key_type         = RAND_KEY_DATA_BUF_SIZE;
+   wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
 }
 
-// Case 5(c) - RAND_KEY_PACKED_LENGTH
+// Case 5(c) - RAND_KEY_DATA_BUF_SIZE
 CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts)
 {
    worker_config wcfg;
@@ -646,7 +683,7 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts)
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
    wcfg.rand_seed        = data->rand_seed;
-   wcfg.key_type         = RAND_KEY_PACKED_LENGTH;
+   wcfg.key_type         = RAND_KEY_DATA_BUF_SIZE;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
    wcfg.verbose_progress = data->verbose_progress;
 
@@ -1216,11 +1253,11 @@ exec_worker_thread(void *w)
          key_len = sizeof(key_data_he);
          break;
 
-      case SEQ_KEY_PACKED_HOST_ENDIAN_32:
+      case SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH:
          key_len = key_buf_size;
          break;
 
-      case RAND_KEY_PACKED_LENGTH:
+      case RAND_KEY_DATA_BUF_SIZE:
          key_len = key_buf_size;
          // Fall-through
       case RAND_KEY_RAND_LENGTH:
@@ -1260,7 +1297,7 @@ exec_worker_thread(void *w)
             case SEQ_KEY_HOST_ENDIAN_32:
                key_data_he = id;
                break;
-            case SEQ_KEY_PACKED_HOST_ENDIAN_32:
+            case SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH:
             {
                int tmp_len      = snprintf(key_buf, key_buf_size, "%lu", id);
                key_buf[tmp_len] = 'K';
@@ -1274,7 +1311,7 @@ exec_worker_thread(void *w)
                random_bytes(&key_rs, key_buf, key_len);
                break;
 
-            case RAND_KEY_PACKED_LENGTH:
+            case RAND_KEY_DATA_BUF_SIZE:
                // Pack-up key-data buffer with random data
                random_bytes(&key_rs, key_buf, key_len);
                break;
@@ -1290,7 +1327,7 @@ exec_worker_thread(void *w)
                val_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
                break;
 
-            case SEQ_VAL_PACKED_LENGTH:
+            case SEQ_VAL_PADDED_LENGTH:
             {
                // Generate small-length sequential value packed-data
                int tmp_len = snprintf(val_buf, val_buf_size, "Row-%lu", id);
