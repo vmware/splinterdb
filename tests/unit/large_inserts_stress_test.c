@@ -227,6 +227,8 @@ do_inserts_n_threads_old(splinterdb      *kvsb,
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
                      platform_heap_id hid,
+                     size_t           key_size,
+                     size_t           val_size,
                      key_strategy     key_type,
                      val_strategy     val_type,
                      uint64           num_inserts,
@@ -881,6 +883,8 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_threaded)
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
+                        data->key_size,
+                        data->val_size,
                         SEQ_KEY_BIG_ENDIAN_32,
                         SEQ_VAL_SMALL,
                         data->num_inserts,
@@ -894,8 +898,40 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_packed_inserts_threade
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
+                        data->key_size,
+                        data->val_size,
                         SEQ_KEY_BIG_ENDIAN_32,
                         SEQ_VAL_PADDED_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_BIG_ENDIAN_32,
+                        RAND_VAL_RAND_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_BIG_ENDIAN_32,
+                        RAND_6BYTE_VAL,
                         data->num_inserts,
                         data->num_insert_threads);
 }
@@ -1111,6 +1147,8 @@ CTEST2(large_inserts_stress,
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
                      platform_heap_id hid,
+                     size_t           key_size,
+                     size_t           val_size,
                      key_strategy     key_type,
                      val_strategy     val_type,
                      uint64           num_inserts,
@@ -1122,6 +1160,8 @@ do_inserts_n_threads(splinterdb      *kvsb,
    // Setup thread-specific insert parameters
    for (int ictr = 0; ictr < num_insert_threads; ictr++) {
       wcfg[ictr].kvsb        = kvsb;
+      wcfg[ictr].key_size    = key_size;
+      wcfg[ictr].val_size    = val_size;
       wcfg[ictr].num_inserts = num_inserts;
 
       // Choose the diff start key-ID for each thread.
