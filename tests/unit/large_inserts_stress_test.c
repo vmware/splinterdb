@@ -1105,13 +1105,57 @@ CTEST2(large_inserts_stress, test_Rand_key_Rand_length_values_inserts_threaded)
 CTEST2(large_inserts_stress, test_Rand_key_Rand_6byte_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
                         data->val_size,
                         RAND_KEY_RAND_LENGTH,
                         RAND_6BYTE_VAL,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 5(a) - RAND_KEY_DATA_BUF_SIZE
+CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_inserts_threaded)
+{
+   // clang-format on
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_DATA_BUF_SIZE,
+                        SEQ_VAL_SMALL,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 5(b) - RAND_KEY_DATA_BUF_SIZE
+CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_packed_inserts_threaded)
+{
+   // clang-format on
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_DATA_BUF_SIZE,
+                        SEQ_VAL_PADDED_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 5(c) - RAND_KEY_DATA_BUF_SIZE
+CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts_threaded)
+{
+   // clang-format on
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_DATA_BUF_SIZE,
+                        RAND_VAL_RAND_LENGTH,
                         data->num_inserts,
                         data->num_insert_threads);
 }
