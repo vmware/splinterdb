@@ -81,6 +81,8 @@ typedef enum {                              // Test-case
    SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,    // 3
    RAND_KEY_RAND_LENGTH,                    // 4
    RAND_KEY_DATA_BUF_SIZE,                  // 5
+   SEQ_KEY_HOST_ENDIAN_32_SAME_START_ID,    // 6
+   SEQ_KEY_BIG_ENDIAN_32_SAME_START_ID,     // 7
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
@@ -92,6 +94,8 @@ const char *Key_strategy_names[] = {
    , "Sequential key, fully-packed to key-data buffer, 32-bit host-endian"
    , "Random key-data, random length"
    , "Random key-data, fully-packed to key-data buffer"
+   , "Sequential key, 32-bit host-endian, same start-ID across all threads"
+   , "Sequential key, 32-bit big-endian, same start-ID across all threads"
 };
 
 // clang-format on
@@ -1152,68 +1156,45 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts_thr
  *
  * With --num-threads 63, hangs in
  *  clockcache_get_read() -> memtable_maybe_rotate_and_get_insert_lock()
- * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
+ * FIXME: Runs into BTree pack errors:
+ * btree_pack(): req->num_tuples=6291456 exceeded output size limit,
+ * req->max_tuples=6291456 btree_pack failed: No space left on device
  * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
 // clang-format off
-CTEST2_SKIP(large_inserts_stress, test_seq_key_seq_values_inserts_threaded_same_start_keyid)
+// Case 6(a) Variation of Case 2(a) - SEQ_KEY_HOST_ENDIAN_32
+CTEST2_SKIP(large_inserts_stress, test_Seq_key_he32_same_start_keyid_Seq_values_inserts_threaded)
 // clang-format on
 {
-   do_inserts_n_threads_old(data->kvsb,
-                            data->hid,
-                            TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
-                            TEST_INSERT_SEQ_VALUES_FD,
-                            data->num_inserts,
-                            data->num_insert_threads);
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_HOST_ENDIAN_32_SAME_START_ID,
+                        SEQ_VAL_SMALL,
+                        data->num_inserts,
+                        data->num_insert_threads);
 }
 
 /*
  * Test case that fires up many threads each concurrently inserting large # of
  * KV-pairs, with all threads inserting from same start-value, using a fixed
  * fully-packed value.
- * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
  * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
 // clang-format off
-CTEST2_SKIP(large_inserts_stress, test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
+// Case 7(b) Variation of Case 1(b) - SEQ_KEY_BIG_ENDIAN_32
+CTEST2(large_inserts_stress, test_Seq_key_be32_same_start_keyid_Seq_values_packed_inserts_threaded)
 // clang-format on
 {
-   do_inserts_n_threads_old(data->kvsb,
-                            data->hid,
-                            TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
-                            TEST_INSERT_FULLY_PACKED_CONSTANT_VALUE_FD,
-                            data->num_inserts,
-                            data->num_insert_threads);
-}
-
-CTEST2(large_inserts_stress, test_random_keys_seq_values_threaded)
-{
-   int random_key_fd = open("/dev/urandom", O_RDONLY);
-   ASSERT_TRUE(random_key_fd > 0);
-
-   do_inserts_n_threads_old(data->kvsb,
-                            data->hid,
-                            random_key_fd,
-                            TEST_INSERT_SEQ_VALUES_FD,
-                            data->num_inserts,
-                            data->num_insert_threads);
-
-   close(random_key_fd);
-}
-
-CTEST2(large_inserts_stress, test_seq_keys_random_values_threaded)
-{
-   int random_val_fd = open("/dev/urandom", O_RDONLY);
-   ASSERT_TRUE(random_val_fd > 0);
-
-   do_inserts_n_threads_old(data->kvsb,
-                            data->hid,
-                            TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
-                            random_val_fd,
-                            data->num_inserts,
-                            data->num_insert_threads);
-
-   close(random_val_fd);
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_BIG_ENDIAN_32_SAME_START_ID,
+                        SEQ_VAL_PADDED_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
 }
 
 /*
@@ -1237,25 +1218,6 @@ CTEST2_SKIP(large_inserts_stress, test_seq_keys_random_values_threaded_same_star
    close(random_val_fd);
 }
 
-CTEST2(large_inserts_stress, test_random_keys_random_values_threaded)
-{
-   int random_key_fd = open("/dev/urandom", O_RDONLY);
-   ASSERT_TRUE(random_key_fd > 0);
-
-   int random_val_fd = open("/dev/urandom", O_RDONLY);
-   ASSERT_TRUE(random_val_fd > 0);
-
-   do_inserts_n_threads_old(data->kvsb,
-                            data->hid,
-                            random_key_fd,
-                            random_val_fd,
-                            data->num_inserts,
-                            data->num_insert_threads);
-
-   close(random_key_fd);
-   close(random_val_fd);
-}
-
 /*
  * Test case developed to repro an out-of-bounds assertion tripped up in
  * trunk_build_filters() -> fingerprint_ntuples(). The fix has been id'ed
@@ -1263,9 +1225,10 @@ CTEST2(large_inserts_stress, test_random_keys_random_values_threaded)
  * error but a code-flow error. The now-fixed-bug would only repro with
  * something like --num-inserts 20M.
  */
-CTEST2(large_inserts_stress,
-       test_fp_num_tuples_out_of_bounds_bug_trunk_build_filters)
+// clang-format off
+CTEST2(large_inserts_stress, test_fp_num_tuples_out_of_bounds_bug_trunk_build_filters)
 {
+   // clang-format on
    char key_data[TEST_KEY_SIZE];
    char val_data[TEST_VALUE_SIZE];
 
@@ -1311,12 +1274,9 @@ CTEST2(large_inserts_stress,
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {
-         CTEST_LOG_INFO(
-            "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
-            __func__,
-            __LINE__,
-            thread_idx,
-            (ictr + 1));
+         CTEST_LOG_INFO("Thread-%lu Inserted %lu million KV-pairs ...\n",
+                        thread_idx,
+                        (ictr + 1));
       }
    }
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -1368,11 +1328,24 @@ do_inserts_n_threads(splinterdb      *kvsb,
       wcfg[ictr].val_size    = val_size;
       wcfg[ictr].num_inserts = num_inserts;
 
-      // Choose the diff start key-ID for each thread.
-      wcfg[ictr].start_value = (wcfg[ictr].num_inserts * ictr);
-      wcfg[ictr].key_type    = key_type;
-      wcfg[ictr].val_type    = val_type;
-      wcfg[ictr].is_thread   = TRUE;
+      // Choose the start key-ID for each thread.
+      switch (key_type) {
+         case SEQ_KEY_HOST_ENDIAN_32_SAME_START_ID:
+         case SEQ_KEY_BIG_ENDIAN_32_SAME_START_ID:
+            CTEST_LOG_INFO("All threads start from same start key ID=0\n");
+            wcfg[ictr].start_value = 0;
+            key_type = ((key_type == SEQ_KEY_HOST_ENDIAN_32_SAME_START_ID)
+                           ? SEQ_KEY_HOST_ENDIAN_32
+                           : SEQ_KEY_BIG_ENDIAN_32);
+            break;
+         default:
+            wcfg[ictr].start_value = (wcfg[ictr].num_inserts * ictr);
+            break;
+      }
+
+      wcfg[ictr].key_type  = key_type;
+      wcfg[ictr].val_type  = val_type;
+      wcfg[ictr].is_thread = TRUE;
    }
    wcfg[0].show_strategy = TRUE;
 
