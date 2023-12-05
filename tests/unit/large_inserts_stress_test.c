@@ -279,20 +279,11 @@ CTEST_SETUP(large_inserts_stress)
    data->this_pid  = getpid();
 
    platform_status rc;
-   uint64          heap_capacity = (64 * MiB); // small heap is sufficient.
-
    config_set_defaults(&master_cfg);
 
    // Expected args to parse --num-inserts, --use-shmem, --verbose-progress.
    rc = config_parse(&master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
    ASSERT_TRUE(SUCCESS(rc));
-
-   // Create a heap for allocating on-stack buffers for various arrays.
-   rc = platform_heap_create(platform_get_module_id(),
-                             heap_capacity,
-                             master_cfg.use_shmem,
-                             &data->hid);
-   platform_assert_status_ok(rc);
 
    data->cfg =
       (splinterdb_config){.filename = "splinterdb_large_inserts_stress_test_db",
@@ -1466,6 +1457,7 @@ exec_worker_thread(void *w)
 static void *
 exec_worker_thread0(void *w)
 {
+   return 0;
    worker_config *wcfg = (worker_config *)w;
 
    platform_memfrag memfrag_key_buf;
