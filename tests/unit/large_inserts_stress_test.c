@@ -161,7 +161,7 @@ _Static_assert(ARRAY_SIZE(Val_strategy_names) == NUM_VALUE_DATA_STRATEGIES,
 
 /*
  * Configuration for each worker thread. See the selection of 'fd'-semantics
- * as implemented in exec_worker_thread0(), to select diff types of
+ * as implemented in exec_worker_thread(), to select diff types of
  * key/value's data distribution during inserts.
  */
 typedef struct {
@@ -217,16 +217,6 @@ typedef struct {
 // Function Prototypes
 static void *
 exec_worker_thread(void *w);
-static void *
-exec_worker_thread0(void *w);
-
-static void
-do_inserts_n_threads_old(splinterdb      *kvsb,
-                         platform_heap_id hid,
-                         int              random_key_fd,
-                         int              random_val_fd,
-                         uint64           num_inserts,
-                         uint64           num_insert_threads);
 
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
@@ -417,7 +407,7 @@ CTEST2_SKIP(large_inserts_stress,
 }
 
 /*
- * Test cases exercise the thread's worker-function, exec_worker_thread0(),
+ * Test cases exercise the thread's worker-function, exec_worker_thread(),
  * from the main connection to splinter, for specified number of inserts.
  *
  * We play with 4 combinations just to get some basic coverage:
@@ -1202,27 +1192,6 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_same_start_keyid_Seq_values_packe
 }
 
 /*
- * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
- * FIXME: Causes CI-timeout after 2h in debug-test runs.
- */
-// clang-format off
-CTEST2_SKIP(large_inserts_stress, test_seq_keys_random_values_threaded_same_start_keyid)
-// clang-format on
-{
-   int random_val_fd = open("/dev/urandom", O_RDONLY);
-   ASSERT_TRUE(random_val_fd > 0);
-
-   do_inserts_n_threads_old(data->kvsb,
-                            data->hid,
-                            TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
-                            random_val_fd,
-                            data->num_inserts,
-                            data->num_insert_threads);
-
-   close(random_val_fd);
-}
-
-/*
  * Test case developed to repro an out-of-bounds assertion tripped up in
  * trunk_build_filters() -> fingerprint_ntuples(). The fix has been id'ed
  * to relocate fingerprint_ntuples() in its flow. There was no real logic
@@ -1301,7 +1270,7 @@ CTEST2(large_inserts_stress, test_fp_num_tuples_out_of_bounds_bug_trunk_build_fi
 
 /*
  * ----------------------------------------------------------------------------
- * do_inserts_n_threads_old() - Driver function that will fire-up n-threads to
+ * do_inserts_n_threads() - Driver function that will fire-up n-threads to
  * perform different forms of inserts run by all the threads. The things we
  * control via parameters are:
  *
@@ -1386,61 +1355,9 @@ do_inserts_n_threads(splinterdb      *kvsb,
    platform_free(hid, &memfrag_wcfg);
 }
 
-static void
-do_inserts_n_threads_old(splinterdb      *kvsb,
-                         platform_heap_id hid,
-                         int              random_key_fd,
-                         int              random_val_fd,
-                         uint64           num_inserts,
-                         uint64           num_insert_threads)
-{
-   platform_memfrag memfrag_wcfg;
-   worker_config   *wcfg = TYPED_ARRAY_ZALLOC(hid, wcfg, num_insert_threads);
-
-   // Setup thread-specific insert parameters
-   for (int ictr = 0; ictr < num_insert_threads; ictr++) {
-      wcfg[ictr].kvsb        = kvsb;
-      wcfg[ictr].num_inserts = num_inserts;
-
-      // Choose the diff start key-ID for each thread.
-      wcfg[ictr].start_value = (wcfg[ictr].num_inserts * ictr);
-      wcfg[ictr].is_thread   = TRUE;
-   }
-
-   platform_memfrag memfrag_thread_ids;
-   platform_thread *thread_ids =
-      TYPED_ARRAY_ZALLOC(hid, thread_ids, num_insert_threads);
-
-   // Fire-off the threads to drive inserts ...
-   for (int tctr = 0; tctr < num_insert_threads; tctr++) {
-      int rc = pthread_create(
-         &thread_ids[tctr], NULL, &exec_worker_thread0, &wcfg[tctr]);
-      ASSERT_EQUAL(0, rc);
-   }
-
-   // Wait for all threads to complete ...
-   for (int tctr = 0; tctr < num_insert_threads; tctr++) {
-      void *thread_rc;
-      int   rc = pthread_join(thread_ids[tctr], &thread_rc);
-      ASSERT_EQUAL(0, rc);
-      if (thread_rc != 0) {
-         fprintf(stderr,
-                 "Thread %d [ID=%lu] had error: %p\n",
-                 tctr,
-                 thread_ids[tctr],
-                 thread_rc);
-         ASSERT_TRUE(FALSE);
-      }
-   }
-   platform_memfrag *mf = &memfrag_thread_ids;
-   platform_free(hid, mf);
-   mf = &memfrag_wcfg;
-   platform_free(hid, mf);
-}
-
 /*
  * ----------------------------------------------------------------------------
- * exec_worker_thread0() - Thread-specific insert work-horse function.
+ * exec_worker_thread() - Thread-specific insert work-horse function.
  *
  * Each thread inserts 'num_inserts' KV-pairs from a 'start_value' ID.
  * Nature of the inserts is controlled by wcfg config parameters. Caller can
@@ -1657,197 +1574,6 @@ exec_worker_thread(void *w)
    }
 
    // Cleanup resources opened in this call.
-   platform_free(wcfg->hid, &memfrag_key_buf);
-   platform_free(wcfg->hid, &memfrag_val_buf);
-   return 0;
-}
-
-/*
- * ----------------------------------------------------------------------------
- * exec_worker_thread0() - Thread-specific insert work-horse function.
- *
- * Each thread inserts 'num_inserts' KV-pairs from a 'start_value' ID.
- * Nature of the inserts is controlled by wcfg config parameters. Caller can
- * choose between sequential / random keys and/or sequential / random values
- * to be inserted. Can also choose whether value will be fully-packed.
- * ----------------------------------------------------------------------------
- */
-static void *
-exec_worker_thread0(void *w)
-{
-   return 0;
-   worker_config *wcfg = (worker_config *)w;
-
-   platform_memfrag memfrag_key_buf;
-   char  *key_buf      = TYPED_ARRAY_MALLOC(wcfg->hid, key_buf, wcfg->key_size);
-   char  *key_data     = key_buf;
-   size_t key_buf_size = wcfg->key_size;
-   uint64 key_len;
-
-   size_t           val_buf_size = wcfg->val_size;
-   platform_memfrag memfrag_val_buf;
-   char *val_buf = TYPED_ARRAY_MALLOC(wcfg->hid, val_buf, (val_buf_size + 1));
-
-   splinterdb *kvsb          = wcfg->kvsb;
-   uint64      start_key     = wcfg->start_value;
-   uint64      num_inserts   = wcfg->num_inserts;
-   int         random_key_fd = 0;
-   int         random_val_fd = 0;
-
-   int32 key_data_be; // int-32 keys generated in big-endian-32 notation
-   if (random_key_fd == SEQ_KEY_BIG_ENDIAN_32_FD) {
-      key_data = (char *)&key_data_be;
-      key_len  = sizeof(key_data_be);
-   }
-
-   uint64 start_time = platform_get_timestamp();
-
-   if (wcfg->is_thread) {
-      splinterdb_register_thread(kvsb);
-   }
-   threadid thread_idx = platform_get_tid();
-
-   // Test is written to insert multiples of millions per thread.
-   ASSERT_EQUAL(0, (num_inserts % MILLION));
-
-   const char *random_val_descr = NULL;
-   random_val_descr             = ((random_val_fd > 0)    ? "random"
-                                   : (random_val_fd == 0) ? "sequential"
-                                                          : "fully-packed constant");
-
-   CTEST_LOG_INFO("%s()::%d:Thread %-2lu inserts %lu (%lu million)"
-                  ", %s key, %s value, "
-                  "KV-pairs starting from %lu (%lu%s) ...\n",
-                  __func__,
-                  __LINE__,
-                  thread_idx,
-                  num_inserts,
-                  (num_inserts / MILLION),
-                  ((random_key_fd > 0) ? "random" : "sequential"),
-                  random_val_descr,
-                  start_key,
-                  (start_key / MILLION),
-                  (start_key ? " million" : ""));
-
-   uint64 ictr = 0;
-   uint64 jctr = 0;
-
-   bool verbose_progress = wcfg->verbose_progress;
-
-   // Initialize allocated buffer to avoid MSAN failures
-   memset(key_buf, 'X', key_buf_size);
-
-   // Insert fully-packed wider-values so we fill pages faster.
-   // This value-data will be chosen when random_key_fd < 0.
-   uint64 val_len = val_buf_size;
-   memset(val_buf, 'V', val_buf_size);
-
-   bool val_length_msg_printed = FALSE;
-
-   for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
-      for (jctr = 0; jctr < MILLION; jctr++) {
-
-         uint64 id = (start_key + (ictr * MILLION) + jctr);
-
-         // Generate random key / value if calling test-case requests it.
-         if (random_key_fd > 0) {
-
-            // Generate random key-data for full width of key.
-            size_t result = read(random_key_fd, key_buf, sizeof(key_buf));
-            ASSERT_TRUE(result >= 0);
-
-            key_len = result;
-         } else if (random_key_fd == SEQ_KEY_HOST_ENDIAN_FD) {
-            // Generate sequential key data, stored in host-endian order
-            snprintf(key_buf, key_buf_size, "%lu", id);
-            key_len = strlen(key_buf);
-         } else if (random_key_fd == SEQ_KEY_BIG_ENDIAN_32_FD) {
-            // Generate sequential key data, stored in big-endian order
-            key_data_be = htobe32(id);
-         }
-
-         // Manage how the value-data is generated based on random_val_fd
-         if (random_val_fd > 0) {
-
-            // Generate random value choosing the width of value generated.
-            val_len = ((random_val_fd == RANDOM_VAL_FIXED_LEN_FD)
-                          ? RANDOM_VAL_FIXED_LEN_FD
-                          : val_buf_size);
-
-            size_t result = read(random_val_fd, val_buf, val_len);
-            ASSERT_TRUE(result >= 0);
-
-            if (!val_length_msg_printed) {
-               CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
-                              ", Insert random value of "
-                              "fixed-length=%lu bytes.\n",
-                              getpid(),
-                              thread_idx,
-                              val_len);
-               val_length_msg_printed = TRUE;
-            }
-         } else if (random_val_fd == SEQ_VAL_SMALL_LENGTH_FD) {
-            // Generate small-length sequential value data
-            snprintf(val_buf, val_buf_size, "Row-%lu", id);
-            val_len = val_buf_size;
-
-            if (!val_length_msg_printed) {
-               CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
-                              ", Insert small-width sequential values of "
-                              "different lengths.\n",
-                              getpid(),
-                              thread_idx);
-               val_length_msg_printed = TRUE;
-            }
-         } else if (random_val_fd < 0) {
-            if (!val_length_msg_printed) {
-               CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
-                              ", Insert fully-packed fixed value of "
-                              "length=%lu bytes.\n",
-                              getpid(),
-                              thread_idx,
-                              val_len);
-               val_length_msg_printed = TRUE;
-            }
-         }
-
-         key_len   = 4;
-         slice key = slice_create(key_len, key_data);
-         val_len   = val_buf_size;
-         slice val = slice_create(val_len, val_buf);
-
-         int rc = splinterdb_insert(kvsb, key, val);
-         ASSERT_EQUAL(0, rc);
-      }
-      if (verbose_progress) {
-         CTEST_LOG_INFO("%s()::%d:Thread-%lu Inserted %lu million "
-                        "KV-pairs ...\n",
-                        __func__,
-                        __LINE__,
-                        thread_idx,
-                        (ictr + 1));
-      }
-   }
-   // Deal with low ns-elapsed times when inserting small #s of rows
-   uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
-   uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
-   if (elapsed_s == 0) {
-      elapsed_s = 1;
-   }
-
-   CTEST_LOG_INFO("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
-                  "%lu s, %lu rows/s\n",
-                  __func__,
-                  __LINE__,
-                  thread_idx,
-                  ictr, // outer-loop ends at #-of-Millions inserted
-                  elapsed_s,
-                  (num_inserts / elapsed_s));
-
-   if (wcfg->is_thread) {
-      splinterdb_deregister_thread(kvsb);
-   }
-
    platform_free(wcfg->hid, &memfrag_key_buf);
    platform_free(wcfg->hid, &memfrag_val_buf);
    return 0;
