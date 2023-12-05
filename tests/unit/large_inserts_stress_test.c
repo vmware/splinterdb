@@ -878,6 +878,7 @@ CTEST2_SKIP(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_forked)
  * FIXME: Runs into btree_pack(): req->num_tuples=6291457 exceeded output size
  * limit: req->max_tuples=6291456
  */
+// Case 1(a) - SEQ_KEY_BIG_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_threaded)
 {
    // Run n-threads with sequential key and sequential values inserted
@@ -892,6 +893,7 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_threaded)
 }
 
 // clang-format off
+// Case 1(b) - SEQ_KEY_BIG_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_packed_inserts_threaded)
 {
    // clang-format on
@@ -907,6 +909,7 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_packed_inserts_threade
 }
 
 // clang-format off
+// Case 1(c) - SEQ_KEY_BIG_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts_threaded)
 {
    // clang-format on
@@ -922,6 +925,7 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts_thread
 }
 
 // clang-format off
+// Case 1(d) - SEQ_KEY_BIG_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts_threaded)
 {
    // clang-format on
@@ -937,6 +941,7 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts_threade
 }
 
 // clang-format off
+// Case 2(a) - SEQ_KEY_HOST_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_inserts_threaded)
 {
    // clang-format on
@@ -952,6 +957,7 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_inserts_threaded)
 }
 
 // clang-format off
+// Case 2(b) - SEQ_KEY_HOST_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_packed_inserts_threaded)
 {
    // clang-format on
@@ -967,6 +973,7 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_packed_inserts_threade
 }
 
 // clang-format off
+// Case 2(c) - SEQ_KEY_HOST_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts_threaded)
 {
    // clang-format on
@@ -982,6 +989,7 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts_thread
 }
 
 // clang-format off
+// Case 2(d) - SEQ_KEY_HOST_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_6byte_values_inserts_threaded)
 {
    // clang-format on
