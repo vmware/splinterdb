@@ -996,6 +996,54 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_6byte_values_inserts_threade
                         data->num_insert_threads);
 }
 
+// clang-format off
+// Case 3(a) - SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH
+CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,
+                        SEQ_VAL_SMALL,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 3(b) - SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH
+CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_packed_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,
+                        SEQ_VAL_PADDED_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 3(c) - SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH
+CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,
+                        RAND_VAL_RAND_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
 /*
  * Test case that fires up many threads each concurrently inserting large # of
  * KV-pairs, with all threads inserting from same start-value.
