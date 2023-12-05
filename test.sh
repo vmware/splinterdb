@@ -911,6 +911,9 @@ function run_tests_with_shared_memory() {
    run_btree_tests "--use-shmem"
    run_other_driver_tests "--use-shmem"
 
+   local msg="Large inserts stress test using shared memory"
+   run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_stress_test --key-size 42 --data-size 200 --use-shmem
+
    # These are written to always create shared segment, so --use-shmem arg is
    # not needed when invoking them. These tests will fork one or more child
    # processes.
