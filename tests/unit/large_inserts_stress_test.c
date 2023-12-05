@@ -1052,6 +1052,70 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts
                         data->num_insert_threads);
 }
 
+// clang-format off
+// Case 4(a) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Seq_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_RAND_LENGTH,
+                        SEQ_VAL_SMALL,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 4(b) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Seq_values_packed_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_RAND_LENGTH,
+                        SEQ_VAL_PADDED_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 4(c) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Rand_length_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_RAND_LENGTH,
+                        RAND_VAL_RAND_LENGTH,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
+// clang-format off
+// Case 4(d) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Rand_6byte_values_inserts_threaded)
+{
+   // clang-format on
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        data->hid,
+                        data->key_size,
+                        data->val_size,
+                        RAND_KEY_RAND_LENGTH,
+                        RAND_6BYTE_VAL,
+                        data->num_inserts,
+                        data->num_insert_threads);
+}
+
 /*
  * Test case that fires up many threads each concurrently inserting large # of
  * KV-pairs, with all threads inserting from same start-value.
