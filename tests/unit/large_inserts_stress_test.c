@@ -881,7 +881,6 @@ CTEST2_SKIP(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_forked)
 // Case 1(a) - SEQ_KEY_BIG_ENDIAN_32
 CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_threaded)
 {
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -897,7 +896,6 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_inserts_threaded)
 CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_packed_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -913,7 +911,6 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Seq_values_packed_inserts_threade
 CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -929,7 +926,6 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_length_values_inserts_thread
 CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -945,7 +941,6 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts_threade
 CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -961,7 +956,6 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_inserts_threaded)
 CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_packed_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -977,7 +971,6 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Seq_values_packed_inserts_threade
 CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -993,7 +986,6 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_length_values_inserts_thread
 CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_6byte_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1009,7 +1001,6 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_6byte_values_inserts_threade
 CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1025,7 +1016,6 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_inserts_threade
 CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_packed_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1041,7 +1031,6 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Seq_values_packed_inserts_
 CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1057,7 +1046,6 @@ CTEST2(large_inserts_stress, test_Seq_key_packed_he32_Rand_length_values_inserts
 CTEST2(large_inserts_stress, test_Rand_key_Seq_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1073,7 +1061,6 @@ CTEST2(large_inserts_stress, test_Rand_key_Seq_values_inserts_threaded)
 CTEST2(large_inserts_stress, test_Rand_key_Seq_values_packed_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1089,7 +1076,6 @@ CTEST2(large_inserts_stress, test_Rand_key_Seq_values_packed_inserts_threaded)
 CTEST2(large_inserts_stress, test_Rand_key_Rand_length_values_inserts_threaded)
 {
    // clang-format on
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
                         data->hid,
                         data->key_size,
@@ -1173,7 +1159,6 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts_thr
 CTEST2_SKIP(large_inserts_stress, test_seq_key_seq_values_inserts_threaded_same_start_keyid)
 // clang-format on
 {
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads_old(data->kvsb,
                             data->hid,
                             TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
@@ -1193,7 +1178,6 @@ CTEST2_SKIP(large_inserts_stress, test_seq_key_seq_values_inserts_threaded_same_
 CTEST2_SKIP(large_inserts_stress, test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
 // clang-format on
 {
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads_old(data->kvsb,
                             data->hid,
                             TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
@@ -1207,7 +1191,6 @@ CTEST2(large_inserts_stress, test_random_keys_seq_values_threaded)
    int random_key_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_key_fd > 0);
 
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads_old(data->kvsb,
                             data->hid,
                             random_key_fd,
@@ -1223,7 +1206,6 @@ CTEST2(large_inserts_stress, test_seq_keys_random_values_threaded)
    int random_val_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_val_fd > 0);
 
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads_old(data->kvsb,
                             data->hid,
                             TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
@@ -1245,7 +1227,6 @@ CTEST2_SKIP(large_inserts_stress, test_seq_keys_random_values_threaded_same_star
    int random_val_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_val_fd > 0);
 
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads_old(data->kvsb,
                             data->hid,
                             TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
@@ -1264,7 +1245,6 @@ CTEST2(large_inserts_stress, test_random_keys_random_values_threaded)
    int random_val_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_val_fd > 0);
 
-   // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads_old(data->kvsb,
                             data->hid,
                             random_key_fd,
