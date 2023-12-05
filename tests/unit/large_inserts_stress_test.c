@@ -493,9 +493,9 @@ CTEST2(large_inserts_stress, test_Seq_key_be32_Rand_6byte_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = SEQ_KEY_BIG_ENDIAN_32;
    wcfg.val_type         = RAND_6BYTE_VAL;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -572,9 +572,9 @@ CTEST2(large_inserts_stress, test_Seq_key_he32_Rand_6byte_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = SEQ_KEY_HOST_ENDIAN_32;
    wcfg.val_type         = RAND_6BYTE_VAL;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -648,9 +648,9 @@ CTEST2(large_inserts_stress, test_Rand_key_Seq_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
    wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -667,9 +667,9 @@ CTEST2(large_inserts_stress, test_Rand_key_Seq_values_packed_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
    wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -686,9 +686,28 @@ CTEST2(large_inserts_stress, test_Rand_key_Rand_length_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_RAND_LENGTH;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
+   wcfg.verbose_progress = data->verbose_progress;
+
+   exec_worker_thread(&wcfg);
+}
+
+// Case 4(d) - RAND_KEY_RAND_LENGTH
+CTEST2(large_inserts_stress, test_Rand_key_Rand_6byte_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb             = data->kvsb;
+   wcfg.num_inserts      = data->num_inserts;
+   wcfg.key_size         = data->key_size;
+   wcfg.val_size         = data->val_size;
+   wcfg.key_type         = RAND_KEY_RAND_LENGTH;
+   wcfg.val_type         = RAND_6BYTE_VAL;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -705,9 +724,9 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_DATA_BUF_SIZE;
    wcfg.val_type         = SEQ_VAL_SMALL;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -724,9 +743,9 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Seq_values_packed_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_DATA_BUF_SIZE;
    wcfg.val_type         = SEQ_VAL_PADDED_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
@@ -743,9 +762,9 @@ CTEST2(large_inserts_stress, test_Rand_key_packed_Rand_length_values_inserts)
    wcfg.num_inserts      = data->num_inserts;
    wcfg.key_size         = data->key_size;
    wcfg.val_size         = data->val_size;
-   wcfg.rand_seed        = data->rand_seed;
    wcfg.key_type         = RAND_KEY_DATA_BUF_SIZE;
    wcfg.val_type         = RAND_VAL_RAND_LENGTH;
+   wcfg.rand_seed        = data->rand_seed;
    wcfg.verbose_progress = data->verbose_progress;
 
    exec_worker_thread(&wcfg);
