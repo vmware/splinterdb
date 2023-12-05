@@ -9,28 +9,29 @@
  * trigger some bugs in some code paths. This is just a miscellaneous collection
  * of test cases for different issues reported / encountered over time.
  *
+ * Single-client test cases:
+ *  Different strategies of loading key-data and value-data are defined as
+ *  tokens in key_strategy and val_strategy enums. These tests exercise
+ *  different pairs of these strategies for a single-client. The driving
+ *  function is exec_worker_thread() which receives the test-case parameters
+ *  via worker_config{} structure.
+ *
+ * Multiple-threads test cases:
+ *  Similar to the single-client test cases, except that we now run through
+ *  various combinations of key-data and value-data strategies across multiple
+ *  threads. Few variations of tests that start from the same start key-ID
+ * across all threads are added to exercise the logic of maintaining the BTrees
+ * across tons of duplicate key insertions.
+ *
+ * Test-case with forked process: test_Seq_key_be32_Seq_values_inserts_forked()
+ *  Identical to test_Seq_key_be32_Seq_values_inserts() but the test is run in
+ *  forked child process. Only one such scenario is exercised for forked
+ *  processes.
+ *
  * Regression fix test cases:
  *  test_issue_458_mini_destroy_unused_debug_assert
  *  test_fp_num_tuples_out_of_bounds_bug_trunk_build_filters
  *
- * Single-client test cases:
- *  - test_seq_key_seq_values_inserts
- *  - test_seq_htobe32_key_random_6byte_values_inserts
- *  - test_random_key_seq_values_inserts
- *  - test_seq_key_random_values_inserts
- *  - test_random_key_random_values_inserts
- *
- * Test-case with forked process:
- *  - test_seq_key_seq_values_inserts_forked
- *
- * Multiple-threads test cases:
- *  - test_seq_key_seq_values_inserts_threaded
- *  - test_seq_key_seq_values_inserts_threaded_same_start_keyid
- *  - test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid
- *  - test_random_keys_seq_values_threaded
- *  - test_seq_keys_random_values_threaded
- *  - test_seq_keys_random_values_threaded_same_start_keyid
- *  - test_random_keys_random_values_threaded
  * -----------------------------------------------------------------------------
  */
 #include <fcntl.h>
@@ -76,13 +77,13 @@
  */
 // clang-format off
 typedef enum {                              // Test-case
-   SEQ_KEY_BIG_ENDIAN_32 = 1,               // 1
-   SEQ_KEY_HOST_ENDIAN_32,                  // 2
-   SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,    // 3
-   RAND_KEY_RAND_LENGTH,                    // 4
-   RAND_KEY_DATA_BUF_SIZE,                  // 5
-   SEQ_KEY_HOST_ENDIAN_32_SAME_START_ID,    // 6
-   SEQ_KEY_BIG_ENDIAN_32_SAME_START_ID,     // 7
+   SEQ_KEY_BIG_ENDIAN_32 = 1,               //  1
+   SEQ_KEY_HOST_ENDIAN_32,                  //  2
+   SEQ_KEY_HOST_ENDIAN_32_PADDED_LENGTH,    //  3
+   RAND_KEY_RAND_LENGTH,                    //  4
+   RAND_KEY_DATA_BUF_SIZE,                  //  5
+   SEQ_KEY_HOST_ENDIAN_32_SAME_START_ID,    //  6
+   SEQ_KEY_BIG_ENDIAN_32_SAME_START_ID,     //  7
    NUM_KEY_DATA_STRATEGIES
 } key_strategy;
 
@@ -131,10 +132,10 @@ _Static_assert(ARRAY_SIZE(Key_strategy_names) == NUM_KEY_DATA_STRATEGIES,
  */
 // clang-format off
 typedef enum {            // Sub-case
-   SEQ_VAL_SMALL = 1,     // (a) 'Row-%d'
-   SEQ_VAL_PADDED_LENGTH, // (b) 'Row-%d' padded to value data buffer size
-   RAND_VAL_RAND_LENGTH,  // (c)
-   RAND_6BYTE_VAL,        // (d)
+   SEQ_VAL_SMALL = 1,     //  (a) 'Row-%d'
+   SEQ_VAL_PADDED_LENGTH, //  (b) 'Row-%d' padded to value data buffer size
+   RAND_VAL_RAND_LENGTH,  //  (c)
+   RAND_6BYTE_VAL,        //  (d)
    NUM_VALUE_DATA_STRATEGIES
 } val_strategy;
 
@@ -164,55 +165,21 @@ _Static_assert(ARRAY_SIZE(Val_strategy_names) == NUM_VALUE_DATA_STRATEGIES,
  * as implemented in exec_worker_thread(), to select diff types of
  * key/value's data distribution during inserts.
  */
-typedef struct {
+typedef struct worker_config {
    platform_heap_id hid;
    splinterdb      *kvsb;
    uint64           start_value;
    uint64           num_inserts;
-   uint64           num_insert_threads;
    size_t           key_size; // --key-size test execution argument
    size_t           val_size; // --data-size test execution argument
    uint64           rand_seed;
    key_strategy     key_type;
    val_strategy     val_type;
+   bool             is_thread;
    bool             fork_child;
-   bool             is_thread; // Is main() or thread executing worker fn
    bool             verbose_progress;
    bool             show_strategy;
 } worker_config;
-
-/*
- * RESOLVE: FIXME - This overloading of 'fd' to pass-down semantics to
- * what type of key/value distributions to use -- is 'workable' but
- * error prone. Need a diff arg to manage these test cases.
- */
-/*
- * random_key_fd types to select how key's data is inserted
- */
-// Randomly generated key, inserted in big-endian 32-bit order.
-// This facilitates lookup using lexcmp()
-#define RANDOM_KEY_BIG_ENDIAN_32_FD 2
-
-// Randomly generated key, inserted in host-endian order
-#define RANDOM_KEY_HOST_ENDIAN_FD 1
-
-// Sequentially generated key, inserted in host-endian order
-#define SEQ_KEY_HOST_ENDIAN_FD 0
-
-// Sequentially generated key, inserted in big-endian 32-bit order.
-// This facilitates lookup using lexcmp()
-#define SEQ_KEY_BIG_ENDIAN_32_FD -2
-
-/*
- * random_val_fd types to select how value's data is generated
- */
-// Small value, sequentially generated based on key-ID is stored.
-#define SEQ_VAL_SMALL_LENGTH_FD 0
-
-// Random value generated, exactly of 6 bytes. This case is used to simulate
-// data insertions into SplinterDB for Postgres-integration, where we store
-// the 6-byte tuple-ID (TID) as the value.
-#define RANDOM_VAL_FIXED_LEN_FD 6
 
 // Function Prototypes
 static void *
@@ -232,25 +199,6 @@ do_inserts_n_threads(splinterdb      *kvsb,
 #define NUM_THREADS 8
 
 /*
- * Some test-cases can drive multiple threads to use either the same start
- * value for all threads. Or, each thread will use its own start value so
- * that all threads are inserting in non-intersecting bands of keys.
- * These mnemonics control these behaviours.
- */
-#define TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD ((int)0)
-#define TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD ((int)-1)
-
-/* Drive inserts to generate sequential short-length values */
-#define TEST_INSERT_SEQ_VALUES_FD ((int)0)
-
-/*
- * Some test-cases drive inserts to choose a fully-packed value of size
- * TEST_VALUE_SIZE bytes. This variation has been seen to trigger some
- * assertions.
- */
-#define TEST_INSERT_FULLY_PACKED_CONSTANT_VALUE_FD (int)-1
-
-/*
  * Global data declaration macro:
  */
 CTEST_DATA(large_inserts_stress)
@@ -267,7 +215,6 @@ CTEST_DATA(large_inserts_stress)
    size_t            val_size; // --data-size test execution argument
    uint64            rand_seed;
    int               this_pid;
-   bool              fork_child;
    bool              verbose_progress;
    bool              am_parent;
    bool              key_val_sizes_printed;
@@ -290,8 +237,8 @@ CTEST_SETUP(large_inserts_stress)
 
    data->cfg =
       (splinterdb_config){.filename = "splinterdb_large_inserts_stress_test_db",
-                          .cache_size = 4 * Giga,
-                          .disk_size  = 40 * Giga,
+                          .cache_size = 4 * GiB,
+                          .disk_size  = 40 * GiB,
                           .use_shmem  = master_cfg.use_shmem,
                           .shmem_size = (1 * GiB),
                           .data_cfg   = &data->default_data_config};
@@ -300,10 +247,8 @@ CTEST_SETUP(large_inserts_stress)
       (master_cfg.num_inserts ? master_cfg.num_inserts : (2 * MILLION));
 
    // If num_threads is unspecified, use default for this test.
-   if (!master_cfg.num_threads) {
-      master_cfg.num_threads = NUM_THREADS;
-   }
-   data->num_insert_threads = master_cfg.num_threads;
+   data->num_insert_threads =
+      (master_cfg.num_threads ? master_cfg.num_threads : NUM_THREADS);
 
    if ((data->num_inserts % MILLION) != 0) {
       size_t num_million = (data->num_inserts / MILLION);
@@ -329,7 +274,6 @@ CTEST_SETUP(large_inserts_stress)
       (master_cfg.message_size ? master_cfg.message_size : TEST_VALUE_SIZE);
    default_data_config_init(data->key_size, data->cfg.data_cfg);
 
-   data->fork_child       = master_cfg.fork_child;
    data->verbose_progress = master_cfg.verbose_progress;
 
    // platform_enable_tracing_large_frags();
@@ -361,9 +305,10 @@ CTEST_TEARDOWN(large_inserts_stress)
  * reported by issue# 458, tripping a debug assert. This test case also
  * triggered the failure(s) reported by issue # 545.
  */
-CTEST2_SKIP(large_inserts_stress,
-            test_issue_458_mini_destroy_unused_debug_assert)
+// clang-format off
+CTEST2_SKIP(large_inserts_stress, test_issue_458_mini_destroy_unused_debug_assert)
 {
+   // clang-format on
    char key_data[TEST_KEY_SIZE];
    char val_data[TEST_VALUE_SIZE];
 
@@ -778,7 +723,7 @@ safe_wait()
 
 /*
  * ----------------------------------------------------------------------------
- * test_seq_key_seq_values_inserts_forked() --
+ * test_Seq_key_be32_Seq_values_inserts_forked() --
  *
  * Test case is identical to test_Seq_key_be32_Seq_values_inserts() but the
  * actual execution of the function that does inserts is done from
@@ -1316,9 +1261,10 @@ do_inserts_n_threads(splinterdb      *kvsb,
             break;
       }
 
-      wcfg[ictr].key_type  = key_type;
-      wcfg[ictr].val_type  = val_type;
-      wcfg[ictr].is_thread = TRUE;
+      wcfg[ictr].key_type         = key_type;
+      wcfg[ictr].val_type         = val_type;
+      wcfg[ictr].is_thread        = TRUE;
+      wcfg[ictr].verbose_progress = TRUE;
    }
    wcfg[0].show_strategy = TRUE;
 
