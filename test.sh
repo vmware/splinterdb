@@ -709,7 +709,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
-                                                --num-inserts ${num_rows} \
+                                                 --num-inserts ${num_rows} \
                                                  --num-threads ${n_threads} \
                                                  --num-normal-bg-threads 4 \
                                                  --num-memtable-bg-threads 3
@@ -723,6 +723,15 @@ function run_slower_unit_tests() {
         "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
                                                 --num-inserts ${num_rows} \
                                                 --key-size ${key_size} --data-size ${data_size}
+
+    n_mills=20
+    num_rows=$((n_mills * 1000 * 1000))
+    msg="Large inserts stress test trunk_build_filters bug, ${n_mills}M rows ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
+                                                --num-inserts ${num_rows} \
+                                                test_fp_num_tuples_out_of_bounds_bug_trunk_build_filters
 
     # --------------------------------------------------------------------------
     # RESOLVE: Delete this line once above test execution is stabilized.
@@ -766,7 +775,7 @@ function run_slower_forked_process_tests() {
                                         --use-shmem \
                                         --fork-child \
                                         --num-inserts ${num_rows} \
-                                        test_seq_key_seq_values_inserts_forked
+                                        test_Seq_key_be32_Seq_values_inserts_forked
 }
 
 # ##################################################################
