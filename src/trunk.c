@@ -5862,6 +5862,7 @@ trunk_split_leaf(trunk_handle *spl,
    uint16 bundle_no = trunk_leaf_rebundle_all_branches(
       spl, leaf, leaf0_num_tuples, leaf0_kv_bytes, FALSE);
 
+   uint64 page_size = trunk_page_size(&spl->cfg);
    for (uint16 leaf_no = 0; leaf_no < num_leaves; leaf_no++) {
       /*
        * 4. Create new leaf, adjust min/max keys and other metadata
@@ -5883,8 +5884,7 @@ trunk_split_leaf(trunk_handle *spl,
          trunk_alloc(spl->cc, &spl->mini, 0, &new_leaf);
 
          // copy leaf to new leaf
-         memmove(
-            new_leaf.page->data, leaf->page->data, trunk_page_size(&spl->cfg));
+         memmove(new_leaf.page->data, leaf->page->data, page_size);
       } else {
          // just going to edit the min/max keys, etc. of original leaf
          new_leaf = *leaf;
