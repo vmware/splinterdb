@@ -241,7 +241,7 @@ function nightly_unit_stress_tests() {
     # ----
     local n_threads=32
     local test_descr="${nrows_h} rows, ${n_threads} threads"
-    local test_name=large_inserts_bugs_stress_test
+    local test_name=large_inserts_stress_test
 
     # FIXME: This stress test is currently unstable. We run into shmem-OOMs
     # Also, we need a big machine with large # of cores to be able to run
@@ -674,7 +674,7 @@ function run_slower_unit_tests() {
 
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
-            "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} --num-inserts ${num_rows}
+            "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} --num-inserts ${num_rows}
 
     # Test runs w/ more inserts and enable bg-threads
     n_mills=2
@@ -683,7 +683,7 @@ function run_slower_unit_tests() {
     #
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
-            "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} \
+            "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
                                                         --num-inserts ${num_rows} \
                                                         --num-normal-bg-threads 4 \
                                                         --num-memtable-bg-threads 3
@@ -718,12 +718,12 @@ function run_slower_forked_process_tests() {
     # run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
     #                                     --num-processes ${num_forked_procs}
 
-    # ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
+    # ---- Run large_inserts_stress_test with small configuration as a quick check
     # using forked child process execution.
     msg="Splinter large inserts test using shared memory, 1 forked child"
     local num_rows=$((2 * 1000 * 1000))
     # shellcheck disable=SC2086
-    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_stress_test \
                                         --use-shmem \
                                         --fork-child \
                                         --num-inserts ${num_rows} \
