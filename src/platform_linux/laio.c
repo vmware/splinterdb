@@ -218,9 +218,7 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
    if (is_create) {
       int rc = fallocate(io->fd, 0, 0, 128 * 1024);
       if (rc) {
-         char strerrorbuf[128];
-         strerror_r(errno, strerrorbuf, sizeof(strerrorbuf));
-         platform_error_log("fallocate failed: %d %s\n", errno, strerrorbuf);
+         platform_error_log("fallocate failed: %s\n", strerror(errno));
          return STATUS_IO_ERROR;
       }
    }
