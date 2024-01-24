@@ -302,12 +302,10 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 static int
 index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-
    char *index_buffer =
       TYPED_MANUAL_MALLOC(hid, index_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
-
 
    bool32 rv     = FALSE;
    int    cmp_rv = 0;
@@ -406,18 +404,17 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid)
 {
-   char *leaf_buffer =
-      TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
-   char *msg_buffer =
-      TYPED_MANUAL_MALLOC(hid, msg_buffer, btree_page_size(cfg));
+   uint64 bt_page_size = btree_page_size(cfg);
+   char  *leaf_buffer  = TYPED_MANUAL_MALLOC(hid, leaf_buffer, bt_page_size);
+   char  *msg_buffer   = TYPED_MANUAL_MALLOC(hid, msg_buffer, bt_page_size);
 
-   memset(msg_buffer, 0, btree_page_size(cfg));
+   memset(msg_buffer, 0, bt_page_size);
 
    btree_hdr *hdr = (btree_hdr *)leaf_buffer;
 
    btree_init_hdr(cfg, hdr);
 
-   int     msgsize = btree_page_size(cfg) / (nkvs + 1);
+   int     msgsize = bt_page_size / (nkvs + 1);
    message msg =
       message_create(MESSAGE_TYPE_INSERT, slice_create(msgsize, msg_buffer));
    message bigger_msg = message_create(

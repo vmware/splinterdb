@@ -223,11 +223,11 @@ btree_get_leaf_entry(const btree_config *cfg,
     */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(leaf_entry) <= btree_page_size(cfg));
+   debug_code(uint64 bt_page_size = btree_page_size(cfg));
+   debug_assert(hdr->offsets[k] + sizeof(leaf_entry) <= bt_page_size);
    leaf_entry *entry =
       (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
-                <= btree_page_size(cfg));
+   debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry) <= bt_page_size);
    return entry;
 }
 
@@ -270,27 +270,27 @@ btree_get_index_entry(const btree_config *cfg,
     */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(index_entry) <= btree_page_size(cfg),
+   debug_code(uint64 bt_page_size = btree_page_size(cfg));
+   debug_assert((hdr->offsets[k] + sizeof(index_entry) <= bt_page_size),
                 "k=%d, offsets[k]=%d, sizeof(index_entry)=%lu"
                 ", btree_page_size=%lu.",
                 k,
                 hdr->offsets[k],
                 sizeof(index_entry),
-                btree_page_size(cfg));
+                bt_page_size);
 
    index_entry *entry =
       (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
 
    /* Now ensure that the entire entry fits in the page. */
-   debug_assert(hdr->offsets[k] + sizeof_index_entry(entry)
-                   <= btree_page_size(cfg),
+   debug_assert((hdr->offsets[k] + sizeof_index_entry(entry) <= bt_page_size),
                 "Offsets entry at index k=%d does not fit in the page."
                 " offsets[k]=%d, sizeof_index_entry()=%lu"
                 ", btree_page_size=%lu.",
                 k,
                 hdr->offsets[k],
                 sizeof_index_entry(entry),
-                btree_page_size(cfg));
+                bt_page_size);
    return entry;
 }
 
