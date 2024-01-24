@@ -641,7 +641,7 @@ CTEST2(splinterdb_quick,
 
    // (d) Test with a non-existent value beyond max key value.
    //     iter_init should end up as being invalid.
-   kctr = -1;
+   kctr = minkey + 3 * num_inserts;
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
    rc        = splinterdb_iterator_init(data->kvsb, &it, start_key);

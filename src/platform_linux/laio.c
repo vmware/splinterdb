@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #define LAIO_HAND_BATCH_SIZE 32
 
@@ -215,7 +216,11 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
    }
 
    if (is_create) {
-      fallocate(io->fd, 0, 0, 128 * 1024);
+      int rc = fallocate(io->fd, 0, 0, 128 * 1024);
+      if (rc) {
+         platform_error_log("fallocate failed: %s\n", strerror(errno));
+         return STATUS_IO_ERROR;
+      }
    }
 
    /*
