@@ -701,7 +701,8 @@ function run_slower_unit_tests() {
 
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
-            "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} --num-inserts ${num_rows}
+            "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} \
+                                                --num-inserts ${num_rows} \
                                                 --num-threads ${n_threads}
 
     # Test runs w/ more inserts and enable bg-threads
@@ -914,10 +915,10 @@ function run_other_driver_tests() {
    # when shared-memory is configured.
    # -----------------------------------------------------------------------
    # shellcheck disable=SC2086
-   if [ "$use_shmem" != "" ]; then
+   if [ "$Use_shmem" != "" ]; then
        run_with_timing "Filter perf tests${use_msg}" \
             "$BINDIR"/driver_test filter_test --perf \
-                                              --seed "$SEED" $use_shmem
+                                              --seed "$SEED" $Use_shmem
    fi
 }
 
