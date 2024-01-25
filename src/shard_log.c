@@ -383,12 +383,12 @@ finished_first_pass:
 
    platform_memfrag memfrag;
    itor->contents =
-      TYPED_ARRAY_MALLOC_MF(hid, itor->contents, num_contents, &memfrag);
+      TYPED_ARRAY_MALLOC_MF(&memfrag, hid, itor->contents, num_contents);
    debug_assert(itor->contents);
    itor->contents_mf_size = memfrag_size(&memfrag);
 
    itor->entries =
-      TYPED_ARRAY_MALLOC_MF(hid, itor->entries, itor->num_entries, &memfrag);
+      TYPED_ARRAY_MALLOC_MF(&memfrag, hid, itor->entries, itor->num_entries);
    debug_assert(itor->entries);
    itor->entries_mf_size = memfrag_size(&memfrag);
 

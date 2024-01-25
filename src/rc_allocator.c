@@ -241,11 +241,11 @@ rc_allocator_init_meta_page(rc_allocator *al)
                    <= al->cfg->io_cfg->extent_size);
 
    platform_memfrag memfrag_meta_page;
-   al->meta_page = TYPED_ALIGNED_ZALLOC_MF(al->heap_id,
+   al->meta_page = TYPED_ALIGNED_ZALLOC_MF(&memfrag_meta_page,
+                                           al->heap_id,
                                            al->cfg->io_cfg->page_size,
                                            al->meta_page,
-                                           al->cfg->io_cfg->page_size,
-                                           &memfrag_meta_page);
+                                           al->cfg->io_cfg->page_size);
    if (al->meta_page == NULL) {
       return STATUS_NO_MEMORY;
    }

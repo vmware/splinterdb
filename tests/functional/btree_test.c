@@ -303,7 +303,7 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, &memfrag_params);
+   platform_free(&memfrag_params);
 
    return ret;
 }
@@ -803,7 +803,7 @@ destroy_btree:
       platform_default_log("btree_test: btree basic test failed\n");
    platform_default_log("\n");
    test_memtable_context_destroy(ctxt, hid);
-   platform_free(hid, &memfrag_async_lookup);
+   platform_free(&memfrag_async_lookup);
    merge_accumulator_deinit(&expected_data);
    return rc;
 }
@@ -1162,17 +1162,17 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, &memfrag_root_addr);
-   platform_free(hid, &memfrag_output_addr);
-   platform_free(hid, &memfrag_pivot);
+   platform_free(&memfrag_root_addr);
+   platform_free(&memfrag_output_addr);
+   platform_free(&memfrag_pivot);
 
    for (uint64 pivot_no = 0; pivot_no < arity + 1; pivot_no++) {
       key_buffer_deinit(&pivot_key[pivot_no]);
    }
 
-   platform_free(hid, &memfrag_pivot_key);
-   platform_free(hid, &memfrag_btree_itor_arr);
-   platform_free(hid, &memfrag_itor_arr);
+   platform_free(&memfrag_pivot_key);
+   platform_free(&memfrag_btree_itor_arr);
+   platform_free(&memfrag_itor_arr);
    return rc;
 }
 
@@ -1256,7 +1256,7 @@ destroy_btree:
    key_buffer_deinit(&bound_key[0]);
    key_buffer_deinit(&bound_key[1]);
 
-   platform_free(hid, &memfrag_bound_key);
+   platform_free(&memfrag_bound_key);
    if (SUCCESS(rc))
       platform_default_log("btree_test: btree_count_in_range test succeeded\n");
    else
@@ -1388,14 +1388,14 @@ test_btree_rough_iterator(cache             *cc,
    //   btree_zap(cc, btree_cfg, root_addr[tree_no], PAGE_TYPE_BRANCH);
    //}
 
-   platform_free(hid, &memfrag_root_addr);
+   platform_free(&memfrag_root_addr);
 
    for (int i = 0; i < pivot_no; i++) {
       key_buffer_deinit(&pivot[i]);
    }
-   platform_free(hid, &memfrag_pivot);
-   platform_free(hid, &memfrag_rough_btree_itor);
-   platform_free(hid, &memfrag_rough_itor);
+   platform_free(&memfrag_pivot);
+   platform_free(&memfrag_rough_btree_itor);
+   platform_free(&memfrag_rough_itor);
 
    if (SUCCESS(rc)) {
       platform_default_log("btree_test: btree rough iterator test succeeded\n");
@@ -1523,16 +1523,16 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, &memfrag_root_addr);
-   platform_free(hid, &memfrag_output_addr);
+   platform_free(&memfrag_root_addr);
+   platform_free(&memfrag_output_addr);
    for (uint64 pivot_no = 0; pivot_no < arity + 1; pivot_no++) {
       key_buffer_deinit(&pivot_key[pivot_no]);
    }
 
-   platform_free(hid, &memfrag_pivot);
-   platform_free(hid, &memfrag_pivot_key);
-   platform_free(hid, &memfrag_btree_itor_arr);
-   platform_free(hid, &memfrag_itor_arr);
+   platform_free(&memfrag_pivot);
+   platform_free(&memfrag_pivot_key);
+   platform_free(&memfrag_btree_itor_arr);
+   platform_free(&memfrag_itor_arr);
 
    return rc;
 }
@@ -1713,16 +1713,16 @@ btree_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, &memfrag_cc);
+   platform_free(&memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, &memfrag_io);
+   platform_free(&memfrag_io);
 cleanup:
-   platform_free(hid, &memfrag_cfg);
+   platform_free(&memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

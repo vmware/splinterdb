@@ -316,7 +316,7 @@ destroy:
    trunk_range_iterator_deinit(range_itor);
 
 out:
-   platform_free(hid, &memfrag_range_itor);
+   platform_free(&memfrag_range_itor);
 
    return status;
 }
@@ -867,8 +867,8 @@ cleanup:
    if (async_lookup) {
       async_ctxt_deinit(hid, async_lookup);
    }
-   platform_free(hid, &memfrag_spl_tables);
-   platform_free(hid, &memfrag_splinters);
-   platform_free(hid, &memfrag_shadows);
+   platform_free(&memfrag_spl_tables);
+   platform_free(&memfrag_splinters);
+   platform_free(&memfrag_shadows);
    return status;
 }

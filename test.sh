@@ -71,7 +71,8 @@ Examples:"
    echo "  INCLUDE_SLOW_TESTS=true ./test.sh nightly_cache_perf_tests"
    echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests"
    echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests --use-shmem"
-   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_fast_shared_memory_tests"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_all_shared_memory_tests"
 }
 
 # ##################################################################
@@ -701,7 +702,8 @@ function run_slower_unit_tests() {
 
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
-            "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} --num-inserts ${num_rows}
+            "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} \
+                                                --num-inserts ${num_rows} \
                                                 --num-threads ${n_threads}
 
     # Test runs w/ more inserts and enable bg-threads
@@ -914,28 +916,20 @@ function run_other_driver_tests() {
    # when shared-memory is configured.
    # -----------------------------------------------------------------------
    # shellcheck disable=SC2086
-   if [ "$use_shmem" != "" ]; then
+   if [ "$Use_shmem" != "" ]; then
        run_with_timing "Filter perf tests${use_msg}" \
             "$BINDIR"/driver_test filter_test --perf \
-                                              --seed "$SEED" $use_shmem
+                                              --seed "$SEED" $Use_shmem
    fi
 }
 
 # #######################################################################
-# Re-run a collection of tests with shared-memory support enabled.
-# We strive to run all the tests that are run in a test execution cycle
-# with shared memory enabled. However, certain test execution configurations
-# may not still be runnable in this mode. So, we will incrementally online
-# remaining tests when they can run successfully in this mode.
+# Re-run a collection of few tests with shared-memory support enabled,
+# that are known to run reasonably fast even on Docker image running on
+# a Mac. This test-function is provided so we can get a quick turnaround
+# of test-stabilization for any changes affecting shared-memory support.
 # #######################################################################
-function run_tests_with_shared_memory() {
-   {
-      echo " "
-      echo "-- Tests with shared memory configured --" >> "${test_exec_log_file}"
-      echo " "
-   } >> "${test_exec_log_file}"
-
-   shmem_tests_run_start=$SECONDS
+function run_fast_shared_memory_tests() {
 
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
@@ -946,13 +940,8 @@ function run_tests_with_shared_memory() {
                    "$BINDIR"/driver_test io_apis_test \
                    --use-shmem --fork-child
 
-   # Will run splinter_test, large_inserts_stress_test for diff workloads.
-   Use_shmem="--use-shmem" run_slower_unit_tests
-   if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
-
    Use_shmem="--use-shmem"
    run_splinter_functionality_tests
-   run_splinter_perf_tests
    run_btree_tests
    run_other_driver_tests
 
@@ -960,6 +949,33 @@ function run_tests_with_shared_memory() {
    # not needed when invoking them. These tests will fork one or more child
    # processes.
    run_slower_forked_process_tests
+}
+
+# #######################################################################
+# Re-run a collection of -ALL- tests with shared-memory support enabled.
+# We strive to run all the tests that are run in a test execution cycle
+# with shared memory enabled. However, certain test execution configurations
+# may not still be runnable in this mode. So, we will incrementally online
+# remaining tests when they can run successfully in this mode.
+# #######################################################################
+function run_all_shared_memory_tests() {
+   {
+      echo " "
+      echo "-- Tests with shared memory configured --" >> "${test_exec_log_file}"
+      echo " "
+   } >> "${test_exec_log_file}"
+
+   shmem_tests_run_start=$SECONDS
+
+   # Run all the unit-tests first, to get basic coverage of shared-memory support.
+   run_fast_shared_memory_tests
+
+   # Will run splinter_test, large_inserts_stress_test for diff workloads.
+   Use_shmem="--use-shmem" run_slower_unit_tests
+   if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
+
+   # Perf tests take time, so run them in here
+   run_splinter_perf_tests
 
    record_elapsed_time ${shmem_tests_run_start} "Tests with shared memory configured"
 }
@@ -1079,7 +1095,7 @@ UNIT_TESTS_DB_DEV="unit_tests_db"
 #      INCLUDE_SLOW_TESTS=true ./test.sh nightly_unit_stress_tests --use-shmem
 #
 #  Run collection of tests designed to exercise shared memory support:
-#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_fast_shared_memory_tests
 # ------------------------------------------------------------------------
 if [ $# -ge 1 ]; then
 
@@ -1120,8 +1136,8 @@ run_other_driver_tests
 record_elapsed_time ${testRunStartSeconds} "Tests without shared memory configured"
 
 # ------------------------------------------------------------------------
-# Re-run a collection of tests using shared-memory.
-Use_shmem="--use-shmem" run_tests_with_shared_memory
+# Re-run a collection of -ALL- tests using shared-memory.
+Use_shmem="--use-shmem" run_all_shared_memory_tests
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

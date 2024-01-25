@@ -144,13 +144,13 @@ CTEST_SETUP(splinter)
 
    // Allocate memory for global config structures
    platform_memfrag memfrag_splinter_cfg;
-   data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(data->hid, data->splinter_cfg,
-                                              num_tables, &memfrag_splinter_cfg);
+   data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(&memfrag_splinter_cfg, data->hid, data->splinter_cfg,
+                                              num_tables);
    data->splinter_cfg_mf_size = memfrag_size(&memfrag_splinter_cfg);
 
    platform_memfrag memfrag_cache_cfg;
-   data->cache_cfg = TYPED_ARRAY_MALLOC_MF(data->hid, data->cache_cfg,
-                                           num_tables, &memfrag_cache_cfg);
+   data->cache_cfg = TYPED_ARRAY_MALLOC_MF(&memfrag_cache_cfg, data->hid, data->cache_cfg,
+                                           num_tables);
    data->cache_cfg_mf_size = memfrag_size(&memfrag_cache_cfg);
 
    ZERO_STRUCT(data->test_exec_cfg);
@@ -190,7 +190,7 @@ CTEST_SETUP(splinter)
 
    // Allocate and initialize the IO sub-system.
    platform_memfrag memfrag_io;
-   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
+   data->io = TYPED_MALLOC_MF(&memfrag_io, data->hid, data->io);
    ASSERT_TRUE((data->io != NULL));
    data->io_mf_size = memfrag_size(&memfrag_io);
    rc = io_handle_init(data->io, &data->io_cfg, data->hid);
@@ -205,7 +205,7 @@ CTEST_SETUP(splinter)
                      platform_get_module_id());
 
    platform_memfrag memfrag_clock_cache;
-   data->clock_cache = TYPED_ARRAY_MALLOC_MF(data->hid, data->clock_cache, num_caches, &memfrag_clock_cache);
+   data->clock_cache = TYPED_ARRAY_MALLOC_MF(&memfrag_clock_cache, data->hid, data->clock_cache, num_caches);
    ASSERT_TRUE((data->clock_cache != NULL));
    data->clock_cache_mf_size = memfrag_size(&memfrag_clock_cache);
 

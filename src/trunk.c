@@ -3504,7 +3504,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    }
 
    platform_memfrag memfrag_req = {0};
-   cmt->req          = TYPED_ZALLOC_MF(spl->heap_id, cmt->req, &memfrag_req);
+   cmt->req          = TYPED_ZALLOC_MF(&memfrag_req, spl->heap_id, cmt->req);
    cmt->req->spl     = spl;
    cmt->req->type    = TRUNK_COMPACTION_TYPE_MEMTABLE;
    cmt->req->mf_size = memfrag_size(&memfrag_req);
@@ -7720,7 +7720,7 @@ trunk_range(trunk_handle  *spl,
 
 destroy_range_itor:
    trunk_range_iterator_deinit(range_itor);
-   platform_free(PROCESS_PRIVATE_HEAP_ID, range_itor);
+   platform_free_heap(PROCESS_PRIVATE_HEAP_ID, range_itor);
    return rc;
 }
 
@@ -7732,7 +7732,7 @@ trunk_stats_init(trunk_handle *spl)
 {
    platform_memfrag memfrag;
    spl->stats =
-      TYPED_ARRAY_ZALLOC_MF(spl->heap_id, spl->stats, MAX_THREADS, &memfrag);
+      TYPED_ARRAY_ZALLOC_MF(&memfrag, spl->heap_id, spl->stats, MAX_THREADS);
    platform_assert(spl->stats);
 
    // Remember this; it's needed for free
@@ -9248,7 +9248,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, &memfrag_global);
+   platform_free(&memfrag_global);
 }
 
 void
@@ -9336,7 +9336,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
    }
    platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, &memfrag_global);
+   platform_free(&memfrag_global);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");

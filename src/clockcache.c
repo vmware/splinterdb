@@ -1820,7 +1820,7 @@ clockcache_init(clockcache        *cc,   // OUT
    /* lookup maps addrs to entries, entry contains the entries themselves */
    platform_memfrag memfrag_cc_lookup;
    cc->lookup = TYPED_ARRAY_MALLOC_MF(
-      cc->heap_id, cc->lookup, allocator_page_capacity, &memfrag_cc_lookup);
+      &memfrag_cc_lookup, cc->heap_id, cc->lookup, allocator_page_capacity);
    if (!cc->lookup) {
       goto alloc_error;
    }
@@ -1832,7 +1832,7 @@ clockcache_init(clockcache        *cc,   // OUT
 
    platform_memfrag memfrag_cc_entry;
    cc->entry = TYPED_ARRAY_ZALLOC_MF(
-      cc->heap_id, cc->entry, cc->cfg->page_capacity, &memfrag_cc_entry);
+      &memfrag_cc_entry, cc->heap_id, cc->entry, cc->cfg->page_capacity);
    if (!cc->entry) {
       goto alloc_error;
    }
@@ -1867,7 +1867,7 @@ clockcache_init(clockcache        *cc,   // OUT
    /* Separate ref counts for pins */
    platform_memfrag memfrag_cc_pincount;
    cc->pincount = TYPED_ARRAY_ZALLOC_MF(
-      cc->heap_id, cc->pincount, cc->cfg->page_capacity, &memfrag_cc_pincount);
+      &memfrag_cc_pincount, cc->heap_id, cc->pincount, cc->cfg->page_capacity);
    if (!cc->pincount) {
       goto alloc_error;
    }
@@ -1882,10 +1882,10 @@ clockcache_init(clockcache        *cc,   // OUT
    }
    platform_memfrag memfrag_cc_batch_busy;
    cc->batch_busy =
-      TYPED_ARRAY_ZALLOC_MF(cc->heap_id,
+      TYPED_ARRAY_ZALLOC_MF(&memfrag_cc_batch_busy,
+                            cc->heap_id,
                             cc->batch_busy,
-                            (cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH),
-                            &memfrag_cc_batch_busy);
+                            (cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH));
    if (!cc->batch_busy) {
       goto alloc_error;
    }
@@ -1943,11 +1943,12 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 
    platform_memfrag mf = {0};
    if (cc->pincount) {
-      memfrag_init(&mf, (void *)cc->pincount, cc->pincount_size);
+      memfrag_init(&mf, cc->heap_id, (void *)cc->pincount, cc->pincount_size);
       platform_free_volatile(cc->heap_id, &mf);
    }
    if (cc->batch_busy) {
-      memfrag_init(&mf, (void *)cc->batch_busy, cc->batch_busy_size);
+      memfrag_init(
+         &mf, cc->heap_id, (void *)cc->batch_busy, cc->batch_busy_size);
       platform_free_volatile(cc->heap_id, &mf);
    }
 }

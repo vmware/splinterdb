@@ -401,7 +401,7 @@ routing_filter_add(cache          *cc,
                               ROUTING_FPS_PER_PAGE / 32;  // encoding_buffer
    debug_assert(temp_buffer_count < 100000000);
    uint32 *temp = TYPED_ARRAY_ZALLOC_MF(
-      PROCESS_PRIVATE_HEAP_ID, temp, temp_buffer_count, NULL);
+      NULL, PROCESS_PRIVATE_HEAP_ID, temp, temp_buffer_count);
 
    if (temp == NULL) {
       return STATUS_NO_MEMORY;
@@ -638,7 +638,7 @@ routing_filter_add(cache          *cc,
 
    mini_release(&mini, NULL_KEY);
 
-   platform_free(PROCESS_PRIVATE_HEAP_ID, temp);
+   platform_free_heap(PROCESS_PRIVATE_HEAP_ID, temp);
 
    return STATUS_OK;
 }

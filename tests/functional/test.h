@@ -352,7 +352,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    }
 
 out:
-   platform_free(platform_get_heap_id(), &memfrag_master_cfg);
+   platform_free(&memfrag_master_cfg);
 
    return rc;
 }

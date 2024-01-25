@@ -709,9 +709,9 @@ platform_shmdestroy(platform_heap_id *hid_out)
  */
 // RESOLVE: Pass down user requested alignment and handle it here.
 void *
-platform_shm_alloc(platform_heap_id  hid,
+platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
+                   platform_heap_id  hid,
                    const size_t      size,
-                   platform_memfrag *memfrag, // OUT
                    const char       *objname,
                    const char       *func,
                    const char       *file,
@@ -736,6 +736,9 @@ platform_shm_alloc(platform_heap_id  hid,
 
    void *retptr = NULL;
 
+   if (memfrag) {
+      memfrag->hid = hid;
+   }
    // See if we can satisfy requests for large memory fragments from a cached
    // list of used/free fragments that are tracked separately.
    if (size >= SHM_LARGE_FRAG_SIZE) {
@@ -857,34 +860,38 @@ platform_shm_alloc(platform_heap_id  hid,
  * -----------------------------------------------------------------------------
  */
 void *
-platform_shm_realloc(platform_heap_id hid,
-                     void            *oldptr,
-                     const size_t     oldsize,
-                     size_t          *newsize, // IN/OUT
-                     const char      *func,
-                     const char      *file,
-                     const int        line)
+platform_shm_realloc(platform_memfrag *mf,      // IN/OUT
+                     size_t            newsize, // IN
+                     const char       *func,
+                     const char       *file,
+                     const int         line)
 {
    static const char *unknown_obj = "UnknownObj";
 
    platform_memfrag realloc_memfrag = {0};
 
    // clang-format off
-   void *retptr = platform_shm_alloc(hid, *newsize, &realloc_memfrag,
+   void *retptr = platform_shm_alloc(&realloc_memfrag, mf->hid, newsize,
                                      unknown_obj, func, file, line);
    // clang-format on
    if (retptr) {
 
+      void  *oldptr  = mf->addr;
+      size_t oldsize = mf->size;
       // Copy over old contents, if any, and free that old memory piece
       if (oldptr && oldsize) {
          memcpy(retptr, oldptr, oldsize);
-         platform_shm_free(hid, oldptr, oldsize, unknown_obj, func, file, line);
+         platform_shm_free(
+            mf->hid, oldptr, oldsize, unknown_obj, func, file, line);
       }
+      // Memory fragment is now tracking newly allocated piece of memory
+      mf->addr = retptr;
+
       // A larger free-fragment might have been recycled. Its size may be
-      // bigger than the requested '*newsize'. Return new size to caller.
+      // bigger than the requested newsize. Return new size to caller.
       // (This is critical, otherwise, asserts will trip when an attempt
       // is eventually made by the caller to free this fragment.)
-      *newsize = memfrag_size(&realloc_memfrag);
+      mf->size = memfrag_size(&realloc_memfrag);
    }
    return retptr;
 }
@@ -913,7 +920,13 @@ platform_shm_free(platform_heap_id hid,
 
    debug_assert(
       (platform_shm_heap_valid(shm) == TRUE),
-      "Shared memory heap ID at %p is not a valid shared memory handle.",
+      "[%s:%d::%s()] Attempt to free memory at %p for object '%s' failed."
+      " Shared memory heap ID at %p is not a valid shared memory handle.",
+      file,
+      line,
+      func,
+      ptr,
+      objname,
       hid);
 
    if (!platform_isvalid_addr_in_heap(hid, ptr)) {

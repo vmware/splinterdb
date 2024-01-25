@@ -27,9 +27,9 @@ platform_shmdestroy(platform_heap_id *heap_id);
  * Allocate memory fragment from the shared memory of requested 'size'.
  */
 void *
-platform_shm_alloc(platform_heap_id  hid,
+platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
+                   platform_heap_id  hid,
                    const size_t      size,
-                   platform_memfrag *memfrag, // OUT
                    const char       *objname,
                    const char       *func,
                    const char       *file,
@@ -58,13 +58,11 @@ platform_shm_free(platform_heap_id hid,
  * Returns ptr to re-allocated memory of 'newsize' bytes.
  */
 void *
-platform_shm_realloc(platform_heap_id hid,
-                     void            *oldptr,
-                     const size_t     oldsize,
-                     size_t          *newsize,
-                     const char      *func,
-                     const char      *file,
-                     const int        line);
+platform_shm_realloc(platform_memfrag *mf,
+                     size_t            newsize,
+                     const char       *func,
+                     const char       *file,
+                     const int         line);
 
 void
 platform_shm_tracing_init(const bool trace_shmem,

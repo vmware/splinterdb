@@ -48,7 +48,7 @@ test_filter_basic(cache           *cc,
 
    for (uint64 i = 0; i < num_values; i++) {
       fp_arr[i] = TYPED_ARRAY_MALLOC_MF(
-         hid, fp_arr[i], num_fingerprints, &memfrag_fp_arr_i);
+         &memfrag_fp_arr_i, hid, fp_arr[i], num_fingerprints);
    }
 
    platform_memfrag memfrag_used_keys;
@@ -77,7 +77,7 @@ test_filter_basic(cache           *cc,
       }
    }
 
-   platform_free(hid, &memfrag_used_keys);
+   platform_free(&memfrag_used_keys);
 
    routing_filter filter[MAX_FILTERS] = {{0}};
    for (uint64 i = 0; i < num_values; i++) {
@@ -101,7 +101,7 @@ test_filter_basic(cache           *cc,
                         num_input_keys[num_values - 1],
                         num_unique);
 
-   platform_free(hid, &memfrag_num_input_keys);
+   platform_free(&memfrag_num_input_keys);
 
    for (uint64 i = 0; i < num_values; i++) {
       for (uint64 j = 0; j < num_fingerprints; j++) {
@@ -152,7 +152,7 @@ out:
          fp_arr[i] = NULL;
       }
    }
-   platform_free(hid, &memfrag_fp_arr);
+   platform_free(&memfrag_fp_arr);
    return rc;
 }
 
@@ -277,8 +277,8 @@ out:
    for (uint64 i = 0; i < num_trees; i++) {
       routing_filter_zap(cc, &filter[i]);
    }
-   platform_free(hid, &memfrag_fp_arr);
-   platform_free(hid, &memfrag_filter);
+   platform_free(&memfrag_fp_arr);
+   platform_free(&memfrag_filter);
    return rc;
 }
 
@@ -430,15 +430,15 @@ filter_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, &memfrag_cc);
+   platform_free(&memfrag_cc);
    rc_allocator_deinit(&al);
    task_system_destroy(hid, &ts);
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, &memfrag_io);
+   platform_free(&memfrag_io);
    r = 0;
 cleanup:
-   platform_free(hid, &memfrag_cfg);
+   platform_free(&memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return r;

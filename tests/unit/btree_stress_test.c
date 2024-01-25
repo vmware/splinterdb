@@ -213,7 +213,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
       params[i].hid       = data->hid;
-      params[i].scratch   = TYPED_MALLOC_MF(data->hid, params[i].scratch, &mf);
+      params[i].scratch   = TYPED_MALLOC_MF(&mf, data->hid, params[i].scratch);
       params[i].mf_size   = memfrag_size(&mf);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
@@ -319,8 +319,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    for (uint64 i = 0; i < nthreads; i++) {
       platform_free_mem(data->hid, params[i].scratch, params[i].mf_size);
    }
-   platform_free(hid, &memfrag_params);
-   platform_free(hid, &memfrag_threads);
+   platform_free(&memfrag_params);
+   platform_free(&memfrag_threads);
 }
 
 /*
@@ -361,11 +361,11 @@ insert_tests(cache           *cc,
 
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, keybuf_size);
 
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf =
-      TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size, &memfrag_msgbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_msgbuf, hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -382,8 +382,8 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_free(hid, &memfrag_keybuf);
-   platform_free(hid, &memfrag_msgbuf);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_msgbuf);
 }
 
 static key
@@ -434,11 +434,11 @@ query_tests(cache           *cc,
    uint64           bt_page_size = btree_page_size(cfg);
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, bt_page_size);
 
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf =
-      TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size, &memfrag_msgbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_msgbuf, hid, msgbuf, bt_page_size);
    memset(msgbuf, 0, btree_page_size(cfg));
 
    merge_accumulator result;
@@ -460,8 +460,8 @@ query_tests(cache           *cc,
    }
 
    merge_accumulator_deinit(&result);
-   platform_free(hid, &memfrag_keybuf);
-   platform_free(hid, &memfrag_msgbuf);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_msgbuf);
    return 1;
 }
 
@@ -478,15 +478,15 @@ iterator_test(platform_heap_id hid,
 
    platform_memfrag memfrag_prevbuf;
    uint8           *prevbuf =
-      TYPED_MANUAL_MALLOC(hid, prevbuf, bt_page_size, &memfrag_prevbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_prevbuf, hid, prevbuf, bt_page_size);
 
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, bt_page_size);
 
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf =
-      TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size, &memfrag_msgbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_msgbuf, hid, msgbuf, bt_page_size);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -527,9 +527,9 @@ iterator_test(platform_heap_id hid,
       }
    }
 
-   platform_free(hid, &memfrag_prevbuf);
-   platform_free(hid, &memfrag_keybuf);
-   platform_free(hid, &memfrag_msgbuf);
+   platform_free(&memfrag_prevbuf);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_msgbuf);
    return seen;
 }
 
@@ -596,7 +596,7 @@ iterator_seek_tests(cache           *cc,
 
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, keybuf_size);
 
    // start in the "middle" of the range
    key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);
@@ -630,7 +630,7 @@ iterator_seek_tests(cache           *cc,
 
    btree_iterator_deinit(&dbiter);
 
-   platform_free(hid, &memfrag_keybuf);
+   platform_free(&memfrag_keybuf);
    return 1;
 }
 
