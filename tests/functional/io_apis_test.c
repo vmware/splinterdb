@@ -32,7 +32,6 @@
  *  Hence, there is no separate lower-level API exerciser unit-test.
  * ----------------------------------------------------------------------------
  */
-#include <unistd.h>
 #include <sys/wait.h>
 
 #include "platform.h"
@@ -230,7 +229,7 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.io_async_queue_depth,
                   "splinterdb_io_apis_test_db");
 
-   int pid = getpid();
+   int pid = platform_getpid();
    platform_default_log("Parent OS-pid=%d, Exercise IO sub-system test on"
                         " device '%s'"
                         ", page_size=%lu, extent_size=%lu, async_queue_size=%lu"
@@ -347,7 +346,7 @@ splinter_io_apis_test(int argc, char *argv[])
                                  "Child execution wait() completed."
                                  " Resuming parent ...\n",
                                  platform_get_tid(),
-                                 getpid());
+                                 platform_getpid());
          }
       }
    }
@@ -369,7 +368,7 @@ splinter_io_apis_test(int argc, char *argv[])
                                  ", Parent io_handle=%p, io_hdl=%p"
                                  ", IO context[%lu]: "
                                  "%p\n",
-                                 getpid(),
+                                 platform_getpid(),
                                  this_thread_idx,
                                  whoami,
                                  Parent_io_handle,
@@ -393,7 +392,7 @@ splinter_io_apis_test(int argc, char *argv[])
          platform_default_log("After  fork()'ing: %s OS-pid=%d"
                               ", ThreadID=%lu",
                               whoami,
-                              getpid(),
+                              platform_getpid(),
                               this_thread_idx);
 
          if (Verbose_progress) {
@@ -441,7 +440,7 @@ heap_destroy:
       platform_default_log("%s: OS-pid=%d, Thread-ID=%lu"
                            " execution completed.\n",
                            whoami,
-                           getpid(),
+                           platform_getpid(),
                            platform_get_tid());
    }
    return (SUCCESS(rc) ? 0 : -1);
@@ -507,7 +506,7 @@ test_sync_writes(platform_heap_id    hid,
          "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page write IOs "
          "from start addr=%lu through end addr=%lu\n",
          __func__,
-         getpid(),
+         platform_getpid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -618,7 +617,7 @@ test_sync_reads(platform_heap_id    hid,
          "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page read  IOs "
          "from start addr=%lu through end addr=%lu\n",
          __func__,
-         getpid(),
+         platform_getpid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -693,7 +692,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
       "\n%s(): %s process, OS-pid=%d, creates %d threads, %lu pages/thread \n",
       __func__,
       whoami,
-      getpid(),
+      platform_getpid(),
       nthreads,
       npages);
 

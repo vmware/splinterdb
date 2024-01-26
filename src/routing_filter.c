@@ -8,7 +8,6 @@
  *     This file contains the implementation for a routing filter
  *----------------------------------------------------------------------
  */
-#include <unistd.h>
 #include "platform.h"
 #include "routing_filter.h"
 #include "PackedArray.h"
@@ -104,7 +103,7 @@ RadixSort(uint32 *pData,
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
                          ", mIndex[j][c]=%d, count=%u\n",
-                         getpid(),
+                         platform_getpid(),
                          platform_get_tid(),
                          i,
                          j,

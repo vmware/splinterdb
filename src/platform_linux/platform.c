@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <stdarg.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include "platform.h"
 #include "shmem.h"
@@ -660,7 +659,7 @@ platform_assert_msg(platform_log_handle *log_handle,
                                   "Assertion failed at %s:%d:%s(): \"%s\". ";
    platform_log(log_handle,
                 assert_msg_fmt,
-                getpid(),
+                platform_getpid(),
                 gettid(),
                 platform_get_tid(), // SplinterDB's thread-ID (index)
                 filename,

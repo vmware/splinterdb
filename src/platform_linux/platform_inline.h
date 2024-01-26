@@ -4,6 +4,7 @@
 #ifndef PLATFORM_LINUX_INLINE_H
 #define PLATFORM_LINUX_INLINE_H
 
+#include <unistd.h>
 #include <laio.h>
 #include <string.h> // for memcpy, strerror
 #include <time.h>   // for nanosecond sleep api.
@@ -222,6 +223,12 @@ platform_set_tid(threadid t)
 {
    extern __thread threadid xxxtid;
    xxxtid = t;
+}
+
+static inline int
+platform_getpid()
+{
+   return getpid();
 }
 
 static inline void

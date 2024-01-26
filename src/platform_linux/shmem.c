@@ -7,8 +7,6 @@
  * This file contains the implementation for managing shared memory created
  * for use by SplinterDB and all its innards.
  */
-#include <unistd.h>
-
 #include "platform.h"
 #include "shmem.h"
 #include "util.h"
@@ -832,7 +830,7 @@ platform_shm_track_large_alloc(shmem_heap *shm, void *addr, size_t size)
       frag->frag_addr = addr;
       frag->frag_size = size;
 
-      frag->frag_allocated_to_pid = getpid();
+      frag->frag_allocated_to_pid = platform_getpid();
       frag->frag_allocated_to_tid = platform_get_tid();
 
       // The freed_by_pid/freed_by_tid == 0 means fragment is still allocated.
@@ -898,7 +896,7 @@ platform_shm_track_free(shmem_heap *shm,
 
       // Mark the fragment as in-use by recording the process/thread that's
       // doing the free.
-      frag->frag_freed_by_pid = getpid();
+      frag->frag_freed_by_pid = platform_getpid();
       frag->frag_freed_by_tid = platform_get_tid();
 
       if (trace_shmem) {
@@ -922,7 +920,7 @@ platform_shm_track_free(shmem_heap *shm,
    if (!found_tracked_frag && trace_shmem) {
       platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()] "
                            ", Fragment %p for object '%s' is not tracked\n",
-                           getpid(),
+                           platform_getpid(),
                            platform_get_tid(),
                            file,
                            lineno,
@@ -988,7 +986,7 @@ platform_shm_find_large(shmem_heap *shm,
       found_at_fctr      = fctr;
 
       // Record the process/thread to which free fragment is being allocated
-      frag->frag_allocated_to_pid = getpid();
+      frag->frag_allocated_to_pid = platform_getpid();
       frag->frag_allocated_to_tid = platform_get_tid();
 
       shm->usage.nlarge_frags_inuse++;
@@ -1299,7 +1297,7 @@ platform_shm_trace_allocs(shmem_heap  *shm,
                         "-> %s: %s size=%lu bytes (%s)"
                         " for object '%s', at %p, "
                         "free bytes=%lu (%s).\n",
-                        getpid(),
+                        platform_getpid(),
                         platform_get_tid(),
                         file,
                         lineno,
