@@ -679,6 +679,7 @@ routing_filter_estimate_unique_fp(cache                *cc,
                                   routing_filter       *filter,
                                   uint64                num_filters)
 {
+   platform_assert(num_filters <= MAX_FILTERS);
    uint32 total_num_fp = 0;
    for (uint64 i = 0; i != num_filters; i++) {
       total_num_fp += filter[i].num_fingerprints;

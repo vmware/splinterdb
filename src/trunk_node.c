@@ -9,6 +9,7 @@
 
 #include "trunk_node.h"
 #include "platform.h"
+#include "platform_types.h"
 #include "data_internal.h"
 #include "util.h"
 #include "btree.h"
@@ -100,6 +101,7 @@ typedef struct trunk_node_context trunk_node_context;
 
 struct pivot_compaction_state {
    struct pivot_compaction_state *next;
+   uint64                         refcount;
    trunk_node_context            *context;
    key_buffer                     key;
    key_buffer                     ubkey;
@@ -107,6 +109,7 @@ struct pivot_compaction_state {
    routing_filter                 maplet;
    uint64                         num_branches;
    bool32                         maplet_compaction_failed;
+   platform_spinlock              compactions_lock;
    bundle_compaction             *bundle_compactions;
 };
 
@@ -1793,9 +1796,55 @@ uint64 bc_incs = 0;
 uint64 bc_decs = 0;
 
 static void
+bundle_compaction_print_table_header(platform_log_handle *log, int indent)
+{
+   platform_log(log,
+                "%*s%10s %12s %12s %5s %12s %12s %12s %18s %s\n",
+                indent,
+                "",
+                "nbundles",
+                "in_tuples",
+                "in_kvbytes",
+                "state",
+                "out_branch",
+                "out_tuples",
+                "out_kvbytes",
+                "fprints",
+                "in_branches");
+}
+static void
+bundle_compaction_print_table_entry(const bundle_compaction *bc,
+                                    platform_log_handle     *log,
+                                    int                      indent)
+{
+   platform_log(log,
+                "%*s%10lu %12lu %12lu %5d %12lu %12lu %12lu %18p ",
+                indent,
+                "",
+                bc->num_bundles,
+                bc->input_stats.num_tuples,
+                bc->input_stats.num_kv_bytes,
+                bc->state,
+                branch_ref_addr(bc->output_branch),
+                bc->output_stats.num_tuples,
+                bc->output_stats.num_kv_bytes,
+                bc->fingerprints);
+   for (uint64 i = 0; i < vector_length(&bc->input_branches); i++) {
+      platform_log(
+         log, "%lu ", branch_ref_addr(vector_get(&bc->input_branches, i)));
+   }
+   platform_log(log, "\n");
+}
+
+static void
 bundle_compaction_destroy(bundle_compaction  *compaction,
                           trunk_node_context *context)
 {
+   platform_default_log("bundle_compaction_destroy: %p\n", compaction);
+   bundle_compaction_print_table_header(Platform_default_log_handle, 4);
+   bundle_compaction_print_table_entry(
+      compaction, Platform_default_log_handle, 4);
+
    for (uint64 i = 0; i < vector_length(&compaction->input_branches); i++) {
       btree_dec_ref_range(
          context->cc,
@@ -1866,130 +1915,6 @@ bundle_compaction_create(trunk_node         *node,
    return result;
 }
 
-debug_only static void
-pivot_compaction_state_print(const pivot_compaction_state *state,
-                             platform_log_handle          *log,
-                             const data_config            *data_cfg,
-                             int                           indent)
-{
-   platform_log(log, "%*sheight: %lu\n", indent, "", state->height);
-   platform_log(log,
-                "%*skey: %s\n",
-                indent,
-                "",
-                key_string(data_cfg, key_buffer_key(&state->key)));
-   platform_log(log,
-                "%*subkey: %s\n",
-                indent,
-                "",
-                key_string(data_cfg, key_buffer_key(&state->ubkey)));
-   platform_log(log, "%*smaplet: %lu\n", indent, "", state->maplet.addr);
-   platform_log(log, "%*snum_branches: %lu\n", indent, "", state->num_branches);
-   platform_log(log,
-                "%*smaplet_compaction_failed: %d\n",
-                indent,
-                "",
-                state->maplet_compaction_failed);
-   platform_log(log,
-                "%*s%10s %12s %12s %5s %12s %12s %12s %18s %s\n",
-                indent + 4,
-                "",
-                "nbundles",
-                "in_tuples",
-                "in_kvbytes",
-                "state",
-                "out_branch",
-                "out_tuples",
-                "out_kvbytes",
-                "fprints",
-                "in_branches");
-   for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
-        bc                    = bc->next)
-   {
-      platform_log(log,
-                   "%*s%10lu %12lu %12lu %5d %12lu %12lu %12lu %18p ",
-                   indent + 4,
-                   "",
-                   bc->num_bundles,
-                   bc->input_stats.num_tuples,
-                   bc->input_stats.num_kv_bytes,
-                   bc->state,
-                   branch_ref_addr(bc->output_branch),
-                   bc->output_stats.num_tuples,
-                   bc->output_stats.num_kv_bytes,
-                   bc->fingerprints);
-      for (uint64 i = 0; i < vector_length(&bc->input_branches); i++) {
-         platform_log(
-            log, "%lu ", branch_ref_addr(vector_get(&bc->input_branches, i)));
-      }
-      platform_log(log, "\n");
-   }
-}
-
-uint64 pivot_state_destructions = 0;
-
-static void
-pivot_state_destroy(pivot_compaction_state *state)
-{
-   platform_default_log("pivot_state_destroy: %p\n", state);
-   pivot_compaction_state_print(
-      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
-   key_buffer_deinit(&state->key);
-   routing_filter_dec_ref(state->context->cc, &state->maplet);
-   bundle_compaction *bc = state->bundle_compactions;
-   while (bc != NULL) {
-      bundle_compaction *next = bc->next;
-      bundle_compaction_destroy(bc, state->context);
-      bc = next;
-   }
-   platform_free(state->context->hid, state);
-   __sync_fetch_and_add(&pivot_state_destructions, 1);
-}
-
-static bool
-pivot_compaction_state_is_done(const pivot_compaction_state *state)
-{
-   bool32             all_bundle_compactions_ended = TRUE;
-   bundle_compaction *bc;
-   for (bc = state->bundle_compactions; bc != NULL; bc = bc->next) {
-      if (bc->state < BUNDLE_COMPACTION_MIN_ENDED) {
-         all_bundle_compactions_ended = FALSE;
-         break;
-      }
-   }
-   bc = state->bundle_compactions;
-   bool32 maplet_compaction_in_progress =
-      bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED
-      && !state->maplet_compaction_failed;
-
-   return all_bundle_compactions_ended && !maplet_compaction_in_progress;
-}
-
-static void
-pivot_compaction_state_append_compaction(pivot_compaction_state *state,
-                                         bundle_compaction      *compaction)
-{
-   if (state->bundle_compactions == NULL) {
-      state->bundle_compactions = compaction;
-   } else {
-      bundle_compaction *last = state->bundle_compactions;
-      while (last->next != NULL) {
-         last = last->next;
-      }
-      last->next = compaction;
-   }
-   platform_default_log("pivot_compaction_state_append_compaction: %p\n",
-                        state);
-   pivot_compaction_state_print(
-      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
-}
-
-static void
-pivot_state_map_init(pivot_state_map *map)
-{
-   ZERO_CONTENTS(map);
-}
-
 static uint64
 pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
 {
@@ -2021,12 +1946,145 @@ pivot_state_map_release_lock(pivot_state_map_lock *lock, pivot_state_map *map)
    __sync_lock_release(&map->locks[*lock]);
 }
 
+static void
+pivot_state_incref(pivot_compaction_state *state)
+{
+   __sync_fetch_and_add(&state->refcount, 1);
+}
+
+static void
+pivot_state_deccref(pivot_compaction_state *state)
+{
+   uint64 oldrc = __sync_fetch_and_add(&state->refcount, -1);
+   platform_assert(0 < oldrc);
+}
+
+static void
+pivot_state_lock_compactions(pivot_compaction_state *state)
+{
+   platform_spin_lock(&state->compactions_lock);
+}
+
+static void
+pivot_state_unlock_compactions(pivot_compaction_state *state)
+{
+   platform_spin_unlock(&state->compactions_lock);
+}
+
+
+debug_only static void
+pivot_compaction_state_print(const pivot_compaction_state *state,
+                             platform_log_handle          *log,
+                             const data_config            *data_cfg,
+                             int                           indent)
+{
+   platform_log(log, "%*sheight: %lu\n", indent, "", state->height);
+   platform_log(log,
+                "%*skey: %s\n",
+                indent,
+                "",
+                key_string(data_cfg, key_buffer_key(&state->key)));
+   platform_log(log,
+                "%*subkey: %s\n",
+                indent,
+                "",
+                key_string(data_cfg, key_buffer_key(&state->ubkey)));
+   platform_log(log, "%*smaplet: %lu\n", indent, "", state->maplet.addr);
+   platform_log(log, "%*snum_branches: %lu\n", indent, "", state->num_branches);
+   platform_log(log,
+                "%*smaplet_compaction_failed: %d\n",
+                indent,
+                "",
+                state->maplet_compaction_failed);
+
+   pivot_state_lock_compactions(state);
+   bundle_compaction_print_table_header(log, indent + 4);
+   for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
+        bc                    = bc->next)
+   {
+      bundle_compaction_print_table_entry(bc, log, indent + 4);
+   }
+   pivot_state_unlock_compactions(state);
+}
+
+uint64 pivot_state_destructions = 0;
+
+static void
+pivot_state_destroy(pivot_compaction_state *state)
+{
+   platform_assert(state->refcount == 0);
+   platform_default_log("pivot_state_destroy: %p\n", state);
+   pivot_compaction_state_print(
+      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
+   key_buffer_deinit(&state->key);
+   routing_filter_dec_ref(state->context->cc, &state->maplet);
+   pivot_state_lock_compactions(state);
+   bundle_compaction *bc = state->bundle_compactions;
+   while (bc != NULL) {
+      bundle_compaction *next = bc->next;
+      bundle_compaction_destroy(bc, state->context);
+      bc = next;
+   }
+   pivot_state_unlock_compactions(state);
+   platform_free(state->context->hid, state);
+   __sync_fetch_and_add(&pivot_state_destructions, 1);
+}
+
+static bool
+pivot_compaction_state_is_done(const pivot_compaction_state *state)
+{
+   bundle_compaction *bc;
+   pivot_state_lock_compactions(state);
+   for (bc = state->bundle_compactions; bc != NULL; bc = bc->next) {
+      if (bc->state < BUNDLE_COMPACTION_MIN_ENDED) {
+         pivot_state_unlock_compactions(state);
+         return FALSE;
+      }
+   }
+   bc = state->bundle_compactions;
+   bool32 maplet_compaction_in_progress =
+      bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED
+      && !state->maplet_compaction_failed;
+   pivot_state_unlock_compactions(state);
+
+   return !maplet_compaction_in_progress;
+}
+
+static void
+pivot_compaction_state_append_compaction(pivot_compaction_state     *state,
+                                         const pivot_state_map_lock *lock,
+                                         bundle_compaction          *compaction)
+{
+   pivot_state_lock_compactions(state);
+   if (state->bundle_compactions == NULL) {
+      state->bundle_compactions = compaction;
+   } else {
+      bundle_compaction *last = state->bundle_compactions;
+      while (last->next != NULL) {
+         last = last->next;
+      }
+      last->next = compaction;
+   }
+   pivot_state_lock_compactions(state);
+
+   platform_default_log("pivot_compaction_state_append_compaction: %p\n",
+                        state);
+   pivot_compaction_state_print(
+      state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
+}
+
+static void
+pivot_state_map_init(pivot_state_map *map)
+{
+   ZERO_CONTENTS(map);
+}
+
 static pivot_compaction_state *
-pivot_state_map_get(trunk_node_context   *context,
-                    pivot_state_map      *map,
-                    pivot_state_map_lock *lock,
-                    key                   pivot_key,
-                    uint64                height)
+pivot_state_map_get(trunk_node_context         *context,
+                    pivot_state_map            *map,
+                    const pivot_state_map_lock *lock,
+                    key                         pivot_key,
+                    uint64                      height)
 {
    pivot_compaction_state *result = NULL;
    for (pivot_compaction_state *state = map->buckets[*lock]; state != NULL;
@@ -2047,13 +2105,13 @@ pivot_state_map_get(trunk_node_context   *context,
 uint64 pivot_state_creations = 0;
 
 static pivot_compaction_state *
-pivot_state_map_create(trunk_node_context   *context,
-                       pivot_state_map      *map,
-                       pivot_state_map_lock *lock,
-                       key                   pivot_key,
-                       key                   ubkey,
-                       uint64                height,
-                       const bundle         *pivot_bundle)
+pivot_state_map_create(trunk_node_context         *context,
+                       pivot_state_map            *map,
+                       const pivot_state_map_lock *lock,
+                       key                         pivot_key,
+                       key                         ubkey,
+                       uint64                      height,
+                       const bundle               *pivot_bundle)
 {
    pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
    if (state == NULL) {
@@ -2082,7 +2140,7 @@ pivot_state_map_create(trunk_node_context   *context,
    __sync_fetch_and_add(&pivot_state_creations, 1);
 
    platform_default_log("pivot_compaction_state_create: %p\n", state);
-   pivot_compaction_state_print(
+   pivot_compaction_state_print_locked(
       state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
 
    return state;
@@ -2357,8 +2415,14 @@ bundle_compaction_task(void *arg, void *scratch)
    platform_status         rc;
    pivot_compaction_state *state   = (pivot_compaction_state *)arg;
    trunk_node_context     *context = state->context;
+   pivot_state_map_lock    lock;
 
    // Find a bundle compaction that needs doing for this pivot
+   pivot_state_map_aquire_lock(&lock,
+                               context,
+                               &context->pivot_states,
+                               key_buffer_key(&state->key),
+                               state->height);
    bundle_compaction *bc = state->bundle_compactions;
    while (bc != NULL
           && !__sync_bool_compare_and_swap(&bc->state,
@@ -2367,7 +2431,15 @@ bundle_compaction_task(void *arg, void *scratch)
    {
       bc = bc->next;
    }
+   pivot_state_map_release_lock(&lock, &context->pivot_states);
    platform_assert(bc != NULL);
+
+   platform_default_log(
+      "bundle_compaction_task: state: %p bc: %p\n", state, bc);
+   pivot_compaction_state_print(
+      state, Platform_default_log_handle, context->cfg->data_cfg, 4);
+   bundle_compaction_print_table_header(Platform_default_log_handle, 4);
+   bundle_compaction_print_table_entry(bc, Platform_default_log_handle, 4);
 
    branch_merger merger;
    branch_merger_init(&merger,
@@ -2382,6 +2454,11 @@ bundle_compaction_task(void *arg, void *scratch)
                                    vector_length(&bc->input_branches),
                                    vector_data(&bc->input_branches));
    if (!SUCCESS(rc)) {
+      platform_error_log(
+         "branch_merger_add_branches failed for state: %p bc: %p: %s\n",
+         state,
+         bc,
+         platform_status_to_string(rc));
       goto cleanup;
    }
 
@@ -2392,12 +2469,22 @@ bundle_compaction_task(void *arg, void *scratch)
                             key_buffer_key(&state->ubkey),
                             &tuple_bound);
    if (!SUCCESS(rc)) {
+      platform_error_log(
+         "compute_tuple_bound failed for state: %p bc: %p: %s\n",
+         state,
+         bc,
+         platform_status_to_string(rc));
       goto cleanup;
    }
 
    rc = branch_merger_build_merge_itor(
       &merger, 0 < state->height ? MERGE_INTERMEDIATE : MERGE_FULL);
    if (!SUCCESS(rc)) {
+      platform_error_log(
+         "branch_merger_build_merge_itor failed for state: %p bc: %p: %s\n",
+         state,
+         bc,
+         platform_status_to_string(rc));
       goto cleanup;
    }
 
@@ -2414,14 +2501,23 @@ bundle_compaction_task(void *arg, void *scratch)
    // This is just a quick shortcut to avoid wasting time on a compaction when
    // the pivot is already stuck due to an earlier maplet compaction failure.
    if (state->maplet_compaction_failed) {
+      platform_error_log("maplet compaction failed, skipping bundle compaction "
+                         "for state %p\n",
+                         state);
       rc = STATUS_INVALID_STATE;
       goto cleanup;
    }
 
    rc = btree_pack(&pack_req);
    if (!SUCCESS(rc)) {
+      platform_error_log("btree_pack failed for state: %p bc: %p: %s\n",
+                         state,
+                         bc,
+                         platform_status_to_string(rc));
       goto cleanup;
    }
+
+   platform_error_log("btree_pack succeeded for state: %p bc: %p\n", state, bc);
 
    bc->output_branch = create_branch_ref(pack_req.root_addr);
    bc->output_stats  = (trunk_pivot_stats){
@@ -2435,21 +2531,31 @@ cleanup:
    btree_pack_req_deinit(&pack_req, context->hid);
    branch_merger_deinit(&merger);
 
-   pivot_state_map_lock lock;
+   platform_error_log(
+      "bundle_compaction_task about to acquire lock: state: %p bc: %p\n",
+      state,
+      bc);
    pivot_state_map_aquire_lock(&lock,
                                context,
                                &context->pivot_states,
                                key_buffer_key(&state->key),
                                state->height);
+   platform_error_log(
+      "bundle_compaction_task acquired lock: state: %p bc: %p\n", state, bc);
+
    if (SUCCESS(rc)) {
+      platform_error_log(
+         "Marking bundle compaction succeeded for state %p bc %p\n", state, bc);
       bc->state = BUNDLE_COMPACTION_SUCCEEDED;
    } else {
       bc->state = BUNDLE_COMPACTION_FAILED;
    }
    if (bc->state == BUNDLE_COMPACTION_SUCCEEDED
        && state->bundle_compactions == bc) {
+      platform_error_log("enqueueing maplet compaction for state %p\n", state);
       enqueue_maplet_compaction(state);
    } else if (pivot_compaction_state_is_done(state)) {
+      platform_error_log("removing pivot state %p\n", state);
       pivot_state_map_remove(&context->pivot_states, &lock, state);
       pivot_state_destroy(state);
    }
