@@ -16,6 +16,7 @@
 #include "unit_tests.h"
 #include "util.h"
 #include "../functional/random.h"
+#include "config.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #define TEST_KEY_SIZE   20
@@ -56,6 +57,9 @@ CTEST_SETUP(splinterdb_stress)
                                              .num_normal_bg_threads   = 2};
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
+
+   data->cfg.use_shmem =
+      config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);

@@ -545,7 +545,7 @@ merge_iterator_create(platform_heap_id   hid,
                      == ARRAY_SIZE(merge_itor->ordered_iterators),
                   "size mismatch");
 
-   merge_itor = TYPED_ZALLOC(hid, merge_itor);
+   merge_itor = TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, merge_itor);
    if (merge_itor == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -598,7 +598,7 @@ platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
    merge_accumulator_deinit(&(*merge_itor)->merge_buffer);
-   platform_free(hid, *merge_itor);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, *merge_itor);
    *merge_itor = NULL;
 
    return STATUS_OK;

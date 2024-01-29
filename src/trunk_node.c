@@ -1946,13 +1946,13 @@ pivot_state_map_release_lock(pivot_state_map_lock *lock, pivot_state_map *map)
    __sync_lock_release(&map->locks[*lock]);
 }
 
-static void
+debug_only static void
 pivot_state_incref(pivot_compaction_state *state)
 {
    __sync_fetch_and_add(&state->refcount, 1);
 }
 
-static void
+debug_only static void
 pivot_state_deccref(pivot_compaction_state *state)
 {
    uint64 oldrc = __sync_fetch_and_add(&state->refcount, -1);
@@ -1973,10 +1973,10 @@ pivot_state_unlock_compactions(pivot_compaction_state *state)
 
 
 debug_only static void
-pivot_compaction_state_print(const pivot_compaction_state *state,
-                             platform_log_handle          *log,
-                             const data_config            *data_cfg,
-                             int                           indent)
+pivot_compaction_state_print(pivot_compaction_state *state,
+                             platform_log_handle    *log,
+                             const data_config      *data_cfg,
+                             int                     indent)
 {
    platform_log(log, "%*sheight: %lu\n", indent, "", state->height);
    platform_log(log,
@@ -2031,7 +2031,7 @@ pivot_state_destroy(pivot_compaction_state *state)
 }
 
 static bool
-pivot_compaction_state_is_done(const pivot_compaction_state *state)
+pivot_compaction_state_is_done(pivot_compaction_state *state)
 {
    bundle_compaction *bc;
    pivot_state_lock_compactions(state);
@@ -2140,7 +2140,7 @@ pivot_state_map_create(trunk_node_context         *context,
    __sync_fetch_and_add(&pivot_state_creations, 1);
 
    platform_default_log("pivot_compaction_state_create: %p\n", state);
-   pivot_compaction_state_print_locked(
+   pivot_compaction_state_print(
       state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
 
    return state;
@@ -2286,7 +2286,6 @@ maplet_compaction_task(void *arg, void *scratch)
    while (bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
       rc = routing_filter_add(context->cc,
                               context->cfg->filter_cfg,
-                              context->hid,
                               &old_maplet,
                               &new_maplet,
                               bc->fingerprints,
@@ -2601,7 +2600,7 @@ enqueue_bundle_compaction(trunk_node_context *context,
             goto next;
          }
 
-         pivot_compaction_state_append_compaction(state, bc);
+         pivot_compaction_state_append_compaction(state, &lock, bc);
 
          rc = task_enqueue(context->ts,
                            TASK_TYPE_NORMAL,

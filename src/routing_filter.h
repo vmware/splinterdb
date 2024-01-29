@@ -94,7 +94,6 @@ typedef struct routing_async_ctxt {
 platform_status
 routing_filter_add(cache                *cc,
                    const routing_config *cfg,
-                   platform_heap_id      hid,
                    routing_filter       *old_filter,
                    routing_filter       *filter,
                    uint32               *new_fp_arr,

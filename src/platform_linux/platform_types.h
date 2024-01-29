@@ -30,6 +30,7 @@ typedef typeof(EINVAL) internal_platform_status;
 #define STATUS_INVALID_STATE  CONST_STATUS(EINVAL)
 #define STATUS_NOT_FOUND      CONST_STATUS(ENOENT)
 #define STATUS_IO_ERROR       CONST_STATUS(EIO)
+#define STATUS_NOTSUP         CONST_STATUS(ENOTSUP)
 #define STATUS_TEST_FAILED    CONST_STATUS(-1)
 
 // checksums
@@ -161,7 +162,6 @@ typedef struct {
 typedef struct laio_handle platform_io_handle;
 
 typedef void *platform_module_id;
-typedef void *platform_heap_handle;
 typedef void *platform_heap_id;
 
 typedef struct {

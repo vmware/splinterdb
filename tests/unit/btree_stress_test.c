@@ -108,8 +108,7 @@ CTEST_DATA(btree_stress)
    btree_config       dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
 
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
@@ -145,14 +144,16 @@ CTEST_SETUP(btree_stress)
    }
 
    // Create a heap for io, allocator, cache and splinter
-   if (!SUCCESS(platform_heap_create(
-          platform_get_module_id(), 1 * GiB, &data->hh, &data->hid)))
+   if (!SUCCESS(platform_heap_create(platform_get_module_id(),
+                                     1 * GiB,
+                                     data->master_cfg.use_shmem,
+                                     &data->hid)))
    {
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
    data->ts = NULL;
-   if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
+   if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hid))
        || !SUCCESS(
           task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
@@ -180,7 +181,8 @@ CTEST_TEARDOWN(btree_stress)
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
-   platform_heap_destroy(&data->hh);
+   io_handle_deinit(&data->io);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -200,7 +202,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = platform_get_heap_id();
+   platform_heap_id      hid     = data->hid;
    insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
    platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
@@ -338,10 +340,11 @@ insert_tests(cache           *cc,
    uint64 generation;
    bool32 was_unique;
 
-   int    keybuf_size = btree_page_size(cfg);
-   int    msgbuf_size = btree_page_size(cfg);
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
-   uint8 *msgbuf      = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
+   uint64 bt_page_size = btree_page_size(cfg);
+   int    keybuf_size  = bt_page_size;
+   int    msgbuf_size  = bt_page_size;
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -407,9 +410,10 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 *keybuf = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
-   memset(msgbuf, 0, btree_page_size(cfg));
+   uint64 bt_page_size = btree_page_size(cfg);
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
+   memset(msgbuf, 0, bt_page_size);
 
    merge_accumulator result;
    merge_accumulator_init(&result, hid);
@@ -419,11 +423,11 @@ query_tests(cache           *cc,
                    cfg,
                    root_addr,
                    type,
-                   gen_key(cfg, i, keybuf, btree_page_size(cfg)),
+                   gen_key(cfg, i, keybuf, bt_page_size),
                    &result);
       if (!btree_found(&result)
           || message_lex_cmp(merge_accumulator_to_message(&result),
-                             gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
+                             gen_msg(cfg, i, msgbuf, bt_page_size)))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
@@ -442,11 +446,12 @@ iterator_test(platform_heap_id hid,
               iterator        *iter,
               bool32           forwards)
 {
-   uint64 seen    = 0;
-   uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
-   key    prev    = NULL_KEY;
-   uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
+   uint64 seen         = 0;
+   uint64 bt_page_size = btree_page_size(cfg);
+   uint8 *prevbuf      = TYPED_MANUAL_MALLOC(hid, prevbuf, bt_page_size);
+   key    prev         = NULL_KEY;
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -457,12 +462,11 @@ iterator_test(platform_heap_id hid,
       ASSERT_TRUE(k < nkvs);
 
       int rc = 0;
-      rc     = data_key_compare(cfg->data_cfg,
-                            curr_key,
-                            gen_key(cfg, k, keybuf, btree_page_size(cfg)));
+      rc     = data_key_compare(
+         cfg->data_cfg, curr_key, gen_key(cfg, k, keybuf, bt_page_size));
       ASSERT_EQUAL(0, rc);
 
-      rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
+      rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, bt_page_size));
       ASSERT_EQUAL(0, rc);
 
       if (forwards) {
@@ -613,8 +617,10 @@ pack_tests(cache           *cc,
                        FALSE,
                        0);
 
-   btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   platform_status rc = STATUS_TEST_FAILED;
+   btree_pack_req  req;
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);

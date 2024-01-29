@@ -1182,9 +1182,8 @@ ycsb_test(int argc, char *argv[])
    config_argv = argv + args_consumed;
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   platform_heap_id hid;
+   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hid);
    platform_assert_status_ok(rc);
 
    data_config  *data_cfg;
@@ -1274,7 +1273,7 @@ ycsb_test(int argc, char *argv[])
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
-   rc = io_handle_init(io, &io_cfg, hh, hid);
+   rc = io_handle_init(io, &io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
@@ -1361,7 +1360,7 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, splinter_cfg);
-   platform_heap_destroy(&hh);
+   platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;
 }

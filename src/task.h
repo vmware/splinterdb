@@ -30,6 +30,7 @@ typedef struct {
    uint64    total_queue_wait_time_ns;
    uint64    total_bg_task_executions;
    uint64    total_fg_task_executions;
+   uint64    total_tasks_enqueued;
 } PLATFORM_CACHELINE_ALIGNED task_stats;
 
 typedef struct task_queue {
@@ -145,7 +146,7 @@ task_thread_create(const char            *name,
 
 // Register the calling thread, allocating scratch space for it
 #define task_register_this_thread(ts, scratch_size)                            \
-   task_register_thread((ts), (scratch_size), __FILE__, __LINE__, __FUNCTION__)
+   task_register_thread((ts), (scratch_size), __FILE__, __LINE__, __func__)
 
 platform_status
 task_register_thread(task_system *ts,
@@ -156,7 +157,7 @@ task_register_thread(task_system *ts,
 
 // Unregister the calling thread and free its scratch space
 #define task_deregister_this_thread(ts)                                        \
-   task_deregister_thread((ts), __FILE__, __LINE__, __FUNCTION__)
+   task_deregister_thread((ts), __FILE__, __LINE__, __func__)
 
 void
 task_deregister_thread(task_system *ts,

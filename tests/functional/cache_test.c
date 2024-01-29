@@ -984,15 +984,17 @@ cache_test(int argc, char *argv[])
       }
    }
 
-   platform_default_log("\nStarted cache_test %s\n",
+   bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
+   platform_default_log("\nStarted cache_test %s%s\n",
                         ((argc == 1) ? "basic"
                          : benchmark ? "performance benchmarking."
-                                     : "async performance."));
+                                     : "async performance."),
+                        (use_shmem ? " using shared memory" : ""));
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   platform_heap_id hid = NULL;
+   rc =
+      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
    uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
@@ -1033,7 +1035,7 @@ cache_test(int argc, char *argv[])
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hh, hid);
+   rc = io_handle_init(io, &io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
@@ -1133,7 +1135,7 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, splinter_cfg);
-   platform_heap_destroy(&hh);
+   platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;
 }
