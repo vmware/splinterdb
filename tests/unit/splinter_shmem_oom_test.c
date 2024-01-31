@@ -119,7 +119,7 @@ CTEST2(splinter_shmem_oom, test_allocations_causing_OOMs)
    // message you will see below.
    keybuf_size = (space_left + 1);
    uint8 *keybuf_oom =
-      TYPED_ARRAY_MALLOC_MF(data->hid, keybuf_oom, keybuf_size, NULL);
+      TYPED_ARRAY_MALLOC_MF(NULL, data->hid, keybuf_oom, keybuf_size);
    ASSERT_TRUE(keybuf_oom == NULL);
 
    // Free space counter is not touched if allocation fails.
@@ -145,7 +145,7 @@ CTEST2(splinter_shmem_oom, test_allocations_causing_OOMs)
 
    // This should fail.
    keybuf_size = 1;
-   keybuf_oom = TYPED_ARRAY_MALLOC_MF(data->hid, keybuf_oom, keybuf_size, NULL);
+   keybuf_oom = TYPED_ARRAY_MALLOC_MF(NULL, data->hid, keybuf_oom, keybuf_size);
    ASSERT_TRUE(keybuf_oom == NULL);
 
    // Free allocated memory before exiting.

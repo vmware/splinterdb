@@ -48,7 +48,7 @@ test_filter_basic(cache           *cc,
 
    for (uint64 i = 0; i < num_values; i++) {
       fp_arr[i] = TYPED_ARRAY_MALLOC_MF(
-         hid, fp_arr[i], num_fingerprints, &memfrag_fp_arr_i);
+         &memfrag_fp_arr_i, hid, fp_arr[i], num_fingerprints);
    }
 
    platform_memfrag memfrag_used_keys;

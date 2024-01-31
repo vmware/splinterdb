@@ -900,7 +900,7 @@ test_cache_async(cache             *cc,
          params[i].sync_probability = 10;
       }
       params[i].handle_arr = TYPED_ARRAY_ZALLOC_MF(
-         hid, params[i].handle_arr, params[i].num_pages, &memfrag);
+         &memfrag, hid, params[i].handle_arr, params[i].num_pages);
       params[i].handle_arr_size = memfrag_size(&memfrag);
 
       params[i].ts     = ts;

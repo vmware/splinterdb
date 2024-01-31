@@ -317,7 +317,7 @@ memtable_context_create(platform_heap_id hid,
    platform_mutex_init(
       &ctxt->incorporation_mutex, platform_get_module_id(), hid);
    platform_memfrag memfrag_rwlock = {0};
-   ctxt->rwlock = TYPED_MALLOC_MF(hid, ctxt->rwlock, &memfrag_rwlock);
+   ctxt->rwlock = TYPED_MALLOC_MF(&memfrag_rwlock, hid, ctxt->rwlock);
    platform_batch_rwlock_init(ctxt->rwlock);
    ctxt->rwlock_mf_size = memfrag_size(&memfrag_rwlock);
 

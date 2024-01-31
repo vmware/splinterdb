@@ -702,7 +702,7 @@ test_trunk_insert_lookup_thread(void *arg)
 
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
       bases[i] = TYPED_ARRAY_ZALLOC_MF(
-         platform_get_heap_id(), bases[i], num_tables, &memfrag_bases[i]);
+         &memfrag_bases[i], platform_get_heap_id(), bases[i], num_tables);
 
       granularities[i] = params->num_ops_per_thread[i];
       offsets[i]       = 0;

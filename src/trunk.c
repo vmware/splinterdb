@@ -3504,7 +3504,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    }
 
    platform_memfrag memfrag_req = {0};
-   cmt->req          = TYPED_ZALLOC_MF(spl->heap_id, cmt->req, &memfrag_req);
+   cmt->req          = TYPED_ZALLOC_MF(&memfrag_req, spl->heap_id, cmt->req);
    cmt->req->spl     = spl;
    cmt->req->type    = TRUNK_COMPACTION_TYPE_MEMTABLE;
    cmt->req->mf_size = memfrag_size(&memfrag_req);
@@ -7732,7 +7732,7 @@ trunk_stats_init(trunk_handle *spl)
 {
    platform_memfrag memfrag;
    spl->stats =
-      TYPED_ARRAY_ZALLOC_MF(spl->heap_id, spl->stats, MAX_THREADS, &memfrag);
+      TYPED_ARRAY_ZALLOC_MF(&memfrag, spl->heap_id, spl->stats, MAX_THREADS);
    platform_assert(spl->stats);
 
    // Remember this; it's needed for free

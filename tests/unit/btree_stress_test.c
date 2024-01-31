@@ -213,7 +213,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
       params[i].hid       = data->hid;
-      params[i].scratch   = TYPED_MALLOC_MF(data->hid, params[i].scratch, &mf);
+      params[i].scratch   = TYPED_MALLOC_MF(&mf, data->hid, params[i].scratch);
       params[i].mf_size   = memfrag_size(&mf);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
