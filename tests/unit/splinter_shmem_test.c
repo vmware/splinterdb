@@ -583,10 +583,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    // frees this fragment, if you supply 'oldsize', it will record the
    // free-fragment's size, incorrectly, as 56 bytes.
    // clang-format off
-   char *newptr = platform_realloc(data->hid,
-                                   memfrag_size(&memfrag_oldptr),
-                                   oldptr,
-                                   &adjusted_newsize);
+   char *newptr = platform_realloc(&memfrag_oldptr, adjusted_newsize);
    // clang-format on
    ASSERT_TRUE(newptr != oldptr);
 
@@ -702,10 +699,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    // actual size for 'oldsize'. This will ensure correct free space
    // accounting, and will prevent 'leaking' memory.
    // clang-format off
-   char *newptr = platform_realloc(data->hid,
-                                   memfrag_size(&memfrag_oldptr),
-                                   oldptr,
-                                   &adjusted_newsize);
+   char *newptr = platform_realloc(&memfrag_oldptr, adjusted_newsize);
    // clang-format on
    ASSERT_TRUE(newptr != oldptr);
 
@@ -805,10 +799,7 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
    // actual size for 'oldsize'. This will ensure correct free space
    // accounting, and will prevent 'leaking' memory.
    // clang-format off
-   char *newptr = platform_realloc(data->hid,
-                                   memfrag_size(&memfrag_oldptr),
-                                   oldptr,
-                                   &adjusted_newsize);
+   char *newptr = platform_realloc(&memfrag_oldptr, adjusted_newsize);
    // clang-format on
    ASSERT_TRUE(newptr != oldptr);
 

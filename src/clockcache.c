@@ -1943,11 +1943,12 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 
    platform_memfrag mf = {0};
    if (cc->pincount) {
-      memfrag_init(&mf, (void *)cc->pincount, cc->pincount_size);
+      memfrag_init(&mf, cc->heap_id, (void *)cc->pincount, cc->pincount_size);
       platform_free_volatile(cc->heap_id, &mf);
    }
    if (cc->batch_busy) {
-      memfrag_init(&mf, (void *)cc->batch_busy, cc->batch_busy_size);
+      memfrag_init(
+         &mf, cc->heap_id, (void *)cc->batch_busy, cc->batch_busy_size);
       platform_free_volatile(cc->heap_id, &mf);
    }
 }

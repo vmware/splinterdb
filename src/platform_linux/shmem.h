@@ -58,13 +58,11 @@ platform_shm_free(platform_heap_id hid,
  * Returns ptr to re-allocated memory of 'newsize' bytes.
  */
 void *
-platform_shm_realloc(platform_heap_id hid,
-                     void            *oldptr,
-                     const size_t     oldsize,
-                     size_t          *newsize,
-                     const char      *func,
-                     const char      *file,
-                     const int        line);
+platform_shm_realloc(platform_memfrag *mf,
+                     size_t            newsize,
+                     const char       *func,
+                     const char       *file,
+                     const int         line);
 
 void
 platform_shm_tracing_init(const bool trace_shmem,

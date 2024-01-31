@@ -486,11 +486,17 @@ platform_aligned_malloc(platform_memfrag      *memfrag, // IN/OUT
 /*
  * platform_realloc() - Reallocate 'newsize' bytes and copy over old contents.
  *
+ * Caller-macro to invoke lower-level reallocation method.
+ */
+#define platform_realloc(mf, newsize)                                          \
+   platform_do_realloc((mf), (newsize), __func__, __FILE__, __LINE__)
+
+/*
+ * platform_do_realloc() - Reallocate 'newsize' bytes and copy over old
+ * contents.
+ *
  * This is a wrapper around C-realloc() but farms over to shared-memory
  * based realloc, when needed.
- *
- * The interface is intentional to avoid inadvertently swapping 'oldsize' and
- * 'newsize' in the call, if they were to appear next to each other.
  *
  * Reallocing to size 0 must be equivalent to freeing.
  * Reallocing from NULL must be equivalent to allocing.
@@ -498,24 +504,23 @@ platform_aligned_malloc(platform_memfrag      *memfrag, // IN/OUT
  * Returns ptr to reallocated memory fragment. In case of shared memory,
  *  returns the newsize padded-up to cache-line alignment bytes.
  */
-#define platform_realloc(hid, oldsize, ptr, newsize)                           \
-   platform_do_realloc(                                                        \
-      (hid), (oldsize), (ptr), (newsize), __func__, __FILE__, __LINE__)
-
 static inline void *
-platform_do_realloc(const platform_heap_id heap_id,
-                    const size_t           oldsize,
-                    void                  *ptr,     // IN
-                    size_t                *newsize, // IN/OUT
-                    const char            *func,
-                    const char            *file,
-                    const int              line)
+platform_do_realloc(platform_memfrag *mf,      // IN/OUT
+                    size_t            newsize, // IN
+                    const char       *func,
+                    const char       *file,
+                    const int         line)
 {
    /* FIXME: alignment? */
 
    // Farm control off to shared-memory based realloc, if it's configured
-   if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
-      return realloc(ptr, *newsize);
+   if (mf->hid == PROCESS_PRIVATE_HEAP_ID) {
+      void *retptr = realloc(mf->addr, newsize);
+      if (retptr) {
+         mf->addr = retptr;
+         mf->size = newsize;
+      }
+      return retptr;
    } else {
       // The shmem-based allocator is expecting all memory requests to be of
       // aligned sizes, as that's what platform_aligned_malloc() does. So, to
@@ -523,10 +528,9 @@ platform_do_realloc(const platform_heap_id heap_id,
       // As this is the case of realloc, we assume that it would suffice to
       // align at platform's natural cacheline boundary.
       const size_t padding =
-         platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, *newsize);
-      *newsize += padding;
-      return platform_shm_realloc(
-         heap_id, ptr, oldsize, newsize, __func__, __FILE__, __LINE__);
+         platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, newsize);
+      newsize += padding;
+      return platform_shm_realloc(mf, newsize, func, file, line);
    }
 }
 

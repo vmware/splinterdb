@@ -858,34 +858,38 @@ platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
  * -----------------------------------------------------------------------------
  */
 void *
-platform_shm_realloc(platform_heap_id hid,
-                     void            *oldptr,
-                     const size_t     oldsize,
-                     size_t          *newsize, // IN/OUT
-                     const char      *func,
-                     const char      *file,
-                     const int        line)
+platform_shm_realloc(platform_memfrag *mf,      // IN/OUT
+                     size_t            newsize, // IN
+                     const char       *func,
+                     const char       *file,
+                     const int         line)
 {
    static const char *unknown_obj = "UnknownObj";
 
    platform_memfrag realloc_memfrag = {0};
 
    // clang-format off
-   void *retptr = platform_shm_alloc(&realloc_memfrag, hid, *newsize,
+   void *retptr = platform_shm_alloc(&realloc_memfrag, mf->hid, newsize,
                                      unknown_obj, func, file, line);
    // clang-format on
    if (retptr) {
 
+      void  *oldptr  = mf->addr;
+      size_t oldsize = mf->size;
       // Copy over old contents, if any, and free that old memory piece
       if (oldptr && oldsize) {
          memcpy(retptr, oldptr, oldsize);
-         platform_shm_free(hid, oldptr, oldsize, unknown_obj, func, file, line);
+         platform_shm_free(
+            mf->hid, oldptr, oldsize, unknown_obj, func, file, line);
       }
+      // Memory fragment is now tracking newly allocated piece of memory
+      mf->addr = retptr;
+
       // A larger free-fragment might have been recycled. Its size may be
-      // bigger than the requested '*newsize'. Return new size to caller.
+      // bigger than the requested newsize. Return new size to caller.
       // (This is critical, otherwise, asserts will trip when an attempt
       // is eventually made by the caller to free this fragment.)
-      *newsize = memfrag_size(&realloc_memfrag);
+      mf->size = memfrag_size(&realloc_memfrag);
    }
    return retptr;
 }

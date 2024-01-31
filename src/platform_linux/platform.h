@@ -804,8 +804,12 @@ typedef struct platform_memfrag {
 
 // platform_memfrag initializer.
 static inline void
-memfrag_init(platform_memfrag *mf, void *ptr, size_t nbytes)
+memfrag_init(platform_memfrag *mf,
+             platform_heap_id  hid,
+             void             *ptr,
+             size_t            nbytes)
 {
+   mf->hid  = hid;
    mf->addr = ptr;
    mf->size = nbytes;
 }
