@@ -561,7 +561,13 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
 
    platform_memfrag memfrag_oldptr;
 
-   char *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
+   char  *oldptr     = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
+   size_t mf_oldsize = memfrag_size(&memfrag_oldptr);
+   ASSERT_TRUE((oldsize < mf_oldsize),
+               "Requested oldsize=%lu is expected to be"
+               " < mf_oldsize=%lu bytes",
+               oldsize,
+               mf_oldsize);
 
    size_t old_shmfree = platform_shmbytes_free(data->hid);
    size_t old_shmused = platform_shmbytes_used(data->hid);
@@ -572,31 +578,27 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    // Used-memory should have gone up by size of memfrag allocated
    ASSERT_EQUAL(old_shmused, (shmused_initial + memfrag_size(&memfrag_oldptr)));
 
-   size_t newsize          = (2 * oldsize);
-   size_t adjusted_newsize = newsize;
+   size_t newsize = (2 * oldsize);
 
-   // realloc interface is a bit tricky, due to our cache-alignment based
-   // memory fragment management. Even though user requested 'oldsize'
-   // initially, at realloc-time, you have to supply the actual memory fragment
-   // size. This will ensure correct free space accounting, and will prevent
-   // 'leaking' memory. E.g., here we allocated oldsize=56 bytes. When realloc()
-   // frees this fragment, if you supply 'oldsize', it will record the
-   // free-fragment's size, incorrectly, as 56 bytes.
-   // clang-format off
-   char *newptr = platform_realloc(&memfrag_oldptr, adjusted_newsize);
-   // clang-format on
+   char *newptr = platform_realloc(&memfrag_oldptr, newsize);
    ASSERT_TRUE(newptr != oldptr);
 
    // Expect that newsize was padded up for cacheline alignment
-   ASSERT_TRUE(adjusted_newsize > newsize);
+   size_t mf_newsize = memfrag_size(&memfrag_oldptr);
+
+   ASSERT_TRUE((mf_newsize > newsize),
+               "Memory fragment's new size=%lu bytes should be >"
+               "newsize=%lu bytes, oldsize=%lu",
+               mf_newsize,
+               newsize,
+               oldsize);
 
    // realloc() (is expected to) pad-up newsize to cache-line alignment
    ASSERT_TRUE(platform_shm_next_free_cacheline_aligned(data->hid));
 
    // Check free space accounting
-   newsize            = adjusted_newsize;
    size_t new_shmfree = platform_shmbytes_free(data->hid);
-   size_t exp_shmfree = (old_shmfree + memfrag_size(&memfrag_oldptr) - newsize);
+   size_t exp_shmfree = (old_shmfree + mf_oldsize - mf_newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
                "Expected free space=%lu bytes != actual free space=%lu bytes"
                ", diff=%lu bytes. ",
@@ -606,7 +608,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
 
    // Check used space accounting after realloc()
    size_t new_shmused = platform_shmbytes_used(data->hid);
-   size_t exp_shmused = (old_shmused - memfrag_size(&memfrag_oldptr) + newsize);
+   size_t exp_shmused = (old_shmused - mf_oldsize + mf_newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
                "Expected used space=%lu bytes != actual used space=%lu bytes"
                ", diff=%lu bytes. ",
@@ -632,10 +634,10 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    platform_free(data->hid, mf);
 
    // Here's the trick in book-keeping. As oldptr was realloc()'ed, its size
-   // went up from what was tracked in its memfrag_oldptr to adjusted_newsize.
+   // went up from what was tracked in its memfrag_oldptr.
    // So, to correctly get free space accounting, and to not 'leak' memory, we
    // need to re-establish the fragment's correct identity before freeing it.
-   platform_free_mem(data->hid, newptr, newsize);
+   platform_free_mem(data->hid, newptr, mf_newsize);
 
    // Confirm that free/used space metrics go back to initial values
    new_shmused = platform_shmbytes_used(data->hid);
@@ -676,6 +678,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    platform_memfrag memfrag_oldptr;
    char            *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
 
+   size_t mf_oldsize  = memfrag_size(&memfrag_oldptr);
    size_t old_shmfree = platform_shmbytes_free(data->hid);
    size_t old_shmused = platform_shmbytes_used(data->hid);
 
@@ -688,32 +691,24 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
 
    // Request a very large fragment, just shy of the alignment size.
    size_t newsize           = (2 * SHM_LARGE_FRAG_SIZE) - 16;
-   size_t adjusted_newsize  = newsize;
    size_t expected_newsisze = newsize;
    expected_newsisze +=
       platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, expected_newsisze);
 
-   // realloc interface is a bit tricky, due to our cache-alignment based
-   // memory fragment management. Even though user requested 'oldsize'
-   // initially, at realloc-time, you have to supply the memory fragment's
-   // actual size for 'oldsize'. This will ensure correct free space
-   // accounting, and will prevent 'leaking' memory.
-   // clang-format off
-   char *newptr = platform_realloc(&memfrag_oldptr, adjusted_newsize);
-   // clang-format on
+   char *newptr = platform_realloc(&memfrag_oldptr, newsize);
    ASSERT_TRUE(newptr != oldptr);
 
    // Expect realloc() to have aligned to cache-line size
+   size_t mf_newsize = memfrag_size(&memfrag_oldptr);
    ASSERT_EQUAL(expected_newsisze,
-                adjusted_newsize,
-                "expected_newsisze=%lu, adjusted_newsize=%lu",
+                mf_newsize,
+                "expected_newsisze=%lu, mf_newsize=%lu",
                 expected_newsisze,
-                adjusted_newsize);
+                mf_newsize);
 
    // Check free space accounting
    size_t new_shmfree = platform_shmbytes_free(data->hid);
-   size_t exp_shmfree =
-      (old_shmfree + memfrag_size(&memfrag_oldptr) - adjusted_newsize);
+   size_t exp_shmfree = (old_shmfree + mf_oldsize - mf_newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
                "Expected free space=%lu bytes != actual free space=%lu bytes"
                ", diff=%lu bytes. ",
@@ -723,8 +718,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
 
    // Check used space accounting after realloc() allocated a new large fragment
    size_t new_shmused = platform_shmbytes_used(data->hid);
-   size_t exp_shmused =
-      (old_shmused - memfrag_size(&memfrag_oldptr) + adjusted_newsize);
+   size_t exp_shmused = (old_shmused - mf_oldsize + mf_newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
                "Expected used space=%lu bytes != actual used space=%lu bytes"
                ", diff=%lu bytes. ",
@@ -771,59 +765,58 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
    size_t shmused_initial = platform_shmbytes_used(data->hid);
    size_t shmfree_initial = platform_shmbytes_free(data->hid);
 
-   // Allocate a small fragment here
-   size_t           oldsize = (2 * SHM_LARGE_FRAG_SIZE);
    platform_memfrag memfrag_oldptr;
-   char            *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
+   // Allocate a large fragment here
 
+   size_t oldsize = (2 * SHM_LARGE_FRAG_SIZE);
+   char  *oldptr  = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
+
+   size_t mf_oldsize  = memfrag_size(&memfrag_oldptr);
    size_t old_shmfree = platform_shmbytes_free(data->hid);
    size_t old_shmused = platform_shmbytes_used(data->hid);
 
-   size_t old_memfrag_size = memfrag_size(&memfrag_oldptr);
    // Free-memory should have gone down by size of memfrag allocated
-   ASSERT_EQUAL(old_shmfree, (shmfree_initial - old_memfrag_size));
+   ASSERT_EQUAL(old_shmfree, (shmfree_initial - mf_oldsize));
 
    // Used-memory should have gone up by size of memfrag allocated
-   ASSERT_EQUAL(old_shmused, (shmused_initial + old_memfrag_size));
+   ASSERT_EQUAL(old_shmused, (shmused_initial + mf_oldsize));
 
-   // Request a larger fragment. (Alighnment issues covered earlier ...)
+   // Request a larger fragment. (Alignment issues covered earlier ...)
    size_t newsize           = (4 * SHM_LARGE_FRAG_SIZE) - 20;
-   size_t adjusted_newsize  = newsize;
    size_t expected_newsisze = newsize;
    expected_newsisze +=
       platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, expected_newsisze);
 
-   // realloc interface is a bit tricky, due to our cache-alignment based
-   // memory fragment management. Even though user requested 'oldsize'
-   // initially, at realloc-time, you have to supply the memory fragment's
-   // actual size for 'oldsize'. This will ensure correct free space
-   // accounting, and will prevent 'leaking' memory.
-   // clang-format off
-   char *newptr = platform_realloc(&memfrag_oldptr, adjusted_newsize);
-   // clang-format on
+   char *newptr = platform_realloc(&memfrag_oldptr, newsize);
    ASSERT_TRUE(newptr != oldptr);
 
    // Expect realloc() to have aligned to cache-line size
+   size_t mf_newsize = memfrag_size(&memfrag_oldptr);
    ASSERT_EQUAL(expected_newsisze,
-                adjusted_newsize,
-                "expected_newsisze=%lu, adjusted_newsize=%lu",
+                mf_newsize,
+                "expected_newsisze=%lu, mf_newsize=%lu",
                 expected_newsisze,
-                adjusted_newsize);
+                mf_newsize);
 
    // Check free space accounting. Memory used by old large-fragment being
    // freed is not accounted in shared memory's memory metrics
    size_t new_shmfree = platform_shmbytes_free(data->hid);
-   size_t exp_shmfree = (old_shmfree - adjusted_newsize);
+   size_t exp_shmfree = (old_shmfree - mf_newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
                "Expected free space=%lu bytes != actual free space=%lu bytes"
-               ", diff=%lu bytes. ",
+               ", diff=%lu bytes. "
+               "oldsize=%lu, mf_oldsize=%lu, newsize=%lu, mf_newsize=%lu",
                exp_shmfree,
                new_shmfree,
-               diff_size_t(exp_shmfree, new_shmfree));
+               diff_size_t(exp_shmfree, new_shmfree),
+               oldsize,
+               mf_oldsize,
+               newsize,
+               mf_newsize);
 
    // Check used space accounting after realloc() allocated a new large fragment
    size_t new_shmused = platform_shmbytes_used(data->hid);
-   size_t exp_shmused = (old_shmused + adjusted_newsize);
+   size_t exp_shmused = (old_shmused + mf_newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
                "Expected used space=%lu bytes != actual used space=%lu bytes"
                ", diff=%lu bytes. ",
@@ -833,7 +826,7 @@ CTEST2(splinter_shmem, test_large_frag_platform_realloc_to_large_frag)
 
    // You -must- specify the right size when free'ing even a large fragment.
    // Otherwise, debug asserts will trip.
-   platform_free_mem(data->hid, newptr, adjusted_newsize);
+   platform_free_mem(data->hid, newptr, mf_newsize);
    return;
 
    // When large fragments are 'freed', they are not really accounted in the
