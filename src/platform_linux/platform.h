@@ -339,10 +339,10 @@ extern platform_heap_id Heap_id;
 #define TYPED_MANUAL_ZALLOC(hid, v, n, mf)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid,                                  \
+      (typeof(v))platform_aligned_zalloc((mf),                                 \
+                                         hid,                                  \
                                          PLATFORM_CACHELINE_SIZE,              \
                                          (n),                                  \
-                                         (mf),                                 \
                                          STRINGIFY(v),                         \
                                          __func__,                             \
                                          __FILE__,                             \
@@ -377,7 +377,7 @@ extern platform_heap_id Heap_id;
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_zalloc(                                      \
-         hid, (a), (n), (mf), STRINGIFY(v), __func__, __FILE__, __LINE__);     \
+         (mf), hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);     \
    })
 
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
@@ -775,8 +775,9 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  * programming which might try to bypass provided interfaces.
  */
 typedef struct platform_memfrag {
-   size_t size;
-   void  *addr;
+   platform_heap_id hid;
+   size_t           size;
+   void            *addr;
 } platform_memfrag;
 
 #include <platform_inline.h>
@@ -986,10 +987,10 @@ platform_free_volatile_from_heap(platform_heap_id heap_id,
 }
 
 static inline void *
-platform_aligned_zalloc(platform_heap_id  heap_id,
+platform_aligned_zalloc(platform_memfrag *memfrag, // IN/OUT
+                        platform_heap_id  heap_id,
                         size_t            alignment,
                         size_t            size,
-                        platform_memfrag *memfrag, // OUT
                         const char       *objname,
                         const char       *func,
                         const char       *file,
