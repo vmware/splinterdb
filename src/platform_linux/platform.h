@@ -317,10 +317,10 @@ extern platform_heap_id Heap_id;
  * calling aligned_alloc manually (or create a separate macro)
  *
  * Parameters:
+ *  mf  - platform_memfrag *, to return memory allocation information.
  *	hid - Platform heap-ID to allocate memory from.
  *	v   - Structure to allocate memory for.
  *	n   - Number of bytes of memory to allocate.
- *  mf  - platform_memfrag *, to return memory allocation information.
  * -----------------------------------------------------------------------------
  */
 #define TYPED_MANUAL_MALLOC(mf, hid, v, n)                                     \
@@ -336,7 +336,7 @@ extern platform_heap_id Heap_id;
                                          __LINE__);                            \
    })
 
-#define TYPED_MANUAL_ZALLOC(hid, v, n, mf)                                     \
+#define TYPED_MANUAL_ZALLOC(mf, hid, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_zalloc((mf),                                 \
@@ -357,11 +357,11 @@ extern platform_heap_id Heap_id;
  * the difference that the alignment is caller-specified.
  *
  * Parameters:
+ *  mf  - platform_memfrag *, to return memory allocation information.
  *	hid - Platform heap-ID to allocate memory from.
  *	a   - Alignment needed for allocated memory.
  *	v   - Structure to allocate memory for.
  *	n   - Number of bytes of memory to allocate.
- *  mf  - platform_memfrag *, to return memory allocation information.
  */
 #define TYPED_ALIGNED_MALLOC_MF(hid, a, v, n, mf)                              \
    ({                                                                          \
@@ -425,15 +425,16 @@ extern platform_heap_id Heap_id;
  * -----------------------------------------------------------------------------
  */
 #define TYPED_FLEXIBLE_STRUCT_MALLOC(hid, v, array_field_name, n)              \
-   TYPED_MANUAL_MALLOC(&memfrag_##v, hid,                                                    \
+   TYPED_MANUAL_MALLOC(&memfrag_##v,                                           \
+                       hid,                                                    \
                        (v),                                                    \
                        FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
 #define TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, v, array_field_name, n)              \
-   TYPED_MANUAL_ZALLOC(hid,                                                    \
+   TYPED_MANUAL_ZALLOC(&memfrag_##v,                                           \
+                       hid,                                                    \
                        (v),                                                    \
-                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)),       \
-                       &memfrag_##v)
+                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
 /*
  * TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
@@ -448,16 +449,16 @@ extern platform_heap_id Heap_id;
  * named memfrag_<v>. This is used as output struct to return memory frag info.
  */
 #define TYPED_ARRAY_MALLOC(hid, v, n)                                          \
-   TYPED_MANUAL_MALLOC(&memfrag_##v,hid, (v), (n) * sizeof(*(v)))
+   TYPED_MANUAL_MALLOC(&memfrag_##v, hid, (v), (n) * sizeof(*(v)))
 
 #define TYPED_ARRAY_ZALLOC(hid, v, n)                                          \
-   TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
+   TYPED_MANUAL_ZALLOC(&memfrag_##v, hid, (v), (n) * sizeof(*(v)))
 
 #define TYPED_ARRAY_MALLOC_MF(hid, v, n, mf)                                   \
    TYPED_MANUAL_MALLOC((mf), hid, (v), (n) * sizeof(*(v)))
 
 #define TYPED_ARRAY_ZALLOC_MF(hid, v, n, mf)                                   \
-   TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)), mf)
+   TYPED_MANUAL_ZALLOC((mf), hid, (v), (n) * sizeof(*(v)))
 
 /*
  * TYPED_MALLOC(), TYPED_ZALLOC()

@@ -231,8 +231,9 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
    req_size =
       sizeof(io_async_req) + cfg->async_max_pages * sizeof(struct iovec);
    total_req_size = req_size * cfg->async_queue_size;
-   io->req        = TYPED_MANUAL_ZALLOC(
-      io->heap_id, io->req, total_req_size, &memfrag_io_req);
+
+   io->req = TYPED_MANUAL_ZALLOC(
+      &memfrag_io_req, io->heap_id, io->req, total_req_size);
    platform_assert((io->req != NULL),
                    "Failed to allocate memory for array of %lu Async IO"
                    " request structures, for %ld outstanding IOs on pages.",
