@@ -1097,8 +1097,8 @@ do_inserts_n_threads(worker_config *data_work_cfg,
          ASSERT_TRUE(FALSE);
       }
    }
-   platform_free(data_work_cfg->hid, &memfrag_thread_ids);
-   platform_free(data_work_cfg->hid, &memfrag_wcfg);
+   platform_free(&memfrag_thread_ids);
+   platform_free(&memfrag_wcfg);
 }
 
 /*
@@ -1319,7 +1319,7 @@ exec_worker_thread(void *w)
    }
 
    // Cleanup resources opened in this call.
-   platform_free(wcfg->hid, &memfrag_key_buf);
-   platform_free(wcfg->hid, &memfrag_val_buf);
+   platform_free(&memfrag_key_buf);
+   platform_free(&memfrag_val_buf);
    return 0;
 }

@@ -344,10 +344,11 @@ fingerprint_do_init(fp_hdr          *fp,
    ZERO_CONTENTS(fp);
    platform_memfrag memfrag_fp_arr;
    uint32          *fp_arr = TYPED_ARRAY_ZALLOC(hid, fp_arr, num_tuples);
+   // Upon successful allocation, save memory fragment info. It will be
+   // needed when we have to free fingerprint's memory.
    if (fp_arr != NULL) {
-      memfrag_start(&fp->mf) = memfrag_start(&memfrag_fp_arr);
-      memfrag_size(&fp->mf)  = memfrag_size(&memfrag_fp_arr);
-      fp->ntuples            = num_tuples;
+      fp->mf      = memfrag_fp_arr;
+      fp->ntuples = num_tuples;
    }
    fp->init_line = line;
    return fp_arr;
@@ -385,7 +386,7 @@ fingerprint_do_deinit(platform_heap_id hid, fp_hdr *fp, uint32 line)
                 fp->alias_line,
                 line);
 
-   platform_free(hid, &fp->mf);
+   platform_free(&fp->mf);
    fp->ntuples   = -1; // Indicates that fingerprint went thru deinit()
    fp->init_line = line;
 }

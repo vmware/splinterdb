@@ -131,7 +131,7 @@ test_config_parse(test_config *cfg,
          }
       }
    out:
-      platform_free(platform_get_heap_id(), &memfrag_temp_cfg);
+      platform_free(&memfrag_temp_cfg);
       return rc;
    }
 

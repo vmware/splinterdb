@@ -282,11 +282,11 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 
 exit:
    if (addr_arr) {
-      platform_free(hid, &memfrag_addr_arr);
+      platform_free(&memfrag_addr_arr);
    }
 
    if (page_arr) {
-      platform_free(hid, &memfrag_page_arr);
+      platform_free(&memfrag_page_arr);
    }
 
    if (SUCCESS(rc)) {
@@ -562,7 +562,7 @@ test_cache_flush(cache             *cc,
 
 exit:
    if (addr_arr) {
-      platform_free(hid, &memfrag_addr_arr);
+      platform_free(&memfrag_addr_arr);
    }
 
    if (SUCCESS(rc)) {
@@ -954,8 +954,8 @@ test_cache_async(cache             *cc,
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
-   platform_free(hid, &memfrag_addr_arr);
-   platform_free(hid, &memfrag_params);
+   platform_free(&memfrag_addr_arr);
+   platform_free(&memfrag_params);
    cache_print_stats(Platform_default_log_handle, cc);
    platform_default_log("\n");
 
@@ -1144,16 +1144,16 @@ cache_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    clockcache_deinit(cc);
-   platform_free(hid, &memfrag_cc);
+   platform_free(&memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, &memfrag_io);
+   platform_free(&memfrag_io);
 cleanup:
-   platform_free(hid, &memfrag_splinter_cfg);
+   platform_free(&memfrag_splinter_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

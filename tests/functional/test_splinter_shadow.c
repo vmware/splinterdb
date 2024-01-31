@@ -117,7 +117,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
                            sizeof(test_splinter_shadow_node) * max_operations);
    if (!SUCCESS(rc)) {
       platform_default_log("Failed to pre allocate nodes for shadow tree\n");
-      platform_free(hid, &memfrag_shadow);
+      platform_free(&memfrag_shadow);
       return rc;
    }
    shadow->nodes = platform_buffer_getaddr(&shadow->nodes_buffer);

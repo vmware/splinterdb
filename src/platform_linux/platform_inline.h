@@ -473,6 +473,7 @@ platform_aligned_malloc(platform_memfrag      *memfrag, // IN/OUT
    if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
       retptr = aligned_alloc(alignment, required);
       if (memfrag) {
+         memfrag->hid  = heap_id;
          memfrag->addr = retptr;
          memfrag->size = required;
       }
@@ -532,6 +533,14 @@ platform_do_realloc(platform_memfrag *mf,      // IN/OUT
       newsize += padding;
       return platform_shm_realloc(mf, newsize, func, file, line);
    }
+}
+
+static inline void
+platform_free_heap(platform_heap_id heap_id, void *ptr)
+{
+   debug_assert(heap_id == PROCESS_PRIVATE_HEAP_ID);
+   debug_assert(ptr != NULL);
+   free(ptr);
 }
 
 /*

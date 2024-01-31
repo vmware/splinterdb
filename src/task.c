@@ -291,9 +291,9 @@ task_create_thread_with_hooks(platform_thread       *thread,
    return ret;
 
 free_thread:
-   platform_free(hid, &memfrag_thread_to_create);
+   platform_free(&memfrag_thread_to_create);
 free_scratch:
-   platform_free(ts->heap_id, &memfrag_scratch);
+   platform_free(&memfrag_scratch);
 dealloc_tid:
    task_deallocate_threadid(ts, newtid);
    return ret;
@@ -652,7 +652,7 @@ task_enqueue(task_system *ts,
 
    rc = task_group_lock(group);
    if (!SUCCESS(rc)) {
-      platform_free(ts->heap_id, &memfrag_new_task);
+      platform_free(&memfrag_new_task);
       return rc;
    }
 

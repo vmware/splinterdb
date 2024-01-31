@@ -149,8 +149,8 @@ CTEST2(splinter_shmem_oom, test_allocations_causing_OOMs)
    ASSERT_TRUE(keybuf_oom == NULL);
 
    // Free allocated memory before exiting.
-   platform_free(data->hid, &memfrag_keybuf);
-   platform_free(data->hid, &memfrag_keybuf_no_oom);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_keybuf_no_oom);
 }
 
 /*

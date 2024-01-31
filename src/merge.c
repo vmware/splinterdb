@@ -599,7 +599,7 @@ platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
    merge_accumulator_deinit(&(*merge_itor)->merge_buffer);
-   platform_free(PROCESS_PRIVATE_HEAP_ID, *merge_itor);
+   platform_free_heap(PROCESS_PRIVATE_HEAP_ID, *merge_itor);
    *merge_itor = NULL;
 
    return STATUS_OK;

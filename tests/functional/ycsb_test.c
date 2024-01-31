@@ -474,7 +474,7 @@ shutdown:
       }
       nthreads--;
    }
-   platform_free(hid, &memfrag_threads);
+   platform_free(&memfrag_threads);
 
    if (phase->measurement_command) {
       const size_t     bufsize = 1024;
@@ -497,16 +497,16 @@ shutdown:
          if (num_written != num_read) {
             platform_error_log(
                "Could not write to measurement output file %s\n", filename);
-            platform_free(hid, &memfrag_filename);
-            platform_free(hid, &memfrag_buffer);
+            platform_free(&memfrag_filename);
+            platform_free(&memfrag_buffer);
             exit(1);
          }
       } while (!feof(measurement_cmd));
       fclose(measurement_output);
       pclose(measurement_cmd);
 
-      platform_free(hid, &memfrag_filename);
-      platform_free(hid, &memfrag_buffer);
+      platform_free(&memfrag_filename);
+      platform_free(&memfrag_buffer);
    }
 
    return success;
@@ -581,7 +581,7 @@ parse_ycsb_log_file(void *arg)
    result->mf_size = memfrag_size(&memfrag_result);
    if (lock && mlock(result, num_lines * sizeof(ycsb_op))) {
       platform_error_log("Failed to lock log into RAM.\n");
-      platform_free(hid, &memfrag_result);
+      platform_free(&memfrag_result);
       goto close_file;
    }
 
@@ -622,7 +622,7 @@ parse_ycsb_log_file(void *arg)
 
 close_file:
    if (buffer) {
-      platform_free(PROCESS_PRIVATE_HEAP_ID, buffer);
+      platform_free_heap(PROCESS_PRIVATE_HEAP_ID, buffer);
    }
    fclose(fp);
    platform_assert(result != NULL);
@@ -804,8 +804,8 @@ load_ycsb_logs(int          argc,
    return STATUS_OK;
 
 bad_params:
-   platform_free(hid, &memfrag_phases);
-   platform_free(hid, &memfrag_params);
+   platform_free(&memfrag_phases);
+   platform_free(&memfrag_params);
    return STATUS_BAD_PARAM;
 }
 
@@ -1353,7 +1353,7 @@ ycsb_test(int argc, char *argv[])
 
    trunk_unmount(&spl);
    clockcache_deinit(cc);
-   platform_free(hid, &memfrag_cc);
+   platform_free(&memfrag_cc);
    rc_allocator_unmount(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
@@ -1373,18 +1373,19 @@ ycsb_test(int argc, char *argv[])
    // What should be memfrag's size to be supplied to platform_free_mem()?
    for (uint64 i = 0; i < nphases; i++) {
       for (uint64 j = 0; j < phases[i].nlogs; j++) {
-         platform_free(PROCESS_PRIVATE_HEAP_ID, phases[i].params[j].ycsb_ops);
+         platform_free_heap(PROCESS_PRIVATE_HEAP_ID,
+                            phases[i].params[j].ycsb_ops);
       }
-      platform_free(PROCESS_PRIVATE_HEAP_ID, phases[i].params);
+      platform_free_heap(PROCESS_PRIVATE_HEAP_ID, phases[i].params);
    }
    platform_free_mem(hid, phases, phases->mf_size);
 
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, &memfrag_io);
+   platform_free(&memfrag_io);
 cleanup:
-   platform_free(hid, &memfrag_splinter_cfg);
+   platform_free(&memfrag_splinter_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

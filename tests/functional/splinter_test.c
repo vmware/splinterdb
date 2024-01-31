@@ -216,7 +216,7 @@ out:
    merge_accumulator_deinit(&msg);
    params->rc = STATUS_OK;
 
-   platform_free(platform_get_heap_id(), &memfrag_insert_base);
+   platform_free(&memfrag_insert_base);
    for (uint64 i = 0; i < num_tables; i++) {
       trunk_handle *spl = spl_tables[i];
       trunk_perform_tasks(spl);
@@ -343,7 +343,7 @@ test_trunk_lookup_thread(void *arg)
 out:
    merge_accumulator_deinit(&data);
    params->rc = STATUS_OK;
-   platform_free(platform_get_heap_id(), &memfrag_lookup_base);
+   platform_free(&memfrag_lookup_base);
 }
 
 static void
@@ -458,7 +458,7 @@ test_trunk_range_thread(void *arg)
    }
 out:
    params->rc = STATUS_OK;
-   platform_free(platform_get_heap_id(), &memfrag_range_base);
+   platform_free(&memfrag_range_base);
 }
 
 /*
@@ -772,7 +772,7 @@ out:
    params->rc = STATUS_OK;
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
       platform_memfrag *mf = &memfrag_bases[i];
-      platform_free(platform_get_heap_id(), mf);
+      platform_free(mf);
    }
 }
 
@@ -813,7 +813,7 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
          for (uint8 del_idx = 0; del_idx < spl_idx; del_idx++) {
             trunk_destroy(spl_tables[del_idx]);
          }
-         platform_free(hid, &memfrag_spl_tables);
+         platform_free(&memfrag_spl_tables);
          return STATUS_NO_MEMORY;
       }
    }
@@ -1485,10 +1485,10 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, &memfrag_params);
-   platform_free(hid, &memfrag_curr_op);
-   platform_free(hid, &memfrag_per_table_ranges);
-   platform_free(hid, &memfrag_per_table_inserts);
+   platform_free(&memfrag_params);
+   platform_free(&memfrag_curr_op);
+   platform_free(&memfrag_per_table_ranges);
+   platform_free(&memfrag_per_table_inserts);
    return rc;
 }
 
@@ -1974,10 +1974,10 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, &memfrag_params);
-   platform_free(hid, &memfrag_curr_op);
-   platform_free(hid, &memfrag_per_table_ranges);
-   platform_free(hid, &memfrag_per_table_inserts);
+   platform_free(&memfrag_params);
+   platform_free(&memfrag_curr_op);
+   platform_free(&memfrag_per_table_ranges);
+   platform_free(&memfrag_per_table_inserts);
    return rc;
 }
 
@@ -2196,9 +2196,9 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, &memfrag_params);
-   platform_free(hid, &memfrag_curr_insert_op);
-   platform_free(hid, &memfrag_per_table_inserts);
+   platform_free(&memfrag_params);
+   platform_free(&memfrag_curr_insert_op);
+   platform_free(&memfrag_per_table_inserts);
    return rc;
 }
 
@@ -2430,9 +2430,9 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, &memfrag_params);
-   platform_free(hid, &memfrag_curr_op);
-   platform_free(hid, &memfrag_per_table_inserts);
+   platform_free(&memfrag_params);
+   platform_free(&memfrag_curr_op);
+   platform_free(&memfrag_per_table_inserts);
    return rc;
 }
 
@@ -3027,9 +3027,9 @@ splinter_test(int argc, char *argv[])
       clockcache_deinit(&cc[idx]);
    }
 
-   platform_free(hid, &memfrag_caches);
+   platform_free(&memfrag_caches);
 
-   platform_free(hid, &memfrag_cc);
+   platform_free(&memfrag_cc);
 
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
@@ -3037,11 +3037,11 @@ splinter_test(int argc, char *argv[])
 handle_deinit:
    io_handle_deinit(io);
 io_free:
-   platform_free(hid, &memfrag_io);
+   platform_free(&memfrag_io);
 cfg_free:
-   platform_free(hid, &memfrag_cache_cfg);
-   platform_free(hid, &memfrag_splinter_cfg);
-   platform_free(hid, &memfrag_test_cfg);
+   platform_free(&memfrag_cache_cfg);
+   platform_free(&memfrag_splinter_cfg);
+   platform_free(&memfrag_test_cfg);
 heap_destroy:
    platform_heap_destroy(&hid);
 

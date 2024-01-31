@@ -120,6 +120,6 @@ CTEST2(config_parse, test_basic_parsing)
                "Parameter '%s' expected. ",
                "--verbose-progress");
 
-   platform_free(data->hid, &memfrag_cache_cfg);
-   platform_free(data->hid, &memfrag_splinter_cfg);
+   platform_free(&memfrag_cache_cfg);
+   platform_free(&memfrag_splinter_cfg);
 }

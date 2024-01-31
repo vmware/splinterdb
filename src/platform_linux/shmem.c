@@ -736,6 +736,9 @@ platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
 
    void *retptr = NULL;
 
+   if (memfrag) {
+      memfrag->hid = hid;
+   }
    // See if we can satisfy requests for large memory fragments from a cached
    // list of used/free fragments that are tracked separately.
    if (size >= SHM_LARGE_FRAG_SIZE) {
@@ -831,7 +834,6 @@ platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
    }
    // A new fragment was carved out of shm. Inform caller of its properties.
    if (memfrag) {
-      memfrag->hid  = hid;
       memfrag->size = size;
       memfrag->addr = retptr;
    }
@@ -918,7 +920,13 @@ platform_shm_free(platform_heap_id hid,
 
    debug_assert(
       (platform_shm_heap_valid(shm) == TRUE),
-      "Shared memory heap ID at %p is not a valid shared memory handle.",
+      "[%s:%d::%s()] Attempt to free memory at %p for object '%s' failed."
+      " Shared memory heap ID at %p is not a valid shared memory handle.",
+      file,
+      line,
+      func,
+      ptr,
+      objname,
       hid);
 
    if (!platform_isvalid_addr_in_heap(hid, ptr)) {

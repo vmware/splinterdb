@@ -319,8 +319,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    for (uint64 i = 0; i < nthreads; i++) {
       platform_free_mem(data->hid, params[i].scratch, params[i].mf_size);
    }
-   platform_free(hid, &memfrag_params);
-   platform_free(hid, &memfrag_threads);
+   platform_free(&memfrag_params);
+   platform_free(&memfrag_threads);
 }
 
 /*
@@ -382,8 +382,8 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_free(hid, &memfrag_keybuf);
-   platform_free(hid, &memfrag_msgbuf);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_msgbuf);
 }
 
 static key
@@ -460,8 +460,8 @@ query_tests(cache           *cc,
    }
 
    merge_accumulator_deinit(&result);
-   platform_free(hid, &memfrag_keybuf);
-   platform_free(hid, &memfrag_msgbuf);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_msgbuf);
    return 1;
 }
 
@@ -527,9 +527,9 @@ iterator_test(platform_heap_id hid,
       }
    }
 
-   platform_free(hid, &memfrag_prevbuf);
-   platform_free(hid, &memfrag_keybuf);
-   platform_free(hid, &memfrag_msgbuf);
+   platform_free(&memfrag_prevbuf);
+   platform_free(&memfrag_keybuf);
+   platform_free(&memfrag_msgbuf);
    return seen;
 }
 
@@ -630,7 +630,7 @@ iterator_seek_tests(cache           *cc,
 
    btree_iterator_deinit(&dbiter);
 
-   platform_free(hid, &memfrag_keybuf);
+   platform_free(&memfrag_keybuf);
    return 1;
 }
 

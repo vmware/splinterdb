@@ -432,7 +432,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
 io_free:
    if (pid > 0) {
-      platform_free(hid, &memfrag_io_hdl);
+      platform_free(&memfrag_io_hdl);
    }
 heap_destroy:
    if (pid > 0) {
@@ -517,7 +517,7 @@ test_sync_writes(platform_heap_id    hid,
    }
 
 free_buf:
-   platform_free(hid, &memfrag_buf);
+   platform_free(&memfrag_buf);
 out:
    return rc;
 }
@@ -632,8 +632,8 @@ test_sync_reads(platform_heap_id    hid,
    }
 
 free_buf:
-   platform_free(hid, &memfrag_buf);
-   platform_free(hid, &memfrag_exp);
+   platform_free(&memfrag_buf);
+   platform_free(&memfrag_exp);
    return rc;
 }
 
@@ -878,9 +878,9 @@ test_async_reads(platform_heap_id    hid,
 
    io_cleanup(ioh, NUM_PAGES_RW_ASYNC_PER_THREAD);
 
-   platform_free(hid, &memfrag_exp);
+   platform_free(&memfrag_exp);
 free_buf:
-   platform_free(hid, &memfrag_buf);
+   platform_free(&memfrag_buf);
 out:
    return rc;
 }

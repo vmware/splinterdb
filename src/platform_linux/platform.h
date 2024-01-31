@@ -842,98 +842,40 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
 
 /*
  * ----------------------------------------------------------------------------
- * void = platform_free(platform_heap_id hid, void *p);
+ * void = platform_free(platform_memfrag *mf)
  *
  * Similar to the TYPED_MALLOC functions, for all the free functions we need
  * to call platform_get_heap_id() from a macro instead of an inline function
  * (which may or may not end up inlined). Wrap free and free_volatile.
- *
- * This simple macro does a few interesting things:
- *
- * - This macro calls underlying platform_free_mem() to supply the 'size' of
- *    the memory fragment being freed. This is needed to support recycling of
- *    freed fragments when shared memory is used.
- *
- * - Most callers will be free'ing memory allocated pointing to a structure.
- *   This interface also provides a way to free opaque fragments described
- *   simply by a start-address and size of the fragment. Such usages occur,
- *   say, for memory fragments allocated for an array of n-structs.
- *
- * - To catch code errors where we may attempt to free the same memory fragment
- *   twice, it's a hard assertion if input ptr 'p' is NULL (likely already
- *   freed).
- *
- * - Defenses are built-in to protect callers which may be incorrectly using
- *   this interface to free memory allocated from shared-segment or the heap.
  * ----------------------------------------------------------------------------
  */
-#define platform_free(hid, p)                                                  \
+#define platform_free(mf)                                                      \
    do {                                                                        \
-      platform_assert(((p) != NULL),                                           \
-                      "Attempt to free a NULL ptr from '%s', line=%d",         \
-                      __func__,                                                \
-                      __LINE__);                                               \
-      if (IS_MEM_FRAG(p)) {                                                    \
-         platform_memfrag *_mf = (platform_memfrag *)(p);                      \
-         platform_free_frag((hid), _mf->addr, _mf->size, STRINGIFY(p));        \
-         _mf->addr = NULL;                                                     \
-         _mf->size = 0;                                                        \
-      } else if ((hid) != PROCESS_PRIVATE_HEAP_ID) {                           \
-         if (sizeof(*p) == sizeof(void *)) {                                   \
-            /*                                                                 \
-             * This check catches the most common abuse of this interface      \
-             * where some code may have done:                                  \
-             *                                                                 \
-             *  platform_memfrag memfrag_pivot_key;                            \
-             *  key_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, n); \
-             *                                                                 \
-             * And while freeing this memory, calls this interface (in the     \
-             * conventional way) as:                                           \
-             *                                                                 \
-             *  platform_free(hid, pivot_key);                                 \
-             *                                                                 \
-             * As opposed to calling this interface the right way, i.e.,       \
-             *                                                                 \
-             *  platform_free(hid, &memfrag_pivot_key);                        \
-             *  platform_free_mem(hid, pivot_key, memfrag_pivot_key.size);     \
-             */                                                                \
-            platform_assert(FALSE,                                             \
-                            "%s():%d: Attempt to free memory using '%s',"      \
-                            " which is a pointer to an object of size "        \
-                            "%lu bytes.\n",                                    \
-                            __func__,                                          \
-                            __LINE__,                                          \
-                            STRINGIFY(p),                                      \
-                            sizeof(*p));                                       \
-         } else {                                                              \
-            /* Expect that 'p' is pointing to a platform_memfrag struct. */    \
-            platform_assert(FALSE,                                             \
-                            "%s():%d: Invalid typeof(p) arg to "               \
-                            " platform_free(). Should be platform_memfrag *",  \
-                            __func__,                                          \
-                            __LINE__);                                         \
-         }                                                                     \
-      } else {                                                                 \
-         platform_free_frag((hid), (p), 0, STRINGIFY(p));                      \
-      }                                                                        \
+      debug_assert(((mf) != NULL),                                             \
+                   "Attempt to free a NULL ptr from '%s', line=%d",            \
+                   __func__,                                                   \
+                   __LINE__);                                                  \
+      platform_do_free((mf)->hid, (mf)->addr, (mf)->size, STRINGIFY(mf));      \
+      ZERO_STRUCT(*mf);                                                        \
    } while (0)
-
 /*
+ * ----------------------------------------------------------------------------
  * void = platform_free_mem(platform_heap_id hid, void *p, size_t size);,
- * void = platform_free_frag(platform_heap_id hid, void *p, size_t size,
- *                           const char *objname);
+ * void = platform_do_free(platform_heap_id hid, void *p, size_t size,
+ *                             const char *objname);
  *
  * Free a memory fragment at address 'p' of size 'size' bytes.
  *
  * These exist to facilitate re-cycling of free'd fragments in a shared-memory
  * usage. That machinery works off of the fragment's 'size', hence we need to
  * provide 'size' through this interface.
+ * ----------------------------------------------------------------------------
  */
 // clang-format off
 #define platform_free_mem(hid, p, size)                                        \
-        platform_free_frag((hid), (p), (size), STRINGIFY(p))
+        platform_do_free((hid), (p), (size), STRINGIFY(p))
 
-#define platform_free_frag(hid, p, size, objname)                              \
+#define platform_do_free(hid, p, size, objname)                              \
       platform_free_from_heap((hid), (p), (size),                              \
                               (objname), __func__, __FILE__, __LINE__)
 

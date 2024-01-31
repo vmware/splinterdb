@@ -202,7 +202,7 @@ CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
    ASSERT_TRUE((void *)keybuf == next_free);
 
    platform_memfrag *mf = &memfrag_keybuf;
-   platform_free(platform_get_heap_id(), mf);
+   platform_free(mf);
 }
 
 /*
@@ -218,7 +218,7 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
    // Fragment is still allocated, so should not be in any free-list(s).
    ASSERT_EQUAL(0, platform_shm_find_freed_frag(data->hid, keybuf, NULL));
 
-   platform_free(data->hid, &memfrag_keybuf);
+   platform_free(&memfrag_keybuf);
 
    // A freed-fragment should go its appropriate free-list by-size.
    ASSERT_EQUAL(keybuf_size,
@@ -234,7 +234,7 @@ CTEST2(splinter_shmem, test_basic_free_list_size)
       platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, keybuf_size);
    ASSERT_EQUAL(exp_memfrag_size, memfrag_size(&memfrag_keybuf));
 
-   platform_free(data->hid, &memfrag_keybuf);
+   platform_free(&memfrag_keybuf);
    ASSERT_EQUAL(exp_memfrag_size,
                 platform_shm_find_freed_frag(data->hid, keybuf, NULL));
 }
@@ -264,7 +264,7 @@ CTEST2(splinter_shmem, test_free)
    void *next_free = platform_shm_next_free_addr(data->hid);
 
    platform_memfrag *mf = &memfrag_keybuf;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    // Even though we freed some memory, the next addr-to-allocate is unchanged.
    ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
@@ -320,7 +320,7 @@ CTEST2(splinter_shmem, test_alloc_free_and_reuse_of_large_fragment)
    // If you free this fragment and re-allocate exactly the same size,
    // it should recycle the freed fragment.
    platform_memfrag *mf = &memfrag_keybuf;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    platform_memfrag memfrag_keybuf_new;
    uint8 *keybuf_new = TYPED_ARRAY_MALLOC(data->hid, keybuf_new, size);
@@ -332,8 +332,7 @@ CTEST2(splinter_shmem, test_alloc_free_and_reuse_of_large_fragment)
    // We have re-used freed fragment, so the next-free-ptr should be unchanged.
    ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
 
-   mf = &memfrag_keybuf_new;
-   platform_free(data->hid, mf);
+   platform_free(&memfrag_keybuf_new);
 }
 
 /*
@@ -378,9 +377,10 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
    uint8 *old_keybuf2_1MiB = keybuf2_1MiB;
 
    // Free the middle fragment. That fragment should get reused, below.
-   platform_memfrag  memfrag = {.addr = keybuf2_1MiB, .size = size};
-   platform_memfrag *mf      = &memfrag;
-   platform_free(data->hid, mf);
+   platform_memfrag memfrag = {
+      .hid = data->hid, .addr = keybuf2_1MiB, .size = size};
+   platform_memfrag *mf = &memfrag;
+   platform_free(mf);
 
    // Re-request (new) fragments of the same size.
    keybuf2_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf2_1MiB, size);
@@ -396,10 +396,10 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
    // that we will find the 1st one upon a re-request after a free.
    uint8 *old_keybuf1_1MiB = keybuf1_1MiB;
    mf                      = &memfrag_keybuf1_1MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    mf = &memfrag_keybuf2_1MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    // This re-request should re-allocate the 1st free fragment found.
    keybuf2_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf2_1MiB, size);
@@ -410,15 +410,15 @@ CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
                old_keybuf1_1MiB);
 
    mf = &memfrag_keybuf2_1MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    mf = &memfrag_keybuf3_1MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    // Memory fragments of typed objects can be freed directly.
-   platform_free(data->hid, &memfrag_filler_cfg1);
-   platform_free(data->hid, &memfrag_filler_cfg2);
-   platform_free(data->hid, &memfrag_filler_cfg3);
+   platform_free(&memfrag_filler_cfg1);
+   platform_free(&memfrag_filler_cfg2);
+   platform_free(&memfrag_filler_cfg3);
 }
 
 /*
@@ -467,13 +467,13 @@ CTEST2(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
 
    // Order in which we free these fragments does not matter.
    mf = &memfrag_keybuf_1MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    mf = &memfrag_keybuf_2MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    mf = &memfrag_keybuf_5MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    // Re-request (new) fragments in diff size order.
    size        = (2 * MiB);
@@ -497,10 +497,10 @@ CTEST2(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
    ASSERT_TRUE(keybuf_5MiB == next_free);
 
    mf = &memfrag_keybuf_2MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    mf = &memfrag_keybuf_5MiB;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 }
 
 /*
@@ -628,10 +628,10 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
    ASSERT_TRUE(anotherptr != nextptr);
 
    platform_memfrag *mf = &memfrag_anotherptr;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    mf = &memfrag_nextptr;
-   platform_free(data->hid, mf);
+   platform_free(mf);
 
    // Here's the trick in book-keeping. As oldptr was realloc()'ed, its size
    // went up from what was tracked in its memfrag_oldptr.

@@ -380,7 +380,7 @@ deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 io_handle_init_failed:
 init_config_failed:
-   platform_free(use_this_heap_id, &memfrag_kvs);
+   platform_free(&memfrag_kvs);
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
    // us to here via a 'goto', heap_id handle, if in use, may be in a
@@ -698,7 +698,7 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
                                                   UINT64_MAX);
    if (!SUCCESS(rc)) {
       // Backout: Release memory alloc'ed for iterator above.
-      platform_free_mem(kvs->spl->heap_id, it, it->mf_size);
+      platform_free(&memfrag_it);
       return platform_status_to_int(rc);
    }
    it->parent = kvs;
