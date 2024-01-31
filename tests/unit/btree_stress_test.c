@@ -361,11 +361,11 @@ insert_tests(cache           *cc,
 
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, keybuf_size);
 
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf =
-      TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size, &memfrag_msgbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_msgbuf, hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -434,11 +434,11 @@ query_tests(cache           *cc,
    uint64           bt_page_size = btree_page_size(cfg);
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, bt_page_size);
 
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf =
-      TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size, &memfrag_msgbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_msgbuf, hid, msgbuf, bt_page_size);
    memset(msgbuf, 0, btree_page_size(cfg));
 
    merge_accumulator result;
@@ -478,15 +478,15 @@ iterator_test(platform_heap_id hid,
 
    platform_memfrag memfrag_prevbuf;
    uint8           *prevbuf =
-      TYPED_MANUAL_MALLOC(hid, prevbuf, bt_page_size, &memfrag_prevbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_prevbuf, hid, prevbuf, bt_page_size);
 
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, bt_page_size);
 
    platform_memfrag memfrag_msgbuf;
    uint8           *msgbuf =
-      TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size, &memfrag_msgbuf);
+      TYPED_MANUAL_MALLOC(&memfrag_msgbuf, hid, msgbuf, bt_page_size);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -596,7 +596,7 @@ iterator_seek_tests(cache           *cc,
 
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf =
-      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
+      TYPED_MANUAL_MALLOC(&memfrag_keybuf, hid, keybuf, keybuf_size);
 
    // start in the "middle" of the range
    key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);

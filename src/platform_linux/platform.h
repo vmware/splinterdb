@@ -323,7 +323,7 @@ extern platform_heap_id Heap_id;
  *  mf  - platform_memfrag *, to return memory allocation information.
  * -----------------------------------------------------------------------------
  */
-#define TYPED_MANUAL_MALLOC(hid, v, n, mf)                                     \
+#define TYPED_MANUAL_MALLOC(mf, hid, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_malloc((mf),                                 \
@@ -425,10 +425,9 @@ extern platform_heap_id Heap_id;
  * -----------------------------------------------------------------------------
  */
 #define TYPED_FLEXIBLE_STRUCT_MALLOC(hid, v, array_field_name, n)              \
-   TYPED_MANUAL_MALLOC(hid,                                                    \
+   TYPED_MANUAL_MALLOC(&memfrag_##v, hid,                                                    \
                        (v),                                                    \
-                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)),       \
-                       &memfrag_##v)
+                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
 #define TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, v, array_field_name, n)              \
    TYPED_MANUAL_ZALLOC(hid,                                                    \
@@ -449,13 +448,13 @@ extern platform_heap_id Heap_id;
  * named memfrag_<v>. This is used as output struct to return memory frag info.
  */
 #define TYPED_ARRAY_MALLOC(hid, v, n)                                          \
-   TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
+   TYPED_MANUAL_MALLOC(&memfrag_##v,hid, (v), (n) * sizeof(*(v)))
 
 #define TYPED_ARRAY_ZALLOC(hid, v, n)                                          \
    TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
 
 #define TYPED_ARRAY_MALLOC_MF(hid, v, n, mf)                                   \
-   TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)), mf)
+   TYPED_MANUAL_MALLOC((mf), hid, (v), (n) * sizeof(*(v)))
 
 #define TYPED_ARRAY_ZALLOC_MF(hid, v, n, mf)                                   \
    TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)), mf)
