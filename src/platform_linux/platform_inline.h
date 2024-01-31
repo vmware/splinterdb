@@ -40,10 +40,11 @@ platform_checksum_is_equal(checksum128 left, checksum128 right)
 static void
 platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
                         void            *ptr,
+                        const size_t     size,
                         const char      *objname,
                         const char      *func,
                         const char      *file,
-                        int              lineno);
+                        int              line);
 
 static inline timestamp
 platform_get_timestamp(void)
@@ -282,7 +283,7 @@ platform_close_log_stream(platform_stream_handle *stream,
    fputs(stream->str, log_handle);
    fflush(log_handle);
    platform_free_from_heap(
-      NULL, stream->str, "stream", __func__, __FILE__, __LINE__);
+      NULL, stream->str, 0, "stream", __func__, __FILE__, __LINE__);
 }
 
 static inline platform_log_handle *
@@ -438,15 +439,20 @@ platform_align_bytes_reqd(const size_t alignment, const size_t size)
  * this supports alignments up to a cache-line.
  * If Splinter is configured to run with shared memory, we will invoke the
  * shmem-allocation function, working off of the (non-NULL) platform_heap_id.
+ *
+ * Returns ptr to allocated memory. If 'memfrag' is supplied, return the
+ * allocated memory fragment's info (addr & size). This is needed to support
+ * 'free' when using shared memory based allocation.
  */
 static inline void *
-platform_aligned_malloc(const platform_heap_id heap_id,
+platform_aligned_malloc(platform_memfrag      *memfrag, // IN/OUT
+                        const platform_heap_id heap_id,
                         const size_t           alignment, // IN
                         const size_t           size,      // IN
                         const char            *objname,
                         const char            *func,
                         const char            *file,
-                        const int              lineno)
+                        const int              line)
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
@@ -463,35 +469,60 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    const size_t padding  = platform_align_bytes_reqd(alignment, size);
    const size_t required = (size + padding);
 
-   void *retptr =
-      (heap_id
-          ? platform_shm_alloc(heap_id, required, objname, func, file, lineno)
-          : aligned_alloc(alignment, required));
+   void *retptr = NULL;
+   if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
+      retptr = aligned_alloc(alignment, required);
+      if (memfrag) {
+         memfrag->hid  = heap_id;
+         memfrag->addr = retptr;
+         memfrag->size = required;
+      }
+   } else {
+      retptr = platform_shm_alloc(
+         memfrag, heap_id, required, objname, func, file, line);
+   }
    return retptr;
 }
 
 /*
  * platform_realloc() - Reallocate 'newsize' bytes and copy over old contents.
  *
+ * Caller-macro to invoke lower-level reallocation method.
+ */
+#define platform_realloc(mf, newsize)                                          \
+   platform_do_realloc((mf), (newsize), __func__, __FILE__, __LINE__)
+
+/*
+ * platform_do_realloc() - Reallocate 'newsize' bytes and copy over old
+ * contents.
+ *
  * This is a wrapper around C-realloc() but farms over to shared-memory
  * based realloc, when needed.
  *
- * The interface is intentional to avoid inadvertently swapping 'oldsize' and
- * 'newsize' in the call, if they were to appear next to each other.
- *
  * Reallocing to size 0 must be equivalent to freeing.
  * Reallocing from NULL must be equivalent to allocing.
+ *
+ * Returns ptr to reallocated memory fragment. In case of shared memory,
+ *  returns the newsize padded-up to cache-line alignment bytes.
  */
 static inline void *
-platform_realloc(const platform_heap_id heap_id,
-                 const size_t           oldsize,
-                 void                  *ptr, // IN
-                 const size_t           newsize)       // IN
+platform_do_realloc(platform_memfrag *mf,      // IN/OUT
+                    size_t            newsize, // IN
+                    const char       *func,
+                    const char       *file,
+                    const int         line)
 {
    /* FIXME: alignment? */
 
    // Farm control off to shared-memory based realloc, if it's configured
-   if (heap_id) {
+   if (mf->hid == PROCESS_PRIVATE_HEAP_ID) {
+      void *retptr = realloc(mf->addr, newsize);
+      if (retptr) {
+         mf->addr = retptr;
+         mf->size = newsize;
+      }
+      return retptr;
+   } else {
       // The shmem-based allocator is expecting all memory requests to be of
       // aligned sizes, as that's what platform_aligned_malloc() does. So, to
       // keep that allocator happy, align this memory request if needed.
@@ -499,26 +530,38 @@ platform_realloc(const platform_heap_id heap_id,
       // align at platform's natural cacheline boundary.
       const size_t padding =
          platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, newsize);
-      const size_t required = (newsize + padding);
-      return platform_shm_realloc(
-         heap_id, ptr, oldsize, required, __func__, __FILE__, __LINE__);
-   } else {
-      return realloc(ptr, newsize);
+      newsize += padding;
+      return platform_shm_realloc(mf, newsize, func, file, line);
    }
 }
 
 static inline void
+platform_free_heap(platform_heap_id heap_id, void *ptr)
+{
+   debug_assert(heap_id == PROCESS_PRIVATE_HEAP_ID);
+   debug_assert(ptr != NULL);
+   free(ptr);
+}
+
+/*
+ * platform_free_from_heap() - Free memory from the heap.
+ *
+ * If Splinter is running with shared memory configured, this calls into
+ * shared-memory based free() method. Othewise, run standard free().
+ */
+static inline void
 platform_free_from_heap(platform_heap_id heap_id,
                         void            *ptr,
+                        const size_t     size,
                         const char      *objname,
                         const char      *func,
                         const char      *file,
-                        int              lineno)
+                        int              line)
 {
-   if (heap_id) {
-      platform_shm_free(heap_id, ptr, objname, func, file, lineno);
-   } else {
+   if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
       free(ptr);
+   } else {
+      platform_shm_free(heap_id, ptr, size, objname, func, file, line);
    }
 }
 

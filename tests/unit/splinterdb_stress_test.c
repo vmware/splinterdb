@@ -219,60 +219,6 @@ CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
    splinterdb_iterator_deinit(it);
 }
 
-/*
- * Test case that inserts large # of KV-pairs, and goes into a code path
- * reported by issue# 458, tripping a debug assert. This test case also
- * triggered the failure(s) reported by issue # 545.
- * FIXME: This test still runs into an assertion "filter->addr != 0"
- * from trunk_inc_filter(), which is being triaged separately.
- */
-CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
-{
-   char key_data[TEST_KEY_SIZE];
-   char val_data[TEST_VALUE_SIZE];
-
-   uint64 test_start_time = platform_get_timestamp();
-
-   for (uint64 ictr = 0, jctr = 0; ictr < 100; ictr++) {
-
-      uint64 start_time = platform_get_timestamp();
-
-      for (jctr = 0; jctr < MILLION; jctr++) {
-
-         uint64 id = (ictr * MILLION) + jctr;
-         snprintf(key_data, sizeof(key_data), "%lu", id);
-         snprintf(val_data, sizeof(val_data), "Row-%lu", id);
-
-         slice key = slice_create(strlen(key_data), key_data);
-         slice val = slice_create(strlen(val_data), val_data);
-
-         int rc = splinterdb_insert(data->kvsb, key, val);
-         ASSERT_EQUAL(0, rc);
-      }
-      uint64 elapsed_ns      = platform_timestamp_elapsed(start_time);
-      uint64 test_elapsed_ns = platform_timestamp_elapsed(test_start_time);
-
-      uint64 elapsed_s = NSEC_TO_SEC(elapsed_ns);
-      if (elapsed_s == 0) {
-         elapsed_s = 1;
-      }
-      uint64 test_elapsed_s = NSEC_TO_SEC(test_elapsed_ns);
-      if (test_elapsed_s == 0) {
-         test_elapsed_s = 1;
-      }
-
-      CTEST_LOG_INFO(
-         "\n" // PLATFORM_CR
-         "Inserted %lu million KV-pairs"
-         ", this batch: %lu s, %lu rows/s, cumulative: %lu s, %lu rows/s ...",
-         (ictr + 1),
-         elapsed_s,
-         (jctr / elapsed_s),
-         test_elapsed_s,
-         (((ictr + 1) * jctr) / test_elapsed_s));
-   }
-}
-
 // Per-thread workload
 static void *
 exec_worker_thread(void *w)

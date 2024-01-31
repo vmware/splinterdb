@@ -73,6 +73,7 @@ typedef struct rc_allocator {
 
    // Stats -- not distributed for now
    rc_allocator_stats stats;
+   size_t             meta_page_mf_size;
 } rc_allocator;
 
 platform_status

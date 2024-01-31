@@ -70,6 +70,17 @@ random_next_uint32(random_state *rs) // IN/OUT
    return (uint32)random_next_uint64(rs);
 }
 
+static inline int32
+random_next_int(random_state *rs, /* IN/OUT */ uint32 min, uint32 max)
+{
+   debug_assert(min > 0);
+   debug_assert(max > 0);
+   debug_assert((min < max), "min=%u, max=%u", min, max);
+   uint32 range = (max - min);
+
+   return (min + (random_next_uint32(rs) % range));
+}
+
 static inline void
 random_bytes(random_state *rs, char *v, size_t n)
 {
