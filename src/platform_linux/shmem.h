@@ -27,9 +27,9 @@ platform_shmdestroy(platform_heap_id *heap_id);
  * Allocate memory fragment from the shared memory of requested 'size'.
  */
 void *
-platform_shm_alloc(platform_heap_id  hid,
+platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
+                   platform_heap_id  hid,
                    const size_t      size,
-                   platform_memfrag *memfrag, // OUT
                    const char       *objname,
                    const char       *func,
                    const char       *file,

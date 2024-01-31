@@ -326,10 +326,10 @@ extern platform_heap_id Heap_id;
 #define TYPED_MANUAL_MALLOC(hid, v, n, mf)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid,                                  \
+      (typeof(v))platform_aligned_malloc((mf),                                 \
+                                         hid,                                  \
                                          PLATFORM_CACHELINE_SIZE,              \
                                          (n),                                  \
-                                         (mf),                                 \
                                          STRINGIFY(v),                         \
                                          __func__,                             \
                                          __FILE__,                             \
@@ -367,7 +367,7 @@ extern platform_heap_id Heap_id;
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_malloc(                                      \
-         hid, (a), (n), (mf), STRINGIFY(v), __func__, __FILE__, __LINE__);     \
+         (mf), hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);     \
    })
 
 #define TYPED_ALIGNED_MALLOC(hid, a, v, n)                                     \
@@ -997,7 +997,7 @@ platform_aligned_zalloc(platform_memfrag *memfrag, // IN/OUT
                         int               lineno)
 {
    void *x = platform_aligned_malloc(
-      heap_id, alignment, size, memfrag, objname, func, file, lineno);
+      memfrag, heap_id, alignment, size, objname, func, file, lineno);
    if (LIKELY(x)) {
       memset(x, 0, size);
    }

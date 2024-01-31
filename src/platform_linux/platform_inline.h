@@ -445,10 +445,10 @@ platform_align_bytes_reqd(const size_t alignment, const size_t size)
  * 'free' when using shared memory based allocation.
  */
 static inline void *
-platform_aligned_malloc(const platform_heap_id heap_id,
+platform_aligned_malloc(platform_memfrag      *memfrag, // IN/OUT
+                        const platform_heap_id heap_id,
                         const size_t           alignment, // IN
                         const size_t           size,      // IN
-                        platform_memfrag      *memfrag,   // OUT
                         const char            *objname,
                         const char            *func,
                         const char            *file,
@@ -478,7 +478,7 @@ platform_aligned_malloc(const platform_heap_id heap_id,
       }
    } else {
       retptr = platform_shm_alloc(
-         heap_id, required, memfrag, objname, func, file, line);
+         memfrag, heap_id, required, objname, func, file, line);
    }
    return retptr;
 }

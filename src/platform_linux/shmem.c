@@ -709,9 +709,9 @@ platform_shmdestroy(platform_heap_id *hid_out)
  */
 // RESOLVE: Pass down user requested alignment and handle it here.
 void *
-platform_shm_alloc(platform_heap_id  hid,
+platform_shm_alloc(platform_memfrag *memfrag, // IN/OUT
+                   platform_heap_id  hid,
                    const size_t      size,
-                   platform_memfrag *memfrag, // OUT
                    const char       *objname,
                    const char       *func,
                    const char       *file,
@@ -831,6 +831,7 @@ platform_shm_alloc(platform_heap_id  hid,
    }
    // A new fragment was carved out of shm. Inform caller of its properties.
    if (memfrag) {
+      memfrag->hid  = hid;
       memfrag->size = size;
       memfrag->addr = retptr;
    }
@@ -870,7 +871,7 @@ platform_shm_realloc(platform_heap_id hid,
    platform_memfrag realloc_memfrag = {0};
 
    // clang-format off
-   void *retptr = platform_shm_alloc(hid, *newsize, &realloc_memfrag,
+   void *retptr = platform_shm_alloc(&realloc_memfrag, hid, *newsize,
                                      unknown_obj, func, file, line);
    // clang-format on
    if (retptr) {
