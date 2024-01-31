@@ -317,7 +317,7 @@ extern platform_heap_id Heap_id;
  * calling aligned_alloc manually (or create a separate macro)
  *
  * Parameters:
- *  mf  - platform_memfrag *, to return memory allocation information.
+ *	mf  - platform_memfrag *, to return memory allocation information.
  *	hid - Platform heap-ID to allocate memory from.
  *	v   - Structure to allocate memory for.
  *	n   - Number of bytes of memory to allocate.
@@ -357,7 +357,7 @@ extern platform_heap_id Heap_id;
  * the difference that the alignment is caller-specified.
  *
  * Parameters:
- *  mf  - platform_memfrag *, to return memory allocation information.
+ *	mf  - platform_memfrag *, to return memory allocation information.
  *	hid - Platform heap-ID to allocate memory from.
  *	a   - Alignment needed for allocated memory.
  *	v   - Structure to allocate memory for.
@@ -478,9 +478,9 @@ extern platform_heap_id Heap_id;
  * frag.
 
  * Parameters:
+ *  mf  - Addr of memfrag to return memory allocation information.
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
- *  mf  - Addr of memfrag to return memory allocation information.
  */
 #define TYPED_MALLOC_MF(mf, hid, v) TYPED_ARRAY_MALLOC_MF(mf, hid, v, 1)
 
@@ -820,8 +820,7 @@ static inline void
 memfrag_set_empty(platform_memfrag *mf)
 {
    debug_assert(!memfrag_is_empty(mf));
-   mf->addr = NULL;
-   mf->size = 0;
+   ZERO_STRUCT(*mf);
 }
 
 /* Move the memory fragment ownership from src to dst memory fragment */
@@ -831,10 +830,10 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
    platform_assert(memfrag_is_empty(dst));
    platform_assert(!memfrag_is_empty(src));
 
+   dst->hid  = src->hid;
    dst->addr = src->addr;
    dst->size = src->size;
-   src->addr = NULL;
-   src->size = 0;
+   ZERO_STRUCT(*src);
 }
 
 /*
