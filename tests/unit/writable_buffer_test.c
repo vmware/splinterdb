@@ -416,15 +416,6 @@ CTEST2(writable_buffer, test_writable_buffer_append)
                  "Unexpected data: '%s'\n",
                  (char *)writable_buffer_data(wb));
 
-   // Currently, reallocation from shared-memory will not reuse the existing
-   // memory fragment, even if there is some room in it for the append. (That's
-   // an optimization which needs additional memory fragment-size info which
-   // is currently not available to the allocator.)
-   if (data->use_shmem) {
-      const void *new_data2 = writable_buffer_data(wb);
-      ASSERT_TRUE((new_data != new_data2));
-   }
-
    writable_buffer_deinit(wb);
 }
 

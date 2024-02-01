@@ -14,6 +14,7 @@
 #define Kilo (1024UL)
 #define Mega (1024UL * Kilo)
 #define Giga (1024UL * Mega)
+#define Tera (1024UL * Giga)
 
 void
 set_log_streams_for_tests(msg_level exp_msg_level);

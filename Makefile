@@ -476,6 +476,10 @@ $(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS)            \
                                           $(COMMON_UNIT_TESTOBJ) \
                                           $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/splinter_shmem_oom_test: $(UTIL_SYS)            \
+                                              $(COMMON_UNIT_TESTOBJ) \
+                                              $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test: $(UTIL_SYS)            \
                                         $(COMMON_UNIT_TESTOBJ)
 
@@ -494,8 +498,6 @@ $(BINDIR)/$(UNITDIR)/splinterdb_heap_id_mgmt_test: $(COMMON_TESTOBJ)         \
                                                    $(COMMON_UNIT_TESTOBJ)    \
                                                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                    $(LIBDIR)/libsplinterdb.so
-
-
 
 ########################################
 # Convenience mini unit-test targets
