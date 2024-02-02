@@ -24,8 +24,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #define LAIO_HAND_BATCH_SIZE 32
 
@@ -215,7 +215,11 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
    }
 
    if (is_create) {
-      fallocate(io->fd, 0, 0, 128 * 1024);
+      int rc = fallocate(io->fd, 0, 0, 128 * 1024);
+      if (rc) {
+         platform_error_log("fallocate failed: %s\n", strerror(errno));
+         return STATUS_IO_ERROR;
+      }
    }
 
    /*
@@ -428,7 +432,7 @@ laio_read_async(io_handle     *ioh,
          platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
                             ", io_submit errorno=%d: %s\n",
                             __func__,
-                            getpid(),
+                            platform_getpid(),
                             tid,
                             req,
                             -status,
@@ -466,7 +470,7 @@ laio_write_async(io_handle     *ioh,
          platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
                             ", io_submit errorno=%d: %s\n",
                             __func__,
-                            getpid(),
+                            platform_getpid(),
                             tid,
                             req,
                             -status,
@@ -504,7 +508,7 @@ laio_cleanup(io_handle *ioh, uint64 count)
             "%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], count=%lu, "
             "failed with errorno=%d: %s\n",
             __func__,
-            getpid(),
+            platform_getpid(),
             tid,
             i,
             count,

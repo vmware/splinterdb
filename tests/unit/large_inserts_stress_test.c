@@ -3,7 +3,7 @@
 
 /*
  * -----------------------------------------------------------------------------
- * large_inserts_bugs_stress_test.c --
+ * large_inserts_stress_test.c --
  *
  * This test exercises simple very large #s of inserts which have found to
  * trigger some bugs in some code paths. This is just a miscellaneous collection
@@ -11,7 +11,6 @@
  * -----------------------------------------------------------------------------
  */
 #include <fcntl.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/wait.h>
 
@@ -81,7 +80,7 @@ do_inserts_n_threads(splinterdb      *kvsb,
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(large_inserts_bugs_stress)
+CTEST_DATA(large_inserts_stress)
 {
    // Declare heap handles for on-stack buffer allocations
    platform_heap_id hid;
@@ -97,11 +96,11 @@ CTEST_DATA(large_inserts_bugs_stress)
 };
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(large_inserts_bugs_stress)
+CTEST_SETUP(large_inserts_stress)
 {
    // First, register that main() is being run as a parent process
    data->am_parent = TRUE;
-   data->this_pid  = getpid();
+   data->this_pid  = platform_getpid();
 
    platform_status rc;
    uint64          heap_capacity = (64 * MiB); // small heap is sufficient.
@@ -155,7 +154,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(large_inserts_bugs_stress)
+CTEST_TEARDOWN(large_inserts_stress)
 {
    // Only parent process should tear down Splinter.
    if (data->am_parent) {
@@ -168,7 +167,7 @@ CTEST_TEARDOWN(large_inserts_bugs_stress)
  * Test case that inserts large # of KV-pairs, and goes into a code path
  * reported by issue# 458, tripping a debug assert.
  */
-CTEST2_SKIP(large_inserts_bugs_stress,
+CTEST2_SKIP(large_inserts_stress,
             test_issue_458_mini_destroy_unused_debug_assert)
 {
    char key_data[TEST_KEY_SIZE];
@@ -217,7 +216,7 @@ CTEST2_SKIP(large_inserts_bugs_stress,
  *  - sequential keys, random values
  *  - random keys, random values
  */
-CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts)
+CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -230,7 +229,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
-CTEST2(large_inserts_bugs_stress, test_random_key_seq_values_inserts)
+CTEST2(large_inserts_stress, test_random_key_seq_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -246,7 +245,7 @@ CTEST2(large_inserts_bugs_stress, test_random_key_seq_values_inserts)
    close(wcfg.random_key_fd);
 }
 
-CTEST2(large_inserts_bugs_stress, test_seq_key_random_values_inserts)
+CTEST2(large_inserts_stress, test_seq_key_random_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -262,7 +261,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_random_values_inserts)
    close(wcfg.random_val_fd);
 }
 
-CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
+CTEST2(large_inserts_stress, test_random_key_random_values_inserts)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -304,7 +303,7 @@ safe_wait()
  * shutdown the instance.
  * ----------------------------------------------------------------------------
  */
-CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
+CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
 {
    worker_config wcfg;
    ZERO_STRUCT(wcfg);
@@ -314,7 +313,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
    wcfg.master_cfg  = &data->master_cfg;
    wcfg.num_inserts = data->num_inserts;
 
-   int pid = getpid();
+   int pid = platform_getpid();
 
    if (wcfg.master_cfg->fork_child) {
       pid = fork();
@@ -325,7 +324,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
       } else if (pid) {
          platform_default_log("OS-pid=%d, Thread-ID=%lu: "
                               "Waiting for child pid=%d to complete ...\n",
-                              getpid(),
+                              platform_getpid(),
                               platform_get_tid(),
                               pid);
 
@@ -335,13 +334,13 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
                               "Child execution wait() completed."
                               " Resuming parent ...\n",
                               platform_get_tid(),
-                              getpid());
+                              platform_getpid());
       }
    }
    if (pid == 0) {
       // Record in global data that we are now running as a child.
       data->am_parent = FALSE;
-      data->this_pid  = getpid();
+      data->this_pid  = platform_getpid();
 
       platform_default_log(
          "OS-pid=%d Running as %s process ...\n",
@@ -375,7 +374,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
  * clockcache_try_get_read() -> memtable_maybe_rotate_and_get_insert_lock()
  * This problem will probably occur in /main as well.
  */
-CTEST2_SKIP(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_threaded)
+CTEST2_SKIP(large_inserts_stress, test_seq_key_seq_values_inserts_threaded)
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
@@ -394,7 +393,7 @@ CTEST2_SKIP(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_threaded)
  * With --num-threads 63, hangs in
  *  clockcache_get_read() -> memtable_maybe_rotate_and_get_insert_lock()
  */
-CTEST2(large_inserts_bugs_stress,
+CTEST2(large_inserts_stress,
        test_seq_key_seq_values_inserts_threaded_same_start_keyid)
 {
    // Run n-threads with sequential key and sequential values inserted
@@ -412,7 +411,7 @@ CTEST2(large_inserts_bugs_stress,
  * KV-pairs, with all threads inserting from same start-value, using a fixed
  * fully-packed value.
  */
-CTEST2(large_inserts_bugs_stress,
+CTEST2(large_inserts_stress,
        test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
 {
    // Run n-threads with sequential key and sequential values inserted
@@ -425,7 +424,7 @@ CTEST2(large_inserts_bugs_stress,
                         data->num_insert_threads);
 }
 
-CTEST2(large_inserts_bugs_stress, test_random_keys_seq_values_threaded)
+CTEST2(large_inserts_stress, test_random_keys_seq_values_threaded)
 {
    int random_key_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_key_fd > 0);
@@ -442,7 +441,7 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_seq_values_threaded)
    close(random_key_fd);
 }
 
-CTEST2(large_inserts_bugs_stress, test_seq_keys_random_values_threaded)
+CTEST2(large_inserts_stress, test_seq_keys_random_values_threaded)
 {
    int random_val_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_val_fd > 0);
@@ -459,7 +458,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_keys_random_values_threaded)
    close(random_val_fd);
 }
 
-CTEST2(large_inserts_bugs_stress,
+CTEST2(large_inserts_stress,
        test_seq_keys_random_values_threaded_same_start_keyid)
 {
    int random_val_fd = open("/dev/urandom", O_RDONLY);
@@ -477,7 +476,7 @@ CTEST2(large_inserts_bugs_stress,
    close(random_val_fd);
 }
 
-CTEST2(large_inserts_bugs_stress, test_random_keys_random_values_threaded)
+CTEST2(large_inserts_stress, test_random_keys_random_values_threaded)
 {
    int random_key_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_key_fd > 0);
@@ -682,7 +681,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert random value of "
                                     "fixed-length=%lu bytes.\n",
-                                    getpid(),
+                                    platform_getpid(),
                                     thread_idx,
                                     val_len);
                val_length_msg_printed = TRUE;
@@ -696,7 +695,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert small-width sequential values of "
                                     "different lengths.\n",
-                                    getpid(),
+                                    platform_getpid(),
                                     thread_idx);
                val_length_msg_printed = TRUE;
             }
@@ -705,7 +704,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert fully-packed fixed value of "
                                     "length=%lu bytes.\n",
-                                    getpid(),
+                                    platform_getpid(),
                                     thread_idx,
                                     val_len);
                val_length_msg_printed = TRUE;

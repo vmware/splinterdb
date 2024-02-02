@@ -377,18 +377,18 @@ mini_keyed_append_entry(mini_allocator *mini,
                         uint64          extent_addr,
                         key             start_key)
 {
+   uint64 page_size = cache_page_size(mini->cc);
    debug_assert(mini->keyed);
    debug_assert(batch < mini->num_batches);
    debug_assert(!key_is_null(start_key));
    debug_assert(extent_addr != 0);
    debug_assert(extent_addr == TERMINAL_EXTENT_ADDR
-                || extent_addr % cache_page_size(mini->cc) == 0);
+                || (extent_addr % page_size) == 0);
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
-   if (!entry_fits_in_page(cache_page_size(mini->cc),
-                           hdr->pos,
-                           keyed_meta_entry_required_capacity(start_key)))
+   if (!entry_fits_in_page(
+          page_size, hdr->pos, keyed_meta_entry_required_capacity(start_key)))
    {
       return FALSE;
    }
@@ -409,15 +409,14 @@ mini_unkeyed_append_entry(mini_allocator *mini,
                           page_handle    *meta_page,
                           uint64          extent_addr)
 {
+   uint64 page_size = cache_page_size(mini->cc);
    debug_assert(!mini->keyed);
    debug_assert(extent_addr != 0);
-   debug_assert(extent_addr % cache_page_size(mini->cc) == 0);
+   debug_assert((extent_addr % page_size) == 0);
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
-   if (!entry_fits_in_page(
-          cache_page_size(mini->cc), hdr->pos, sizeof(unkeyed_meta_entry)))
-   {
+   if (!entry_fits_in_page(page_size, hdr->pos, sizeof(unkeyed_meta_entry))) {
       return FALSE;
    }
 

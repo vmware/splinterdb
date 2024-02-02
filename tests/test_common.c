@@ -8,7 +8,6 @@
  * Module contains functions shared between functional/ and unit/ test sources.
  * -----------------------------------------------------------------------------
  */
-#include <unistd.h>
 #include "splinterdb/public_platform.h"
 #include "trunk.h"
 #include "functional/test.h"
@@ -148,7 +147,7 @@ trace_wait_for_gdb(void)
       if (!gdb_msg_printed) {
          platform_default_log(
             "Looping ... Attach gdb to OS-pid=%d; Set breakpoint in %s_hook\n",
-            getpid(),
+            platform_getpid(),
             __func__);
          gdb_msg_printed = TRUE;
       }

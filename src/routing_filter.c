@@ -8,7 +8,6 @@
  *     This file contains the implementation for a routing filter
  *----------------------------------------------------------------------
  */
-#include <unistd.h>
 #include "platform.h"
 #include "routing_filter.h"
 #include "PackedArray.h"
@@ -104,7 +103,7 @@ RadixSort(uint32 *pData,
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
                          ", mIndex[j][c]=%d, count=%u\n",
-                         getpid(),
+                         platform_getpid(),
                          platform_get_tid(),
                          i,
                          j,
@@ -173,17 +172,14 @@ routing_get_header(cache          *cc,
                    uint64          index,
                    page_handle   **filter_page)
 {
-   uint64 addrs_per_page =
-      cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
+   uint64 page_size      = cache_config_page_size(cfg->cache_cfg);
+   uint64 addrs_per_page = page_size / sizeof(uint64);
    debug_assert(index / addrs_per_page < 32);
-   uint64 index_addr =
-      filter_addr
-      + cache_config_page_size(cfg->cache_cfg) * (index / addrs_per_page);
+   uint64       index_addr = filter_addr + page_size * (index / addrs_per_page);
    page_handle *index_page = cache_get(cc, index_addr, TRUE, PAGE_TYPE_FILTER);
    uint64 hdr_raw_addr = ((uint64 *)index_page->data)[index % addrs_per_page];
    platform_assert(hdr_raw_addr != 0);
-   uint64 header_addr =
-      hdr_raw_addr - (hdr_raw_addr % cache_config_page_size(cfg->cache_cfg));
+   uint64 header_addr      = hdr_raw_addr - (hdr_raw_addr % page_size);
    *filter_page            = cache_get(cc, header_addr, TRUE, PAGE_TYPE_FILTER);
    uint64       header_off = hdr_raw_addr - header_addr;
    routing_hdr *hdr        = (routing_hdr *)((*filter_page)->data + header_off);
@@ -1004,6 +1000,7 @@ routing_filter_lookup_async(cache              *cc,
 
    debug_assert(key_is_user_key(target));
 
+   uint64 page_size = cache_config_page_size(cfg->cache_cfg);
    do {
       switch (ctxt->state) {
          case routing_async_state_start:
@@ -1031,11 +1028,9 @@ routing_filter_lookup_async(cache              *cc,
                                             index_remainder_and_value_size);
             ctxt->remainder       = fp & remainder_mask;
 
-            uint64 addrs_per_page =
-               cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
-            ctxt->page_addr = filter->addr
-                              + cache_config_page_size(cfg->cache_cfg)
-                                   * (ctxt->index / addrs_per_page);
+            uint64 addrs_per_page = (page_size / sizeof(uint64));
+            ctxt->page_addr =
+               filter->addr + page_size * (ctxt->index / addrs_per_page);
             routing_async_set_state(ctxt, routing_async_state_get_index);
             // fallthrough;
          }
@@ -1096,13 +1091,11 @@ routing_filter_lookup_async(cache              *cc,
             if (ctxt->was_async) {
                cache_async_done(cc, PAGE_TYPE_FILTER, cache_ctxt);
             }
-            uint64 *index_arr = ((uint64 *)cache_ctxt->page->data);
-            uint64  addrs_per_page =
-               cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
-            ctxt->header_addr = index_arr[ctxt->index % addrs_per_page];
+            uint64 *index_arr      = ((uint64 *)cache_ctxt->page->data);
+            uint64  addrs_per_page = (page_size / sizeof(uint64));
+            ctxt->header_addr      = index_arr[ctxt->index % addrs_per_page];
             ctxt->page_addr =
-               ctxt->header_addr
-               - (ctxt->header_addr % cache_config_page_size(cfg->cache_cfg));
+               ctxt->header_addr - (ctxt->header_addr % page_size);
             cache_unget(cc, cache_ctxt->page);
             routing_async_set_state(ctxt, routing_async_state_get_filter);
             break;
@@ -1117,8 +1110,7 @@ routing_filter_lookup_async(cache              *cc,
             }
             routing_hdr *hdr =
                (routing_hdr *)(cache_ctxt->page->data
-                               + (ctxt->header_addr
-                                  % cache_config_page_size(cfg->cache_cfg)));
+                               + (ctxt->header_addr % page_size));
             uint64 encoding_size =
                (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
             uint64 header_length = encoding_size + sizeof(routing_hdr);
@@ -1276,12 +1268,10 @@ routing_filter_print_index(cache          *cc,
    platform_default_log("***   filter_addr: %lu\n", filter_addr);
    platform_default_log("------------------------------------------------------"
                         "--------------------------\n");
+   uint64 page_size = cache_config_page_size(cfg->cache_cfg);
    for (i = 0; i < num_indices; i++) {
-      uint64 addrs_per_page =
-         cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
-      uint64 index_addr =
-         filter_addr
-         + cache_config_page_size(cfg->cache_cfg) * (i / addrs_per_page);
+      uint64 addrs_per_page = (page_size / sizeof(uint64));
+      uint64 index_addr     = filter_addr + (page_size * (i / addrs_per_page));
       page_handle *index_page =
          cache_get(cc, index_addr, TRUE, PAGE_TYPE_FILTER);
       platform_default_log("index 0x%lx: %lu\n",

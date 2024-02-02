@@ -9,7 +9,6 @@
  * -----------------------------------------------------------------------------
  */
 #include <string.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
 
@@ -340,10 +339,11 @@ insert_tests(cache           *cc,
    uint64 generation;
    bool32 was_unique;
 
-   int    keybuf_size = btree_page_size(cfg);
-   int    msgbuf_size = btree_page_size(cfg);
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
-   uint8 *msgbuf      = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
+   uint64 bt_page_size = btree_page_size(cfg);
+   int    keybuf_size  = bt_page_size;
+   int    msgbuf_size  = bt_page_size;
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -409,9 +409,10 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 *keybuf = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
-   memset(msgbuf, 0, btree_page_size(cfg));
+   uint64 bt_page_size = btree_page_size(cfg);
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
+   memset(msgbuf, 0, bt_page_size);
 
    merge_accumulator result;
    merge_accumulator_init(&result, hid);
@@ -421,11 +422,11 @@ query_tests(cache           *cc,
                    cfg,
                    root_addr,
                    type,
-                   gen_key(cfg, i, keybuf, btree_page_size(cfg)),
+                   gen_key(cfg, i, keybuf, bt_page_size),
                    &result);
       if (!btree_found(&result)
           || message_lex_cmp(merge_accumulator_to_message(&result),
-                             gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
+                             gen_msg(cfg, i, msgbuf, bt_page_size)))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
@@ -444,11 +445,12 @@ iterator_test(platform_heap_id hid,
               iterator        *iter,
               bool32           forwards)
 {
-   uint64 seen    = 0;
-   uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
-   key    prev    = NULL_KEY;
-   uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
+   uint64 seen         = 0;
+   uint64 bt_page_size = btree_page_size(cfg);
+   uint8 *prevbuf      = TYPED_MANUAL_MALLOC(hid, prevbuf, bt_page_size);
+   key    prev         = NULL_KEY;
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -459,12 +461,11 @@ iterator_test(platform_heap_id hid,
       ASSERT_TRUE(k < nkvs);
 
       int rc = 0;
-      rc     = data_key_compare(cfg->data_cfg,
-                            curr_key,
-                            gen_key(cfg, k, keybuf, btree_page_size(cfg)));
+      rc     = data_key_compare(
+         cfg->data_cfg, curr_key, gen_key(cfg, k, keybuf, bt_page_size));
       ASSERT_EQUAL(0, rc);
 
-      rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
+      rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, bt_page_size));
       ASSERT_EQUAL(0, rc);
 
       if (forwards) {
