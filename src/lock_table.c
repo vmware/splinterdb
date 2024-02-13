@@ -9,6 +9,7 @@
 #   include "transaction_impl/sto_disk_internal.h"
 #elif EXPERIMENTAL_MODE_SILO_MEMORY
 #   include "transaction_impl/fantasticc_internal.h"
+#elif EXPERIMENTAL_MODE_MVCC_DISK
 #else
 #   undef USE_LOCK_TABLE
 #   define USE_LOCK_TABLE 0
@@ -46,7 +47,7 @@ get_tid()
 }
 
 lock_table_rc
-lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
+lock_table_try_acquire_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
 {
    if (entry->is_locked) {
 #   if LOCK_TABLE_DEBUG
@@ -80,9 +81,9 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 }
 
 lock_table_rc
-lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
-                                           rw_entry   *entry,
-                                           timestamp   timeout_ns)
+lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
+                                           lock_table_entry *entry,
+                                           timestamp         timeout_ns)
 {
    if (entry->is_locked) {
 #   if LOCK_TABLE_DEBUG
@@ -130,7 +131,7 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
 
 
 lock_table_rc
-lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
+lock_table_release_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
 {
    platform_assert(entry->is_locked,
                    "[Thread %lu] Trying to release lock that is not locked by "
@@ -153,7 +154,7 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 }
 
 lock_table_rc
-lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
+lock_table_get_entry_lock_state(lock_table *lock_tbl, lock_table_entry *entry)
 {
 
    // #   if LOCK_TABLE_DEBUG
@@ -183,27 +184,27 @@ lock_table_destroy(lock_table *lock_tbl)
 }
 
 lock_table_rc
-lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
+lock_table_try_acquire_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
 {
    platform_assert(FALSE, "Not implemented");
    return LOCK_TABLE_RC_INVALID;
 }
 lock_table_rc
-lock_table_try_acquire_entry_lock_timeouts(lock_table *lock_tbl,
-                                           rw_entry   *entry,
-                                           timestamp   timeout_ns)
+lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
+                                           lock_table_entry *entry,
+                                           timestamp         timeout_ns)
 {
    platform_assert(FALSE, "Not implemented");
    return LOCK_TABLE_RC_INVALID;
 }
 lock_table_rc
-lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
+lock_table_release_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
 {
    platform_assert(FALSE, "Not implemented");
    return LOCK_TABLE_RC_INVALID;
 }
 lock_table_rc
-lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
+lock_table_get_entry_lock_state(lock_table *lock_tbl, lock_table_entry *entry)
 {
    platform_assert(FALSE, "Not implemented");
    return LOCK_TABLE_RC_INVALID;
