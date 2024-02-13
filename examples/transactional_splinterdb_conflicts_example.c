@@ -87,8 +87,12 @@ main()
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
    transactional_splinterdb_update(spl_handle, &t1, keys[2], value);
    transactional_splinterdb_begin(spl_handle, &t2);
-   transactional_splinterdb_update(spl_handle, &t2, keys[2], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+   if (transactional_splinterdb_update(spl_handle, &t2, keys[2], value) == 0) {
+      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+   } else {
+      printf("t2 failed due to write-write conflict on %s\n",
+             (char *)slice_data(keys[2]));
+   }
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
 
    // make keys[1] rts:1 and wts:2
@@ -102,11 +106,16 @@ main()
    transactional_splinterdb_begin(spl_handle, &t1);
    transactional_splinterdb_begin(spl_handle, &t2);
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
-   transactional_splinterdb_update(spl_handle, &t2, keys[0], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-   transactional_splinterdb_update(spl_handle, &t1, keys[1], value);
-   assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-
+   if (transactional_splinterdb_update(spl_handle, &t2, keys[0], value) == 0) {
+      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+   } else {
+      printf("t2 failed\n");
+   }
+   if (transactional_splinterdb_update(spl_handle, &t1, keys[1], value) == 0) {
+      assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
+   } else {
+      printf("t1 failed\n");
+   }
    for (int i = 0; i < NUM_KEYS; i++) {
       free((char *)slice_data(keys[i]));
    }

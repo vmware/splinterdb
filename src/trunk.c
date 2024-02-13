@@ -2964,13 +2964,13 @@ trunk_get_memtable(trunk_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
-   platform_assert(
-      mt->generation == generation,
-      "mt->generation=%lu, mt_ctxt->generation=%lu, mt_ctxt->generation_retired=%lu, generation=%lu\n",
-      mt->generation,
-      spl->mt_ctxt->generation,
-      spl->mt_ctxt->generation_retired,
-      generation);
+   platform_assert(mt->generation == generation,
+                   "mt->generation=%lu, mt_ctxt->generation=%lu, "
+                   "mt_ctxt->generation_retired=%lu, generation=%lu\n",
+                   mt->generation,
+                   spl->mt_ctxt->generation,
+                   spl->mt_ctxt->generation_retired,
+                   generation);
    return mt;
 }
 
@@ -3056,8 +3056,8 @@ trunk_memtable_iterator_deinit(trunk_handle   *spl,
 platform_status
 trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
 {
-   page_handle    *lock_page;
-   uint64          generation;
+   page_handle *lock_page;
+   uint64       generation;
 
    platform_status rc = memtable_maybe_rotate_and_get_insert_lock(
       spl->mt_ctxt, &generation, &lock_page);

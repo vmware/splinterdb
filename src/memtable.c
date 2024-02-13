@@ -65,10 +65,10 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
       if (memtable_is_full(&ctxt->cfg, &ctxt->mt[mt_no])) {
          // If the current memtable is full, try to retire it
 
-         uint64 process_generation = ctxt->generation;
-         uint64 next_generation = process_generation + 1;
-         uint64 next_mt_no = next_generation % ctxt->cfg.max_memtables;
-         memtable *next_mt = &ctxt->mt[next_mt_no];
+         uint64    process_generation = ctxt->generation;
+         uint64    next_generation    = process_generation + 1;
+         uint64    next_mt_no = next_generation % ctxt->cfg.max_memtables;
+         memtable *next_mt    = &ctxt->mt[next_mt_no];
          if (next_mt->state != MEMTABLE_STATE_READY) {
             cache_unget(cc, *lock_page);
             return STATUS_BUSY;

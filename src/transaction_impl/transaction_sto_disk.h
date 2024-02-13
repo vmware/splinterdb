@@ -384,9 +384,9 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #endif
             timestamp_set ts = {
                .magic = 0,
-               .type = 0,
-               .wts = w->wts,
-               .rts = w->rts,
+               .type  = 0,
+               .wts   = w->wts,
+               .rts   = w->rts,
             };
             tuple_header *msg = (tuple_header *)message_data(w->msg);
             memcpy(&msg->ts, &ts, sizeof(ts));
@@ -459,8 +459,11 @@ local_write(transactional_splinterdb *txn_kvsb,
       }
       // To prevent deadlocks, we have to update the wts
       entry->wts = txn->ts;
-      
-      timestamp_set ts = {.magic = TIMESTAMP_UPDATE_MAGIC, .type = TIMESTAMP_UPDATE_WTS, .rts = entry->rts, .wts = entry->wts};
+
+      timestamp_set ts = {.magic = TIMESTAMP_UPDATE_MAGIC,
+                          .type  = TIMESTAMP_UPDATE_WTS,
+                          .rts   = entry->rts,
+                          .wts   = entry->wts};
       splinterdb_update(
          txn_kvsb->kvsb, entry->key, slice_create(sizeof(ts), &ts));
       // platform_default_log("Locked key for write = %s, %lu\n",
@@ -587,7 +590,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          // updates by the update size.
          entry->wts       = tuple->ts.wts;
          entry->rts       = txn->ts;
-         timestamp_set ts = {.magic = TIMESTAMP_UPDATE_MAGIC, .type = TIMESTAMP_UPDATE_RTS, .rts = entry->rts, .wts = entry->wts};
+         timestamp_set ts = {.magic = TIMESTAMP_UPDATE_MAGIC,
+                             .type  = TIMESTAMP_UPDATE_RTS,
+                             .rts   = entry->rts,
+                             .wts   = entry->wts};
          splinterdb_update(
             txn_kvsb->kvsb, entry->key, slice_create(sizeof(ts), &ts));
       }

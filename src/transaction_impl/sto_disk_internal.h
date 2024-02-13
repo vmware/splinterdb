@@ -19,13 +19,15 @@ typedef struct transactional_splinterdb {
 } transactional_splinterdb;
 
 #define TIMESTAMP_UPDATE_MAGIC 0xdeadbeef
-#define TIMESTAMP_UPDATE_RTS (1 << 0)
-#define TIMESTAMP_UPDATE_WTS (1 << 1)
-#define TIMESTAMP_UPDATE_BOTH (TIMESTAMP_UPDATE_RTS | TIMESTAMP_UPDATE_WTS)
+#define TIMESTAMP_UPDATE_RTS   (1 << 0)
+#define TIMESTAMP_UPDATE_WTS   (1 << 1)
+#define TIMESTAMP_UPDATE_BOTH  (TIMESTAMP_UPDATE_RTS | TIMESTAMP_UPDATE_WTS)
 
 typedef struct ONDISK timestamp_set {
-   uint32 magic; // to indicate valid timestamp update. The size is 32bits to align.
-   uint32 type;  // to indicate which timestamp is updated. The size is 32bits to align.
+   uint32
+      magic; // to indicate valid timestamp update. The size is 32bits to align.
+   uint32 type; // to indicate which timestamp is updated. The size is 32bits to
+                // align.
    txn_timestamp wts;
    txn_timestamp rts;
 } timestamp_set __attribute__((aligned(64)));
