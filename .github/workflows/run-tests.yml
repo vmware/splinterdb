@@ -1,3 +1,4 @@
+
 name: Splinter Tests
 
 on:
@@ -45,7 +46,7 @@ jobs:
           - compiler_mode: clang
             build_mode: debug
             target: run-tests
-    name: Run tests ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }} job
+    name: ${{ matrix.target == 'all' && 'Compile' || 'Run' }} ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
     runs-on: ubuntu-latest
     env:
       CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
