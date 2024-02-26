@@ -9,11 +9,10 @@ jobs:
   format-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: apt-update
-      run: sudo apt update
-    - name: install prereqs
-      run: sudo apt install libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
+    - uses: actions/checkout@v4
+    - uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
     - name: format-check
       run: ./format-check.sh
 
@@ -56,13 +55,19 @@ jobs:
       BUILD_MSAN: ${{ endsWith(matrix.compiler_mode, 'msan') && 1 || 0 }}
       INCLUDE_SLOW_TESTS: true
     steps:
-    - uses: actions/checkout@v3
-    # - uses: awalsh128/cache-apt-pkgs-action@latest
-    #   with:
-    #     packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
-    - name: apt update
-      run: sudo apt update
-    - name: install prereqs
-      run: sudo apt install libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 512
+        swap-size-mb: 1
+        remove-dotnet: true
+        remove-android: true
+        remove-haskell: true
+        remove-codeql: true
+        remove-docker-images: false
+    - uses: actions/checkout@v4
+    - uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
     - name: make ${{ matrix.target }}
       run: make ${{ matrix.target }}
