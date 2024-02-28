@@ -1,7 +1,179 @@
 #include "data_internal.h"
 #include "splinterdb/data.h"
-#include "tictoc_disk_internal.h"
+#include "platform.h"
+#include "splinterdb/transaction.h"
+#include "util.h"
+#include "experimental_mode.h"
+#include "splinterdb_internal.h"
+#include "isketch/iceberg_table.h"
+#include "lock_table.h"
 #include "poison.h"
+
+typedef struct transactional_data_config {
+   data_config        super;
+   const data_config *application_data_config;
+} transactional_data_config;
+
+typedef struct transactional_splinterdb_config {
+   splinterdb_config           kvsb_cfg;
+   transaction_isolation_level isol_level;
+   transactional_data_config  *txn_data_cfg;
+} transactional_splinterdb_config;
+
+typedef struct transactional_splinterdb {
+   splinterdb                      *kvsb;
+   transactional_splinterdb_config *tcfg;
+   lock_table                      *lock_tbl;
+} transactional_splinterdb;
+
+typedef struct ONDISK timestamp_set {
+   txn_timestamp wts;
+   txn_timestamp rts;
+} timestamp_set __attribute__((aligned(64)));
+
+// read_set and write_set entry stored locally
+typedef struct rw_entry {
+   slice            key;
+   message          msg; // value + op
+   txn_timestamp    wts;
+   txn_timestamp    rts;
+   char             is_read;
+   lock_table_entry lock;
+} rw_entry;
+
+typedef struct ONDISK tuple_header {
+   timestamp_set ts;
+   char          value[];
+} tuple_header;
+
+static inline bool
+is_message_rts_update(message msg)
+{
+   return message_length(msg) == sizeof(txn_timestamp);
+}
+
+static inline bool
+is_merge_accumulator_rts_update(merge_accumulator *ma)
+{
+   return merge_accumulator_length(ma) == sizeof(txn_timestamp);
+}
+
+static inline message
+get_app_value_from_message(message msg)
+{
+   return message_create(
+      message_class(msg),
+      slice_create(message_length(msg) - sizeof(tuple_header),
+                   message_data(msg) + sizeof(tuple_header)));
+}
+
+static inline message
+get_app_value_from_merge_accumulator(merge_accumulator *ma)
+{
+   return message_create(
+      merge_accumulator_message_class(ma),
+      slice_create(merge_accumulator_length(ma) - sizeof(tuple_header),
+                   merge_accumulator_data(ma) + sizeof(tuple_header)));
+}
+
+static int
+merge_tictoc_tuple(const data_config *cfg,
+                   slice              key,         // IN
+                   message            old_message, // IN
+                   merge_accumulator *new_message) // IN/OUT
+{
+   if (is_message_rts_update(old_message)) {
+      // Just discard
+      return 0;
+   }
+
+   if (is_merge_accumulator_rts_update(new_message)) {
+      txn_timestamp new_rts =
+         *((txn_timestamp *)merge_accumulator_data(new_message));
+      merge_accumulator_copy_message(new_message, old_message);
+      tuple_header *new_tuple =
+         (tuple_header *)merge_accumulator_data(new_message);
+      new_tuple->ts.rts = new_rts;
+
+      return 0;
+   }
+
+   message old_value_message = get_app_value_from_message(old_message);
+   message new_value_message =
+      get_app_value_from_merge_accumulator(new_message);
+
+   merge_accumulator new_value_ma;
+   merge_accumulator_init_from_message(
+      &new_value_ma,
+      new_message->data.heap_id,
+      new_value_message); // FIXME: use a correct heap_id
+
+   data_merge_tuples(
+      ((const transactional_data_config *)cfg)->application_data_config,
+      key_create_from_slice(key),
+      old_value_message,
+      &new_value_ma);
+
+   merge_accumulator_resize(new_message,
+                            sizeof(tuple_header)
+                               + merge_accumulator_length(&new_value_ma));
+
+   tuple_header *new_tuple = merge_accumulator_data(new_message);
+   memcpy(&new_tuple->value,
+          merge_accumulator_data(&new_value_ma),
+          merge_accumulator_length(&new_value_ma));
+
+   merge_accumulator_deinit(&new_value_ma);
+
+   merge_accumulator_set_class(new_message, message_class(old_message));
+
+   return 0;
+}
+
+static int
+merge_tictoc_tuple_final(const data_config *cfg,
+                         slice              key,
+                         merge_accumulator *oldest_message)
+{
+   platform_assert(!is_merge_accumulator_rts_update(oldest_message),
+                   "oldest_message shouldn't be a rts update\n");
+
+   message oldest_message_value =
+      get_app_value_from_merge_accumulator(oldest_message);
+   merge_accumulator app_oldest_message;
+   merge_accumulator_init_from_message(
+      &app_oldest_message,
+      app_oldest_message.data.heap_id, // FIXME: use a correct heap id
+      oldest_message_value);
+
+   data_merge_tuples_final(
+      ((const transactional_data_config *)cfg)->application_data_config,
+      key_create_from_slice(key),
+      &app_oldest_message);
+
+   merge_accumulator_resize(oldest_message,
+                            sizeof(tuple_header)
+                               + merge_accumulator_length(&app_oldest_message));
+   tuple_header *tuple = merge_accumulator_data(oldest_message);
+   memcpy(&tuple->value,
+          merge_accumulator_data(&app_oldest_message),
+          merge_accumulator_length(&app_oldest_message));
+
+   merge_accumulator_deinit(&app_oldest_message);
+
+   return 0;
+}
+
+static void
+transactional_data_config_init(data_config               *in_cfg, // IN
+                               transactional_data_config *out_cfg // OUT
+)
+{
+   memcpy(&out_cfg->super, in_cfg, sizeof(out_cfg->super));
+   out_cfg->super.merge_tuples       = merge_tictoc_tuple;
+   out_cfg->super.merge_tuples_final = merge_tictoc_tuple_final;
+   out_cfg->application_data_config  = in_cfg;
+}
 
 static void
 get_global_timestamps(transactional_splinterdb *txn_kvsb,
@@ -56,7 +228,8 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
    char *key_buf;
    key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
    memcpy(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(slice_length(key), key_buf);
+   e->key      = slice_create(slice_length(key), key_buf);
+   e->lock.key = e->key;
 }
 
 /*
@@ -279,11 +452,12 @@ RETRY_LOCK_WRITE_SET:
 {
    for (int lock_num = 0; lock_num < num_writes; ++lock_num) {
       lock_table_rc lock_rc = lock_table_try_acquire_entry_lock(
-         txn_kvsb->lock_tbl, write_set[lock_num]);
+         txn_kvsb->lock_tbl, &write_set[lock_num]->lock);
       platform_assert(lock_rc != LOCK_TABLE_RC_DEADLK);
       if (lock_rc == LOCK_TABLE_RC_BUSY) {
          for (int i = 0; i < lock_num; ++i) {
-            lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
+            lock_table_release_entry_lock(txn_kvsb->lock_tbl,
+                                          &write_set[i]->lock);
          }
 
          // 1us is the value that is mentioned in the paper
@@ -307,7 +481,7 @@ RETRY_LOCK_WRITE_SET:
 
       if (r->rts < commit_ts) {
          lock_table_rc lock_rc =
-            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
+            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, &r->lock);
 
          txn_timestamp rts = 0;
          txn_timestamp wts = 0;
@@ -315,7 +489,7 @@ RETRY_LOCK_WRITE_SET:
 
          if (wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
-               lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+               lock_table_release_entry_lock(txn_kvsb->lock_tbl, &r->lock);
             }
             is_abort = TRUE;
             break;
@@ -333,7 +507,7 @@ RETRY_LOCK_WRITE_SET:
          }
 
          if (lock_rc == LOCK_TABLE_RC_OK) {
-            lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+            lock_table_release_entry_lock(txn_kvsb->lock_tbl, &r->lock);
          }
       }
    }
@@ -376,11 +550,11 @@ RETRY_LOCK_WRITE_SET:
          }
 
          platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-         lock_table_release_entry_lock(txn_kvsb->lock_tbl, w);
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, &w->lock);
       }
    } else {
       for (int i = 0; i < num_writes; ++i) {
-         lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, &write_set[i]->lock);
       }
    }
 
@@ -526,7 +700,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    do {
       rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
-   } while (lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry)
+   } while (lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, &entry->lock)
             == LOCK_TABLE_RC_BUSY);
 
    if (splinterdb_lookup_found(result)) {
