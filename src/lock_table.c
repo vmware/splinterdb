@@ -3,13 +3,9 @@
 
 #define USE_LOCK_TABLE 1
 
-#if EXPERIMENTAL_MODE_TICTOC_DISK
-#   include "transaction_impl/tictoc_disk_internal.h"
-#elif EXPERIMENTAL_MODE_STO_DISK
-#   include "transaction_impl/sto_disk_internal.h"
-#elif EXPERIMENTAL_MODE_SILO_MEMORY
+#if EXPERIMENTAL_MODE_SILO_MEMORY
 #   include "transaction_impl/fantasticc_internal.h"
-#elif EXPERIMENTAL_MODE_MVCC_DISK
+#elif EXPERIMENTAL_MODE_TICTOC_DISK || EXPERIMENTAL_MODE_STO_DISK || EXPERIMENTAL_MODE_MVCC_DISK
 #else
 #   undef USE_LOCK_TABLE
 #   define USE_LOCK_TABLE 0
