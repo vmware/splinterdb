@@ -591,6 +591,8 @@ iterator_seek_tests(cache           *cc,
 
    btree_iterator_deinit(&dbiter);
 
+   platform_free(hid, keybuf);
+
    return 1;
 }
 

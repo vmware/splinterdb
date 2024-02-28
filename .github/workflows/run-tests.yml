@@ -1,0 +1,73 @@
+
+name: Splinter Tests
+
+on:
+  pull_request:
+
+jobs:
+
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
+    - name: format-check
+      run: ./format-check.sh
+
+  run-test-matrix:
+    strategy:
+      matrix:
+        compiler_mode: [gcc, clang, gcc-asan, clang-msan]
+        build_mode: [release, debug]
+        target: [all] # Just compile most configs
+        exclude:
+          # Don't do a compile job on these, since we will do run-tests on them below
+          - compiler_mode: gcc-asan
+            build_mode: release
+            target: all
+          - compiler_mode: clang-msan
+            build_mode: release
+            target: all
+          - compiler_mode: clang
+            build_mode: debug
+            target: all
+        include:
+          # Compile and run tests on these configs
+          - compiler_mode: gcc-asan
+            build_mode: release
+            target: run-tests
+          - compiler_mode: clang-msan
+            build_mode: release
+            sanitizer: msan
+            target: run-tests
+          - compiler_mode: clang
+            build_mode: debug
+            target: run-tests
+    name: ${{ matrix.target == 'all' && 'Compile' || 'Run' }} ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    env:
+      CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
+      LD:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
+      BUILD_MODE: ${{ matrix.build_mode }}
+      BUILD_ASAN: ${{ endsWith(matrix.compiler_mode, 'asan') && 1 || 0 }}
+      BUILD_MSAN: ${{ endsWith(matrix.compiler_mode, 'msan') && 1 || 0 }}
+      INCLUDE_SLOW_TESTS: true
+    steps:
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 512
+        swap-size-mb: 1
+        remove-dotnet: true
+        remove-android: true
+        remove-haskell: true
+        remove-codeql: true
+        remove-docker-images: false
+    - uses: actions/checkout@v4
+    - uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-13 clang-format-13
+    - name: make ${{ matrix.target }}
+      run: make ${{ matrix.target }}

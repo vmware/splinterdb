@@ -384,8 +384,14 @@ deinit_kvhandle:
       // => Caller did not setup a platform-heap on entry.
       debug_assert(kvs_cfg->heap_id == NULL);
 
-      platform_free(use_this_heap_id, kvs);
+      if (kvs) {
+         platform_free(use_this_heap_id, kvs);
+      }
       platform_heap_destroy(&use_this_heap_id);
+   } else {
+      if (kvs) {
+         platform_free(use_this_heap_id, kvs);
+      }
    }
 
    return platform_status_to_int(status);
