@@ -42,7 +42,7 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid);
 
-static bool
+static bool32
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
                              btree_hdr             *hdr,
@@ -76,13 +76,24 @@ CTEST_DATA(btree)
 CTEST_SETUP(btree)
 {
    config_set_defaults(&data->master_cfg);
-   data->data_cfg = test_data_config;
-   data->hid      = platform_get_heap_id();
+   uint64 heap_capacity = (1 * GiB);
 
    if (!SUCCESS(
-          config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
-       || !init_data_config_from_master_config(data->data_cfg,
-                                               &data->master_cfg)
+          config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv)))
+   {
+      ASSERT_TRUE(FALSE, "Failed to parse args\n");
+   }
+
+   // Create a heap for io, allocator, cache and splinter
+   platform_status rc = platform_heap_create(platform_get_module_id(),
+                                             heap_capacity,
+                                             data->master_cfg.use_shmem,
+                                             &data->hid);
+   platform_assert_status_ok(rc);
+
+   data->data_cfg = test_data_config;
+
+   if (!init_data_config_from_master_config(data->data_cfg, &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
        || !init_rc_allocator_config_from_master_config(
           &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
@@ -98,7 +109,10 @@ CTEST_SETUP(btree)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree) {}
+CTEST_TEARDOWN(btree)
+{
+   platform_heap_destroy(&data->hid);
+}
 
 /*
  * Test leaf_hdr APIs.
@@ -170,11 +184,11 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
     * or the size of a btree leafy entry, then this number will need
     * to be changed, and that's fine.
     */
-   int nkvs = 209;
+   int nkvs = 208;
 
    btree_init_hdr(cfg, hdr);
 
-   bool rv = FALSE;
+   bool32 rv = FALSE;
    for (uint32 i = 0; i < nkvs; i++) {
       rv = btree_set_leaf_entry(
          cfg,
@@ -266,7 +280,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
          message_create(MESSAGE_TYPE_INSERT, slice_create(i % 8, messagebuf));
 
       leaf_incorporate_spec spec;
-      bool                  result = btree_leaf_incorporate_tuple(
+      bool32                result = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, tuple_key, msg, &spec, &generation);
       ASSERT_TRUE(result, "Could not incorporate kv pair %d\n", i);
 
@@ -288,15 +302,13 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 static int
 index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-
    char *index_buffer =
       TYPED_MANUAL_MALLOC(hid, index_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
 
-
-   bool rv     = FALSE;
-   int  cmp_rv = 0;
+   bool32 rv     = FALSE;
+   int    cmp_rv = 0;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -362,7 +374,7 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 
    btree_init_hdr(cfg, hdr);
 
-   bool rv = FALSE;
+   bool32 rv = FALSE;
    for (int i = 0; i < nkvs; i += 2) {
       uint8 keybuf[1];
       keybuf[0]     = i;
@@ -373,8 +385,8 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
    }
 
    for (int i = 0; i < nkvs; i++) {
-      bool  found;
-      uint8 keybuf[1];
+      bool32 found;
+      uint8  keybuf[1];
       keybuf[0]    = i;
       key   target = key_create(1, &keybuf);
       int64 idx    = btree_find_pivot(cfg, hdr, target, &found);
@@ -392,18 +404,17 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid)
 {
-   char *leaf_buffer =
-      TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
-   char *msg_buffer =
-      TYPED_MANUAL_MALLOC(hid, msg_buffer, btree_page_size(cfg));
+   uint64 bt_page_size = btree_page_size(cfg);
+   char  *leaf_buffer  = TYPED_MANUAL_MALLOC(hid, leaf_buffer, bt_page_size);
+   char  *msg_buffer   = TYPED_MANUAL_MALLOC(hid, msg_buffer, bt_page_size);
 
-   memset(msg_buffer, 0, btree_page_size(cfg));
+   memset(msg_buffer, 0, bt_page_size);
 
    btree_hdr *hdr = (btree_hdr *)leaf_buffer;
 
    btree_init_hdr(cfg, hdr);
 
-   int     msgsize = btree_page_size(cfg) / (nkvs + 1);
+   int     msgsize = bt_page_size / (nkvs + 1);
    message msg =
       message_create(MESSAGE_TYPE_INSERT, slice_create(msgsize, msg_buffer));
    message bigger_msg = message_create(
@@ -427,7 +438,7 @@ leaf_split_tests(btree_config    *cfg,
 
       key tuple_key = key_create(1, &i);
 
-      bool success = btree_leaf_incorporate_tuple(
+      bool32 success = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, tuple_key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(

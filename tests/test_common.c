@@ -26,7 +26,7 @@ verify_tuple(trunk_handle           *spl,
              uint64                  lookup_num,
              key                     tuple_key,
              message                 data,
-             bool                    expected_found)
+             bool32                  expected_found)
 {
    if (message_is_null(data) != !expected_found) {
       char key_str[128];
@@ -89,7 +89,7 @@ void
 verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    verify_tuple_arg *vta   = arg;
-   bool              found = trunk_lookup_found(&ctxt->data);
+   bool32            found = trunk_lookup_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {
@@ -124,4 +124,33 @@ test_async_ctxt_get(trunk_handle      *spl,
    platform_assert(ctxt);
 
    return ctxt;
+}
+
+/*
+ * Helper function to loop around waiting for someone to attach to this process.
+ * After attaching to the process you want to debug, set a breakpoint in this
+ * function. Then step thru to the caller and reset wait_for_gdb_hook to TRUE.
+ * Continue.
+ */
+void
+trace_wait_for_gdb_hook(void)
+{
+   platform_sleep_ns(1000 * MILLION);
+}
+
+void
+trace_wait_for_gdb(void)
+{
+   bool wait_for_gdb_hook = FALSE;
+   bool gdb_msg_printed   = FALSE;
+   while (!wait_for_gdb_hook) {
+      if (!gdb_msg_printed) {
+         platform_default_log(
+            "Looping ... Attach gdb to OS-pid=%d; Set breakpoint in %s_hook\n",
+            platform_getpid(),
+            __func__);
+         gdb_msg_printed = TRUE;
+      }
+      trace_wait_for_gdb_hook();
+   }
 }

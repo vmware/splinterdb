@@ -15,7 +15,6 @@
 #include <stdarg.h>
 #include <string.h>
 #include <sys/time.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -144,7 +143,7 @@ sighandler(int signum)
     * so it can terminate as expected
     */
    signal(signum, SIG_DFL);
-   kill(getpid(), signum);
+   kill(platform_getpid(), signum);
 }
 #endif // CTEST_SEGFAULT
 
@@ -283,8 +282,15 @@ ctest_main(int argc, const char *argv[])
    if (!suite_name && (num_suites == 1)) {
       suite_name = curr_suite_name;
    }
-   printf("Running %d CTests, suite name '%s', test case '%s'.\n",
+   // Test will be run with shared memory configured if --use-shmem arg is
+   // specified. As a convenience for test-execution, if this happens to be
+   // the very 1st arg, a helpful info message indicating that the test is
+   // being run 'using shared memory' will be emitted.
+   bool use_shmem =
+      ((argc > 1) && STRING_EQUALS_LITERAL(argv[1], "--use-shmem"));
+   printf("Running %d CTests%s, suite name '%s', test case '%s'.\n",
           num_suites,
+          (use_shmem ? " using shared memory" : ""),
           (suite_name ? suite_name : "all"),
           (testcase_name ? testcase_name : "all"));
 

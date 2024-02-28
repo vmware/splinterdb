@@ -38,16 +38,20 @@ static log_ops shard_log_ops = {
 };
 
 void
-shard_log_iterator_get_curr(iterator *itor, key *curr_key, message *msg);
+shard_log_iterator_curr(iterator *itor, key *curr_key, message *msg);
+bool32
+shard_log_iterator_can_prev(iterator *itor);
+bool32
+shard_log_iterator_can_next(iterator *itor);
 platform_status
-shard_log_iterator_at_end(iterator *itor, bool *at_end);
-platform_status
-shard_log_iterator_advance(iterator *itor);
+shard_log_iterator_next(iterator *itor);
+
 
 const static iterator_ops shard_log_iterator_ops = {
-   .get_curr = shard_log_iterator_get_curr,
-   .at_end   = shard_log_iterator_at_end,
-   .advance  = shard_log_iterator_advance,
+   .curr     = shard_log_iterator_curr,
+   .can_prev = shard_log_iterator_can_prev,
+   .can_next = shard_log_iterator_can_next,
+   .next     = shard_log_iterator_next,
    .print    = NULL,
 };
 
@@ -179,7 +183,7 @@ first_log_entry(char *page)
    return (log_entry *)(page + sizeof(shard_log_hdr));
 }
 
-static bool
+static bool32
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
    return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
@@ -295,7 +299,7 @@ shard_log_magic(log_handle *logh)
    return log->magic;
 }
 
-bool
+bool32
 shard_log_valid(shard_log_config *cfg, page_handle *page, uint64 magic)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
@@ -428,24 +432,29 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 }
 
 void
-shard_log_iterator_get_curr(iterator *itorh, key *curr_key, message *msg)
+shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *curr_key                = log_entry_key(itor->entries[itor->pos]);
    *msg                     = log_entry_message(itor->entries[itor->pos]);
 }
 
-platform_status
-shard_log_iterator_at_end(iterator *itorh, bool *at_end)
+bool32
+shard_log_iterator_can_prev(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
-   *at_end                  = itor->pos == itor->num_entries;
+   return itor->pos >= 0;
+}
 
-   return STATUS_OK;
+bool32
+shard_log_iterator_can_next(iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   return itor->pos < itor->num_entries;
 }
 
 platform_status
-shard_log_iterator_advance(iterator *itorh)
+shard_log_iterator_next(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    itor->pos++;

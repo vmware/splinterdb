@@ -36,7 +36,7 @@ typedef struct memtable {
    btree_config           *cfg;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
-static inline bool
+static inline bool32
 memtable_try_transition(memtable      *mt,
                         memtable_state old_state,
                         memtable_state new_state)
@@ -95,7 +95,7 @@ memtable_transition(memtable      *mt,
                     memtable_state old_state,
                     memtable_state new_state)
 {
-   bool success = memtable_try_transition(mt, old_state, new_state);
+   bool32 success = memtable_try_transition(mt, old_state, new_state);
    platform_assert(success);
 }
 
@@ -131,7 +131,7 @@ typedef struct memtable_context {
    // read lock to read and write lock to modify.
    volatile uint64 generation_retired;
 
-   bool is_empty;
+   bool32 is_empty;
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];
@@ -166,7 +166,7 @@ memtable_insert(memtable_context *ctxt,
                 message           msg,
                 uint64           *generation);
 
-bool
+bool32
 memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt);
 
 uint64
@@ -260,24 +260,24 @@ memtable_zap(cache *cc, memtable *mt)
    btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
-static inline bool
+static inline bool32
 memtable_ok_to_lookup(memtable *mt)
 {
    return mt->state != MEMTABLE_STATE_INCORPORATING
           && mt->state != MEMTABLE_STATE_INCORPORATED;
 }
 
-static inline bool
+static inline bool32
 memtable_ok_to_lookup_compacted(memtable *mt)
 {
    return mt->state == MEMTABLE_STATE_COMPACTED
           || mt->state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
 }
 
-bool
+bool32
 memtable_is_empty(memtable_context *mt_ctxt);
 
-static inline bool
+static inline bool32
 memtable_verify(cache *cc, memtable *mt)
 {
    return btree_verify_tree(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);

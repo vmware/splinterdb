@@ -46,8 +46,8 @@ typedef struct {
    task_system *tasks;
    threadid     exp_thread_idx; // Splinter-generated expected thread index
    threadid     exp_max_tid;    // After this thread gets created
-   bool         stop_thread;
-   bool         waitfor_stop_signal;
+   bool32       stop_thread;
+   bool32       waitfor_stop_signal;
    int          line; // Thread created on / around this line #
 } thread_config_lockstep;
 
@@ -80,8 +80,7 @@ exec_user_thread_loop_for_stop(void *arg);
 CTEST_DATA(task_system)
 {
    // Declare heap handles for io allocation.
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
 
    // Config structs required, to exercise task subsystem
    io_config          io_cfg;
@@ -104,11 +103,12 @@ CTEST_DATA(task_system)
 CTEST_SETUP(task_system)
 {
    platform_status rc = STATUS_OK;
+   bool use_shmem     = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
    rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+      platform_get_module_id(), heap_capacity, use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
@@ -127,7 +127,7 @@ CTEST_SETUP(task_system)
                   master_cfg.io_async_queue_depth,
                   master_cfg.io_filename);
 
-   rc = io_handle_init(data->ioh, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->ioh, &data->io_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc),
                "Failed to init IO handle: %s\n",
                platform_status_to_string(rc));
@@ -161,7 +161,7 @@ CTEST_TEARDOWN(task_system)
 {
    task_system_destroy(data->hid, &data->tasks);
    io_handle_deinit(data->ioh);
-   platform_heap_destroy(&data->hh);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -321,9 +321,13 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 
+   // We may have started some background threads, if this test was so
+   // configured. So, start-up all the remaining threads.
+   threadid max_tid_so_far = task_get_max_tid(data->tasks);
+
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -339,7 +343,7 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
