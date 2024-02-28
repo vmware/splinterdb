@@ -34,7 +34,8 @@ typedef struct transactional_splinterdb {
 // MVCC Key and Value definitions and compare and merge functions for
 // them.
 
-#define MVCC_VERSION_INF UINT32_MAX
+#define MVCC_VERSION_INF   UINT32_MAX
+#define MVCC_TIMESTAMP_INF UINT32_MAX
 
 typedef struct mvcc_key_header {
    uint32 version;
@@ -86,8 +87,9 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
 }
 
 typedef struct ONDISK mvcc_value_header {
-   txn_timestamp wts;
    txn_timestamp rts;
+   txn_timestamp wts_min;
+   txn_timestamp wts_max;
 } mvcc_value_header;
 
 typedef struct ONDISK mvcc_value {
@@ -95,16 +97,70 @@ typedef struct ONDISK mvcc_value {
    char              value[];
 } mvcc_value;
 
+#define TIMESTAMP_UPDATE_MAGIC 0x4938723
+
+typedef enum timestamp_update_type {
+   TIMESTAMP_UPDATE_TYPE_INVALID = 0,
+   TIMESTAMP_UPDATE_TYPE_RTS,
+   TIMESTAMP_UPDATE_TYPE_WTS_MAX
+} timestamp_update_type;
+
+typedef struct ONDISK timestamp_value_update {
+   uint32                magic;
+   timestamp_update_type type;
+   txn_timestamp         ts;
+} timestamp_value_update;
+
 static inline bool
 is_message_rts_update(message msg)
 {
-   return message_length(msg) == sizeof(txn_timestamp);
+   timestamp_value_update *update_msg =
+      (timestamp_value_update *)message_data(msg);
+   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
+      return FALSE;
+   }
+   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
+                   "Invalid timestamp update type\n");
+   return update_msg->type == TIMESTAMP_UPDATE_TYPE_RTS;
 }
 
 static inline bool
 is_merge_accumulator_rts_update(merge_accumulator *ma)
 {
-   return merge_accumulator_length(ma) == sizeof(txn_timestamp);
+   timestamp_value_update *update_msg =
+      (timestamp_value_update *)merge_accumulator_data(ma);
+   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
+      return FALSE;
+   }
+   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
+                   "Invalid timestamp update type\n");
+   return update_msg->type == TIMESTAMP_UPDATE_TYPE_RTS;
+}
+
+static inline bool
+is_message_wts_max_update(message msg)
+{
+   timestamp_value_update *update_msg =
+      (timestamp_value_update *)message_data(msg);
+   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
+      return FALSE;
+   }
+   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
+                   "Invalid timestamp update type\n");
+   return update_msg->type == TIMESTAMP_UPDATE_TYPE_WTS_MAX;
+}
+
+static inline bool
+is_merge_accumulator_wts_max_update(merge_accumulator *ma)
+{
+   timestamp_value_update *update_msg =
+      (timestamp_value_update *)merge_accumulator_data(ma);
+   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
+      return FALSE;
+   }
+   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
+                   "Invalid timestamp update type\n");
+   return update_msg->type == TIMESTAMP_UPDATE_TYPE_WTS_MAX;
 }
 
 static inline message
@@ -131,18 +187,29 @@ merge_mvcc_tuple(const data_config *cfg,
                  message            old_message, // IN
                  merge_accumulator *new_message) // IN/OUT
 {
-   if (is_message_rts_update(old_message)) {
+   if (is_message_rts_update(old_message)
+       || is_message_wts_max_update(old_message))
+   {
       // Just discard
       return 0;
    }
 
    if (is_merge_accumulator_rts_update(new_message)) {
-      txn_timestamp new_rts =
-         *((txn_timestamp *)merge_accumulator_data(new_message));
+      timestamp_value_update *update_msg =
+         (timestamp_value_update *)merge_accumulator_data(new_message);
       merge_accumulator_copy_message(new_message, old_message);
       mvcc_value_header *new_header =
          (mvcc_value_header *)merge_accumulator_data(new_message);
-      new_header->rts = MAX(new_header->rts, new_rts);
+      new_header->rts = MAX(new_header->rts, update_msg->ts);
+
+      return 0;
+   } else if (is_merge_accumulator_wts_max_update(new_message)) {
+      timestamp_value_update *update_msg =
+         (timestamp_value_update *)merge_accumulator_data(new_message);
+      merge_accumulator_copy_message(new_message, old_message);
+      mvcc_value_header *new_header =
+         (mvcc_value_header *)merge_accumulator_data(new_message);
+      new_header->wts_max = update_msg->ts;
 
       return 0;
    }
@@ -187,6 +254,9 @@ merge_mvcc_tuple_final(const data_config *cfg,
 {
    platform_assert(!is_merge_accumulator_rts_update(oldest_message),
                    "oldest_message shouldn't be a rts update\n");
+
+   platform_assert(!is_merge_accumulator_wts_max_update(oldest_message),
+                   "oldest_message shouldn't be a wts_max update\n");
 
    message oldest_message_value =
       get_app_value_from_merge_accumulator(oldest_message);
@@ -248,11 +318,12 @@ typedef struct rw_entry {
 } rw_entry;
 
 static rw_entry *
-rw_entry_create()
+rw_entry_create(txn_timestamp ts)
 {
    rw_entry *new_entry;
    new_entry = TYPED_ZALLOC(0, new_entry);
    platform_assert(new_entry != NULL);
+   new_entry->lock.id = ts;
    return new_entry;
 }
 
@@ -288,10 +359,11 @@ rw_entry_set_msg(rw_entry *e, txn_timestamp ts, message msg)
    // transform the given user key to mvcc_key
    uint64 msg_len = sizeof(mvcc_value_header) + message_length(msg);
    char  *msg_buf;
-   msg_buf           = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
-   mvcc_value *tuple = (mvcc_value *)msg_buf;
-   tuple->header.wts = ts;
-   tuple->header.rts = ts;
+   msg_buf               = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
+   mvcc_value *tuple     = (mvcc_value *)msg_buf;
+   tuple->header.rts     = ts;
+   tuple->header.wts_min = ts;
+   tuple->header.wts_max = MVCC_TIMESTAMP_INF;
    memcpy(tuple->value, message_data(msg), message_length(msg));
    e->msg = message_create(message_class(msg), slice_create(msg_len, msg_buf));
 }
@@ -335,7 +407,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
    }
 
    if (need_to_create_new_entry) {
-      entry = rw_entry_create();
+      entry = rw_entry_create(txn->ts);
       rw_entry_set_key(entry, user_key, cfg);
       txn->rw_entries[txn->num_rw_entries++] = entry;
    }
@@ -389,7 +461,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       platform_free(0, txn_splinterdb_cfg);
       return rc;
    }
-   _txn_kvsb->lock_tbl = lock_table_create(kvsb_cfg->data_cfg);
+   _txn_kvsb->lock_tbl = lock_table_create_with_rwlock(kvsb_cfg->data_cfg);
    *txn_kvsb           = _txn_kvsb;
 
    return 0;
@@ -478,9 +550,20 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
-         // Unlock the previous version (x)
+         // Update the wts_max of the previous version and unlock the previous
+         // version (x)
          mkey->header.version--;
-         lock_table_release_entry_lock(txn_kvsb->lock_tbl, &w->lock);
+         if (mkey->header.version > 0) {
+            timestamp_value_update wts_max_update = {
+               .magic = TIMESTAMP_UPDATE_MAGIC,
+               .type  = TIMESTAMP_UPDATE_TYPE_WTS_MAX,
+               .ts    = txn->ts};
+            splinterdb_update(
+               txn_kvsb->kvsb,
+               w->key,
+               slice_create(sizeof(wts_max_update), &wts_max_update));
+         }
+         lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &w->lock);
       }
    }
 
@@ -506,85 +589,100 @@ local_write(transactional_splinterdb *txn_kvsb,
 {
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
-
-   // Versions are ordered in increasing order of version number.
-
-   splinterdb_iterator *it;
-   int rc = splinterdb_iterator_init(txn_kvsb->kvsb, &it, entry->key);
-   platform_assert(rc == 0, "splinterdb_iterator_init: %d\n", rc);
-
-   slice latest_version_key;
-
-   char found_version = 0;
-   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
-      slice range_key, range_value;
-      splinterdb_iterator_get_current(it, &range_key, &range_value);
-      // do something with key and value...
-
-      if (data_key_compare(
-             cfg,
-             key_create(mvcc_key_get_user_key_length_from_slice(range_key),
-                        mvcc_key_get_user_key_from_slice(range_key)),
-             key_create_from_slice(user_key))
-          == 0)
-      {
-         mvcc_value *tuple = (mvcc_value *)slice_data(range_value);
-         if (tuple->header.wts < txn->ts) {
-            found_version      = 1;
-            latest_version_key = range_key;
-            break;
-         }
-      } else {
-         break;
-      }
-   }
-
-   // loop exit may mean error, or just that we've reached the end of the range
-   rc = splinterdb_iterator_status(it);
-   platform_assert(rc == 0, "splinterdb_iterator_status: %d\n", rc);
-
-   // Release resources acquired by the iterator
-   // If you skip this, other operations, including close(), may hang.
-   splinterdb_iterator_deinit(it);
-
-   mvcc_key *entry_mkey = (mvcc_key *)slice_data(entry->key);
-   entry_mkey->header.version =
-      found_version ? mvcc_key_get_version_from_slice(latest_version_key) : 0;
-
-
-   // Write would abort if the latest version had rts > ts.
-
-   while (lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, &entry->lock)
-          == LOCK_TABLE_RC_BUSY)
-   {
-      platform_sleep_ns(1000);
-   }
-
-   splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
-
-   // Read rts of the latest version
-
-   splinterdb_lookup(txn_kvsb->kvsb, entry->key, &result);
-
-   if (splinterdb_lookup_found(&result)) {
-      slice latest_version_tuple;
-      splinterdb_lookup_result_value(&result, &latest_version_tuple);
-      mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
-      if (tuple->header.rts > txn->ts || tuple->header.wts > txn->ts) {
-         transactional_splinterdb_abort(txn_kvsb, txn);
-         return -1;
-      } else {
-         slice rts_update = slice_create(sizeof(txn_timestamp), &txn->ts);
-         splinterdb_update(txn_kvsb->kvsb, entry->key, rts_update);
-      }
-   }
-
-   splinterdb_lookup_result_deinit(&result);
-
    // Save to the local write set
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, txn->ts, msg);
+   local_write_begin:;
+      mvcc_key *entry_mkey = (mvcc_key *)slice_data(entry->key);
+
+      // Versions are ordered in decreasing order of version number.
+      splinterdb_iterator *it;
+      int rc = splinterdb_iterator_init(txn_kvsb->kvsb, &it, entry->key);
+      platform_assert(rc == 0, "splinterdb_iterator_init: %d\n", rc);
+      slice latest_version_key   = NULL_SLICE;
+      slice latest_version_tuple = NULL_SLICE;
+      if (splinterdb_iterator_valid(it)) {
+         splinterdb_iterator_get_current(
+            it, &latest_version_key, &latest_version_tuple);
+         if (data_key_compare(
+                cfg,
+                key_create(
+                   mvcc_key_get_user_key_length_from_slice(latest_version_key),
+                   mvcc_key_get_user_key_from_slice(latest_version_tuple)),
+                key_create_from_slice(user_key))
+             == 0)
+         {
+            mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
+            if (tuple->header.wts_min >= txn->ts
+                && tuple->header.rts >= txn->ts) {
+               // Need to abort because the latest version is younger than me
+               transactional_splinterdb_abort(txn_kvsb, txn);
+               return -1;
+            }
+            entry_mkey->header.version =
+               mvcc_key_get_version_from_slice(latest_version_key);
+         } else {
+            // There is no version had been inserted yet
+            entry_mkey->header.version = 0;
+         }
+      } else {
+         // loop exit may mean error, or just that we've reached the end of the
+         // range
+         rc = splinterdb_iterator_status(it);
+         platform_assert(rc == 0, "splinterdb_iterator_status: %d\n", rc);
+
+         // It means the database is empty now
+         entry_mkey->header.version = 0;
+      }
+      // Release resources acquired by the iterator
+      // If you skip this, other operations, including close(), may hang.
+      splinterdb_iterator_deinit(it);
+
+      while (
+         lock_table_try_acquire_entry_wrlock(txn_kvsb->lock_tbl, &entry->lock)
+         == LOCK_TABLE_RC_BUSY)
+      {
+         // The lock is held by readers or another writer
+         if (entry->lock.shared_lock->id == -1) {
+            // The lock is held by readers. (It is possible that the same
+            // thread already holds the reader lock. But, it should never
+            // happen in our mvcc implementation.)
+            platform_sleep_ns(1000);
+         } else if (entry->lock.shared_lock->id < entry->lock.id) {
+            // The lock is held by another writer, but it is older than me.
+            platform_sleep_ns(1000);
+         } else {
+            platform_assert(entry->lock.shared_lock->id != entry->lock.id,
+                            "Try acquire a write lock twice.\n");
+            // The lock is held by another writer
+            transactional_splinterdb_abort(txn_kvsb, txn);
+            return -1;
+         }
+      }
+      // Lock is acquired
+      splinterdb_lookup_result result;
+      splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
+      splinterdb_lookup(txn_kvsb->kvsb, entry->key, &result);
+      if (splinterdb_lookup_found(&result)) {
+         splinterdb_lookup_result_value(&result, &latest_version_tuple);
+         mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
+         if (tuple->header.rts >= txn->ts) {
+            lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &entry->lock);
+            transactional_splinterdb_abort(txn_kvsb, txn);
+            return -1;
+         }
+         if (tuple->header.wts_max > txn->ts) {
+            // Need to abort because the latest version is younger than me
+            lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &entry->lock);
+            transactional_splinterdb_abort(txn_kvsb, txn);
+            return -1;
+         } else {
+            lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &entry->lock);
+            goto local_write_begin;
+         }
+      }
+      splinterdb_lookup_result_deinit(&result);
+
    } else {
       // Same key is written multiple times in the same transaction
       if (message_is_definitive(msg)) {
@@ -680,22 +778,19 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       return 0;
    }
 
-   // Versions are ordered in increasing order of version number.
-
-
+   // Versions are ordered in decreasing order of version number.
+   mvcc_key            *entry_mkey = (mvcc_key *)slice_data(entry->key);
    splinterdb_iterator *it;
    int rc = splinterdb_iterator_init(txn_kvsb->kvsb, &it, entry->key);
    platform_assert(rc == 0, "splinterdb_iterator_init: %d\n", rc);
-
-   slice latest_version_key;
-
-   char found_key     = 0;
-   char found_version = 0;
+   slice       readable_version_key   = NULL_SLICE;
+   slice       readable_version_tuple = NULL_SLICE;
+   int         num_versions_found     = 0;
+   mvcc_value *tuple                  = NULL;
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
-      slice range_key, range_value;
-      splinterdb_iterator_get_current(it, &range_key, &range_value);
+      slice range_key;
+      splinterdb_iterator_get_current(it, &range_key, &readable_version_tuple);
       // do something with key and value...
-
       if (data_key_compare(
              cfg,
              key_create(mvcc_key_get_user_key_length_from_slice(range_key),
@@ -703,64 +798,72 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
              key_create_from_slice(user_key))
           == 0)
       {
-         found_key         = 1;
-         mvcc_value *tuple = (mvcc_value *)slice_data(range_value);
-         if (tuple->header.wts < txn->ts) {
-            found_version      = 1;
-            latest_version_key = range_key;
+         ++num_versions_found;
+         tuple = (mvcc_value *)slice_data(readable_version_tuple);
+         if (tuple->header.wts_min < txn->ts) {
+            readable_version_key = range_key;
             break;
          }
       } else {
          break;
       }
    }
-
    // loop exit may mean error, or just that we've reached the end of the range
    rc = splinterdb_iterator_status(it);
    platform_assert(rc == 0, "splinterdb_iterator_status: %d\n", rc);
-
    // Release resources acquired by the iterator
    // If you skip this, other operations, including close(), may hang.
    splinterdb_iterator_deinit(it);
 
    // Transaction aborts if there is no version with wts(B_x) <= ts
-
-   if (found_key) {
-      if (!found_version) {
+   if (slice_is_null(readable_version_key)) {
+      if (num_versions_found == 0) {
+         // If the key is not found, return an empty result
+         --txn->num_rw_entries;
+         rw_entry_deinit(entry);
+         return 0;
+      } else {
+         // All existing versions have wts > ts
          transactional_splinterdb_abort(txn_kvsb, txn);
          return -1;
       }
-   } else {
-      // If the key is not found, return an empty result
-      --txn->num_rw_entries;
-      rw_entry_deinit(entry);
-      return 0;
    }
 
-   mvcc_key *entry_mkey = (mvcc_key *)slice_data(entry->key);
    entry_mkey->header.version =
-      mvcc_key_get_version_from_slice(latest_version_key);
+      mvcc_key_get_version_from_slice(readable_version_key);
 
    lock_table_rc lock_rc;
-   while ((lock_rc = lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl,
-                                                       &entry->lock))
+
+   while ((lock_rc = lock_table_try_acquire_entry_rdlock(txn_kvsb->lock_tbl,
+                                                         &entry->lock))
           == LOCK_TABLE_RC_BUSY)
    {
-      platform_sleep_ns(1000);
+      // There is a writer holding the lock
+      if (entry->lock.shared_lock->id == entry->lock.id) {
+         // That is me. I can read this version.
+         break;
+      } else if (entry->lock.shared_lock->id > entry->lock.id) {
+         // The writer is younger than me. I can read this version.
+         platform_sleep_ns(1000);
+      } else {
+         // The writer is older than me. I need to abort because there might be
+         // a newer version.
+         transactional_splinterdb_abort(txn_kvsb, txn);
+         return -1;
+      }
    }
 
-   // Read the rts again by using lookup function
-   splinterdb_lookup(txn_kvsb->kvsb, latest_version_key, result);
-   _result           = (_splinterdb_lookup_result *)result;
-   mvcc_value *tuple = (mvcc_value *)merge_accumulator_data(&_result->value);
-
-   if (tuple->header.rts < txn->ts) {
-      slice rts_update = slice_create(sizeof(txn_timestamp), &txn->ts);
-      splinterdb_update(txn_kvsb->kvsb, latest_version_key, rts_update);
-   }
+   // Lock acquired
+   // Update the rts of the readable version
+   timestamp_value_update rts_update = {.magic = TIMESTAMP_UPDATE_MAGIC,
+                                        .type  = TIMESTAMP_UPDATE_TYPE_RTS,
+                                        .ts    = txn->ts};
+   splinterdb_update(txn_kvsb->kvsb,
+                     readable_version_key,
+                     slice_create(sizeof(rts_update), &rts_update));
 
    if (lock_rc == LOCK_TABLE_RC_OK) {
-      lock_table_release_entry_lock(txn_kvsb->lock_tbl, &entry->lock);
+      lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &entry->lock);
    }
 
    const size_t value_len =

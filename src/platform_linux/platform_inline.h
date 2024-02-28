@@ -197,6 +197,56 @@ platform_spin_unlock(platform_spinlock *lock)
    return CONST_STATUS(ret);
 }
 
+static inline platform_status
+platform_rwlock_trywrlock(platform_rwlock *rwlock)
+{
+   int ret;
+
+   ret = pthread_rwlock_trywrlock(rwlock);
+
+   return CONST_STATUS(ret);
+}
+
+static inline platform_status
+platform_rwlock_wrlock(platform_rwlock *rwlock)
+{
+   int ret;
+
+   ret = pthread_rwlock_wrlock(rwlock);
+
+   return CONST_STATUS(ret);
+}
+
+static inline platform_status
+platform_rwlock_tryrdlock(platform_rwlock *rwlock)
+{
+   int ret;
+
+   ret = pthread_rwlock_tryrdlock(rwlock);
+
+   return CONST_STATUS(ret);
+}
+
+static inline platform_status
+platform_rwlock_rdlock(platform_rwlock *rwlock)
+{
+   int ret;
+
+   ret = pthread_rwlock_rdlock(rwlock);
+
+   return CONST_STATUS(ret);
+}
+
+static inline platform_status
+platform_rwlock_unlock(platform_rwlock *rwlock)
+{
+   int ret;
+
+   ret = pthread_rwlock_unlock(rwlock);
+
+   return CONST_STATUS(ret);
+}
+
 static inline threadid
 platform_get_tid()
 {

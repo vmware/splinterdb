@@ -203,6 +203,28 @@ platform_spinlock_destroy(platform_spinlock *lock)
 }
 
 platform_status
+platform_rwlock_init(platform_rwlock   *rwlock,
+                     platform_module_id UNUSED_PARAM(module_id),
+                     platform_heap_id   UNUSED_PARAM(heap_id))
+{
+   int ret;
+
+   ret = pthread_rwlock_init(rwlock, NULL);
+
+   return CONST_STATUS(ret);
+}
+
+platform_status
+platform_rwlock_destroy(platform_rwlock *rwlock)
+{
+   int ret;
+
+   ret = pthread_rwlock_destroy(rwlock);
+
+   return CONST_STATUS(ret);
+}
+
+platform_status
 platform_histo_create(platform_heap_id       heap_id,
                       uint32                 num_buckets,
                       const int64 *const     bucket_limits,

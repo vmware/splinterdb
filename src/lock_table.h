@@ -6,9 +6,17 @@
 #include "splinterdb/data.h"
 #include "platform.h"
 
-typedef struct lock_table_entry {
-   slice key;
-   char  is_locked;
+// This is the shared information for the lock table
+typedef struct lock_table_shared_entry {
+   int64 id;
+} lock_table_shared_entry;
+
+// It contains inputs for the lock table
+typedef struct {
+   slice                    key;
+   char                     is_locked; // can be removed
+   int64                    id;
+   lock_table_shared_entry *shared_lock;
 } lock_table_entry;
 
 typedef enum lock_table_rc {
@@ -41,3 +49,24 @@ lock_table_rc
 lock_table_release_entry_lock(lock_table *lock_tbl, lock_table_entry *entry);
 lock_table_rc
 lock_table_get_entry_lock_state(lock_table *lock_tbl, lock_table_entry *entry);
+
+
+/*
+ * Read-Writer lock
+ */
+
+lock_table *
+lock_table_create_with_rwlock(const data_config *spl_data_config);
+lock_table_rc
+lock_table_try_acquire_entry_wrlock(lock_table       *lock_tbl,
+                                    lock_table_entry *entry);
+
+lock_table_rc
+lock_table_try_acquire_entry_rdlock(lock_table       *lock_tbl,
+                                    lock_table_entry *entry);
+lock_table_rc
+lock_table_acquire_entry_wrlock(lock_table *lock_tbl, lock_table_entry *entry);
+lock_table_rc
+lock_table_acquire_entry_rdlock(lock_table *lock_tbl, lock_table_entry *entry);
+lock_table_rc
+lock_table_release_entry_rwlock(lock_table *lock_tbl, lock_table_entry *entry);

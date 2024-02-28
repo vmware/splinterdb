@@ -81,6 +81,9 @@ typedef struct {
 // Spin lock
 typedef pthread_spinlock_t platform_spinlock;
 
+// Read-write lock
+typedef pthread_rwlock_t platform_rwlock;
+
 // Buffer handle
 typedef struct {
    void  *addr;
