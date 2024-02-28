@@ -1,19 +1,19 @@
-#include "lock_table_rw.h"
+#include "lock_table_2pl.h"
 #include "experimental_mode.h"
 #include "poison.h"
 #include "transaction_impl/2pl_internal.h"
 
-lock_table_rw *
-lock_table_rw_create(const data_config *spl_data_config)
+lock_table_2pl *
+lock_table_2pl_create(const data_config *spl_data_config)
 {
-   lock_table_rw *lt;
+   lock_table_2pl *lt;
    lt = TYPED_ZALLOC(0, lt);
    iceberg_init(&lt->table, 20, spl_data_config);
    return lt;
 }
 
 void
-lock_table_rw_destroy(lock_table_rw *lock_tbl)
+lock_table_2pl_destroy(lock_table_2pl *lock_tbl)
 {
    platform_free(0, lock_tbl);
 }
@@ -60,7 +60,7 @@ lock_entry_destroy(lock_entry *le)
    platform_free(0, le);
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _lock(lock_entry *le, lock_type lt, transaction *txn)
 {
 
@@ -70,7 +70,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
       // we need to create a new lock_req and obtain the lock
       le->owners = get_lock_req(lt, txn);
       platform_mutex_unlock(&le->latch);
-      return LOCK_TABLE_RW_RC_OK;
+      return LOCK_TABLE_2PL_RC_OK;
    }
 
    lock_req *iter = le->owners;
@@ -81,11 +81,11 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
       if (iter->txn->ts != txn->ts) {
          // another writer holding the lock
          platform_mutex_unlock(&le->latch);
-         return LOCK_TABLE_RW_RC_BUSY;
+         return LOCK_TABLE_2PL_RC_BUSY;
       } else {
          // we already hold an exclusive lock
          platform_mutex_unlock(&le->latch);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       }
    } else if (lt == WRITE_LOCK) {
       if (iter->txn->ts == txn->ts && iter->next == NULL) {
@@ -93,12 +93,12 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          // already exclusively holding
          iter->lt = WRITE_LOCK;
          platform_mutex_unlock(&le->latch);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       } else {
          // some reader is holding the lock,
          // but we want exclusive access
          platform_mutex_unlock(&le->latch);
-         return LOCK_TABLE_RW_RC_BUSY;
+         return LOCK_TABLE_2PL_RC_BUSY;
       }
    } else if (lt == READ_LOCK) {
       // we keep owners sorted in ts descending order
@@ -110,7 +110,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
       if (iter && iter->txn->ts == txn->ts) {
          // we already hold the lock
          platform_mutex_unlock(&le->latch);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       }
       lock_req *lr = get_lock_req(lt, txn);
       lr->next     = iter;
@@ -119,16 +119,16 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
       else
          le->owners = lr;
       platform_mutex_unlock(&le->latch);
-      return LOCK_TABLE_RW_RC_OK;
+      return LOCK_TABLE_2PL_RC_OK;
    }
 
    // Should not get here
    platform_assert(false, "Dead code branch");
    platform_mutex_unlock(&le->latch);
-   return LOCK_TABLE_RW_RC_OK;
+   return LOCK_TABLE_2PL_RC_OK;
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _unlock(lock_entry *le, lock_type lt, transaction *txn)
 {
 
@@ -147,10 +147,10 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             }
             platform_free(0, iter);
             platform_mutex_unlock(&le->latch);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          } else {
             platform_mutex_unlock(&le->latch);
-            return LOCK_TABLE_RW_RC_INVALID;
+            return LOCK_TABLE_2PL_RC_INVALID;
          }
       }
       prev = iter;
@@ -158,7 +158,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
    }
 
    platform_mutex_unlock(&le->latch);
-   return LOCK_TABLE_RW_RC_NODATA;
+   return LOCK_TABLE_2PL_RC_NODATA;
 }
 
 //*******************************************
@@ -180,7 +180,7 @@ lock_entry_destroy(lock_entry *le)
    platform_free(0, le);
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _lock(lock_entry *le, lock_type lt, transaction *txn)
 {
    // owners are sorted by ts such that the
@@ -191,7 +191,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          // we need to create a new lock_req and obtain the lock
          le->owners = get_lock_req(lt, txn);
          platform_condvar_unlock(&le->condvar);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       }
 
       lock_req *iter = le->owners;
@@ -203,12 +203,12 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
             // another writer holding the lock
             if (iter->txn->ts < txn->ts) {
                platform_condvar_unlock(&le->condvar);
-               return LOCK_TABLE_RW_RC_BUSY;
+               return LOCK_TABLE_2PL_RC_BUSY;
             }
          } else {
             // we already hold an exclusive lock
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          }
       } else if (lt == WRITE_LOCK) {
          if (iter->txn->ts == txn->ts && iter->next == NULL) {
@@ -216,14 +216,14 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
             // already exclusively holding
             iter->lt = WRITE_LOCK;
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          } else {
             // some reader is holding the lock,
             // but we want exclusive access
             // if all readers are older, we die
             if (iter->txn->ts < txn->ts) {
                platform_condvar_unlock(&le->condvar);
-               return LOCK_TABLE_RW_RC_BUSY;
+               return LOCK_TABLE_2PL_RC_BUSY;
             }
          }
       } else if (lt == READ_LOCK) {
@@ -236,7 +236,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          if (iter && iter->txn->ts == txn->ts) {
             // we already hold the lock
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          }
          lock_req *lr = get_lock_req(lt, txn);
          lr->next     = iter;
@@ -245,7 +245,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          else
             le->owners = lr;
          platform_condvar_unlock(&le->condvar);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       }
 
       platform_condvar_wait(&le->condvar);
@@ -254,10 +254,10 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
    // Should not get here
    platform_assert(false, "Dead code branch");
    platform_condvar_unlock(&le->condvar);
-   return LOCK_TABLE_RW_RC_OK;
+   return LOCK_TABLE_2PL_RC_OK;
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _unlock(lock_entry *le, lock_type lt, transaction *txn)
 {
 
@@ -277,10 +277,10 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             platform_free(0, iter);
             platform_condvar_broadcast(&le->condvar);
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          } else {
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_INVALID;
+            return LOCK_TABLE_2PL_RC_INVALID;
          }
       }
       prev = iter;
@@ -288,7 +288,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
    }
 
    platform_condvar_unlock(&le->condvar);
-   return LOCK_TABLE_RW_RC_NODATA;
+   return LOCK_TABLE_2PL_RC_NODATA;
 }
 
 
@@ -309,21 +309,21 @@ lock_entry_destroy(lock_entry *le)
    platform_free(0, le);
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _lock(lock_entry *le, lock_type lt, transaction *txn)
 {
    platform_condvar_lock(&le->condvar);
    while (true) {
       if (txn->wounded) {
          platform_condvar_unlock(&le->condvar);
-         return LOCK_TABLE_RW_RC_BUSY;
+         return LOCK_TABLE_2PL_RC_BUSY;
       }
 
       if (le->owners == NULL) {
          // we need to create a new lock_req and obtain the lock
          le->owners = get_lock_req(lt, txn);
          platform_condvar_unlock(&le->condvar);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       }
 
       lock_req *iter = le->owners;
@@ -340,7 +340,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          } else {
             // we already hold an exclusive lock
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          }
       } else if (lt == WRITE_LOCK) {
          if (iter->txn->ts == txn->ts && iter->next == NULL) {
@@ -348,7 +348,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
             // already exclusively holding
             iter->lt = WRITE_LOCK;
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          } else {
             // wound all younger readers (i.e., with ts > txn->ts)
             while (iter && iter->txn->ts > txn->ts) {
@@ -367,7 +367,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          if (iter && iter->txn->ts == txn->ts) {
             // we already hold the lock
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          }
          lock_req *lr = get_lock_req(lt, txn);
          lr->next     = iter;
@@ -376,7 +376,7 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
          else
             le->owners = lr;
          platform_condvar_unlock(&le->condvar);
-         return LOCK_TABLE_RW_RC_OK;
+         return LOCK_TABLE_2PL_RC_OK;
       }
       platform_condvar_timedwait(&le->condvar, WOUND_WAIT_TIMEOUT);
    }
@@ -384,10 +384,10 @@ _lock(lock_entry *le, lock_type lt, transaction *txn)
    // Should not get here
    platform_assert(false, "Dead code branch");
    platform_condvar_unlock(&le->condvar);
-   return LOCK_TABLE_RW_RC_OK;
+   return LOCK_TABLE_2PL_RC_OK;
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _unlock(lock_entry *le, lock_type lt, transaction *txn)
 {
    platform_condvar_lock(&le->condvar);
@@ -406,10 +406,10 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
             platform_free(0, iter);
             platform_condvar_broadcast(&le->condvar);
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_OK;
+            return LOCK_TABLE_2PL_RC_OK;
          } else {
             platform_condvar_unlock(&le->condvar);
-            return LOCK_TABLE_RW_RC_INVALID;
+            return LOCK_TABLE_2PL_RC_INVALID;
          }
       }
       prev = iter;
@@ -417,7 +417,7 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
    }
 
    platform_condvar_unlock(&le->condvar);
-   return LOCK_TABLE_RW_RC_NODATA;
+   return LOCK_TABLE_2PL_RC_NODATA;
 }
 #else
 
@@ -434,14 +434,14 @@ lock_entry_destroy(lock_entry *le)
    platform_assert(FALSE, "Not implemented");
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _lock(lock_entry *le, lock_type lt, transaction *txn)
 {
    platform_assert(FALSE, "Not implemented");
    return 0;
 }
 
-lock_table_rw_rc
+lock_table_2pl_rc
 _unlock(lock_entry *le, lock_type lt, transaction *txn)
 {
    platform_assert(FALSE, "Not implemented");
@@ -450,11 +450,11 @@ _unlock(lock_entry *le, lock_type lt, transaction *txn)
 
 #endif
 
-lock_table_rw_rc
-lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
-                                     rw_entry      *entry,
-                                     lock_type      lt,
-                                     transaction   *txn)
+lock_table_2pl_rc
+lock_table_2pl_try_acquire_entry_lock(lock_table_2pl *lock_tbl,
+                                      rw_entry       *entry,
+                                      lock_type       lt,
+                                      transaction    *txn)
 {
    if (entry->le) {
       // we already have a pointer to the lock status
@@ -482,16 +482,16 @@ lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
    return _lock(entry->le, lt, txn);
 }
 
-lock_table_rw_rc
-lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
-                                 rw_entry      *entry,
-                                 lock_type      lt,
-                                 transaction   *txn)
+lock_table_2pl_rc
+lock_table_2pl_release_entry_lock(lock_table_2pl *lock_tbl,
+                                  rw_entry       *entry,
+                                  lock_type       lt,
+                                  transaction    *txn)
 {
    platform_assert(entry->le != NULL,
                    "Trying to release a lock using NULL lock entry");
 
-   if (_unlock(entry->le, lt, txn) == LOCK_TABLE_RW_RC_OK) {
+   if (_unlock(entry->le, lt, txn) == LOCK_TABLE_2PL_RC_OK) {
       // platform_assert(iceberg_force_remove(&lock_tbl->table, key,
       // get_tid()));
       if (iceberg_remove(&lock_tbl->table, entry->key, get_tid())) {
@@ -506,5 +506,5 @@ lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
                         (char *)slice_data(entry->key));
 #endif
 
-   return LOCK_TABLE_RW_RC_OK;
+   return LOCK_TABLE_2PL_RC_OK;
 }

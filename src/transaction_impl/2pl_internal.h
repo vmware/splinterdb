@@ -8,7 +8,7 @@
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
 #include "isketch/iceberg_table.h"
-#include "lock_table_rw.h"
+#include "lock_table_2pl.h"
 
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
@@ -18,7 +18,7 @@ typedef struct transactional_splinterdb_config {
 typedef struct transactional_splinterdb {
    splinterdb                      *kvsb;
    transactional_splinterdb_config *tcfg;
-   lock_table_rw                   *lock_tbl;
+   lock_table_2pl                  *lock_tbl;
 } transactional_splinterdb;
 
 typedef struct rw_entry {

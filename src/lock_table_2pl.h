@@ -17,9 +17,9 @@
 #define WOUND_WAIT_TIMEOUT 10
 
 // The lock table is just a hash map
-typedef struct lock_table_rw {
+typedef struct lock_table_2pl {
    iceberg_table table;
-} lock_table_rw;
+} lock_table_2pl;
 
 typedef enum lock_type {
    READ_LOCK = 0, // shared lock
@@ -51,34 +51,35 @@ typedef struct lock_entry {
 // and a pointer to a lock_state stucture.
 typedef struct rw_entry rw_entry;
 
-typedef enum lock_table_rw_rc {
-   LOCK_TABLE_RW_RC_INVALID = 0,
-   LOCK_TABLE_RW_RC_OK,
-   LOCK_TABLE_RW_RC_BUSY,
-   LOCK_TABLE_RW_RC_DEADLK,
-   LOCK_TABLE_RW_RC_NODATA
-} lock_table_rw_rc;
+typedef enum lock_table_2pl_rc {
+   LOCK_TABLE_2PL_RC_INVALID = 0,
+   LOCK_TABLE_2PL_RC_OK,
+   LOCK_TABLE_2PL_RC_BUSY,
+   LOCK_TABLE_2PL_RC_DEADLK,
+   LOCK_TABLE_2PL_RC_NODATA
+} lock_table_2pl_rc;
 
 /*
  * Lock Table Functions
  */
-lock_table_rw *
-lock_table_rw_create(const data_config *spl_data_config);
+lock_table_2pl *
+lock_table_2pl_create(const data_config *spl_data_config);
 void
-lock_table_rw_destroy(lock_table_rw *lock_tbl);
+lock_table_2pl_destroy(lock_table_2pl *lock_tbl);
 
 // Assumption: transaction contains a TS field
-lock_table_rw_rc
-lock_table_rw_try_acquire_entry_lock(lock_table_rw *lock_tbl,
-                                     rw_entry      *entry,
-                                     lock_type      lt,
-                                     transaction   *txn);
+lock_table_2pl_rc
+lock_table_2pl_try_acquire_entry_lock(lock_table_2pl *lock_tbl,
+                                      rw_entry       *entry,
+                                      lock_type       lt,
+                                      transaction    *txn);
 
-lock_table_rw_rc
-lock_table_rw_release_entry_lock(lock_table_rw *lock_tbl,
-                                 rw_entry      *entry,
-                                 lock_type      lt,
-                                 transaction   *txn);
+lock_table_2pl_rc
+lock_table_2pl_release_entry_lock(lock_table_2pl *lock_tbl,
+                                  rw_entry       *entry,
+                                  lock_type       lt,
+                                  transaction    *txn);
 
-// lock_table_rw_rc
-// lock_table_rw_get_entry_lock_state(lock_table_rw *lock_tbl, rw_entry *entry);
+// lock_table_2pl_rc
+// lock_table_2pl_get_entry_lock_state(lock_table_2pl *lock_tbl, rw_entry
+// *entry);
