@@ -324,6 +324,7 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
    key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
    memcpy(key_buf, slice_data(key), slice_length(key));
    e->key = slice_create(slice_length(key), key_buf);
+   e->lock.key = e->key;
 }
 
 static inline void
