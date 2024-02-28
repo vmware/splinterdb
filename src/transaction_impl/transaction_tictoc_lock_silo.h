@@ -40,14 +40,13 @@ typedef struct {
 
 // read_set and write_set entry stored locally
 typedef struct rw_entry {
-   slice          key;
-   message        msg; // value + op
-   txn_timestamp  wts;
-   txn_timestamp  rts;
-   timestamp_set *tuple_ts;
-   char           is_read;
-   char           need_to_keep_key;
-   char           is_locked;
+   slice            key;
+   message          msg; // value + op
+   txn_timestamp    wts;
+   txn_timestamp    rts;
+   timestamp_set   *tuple_ts;
+   char             is_read;
+   lock_table_entry lock;
 } rw_entry;
 
 static inline txn_timestamp
@@ -81,31 +80,17 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       return FALSE;
    }
 
-   KeyType key_ht = (KeyType)slice_data(entry->key);
    // ValueType value_ht = {0};
    // bool is_new_item = iceberg_insert_without_increasing_refcount(
    //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
 
    timestamp_set ts = {0};
    entry->tuple_ts  = &ts;
-   bool is_new_item = iceberg_insert_and_get_without_increasing_refcount(
+   return iceberg_insert_and_get_without_increasing_refcount(
       txn_kvsb->tscache,
-      key_ht,
+      &entry->key,
       (ValueType **)&entry->tuple_ts,
       platform_get_tid());
-   platform_assert(entry->tuple_ts != &ts);
-
-   // get the pointer of the value from the iceberg
-   // platform_assert(iceberg_get_value(txn_kvsb->tscache,
-   //                                   key_ht,
-   //                                   (ValueType **)&entry->tuple_ts,
-   //                                   platform_get_tid()));
-
-   /* platform_assert(((uint64)entry->tuple_ts) % sizeof(txn_timestamp) == 0);
-    */
-
-   entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
-   return is_new_item;
 }
 
 static inline void
@@ -117,30 +102,18 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    entry->tuple_ts = NULL;
 
-   // KeyType   key_ht   = (KeyType)slice_data(entry->key);
-   // ValueType value_ht = {0};
-   // if (iceberg_get_and_remove(
-   //        txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
-   // {
-   //    // if (entry->is_read)
-   //    //    platform_error_log("remove %s refcount: %d %lu\n",
-   //    //                       key_ht,
-   //    //                       value_ht.refcount,
-   //    //                       platform_get_tid());
-   //    if (slice_data(entry->key) != key_ht) {
-   //       platform_free_from_heap(0, key_ht);
-   //    } else {
-   //       entry->need_to_keep_key = 0;
+   //    KeyType   key_ht   = (KeyType)slice_data(entry->key);
+   //    ValueType value_ht = {0};
+   //    if (iceberg_get_and_remove(
+   //           txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
+   //    {
+   //       if (slice_data(entry->key) != key_ht) {
+   //          platform_free_from_heap(0, key_ht);
+   //       } else {
+   //          entry->need_to_keep_key = 0;
+   //       }
    //    }
-   // }
-
-   // if (entry->is_read)
-   //    platform_error_log("%s refcount: %d %lu\n",
-   //                       key_ht,
-   //                       value_ht.refcount,
-   //                       platform_get_tid());
 }
-
 
 static rw_entry *
 rw_entry_create()
@@ -155,23 +128,9 @@ rw_entry_create()
 static inline void
 rw_entry_deinit(rw_entry *entry)
 {
-   bool can_key_free = !slice_is_null(entry->key) && !entry->need_to_keep_key;
-   if (can_key_free) {
-      platform_free_from_heap(0, (void *)slice_data(entry->key));
-   }
-
    if (!message_is_null(entry->msg)) {
       platform_free_from_heap(0, (void *)message_data(entry->msg));
    }
-}
-
-static inline void
-rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
-{
-   char *key_buf;
-   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
-   memcpy(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(KEY_SIZE, key_buf);
 }
 
 /*
@@ -225,7 +184,8 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
 
    if (need_to_create_new_entry) {
       entry = rw_entry_create();
-      rw_entry_set_key(entry, user_key, cfg);
+      // The entry->key will be replaced by the key from the hash table.
+      entry->key                             = user_key;
       txn->rw_entries[txn->num_rw_entries++] = entry;
    }
 
@@ -246,6 +206,7 @@ rw_entry_key_compare(const void *elem1, const void *elem2, void *args)
 
    return data_key_compare(cfg, akey, bkey);
 }
+
 
 static void
 transactional_splinterdb_config_init(
@@ -288,11 +249,13 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl = lock_table_create();
+   _txn_kvsb->lock_tbl = lock_table_create(kvsb_cfg->data_cfg);
 
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
-   platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
+   platform_assert(iceberg_init(tscache,
+                                txn_splinterdb_cfg->tscache_log_slots,
+                                kvsb_cfg->data_cfg)
                    == 0);
    _txn_kvsb->tscache = tscache;
 
@@ -406,11 +369,12 @@ RETRY_LOCK_WRITE_SET:
 {
    for (int lock_num = 0; lock_num < num_writes; ++lock_num) {
       lock_table_rc lock_rc = lock_table_try_acquire_entry_lock(
-         txn_kvsb->lock_tbl, write_set[lock_num]);
+         txn_kvsb->lock_tbl, &write_set[lock_num]->lock);
       platform_assert(lock_rc != LOCK_TABLE_RC_DEADLK);
       if (lock_rc == LOCK_TABLE_RC_BUSY) {
          for (int i = 0; i < lock_num; ++i) {
-            lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
+            lock_table_release_entry_lock(txn_kvsb->lock_tbl,
+                                          &write_set[i]->lock);
          }
 
          // 1us is the value that is mentioned in the paper
@@ -447,7 +411,7 @@ RETRY_LOCK_WRITE_SET:
 
       if (is_read_entry_invalid) {
          lock_table_rc lock_rc =
-            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
+            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, &r->lock);
 
          // platform_error_log("[%lu] key %s rts %lu commit_ts %lu lock_rc == "
          //                    "LOCK_TABLE_RC_BUSY %d\n",
@@ -472,7 +436,7 @@ RETRY_LOCK_WRITE_SET:
 
          if (r->tuple_ts->wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
-               lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+               lock_table_release_entry_lock(txn_kvsb->lock_tbl, &r->lock);
             }
             is_abort = TRUE;
             break;
@@ -492,7 +456,7 @@ RETRY_LOCK_WRITE_SET:
          }
 #endif
          if (lock_rc == LOCK_TABLE_RC_OK) {
-            lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+            lock_table_release_entry_lock(txn_kvsb->lock_tbl, &r->lock);
          }
       }
    }
@@ -532,12 +496,12 @@ RETRY_LOCK_WRITE_SET:
          w->tuple_ts->wts   = commit_ts;
          w->tuple_ts->delta = 0;
 
-         lock_table_release_entry_lock(txn_kvsb->lock_tbl, w);
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, &w->lock);
       }
    } else {
       // Transaction abort
       for (int i = 0; i < num_writes; ++i) {
-         lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, &write_set[i]->lock);
       }
    }
 
@@ -675,7 +639,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
       timestamp_set_load(entry->tuple_ts, &v2);
    } while (memcmp(&v1, &v2, sizeof(v1)) != 0
-            || lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry)
+            || lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, &entry->lock)
                   == LOCK_TABLE_RC_BUSY);
 
    entry->wts = v1.wts;
