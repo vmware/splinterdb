@@ -243,7 +243,7 @@ rw_entry_set_msg(rw_entry *e, message msg)
    uint64 msg_len = sizeof(tuple_header) + message_length(msg);
    char  *msg_buf;
    msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
-   memcpy(msg_buf + sizeof(tuple_header), message_data(msg), msg_len);
+   memcpy(msg_buf + sizeof(tuple_header), message_data(msg), message_length(msg));
    e->msg = message_create(message_class(msg), slice_create(msg_len, msg_buf));
 }
 
@@ -617,7 +617,7 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
    uint64 value_len = sizeof(tuple_header) + slice_length(value);
    char  *value_buf;
    value_buf = TYPED_ARRAY_ZALLOC(0, value_buf, value_len);
-   memcpy(value_buf + sizeof(tuple_header), slice_data(value), value_len);
+   memcpy(value_buf + sizeof(tuple_header), slice_data(value), slice_length(value));
    int rc = splinterdb_insert(kvsb, key, slice_create(value_len, value_buf));
    platform_free(0, value_buf);
    return rc;
