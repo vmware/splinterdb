@@ -1,22 +1,8 @@
 #include "lock_table.h"
-#include "experimental_mode.h"
+#include "isketch/iceberg_table.h"
+#include "poison.h"
 
-#define USE_LOCK_TABLE 1
-
-#if EXPERIMENTAL_MODE_SILO_MEMORY
-#   include "transaction_impl/fantasticc_internal.h"
-#elif EXPERIMENTAL_MODE_TICTOC_DISK || EXPERIMENTAL_MODE_STO_DISK              \
-   || EXPERIMENTAL_MODE_MVCC_DISK
-#else
-#   undef USE_LOCK_TABLE
-#   define USE_LOCK_TABLE 0
-#endif
-
-#if USE_LOCK_TABLE
-#   include "isketch/iceberg_table.h"
-#   include "poison.h"
-
-#   define LOCK_TABLE_DEBUG 0
+#define LOCK_TABLE_DEBUG 0
 
 typedef enum lock_table_attr {
    LOCK_TABLE_ATTR_INVALID = 0,
@@ -60,11 +46,11 @@ lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
 {
    if (entry->is_locked) {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Already acquired lock on key %s\n",
                            get_tid(),
                            (char *)slice_data(entry->key));
-#   endif
+#endif
       return LOCK_TABLE_RC_DEADLK;
    }
 
@@ -73,20 +59,20 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
    if (iceberg_insert_without_increasing_refcount(
           &lock_tbl->table, &entry_key, lock_owner, get_tid()))
    {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Acquired lock on key %s(%p)\n",
                            get_tid(),
                            (char *)slice_data(entry->key),
                            slice_data(entry->key));
-#   endif
+#endif
       entry->is_locked = 1;
       return LOCK_TABLE_RC_OK;
    }
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
    platform_default_log("[Thread %lu] Fail to acquire lock on key %s\n",
                         get_tid(),
                         (char *)slice_data(entry->key));
-#   endif
+#endif
    return LOCK_TABLE_RC_BUSY;
 }
 
@@ -96,11 +82,11 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
                                            timestamp         timeout_ns)
 {
    if (entry->is_locked) {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Already acquired lock on key %s\n",
                            get_tid(),
                            (char *)slice_data(entry->key));
-#   endif
+#endif
       return LOCK_TABLE_RC_DEADLK;
    }
 
@@ -115,11 +101,11 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
       if (iceberg_insert_without_increasing_refcount(
              &lock_tbl->table, &entry_key, lock_owner, get_tid()))
       {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
          platform_default_log("[Thread %lu] Acquired lock on key %s\n",
                               get_tid(),
                               (char *)slice_data(entry->key));
-#   endif
+#endif
          entry->is_locked = 1;
          return LOCK_TABLE_RC_OK;
       }
@@ -130,11 +116,11 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
       }
    }
 
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
    platform_default_log("[Thread %lu] Fail to acquire lock on key %s\n",
                         get_tid(),
                         (char *)slice_data(entry->key));
-#   endif
+#endif
 
    return LOCK_TABLE_RC_BUSY;
 }
@@ -149,12 +135,12 @@ lock_table_release_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
                    get_tid(),
                    (char *)slice_data(entry->key));
 
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
    platform_default_log("[Thread %lu] Release lock on key %s(%p)\n",
                         get_tid(),
                         (char *)slice_data(entry->key),
                         slice_data(entry->key));
-#   endif
+#endif
 
    platform_assert(
       iceberg_force_remove(&lock_tbl->table, entry->key, get_tid()));
@@ -249,14 +235,14 @@ lock_table_try_acquire_entry_wrlock(lock_table       *lock_tbl,
       (lock_table_shared_rwlock_entry *)entry->shared_lock;
    platform_status rc = platform_rwlock_trywrlock(&shared_lock->rwlock);
    if (platform_status_to_int(rc) == EBUSY) {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Fail to acquire wrlock on key %s "
                            "(shared_id: %lu, local_id: %lu)\n",
                            get_tid(),
                            (char *)slice_data(entry->key),
                            entry->shared_lock->id,
                            entry->id);
-#   endif
+#endif
       return LOCK_TABLE_RC_BUSY;
    } else if (platform_status_to_int(rc) == EDEADLK) {
       return LOCK_TABLE_RC_DEADLK;
@@ -266,12 +252,12 @@ lock_table_try_acquire_entry_wrlock(lock_table       *lock_tbl,
          "rwlock does not refer to an initialized read-write lock object.");
       return LOCK_TABLE_RC_INVALID;
    } else if (platform_status_to_int(rc) == 0) {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Acquired wrlock on key %s(%p)\n",
                            get_tid(),
                            (char *)slice_data(entry->key),
                            slice_data(entry->key));
-#   endif
+#endif
       entry->shared_lock->id = entry->id;
       return LOCK_TABLE_RC_OK;
    } else {
@@ -297,11 +283,11 @@ lock_table_try_acquire_entry_rdlock(lock_table       *lock_tbl,
       (lock_table_shared_rwlock_entry *)entry->shared_lock;
    platform_status rc = platform_rwlock_tryrdlock(&shared_lock->rwlock);
    if (platform_status_to_int(rc) == EBUSY) {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Fail to acquire rdlock on key %s\n",
                            get_tid(),
                            (char *)slice_data(entry->key));
-#   endif
+#endif
       return LOCK_TABLE_RC_BUSY;
    } else if (platform_status_to_int(rc) == EDEADLK) {
       return LOCK_TABLE_RC_DEADLK;
@@ -311,12 +297,12 @@ lock_table_try_acquire_entry_rdlock(lock_table       *lock_tbl,
          "rwlock does not refer to an initialized read-write lock object.");
       return LOCK_TABLE_RC_INVALID;
    } else if (platform_status_to_int(rc) == 0) {
-#   if LOCK_TABLE_DEBUG
+#if LOCK_TABLE_DEBUG
       platform_default_log("[Thread %lu] Acquired rdlock on key %s(%p)\n",
                            get_tid(),
                            (char *)slice_data(entry->key),
                            slice_data(entry->key));
-#   endif
+#endif
       return LOCK_TABLE_RC_OK;
    } else {
       platform_assert(FALSE,
@@ -376,43 +362,3 @@ lock_table_release_entry_rwlock(lock_table *lock_tbl, lock_table_entry *entry)
       return LOCK_TABLE_RC_OK;
    }
 }
-#else
-lock_table *
-lock_table_create(const data_config *spl_data_config)
-{
-   platform_assert(FALSE, "Not implemented");
-   return NULL;
-}
-void
-lock_table_destroy(lock_table *lock_tbl)
-{
-   platform_assert(FALSE, "Not implemented");
-}
-
-lock_table_rc
-lock_table_try_acquire_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
-{
-   platform_assert(FALSE, "Not implemented");
-   return LOCK_TABLE_RC_INVALID;
-}
-lock_table_rc
-lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
-                                           lock_table_entry *entry,
-                                           timestamp         timeout_ns)
-{
-   platform_assert(FALSE, "Not implemented");
-   return LOCK_TABLE_RC_INVALID;
-}
-lock_table_rc
-lock_table_release_entry_lock(lock_table *lock_tbl, lock_table_entry *entry)
-{
-   platform_assert(FALSE, "Not implemented");
-   return LOCK_TABLE_RC_INVALID;
-}
-lock_table_rc
-lock_table_get_entry_lock_state(lock_table *lock_tbl, lock_table_entry *entry)
-{
-   platform_assert(FALSE, "Not implemented");
-   return LOCK_TABLE_RC_INVALID;
-}
-#endif
