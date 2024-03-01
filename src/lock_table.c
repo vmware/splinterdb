@@ -258,6 +258,10 @@ lock_table_try_acquire_entry_wrlock(lock_table       *lock_tbl,
                            (char *)slice_data(entry->key),
                            slice_data(entry->key));
 #endif
+      platform_assert(entry->shared_lock->id == -1,
+                      "Unexpected shared_lock->id: %lu",
+                      entry->shared_lock->id);
+      platform_assert(entry->id != -1, "Unexpected entry->id: %lu", entry->id);
       entry->shared_lock->id = entry->id;
       return LOCK_TABLE_RC_OK;
    } else {
@@ -355,7 +359,7 @@ lock_table_release_entry_rwlock(lock_table *lock_tbl, lock_table_entry *entry)
    if (iceberg_remove(&lock_tbl->table, entry->key, get_tid())) {
       platform_rwlock_unlock(&shared_lock->rwlock);
       platform_rwlock_destroy(&shared_lock->rwlock);
-      platform_free(0, shared_lock);
+      platform_free(0, entry->shared_lock);
       return LOCK_TABLE_RC_OK;
    } else {
       platform_rwlock_unlock(&shared_lock->rwlock);
