@@ -156,21 +156,21 @@ routing_get_index(uint32 fp, size_t index_remainder_and_value_size)
 }
 
 static inline void
-routing_filter_get_remainder_and_value(routing_config *cfg,
-                                       uint32         *data,
-                                       uint32          pos,
-                                       uint32         *remainder_and_value,
-                                       size_t          remainder_value_size)
+routing_filter_get_remainder_and_value(const routing_config *cfg,
+                                       uint32               *data,
+                                       uint32                pos,
+                                       uint32 *remainder_and_value,
+                                       size_t  remainder_value_size)
 {
    *remainder_and_value = PackedArray_get(data, pos, remainder_value_size);
 }
 
 static inline routing_hdr *
-routing_get_header(cache          *cc,
-                   routing_config *cfg,
-                   uint64          filter_addr,
-                   uint64          index,
-                   page_handle   **filter_page)
+routing_get_header(cache                *cc,
+                   const routing_config *cfg,
+                   uint64                filter_addr,
+                   uint64                index,
+                   page_handle         **filter_page)
 {
    uint64 page_size      = cache_config_page_size(cfg->cache_cfg);
    uint64 addrs_per_page = page_size / sizeof(uint64);
@@ -194,7 +194,7 @@ routing_unget_header(cache *cc, page_handle *header_page)
 }
 
 static inline uint64
-routing_header_length(routing_config *cfg, routing_hdr *hdr)
+routing_header_length(const routing_config *cfg, routing_hdr *hdr)
 {
    uint64 metamessage_size =
       (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
@@ -269,7 +269,9 @@ routing_get_bucket_bounds(char   *encoding,
 }
 
 void
-routing_get_bucket_counts(routing_config *cfg, routing_hdr *hdr, uint32 *count)
+routing_get_bucket_counts(const routing_config *cfg,
+                          routing_hdr          *hdr,
+                          uint32               *count)
 {
    uint64  start = 0;
    uint64  end;
@@ -319,17 +321,17 @@ routing_get_bucket_counts(routing_config *cfg, routing_hdr *hdr, uint32 *count)
  *      routing filter at old_filter_addr and returns the result in
  *      filter_addr.
  *
- *      meta_head should be passed to routing_filter_zap
+ *      meta_head should be passed to routing_filter_dec_ref
  *----------------------------------------------------------------------
  */
 platform_status
-routing_filter_add(cache          *cc,
-                   routing_config *cfg,
-                   routing_filter *old_filter,
-                   routing_filter *filter,
-                   uint32         *new_fp_arr,
-                   uint64          num_new_fp,
-                   uint16          value)
+routing_filter_add(cache                *cc,
+                   const routing_config *cfg,
+                   routing_filter       *old_filter,
+                   routing_filter       *filter,
+                   uint32               *new_fp_arr,
+                   uint64                num_new_fp,
+                   uint16                value)
 {
    ZERO_CONTENTS(filter);
 
@@ -637,10 +639,10 @@ routing_filter_add(cache          *cc,
 }
 
 void
-routing_filter_prefetch(cache          *cc,
-                        routing_config *cfg,
-                        routing_filter *filter,
-                        uint64          num_indices)
+routing_filter_prefetch(cache                *cc,
+                        const routing_config *cfg,
+                        routing_filter       *filter,
+                        uint64                num_indices)
 {
    uint64 last_extent_addr = 0;
    uint64 page_size        = cache_config_page_size(cfg->cache_cfg);
@@ -680,12 +682,13 @@ routing_filter_prefetch(cache          *cc,
 }
 
 uint32
-routing_filter_estimate_unique_fp(cache           *cc,
-                                  routing_config  *cfg,
-                                  platform_heap_id hid,
-                                  routing_filter  *filter,
-                                  uint64           num_filters)
+routing_filter_estimate_unique_fp(cache                *cc,
+                                  const routing_config *cfg,
+                                  platform_heap_id      hid,
+                                  routing_filter       *filter,
+                                  uint64                num_filters)
 {
+   platform_assert(num_filters <= MAX_FILTERS);
    uint32 total_num_fp = 0;
    for (uint64 i = 0; i != num_filters; i++) {
       total_num_fp += filter[i].num_fingerprints;
@@ -821,11 +824,11 @@ routing_filter_estimate_unique_fp(cache           *cc,
  *----------------------------------------------------------------------
  */
 platform_status
-routing_filter_lookup(cache          *cc,
-                      routing_config *cfg,
-                      routing_filter *filter,
-                      key             target,
-                      uint64         *found_values)
+routing_filter_lookup(cache                *cc,
+                      const routing_config *cfg,
+                      routing_filter       *filter,
+                      key                   target,
+                      uint64               *found_values)
 {
    debug_assert(key_is_user_key(target));
 
@@ -1158,13 +1161,31 @@ routing_filter_lookup_async(cache              *cc,
 
 /*
  *----------------------------------------------------------------------
- * routing_filter_zap
+ * routing_filter_inc_ref
+ *
+ *      incs the ref count of the filter
+ *----------------------------------------------------------------------
+ */
+void
+routing_filter_inc_ref(cache *cc, routing_filter *filter)
+{
+   if (filter->num_fingerprints == 0) {
+      return;
+   }
+
+   uint64 meta_head = filter->meta_head;
+   mini_unkeyed_inc_ref(cc, meta_head);
+}
+
+/*
+ *----------------------------------------------------------------------
+ * routing_filter_dec_ref
  *
  *      decs the ref count of the filter and destroys it if it reaches 0
  *----------------------------------------------------------------------
  */
 void
-routing_filter_zap(cache *cc, routing_filter *filter)
+routing_filter_dec_ref(cache *cc, routing_filter *filter)
 {
    if (filter->num_fingerprints == 0) {
       return;
@@ -1183,8 +1204,8 @@ routing_filter_zap(cache *cc, routing_filter *filter)
  *----------------------------------------------------------------------
  */
 uint32
-routing_filter_estimate_unique_keys_from_count(routing_config *cfg,
-                                               uint64          num_unique)
+routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
+                                               uint64                num_unique)
 {
    double universe_size = 1UL << cfg->fingerprint_size;
    double unseen_fp     = universe_size - num_unique;

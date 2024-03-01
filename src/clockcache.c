@@ -137,7 +137,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 void
 clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type);
 
-uint8
+refcount
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr);
 
 page_handle *
@@ -1957,6 +1957,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    entry->type                = type;
    uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
    cc->lookup[lookup_no] = entry_no;
+   clockcache_record_backtrace(cc, entry_no);
 
    clockcache_log(entry->page.disk_addr,
                   entry_no,
@@ -2112,7 +2113,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
    uint64            start, elapsed;
 
 #if SPLINTER_DEBUG
-   uint8 extent_ref_count = allocator_get_refcount(cc->al, base_addr);
+   refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
 
    // Dump allocated extents info for deeper debugging.
    if (extent_ref_count <= 1) {

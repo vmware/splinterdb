@@ -114,6 +114,8 @@ allocator_config_pages_share_extent(allocator_config *allocator_cfg,
 // ----------------------------------------------------------------------
 // Type declarations for allocator ops
 
+typedef uint32 refcount;
+
 typedef struct allocator allocator;
 
 typedef allocator_config *(*allocator_get_config_fn)(allocator *al);
@@ -122,8 +124,8 @@ typedef platform_status (*alloc_fn)(allocator *al,
                                     uint64    *addr,
                                     page_type  type);
 
-typedef uint8 (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
-typedef uint8 (*generic_ref_fn)(allocator *al, uint64 addr);
+typedef refcount (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
+typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
 
 typedef platform_status (*get_super_addr_fn)(allocator        *al,
                                              allocator_root_id spl_id,
@@ -182,19 +184,19 @@ allocator_alloc(allocator *al, uint64 *addr, page_type type)
    return al->ops->alloc(al, addr, type);
 }
 
-static inline uint8
+static inline refcount
 allocator_inc_ref(allocator *al, uint64 addr)
 {
    return al->ops->inc_ref(al, addr);
 }
 
-static inline uint8
+static inline refcount
 allocator_dec_ref(allocator *al, uint64 addr, page_type type)
 {
    return al->ops->dec_ref(al, addr, type);
 }
 
-static inline uint8
+static inline refcount
 allocator_get_refcount(allocator *al, uint64 addr)
 {
    return al->ops->get_ref(al, addr);
@@ -268,8 +270,8 @@ allocator_page_valid(allocator *al, uint64 addr)
 
    uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
    if ((base_addr != 0) && (addr < allocator_cfg->capacity)) {
-      uint8 refcount = allocator_get_refcount(al, base_addr);
-      if (refcount == 0) {
+      refcount rfc = allocator_get_refcount(al, base_addr);
+      if (rfc == 0) {
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."
             " base_addr=%lu, addr=%lu, allocator_get_refcount()=%d\n",
@@ -277,9 +279,9 @@ allocator_page_valid(allocator *al, uint64 addr)
             __LINE__,
             base_addr,
             addr,
-            refcount);
+            rfc);
       }
-      return (refcount != 0);
+      return (rfc != 0);
    } else {
       platform_error_log("%s():%d: Extent out of allocator capacity range."
                          " base_addr=%lu, addr=%lu"

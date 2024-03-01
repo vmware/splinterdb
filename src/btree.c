@@ -1266,8 +1266,8 @@ btree_dec_ref(cache              *cc,
               page_type           type)
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
+   uint64   meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
+   refcount ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
    return ref == 0;
 }
 
@@ -2056,14 +2056,14 @@ start_over:
  *-----------------------------------------------------------------------------
  */
 platform_status
-btree_lookup_node(cache             *cc,             // IN
-                  btree_config      *cfg,            // IN
-                  uint64             root_addr,      // IN
-                  key                target,         // IN
-                  uint16             stop_at_height, // IN
-                  page_type          type,           // IN
-                  btree_node        *out_node,       // OUT
-                  btree_pivot_stats *stats)          // OUT
+btree_lookup_node(cache              *cc,             // IN
+                  const btree_config *cfg,            // IN
+                  uint64              root_addr,      // IN
+                  key                 target,         // IN
+                  uint16              stop_at_height, // IN
+                  page_type           type,           // IN
+                  btree_node         *out_node,       // OUT
+                  btree_pivot_stats  *stats)           // OUT
 {
    btree_node node, child_node;
    uint32     h;
@@ -2104,14 +2104,14 @@ btree_lookup_node(cache             *cc,             // IN
 
 
 static inline void
-btree_lookup_with_ref(cache        *cc,        // IN
-                      btree_config *cfg,       // IN
-                      uint64        root_addr, // IN
-                      page_type     type,      // IN
-                      key           target,    // IN
-                      btree_node   *node,      // OUT
-                      message      *msg,       // OUT
-                      bool32       *found)           // OUT
+btree_lookup_with_ref(cache              *cc,        // IN
+                      const btree_config *cfg,       // IN
+                      uint64              root_addr, // IN
+                      page_type           type,      // IN
+                      key                 target,    // IN
+                      btree_node         *node,      // OUT
+                      message            *msg,       // OUT
+                      bool32             *found)                 // OUT
 {
    btree_lookup_node(cc, cfg, root_addr, target, 0, type, node, NULL);
    int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
@@ -2147,13 +2147,13 @@ btree_lookup(cache             *cc,        // IN
 }
 
 platform_status
-btree_lookup_and_merge(cache             *cc,        // IN
-                       btree_config      *cfg,       // IN
-                       uint64             root_addr, // IN
-                       page_type          type,      // IN
-                       key                target,    // IN
-                       merge_accumulator *data,      // OUT
-                       bool32            *local_found)          // OUT
+btree_lookup_and_merge(cache              *cc,        // IN
+                       const btree_config *cfg,       // IN
+                       uint64              root_addr, // IN
+                       page_type           type,      // IN
+                       key                 target,    // IN
+                       merge_accumulator  *data,      // OUT
+                       bool32             *local_found)           // OUT
 {
    btree_node      node;
    message         local_data;
@@ -2604,8 +2604,8 @@ btree_iterator_find_end(btree_iterator *itor)
 static void
 btree_iterator_next_leaf(btree_iterator *itor)
 {
-   cache        *cc  = itor->cc;
-   btree_config *cfg = itor->cfg;
+   cache              *cc  = itor->cc;
+   const btree_config *cfg = itor->cfg;
 
    uint64 last_addr = itor->curr.addr;
    uint64 next_addr = itor->curr.hdr->next_addr;
@@ -2668,8 +2668,8 @@ btree_iterator_next_leaf(btree_iterator *itor)
 static void
 btree_iterator_prev_leaf(btree_iterator *itor)
 {
-   cache        *cc  = itor->cc;
-   btree_config *cfg = itor->cfg;
+   cache              *cc  = itor->cc;
+   const btree_config *cfg = itor->cfg;
 
    debug_only uint64 curr_addr = itor->curr.addr;
    uint64            prev_addr = itor->curr.hdr->prev_addr;
@@ -2935,17 +2935,17 @@ const static iterator_ops btree_iterator_ops = {
  *-----------------------------------------------------------------------------
  */
 void
-btree_iterator_init(cache          *cc,
-                    btree_config   *cfg,
-                    btree_iterator *itor,
-                    uint64          root_addr,
-                    page_type       page_type,
-                    key             min_key,
-                    key             max_key,
-                    key             start_key,
-                    comparison      start_type,
-                    bool32          do_prefetch,
-                    uint32          height)
+btree_iterator_init(cache              *cc,
+                    const btree_config *cfg,
+                    btree_iterator     *itor,
+                    uint64              root_addr,
+                    page_type           page_type,
+                    key                 min_key,
+                    key                 max_key,
+                    key                 start_key,
+                    comparison          start_type,
+                    bool32              do_prefetch,
+                    uint32              height)
 {
    platform_assert(root_addr != 0);
    debug_assert(page_type == PAGE_TYPE_MEMTABLE
@@ -3182,8 +3182,8 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 static inline void
 btree_pack_post_loop(btree_pack_req *req, key last_key)
 {
-   cache        *cc  = req->cc;
-   btree_config *cfg = req->cfg;
+   cache              *cc  = req->cc;
+   const btree_config *cfg = req->cfg;
    // we want to use the allocation node, so we copy the root created in the
    // loop into the btree_create root
    btree_node root;
@@ -3292,11 +3292,11 @@ btree_pack(btree_pack_req *req)
  * the total size of all such keys and messages.
  */
 static inline void
-btree_get_rank(cache             *cc,
-               btree_config      *cfg,
-               uint64             root_addr,
-               key                target,
-               btree_pivot_stats *stats)
+btree_get_rank(cache              *cc,
+               const btree_config *cfg,
+               uint64              root_addr,
+               key                 target,
+               btree_pivot_stats  *stats)
 {
    btree_node leaf;
 
@@ -3316,12 +3316,12 @@ btree_get_rank(cache             *cc,
  * btree between min_key (inc) and max_key (excl).
  */
 void
-btree_count_in_range(cache             *cc,
-                     btree_config      *cfg,
-                     uint64             root_addr,
-                     key                min_key,
-                     key                max_key,
-                     btree_pivot_stats *stats)
+btree_count_in_range(cache              *cc,
+                     const btree_config *cfg,
+                     uint64              root_addr,
+                     key                 min_key,
+                     key                 max_key,
+                     btree_pivot_stats  *stats)
 {
    btree_pivot_stats min_stats;
 
@@ -3442,7 +3442,7 @@ btree_print_btree_pivot_data(platform_log_handle *log_handle,
 
 static void
 btree_print_index_entry(platform_log_handle *log_handle,
-                        btree_config        *cfg,
+                        const btree_config  *cfg,
                         index_entry         *entry,
                         uint64               entry_num)
 {
@@ -3456,7 +3456,7 @@ btree_print_index_entry(platform_log_handle *log_handle,
 
 static void
 btree_print_index_node(platform_log_handle *log_handle,
-                       btree_config        *cfg,
+                       const btree_config  *cfg,
                        uint64               addr,
                        btree_hdr           *hdr,
                        page_type            type)
@@ -3487,7 +3487,7 @@ btree_print_index_node(platform_log_handle *log_handle,
 
 static void
 btree_print_leaf_entry(platform_log_handle *log_handle,
-                       btree_config        *cfg,
+                       const btree_config  *cfg,
                        leaf_entry          *entry,
                        uint64               entry_num)
 {
@@ -3501,7 +3501,7 @@ btree_print_leaf_entry(platform_log_handle *log_handle,
 
 static void
 btree_print_leaf_node(platform_log_handle *log_handle,
-                      btree_config        *cfg,
+                      const btree_config  *cfg,
                       uint64               addr,
                       btree_hdr           *hdr,
                       page_type            type)
@@ -3541,7 +3541,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
  */
 void
 btree_print_locked_node(platform_log_handle *log_handle,
-                        btree_config        *cfg,
+                        const btree_config  *cfg,
                         uint64               addr,
                         btree_hdr           *hdr,
                         page_type            type)
@@ -3560,7 +3560,7 @@ btree_print_locked_node(platform_log_handle *log_handle,
 void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
-                 btree_config        *cfg,
+                 const btree_config  *cfg,
                  btree_node          *node,
                  page_type            type)
 {

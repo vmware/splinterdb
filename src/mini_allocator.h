@@ -74,9 +74,9 @@ mini_alloc(mini_allocator *mini,
            uint64         *next_extent);
 
 
-uint8
+refcount
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
-uint8
+refcount
 mini_unkeyed_dec_ref(cache    *cc,
                      uint64    meta_head,
                      page_type type,

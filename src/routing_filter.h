@@ -54,6 +54,8 @@ typedef struct ONDISK routing_filter {
    uint32 value_size;
 } routing_filter;
 
+#define NULL_ROUTING_FILTER ((routing_filter){0})
+
 struct routing_async_ctxt;
 typedef void (*routing_async_cb)(struct routing_async_ctxt *ctxt);
 
@@ -90,20 +92,20 @@ typedef struct routing_async_ctxt {
 } routing_async_ctxt;
 
 platform_status
-routing_filter_add(cache          *cc,
-                   routing_config *cfg,
-                   routing_filter *old_filter,
-                   routing_filter *filter,
-                   uint32         *new_fp_arr,
-                   uint64          num_new_fingerprints,
-                   uint16          value);
+routing_filter_add(cache                *cc,
+                   const routing_config *cfg,
+                   routing_filter       *old_filter,
+                   routing_filter       *filter,
+                   uint32               *new_fp_arr,
+                   uint64                num_new_fingerprints,
+                   uint16                value);
 
 platform_status
-routing_filter_lookup(cache          *cc,
-                      routing_config *cfg,
-                      routing_filter *filter,
-                      key             target,
-                      uint64         *found_values);
+routing_filter_lookup(cache                *cc,
+                      const routing_config *cfg,
+                      routing_filter       *filter,
+                      key                   target,
+                      uint64               *found_values);
 
 static inline uint16
 routing_filter_get_next_value(uint64 found_values, uint16 last_value)
@@ -124,6 +126,12 @@ routing_filter_is_value_found(uint64 found_values, uint16 value)
    return ((found_values & (1 << value)) != 0);
 }
 
+
+static inline bool32
+routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
+{
+   return (f1->addr == f2->addr);
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -157,22 +165,25 @@ routing_filter_lookup_async(cache              *cc,
                             routing_async_ctxt *ctxt);
 
 void
-routing_filter_zap(cache *cc, routing_filter *filter);
+routing_filter_dec_ref(cache *cc, routing_filter *filter);
+
+void
+routing_filter_inc_ref(cache *cc, routing_filter *filter);
 
 uint32
-routing_filter_estimate_unique_keys_from_count(routing_config *cfg,
-                                               uint64          num_unique);
+routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
+                                               uint64 num_unique);
 
 uint32
 routing_filter_estimate_unique_keys(routing_filter *filter,
                                     routing_config *cfg);
 
 uint32
-routing_filter_estimate_unique_fp(cache           *cc,
-                                  routing_config  *cfg,
-                                  platform_heap_id hid,
-                                  routing_filter  *filter,
-                                  uint64           num_filters);
+routing_filter_estimate_unique_fp(cache                *cc,
+                                  const routing_config *cfg,
+                                  platform_heap_id      hid,
+                                  routing_filter       *filter,
+                                  uint64                num_filters);
 
 // Debug functions
 

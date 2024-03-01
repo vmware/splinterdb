@@ -269,7 +269,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_get_allocator(cc);
-      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
@@ -546,7 +546,7 @@ test_cache_flush(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_get_allocator(cc);
-      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
@@ -932,7 +932,7 @@ test_cache_async(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_get_allocator(cc);
-      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);

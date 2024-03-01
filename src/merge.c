@@ -68,8 +68,8 @@ bsearch_comp(const ordered_iterator *itor_one,
 }
 
 struct merge_ctxt {
-   bool32       forwards;
-   data_config *cfg;
+   bool32             forwards;
+   const data_config *cfg;
 };
 
 /* Comparison function for sort of the min ritor array */
@@ -80,7 +80,7 @@ merge_comp(const void *one, const void *two, void *ctxt)
    const ordered_iterator *itor_one = *(ordered_iterator **)one;
    const ordered_iterator *itor_two = *(ordered_iterator **)two;
    bool32                  forwards = m_ctxt->forwards;
-   data_config            *cfg      = m_ctxt->cfg;
+   const data_config      *cfg      = m_ctxt->cfg;
    bool32                  ignore_keys_equal;
    return bsearch_comp(itor_one, itor_two, forwards, cfg, &ignore_keys_equal);
 }
@@ -255,7 +255,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
    debug_assert(key_equals(merge_itor->curr_key,
                            merge_itor->ordered_iterators[0]->curr_key));
 
-   data_config *cfg = merge_itor->cfg;
+   const data_config *cfg = merge_itor->cfg;
 
 #if SPLINTER_DEBUG
    ordered_iterator *expected_itor = merge_itor->ordered_iterators[1];
@@ -326,8 +326,8 @@ static inline platform_status
 merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
                                            bool32         *discarded)
 {
-   data_config *cfg   = merge_itor->cfg;
-   message_type class = message_class(merge_itor->curr_data);
+   const data_config *cfg = merge_itor->cfg;
+   message_type class     = message_class(merge_itor->curr_data);
    if (class != MESSAGE_TYPE_INSERT && merge_itor->finalize_updates) {
       if (message_data(merge_itor->curr_data)
           != merge_accumulator_data(&merge_itor->merge_buffer))
@@ -518,12 +518,12 @@ setup_ordered_iterators(merge_iterator *merge_itor)
  *-----------------------------------------------------------------------------
  */
 platform_status
-merge_iterator_create(platform_heap_id hid,
-                      data_config     *cfg,
-                      int              num_trees,
-                      iterator       **itor_arr,
-                      merge_behavior   merge_mode,
-                      merge_iterator **out_itor)
+merge_iterator_create(platform_heap_id   hid,
+                      const data_config *cfg,
+                      int                num_trees,
+                      iterator         **itor_arr,
+                      merge_behavior     merge_mode,
+                      merge_iterator   **out_itor)
 {
    int             i;
    platform_status rc = STATUS_OK;
@@ -760,10 +760,10 @@ merge_prev(iterator *itor)
 void
 merge_iterator_print(merge_iterator *merge_itor)
 {
-   uint64       i;
-   key          curr_key;
-   message      data;
-   data_config *data_cfg = merge_itor->cfg;
+   uint64             i;
+   key                curr_key;
+   message            data;
+   const data_config *data_cfg = merge_itor->cfg;
    iterator_curr(&merge_itor->super, &curr_key, &data);
 
    platform_default_log("****************************************\n");
