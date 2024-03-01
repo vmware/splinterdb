@@ -323,7 +323,7 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
    char *key_buf;
    key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
    memcpy(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(slice_length(key), key_buf);
+   e->key      = slice_create(slice_length(key), key_buf);
    e->lock.key = e->key;
 }
 
@@ -333,7 +333,8 @@ rw_entry_set_msg(rw_entry *e, message msg)
    uint64 msg_len = sizeof(tuple_header) + message_length(msg);
    char  *msg_buf;
    msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
-   memcpy(msg_buf + sizeof(tuple_header), message_data(msg), message_length(msg));
+   memcpy(
+      msg_buf + sizeof(tuple_header), message_data(msg), message_length(msg));
    e->msg = message_create(message_class(msg), slice_create(msg_len, msg_buf));
 }
 
@@ -396,20 +397,20 @@ rw_entry_try_read_lock(transactional_splinterdb *txn_spl,
                        rw_entry                 *entry,
                        uint64                    txn_ts)
 {
-   get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
-   if (txn_ts < entry->wts) {
-      // platform_default_log(
-      //    "transaction abort at line %d: txn_ts=%lu, entry->wts=%d\n",
-      //    __LINE__,
-      //    txn_ts,
-      //    entry->wts);
-      return STO_ACCESS_ABORT;
-   }
-   if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
-       == LOCK_TABLE_RC_BUSY)
-   {
-      return STO_ACCESS_BUSY;
-   }
+   // get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
+   // if (txn_ts < entry->wts) {
+   //    // platform_default_log(
+   //    //    "transaction abort at line %d: txn_ts=%lu, entry->wts=%d\n",
+   //    //    __LINE__,
+   //    //    txn_ts,
+   //    //    entry->wts);
+   //    return STO_ACCESS_ABORT;
+   // }
+   // if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
+   //     == LOCK_TABLE_RC_BUSY)
+   // {
+   //    return STO_ACCESS_BUSY;
+   // }
    if (lock_table_try_acquire_entry_lock(txn_spl->lock_tbl, &entry->lock)
        == LOCK_TABLE_RC_OK)
    {
@@ -425,7 +426,8 @@ rw_entry_try_read_lock(transactional_splinterdb *txn_spl,
          return STO_ACCESS_ABORT;
       }
    } else {
-      return STO_ACCESS_BUSY;
+      return STO_ACCESS_ABORT;
+      // return STO_ACCESS_BUSY;
    }
    return STO_ACCESS_OK;
 }
@@ -435,20 +437,20 @@ rw_entry_try_write_lock(transactional_splinterdb *txn_spl,
                         rw_entry                 *entry,
                         uint64                    txn_ts)
 {
-   get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
+   // get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
    // platform_default_log("rw_entry_try_write_lock at line %d: txn_ts=%lu,
    // entry->wts=%d, entry->rts=%d\n", __LINE__, txn_ts, entry->wts,
    // entry->rts);
 
-   if (txn_ts < entry->wts || txn_ts < entry->rts) {
-      // TO rule would be violated so we need to abort
-      return STO_ACCESS_ABORT;
-   }
-   if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
-       == LOCK_TABLE_RC_BUSY)
-   {
-      return STO_ACCESS_BUSY;
-   }
+   // if (txn_ts < entry->wts || txn_ts < entry->rts) {
+   //    // TO rule would be violated so we need to abort
+   //    return STO_ACCESS_ABORT;
+   // }
+   // if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
+   //     == LOCK_TABLE_RC_BUSY)
+   // {
+   //    return STO_ACCESS_BUSY;
+   // }
    if (lock_table_try_acquire_entry_lock(txn_spl->lock_tbl, &entry->lock)
        == LOCK_TABLE_RC_OK)
    {
@@ -459,7 +461,8 @@ rw_entry_try_write_lock(transactional_splinterdb *txn_spl,
          return STO_ACCESS_ABORT;
       }
    } else {
-      return STO_ACCESS_BUSY;
+      // return STO_ACCESS_BUSY;
+      return STO_ACCESS_ABORT;
    }
    return STO_ACCESS_OK;
 }
@@ -651,7 +654,14 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                default:
                   break;
             }
-            platform_assert(rc == 0, "Error from SplinterDB: %d (key: %s, key_length: %lu, msg_length: %lu, valid?: %d)\n", rc, (char *)slice_data(w->key), slice_length(w->key), message_length(w->msg), !message_is_invalid_user_type(w->msg));
+            platform_assert(rc == 0,
+                            "Error from SplinterDB: %d (key: %s, key_length: "
+                            "%lu, msg_length: %lu, valid?: %d)\n",
+                            rc,
+                            (char *)slice_data(w->key),
+                            slice_length(w->key),
+                            message_length(w->msg),
+                            !message_is_invalid_user_type(w->msg));
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
@@ -742,7 +752,8 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
    uint64 value_len = sizeof(tuple_header) + slice_length(value);
    char  *value_buf;
    value_buf = TYPED_ARRAY_ZALLOC(0, value_buf, value_len);
-   memcpy(value_buf + sizeof(tuple_header), slice_data(value), slice_length(value));
+   memcpy(
+      value_buf + sizeof(tuple_header), slice_data(value), slice_length(value));
    int rc = splinterdb_insert(kvsb, key, slice_create(value_len, value_buf));
    platform_free(0, value_buf);
    return rc;
