@@ -662,10 +662,10 @@ local_write_begin:
             // thread already holds the reader lock. But, it should never
             // happen in our mvcc implementation.)
             platform_sleep_ns(1000);
-            // } else if (entry->lock.shared_lock->id < entry->lock.id) {
-            //    // The lock is held by another writer, but it is older than
-            //    me. platform_sleep_ns(1000);
-            // } else {
+         // } else if (entry->lock.shared_lock->id < entry->lock.id) {
+         //    // The lock is held by another writer, but it is older
+         //    // than me.
+         //    platform_sleep_ns(1000);
          } else {
             platform_assert(entry->lock.shared_lock->id != entry->lock.id,
                             "Try acquire a write lock twice.\n");
