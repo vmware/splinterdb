@@ -869,9 +869,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    timestamp_value_update rts_update = {.magic = TIMESTAMP_UPDATE_MAGIC,
                                         .type  = TIMESTAMP_UPDATE_TYPE_RTS,
                                         .ts    = txn->ts};
-   int rc = splinterdb_update(txn_kvsb->kvsb,
-                     readable_version_key,
-                     slice_create(sizeof(rts_update), &rts_update));
+   rc                                = splinterdb_update(txn_kvsb->kvsb,
+                          readable_version_key,
+                          slice_create(sizeof(rts_update), &rts_update));
    platform_assert(rc == 0, "splinterdb_update: %d\n", rc);
 
    if (lock_rc == LOCK_TABLE_RC_OK) {
