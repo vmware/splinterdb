@@ -397,20 +397,20 @@ rw_entry_try_read_lock(transactional_splinterdb *txn_spl,
                        rw_entry                 *entry,
                        uint64                    txn_ts)
 {
-   // get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
-   // if (txn_ts < entry->wts) {
-   //    // platform_default_log(
-   //    //    "transaction abort at line %d: txn_ts=%lu, entry->wts=%d\n",
-   //    //    __LINE__,
-   //    //    txn_ts,
-   //    //    entry->wts);
-   //    return STO_ACCESS_ABORT;
-   // }
-   // if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
-   //     == LOCK_TABLE_RC_BUSY)
-   // {
-   //    return STO_ACCESS_BUSY;
-   // }
+   get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
+   if (txn_ts < entry->wts) {
+      // platform_default_log(
+      //    "transaction abort at line %d: txn_ts=%lu, entry->wts=%d\n",
+      //    __LINE__,
+      //    txn_ts,
+      //    entry->wts);
+      return STO_ACCESS_ABORT;
+   }
+   if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
+       == LOCK_TABLE_RC_BUSY)
+   {
+      return STO_ACCESS_BUSY;
+   }
    if (lock_table_try_acquire_entry_lock(txn_spl->lock_tbl, &entry->lock)
        == LOCK_TABLE_RC_OK)
    {
@@ -426,8 +426,8 @@ rw_entry_try_read_lock(transactional_splinterdb *txn_spl,
          return STO_ACCESS_ABORT;
       }
    } else {
-      return STO_ACCESS_ABORT;
-      // return STO_ACCESS_BUSY;
+      // return STO_ACCESS_ABORT;
+      return STO_ACCESS_BUSY;
    }
    return STO_ACCESS_OK;
 }
@@ -437,20 +437,20 @@ rw_entry_try_write_lock(transactional_splinterdb *txn_spl,
                         rw_entry                 *entry,
                         uint64                    txn_ts)
 {
-   // get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
+   get_global_timestamps(txn_spl, entry, &entry->wts, &entry->rts);
    // platform_default_log("rw_entry_try_write_lock at line %d: txn_ts=%lu,
    // entry->wts=%d, entry->rts=%d\n", __LINE__, txn_ts, entry->wts,
    // entry->rts);
 
-   // if (txn_ts < entry->wts || txn_ts < entry->rts) {
-   //    // TO rule would be violated so we need to abort
-   //    return STO_ACCESS_ABORT;
-   // }
-   // if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
-   //     == LOCK_TABLE_RC_BUSY)
-   // {
-   //    return STO_ACCESS_BUSY;
-   // }
+   if (txn_ts < entry->wts || txn_ts < entry->rts) {
+      // TO rule would be violated so we need to abort
+      return STO_ACCESS_ABORT;
+   }
+   if (lock_table_get_entry_lock_state(txn_spl->lock_tbl, &entry->lock)
+       == LOCK_TABLE_RC_BUSY)
+   {
+      return STO_ACCESS_BUSY;
+   }
    if (lock_table_try_acquire_entry_lock(txn_spl->lock_tbl, &entry->lock)
        == LOCK_TABLE_RC_OK)
    {
@@ -461,8 +461,8 @@ rw_entry_try_write_lock(transactional_splinterdb *txn_spl,
          return STO_ACCESS_ABORT;
       }
    } else {
-      // return STO_ACCESS_BUSY;
-      return STO_ACCESS_ABORT;
+      return STO_ACCESS_BUSY;
+      // return STO_ACCESS_ABORT;
    }
    return STO_ACCESS_OK;
 }

@@ -352,17 +352,13 @@ lock_table_release_entry_rwlock(lock_table *lock_tbl, lock_table_entry *entry)
       is_lock_table_with_rwlock(lock_tbl),
       "lock_table_release_entry_rwlock() called on non-rwlock lock table");
    platform_assert(entry->shared_lock != NULL, "shared_rwlock is NULL");
-
    entry->shared_lock->id = -1;
    lock_table_shared_rwlock_entry *shared_lock =
       (lock_table_shared_rwlock_entry *)entry->shared_lock;
+   platform_rwlock_unlock(&shared_lock->rwlock);
    if (iceberg_remove(&lock_tbl->table, entry->key, get_tid())) {
-      platform_rwlock_unlock(&shared_lock->rwlock);
       platform_rwlock_destroy(&shared_lock->rwlock);
       platform_free(0, entry->shared_lock);
-      return LOCK_TABLE_RC_OK;
-   } else {
-      platform_rwlock_unlock(&shared_lock->rwlock);
-      return LOCK_TABLE_RC_OK;
    }
+   return LOCK_TABLE_RC_OK;
 }
