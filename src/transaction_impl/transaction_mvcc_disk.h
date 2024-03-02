@@ -776,6 +776,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    // Read my writes
    if (rw_entry_is_write(entry)) {
+      // TODO: do only insert.
       mvcc_value  *tuple = (mvcc_value *)message_data(entry->msg);
       const size_t value_len =
          message_length(entry->msg) - sizeof(mvcc_value_header);
@@ -868,9 +869,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    timestamp_value_update rts_update = {.magic = TIMESTAMP_UPDATE_MAGIC,
                                         .type  = TIMESTAMP_UPDATE_TYPE_RTS,
                                         .ts    = txn->ts};
-   splinterdb_update(txn_kvsb->kvsb,
+   int rc = splinterdb_update(txn_kvsb->kvsb,
                      readable_version_key,
                      slice_create(sizeof(rts_update), &rts_update));
+   platform_assert(rc == 0, "splinterdb_update: %d\n", rc);
 
    if (lock_rc == LOCK_TABLE_RC_OK) {
       lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &entry->lock);
