@@ -360,6 +360,13 @@ rw_entry_deinit(rw_entry *entry)
 }
 
 static inline void
+rw_entry_destroy(rw_entry *entry)
+{
+   rw_entry_deinit(entry);
+   platform_free(0, entry);
+}
+
+static inline void
 rw_entry_set_key(rw_entry *e, slice key)
 {
    // transform the given user key to mvcc_key
@@ -540,8 +547,7 @@ static inline void
 transaction_deinit(transactional_splinterdb *txn_kvsb, transaction *txn)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
-      rw_entry_deinit(txn->rw_entries[i]);
-      platform_free(0, txn->rw_entries[i]);
+      rw_entry_destroy(txn->rw_entries[i]);
    }
 }
 
@@ -637,12 +643,13 @@ local_write_begin:
                // // Need to abort because the latest version is younger than me
                // if (tuple->header.wts_min > txn->ts) {
                //    platform_default_log("abort because the latest version "
-               //                         "wts_min (%u) is younger than me (%u)\n",
-               //                         tuple->header.wts_min,
+               //                         "wts_min (%u) is younger than me
+               //                         (%u)\n", tuple->header.wts_min,
                //                         (uint32)txn->ts);
                // }
                // if (tuple->header.rts > txn->ts) {
-               //    platform_default_log("abort because the latest version rts "
+               //    platform_default_log("abort because the latest version rts
+               //    "
                //                         "(%u) is younger than me (%u)\n",
                //                         tuple->header.rts,
                //                         (uint32)txn->ts);
@@ -716,9 +723,8 @@ local_write_begin:
             if (tuple->header.wts_max > txn->ts) {
                // Need to abort because the latest version is younger than me
                // platform_default_log(
-               //    "abort due to tuple->header.wts_max (%u) >= txn->ts (%u)\n",
-               //    tuple->header.wts_max,
-               //    (uint32)txn->ts);
+               //    "abort due to tuple->header.wts_max (%u) >= txn->ts
+               //    (%u)\n", tuple->header.wts_max, (uint32)txn->ts);
                splinterdb_lookup_result_deinit(&result);
                lock_table_release_entry_rwlock(txn_kvsb->lock_tbl,
                                                &entry->lock);
@@ -732,8 +738,7 @@ local_write_begin:
                // write. It can prevent from retrying invalid values
                // in the entry. But it cause a little overhead by
                // freeing and allocating the key.
-               rw_entry_deinit(entry);
-               platform_free(0, entry);
+               rw_entry_destroy(entry);
                txn->num_rw_entries--;
                goto local_write_begin;
             }
@@ -872,16 +877,17 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    // If you skip this, other operations, including close(), may hang.
    splinterdb_iterator_deinit(it);
 
-   // Transaction aborts if there is no version with wts(B_x) <= ts
-   if (num_versions_found == 0) {
+   const bool is_no_data_with_key = (num_versions_found == 0);
+   const bool is_all_versions_younger_than_me =
+      (entry_mkey->header.version == MVCC_VERSION_INF);
+
+   if (is_no_data_with_key) {
       // If the key is not found, return an empty result
-      rw_entry_deinit(entry);
-      platform_free(0, entry);
+      rw_entry_destroy(entry);
       return 0;
-   } else if (entry_mkey->header.version != MVCC_VERSION_INF) {
+   } else if (is_all_versions_younger_than_me) {
       // All existing versions have wts > ts
-      rw_entry_deinit(entry);
-      platform_free(0, entry);
+      rw_entry_destroy(entry);
       transactional_splinterdb_abort(txn_kvsb, txn);
       return -1;
    }
@@ -902,8 +908,8 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       } else {
          // The writer is older than me. I need to abort because there might be
          // a newer version.
-         rw_entry_deinit(entry);
-         platform_free(0, entry);
+         rw_entry_destroy(entry);
+
          transactional_splinterdb_abort(txn_kvsb, txn);
          return -1;
       }
@@ -921,8 +927,8 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       lock_table_release_entry_rwlock(txn_kvsb->lock_tbl, &entry->lock);
    }
    platform_assert(rw_entry_is_write(entry) == FALSE);
-   rw_entry_deinit(entry);
-   platform_free(0, entry);
+   rw_entry_destroy(entry);
+
    return 0;
 }
 
