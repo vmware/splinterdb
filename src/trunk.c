@@ -6733,19 +6733,41 @@ trunk_filter_lookup(trunk_handle      *spl,
       height = trunk_node_height(node);
    }
 
-   uint64          found_values;
-   platform_status rc =
-      routing_filter_lookup(spl->cc, cfg, filter, target, &found_values);
-   platform_assert_status_ok(rc);
+   // uint64          found_values;
+   // platform_status rc =
+   //   routing_filter_lookup(spl->cc, cfg, filter, target, &found_values);
+   // platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].filter_lookups[height]++;
    }
-   uint16 next_value =
-      routing_filter_get_next_value(found_values, ROUTING_NOT_FOUND);
-   while (next_value != ROUTING_NOT_FOUND) {
-      uint16 branch_no = trunk_add_branch_number(spl, start_branch, next_value);
-      trunk_branch   *branch = trunk_get_branch(spl, node, branch_no);
-      bool32          local_found;
+   // uint16 next_value =
+   //   routing_filter_get_next_value(found_values, ROUTING_NOT_FOUND);
+//   while (next_value != ROUTING_NOT_FOUND) {
+//      uint16 branch_no = trunk_add_branch_number(spl, start_branch, next_value);
+//      trunk_branch   *branch = trunk_get_branch(spl, node, branch_no);
+//      bool32          local_found;
+//      platform_status rc;
+//      rc =
+//         trunk_btree_lookup_and_merge(spl, branch, target, data, &local_found);
+//      platform_assert_status_ok(rc);
+//      if (spl->cfg.use_stats) {
+//         spl->stats[tid].branch_lookups[height]++;
+//      }
+//      if (local_found) {
+//         message msg = merge_accumulator_to_message(data);
+//         if (message_is_definitive(msg)) {
+//            return FALSE;
+//         }
+//      } else if (spl->cfg.use_stats) {
+//         spl->stats[tid].filter_false_positives[height]++;
+//      }
+//      next_value = routing_filter_get_next_value(found_values, next_value);
+//   }
+
+   uint16 num_branches = trunk_logical_branch_count(spl, node);
+   for (int i = 0; i < num_branches; i++) {
+       trunk_branch   *branch = trunk_get_branch(spl, node, i);
+       bool32          local_found;
       platform_status rc;
       rc =
          trunk_btree_lookup_and_merge(spl, branch, target, data, &local_found);
@@ -6761,7 +6783,6 @@ trunk_filter_lookup(trunk_handle      *spl,
       } else if (spl->cfg.use_stats) {
          spl->stats[tid].filter_false_positives[height]++;
       }
-      next_value = routing_filter_get_next_value(found_values, next_value);
    }
    return TRUE;
 }
