@@ -6803,7 +6803,7 @@ trunk_compacted_subbundle_lookup(trunk_handle      *spl,
       height = trunk_node_height(node);
    }
 
-   uint16 num_branches_in_bundle = trunk_subbundle_branch_count(spl, &node, sb);
+   uint16 num_branches_in_bundle = trunk_subbundle_branch_count(spl, node, sb);
    for (int i = 0; i < num_branches_in_bundle; i++) {
        trunk_branch *branch = trunk_get_branch(spl, node, i);
        bool32          local_found;
