@@ -6803,39 +6803,58 @@ trunk_compacted_subbundle_lookup(trunk_handle      *spl,
       height = trunk_node_height(node);
    }
 
-   uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
-   for (uint16 filter_no = 0; filter_no != filter_count; filter_no++) {
-      if (spl->cfg.use_stats) {
-         spl->stats[tid].filter_lookups[height]++;
-      }
-      uint64          found_values;
-      routing_filter *filter = trunk_subbundle_filter(spl, node, sb, filter_no);
-      debug_assert(filter->addr != 0);
-      platform_status rc = routing_filter_lookup(
-         spl->cc, &spl->cfg.filter_cfg, filter, target, &found_values);
-      platform_assert_status_ok(rc);
-      if (found_values) {
-         uint16          branch_no = sb->start_branch;
-         trunk_branch   *branch    = trunk_get_branch(spl, node, branch_no);
-         bool32          local_found;
-         platform_status rc;
-         rc = trunk_btree_lookup_and_merge(
-            spl, branch, target, data, &local_found);
-         platform_assert_status_ok(rc);
-         if (spl->cfg.use_stats) {
-            spl->stats[tid].branch_lookups[height]++;
-         }
-         if (local_found) {
-            message msg = merge_accumulator_to_message(data);
-            if (message_is_definitive(msg)) {
+   uint16 num_branches_in_bundle = trunk_subbundle_branch_count(spl, &node, sb);
+   for (int i = 0; i < num_branches_in_bundle; i++) {
+       trunk_branch *branch = trunk_get_branch(spl, node, i);
+       bool32          local_found;
+       platform_status rc;
+       rc = trunk_btree_lookup_and_merge(spl, branch, target, data, &local_found);
+       platform_assert_status_ok(rc);
+       if (spl->cfg.use_stats) {
+           spl->stats[tid].branch_lookups[height]++;
+       }
+       if (local_found) {
+           message msg = merge_accumulator_to_message(data);
+           if (message_is_definitive(msg)) {
                return FALSE;
-            }
-         } else if (spl->cfg.use_stats) {
+           }
+       } else if (spl->cfg.use_stats) {
             spl->stats[tid].filter_false_positives[height]++;
-         }
-         return TRUE;
-      }
+       }
    }
+//   uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
+//   for (uint16 filter_no = 0; filter_no != filter_count; filter_no++) {
+//      if (spl->cfg.use_stats) {
+//         spl->stats[tid].filter_lookups[height]++;
+//      }
+//      uint64          found_values;
+//      routing_filter *filter = trunk_subbundle_filter(spl, node, sb, filter_no);
+//      debug_assert(filter->addr != 0);
+//      platform_status rc = routing_filter_lookup(
+//         spl->cc, &spl->cfg.filter_cfg, filter, target, &found_values);
+//      platform_assert_status_ok(rc);
+//      if (found_values) {
+//         uint16          branch_no = sb->start_branch;
+//         trunk_branch   *branch    = trunk_get_branch(spl, node, branch_no);
+//         bool32          local_found;
+//         platform_status rc;
+//         rc = trunk_btree_lookup_and_merge(
+//            spl, branch, target, data, &local_found);
+//         platform_assert_status_ok(rc);
+//         if (spl->cfg.use_stats) {
+//            spl->stats[tid].branch_lookups[height]++;
+//         }
+//         if (local_found) {
+//            message msg = merge_accumulator_to_message(data);
+//            if (message_is_definitive(msg)) {
+//               return FALSE;
+//            }
+//         } else if (spl->cfg.use_stats) {
+//            spl->stats[tid].filter_false_positives[height]++;
+//         }
+//         return TRUE;
+//      }
+//   }
    return TRUE;
 }
 
