@@ -72,9 +72,9 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 # use += here, so that extra flags can be provided via the environment
 
-CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla
-CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
-CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
+CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla -pg
+CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC -pg
+CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR) -pg
 
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
@@ -518,6 +518,9 @@ unit_test:                         $(BINDIR)/unit_test
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_intro_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_intro_example.o \
                                                     $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/test_example: $(OBJDIR)/$(EXAMPLES_DIR)/test_example.o \
+                                                        $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_wide_values_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_wide_values_example.o \
                                                    $(LIBDIR)/libsplinterdb.so
