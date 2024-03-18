@@ -281,6 +281,7 @@ typedef void (*trunk_async_cb)(struct trunk_async_ctxt *ctxt);
 struct trunk_hdr;
 typedef struct trunk_hdr trunk_hdr;
 
+//! TODO add pstar struct here
 typedef struct trunk_node {
    uint64       addr;
    page_handle *page;

@@ -511,6 +511,40 @@ typedef struct ONDISK trunk_bundle {
 
 /*
  *-----------------------------------------------------------------------------
+ * Splinter Pivot Data: Disk-resident structure on Trunk pages
+ *
+ * A trunk_pivot_data struct consists of the trunk_pivot_data header
+ * followed by cfg.max_key_size bytes of space for the pivot key.  An
+ * array of trunk_pivot_datas appears on trunk pages, following the
+ * end of struct trunk_hdr{}. This array is sized by configured
+ * max_pivot_keys hard-limit.
+ *
+ * The generation is used by asynchronous processes to determine when a pivot
+ * has split
+ *-----------------------------------------------------------------------------
+ */
+typedef struct ONDISK trunk_pivot_data {
+    uint64 addr;                // PBN of the child
+    uint64 num_kv_bytes_whole;  // # kv bytes for this pivot in whole branches
+    uint64 num_kv_bytes_bundle; // # kv bytes for this pivot in bundles
+    uint64 num_tuples_whole;    // # tuples for this pivot in whole branches
+    uint64 num_tuples_bundle;   // # tuples for this pivot in bundles
+    uint64 generation;          // receives new higher number when pivot splits
+    uint16 start_branch;        // first branch live (not used in leaves)
+    uint16 start_bundle;        // first bundle live (not used in leaves)
+    routing_filter filter;      // routing filter for keys in this pivot
+    int64          srq_idx;     // index in the space rec queue
+    ondisk_key     pivot;
+} trunk_pivot_data;
+
+typedef struct ONDISK p_star_pivot {
+    slice range_start;
+    slice range_end;
+    trunk_pivot_data *pdata;
+} p_star_pivot;
+
+/*
+ *-----------------------------------------------------------------------------
  * Trunk headers: Disk-resident structure
  *
  * Contains metadata for trunk nodes. See below for comments on fields.
@@ -544,35 +578,11 @@ typedef struct ONDISK trunk_hdr {
    trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
    trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
    routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
+   p_star_pivot p_star;
 } trunk_hdr;
 
-/*
- *-----------------------------------------------------------------------------
- * Splinter Pivot Data: Disk-resident structure on Trunk pages
- *
- * A trunk_pivot_data struct consists of the trunk_pivot_data header
- * followed by cfg.max_key_size bytes of space for the pivot key.  An
- * array of trunk_pivot_datas appears on trunk pages, following the
- * end of struct trunk_hdr{}. This array is sized by configured
- * max_pivot_keys hard-limit.
- *
- * The generation is used by asynchronous processes to determine when a pivot
- * has split
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK trunk_pivot_data {
-   uint64 addr;                // PBN of the child
-   uint64 num_kv_bytes_whole;  // # kv bytes for this pivot in whole branches
-   uint64 num_kv_bytes_bundle; // # kv bytes for this pivot in bundles
-   uint64 num_tuples_whole;    // # tuples for this pivot in whole branches
-   uint64 num_tuples_bundle;   // # tuples for this pivot in bundles
-   uint64 generation;          // receives new higher number when pivot splits
-   uint16 start_branch;        // first branch live (not used in leaves)
-   uint16 start_bundle;        // first bundle live (not used in leaves)
-   routing_filter filter;      // routing filter for keys in this pivot
-   int64          srq_idx;     // index in the space rec queue
-   ondisk_key     pivot;
-} trunk_pivot_data;
+
+
 
 /*
  *-----------------------------------------------------------------------------
