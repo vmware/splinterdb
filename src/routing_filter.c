@@ -497,6 +497,7 @@ routing_filter_add(cache          *cc,
       uint32 *dst_fp             = fp_buffer;
       uint32  index_bucket_start = old_index_no * index_size;
       if (old_index_count != 0) {
+         platform_assert(old_index_count <= ROUTING_FPS_PER_PAGE);
          PackedArray_unpack((uint32 *)old_block_start,
                             0,
                             old_src_fp,
