@@ -1399,6 +1399,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             iovec[i].iov_base = next_entry->page.data;
          }
 
+         //! Here
+         cc->number_of_stores++;
          status = io_write_async(
             cc->io, req, clockcache_write_callback, req_count, first_addr);
          platform_assert_status_ok(status);
@@ -1798,6 +1800,8 @@ clockcache_init(clockcache        *cc,   // OUT
       cc->cfg->page_capacity / PLATFORM_CACHELINE_SIZE;
    cc->cfg->pages_per_extent =
       clockcache_divide_by_page_size(cc, clockcache_extent_size(cc));
+   cc->number_of_loads = 0;
+   cc->number_of_stores = 0;
 
    platform_assert(cc->cfg->page_capacity % PLATFORM_CACHELINE_SIZE == 0);
    platform_assert(cc->cfg->capacity == debug_capacity);
@@ -2204,6 +2208,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
     * If a matching entry was not found, evict a page and load the requested
     * page from disk.
     */
+   // TODO: counter goes here?
    entry_number = clockcache_get_free_page(cc,
                                            CC_READ_LOADING_STATUS,
                                            TRUE,  // refcount
@@ -2232,6 +2237,8 @@ clockcache_get_internal(clockcache   *cc,       // IN
       start = platform_get_timestamp();
    }
 
+   //! TODO: Maybe it is here?
+   cc->number_of_loads++;
    status = io_read(cc->io, entry->page.data, page_size, addr);
    platform_assert_status_ok(status);
 

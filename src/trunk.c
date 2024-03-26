@@ -6775,7 +6775,7 @@ trunk_filter_lookup(trunk_handle      *spl,
 //   }
 
    uint16 num_branches = trunk_logical_branch_count(spl, node);
-   for (int i = 0; i < num_branches; i++) {
+   for (int i = start_branch; i < num_branches; i++) {
        trunk_branch   *branch = trunk_get_branch(spl, node, i);
        bool32          local_found;
       platform_status rc;

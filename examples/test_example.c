@@ -159,5 +159,7 @@ int main(int argc, char **argv) {
     timer_start(&timer);
     test(spl_handle, script_input, nops);
     timer_stop(&timer);
+    printf("Number of loads: %llu\n", spl_handle->cache_handle.number_of_loads);
+    printf("Number of stores: %llu\n", spl_handle->cache_handle.number_of_stores);
     return rc;
 }
