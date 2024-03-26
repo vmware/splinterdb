@@ -397,6 +397,12 @@ deinit_kvhandle:
    return platform_status_to_int(status);
 }
 
+void
+splinterdb_print_stats(splinterdb *kvs) {
+    platform_default_log("Number of loads: %llu\n", &kvs->cache_handle.number_of_loads);
+    platform_default_log("Number of stores: %llu\n", &kvs->cache_handle.number_of_stores);
+}
+
 int
 splinterdb_create(const splinterdb_config *cfg, // IN
                   splinterdb             **kvs  // OUT
