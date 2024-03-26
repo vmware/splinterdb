@@ -207,6 +207,10 @@ splinterdb_deregister_thread(splinterdb *kvs);
 int
 splinterdb_insert(const splinterdb *kvsb, slice key, slice value);
 
+// Print load and store stats
+void
+splinterdb_print_stats(splinterdb *kvs);
+
 // Delete a given key and any associated value / messages
 int
 splinterdb_delete(const splinterdb *kvsb, slice key);
