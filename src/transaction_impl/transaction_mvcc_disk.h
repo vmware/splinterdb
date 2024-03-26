@@ -34,8 +34,10 @@ typedef struct transactional_splinterdb {
 // MVCC Key and Value definitions and compare and merge functions for
 // them.
 
-#define MVCC_VERSION_INF   UINT32_MAX
-#define MVCC_TIMESTAMP_INF UINT32_MAX
+#define MVCC_VERSION_NODATA 0
+#define MVCC_VERSION_START  1
+#define MVCC_VERSION_INF    UINT32_MAX
+#define MVCC_TIMESTAMP_INF  UINT32_MAX
 
 typedef struct mvcc_key_header {
    uint32 version;
@@ -271,9 +273,23 @@ merge_mvcc_tuple_final(const data_config *cfg,
                    "oldest_message shouldn't be a rts update\n");
 
    if (is_merge_accumulator_wts_max_update(oldest_message)) {
-      platform_default_log("oldest_message shouldn't be a wts_max update\n");
-      platform_default_log("key: %s, version: %u\n",
+
+      /* uint64_t tpcc_key[3]; */
+      /* memcpy( */
+      /*    tpcc_key, mvcc_key_get_user_key_from_slice(key), 3 *
+       * sizeof(uint64_t)); */
+      /* platform_default_log( */
+      /*    "tpcc_key: %lu, %lu, %lu\n", tpcc_key[0], tpcc_key[1], tpcc_key[2]);
+       */
+
+      /* timestamp_value_update *update_msg = */
+      /*    (timestamp_value_update *)merge_accumulator_data(oldest_message); */
+      /* platform_default_log("oldest_message shouldn't be a wts_max update
+       * %u\n", */
+      /*                      (uint32)update_msg->ts); */
+      platform_default_log("key: %s(%lu), version: %u\n",
                            mvcc_key_get_user_key_from_slice(key),
+                           slice_length(key) - sizeof(mvcc_key_header),
                            mvcc_key_get_version_from_slice(key));
    }
    platform_assert(!is_merge_accumulator_wts_max_update(oldest_message),
@@ -581,14 +597,16 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       // Update the wts_max of the previous version and unlock the previous
       // version (x)
       mkey->header.version--;
-      platform_assert(mkey->header.version >= 0);
-      timestamp_value_update wts_max_update = {.magic = TIMESTAMP_UPDATE_MAGIC,
-                                               .type =
-                                                  TIMESTAMP_UPDATE_TYPE_WTS_MAX,
-                                               .ts = txn->ts};
-      splinterdb_update(txn_kvsb->kvsb,
-                        w->key,
-                        slice_create(sizeof(wts_max_update), &wts_max_update));
+      if (mkey->header.version != MVCC_VERSION_NODATA) {
+         timestamp_value_update wts_max_update = {
+            .magic = TIMESTAMP_UPDATE_MAGIC,
+            .type  = TIMESTAMP_UPDATE_TYPE_WTS_MAX,
+            .ts    = txn->ts};
+         splinterdb_update(
+            txn_kvsb->kvsb,
+            w->key,
+            slice_create(sizeof(wts_max_update), &wts_max_update));
+      }
 
       /* platform_default_log("[%ld] release write lock for %s and version
        * %d\n", (int64)txn->ts, */
@@ -677,7 +695,7 @@ local_write_begin:
                mvcc_key_get_version_from_slice(latest_version_key);
          } else {
             // There is no version had been inserted yet
-            entry_mkey->header.version = 0;
+            entry_mkey->header.version = MVCC_VERSION_NODATA;
          }
       } else {
          // it may mean error, or just that we've reached the end of the
@@ -686,7 +704,7 @@ local_write_begin:
          platform_assert(rc == 0, "splinterdb_iterator_status: %d\n", rc);
 
          // It means the database is empty now
-         entry_mkey->header.version = 0;
+         entry_mkey->header.version = MVCC_VERSION_NODATA;
       }
       // Release resources acquired by the iterator
       // If you skip this, other operations, including close(), may hang.
@@ -807,7 +825,7 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
    key_buf        = TYPED_ARRAY_ZALLOC(0, key_buf, key_len);
    mvcc_key *mkey = (mvcc_key *)key_buf;
    memcpy(mkey->key, slice_data(key), slice_length(key));
-   mkey->header.version = 0;
+   mkey->header.version = MVCC_VERSION_START;
    uint64 value_len     = sizeof(mvcc_value_header) + slice_length(value);
    char  *value_buf;
    value_buf          = TYPED_ARRAY_ZALLOC(0, value_buf, value_len);
