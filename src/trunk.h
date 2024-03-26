@@ -306,7 +306,7 @@ typedef struct trunk_async_ctxt {
                                           // [compacted] subbundle
    struct trunk_subbundle  *sb;           // Subbundle
    struct trunk_pivot_data *pdata;        // Pivot data for next trunk node
-   //routing_filter          *filter;       // Filter for subbundle or pivot
+   routing_filter          *filter;       // Filter for subbundle or pivot
    uint64                   found_values; // values found in filter
    uint16                   value;        // Current value found in filter
 
