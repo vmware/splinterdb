@@ -160,5 +160,6 @@ int main(int argc, char **argv) {
     test(spl_handle, script_input, nops);
     timer_stop(&timer);
     splinterdb_print_stats(spl_handle);
+    splinterdb_close(&spl_handle);
     return rc;
 }
