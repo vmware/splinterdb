@@ -171,7 +171,7 @@ typedef struct trunk_memtable_args {
 
 typedef struct trunk_compacted_memtable {
    trunk_branch              branch;
-   // routing_filter            filter;
+   routing_filter            filter;
    timestamp                 wait_start;
    trunk_memtable_args       mt_args;
    trunk_compact_bundle_req *req;
