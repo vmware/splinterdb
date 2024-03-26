@@ -175,6 +175,7 @@ lock_table_get_entry_lock_state(lock_table *lock_tbl, lock_table_entry *entry)
 typedef struct {
    lock_table_shared_entry super;
    platform_rwlock         rwlock;
+   uint64_t                num_readers;
 } lock_table_shared_rwlock_entry;
 
 lock_table *
@@ -217,6 +218,22 @@ get_shared_rwlock(lock_table *lock_tbl, lock_table_entry *entry)
       platform_free(0, entry->shared_lock);
       entry->shared_lock = (lock_table_shared_entry *)*pointer_of_iceberg_value;
    }
+}
+
+void
+lock_table_entry_deinit(lock_table *lock_tbl, lock_table_entry *entry)
+{
+   if (entry->shared_lock == NULL) {
+      return;
+   }
+
+   lock_table_shared_rwlock_entry *shared_lock =
+      (lock_table_shared_rwlock_entry *)entry->shared_lock;
+   if (iceberg_remove(&lock_tbl->table, entry->key, get_tid())) {
+      platform_rwlock_destroy(&shared_lock->rwlock);
+      platform_free(0, entry->shared_lock);
+   }
+   entry->shared_lock = NULL;
 }
 
 lock_table_rc
@@ -262,6 +279,9 @@ lock_table_try_acquire_entry_wrlock(lock_table       *lock_tbl,
                       "Unexpected shared_lock->id: %lu",
                       entry->shared_lock->id);
       platform_assert(entry->id != -1, "Unexpected entry->id: %lu", entry->id);
+      platform_assert(shared_lock->num_readers == 0,
+                      "Unexpected num_readers: %lu",
+                      shared_lock->num_readers);
       entry->shared_lock->id = entry->id;
       return LOCK_TABLE_RC_OK;
    } else {
@@ -307,6 +327,7 @@ lock_table_try_acquire_entry_rdlock(lock_table       *lock_tbl,
                            (char *)slice_data(entry->key),
                            slice_data(entry->key));
 #endif
+      __atomic_fetch_add(&shared_lock->num_readers, 1, __ATOMIC_SEQ_CST);
       return LOCK_TABLE_RC_OK;
    } else {
       platform_assert(FALSE,
@@ -346,7 +367,7 @@ lock_table_acquire_entry_rdlock(lock_table *lock_tbl, lock_table_entry *entry)
 }
 
 lock_table_rc
-lock_table_release_entry_rwlock(lock_table *lock_tbl, lock_table_entry *entry)
+lock_table_release_entry_wrlock(lock_table *lock_tbl, lock_table_entry *entry)
 {
    platform_assert(
       is_lock_table_with_rwlock(lock_tbl),
@@ -356,9 +377,41 @@ lock_table_release_entry_rwlock(lock_table *lock_tbl, lock_table_entry *entry)
    lock_table_shared_rwlock_entry *shared_lock =
       (lock_table_shared_rwlock_entry *)entry->shared_lock;
    platform_rwlock_unlock(&shared_lock->rwlock);
-   if (iceberg_remove(&lock_tbl->table, entry->key, get_tid())) {
-      platform_rwlock_destroy(&shared_lock->rwlock);
-      platform_free(0, entry->shared_lock);
+   lock_table_entry_deinit(lock_tbl, entry);
+   return LOCK_TABLE_RC_OK;
+}
+
+lock_table_rc
+lock_table_release_entry_rdlock(lock_table *lock_tbl, lock_table_entry *entry)
+{
+   platform_assert(
+      is_lock_table_with_rwlock(lock_tbl),
+      "lock_table_release_entry_rwlock() called on non-rwlock lock table");
+   platform_assert(entry->shared_lock != NULL, "shared_rwlock is NULL");
+   lock_table_shared_rwlock_entry *shared_lock =
+      (lock_table_shared_rwlock_entry *)entry->shared_lock;
+   __atomic_fetch_sub(&shared_lock->num_readers, 1, __ATOMIC_SEQ_CST);
+   platform_rwlock_unlock(&shared_lock->rwlock);
+   lock_table_entry_deinit(lock_tbl, entry);
+   return LOCK_TABLE_RC_OK;
+}
+
+lock_table_rc
+lock_table_get_entry_rwlock_state(lock_table *lock_tbl, lock_table_entry *entry)
+{
+   platform_assert(
+      is_lock_table_with_rwlock(lock_tbl),
+      "lock_table_get_entry_rwlock_state() called on non-rwlock lock table");
+
+   ValueType *value = NULL;
+   if (iceberg_get_value(&lock_tbl->table, entry->key, &value, get_tid())) {
+      lock_table_shared_rwlock_entry *shared_lock =
+         (lock_table_shared_rwlock_entry *)*value;
+      uint64_t num_readers =
+         __atomic_load_n(&shared_lock->num_readers, __ATOMIC_SEQ_CST);
+      return shared_lock->super.id == -1 && num_readers == 0
+                ? LOCK_TABLE_RC_OK
+                : LOCK_TABLE_RC_BUSY;
    }
    return LOCK_TABLE_RC_OK;
 }
