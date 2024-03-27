@@ -167,6 +167,7 @@ struct data_config {
    /* The merge functions may be NULL, in which case
       splinterdb_update() is not allowed. */
    merge_tuple_fn       merge_tuples;
+   // TODO: merge func set to NULL
    merge_tuple_final_fn merge_tuples_final;
    key_to_str_fn        key_to_string;
    message_to_str_fn    message_to_string;

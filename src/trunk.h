@@ -472,3 +472,6 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();
+
+static inline void
+trunk_node_lock(cache *cc, trunk_node *node);

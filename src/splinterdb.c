@@ -653,6 +653,7 @@ splinterdb_lookup(const splinterdb         *kvs, // IN
    key                        target  = key_create_from_slice(user_key);
 
    platform_assert(kvs != NULL);
+   // trunk_node_lock(kvs->spl->cc, kvs->spl->trunk_root_lock);
    status = trunk_lookup(kvs->spl, target, &_result->value);
    return platform_status_to_int(status);
 }

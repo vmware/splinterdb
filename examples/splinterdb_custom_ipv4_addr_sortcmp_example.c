@@ -202,6 +202,7 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
    return;
 }
 
+// TODO: comparator
 /*
  * -----------------------------------------------------------------------------
  * custom_key_compare() - Implement custom key-comparison function
