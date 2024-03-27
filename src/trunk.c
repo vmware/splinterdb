@@ -371,6 +371,7 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *          the parent are collected into a subbundle in the child and any
  *          subbundles in the parent are copied to the child.
  *
+ *          // TODO subbundle
  *          Subbundles function properly in the current design, but are not
  *          used for anything. They are going to be used for routing filters.
  *       ----------
@@ -3667,6 +3668,7 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
  *  --> Trunk root node should be write locked.
  *  --> The memtable should have inserts blocked (can_insert == FALSE)
  */
+// TODO flush
 static void
 trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
                                      uint64         generation,
@@ -3815,6 +3817,7 @@ trunk_memtable_flush_internal_virtual(void *arg, void *scratch)
  * carry out the incorporation, swaps the curr_memtable pointer, claims the
  * root and returns.
  */
+// TODO flush
 void
 trunk_memtable_flush(trunk_handle *spl, uint64 generation)
 {
@@ -4749,6 +4752,7 @@ trunk_flush(trunk_handle     *spl,
  * flush_fullest first flushes any pivots with too many live logical branches.
  * If the node is still full, it then flushes the pivot with the most tuples.
  */
+// TODO flush
 platform_status
 trunk_flush_fullest(trunk_handle *spl, trunk_node *node)
 {
@@ -6605,6 +6609,7 @@ trunk_should_reclaim_space(trunk_handle *spl)
    return should_reclaim;
 }
 
+// TODO flush
 platform_status
 trunk_reclaim_space(trunk_handle *spl)
 {
@@ -6905,6 +6910,8 @@ trunk_pivot_lookup(trunk_handle      *spl,
                    key                target,
                    merge_accumulator *data)
 {
+    //! Flush messages before looking down
+    trunk_flush(spl, node, pdata, FALSE);
    // first check in bundles
    uint16 num_bundles = trunk_pivot_bundle_count(spl, node, pdata);
    for (uint16 bundle_off = 0; bundle_off != num_bundles; bundle_off++) {

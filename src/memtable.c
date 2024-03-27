@@ -58,6 +58,7 @@ memtable_end_insert(memtable_context *ctxt)
 static inline bool32
 memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
+    // TODO locks
    if (!platform_batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX))
    {
       return FALSE;
@@ -144,6 +145,7 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
             return STATUS_BUSY;
          }
 
+         // TODO lock
          if (memtable_try_begin_insert_rotation(ctxt)) {
             // We successfully got the lock, so we do the finalization
             memtable_transition(
@@ -171,6 +173,7 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
             memtable_mark_empty(ctxt);
             memtable_end_insert_rotation(ctxt);
             memtable_end_insert(ctxt);
+            // TODO flush
             memtable_process(ctxt, current_generation);
          } else {
             memtable_end_insert(ctxt);
