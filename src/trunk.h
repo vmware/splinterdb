@@ -334,6 +334,7 @@ typedef struct trunk_async_ctxt {
 platform_status
 trunk_insert(trunk_handle *spl, key tuple_key, message data);
 
+
 platform_status
 trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result);
 
@@ -475,3 +476,9 @@ trunk_get_scratch_size();
 
 static inline void
 trunk_node_lock(cache *cc, trunk_node *node);
+
+platform_status
+trunk_flush(trunk_handle     *spl,
+            trunk_node       *parent,
+            struct trunk_pivot_data *pdata,
+            bool32            is_space_rec);
