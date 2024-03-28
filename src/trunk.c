@@ -6730,15 +6730,13 @@ trunk_pivot_lookup(trunk_handle *spl,
     uint64 old_root_addr;
     if (pdata->addr != 0) {
         trunk_claim_and_copy_root(spl, &new_root, &old_root_addr);
-        trunk_node_claim(spl->cc, &new_root);
         trunk_node_lock(spl->cc, &new_root);
         //! Need claim on trunk root
         trunk_flush(spl, &new_root, pdata, FALSE);
     }
 
     if (pdata->addr != 0) {
-        trunk_node_unlock(spl->cc, node);
-        trunk_node_unclaim(spl->cc, node);
+        trunk_node_unlock(spl->cc, &new_root);
         trunk_update_claimed_root(spl, &new_root);
     }
     // first check in bundles
