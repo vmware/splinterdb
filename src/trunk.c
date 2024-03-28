@@ -6726,18 +6726,14 @@ trunk_pivot_lookup(trunk_handle *spl,
 
     //! Flush messages before looking down
     //! Obtain locks first
-    trunk_node new_root;
-    uint64 old_root_addr;
     if (pdata->addr != 0) {
-        trunk_claim_and_copy_root(spl, &new_root, &old_root_addr);
-        trunk_node_lock(spl->cc, &new_root);
+        trunk_root_full_claim(spl);
+        trunk_node_lock(spl->cc, node);
         //! Need claim on trunk root
-        trunk_flush(spl, &new_root, pdata, FALSE);
-    }
-
-    if (pdata->addr != 0) {
-        trunk_node_unlock(spl->cc, &new_root);
-        trunk_update_claimed_root(spl, &new_root);
+        trunk_flush(spl, node, pdata, FALSE);
+        //! Release lock and unclaim
+        trunk_node_unlock(spl->cc, node);
+        trunk_root_full_unclaim(spl);
     }
     // first check in bundles
     uint16 num_bundles = trunk_pivot_bundle_count(spl, &new_root, pdata);
