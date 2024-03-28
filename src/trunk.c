@@ -6726,10 +6726,13 @@ trunk_pivot_lookup(trunk_handle *spl,
 
     //! Flush messages before looking down
     //! Obtain locks first
+    trunk_node new_root;
+    uint64 old_root_addr;
     if (pdata->addr != 0) {
         trunk_node_claim(spl->cc, node);
         trunk_node_lock(spl->cc, node);
         //! Need claim on trunk root
+        trunk_claim_and_copy_root(spl, &new_root, &old_root_addr);
         trunk_root_full_claim(spl);
         trunk_flush(spl, node, pdata, FALSE);
     }
@@ -6751,7 +6754,7 @@ trunk_pivot_lookup(trunk_handle *spl,
     bool32 is_found = trunk_filter_lookup(
             spl, node, &pdata->filter, cfg, pdata->start_branch, target, data);
     if (pdata->addr != 0) {
-        trunk_root_full_unclaim(spl);
+        trunk_update_claimed_root(spl, &new_root);
         trunk_node_unlock(spl->cc, node);
         trunk_node_unclaim(spl->cc, node);
     }
