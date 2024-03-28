@@ -6726,11 +6726,13 @@ trunk_pivot_lookup(trunk_handle *spl,
 
     //! Flush messages before looking down
     //! Obtain locks first
-    trunk_node_claim(spl->cc, node);
-    trunk_node_lock(spl->cc, node);
-    //! Need claim on trunk root
-    trunk_root_full_claim(spl);
-    trunk_flush(spl, node, pdata, FALSE);
+    if (pdata->addr != 0) {
+        trunk_node_claim(spl->cc, node);
+        trunk_node_lock(spl->cc, node);
+        //! Need claim on trunk root
+        trunk_root_full_claim(spl);
+        trunk_flush(spl, node, pdata, FALSE);
+    }
     // first check in bundles
     uint16 num_bundles = trunk_pivot_bundle_count(spl, node, pdata);
     for (uint16 bundle_off = 0; bundle_off != num_bundles; bundle_off++) {
@@ -6748,9 +6750,11 @@ trunk_pivot_lookup(trunk_handle *spl,
     routing_config *cfg = &spl->cfg.filter_cfg;
     bool32 is_found = trunk_filter_lookup(
             spl, node, &pdata->filter, cfg, pdata->start_branch, target, data);
-    trunk_root_full_unclaim(spl);
-    trunk_node_unlock(spl->cc, node);
-    trunk_node_unclaim(spl->cc, node);
+    if (pdata->addr != 0) {
+        trunk_root_full_unclaim(spl);
+        trunk_node_unlock(spl->cc, node);
+        trunk_node_unclaim(spl->cc, node);
+    }
     return is_found;
 }
 
