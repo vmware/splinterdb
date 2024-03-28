@@ -6717,6 +6717,18 @@ trunk_bundle_lookup(trunk_handle *spl,
     return TRUE;
 }
 
+void get_claim_if_current_node_not_root(trunk_handle *spl, const trunk_node *node) {
+    if (spl->root_addr != node->addr) {
+        trunk_root_full_claim(spl);
+    }
+}
+
+void unclaim_if_current_node_not_root(trunk_handle *spl, const trunk_node *node) {
+    if (spl->root_addr != node->addr) {
+        trunk_root_full_unclaim(spl);
+    }
+}
+
 bool32
 trunk_pivot_lookup(trunk_handle *spl,
                    trunk_node *node,
@@ -6726,14 +6738,15 @@ trunk_pivot_lookup(trunk_handle *spl,
 
     //! Flush messages before looking down
     //! Obtain locks first
+    //! TODO only take claim if the current node is not the root node.
     if (pdata->addr != 0) {
-        trunk_root_full_claim(spl);
+        get_claim_if_current_node_not_root(spl, node);
         trunk_node_lock(spl->cc, node);
         //! Need claim on trunk root
         trunk_flush(spl, node, pdata, FALSE);
         //! Release lock and unclaim
         trunk_node_unlock(spl->cc, node);
-        trunk_root_full_unclaim(spl);
+        unclaim_if_current_node_not_root(spl, node);
     }
     // first check in bundles
     uint16 num_bundles = trunk_pivot_bundle_count(spl, node, pdata);
