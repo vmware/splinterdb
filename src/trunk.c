@@ -6736,14 +6736,14 @@ trunk_pivot_lookup(trunk_handle *spl,
         trunk_root_full_unclaim(spl);
     }
     // first check in bundles
-    uint16 num_bundles = trunk_pivot_bundle_count(spl, &new_root, pdata);
+    uint16 num_bundles = trunk_pivot_bundle_count(spl, node, pdata);
     for (uint16 bundle_off = 0; bundle_off != num_bundles; bundle_off++) {
         uint16 bundle_no = trunk_subtract_bundle_number(
-                spl, trunk_end_bundle(spl, &new_root), bundle_off + 1);
-        debug_assert(trunk_bundle_live(spl, &new_root, bundle_no));
-        trunk_bundle *bundle = trunk_get_bundle(spl, &new_root, bundle_no);
+                spl, trunk_end_bundle(spl, node), bundle_off + 1);
+        debug_assert(trunk_bundle_live(spl, node, bundle_no));
+        trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
         bool32 should_continue =
-                trunk_bundle_lookup(spl, &new_root, bundle, target, data);
+                trunk_bundle_lookup(spl, node, bundle, target, data);
         if (!should_continue) {
             return should_continue;
         }
@@ -6751,7 +6751,7 @@ trunk_pivot_lookup(trunk_handle *spl,
 
     routing_config *cfg = &spl->cfg.filter_cfg;
     bool32 is_found = trunk_filter_lookup(
-            spl, &new_root, &pdata->filter, cfg, pdata->start_branch, target, data);
+            spl, node, &pdata->filter, cfg, pdata->start_branch, target, data);
 
     return is_found;
 }
