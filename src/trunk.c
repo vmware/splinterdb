@@ -3295,12 +3295,12 @@ trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg) {
         // incorporate memtable that we're waiting on
         task_perform_one_if_needed(spl->ts, 0);
         rc = memtable_maybe_rotate_and_begin_insert(spl->mt_ctxt, &generation);
-    }
+    } 
     if (!SUCCESS(rc)) {
         goto out;
     }
 
-    // this call is safe because we hold the insert lock
+    // this call  is safe because we hold the insert lock
     memtable *mt = trunk_get_memtable(spl, generation);
     uint64 leaf_generation; // used for ordering the log
     rc = memtable_insert(
