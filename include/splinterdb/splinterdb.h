@@ -211,6 +211,15 @@ splinterdb_insert(const splinterdb *kvsb, slice key, slice value);
 void
 splinterdb_print_stats(splinterdb *kvs);
 
+uint64_t 
+splinterdb_get_num_of_loads(splinterdb *kvs);
+
+uint64_t 
+splinterdb_get_num_of_stores(splinterdb *kvs);
+
+void 
+splinterdb_clear_stats(splinterdb *kvs);
+
 // Delete a given key and any associated value / messages
 int
 splinterdb_delete(const splinterdb *kvsb, slice key);

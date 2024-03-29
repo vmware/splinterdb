@@ -10,11 +10,24 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #define DB_FILE_NAME    "splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define CACHE_SIZE_MB   64
 #define USER_MAX_KEY_SIZE ((int)100)
+
+void timer_start(uint64_t *timer) {
+    struct timeval t;
+    assert(!gettimeofday(&t, NULL));
+    timer -= 1000000 * t.tv_sec + t.tv_usec;
+}
+
+void timer_stop(uint64_t *timer) {
+    struct timeval t;
+    assert(!gettimeofday(&t, NULL));
+    timer += 1000000 * t.tv_sec + t.tv_usec;
+}
 
 
 int next_command(FILE *input, int *op, uint64_t *arg) {
@@ -56,9 +69,27 @@ int next_command(FILE *input, int *op, uint64_t *arg) {
 }
 
 
-int test(splinterdb* spl_handle, FILE *script_input, int nops) {
+int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops, 
+        uint64_t num_sections,
+        uint64_t count_point1,
+        uint64_t count_point2,
+        uint64_t count_point3,
+        uint64_t count_point4,
+        uint64_t count_point5,
+        uint64_t count_point6) {
     slice key, value;;
-    for (unsigned int i = 0; i < nops; i++) {
+
+    uint64_t timer = 0;
+    uint64_t count_points_array[] = {count_point1, count_point2, 
+                                    count_point3, count_point4, 
+                                    count_point5, count_point6};
+    double timer_array[100];
+    uint64_t num_of_loads_array[100];
+    uint64_t num_of_stores_array[100];
+    uint64_t section_index = 0;
+    timer_start(&timer);
+
+    for (uint64_t i = 1; i <= nops; i++) {
         int op;
         uint64_t u;
         char t[100];
@@ -96,21 +127,56 @@ int test(splinterdb* spl_handle, FILE *script_input, int nops) {
             default:
                 abort();
         }
+
+        if (i == count_point1 || i == count_point2 || i == count_point3 || 
+            i == count_point4 || i == count_point5 || i == count_point6) {
+            printf("timer stop\n");
+            timer_stop(&timer); 
+            
+            num_of_loads_array[section_index] = splinterdb_get_num_of_loads(spl_handle);
+            num_of_stores_array[section_index] = splinterdb_get_num_of_stores(spl_handle);
+            splinterdb_clear_stats(spl_handle);
+
+            double timer_s = timer * 1.0 / 1000000;
+            timer_array[section_index] = timer_s;
+            section_index++;
+            printf("Time for phase %f\n", timer_s);
+            timer = 0;
+            timer_start(&timer);
+        }
     }
+
+    printf("Test PASSED\n");
+    printf("######## Test result of splinterDB ########");
+    double total_runtime = 0;
+    uint64_t total_num_of_loads = 0;
+    uint64_t total_num_of_stores = 0;
+
+    // print the runtime for each phase
+    for (uint64_t i = 0; i < num_sections; i++) {
+        total_runtime += timer_array[i];
+        printf("\nPhase %" PRIu64 " runtime: %f. Timer stop at the %" PRIu64 "th operation.\n",
+           i + 1, timer_array[i], count_points_array[i]);
+       
+        uint64_t curr_phase_num_of_loads = num_of_loads_array[i];
+        uint64_t curr_phase_num_of_stores = num_of_stores_array[i];
+        total_num_of_loads += curr_phase_num_of_loads;
+        total_num_of_stores += curr_phase_num_of_stores;
+
+        printf("Number of loads: %" PRIu64 "\n", curr_phase_num_of_loads);
+        printf("Number of stores: %" PRIu64 "\n", curr_phase_num_of_stores);
+        printf("Total IO: %" PRIu64 "\n", curr_phase_num_of_loads + curr_phase_num_of_stores);
+    }
+
+    printf("\nTotal number of loads: %" PRIu64 "\n", total_num_of_loads);
+    printf("Total number of stores: %" PRIu64 "\n", total_num_of_stores);
+    printf("Total IO: %" PRIu64 "\n", total_num_of_loads + total_num_of_stores);
+
+    
     return 0;
 }
 
-void timer_start(uint64_t *timer) {
-    struct timeval t;
-    assert(!gettimeofday(&t, NULL));
-    timer -= 1000000 * t.tv_sec + t.tv_usec;
-}
 
-void timer_stop(uint64_t *timer) {
-    struct timeval t;
-    assert(!gettimeofday(&t, NULL));
-    timer += 1000000 * t.tv_sec + t.tv_usec;
-}
 
 int main(int argc, char **argv) {
     char *script_infile = NULL;
@@ -119,7 +185,15 @@ int main(int argc, char **argv) {
     int opt;
     char *term;
     int nops = 0;
-    while ((opt = getopt(argc, argv, "i:n:")) != -1) {
+    uint64_t num_sections = 2;
+    uint64_t count_point1 = UINT64_MAX;
+    uint64_t count_point2 = UINT64_MAX;
+    uint64_t count_point3 = UINT64_MAX;
+    uint64_t count_point4 = UINT64_MAX;
+    uint64_t count_point5 = UINT64_MAX;
+    uint64_t count_point6 = UINT64_MAX;
+
+    while ((opt = getopt(argc, argv, "i:n:t:u:v:w:x:y:z:")) != -1) {
         switch(opt) {
             case 'i':
                 script_infile = optarg;
@@ -127,6 +201,32 @@ int main(int argc, char **argv) {
             case 'n':
                 nops = strtoull(optarg, &term, 10);
                 break;
+            case 't':
+                num_sections = strtoull(optarg, &term, 10);
+                break;
+            case 'u':
+                count_point1 = strtoull(optarg, &term, 10);
+                break;
+            case 'v':
+                count_point2 = strtoull(optarg, &term, 10);
+                break;
+            case 'w':
+                count_point3 = strtoull(optarg, &term, 10);
+                break;
+            case 'x':
+                count_point4 = strtoull(optarg, &term, 10);
+                break;
+            case 'y':
+                count_point5 = strtoull(optarg, &term, 10);
+                break;
+            case 'z':
+                count_point6 = strtoull(optarg, &term, 10);
+                if (count_point6 != UINT64_MAX) {
+                nops = count_point6;
+                }
+                break;
+
+            
             default:
                 exit(1);
         }
@@ -157,7 +257,8 @@ int main(int argc, char **argv) {
     printf("Created SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
     uint64_t timer = 0;
     timer_start(&timer);
-    test(spl_handle, script_input, nops);
+    test(spl_handle, script_input, nops, num_sections, 
+        count_point1, count_point2, count_point3, count_point4, count_point5, count_point6);
     timer_stop(&timer);
     return rc;
 }
