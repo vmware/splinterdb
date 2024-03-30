@@ -161,7 +161,15 @@ merge_mvcc_tuple(const data_config *cfg,
       result_header->rts = update.rts;
    }
    if (update.wts_max != MVCC_TIMESTAMP_INF) {
-      platform_assert(result_header->wts_max == MVCC_TIMESTAMP_INF);
+      platform_assert(
+         result_header->wts_max == MVCC_TIMESTAMP_INF,
+         "wts_max should be MVCC_TIMESTAMP_INF\n"
+         "wts_max: %u\n"
+         "key: %u %s",
+         result_header->wts_max,
+         (uint32)mvcc_key_get_version_from_slice(key),
+         key_string(((transactional_data_config *)cfg)->application_data_config,
+                    mvcc_user_key(key)));
       result_header->wts_max = update.wts_max;
    }
 
