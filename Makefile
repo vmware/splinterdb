@@ -82,7 +82,7 @@ endif
 
 LDFLAGS += -ggdb3 -pthread
 
-LIBS      = -lm -lpthread -laio -lxxhash
+LIBS      = -lm -lpthread -laio -lxxhash -latomic
 DEPFLAGS  = -MMD -MP
 
 # Flags for iceberg hash table

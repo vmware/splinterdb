@@ -39,11 +39,11 @@ typedef struct transactional_splinterdb {
 #define MVCC_VERSION_INF    UINT32_MAX
 #define MVCC_TIMESTAMP_INF  UINT32_MAX
 
-typedef struct mvcc_key_header {
+typedef struct ONDISK mvcc_key_header {
    uint32 version;
 } mvcc_key_header;
 
-typedef struct mvcc_key {
+typedef struct ONDISK mvcc_key {
    mvcc_key_header header;
    char            key[];
 } mvcc_key;
@@ -66,6 +66,14 @@ mvcc_key_get_version_from_slice(slice s)
    return ((mvcc_key *)slice_data(s))->header.version;
 }
 
+static key
+mvcc_user_key(slice mk)
+{
+   return key_create(mvcc_key_get_user_key_length_from_slice(mk),
+                     mvcc_key_get_user_key_from_slice(mk));
+}
+
+
 static int
 mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
 {
@@ -73,10 +81,8 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
    // order.
    int ret = data_key_compare(
       ((const transactional_data_config *)cfg)->application_data_config,
-      key_create(mvcc_key_get_user_key_length_from_slice(key1),
-                 mvcc_key_get_user_key_from_slice(key1)),
-      key_create(mvcc_key_get_user_key_length_from_slice(key2),
-                 mvcc_key_get_user_key_from_slice(key2)));
+      mvcc_user_key(key1),
+      mvcc_user_key(key2));
 
    if (ret != 0) {
       return ret;
@@ -101,76 +107,15 @@ typedef struct ONDISK mvcc_value_header {
    txn_timestamp wts_max;
 } mvcc_value_header;
 
+typedef struct ONDISK mvcc_timestamp_update {
+   txn_timestamp rts;
+   txn_timestamp wts_max;
+} mvcc_timestamp_update;
+
 typedef struct ONDISK mvcc_value {
    mvcc_value_header header;
    char              value[];
 } mvcc_value;
-
-#define TIMESTAMP_UPDATE_MAGIC 0x4938723
-
-typedef enum timestamp_update_type {
-   TIMESTAMP_UPDATE_TYPE_INVALID = 0,
-   TIMESTAMP_UPDATE_TYPE_RTS,
-   TIMESTAMP_UPDATE_TYPE_WTS_MAX
-} timestamp_update_type;
-
-typedef struct ONDISK timestamp_value_update {
-   uint32                magic;
-   timestamp_update_type type;
-   txn_timestamp         ts;
-} timestamp_value_update;
-
-static inline bool
-is_message_rts_update(message msg)
-{
-   timestamp_value_update *update_msg =
-      (timestamp_value_update *)message_data(msg);
-   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
-      return FALSE;
-   }
-   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
-                   "Invalid timestamp update type\n");
-   return update_msg->type == TIMESTAMP_UPDATE_TYPE_RTS;
-}
-
-static inline bool
-is_merge_accumulator_rts_update(merge_accumulator *ma)
-{
-   timestamp_value_update *update_msg =
-      (timestamp_value_update *)merge_accumulator_data(ma);
-   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
-      return FALSE;
-   }
-   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
-                   "Invalid timestamp update type\n");
-   return update_msg->type == TIMESTAMP_UPDATE_TYPE_RTS;
-}
-
-static inline bool
-is_message_wts_max_update(message msg)
-{
-   timestamp_value_update *update_msg =
-      (timestamp_value_update *)message_data(msg);
-   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
-      return FALSE;
-   }
-   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
-                   "Invalid timestamp update type\n");
-   return update_msg->type == TIMESTAMP_UPDATE_TYPE_WTS_MAX;
-}
-
-static inline bool
-is_merge_accumulator_wts_max_update(merge_accumulator *ma)
-{
-   timestamp_value_update *update_msg =
-      (timestamp_value_update *)merge_accumulator_data(ma);
-   if (update_msg->magic != TIMESTAMP_UPDATE_MAGIC) {
-      return FALSE;
-   }
-   platform_assert(update_msg->type != TIMESTAMP_UPDATE_TYPE_INVALID,
-                   "Invalid timestamp update type\n");
-   return update_msg->type == TIMESTAMP_UPDATE_TYPE_WTS_MAX;
-}
 
 static inline message
 get_app_value_from_message(message msg)
@@ -196,63 +141,29 @@ merge_mvcc_tuple(const data_config *cfg,
                  message            old_message, // IN
                  merge_accumulator *new_message) // IN/OUT
 {
-   if (is_message_rts_update(old_message)
-       || is_message_wts_max_update(old_message))
-   {
-      // Just discard
-      return 0;
+   mvcc_timestamp_update update;
+
+   // The only thing we use updates for is to update timestamps.  All
+   // application-level updates get converted into inserts.
+
+   platform_assert(merge_accumulator_message_class(new_message)
+                   == MESSAGE_TYPE_UPDATE);
+   platform_assert(merge_accumulator_length(new_message) == sizeof(update));
+   memcpy(&update, merge_accumulator_data(new_message), sizeof(update));
+
+   bool success = merge_accumulator_copy_message(new_message, old_message);
+   platform_assert(success, "Failed to copy old_message\n");
+
+   mvcc_value_header *result_header =
+      (mvcc_value_header *)merge_accumulator_data(new_message);
+
+   if (update.rts > result_header->rts) {
+      result_header->rts = update.rts;
    }
-
-   if (is_merge_accumulator_rts_update(new_message)) {
-      timestamp_value_update *update_msg =
-         (timestamp_value_update *)merge_accumulator_data(new_message);
-      txn_timestamp rts = update_msg->ts;
-      merge_accumulator_copy_message(new_message, old_message);
-      mvcc_value_header *new_header =
-         (mvcc_value_header *)merge_accumulator_data(new_message);
-      new_header->rts = MAX(new_header->rts, rts);
-
-      return 0;
-   } else if (is_merge_accumulator_wts_max_update(new_message)) {
-      timestamp_value_update *update_msg =
-         (timestamp_value_update *)merge_accumulator_data(new_message);
-      txn_timestamp wts_max = update_msg->ts;
-      merge_accumulator_copy_message(new_message, old_message);
-      mvcc_value_header *new_header =
-         (mvcc_value_header *)merge_accumulator_data(new_message);
-      new_header->wts_max = wts_max;
-
-      return 0;
+   if (update.wts_max != MVCC_TIMESTAMP_INF) {
+      platform_assert(result_header->wts_max == MVCC_TIMESTAMP_INF);
+      result_header->wts_max = update.wts_max;
    }
-
-   message old_value_message = get_app_value_from_message(old_message);
-   message new_value_message =
-      get_app_value_from_merge_accumulator(new_message);
-
-   merge_accumulator new_value_ma;
-   merge_accumulator_init_from_message(
-      &new_value_ma,
-      new_message->data.heap_id,
-      new_value_message); // FIXME: use a correct heap_id
-
-   data_merge_tuples(
-      ((const transactional_data_config *)cfg)->application_data_config,
-      key_create_from_slice(key),
-      old_value_message,
-      &new_value_ma);
-
-   merge_accumulator_resize(new_message,
-                            sizeof(mvcc_value_header)
-                               + merge_accumulator_length(&new_value_ma));
-
-   mvcc_value *new_tuple = merge_accumulator_data(new_message);
-   memcpy(&new_tuple->value,
-          merge_accumulator_data(&new_value_ma),
-          merge_accumulator_length(&new_value_ma));
-
-   merge_accumulator_deinit(&new_value_ma);
-
-   merge_accumulator_set_class(new_message, message_class(old_message));
 
    return 0;
 }
@@ -263,61 +174,7 @@ merge_mvcc_tuple_final(const data_config *cfg,
                        slice              key,
                        merge_accumulator *oldest_message)
 {
-   if (is_merge_accumulator_rts_update(oldest_message)) {
-      platform_default_log("oldest_message shouldn't be a rts update\n");
-      platform_default_log("key: %s, version: %u\n",
-                           mvcc_key_get_user_key_from_slice(key),
-                           mvcc_key_get_version_from_slice(key));
-   }
-   platform_assert(!is_merge_accumulator_rts_update(oldest_message),
-                   "oldest_message shouldn't be a rts update\n");
-
-   if (is_merge_accumulator_wts_max_update(oldest_message)) {
-
-      /* uint64_t tpcc_key[3]; */
-      /* memcpy( */
-      /*    tpcc_key, mvcc_key_get_user_key_from_slice(key), 3 *
-       * sizeof(uint64_t)); */
-      /* platform_default_log( */
-      /*    "tpcc_key: %lu, %lu, %lu\n", tpcc_key[0], tpcc_key[1], tpcc_key[2]);
-       */
-
-      /* timestamp_value_update *update_msg = */
-      /*    (timestamp_value_update *)merge_accumulator_data(oldest_message); */
-      /* platform_default_log("oldest_message shouldn't be a wts_max update
-       * %u\n", */
-      /*                      (uint32)update_msg->ts); */
-      platform_default_log("key: %s(%lu), version: %u\n",
-                           mvcc_key_get_user_key_from_slice(key),
-                           slice_length(key) - sizeof(mvcc_key_header),
-                           mvcc_key_get_version_from_slice(key));
-   }
-   platform_assert(!is_merge_accumulator_wts_max_update(oldest_message),
-                   "oldest_message shouldn't be a wts_max update\n");
-
-   message oldest_message_value =
-      get_app_value_from_merge_accumulator(oldest_message);
-   merge_accumulator app_oldest_message;
-   merge_accumulator_init_from_message(
-      &app_oldest_message,
-      app_oldest_message.data.heap_id, // FIXME: use a correct heap id
-      oldest_message_value);
-
-   data_merge_tuples_final(
-      ((const transactional_data_config *)cfg)->application_data_config,
-      key_create_from_slice(key),
-      &app_oldest_message);
-
-   merge_accumulator_resize(oldest_message,
-                            sizeof(mvcc_value_header)
-                               + merge_accumulator_length(&app_oldest_message));
-   mvcc_value *tuple = merge_accumulator_data(oldest_message);
-   memcpy(&tuple->value,
-          merge_accumulator_data(&app_oldest_message),
-          merge_accumulator_length(&app_oldest_message));
-
-   merge_accumulator_deinit(&app_oldest_message);
-
+   platform_assert(FALSE, "merge_mvcc_tuple_final should not be called\n");
    return 0;
 }
 
@@ -433,8 +290,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
       entry = txn->rw_entries[i];
       if (data_key_compare(
              txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-             key_create(mvcc_key_get_user_key_length_from_slice(entry->key),
-                        mvcc_key_get_user_key_from_slice(entry->key)),
+             mvcc_user_key(entry->key),
              key_create_from_slice(user_key))
           == 0)
       {
@@ -598,14 +454,12 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       // version (x)
       mkey->header.version--;
       if (mkey->header.version != MVCC_VERSION_NODATA) {
-         timestamp_value_update wts_max_update = {
-            .magic = TIMESTAMP_UPDATE_MAGIC,
-            .type  = TIMESTAMP_UPDATE_TYPE_WTS_MAX,
-            .ts    = txn->ts};
+         mvcc_timestamp_update update = {
+            .rts     = 0,
+            .wts_max = txn->ts,
+         };
          splinterdb_update(
-            txn_kvsb->kvsb,
-            w->key,
-            slice_create(sizeof(wts_max_update), &wts_max_update));
+            txn_kvsb->kvsb, w->key, slice_create(sizeof(update), &update));
       }
 
       /* platform_default_log("[%ld] release write lock for %s and version
@@ -665,9 +519,7 @@ local_write_begin:
             it, &latest_version_key, &latest_version_tuple);
          if (data_key_compare(
                 txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-                key_create(
-                   mvcc_key_get_user_key_length_from_slice(latest_version_key),
-                   mvcc_key_get_user_key_from_slice(latest_version_key)),
+                mvcc_user_key(latest_version_key),
                 key_create_from_slice(user_key))
              == 0)
          {
@@ -909,8 +761,7 @@ find_readable_version:
       splinterdb_iterator_get_current(it, &range_key, &range_tuple);
       if (data_key_compare(
              txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-             key_create(mvcc_key_get_user_key_length_from_slice(range_key),
-                        mvcc_key_get_user_key_from_slice(range_key)),
+             mvcc_user_key(range_key),
              key_create_from_slice(user_key))
           == 0)
       {
@@ -1024,12 +875,10 @@ find_readable_version:
    merge_accumulator_resize(&_result->value, value_len);
 
    // Update the rts of the readable version
-   timestamp_value_update rts_update = {.magic = TIMESTAMP_UPDATE_MAGIC,
-                                        .type  = TIMESTAMP_UPDATE_TYPE_RTS,
-                                        .ts    = txn->ts};
-   rc                                = splinterdb_update(txn_kvsb->kvsb,
-                          entry->key,
-                          slice_create(sizeof(rts_update), &rts_update));
+   mvcc_timestamp_update update = {.rts     = txn->ts,
+                                   .wts_max = MVCC_TIMESTAMP_INF};
+   rc                           = splinterdb_update(
+      txn_kvsb->kvsb, entry->key, slice_create(sizeof(update), &update));
    platform_assert(rc == 0, "splinterdb_update: %d\n", rc);
    if (lock_rc == LOCK_TABLE_RC_OK) {
       /* platform_default_log("[%ld] release read lock for %s and version %d at
