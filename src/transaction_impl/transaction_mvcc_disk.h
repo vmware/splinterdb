@@ -164,9 +164,11 @@ merge_mvcc_tuple(const data_config *cfg,
       platform_assert(
          result_header->wts_max == MVCC_TIMESTAMP_INF,
          "wts_max should be MVCC_TIMESTAMP_INF\n"
-         "wts_max: %u\n"
+         "old wts_max: %u\n"
+         "new wts_max: %u\n"
          "key: %u %s",
          result_header->wts_max,
+         update.wts_max,
          (uint32)mvcc_key_get_version_from_slice(key),
          key_string(((transactional_data_config *)cfg)->application_data_config,
                     mvcc_user_key(key)));
