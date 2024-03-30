@@ -730,6 +730,7 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
+   platform_assert(FALSE, "Not implemented yet\n");
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
 }
