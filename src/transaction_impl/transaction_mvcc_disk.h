@@ -77,6 +77,9 @@ mvcc_user_key(slice mk)
 static int
 mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
 {
+   platform_assert(slice_length(key1) >= sizeof(mvcc_key_header));
+   platform_assert(slice_length(key2) >= sizeof(mvcc_key_header));
+
    // user_keys are increasingly ordered, but versions are ordered in decreasing
    // order.
    int ret = data_key_compare(
@@ -101,16 +104,16 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
    }
 }
 
-typedef struct ONDISK mvcc_value_header {
-   txn_timestamp rts;
-   txn_timestamp wts_min;
-   txn_timestamp wts_max;
-} mvcc_value_header;
-
 typedef struct ONDISK mvcc_timestamp_update {
    txn_timestamp rts;
    txn_timestamp wts_max;
 } mvcc_timestamp_update;
+
+
+typedef struct ONDISK mvcc_value_header {
+   mvcc_timestamp_update update; // Must be first field
+   txn_timestamp wts_min;
+} mvcc_value_header;
 
 typedef struct ONDISK mvcc_value {
    mvcc_value_header header;
@@ -146,32 +149,39 @@ merge_mvcc_tuple(const data_config *cfg,
    // The only thing we use updates for is to update timestamps.  All
    // application-level updates get converted into inserts.
 
+   platform_assert(slice_length(key) >= sizeof(mvcc_key_header));
+   platform_assert(message_length(old_message) >= sizeof(mvcc_timestamp_update));
+
    platform_assert(merge_accumulator_message_class(new_message)
                    == MESSAGE_TYPE_UPDATE);
    platform_assert(merge_accumulator_length(new_message) == sizeof(update));
+
    memcpy(&update, merge_accumulator_data(new_message), sizeof(update));
 
    bool success = merge_accumulator_copy_message(new_message, old_message);
    platform_assert(success, "Failed to copy old_message\n");
 
-   mvcc_value_header *result_header =
-      (mvcc_value_header *)merge_accumulator_data(new_message);
+   mvcc_timestamp_update *result_header =
+      (mvcc_timestamp_update *)merge_accumulator_data(new_message);
+
+   platform_assert(update.wts_max == MVCC_TIMESTAMP_INF ||
+                        result_header->wts_max == MVCC_TIMESTAMP_INF,
+         "Two updates to wts_max for the same key/version\n"
+         "old wts_max: %u\n"
+         "new wts_max: %u\n"
+         "key: version: %u string: \"%s\" (%s)",
+         result_header->wts_max,
+         update.wts_max,
+         (uint32)mvcc_key_get_version_from_slice(key),
+         mvcc_key_get_user_key_from_slice(key),
+         key_string(((transactional_data_config *)cfg)->application_data_config,
+                    mvcc_user_key(key)));
+                        
 
    if (update.rts > result_header->rts) {
       result_header->rts = update.rts;
    }
    if (update.wts_max != MVCC_TIMESTAMP_INF) {
-      platform_assert(
-         result_header->wts_max == MVCC_TIMESTAMP_INF,
-         "wts_max should be MVCC_TIMESTAMP_INF\n"
-         "old wts_max: %u\n"
-         "new wts_max: %u\n"
-         "key: %u %s",
-         result_header->wts_max,
-         update.wts_max,
-         (uint32)mvcc_key_get_version_from_slice(key),
-         key_string(((transactional_data_config *)cfg)->application_data_config,
-                    mvcc_user_key(key)));
       result_header->wts_max = update.wts_max;
    }
 
@@ -271,9 +281,9 @@ rw_entry_set_msg(rw_entry *e, txn_timestamp ts, message msg)
    char  *msg_buf;
    msg_buf               = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
    mvcc_value *tuple     = (mvcc_value *)msg_buf;
-   tuple->header.rts     = ts;
+   tuple->header.update.rts     = ts;
    tuple->header.wts_min = ts;
-   tuple->header.wts_max = MVCC_TIMESTAMP_INF;
+   tuple->header.update.wts_max = MVCC_TIMESTAMP_INF;
    memcpy(tuple->value, message_data(msg), message_length(msg));
    e->msg = message_create(message_class(msg), slice_create(msg_len, msg_buf));
 }
@@ -534,7 +544,7 @@ local_write_begin:
              == 0)
          {
             mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
-            if (tuple->header.wts_min > txn->ts || tuple->header.rts > txn->ts)
+            if (tuple->header.wts_min > txn->ts || tuple->header.update.rts > txn->ts)
             {
                // Need to abort because the latest version is younger than me
                /* if (tuple->header.wts_min > txn->ts) { */
@@ -614,7 +624,7 @@ local_write_begin:
       if (splinterdb_lookup_found(&result)) {
          splinterdb_lookup_result_value(&result, &latest_version_tuple);
          mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
-         if (tuple->header.rts > (uint32)txn->ts) {
+         if (tuple->header.update.rts > (uint32)txn->ts) {
             /* platform_default_log( */
             /*    "[%u] abort due to tuple->header.rts (%u) >= txn->ts (%u)\n",
              */
@@ -626,8 +636,8 @@ local_write_begin:
             transactional_splinterdb_abort(txn_kvsb, txn);
             return 1;
          }
-         if (tuple->header.wts_max != MVCC_TIMESTAMP_INF) {
-            if (tuple->header.wts_max > txn->ts) {
+         if (tuple->header.update.wts_max != MVCC_TIMESTAMP_INF) {
+            if (tuple->header.update.wts_max > txn->ts) {
                // Need to abort because the latest version is younger than me
                /* platform_default_log("[%u] abort due to tuple->header.wts_max
                 * (%u) >= txn->ts(%u)\n", */
@@ -693,9 +703,9 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
    value_buf          = TYPED_ARRAY_ZALLOC(0, value_buf, value_len);
    mvcc_value *mvalue = (mvcc_value *)value_buf;
    memcpy(mvalue->value, slice_data(value), slice_length(value));
-   mvalue->header.rts     = 0;
+   mvalue->header.update.rts     = 0;
    mvalue->header.wts_min = 0;
-   mvalue->header.wts_max = MVCC_TIMESTAMP_INF;
+   mvalue->header.update.wts_max = MVCC_TIMESTAMP_INF;
    int rc                 = splinterdb_insert(
       kvsb, slice_create(key_len, key_buf), slice_create(value_len, value_buf));
    platform_free(0, key_buf);
@@ -861,7 +871,7 @@ find_readable_version:
    splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
    _result           = (_splinterdb_lookup_result *)result;
    mvcc_value *tuple = (mvcc_value *)merge_accumulator_data(&_result->value);
-   if (tuple->header.wts_max < txn->ts) {
+   if (tuple->header.update.wts_max < txn->ts) {
       /* platform_default_log( */
       /*    "goto find_readable_version wts_max(%u) < txn->ts(%u)\n", */
       /*    (uint32)tuple->header.wts_max, */
