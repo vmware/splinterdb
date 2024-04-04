@@ -83,8 +83,8 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
          uint64_t count_point4,
          uint64_t count_point5,
          uint64_t count_point6) {
-    key_value_pair kvp[nops];
-    key_value_pair q_result[nops];
+    key_value_pair kvp[25000000];
+    key_value_pair q_result[25000000];
     slice key, value;;
 
     uint64_t timer = 0;
@@ -124,8 +124,6 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 key = slice_create((size_t) strlen(t), t);
                 value = slice_create((size_t) strlen(t), t);
                 splinterdb_insert(spl_handle, key, value);
-                struct key_value_pair kv2 = {key, value};
-                kvp[i - 1] = kv;
                 break;
             case 3:  // query
                 splinterdb_lookup_result result;
