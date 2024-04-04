@@ -170,7 +170,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         for (int k = 0; k < nops; k++) {
             if (!slice_lex_cmp(s_key, kvp[k].key)) {
                 if (slice_lex_cmp(s_value, kvp[k].value)) {
-                    printf("Key value mismatch for: %lu, value: %lu, expected %lu", s_key, s_value, kvp[k].value);
+                    printf("Key value mismatch for: %p, value: %p, expected %p", s_key.data, s_value.data, kvp[k].value.data);
                     abort();
                 }
             }
