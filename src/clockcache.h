@@ -39,6 +39,8 @@ typedef struct clockcache_config {
    uint64 batch_capacity;
    uint64 cacheline_capacity;
    uint64 pages_per_extent;
+   uint64_t number_of_loads;
+   uint64_t number_of_stores;
 } clockcache_config;
 
 typedef struct clockcache       clockcache;
