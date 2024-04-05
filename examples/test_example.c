@@ -11,17 +11,16 @@
 #include <stdio.h>
 #include <assert.h>
 #include <inttypes.h>
-#include "util.h"
 
 #define DB_FILE_NAME    "splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define CACHE_SIZE_MB   64
 #define USER_MAX_KEY_SIZE ((int)100)
 
-typedef struct key_value_pair {
-    slice key;
-    slice value;
-} key_value_pair;
+enum {
+    YCSB,
+    CUSTOM
+};
 
 void timer_start(uint64_t *timer) {
     struct timeval t;
@@ -36,10 +35,12 @@ void timer_stop(uint64_t *timer) {
 }
 
 
-int next_command(FILE *input, int *op, uint64_t *arg) {
+int next_command(FILE *input, int *op, uint64_t *arg, int mode) {
     int ret;
     char command[64];
-
+    char *insert = mode == YCSB ? "I" : "Inserting";
+    char *read = mode == YCSB ? "R" : "Query";
+    char *update = mode == YCSB ? "U" : "Updating";
     ret = fscanf(input, "%s %ld", command, arg);
     if (ret == EOF)
         return EOF;
@@ -48,17 +49,19 @@ int next_command(FILE *input, int *op, uint64_t *arg) {
         exit(3);
     }
 
-    if (strcmp(command, "Inserting") == 0) {
+    if (strcmp(command, insert) == 0) {
         *op = 0;
-    } else if (strcmp(command, "Updating") == 0) {
+    } else if (strcmp(command, update) == 0) {
         *op = 1;
     } else if (strcmp(command, "Deleting") == 0) {
         *op = 2;
-    } else if (strcmp(command, "Query") == 0) {
+    } else if (strcmp(command, read) == 0) {
         *op = 3;
-        if (1 != fscanf(input, " -> %s", command)) {
-            fprintf(stderr, "Parse error\n");
-            exit(3);
+        if (mode == CUSTOM) {
+            if (1 != fscanf(input, " -> %s", command)) {
+                fprintf(stderr, "Parse error\n");
+                exit(3);
+            }
         }
     } else if (strcmp(command, "Full_scan") == 0) {
         *op = 4;
@@ -82,9 +85,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
          uint64_t count_point3,
          uint64_t count_point4,
          uint64_t count_point5,
-         uint64_t count_point6) {
-    key_value_pair kvp[25000000];
-    key_value_pair q_result[25000000];
+         uint64_t count_point6, int mode) {
     slice key, value;;
 
     uint64_t timer = 0;
@@ -102,7 +103,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         uint64_t u;
         char t[100];
         if (script_input) {
-            int r = next_command(script_input, &op, &u);
+            int r = next_command(script_input, &op, &u, mode);
             if (r == EOF)
                 exit(0);
             else if (r < 0)
@@ -117,8 +118,6 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 key = slice_create((size_t) strlen(t), t);
                 value = slice_create((size_t) strlen(t), t);
                 splinterdb_insert(spl_handle, key, value);
-                struct key_value_pair kv = {key, value};
-                kvp[i - 1] = kv;
                 break;
             case 1:  // update
                 key = slice_create((size_t) strlen(t), t);
@@ -133,8 +132,6 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 printf("\nLookup\n");
                 splinterdb_lookup(spl_handle, key, &result);
                 splinterdb_lookup_result_value(&result, &value);
-                struct key_value_pair kv3 = {key, value};
-                q_result[i - 1] = kv3;
                 break;
             default:
                 abort();
@@ -158,22 +155,6 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         }
     }
 
-    //! Perform correctness check here.
-    //! Idea: iterate through the keys, and find its corresponding value in both arrays. Once found,
-    //! compare.
-    for (int j = (nops / 2) - 1; j < nops; j++) {
-        slice s_key = q_result[j].key;
-        slice s_value = q_result[j].value;
-        //! find key in other array
-        for (int k = 0; k < nops; k++) {
-            if (!slice_lex_cmp(s_key, kvp[k].key)) {
-                if (slice_lex_cmp(s_value, kvp[k].value)) {
-                    printf("Key value mismatch for: %p, value: %p, expected %p", s_key.data, s_value.data, kvp[k].value.data);
-                    abort();
-                }
-            }
-        }
-    }
     printf("Test PASSED\n");
     printf("######## Test result of splinterDB ########");
     double total_runtime = 0;
@@ -211,6 +192,7 @@ int main(int argc, char **argv) {
     srand(random_seed);
     int opt;
     char *term;
+    int mode;
     int nops = 0;
     uint64_t num_sections = 2;
     uint64_t count_point1 = UINT64_MAX;
@@ -220,8 +202,15 @@ int main(int argc, char **argv) {
     uint64_t count_point5 = UINT64_MAX;
     uint64_t count_point6 = UINT64_MAX;
 
-    while ((opt = getopt(argc, argv, "i:n:t:u:v:w:x:y:z:")) != -1) {
+    while ((opt = getopt(argc, argv, "m:i:n:t:u:v:w:x:y:z:")) != -1) {
         switch (opt) {
+            case 'm':
+                if (strtoull(optarg, &term, 10) == 0) {
+                    mode = YCSB;
+                } else {
+                    mode = CUSTOM;
+                }
+                break;
             case 'i':
                 script_infile = optarg;
                 break;
@@ -285,7 +274,9 @@ int main(int argc, char **argv) {
     uint64_t timer = 0;
     timer_start(&timer);
     test(spl_handle, script_input, nops, num_sections,
-         count_point1, count_point2, count_point3, count_point4, count_point5, count_point6);
+         count_point1, count_point2, count_point3, count_point4, count_point5, count_point6, mode);
     timer_stop(&timer);
+    splinterdb_print_stats(spl_handle);
+    splinterdb_close(&spl_handle);
     return rc;
 }
