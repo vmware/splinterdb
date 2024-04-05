@@ -94,7 +94,6 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
          uint64_t count_point5,
          uint64_t count_point6, int mode) {
     key_value_pair* kvp = (key_value_pair*) malloc(nops * sizeof(key_value_pair));
-    key_value_pair* q_result = (key_value_pair*) malloc(nops * sizeof(key_value_pair));
     slice key, value;;
 
     uint64_t timer = 0;
@@ -144,7 +143,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 splinterdb_lookup(spl_handle, key, &result);
                 splinterdb_lookup_result_value(&result, &value);
                 struct key_value_pair kv3 = {key, value};
-                q_result[i - 1] = kv3;
+                kvp[i - 1] = kv3;
                 break;
             default:
                 abort();
@@ -173,10 +172,10 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
     //! compare.
     printf("Performing correctness check\n");
     for (int j = (nops / 2) - 1; j < nops; j++) {
-        slice s_key = q_result[j].key;
-        slice s_value = q_result[j].value;
+        slice s_key = kvp[j].key;
+        slice s_value = kvp[j].value;
         //! find key in other array
-        for (int k = 0; k < nops; k++) {
+        for (int k = 0; k < nops/2 - 1; k++) {
             if (!slice_lex_cmp(s_key, kvp[k].key)) {
                 if (slice_lex_cmp(s_value, kvp[k].value)) {
                     printf("Key value mismatch for: %p, value: %p, expected %p", s_key.data, s_value.data, kvp[k].value.data);
