@@ -11,11 +11,18 @@
 #include <stdio.h>
 #include <assert.h>
 #include <inttypes.h>
+#include "util.h"
 
 #define DB_FILE_NAME    "splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define CACHE_SIZE_MB   64
 #define USER_MAX_KEY_SIZE ((int)100)
+
+typedef struct key_value_pair {
+    slice key;
+    slice value;
+} key_value_pair;
+
 
 enum {
     YCSB,
@@ -86,6 +93,8 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
          uint64_t count_point4,
          uint64_t count_point5,
          uint64_t count_point6, int mode) {
+    key_value_pair kvp[nops];
+    key_value_pair q_result[nops];
     slice key, value;;
 
     uint64_t timer = 0;
@@ -118,6 +127,8 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 key = slice_create((size_t) strlen(t), t);
                 value = slice_create((size_t) strlen(t), t);
                 splinterdb_insert(spl_handle, key, value);
+                struct key_value_pair kv = {key, value};
+                kvp[i - 1] = kv;
                 break;
             case 1:  // update
                 key = slice_create((size_t) strlen(t), t);
@@ -132,6 +143,8 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 printf("\nLookup\n");
                 splinterdb_lookup(spl_handle, key, &result);
                 splinterdb_lookup_result_value(&result, &value);
+                struct key_value_pair kv3 = {key, value};
+                q_result[i - 1] = kv3;
                 break;
             default:
                 abort();
@@ -155,6 +168,23 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         }
     }
 
+    //! Perform correctness check here.
+    //! Idea: iterate through the keys, and find its corresponding value in both arrays. Once found,
+    //! compare.
+    printf("Performing correctness check\n");
+    for (int j = (nops / 2) - 1; j < nops; j++) {
+        slice s_key = q_result[j].key;
+        slice s_value = q_result[j].value;
+        //! find key in other array
+        for (int k = 0; k < nops; k++) {
+            if (!slice_lex_cmp(s_key, kvp[k].key)) {
+                if (slice_lex_cmp(s_value, kvp[k].value)) {
+                    printf("Key value mismatch for: %lu, value: %lu, expected %lu", s_key, s_value, kvp[k].value);
+                    abort();
+                }
+            }
+        }
+    }
     printf("Test PASSED\n");
     printf("######## Test result of splinterDB ########");
     double total_runtime = 0;
