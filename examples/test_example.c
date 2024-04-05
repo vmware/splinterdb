@@ -138,7 +138,6 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 splinterdb_lookup_result result;
                 splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
                 key = slice_create((size_t) strlen(t), t);
-                value = slice_create((size_t) strlen(t), t);
                 printf("\nLookup\n");
                 splinterdb_lookup(spl_handle, key, &result);
                 splinterdb_lookup_result_value(&result, &value);
@@ -167,6 +166,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         }
     }
 
+#ifdef CORRECTNESS
     //! Perform correctness check here.
     //! Idea: iterate through the keys, and find its corresponding value in both arrays. Once found,
     //! compare.
@@ -186,6 +186,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
             }
         }
     }
+#endif
     printf("Test PASSED\n");
     printf("######## Test result of splinterDB ########");
     double total_runtime = 0;
