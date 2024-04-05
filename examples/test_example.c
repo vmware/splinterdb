@@ -93,8 +93,8 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
          uint64_t count_point4,
          uint64_t count_point5,
          uint64_t count_point6, int mode) {
-    key_value_pair kvp[nops];
-    key_value_pair q_result[nops];
+    key_value_pair* kvp = (key_value_pair*) malloc(nops * sizeof(key_value_pair));
+    key_value_pair* q_result = (key_value_pair*) malloc(nops * sizeof(key_value_pair));
     slice key, value;;
 
     uint64_t timer = 0;
