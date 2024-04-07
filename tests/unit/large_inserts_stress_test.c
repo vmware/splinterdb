@@ -119,6 +119,7 @@ CTEST_SETUP(large_inserts_stress)
    platform_assert_status_ok(rc);
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                   .io_flags   = data->master_cfg.io_flags,
                                    .cache_size = 1 * Giga,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = data->master_cfg.use_shmem,
