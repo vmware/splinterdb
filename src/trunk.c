@@ -6898,6 +6898,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
     trunk_node debug_node;
     trunk_root_get(spl, &debug_node);
     platform_default_log("size of p* struct is: %lu", sizeof(debug_node.hdr->aux_pivot));
+    trunk_node_unget(spl->cc, &debug_node);
 #endif
     merge_accumulator_set_to_null(result);
 
@@ -8419,6 +8420,7 @@ trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg)
     uint64    *bytes_used_on_level = (uint64 *)arg;
     uint64     bytes_used_in_node  = 0;
     trunk_node node;
+    // TODO space
     trunk_node_get(spl->cc, addr, &node);
     uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
     uint16 num_children   = trunk_num_children(spl, &node);
