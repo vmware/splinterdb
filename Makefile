@@ -74,7 +74,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla -pg
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC -pg
-CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR) -pg
+CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR) -pg -DCORRECTNESS
 
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
