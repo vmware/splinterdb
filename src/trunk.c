@@ -6894,7 +6894,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
     //     --- 2. for [mt_no = mt->generation..mt->gen_to_incorp]
     // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
     //                also handles switch to READY ^^^^^
-#ifdef adaptive_debug
+#ifdef ADAPTIVE_DEBUG
     trunk_node debug_node;
     trunk_root_get(spl, &debug_node);
     platform_default_log("size of p* struct is: %lu", sizeof(debug_node.hdr->p_star));
