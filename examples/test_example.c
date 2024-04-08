@@ -18,16 +18,16 @@
 #define CACHE_SIZE_MB   64
 #define USER_MAX_KEY_SIZE ((int)100)
 
+enum {
+    YCSB,
+    CUSTOM
+};
+
 typedef struct key_value_pair {
     slice key;
     slice value;
 } key_value_pair;
 
-
-enum {
-    YCSB,
-    CUSTOM
-};
 
 void timer_start(uint64_t *timer) {
     struct timeval t;
@@ -93,7 +93,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
          uint64_t count_point4,
          uint64_t count_point5,
          uint64_t count_point6, int mode) {
-    key_value_pair* kvp = (key_value_pair*) malloc(nops * sizeof(key_value_pair));
+    key_value_pair *kvp = (key_value_pair *) malloc(nops/2 * sizeof(key_value_pair));
     slice key, value;;
 
     uint64_t timer = 0;
@@ -104,6 +104,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
     uint64_t num_of_loads_array[100];
     uint64_t num_of_stores_array[100];
     uint64_t section_index = 0;
+    uint64_t w = 0;
     timer_start(&timer);
 
     for (uint64_t i = 1; i <= nops; i++) {
@@ -127,7 +128,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 value = slice_create((size_t) strlen(t), t);
                 splinterdb_insert(spl_handle, key, value);
                 struct key_value_pair kv = {key, value};
-                kvp[i - 1] = kv;
+                kvp[w++] = kv;
                 break;
             case 1:  // update
                 key = slice_create((size_t) strlen(t), t);
@@ -138,11 +139,27 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
                 splinterdb_lookup_result result;
                 splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
                 key = slice_create((size_t) strlen(t), t);
+                slice lookup;
                 printf("\nLookup\n");
                 splinterdb_lookup(spl_handle, key, &result);
-                splinterdb_lookup_result_value(&result, &value);
-                struct key_value_pair kv3 = {key, value};
-                kvp[i - 1] = kv3;
+                splinterdb_lookup_result_value(&result, &lookup);
+#ifdef CORRECTNESS
+                for (int j = 0; j < w; j++) {
+                    slice s_key = kvp[j].key;
+                    char* key_str = (char *)slice_data(s_key);
+                    char* user_str = (char *)slice_data(key);
+                    if (strcmp(key_str, user_str) == 0) {
+                        //! compare value
+                        char* value = (char *)slice_data(kvp[j].value);
+                        char* usr_val = (char *)slice_data(lookup);
+                        if (strcmp(value, usr_val) == 0) {
+                          break;
+                        } else {
+                            abort();
+                        }
+                    }
+                }
+#endif
                 break;
             default:
                 abort();
@@ -166,27 +183,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         }
     }
 
-#ifdef CORRECTNESS
-    //! Perform correctness check here.
-    //! Idea: iterate through the keys, and find its corresponding value in both arrays. Once found,
-    //! compare.
-    printf("Performing correctness check\n");
-    for (int j = (nops / 2) - 1; j < nops; j++) {
-        slice s_key = kvp[j].key;
-        slice s_value = kvp[j].value;
-        //! find key in other array
-        for (int k = 0; k < nops/2 - 1; k++) {
-            if (!slice_lex_cmp(s_key, kvp[k].key)) {
-                if (slice_lex_cmp(s_value, kvp[k].value)) {
-                    printf("Key value mismatch for: %p, value: %p, expected %p", s_key.data, s_value.data, kvp[k].value.data);
-                    abort();
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-#endif
+
     printf("Test PASSED\n");
     printf("######## Test result of splinterDB ########");
     double total_runtime = 0;
@@ -209,7 +206,7 @@ int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
         printf("Total IO: %" PRIu64 "\n", curr_phase_num_of_loads + curr_phase_num_of_stores);
     }
 
-    printf("\nTotal number of loads: %" PRIu64 "\n", total_num_of_loads);
+    printf("\nTotal number of loads: %" PRIu64"\n", total_num_of_loads);
     printf("Total number of stores: %" PRIu64 "\n", total_num_of_stores);
     printf("Total IO: %" PRIu64 "\n", total_num_of_loads + total_num_of_stores);
 
