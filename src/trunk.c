@@ -580,7 +580,7 @@ typedef struct ONDISK trunk_hdr {
     trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
     trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
     routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
-    trunk_aux_pivot p_star;
+    trunk_aux_pivot aux_pivot;
 } trunk_hdr;
 
 /*
