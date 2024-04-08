@@ -6897,7 +6897,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 #ifdef ADAPTIVE_DEBUG
     trunk_node debug_node;
     trunk_root_get(spl, &debug_node);
-    platform_default_log("size of p* struct is: %lu", sizeof(debug_node.hdr->p_star));
+    platform_default_log("size of p* struct is: %lu", sizeof(debug_node.hdr->aux_pivot));
 #endif
     merge_accumulator_set_to_null(result);
 
