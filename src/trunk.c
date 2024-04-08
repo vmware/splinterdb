@@ -6915,7 +6915,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 
     trunk_node node;
     trunk_root_get(spl, &node);
-    platform_default_log("Size of P* struct is: %d", sizeof(node.hdr))
+    platform_default_log("Size of P* struct is: %d", sizeof(node.hdr->p_star));
 
     // release memtable lookup lock
     memtable_end_lookup(spl->mt_ctxt);
