@@ -401,6 +401,7 @@ void
 splinterdb_print_stats(splinterdb *kvs) {
     platform_default_log("Number of loads: %lu\n", kvs->cache_handle.number_of_loads);
     platform_default_log("Number of stores: %lu\n", kvs->cache_handle.number_of_stores);
+    trunk_print_space_use(Platform_default_log_handle, kvs->spl);
 }
 
 uint64_t 

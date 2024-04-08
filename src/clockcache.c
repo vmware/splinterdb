@@ -1398,8 +1398,6 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                                   addr);
             iovec[i].iov_base = next_entry->page.data;
          }
-
-         //! Here
          cc->number_of_stores++;
          status = io_write_async(
             cc->io, req, clockcache_write_callback, req_count, first_addr);
@@ -2236,8 +2234,6 @@ clockcache_get_internal(clockcache   *cc,       // IN
    if (cc->cfg->use_stats) {
       start = platform_get_timestamp();
    }
-
-   //! TODO: Maybe it is here?
    cc->number_of_loads++;
    status = io_read(cc->io, entry->page.data, page_size, addr);
    platform_assert_status_ok(status);
@@ -2725,10 +2721,12 @@ clockcache_page_sync(clockcache  *cc,
       req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
       iovec             = io_get_iovec(cc->io, req);
       iovec[0].iov_base = page->data;
+      cc->number_of_stores++;
       status            = io_write_async(
          cc->io, req, clockcache_write_callback, req_count, addr);
       platform_assert_status_ok(status);
    } else {
+      cc->number_of_stores++;
       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
       platform_assert_status_ok(status);
       clockcache_log(addr,
@@ -2823,6 +2821,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
          if (req_count != 0) {
             __sync_fetch_and_add(pages_outstanding, req_count);
             io_req->bytes = clockcache_multiply_by_page_size(cc, req_count);
+            cc->number_of_stores++;
             status        = io_write_async(
                cc->io, io_req, clockcache_sync_callback, req_count, req_addr);
             platform_assert_status_ok(status);
@@ -2832,6 +2831,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
    }
    if (req_count != 0) {
       __sync_fetch_and_add(pages_outstanding, req_count);
+      cc->number_of_stores++;
       status = io_write_async(
          cc->io, io_req, clockcache_sync_callback, req_count, req_addr);
       platform_assert_status_ok(status);

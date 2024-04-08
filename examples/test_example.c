@@ -11,11 +11,23 @@
 #include <stdio.h>
 #include <assert.h>
 #include <inttypes.h>
+#include "util.h"
 
 #define DB_FILE_NAME    "splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define CACHE_SIZE_MB   64
 #define USER_MAX_KEY_SIZE ((int)100)
+
+enum {
+    YCSB,
+    CUSTOM
+};
+
+typedef struct key_value_pair {
+    slice key;
+    slice value;
+} key_value_pair;
+
 
 void timer_start(uint64_t *timer) {
     struct timeval t;
@@ -30,10 +42,12 @@ void timer_stop(uint64_t *timer) {
 }
 
 
-int next_command(FILE *input, int *op, uint64_t *arg) {
+int next_command(FILE *input, int *op, uint64_t *arg, int mode) {
     int ret;
     char command[64];
-
+    char *insert = mode == YCSB ? "I" : "Inserting";
+    char *read = mode == YCSB ? "R" : "Query";
+    char *update = mode == YCSB ? "U" : "Updating";
     ret = fscanf(input, "%s %ld", command, arg);
     if (ret == EOF)
         return EOF;
@@ -42,17 +56,19 @@ int next_command(FILE *input, int *op, uint64_t *arg) {
         exit(3);
     }
 
-    if (strcmp(command, "Inserting") == 0) {
+    if (strcmp(command, insert) == 0) {
         *op = 0;
-    } else if (strcmp(command, "Updating") == 0) {
+    } else if (strcmp(command, update) == 0) {
         *op = 1;
     } else if (strcmp(command, "Deleting") == 0) {
         *op = 2;
-    } else if (strcmp(command, "Query") == 0) {
+    } else if (strcmp(command, read) == 0) {
         *op = 3;
-        if (1 != fscanf(input, " -> %s", command)) {
-            fprintf(stderr, "Parse error\n");
-            exit(3);
+        if (mode == CUSTOM) {
+            if (1 != fscanf(input, " -> %s", command)) {
+                fprintf(stderr, "Parse error\n");
+                exit(3);
+            }
         }
     } else if (strcmp(command, "Full_scan") == 0) {
         *op = 4;
@@ -69,24 +85,26 @@ int next_command(FILE *input, int *op, uint64_t *arg) {
 }
 
 
-int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops, 
-        uint64_t num_sections,
-        uint64_t count_point1,
-        uint64_t count_point2,
-        uint64_t count_point3,
-        uint64_t count_point4,
-        uint64_t count_point5,
-        uint64_t count_point6) {
+int test(splinterdb *spl_handle, FILE *script_input, uint64_t nops,
+         uint64_t num_sections,
+         uint64_t count_point1,
+         uint64_t count_point2,
+         uint64_t count_point3,
+         uint64_t count_point4,
+         uint64_t count_point5,
+         uint64_t count_point6, int mode) {
+    key_value_pair *kvp = (key_value_pair *) malloc(nops/2 * sizeof(key_value_pair));
     slice key, value;;
 
     uint64_t timer = 0;
-    uint64_t count_points_array[] = {count_point1, count_point2, 
-                                    count_point3, count_point4, 
-                                    count_point5, count_point6};
+    uint64_t count_points_array[] = {count_point1, count_point2,
+                                     count_point3, count_point4,
+                                     count_point5, count_point6};
     double timer_array[100];
     uint64_t num_of_loads_array[100];
     uint64_t num_of_stores_array[100];
     uint64_t section_index = 0;
+    uint64_t w = 0;
     timer_start(&timer);
 
     for (uint64_t i = 1; i <= nops; i++) {
@@ -94,7 +112,7 @@ int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops,
         uint64_t u;
         char t[100];
         if (script_input) {
-            int r = next_command(script_input, &op, &u);
+            int r = next_command(script_input, &op, &u, mode);
             if (r == EOF)
                 exit(0);
             else if (r < 0)
@@ -106,33 +124,52 @@ int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops,
         sprintf(t, "%ld", u);
         switch (op) {
             case 0:  // insert
-                key   = slice_create((size_t)strlen(t), t);
-                value = slice_create((size_t)strlen(t), t);
+                key = slice_create((size_t) strlen(t), t);
+                value = slice_create((size_t) strlen(t), t);
                 splinterdb_insert(spl_handle, key, value);
+                struct key_value_pair kv = {key, value};
+                kvp[w++] = kv;
                 break;
             case 1:  // update
-                key   = slice_create((size_t)strlen(t), t);
-                value = slice_create((size_t)strlen(t), t);
+                key = slice_create((size_t) strlen(t), t);
+                value = slice_create((size_t) strlen(t), t);
                 splinterdb_insert(spl_handle, key, value);
                 break;
             case 3:  // query
                 splinterdb_lookup_result result;
                 splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
-                key   = slice_create((size_t)strlen(t), t);
-                value = slice_create((size_t)strlen(t), t);
+                key = slice_create((size_t) strlen(t), t);
+                slice lookup;
                 printf("\nLookup\n");
                 splinterdb_lookup(spl_handle, key, &result);
-                splinterdb_lookup_result_value(&result, &value);
+                splinterdb_lookup_result_value(&result, &lookup);
+#ifdef CORRECTNESS
+                for (int j = 0; j < w; j++) {
+                    slice s_key = kvp[j].key;
+                    char* key_str = (char *)slice_data(s_key);
+                    char* user_str = (char *)slice_data(key);
+                    if (strcmp(key_str, user_str) == 0) {
+                        //! compare value
+                        char* value = (char *)slice_data(kvp[j].value);
+                        char* usr_val = (char *)slice_data(lookup);
+                        if (strcmp(value, usr_val) == 0) {
+                          break;
+                        } else {
+                            abort();
+                        }
+                    }
+                }
+#endif
                 break;
             default:
                 abort();
         }
 
-        if (i == count_point1 || i == count_point2 || i == count_point3 || 
+        if (i == count_point1 || i == count_point2 || i == count_point3 ||
             i == count_point4 || i == count_point5 || i == count_point6) {
             printf("timer stop\n");
-            timer_stop(&timer); 
-            
+            timer_stop(&timer);
+
             num_of_loads_array[section_index] = splinterdb_get_num_of_loads(spl_handle);
             num_of_stores_array[section_index] = splinterdb_get_num_of_stores(spl_handle);
             splinterdb_clear_stats(spl_handle);
@@ -146,6 +183,7 @@ int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops,
         }
     }
 
+
     printf("Test PASSED\n");
     printf("######## Test result of splinterDB ########");
     double total_runtime = 0;
@@ -156,8 +194,8 @@ int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops,
     for (uint64_t i = 0; i < num_sections; i++) {
         total_runtime += timer_array[i];
         printf("\nPhase %" PRIu64 " runtime: %f. Timer stop at the %" PRIu64 "th operation.\n",
-           i + 1, timer_array[i], count_points_array[i]);
-       
+               i + 1, timer_array[i], count_points_array[i]);
+
         uint64_t curr_phase_num_of_loads = num_of_loads_array[i];
         uint64_t curr_phase_num_of_stores = num_of_stores_array[i];
         total_num_of_loads += curr_phase_num_of_loads;
@@ -168,14 +206,13 @@ int test(splinterdb* spl_handle, FILE *script_input, uint64_t nops,
         printf("Total IO: %" PRIu64 "\n", curr_phase_num_of_loads + curr_phase_num_of_stores);
     }
 
-    printf("\nTotal number of loads: %" PRIu64 "\n", total_num_of_loads);
+    printf("\nTotal number of loads: %" PRIu64"\n", total_num_of_loads);
     printf("Total number of stores: %" PRIu64 "\n", total_num_of_stores);
     printf("Total IO: %" PRIu64 "\n", total_num_of_loads + total_num_of_stores);
 
-    
+
     return 0;
 }
-
 
 
 int main(int argc, char **argv) {
@@ -184,6 +221,7 @@ int main(int argc, char **argv) {
     srand(random_seed);
     int opt;
     char *term;
+    int mode;
     int nops = 0;
     uint64_t num_sections = 2;
     uint64_t count_point1 = UINT64_MAX;
@@ -193,8 +231,15 @@ int main(int argc, char **argv) {
     uint64_t count_point5 = UINT64_MAX;
     uint64_t count_point6 = UINT64_MAX;
 
-    while ((opt = getopt(argc, argv, "i:n:t:u:v:w:x:y:z:")) != -1) {
-        switch(opt) {
+    while ((opt = getopt(argc, argv, "m:i:n:t:u:v:w:x:y:z:")) != -1) {
+        switch (opt) {
+            case 'm':
+                if (strtoull(optarg, &term, 10) == 0) {
+                    mode = YCSB;
+                } else {
+                    mode = CUSTOM;
+                }
+                break;
             case 'i':
                 script_infile = optarg;
                 break;
@@ -222,11 +267,11 @@ int main(int argc, char **argv) {
             case 'z':
                 count_point6 = strtoull(optarg, &term, 10);
                 if (count_point6 != UINT64_MAX) {
-                nops = count_point6;
+                    nops = count_point6;
                 }
                 break;
 
-            
+
             default:
                 exit(1);
         }
@@ -246,10 +291,10 @@ int main(int argc, char **argv) {
     // Basic configuration of a SplinterDB instance
     splinterdb_config splinterdb_cfg;
     memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
-    splinterdb_cfg.filename   = DB_FILE_NAME;
-    splinterdb_cfg.disk_size  = (DB_FILE_SIZE_MB * 1024 * 1024);
+    splinterdb_cfg.filename = DB_FILE_NAME;
+    splinterdb_cfg.disk_size = (DB_FILE_SIZE_MB * 1024 * 1024);
     splinterdb_cfg.cache_size = (CACHE_SIZE_MB * 1024 * 1024);
-    splinterdb_cfg.data_cfg   = &splinter_data_cfg;
+    splinterdb_cfg.data_cfg = &splinter_data_cfg;
 
     splinterdb *spl_handle = NULL; // To a running SplinterDB instance
 
@@ -257,8 +302,8 @@ int main(int argc, char **argv) {
     printf("Created SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
     uint64_t timer = 0;
     timer_start(&timer);
-    test(spl_handle, script_input, nops, num_sections, 
-        count_point1, count_point2, count_point3, count_point4, count_point5, count_point6);
+    test(spl_handle, script_input, nops, num_sections,
+         count_point1, count_point2, count_point3, count_point4, count_point5, count_point6, mode);
     timer_stop(&timer);
     splinterdb_print_stats(spl_handle);
     splinterdb_close(&spl_handle);

@@ -139,8 +139,6 @@ struct clockcache {
 
    // Stats
    cache_stats stats[MAX_THREADS];
-
-   //! I/O Counters
    uint64_t number_of_loads;
    uint64_t number_of_stores;
 };
