@@ -340,6 +340,7 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
+                // TODO upper and lower
                rc = trunk_lookup(
                   spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
                platform_assert_status_ok(rc);
