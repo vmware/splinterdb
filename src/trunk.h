@@ -336,7 +336,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data);
 
 
 platform_status
-trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result);
+trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice, slice);
 
 static inline bool32
 trunk_lookup_found(merge_accumulator *result)

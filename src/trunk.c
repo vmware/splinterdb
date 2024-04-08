@@ -6886,7 +6886,8 @@ trunk_pivot_lookup(trunk_handle      *spl,
 // If any change is made in here, please make similar change in
 // trunk_lookup_async
 platform_status
-trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
+trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice node_lower_bound,
+             slice node_upper_bound)
 {
     // look in memtables
 
