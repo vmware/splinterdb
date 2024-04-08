@@ -6894,7 +6894,11 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
     //     --- 2. for [mt_no = mt->generation..mt->gen_to_incorp]
     // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
     //                also handles switch to READY ^^^^^
-
+#ifdef adaptive_debug
+    trunk_node debug_node;
+    trunk_root_get(spl, &debug_node);
+    platform_default_log("size of p* struct is: %lu", sizeof(debug_node.hdr->p_star));
+#endif
     merge_accumulator_set_to_null(result);
 
     memtable_begin_lookup(spl->mt_ctxt);
@@ -6915,7 +6919,6 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 
     trunk_node node;
     trunk_root_get(spl, &node);
-    platform_default_log("Size of P* struct is: %lu", sizeof(node.hdr->p_star));
 
     // release memtable lookup lock
     memtable_end_lookup(spl->mt_ctxt);
