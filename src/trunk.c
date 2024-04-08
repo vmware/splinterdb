@@ -6919,6 +6919,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         }
     }
 
+    trunk_node result_found_in_node;
     trunk_node node;
     trunk_root_get(spl, &node);
 
@@ -6926,6 +6927,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     memtable_end_lookup(spl->mt_ctxt);
 
     // look in index nodes
+    //! Does this give height of the whole tree? I think so.
     uint16 height = trunk_node_height(&node);
     for (uint16 h = height; h > 0; h--) {
         uint16 pivot_no =
@@ -6940,6 +6942,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         trunk_node child;
         trunk_node_get(spl->cc, pdata->addr, &child);
         trunk_node_unget(spl->cc, &node);
+        //! This acts like the "recursion"
         node = child;
     }
 
@@ -6963,6 +6966,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         // release memtable lookup lock
         memtable_end_lookup(spl->mt_ctxt);
     } else {
+        result_found_in_node = node;
+        //! Do a loop like above to add P* pointer, from the top.
         trunk_node_unget(spl->cc, &node);
     }
     if (spl->cfg.use_stats) {
