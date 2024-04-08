@@ -460,8 +460,8 @@ CTEST2(splinter, test_lookups)
 
       // TODO upper and lower
       // TODO upper and lower
-       slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), NEGATIVE_INFINITY);
-       slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), POSITIVE_INFINITY);
+       slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+       slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
       rc = trunk_lookup(spl, key_buffer_key(&keybuf), &qdata, lower_bound, upper_bound);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
@@ -500,8 +500,8 @@ CTEST2(splinter, test_lookups)
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
 
       // TODO upper and lower
-       slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), NEGATIVE_INFINITY);
-       slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), POSITIVE_INFINITY);
+       slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+       slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
       rc = trunk_lookup(spl, key_buffer_key(&keybuf), &qdata, lower_bound, upper_bound);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",

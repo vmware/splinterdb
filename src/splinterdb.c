@@ -672,8 +672,8 @@ splinterdb_lookup(const splinterdb         *kvs, // IN
    platform_assert(kvs != NULL);
    // trunk_node_lock(kvs->spl->cc, kvs->spl->trunk_root_lock);
    //! Create slices for node lower and upper bound.
-   slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), NEGATIVE_INFINITY);
-   slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), POSITIVE_INFINITY);
+   slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+   slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
    status = trunk_lookup(kvs->spl, target, &_result->value, lower_bound, upper_bound);
    return platform_status_to_int(status);
 }
