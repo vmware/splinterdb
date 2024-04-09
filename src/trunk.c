@@ -1499,11 +1499,13 @@ trunk_set_pivot(trunk_handle *spl,
 
     // debug asserts (should be optimized away)
     if (pivot_no != 0) {
-        debug_only key pred_pivot = trunk_get_pivot(spl, node, pivot_no - 1);
+        debug_only
+        key pred_pivot = trunk_get_pivot(spl, node, pivot_no - 1);
         debug_assert(trunk_key_compare(spl, pred_pivot, pivot_key) < 0);
     }
     if (pivot_no < trunk_num_children(spl, node)) {
-        debug_only key succ_pivot = trunk_get_pivot(spl, node, pivot_no + 1);
+        debug_only
+        key succ_pivot = trunk_get_pivot(spl, node, pivot_no + 1);
         debug_assert(trunk_key_compare(spl, pivot_key, succ_pivot) < 0);
     }
 }
@@ -2018,21 +2020,27 @@ trunk_pivot_branch_tuple_counts(trunk_handle *spl,
 }
 
 debug_only static inline uint64
-trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
-                                  trunk_node *node,
-                                  uint16 pivot_no,
-                                  uint16 branch_no) {
-    trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
-    key min_key = trunk_get_pivot(spl, node, pivot_no);
-    key max_key = trunk_get_pivot(spl, node, pivot_no + 1);
-    btree_pivot_stats stats;
-    btree_count_in_range_by_iterator(spl->cc,
-                                     trunk_btree_config(spl),
-                                     branch->root_addr,
-                                     min_key,
-                                     max_key,
-                                     &stats);
-    return stats.num_kvs;
+trunk_pivot_tuples_in_branch_slow(trunk_handle
+*spl,
+trunk_node *node,
+        uint16
+pivot_no,
+uint16 branch_no
+) {
+trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
+key min_key = trunk_get_pivot(spl, node, pivot_no);
+key max_key = trunk_get_pivot(spl, node, pivot_no + 1);
+btree_pivot_stats stats;
+btree_count_in_range_by_iterator(spl
+->cc,
+trunk_btree_config(spl),
+        branch
+->root_addr,
+min_key,
+max_key,
+&stats);
+return stats.
+num_kvs;
 }
 
 /*
@@ -2347,10 +2355,14 @@ trunk_subbundle_filter(trunk_handle *spl,
 }
 
 debug_only static inline uint16
-trunk_subbundle_branch_count(trunk_handle *spl,
-                             trunk_node *node,
-                             trunk_subbundle *sb) {
-    return trunk_subtract_branch_number(spl, sb->end_branch, sb->start_branch);
+trunk_subbundle_branch_count(trunk_handle
+*spl,
+trunk_node *node,
+        trunk_subbundle
+*sb) {
+return
+trunk_subtract_branch_number(spl, sb
+->end_branch, sb->start_branch);
 }
 
 static inline uint16
@@ -2420,7 +2432,7 @@ trunk_leaf_rebundle_all_branches(trunk_handle *spl,
     debug_assert(trunk_node_height(node) == 0);
     uint16 bundle_no = trunk_get_new_bundle(spl, node);
     if (trunk_branch_is_whole(spl, node, trunk_start_branch(spl, node))) {
-        trunk_subbundle *sb = trunk_leaf_get_new_subbundle_at_head(spl, node);
+        trunk_subbundle * sb = trunk_leaf_get_new_subbundle_at_head(spl, node);
         sb->start_branch = trunk_start_branch(spl, node);
         sb->end_branch = trunk_start_frac_branch(spl, node);
         routing_filter *filter = trunk_subbundle_filter(spl, node, sb, 0);
@@ -2459,7 +2471,7 @@ static inline uint16
 trunk_bundle_start_branch(trunk_handle *spl,
                           trunk_node *node,
                           trunk_bundle *bundle) {
-    trunk_subbundle *subbundle =
+    trunk_subbundle * subbundle =
             trunk_get_subbundle(spl, node, bundle->start_subbundle);
     return subbundle->start_branch;
 }
@@ -2473,7 +2485,7 @@ trunk_bundle_end_branch(trunk_handle *spl,
                         trunk_bundle *bundle) {
     uint16 last_subbundle_no =
             trunk_subtract_subbundle_number(spl, bundle->end_subbundle, 1);
-    trunk_subbundle *subbundle =
+    trunk_subbundle * subbundle =
             trunk_get_subbundle(spl, node, last_subbundle_no);
     return subbundle->end_branch;
 }
@@ -2950,7 +2962,7 @@ trunk_replace_bundle_branches(trunk_handle *spl,
     uint16 first_later_sb = bundle->end_subbundle;
     if (repl_branch != NULL) {
         uint16 sb_no = bundle->start_subbundle;
-        trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+        trunk_subbundle * sb = trunk_get_subbundle(spl, node, sb_no);
         sb->end_branch = trunk_add_branch_number(spl, bundle_start_branch, 1);
         sb->end_filter = trunk_bundle_end_filter(spl, node, bundle);
         sb->state = SB_STATE_COMPACTED;
@@ -2960,7 +2972,7 @@ trunk_replace_bundle_branches(trunk_handle *spl,
 
     for (uint16 sb_no = first_later_sb; sb_no != node->hdr->end_subbundle;
          sb_no = trunk_add_subbundle_number(spl, sb_no, 1)) {
-        trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+        trunk_subbundle * sb = trunk_get_subbundle(spl, node, sb_no);
         sb->start_branch =
                 trunk_subtract_branch_number(spl, sb->start_branch, branch_diff);
         sb->end_branch =
@@ -3183,7 +3195,7 @@ trunk_btree_lookup_and_merge_async(trunk_handle *spl,    // IN
 memtable *
 trunk_try_get_memtable(trunk_handle *spl, uint64 generation) {
     uint64 memtable_idx = generation % TRUNK_NUM_MEMTABLES;
-    memtable *mt = &spl->mt_ctxt->mt[memtable_idx];
+    memtable * mt = &spl->mt_ctxt->mt[memtable_idx];
     if (mt->generation != generation) {
         mt = NULL;
     }
@@ -3197,7 +3209,7 @@ trunk_try_get_memtable(trunk_handle *spl, uint64 generation) {
 memtable *
 trunk_get_memtable(trunk_handle *spl, uint64 generation) {
     uint64 memtable_idx = generation % TRUNK_NUM_MEMTABLES;
-    memtable *mt = &spl->mt_ctxt->mt[memtable_idx];
+    memtable * mt = &spl->mt_ctxt->mt[memtable_idx];
     platform_assert(mt->generation == generation,
                     "mt->generation=%lu, mt_ctxt->generation=%lu, "
                     "mt_ctxt->generation_retired=%lu, generation=%lu\n",
@@ -3213,7 +3225,7 @@ trunk_get_compacted_memtable(trunk_handle *spl, uint64 generation) {
     uint64 memtable_idx = generation % TRUNK_NUM_MEMTABLES;
 
     // this call asserts the generation is correct
-    memtable *mt = trunk_get_memtable(spl, generation);
+    memtable * mt = trunk_get_memtable(spl, generation);
     platform_assert(mt->state != MEMTABLE_STATE_READY);
 
     return &spl->compacted_memtable[memtable_idx];
@@ -3221,14 +3233,14 @@ trunk_get_compacted_memtable(trunk_handle *spl, uint64 generation) {
 
 static inline void
 trunk_memtable_inc_ref(trunk_handle *spl, uint64 mt_gen) {
-    memtable *mt = trunk_get_memtable(spl, mt_gen);
+    memtable * mt = trunk_get_memtable(spl, mt_gen);
     allocator_inc_ref(spl->al, mt->root_addr);
 }
 
 
 void
 trunk_memtable_dec_ref(trunk_handle *spl, uint64 generation) {
-    memtable *mt = trunk_get_memtable(spl, generation);
+    memtable * mt = trunk_get_memtable(spl, generation);
     memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
 
     // the branch in the compacted memtable is now in the tree, so don't zap it,
@@ -3303,7 +3315,7 @@ trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg) {
     }
 
     // this call is safe because we hold the insert lock
-    memtable *mt = trunk_get_memtable(spl, generation);
+    memtable * mt = trunk_get_memtable(spl, generation);
     uint64 leaf_generation; // used for ordering the log
     rc = memtable_insert(
             spl->mt_ctxt, mt, spl->heap_id, tuple_key, msg, &leaf_generation);
@@ -3334,7 +3346,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle *spl,
                                         const threadid tid) {
     timestamp comp_start = platform_get_timestamp();
 
-    memtable *mt = trunk_get_memtable(spl, generation);
+    memtable * mt = trunk_get_memtable(spl, generation);
 
     memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
     mini_release(&mt->mini, NULL_KEY);
@@ -3448,7 +3460,7 @@ trunk_try_start_incorporate(trunk_handle *spl, uint64 generation) {
     bool32 should_start = FALSE;
 
     memtable_lock_incorporation_lock(spl->mt_ctxt);
-    memtable *mt = trunk_try_get_memtable(spl, generation);
+    memtable * mt = trunk_try_get_memtable(spl, generation);
     if ((mt == NULL)
         || (generation != memtable_generation_to_incorporate(spl->mt_ctxt))) {
         should_start = FALSE;
@@ -3467,7 +3479,7 @@ trunk_try_continue_incorporate(trunk_handle *spl, uint64 next_generation) {
     bool32 should_continue = FALSE;
 
     memtable_lock_incorporation_lock(spl->mt_ctxt);
-    memtable *mt = trunk_try_get_memtable(spl, next_generation);
+    memtable * mt = trunk_try_get_memtable(spl, next_generation);
     if (mt == NULL) {
         should_continue = FALSE;
         goto unlock_incorp_lock;
@@ -3498,7 +3510,7 @@ trunk_install_new_compacted_subbundle(trunk_handle *spl,
     req->bundle_no = trunk_get_new_bundle(spl, node);
 
     trunk_bundle *bundle = trunk_get_bundle(spl, node, req->bundle_no);
-    trunk_subbundle *sb = trunk_get_new_subbundle(spl, node, 1);
+    trunk_subbundle * sb = trunk_get_new_subbundle(spl, node, 1);
     trunk_branch *branch = trunk_get_new_branch(spl, node);
     *branch = *new_branch;
     bundle->start_subbundle = trunk_subbundle_no(spl, node, sb);
@@ -3622,7 +3634,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle *spl,
     * lookups from accessing the memtable that's being incorporated).
     */
     memtable_block_lookups(spl->mt_ctxt);
-    memtable *mt = trunk_get_memtable(spl, generation);
+    memtable * mt = trunk_get_memtable(spl, generation);
     // Normally need to hold incorp_mutex, but debug code and also guaranteed no
     // one is changing gen_to_incorp (we are the only thread that would try)
     debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
@@ -3721,7 +3733,7 @@ trunk_memtable_flush(trunk_handle *spl, uint64 generation) {
 
 void
 trunk_memtable_flush_virtual(void *arg, uint64 generation) {
-    trunk_handle *spl = arg;
+    trunk_handle * spl = arg;
     trunk_memtable_flush(spl, generation);
 }
 
@@ -3729,7 +3741,7 @@ static inline uint64
 trunk_memtable_root_addr_for_lookup(trunk_handle *spl,
                                     uint64 generation,
                                     bool32 *is_compacted) {
-    memtable *mt = trunk_get_memtable(spl, generation);
+    memtable * mt = trunk_get_memtable(spl, generation);
     platform_assert(memtable_ok_to_lookup(mt));
 
     if (memtable_ok_to_lookup_compacted(mt)) {
@@ -3856,7 +3868,7 @@ trunk_compact_bundle_node_copy_path(trunk_handle *spl,
 
 static inline bool32
 trunk_build_filter_should_abort(trunk_compact_bundle_req *req, trunk_node *node) {
-    trunk_handle *spl = req->spl;
+    trunk_handle * spl = req->spl;
     if (trunk_node_is_leaf(node)
         && trunk_compact_bundle_node_has_split(spl, req, node)) {
         platform_stream_handle stream;
@@ -3879,7 +3891,7 @@ trunk_build_filter_should_abort(trunk_compact_bundle_req *req, trunk_node *node)
 
 static inline bool32
 trunk_build_filter_should_skip(trunk_compact_bundle_req *req, trunk_node *node) {
-    trunk_handle *spl = req->spl;
+    trunk_handle * spl = req->spl;
     if (!trunk_bundle_live(spl, node, req->bundle_no)) {
         platform_stream_handle stream;
         platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
@@ -3902,7 +3914,7 @@ trunk_build_filter_should_skip(trunk_compact_bundle_req *req, trunk_node *node) 
 static inline bool32
 trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
                                     trunk_node *node) {
-    trunk_handle *spl = req->spl;
+    trunk_handle * spl = req->spl;
     if (req->bundle_no != trunk_start_bundle(spl, node)) {
         platform_stream_handle stream;
         platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
@@ -4114,7 +4126,7 @@ trunk_garbage_collect_filters(trunk_handle *spl,
 void
 trunk_bundle_build_filters(void *arg, void *scratch) {
     trunk_compact_bundle_req *compact_req = (trunk_compact_bundle_req *) arg;
-    trunk_handle *spl = compact_req->spl;
+    trunk_handle * spl = compact_req->spl;
 
     bool32 should_continue_build_filters = TRUE;
     while (should_continue_build_filters) {
@@ -4351,7 +4363,7 @@ trunk_flush_into_bundle(trunk_handle *spl,    // IN
 
     // if there are whole branches, flush them into a subbundle
     if (trunk_branch_is_whole(spl, parent, pdata->start_branch)) {
-        trunk_subbundle *child_sb = trunk_get_new_subbundle(spl, child, 1);
+        trunk_subbundle * child_sb = trunk_get_new_subbundle(spl, child, 1);
         bundle->start_subbundle = trunk_subbundle_no(spl, child, child_sb);
         child_sb->state = SB_STATE_UNCOMPACTED_INDEX;
 
@@ -4386,11 +4398,11 @@ trunk_flush_into_bundle(trunk_handle *spl,    // IN
         for (uint16 parent_sb_no = pivot_start_sb_no;
              parent_sb_no != trunk_end_subbundle(spl, parent);
              parent_sb_no = trunk_add_subbundle_number(spl, parent_sb_no, 1)) {
-            trunk_subbundle *parent_sb =
+            trunk_subbundle * parent_sb =
                     trunk_get_subbundle(spl, parent, parent_sb_no);
             uint16 filter_count =
                     trunk_subbundle_filter_count(spl, parent, parent_sb);
-            trunk_subbundle *child_sb =
+            trunk_subbundle * child_sb =
                     trunk_get_new_subbundle(spl, child, filter_count);
             child_sb->state = parent_sb->state;
             child_sb->start_branch = trunk_end_branch(spl, child);
@@ -4960,7 +4972,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf) {
     trunk_compact_bundle_req *req = arg;
     trunk_task_scratch *task_scratch = scratch_buf;
     compact_bundle_scratch *scratch = &task_scratch->compact_bundle;
-    trunk_handle *spl = req->spl;
+    trunk_handle * spl = req->spl;
     threadid tid;
 
     /*
@@ -6307,7 +6319,7 @@ trunk_range_iterator_can_next(iterator *itor) {
 
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor) {
-    trunk_handle *spl = range_itor->spl;
+    trunk_handle * spl = range_itor->spl;
     if (range_itor->merge_itor != NULL) {
         merge_iterator_destroy(range_itor->spl->heap_id, &range_itor->merge_itor);
         for (uint64 i = 0; i < range_itor->num_branches; i++) {
@@ -6655,7 +6667,7 @@ trunk_bundle_lookup(trunk_handle *spl,
     for (uint16 sb_off = 0; sb_off != sb_count; sb_off++) {
         uint16 sb_no = trunk_subtract_subbundle_number(
                 spl, bundle->end_subbundle, sb_off + 1);
-        trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+        trunk_subbundle * sb = trunk_get_subbundle(spl, node, sb_no);
         bool32 should_continue;
         if (sb->state == SB_STATE_COMPACTED) {
             should_continue =
@@ -6771,24 +6783,22 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         //! Check if messages are needed to be flushed.
         if (trunk_pivot_needs_flush(spl, &node, pdata, 0)) {
             if (node.addr == spl->root_addr) {
-            temp = node;
-        } else {
-            trunk_root_get(spl, &temp);
-            trunk_node_claim(spl->cc, &node);
-        }
-        //! Take claims and locks
-        trunk_node_claim(spl->cc, &temp);
-        //! Get write lock on parent
-        trunk_node_lock(spl->cc, &node);
+                temp = node;
+                //! Just lock the root node, no need to do anything else.
+                trunk_node_lock(spl->cc, &node);
+            } else {
+                trunk_root_get(spl, &temp);
+                trunk_node_claim(spl->cc, &temp);
+                trunk_node_lock(spl->cc, &node);
+            }
             trunk_flush(spl, &node, pdata, FALSE);
-           trunk_node_unlock(spl->cc, &node);
-        trunk_node_unclaim(spl->cc, &temp);
-        trunk_node_unget(spl->cc, &temp);
-        //! Continue
-        if (temp.addr != node.addr) {
-            trunk_node_unclaim(spl->cc, &node);
-            trunk_node_unget(spl->cc, &node);
-        }
+            if (node.addr == spl->root_addr) {
+                trunk_node_unlock(spl->cc, &node);
+            } else {
+                trunk_node_unlock(spl->cc, &node);
+                trunk_node_unclaim(spl->cc, &node);
+                trunk_node_unget(spl->cc, &temp);
+            }
         }
 #endif
         node = child;
@@ -7458,7 +7468,7 @@ trunk_create(trunk_config *cfg,
              task_system *ts,
              allocator_root_id id,
              platform_heap_id hid) {
-    trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+    trunk_handle * spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
             hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
     memmove(&spl->cfg, cfg, sizeof(*cfg));
 
@@ -7570,7 +7580,7 @@ trunk_mount(trunk_config *cfg,
             task_system *ts,
             allocator_root_id id,
             platform_heap_id hid) {
-    trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+    trunk_handle * spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
             hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
     memmove(&spl->cfg, cfg, sizeof(*cfg));
 
@@ -7763,7 +7773,7 @@ trunk_destroy(trunk_handle *spl) {
  */
 void
 trunk_unmount(trunk_handle **spl_in) {
-    trunk_handle *spl = *spl_in;
+    trunk_handle * spl = *spl_in;
     srq_deinit(&spl->srq);
     trunk_prepare_for_shutdown(spl);
     trunk_set_super_block(spl, FALSE, TRUE, FALSE);
@@ -7962,11 +7972,11 @@ trunk_verify_node(trunk_handle *spl, trunk_node *node) {
     }
 
     // check subbundles are coherent
-    trunk_subbundle *last_sb = NULL;
+    trunk_subbundle * last_sb = NULL;
     for (uint16 sb_no = trunk_start_subbundle(spl, node);
          sb_no != trunk_end_subbundle(spl, node);
          sb_no = trunk_add_subbundle_number(spl, sb_no, 1)) {
-        trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+        trunk_subbundle * sb = trunk_get_subbundle(spl, node, sb_no);
         if (sb_no == trunk_start_subbundle(spl, node)) {
             if (sb->start_branch != trunk_start_frac_branch(spl, node)) {
                 platform_error_log("trunk_verify: start_branch mismatch\n");
@@ -8010,7 +8020,7 @@ trunk_verify_node(trunk_handle *spl, trunk_node *node) {
     if (trunk_subbundle_count(spl, node) != 0) {
         uint16 hdr_sb_filter_start = trunk_start_sb_filter(spl, node);
         uint16 sb_start = trunk_start_subbundle(spl, node);
-        trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_start);
+        trunk_subbundle * sb = trunk_get_subbundle(spl, node, sb_start);
         uint16 subbundle_sb_filter_start = sb->start_filter;
         if (hdr_sb_filter_start != subbundle_sb_filter_start) {
             platform_error_log(
@@ -8060,7 +8070,7 @@ trunk_verify_node(trunk_handle *spl, trunk_node *node) {
         } else {
             trunk_bundle *bundle =
                     trunk_get_bundle(spl, node, pdata->start_bundle);
-            trunk_subbundle *sb =
+            trunk_subbundle * sb =
                     trunk_get_subbundle(spl, node, bundle->start_subbundle);
             if (pdata->start_branch != sb->start_branch) {
                 if (!trunk_branch_in_range(spl,
@@ -8249,7 +8259,8 @@ trunk_verify_tree(trunk_handle *spl) {
  */
 bool32
 trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg) {
-    uint64 *bytes_used_on_level = (uint64 *) arg;
+    uint64 * bytes_used_on_level = (uint64 * )
+    arg;
     uint64 bytes_used_in_node = 0;
     trunk_node node;
     // TODO space
@@ -8477,7 +8488,7 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
         // Iterate through all the sub-bundles ...
         for (uint16 sb_no = start_sb; sb_no != end_sb;
              sb_no = trunk_add_subbundle_number(spl, sb_no, 1)) {
-            trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+            trunk_subbundle * sb = trunk_get_subbundle(spl, node, sb_no);
             // Generate marker line if curr branch is a sub-bundle's start branch
             platform_assert(sb->state != SB_STATE_INVALID);
 
@@ -8573,7 +8584,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl) {
     uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
     uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
     for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-        memtable *mt = trunk_get_memtable(spl, mt_gen);
+        memtable * mt = trunk_get_memtable(spl, mt_gen);
         platform_log(log_handle,
                      "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
                      mt->root_addr,
@@ -8644,7 +8655,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl) 
     uint32 height = trunk_node_height(&node);
     trunk_node_unget(spl->cc, &node);
 
-    trunk_stats *global;
+    trunk_stats * global;
 
     global = TYPED_ZALLOC(spl->heap_id, global);
     if (global == NULL) {
@@ -8901,11 +8912,13 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl) 
                  "| leaf splits | avg leaves created | avg split time (ns) | max split time (ns) | single splits | ss avg tuples | ss max tuples |\n");
     platform_log(log_handle,
                  "--------------|--------------------|---------------------|---------------------|---------------|---------------|---------------|\n");
-    platform_log(log_handle, "| %11lu | "FRACTION_FMT(18, 2)" | %19lu | %19lu | %13lu | %13lu | %13lu |\n",
-                 global->leaf_splits, FRACTION_ARGS(avg_leaves_created),
-                 leaf_avg_split_time, global->leaf_split_max_time_ns,
-                 global->single_leaf_splits, single_leaf_avg_tuples,
-                 global->single_leaf_max_tuples);
+    platform_log(log_handle, "| %11lu | "
+    FRACTION_FMT(18, 2)
+    " | %19lu | %19lu | %13lu | %13lu | %13lu |\n",
+            global->leaf_splits, FRACTION_ARGS(avg_leaves_created),
+            leaf_avg_split_time, global->leaf_split_max_time_ns,
+            global->single_leaf_splits, single_leaf_avg_tuples,
+            global->single_leaf_max_tuples);
     platform_log(log_handle,
                  "-------------------------------------------------------------------------------------------------------------------------------|\n");
     platform_log(log_handle, "\n");
@@ -8979,7 +8992,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl) {
     uint32 height = trunk_node_height(&node);
     trunk_node_unget(spl->cc, &node);
 
-    trunk_stats *global;
+    trunk_stats * global;
 
     global = TYPED_ZALLOC(spl->heap_id, global);
     if (global == NULL) {
@@ -9037,12 +9050,19 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl) {
                     init_fraction(global->filter_false_positives[rev_h],
                                   filter_negatives);
         }
-        platform_log(log_handle, "%8u | "FRACTION_FMT(18, 2)" | "FRACTION_FMT(13, 4)" | "
-                FRACTION_FMT(14, 4)" | "FRACTION_FMT(18, 4)"\n",
-                     rev_h, FRACTION_ARGS(avg_filter_lookups),
-                     FRACTION_ARGS(avg_filter_false_positives),
-                     FRACTION_ARGS(false_positives_in_revision),
-                     FRACTION_ARGS(avg_branch_lookups));
+        platform_log(log_handle, "%8u | "
+        FRACTION_FMT(18, 2)
+        " | "
+        FRACTION_FMT(13, 4)
+        " | "
+        FRACTION_FMT(14, 4)
+        " | "
+        FRACTION_FMT(18, 4)
+        "\n",
+                rev_h, FRACTION_ARGS(avg_filter_lookups),
+                FRACTION_ARGS(avg_filter_false_positives),
+                FRACTION_ARGS(false_positives_in_revision),
+                FRACTION_ARGS(avg_branch_lookups));
     }
     platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
     platform_log(log_handle, "\n");
@@ -9313,8 +9333,10 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg) {
                 init_fraction(kib_in_branch * 1024, kv_bytes_in_branch);
         platform_log(
                 log_handle,
-                "| %6u | %12lu | %12lu | %9luKiB | %8luKiB |   " FRACTION_FMT(
-                        2, 2) "   |\n",
+                "| %6u | %12lu | %12lu | %9luKiB | %8luKiB |   "
+        FRACTION_FMT(
+                2, 2)
+        "   |\n",
                 branch_no,
                 addr,
                 num_tuples_in_branch,
