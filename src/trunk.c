@@ -6774,6 +6774,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             temp = node;
         } else {
             trunk_root_get(spl, &temp);
+            trunk_node_claim(spl->cc, &node);
         }
         //! Take claims and locks
         trunk_node_claim(spl->cc, &temp);
@@ -6783,12 +6784,13 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
            trunk_node_unlock(spl->cc, &node);
         trunk_node_unclaim(spl->cc, &temp);
         trunk_node_unget(spl->cc, &temp);
-        }
-#endif
         //! Continue
         if (temp.addr != node.addr) {
+            trunk_node_unclaim(spl->cc, &node);
             trunk_node_unget(spl->cc, &node);
         }
+        }
+#endif
         node = child;
     }
 
