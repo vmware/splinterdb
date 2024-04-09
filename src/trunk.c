@@ -6943,7 +6943,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         }
         trunk_node child;
         trunk_node_get(spl->cc, pdata->addr, &child);
-        query_path[h] = node;
+        query_path[h] = node.addr;
         trunk_node_unget(spl->cc, &node);
         //! This acts like the "recursion"
         node = child;
