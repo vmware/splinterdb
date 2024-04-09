@@ -6797,11 +6797,13 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 trunk_node_unlock(spl->cc, &node);
             } else {
                 trunk_node_unlock(spl->cc, &node);
-                trunk_node_unclaim(spl->cc, &node);
                 trunk_node_unget(spl->cc, &temp);
             }
         }
 #endif
+        if (node.addr != spl->root_addr) {
+            trunk_node_unclaim(spl->cc, &node);
+        }
         node = child;
     }
 
