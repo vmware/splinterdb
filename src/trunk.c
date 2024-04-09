@@ -6778,8 +6778,6 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         //! we need to get a claim on the root also.
         //! Check if current 'node' is the root.
         //! Claim on root
-#ifdef ADAPTIVE_DEBUG
-
         //! Check if messages are needed to be flushed.
         if (trunk_pivot_needs_flush(spl, &node, pdata, 0)) {
             if (node.addr == spl->root_addr) {
@@ -6800,10 +6798,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 trunk_node_unget(spl->cc, &temp);
             }
         }
-#endif
-        if (node.addr != spl->root_addr) {
-            trunk_node_unclaim(spl->cc, &node);
-        }
+        trunk_node_unget(spl->cc, &node);
         node = child;
     }
 
