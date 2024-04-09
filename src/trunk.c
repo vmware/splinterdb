@@ -6919,7 +6919,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         }
     }
 
-    trunk_node result_found_in_node;
+    //trunk_node result_found_in_node;
     trunk_node node;
     trunk_root_get(spl, &node);
 
