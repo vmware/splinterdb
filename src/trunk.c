@@ -6929,6 +6929,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     // look in index nodes
     //! Does this give height of the whole tree? I think so.
     uint16 height = trunk_node_height(&node);
+    uint64 *query_path = TYPED_ARRAY_ZALLOC(spl->heap_id, query_path, height);
+    platform_default_log("Hola %p", query_path);
     for (uint16 h = height; h > 0; h--) {
         uint16 pivot_no =
                 trunk_find_pivot(spl, &node, target, less_than_or_equal);
@@ -6961,14 +6963,16 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         data_merge_tuples_final(spl->cfg.data_cfg, target, result);
     }
     found_final_answer_early:
-
     if (found_in_memtable) {
         // release memtable lookup lock
         memtable_end_lookup(spl->mt_ctxt);
     } else {
         result_found_in_node = node;
-        platform_default_log("Node found addr: %lu", result_found_in_node.addr);
         //! Do a loop like above to add P* pointer, from the top.
+        for (uint16 h = height; h > 0; h--) {
+            //! check if we have a pointer to this node
+            for (uint16 j = 0; j < spl)
+        }
         trunk_node_unget(spl->cc, &node);
     }
     if (spl->cfg.use_stats) {
