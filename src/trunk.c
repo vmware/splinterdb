@@ -6919,7 +6919,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         }
     }
 
-    //trunk_node result_found_in_node;
+    uint64 result_found_at_node_addr;
     trunk_node node;
     trunk_root_get(spl, &node);
 
@@ -6930,7 +6930,6 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     //! Does this give height of the whole tree? I think so.
     uint16 height = trunk_node_height(&node);
     uint64 *query_path = TYPED_ARRAY_ZALLOC(spl->heap_id, query_path, height);
-    platform_default_log("Hola %p", query_path);
     for (uint16 h = height; h > 0; h--) {
         uint16 pivot_no =
                 trunk_find_pivot(spl, &node, target, less_than_or_equal);
@@ -6939,10 +6938,13 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         bool32            should_continue =
                 trunk_pivot_lookup(spl, &node, pdata, target, result);
         if (!should_continue) {
+            result_found_at_node_addr = node.addr;
             goto found_final_answer_early;
         }
         trunk_node child;
         trunk_node_get(spl->cc, pdata->addr, &child);
+        //! Problem here is that we will have to read all the nodes again,
+        //! but it is likely that they will be in the cache.
         query_path[h] = node.addr;
         trunk_node_unget(spl->cc, &node);
         //! This acts like the "recursion"
@@ -6954,6 +6956,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     bool32            should_continue =
             trunk_pivot_lookup(spl, &node, pdata, target, result);
     if (!should_continue) {
+        result_found_at_node_addr = node.addr;
         goto found_final_answer_early;
     }
 
@@ -6968,6 +6971,34 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         // release memtable lookup lock
         memtable_end_lookup(spl->mt_ctxt);
     } else {
+#ifdef ADAPTIVE_DEBUG
+        trunk_node temp_root;
+        trunk_root_get(spl, &temp_root);
+        //! Iterate through the query path array and check if we have a pointer to the
+        //! node at which the result was found.
+        for (uint16 h = height; h > 0; h--) {
+            uint16 pivot_no =
+                    trunk_find_pivot(spl, &temp_root, target, less_than_or_equal);
+            trunk_pivot_data *pivot = trunk_get_pivot_data(spl, &temp_root, pivot_no);
+            // TODO: check if we have enough space to add a P* pivot.
+            // TODO: check P* pivots also
+            if (pivot->addr == result_found_at_node_addr) {
+                //! This means that we already have a p* pivot to this node.
+                //! I think we need to break;
+                break;
+            } else {
+                //! add P* pivot, check for space
+            }
+            //! If no space, go one level down.
+            trunk_node child;
+            trunk_node_get(spl->cc, pivot->addr, &child);
+            //! Problem here is that we will have to read all the nodes again,
+            //! but it is likely that they will be in the cache.
+            //! This acts like the "recursion"
+            temp_root = child;
+        }
+        trunk_node_unget(spl->cc, &temp_root);
+#endif
         trunk_node_unget(spl->cc, &node);
     }
     if (spl->cfg.use_stats) {
