@@ -6783,8 +6783,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         //! Check if messages are needed to be flushed.
         if (trunk_pivot_needs_flush(spl, &node, pdata, 0)) {
             if (node.addr == spl->root_addr) {
-                temp = node;
                 //! Just lock the root node, no need to do anything else.
+                trunk_node_claim(spl->cc, &node);
                 trunk_node_lock(spl->cc, &node);
             } else {
                 trunk_root_get(spl, &temp);
@@ -6793,6 +6793,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             }
             trunk_flush(spl, &node, pdata, FALSE);
             if (node.addr == spl->root_addr) {
+                trunk_node_unclaim(spl->cc, &node);
                 trunk_node_unlock(spl->cc, &node);
             } else {
                 trunk_node_unlock(spl->cc, &node);
