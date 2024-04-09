@@ -6758,7 +6758,6 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         }
         trunk_node child;
         trunk_node_get(spl->cc, pdata->addr, &child);
-        trunk_node_unget(spl->cc, &node);
         //! This acts like the "recursion"
         //! Before we do this, flush the messages.
         // TODO check and flush
@@ -6785,9 +6784,9 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         trunk_node_unclaim(spl->cc, &temp);
         trunk_node_unget(spl->cc, &temp);
         }
-
 #endif
         //! Continue
+        trunk_node_unget(spl->cc, &node);
         node = child;
     }
 
