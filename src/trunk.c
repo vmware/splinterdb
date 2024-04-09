@@ -6786,7 +6786,9 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         }
 #endif
         //! Continue
-        trunk_node_unget(spl->cc, &node);
+        if (temp.addr != node.addr) {
+            trunk_node_unget(spl->cc, &node);
+        }
         node = child;
     }
 
