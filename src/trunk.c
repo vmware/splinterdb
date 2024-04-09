@@ -6967,7 +6967,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         memtable_end_lookup(spl->mt_ctxt);
     } else {
         result_found_in_node = node;
-        platform_default_log(result_found_in_node.addr);
+        platform_default_log((void *)result_found_in_node.addr);
         //! Do a loop like above to add P* pointer, from the top.
         trunk_node_unget(spl->cc, &node);
     }
