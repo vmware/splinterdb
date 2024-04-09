@@ -6738,6 +6738,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     trunk_node node;
     trunk_node temp;
     trunk_root_get(spl, &node);
+    trunk_root_get(spl, &temp);
 
     // release memtable lookup lock
     memtable_end_lookup(spl->mt_ctxt);
@@ -6770,11 +6771,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
 
         //! Check if messages are needed to be flushed.
         if (trunk_pivot_needs_flush(spl, &node, pdata, 0)) {
-            if (node.addr == spl->root_addr) {
-            temp = node;
-        } else {
-            trunk_root_get(spl, &temp);
-        }
+
         //! Take claims and locks
         trunk_node_claim(spl->cc, &temp);
         //! Get write lock on parent
@@ -6783,12 +6780,14 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
            trunk_node_unlock(spl->cc, &node);
         trunk_node_unclaim(spl->cc, &temp);
         trunk_node_unget(spl->cc, &temp);
-        }
-#endif
+
         //! Continue
-        if (temp.addr != node.addr) {
+          if (temp.addr != node.addr) {
             trunk_node_unget(spl->cc, &node);
         }
+        }
+#endif
+
         node = child;
     }
 
