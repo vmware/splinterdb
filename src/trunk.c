@@ -6748,7 +6748,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
 
     uint64 result_found_at_node_addr;
     trunk_node node;
-    trunk_node temp;
+    //trunk_node temp;
     trunk_root_get(spl, &node);
 
     // release memtable lookup lock
