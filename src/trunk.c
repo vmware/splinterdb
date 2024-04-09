@@ -6789,8 +6789,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
 //                trunk_node_claim(spl->cc, &temp);
 //                trunk_node_lock(spl->cc, &node);
 //            }
-            if (node.addr != spl->root_addr)
-                trunk_root_full_claim(spl);
+            trunk_root_full_claim(spl);
             trunk_node_lock(spl->cc, &node);
             trunk_flush(spl, &node, pdata, FALSE);
 //            if (node.addr == spl->root_addr) {
@@ -6801,8 +6800,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
 //                trunk_node_unget(spl->cc, &temp);
 //            }
             trunk_node_unlock(spl->cc, &node);
-            if (node.addr != spl->root_addr)
-                trunk_root_full_unclaim(spl);
+            trunk_root_full_unclaim(spl);
         }
         trunk_node_unget(spl->cc, &node);
         node = child;
