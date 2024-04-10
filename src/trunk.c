@@ -6878,6 +6878,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         // release memtable lookup lock
         memtable_end_lookup(spl->mt_ctxt);
     } else {
+        trunk_node_unget(spl->cc, &node);
         trunk_node temp_root;
         trunk_root_get(spl, &temp_root);
         //! Iterate through the query path array and check if we have a pointer to the
@@ -6895,7 +6896,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             } else {
                 //! add P* pivot, check for space
                 //! Calculate space taken by fractional branches
-                node.hdr->aux_pivot = aux;
+                temp_root.hdr->aux_pivot = aux;
                 break;
             }
             //! If no space, go one level down.
@@ -6905,9 +6906,6 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             //! but it is likely that they will be in the cache.
             //! This acts like the "recursion"
             temp_root = child;
-        }
-        if (temp_root.addr != node.addr) {
-            trunk_node_unget(spl->cc, &node);
         }
         trunk_node_unget(spl->cc, &temp_root);
     }
