@@ -535,8 +535,8 @@ typedef struct ONDISK trunk_pivot_data {
 } trunk_pivot_data;
 
 typedef struct ONDISK trunk_aux_pivot {
-    slice range_start;
-    slice range_end;
+    key range_start;
+    key range_end;
     uint64 node_addr;
     uint64 num_hops;
 } trunk_aux_pivot;
@@ -6763,8 +6763,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
 
     // look in index nodes
     //! Does this give height of the whole tree? I think so.
-    key upper_bound = key_create_from_slice(node_upper_bound);
-    key lower_bound = key_create_from_slice(node_lower_bound);
+    key upper_bound = POSITIVE_INFINITY_KEY;
+    key lower_bound = NEGATIVE_INFINITY_KEY;
     trunk_aux_pivot *aux;
     uint16 height = trunk_node_height(&node);
     for (uint16 h = height; h > 0; h--) {
@@ -6779,8 +6779,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         if (!should_continue) {
             //! We have found the result, so let's create a P* pivot.
             aux = TYPED_ZALLOC(spl->heap_id, aux);
-            aux->range_start = lower_bound.user_slice;
-            aux->range_end = upper_bound.user_slice;
+            aux->range_start = lower_bound;
+            aux->range_end = upper_bound;
             aux->node_addr = node.addr;
             aux->num_hops = h;
             result_found_at_node_addr = node.addr;
@@ -6792,6 +6792,25 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             key start = key_create_from_slice(node.hdr->aux_pivot->range_start);
             key end = key_create_from_slice(node.hdr->aux_pivot->range_end);
             int cmp;
+            if (start == NEGATIVE_INFINITY_KEY) {
+                cmp = trunk_key_compare(spl, end, target);
+                switch(cmp) {
+                    case less_than:
+                    case less_than_or_equal:
+                        trunk_node_get(spl->cc, node.hdr->aux_pivot->node_addr, &child);
+                        h -= node.hdr->aux_pivot->num_hops;
+                        continue;
+                }
+            } else if (end == POSITIVE_INFINITY_KEY) {
+                cmp = trunk_key_compare(spl, start, target);
+                switch(cmp) {
+                    case greater_than:
+                    case greater_than_or_equal:
+                        trunk_node_get(spl->cc, node.hdr->aux_pivot->node_addr, &child);
+                        h -= node.hdr->aux_pivot->num_hops;
+                        continue;
+                }
+            }
             cmp = trunk_key_compare(spl, start, target);
             switch(cmp) {
                 case greater_than:
