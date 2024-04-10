@@ -6792,7 +6792,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             key start = node.hdr->aux_pivot->range_start;
             key end = node.hdr->aux_pivot->range_end;
             int cmp;
-            if (start == NEGATIVE_INFINITY_KEY) {
+            if (start.kind == NEGATIVE_INFINITY) {
                 cmp = trunk_key_compare(spl, end, target);
                 switch(cmp) {
                     case less_than:
@@ -6801,7 +6801,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                         h -= node.hdr->aux_pivot->num_hops;
                         continue;
                 }
-            } else if (end == POSITIVE_INFINITY_KEY) {
+            } else if (end.kind == POSITIVE_INFINITY) {
                 cmp = trunk_key_compare(spl, start, target);
                 switch(cmp) {
                     case greater_than:
