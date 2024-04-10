@@ -6766,15 +6766,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         debug_assert(pivot_no < trunk_num_children(spl, &node));
         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
         key pivot_start_range = ondisk_key_to_key(&pdata->pivot);
-        if (pivot_no == node.hdr->num_pivot_keys - 1) {
-            //! Means that this is the last pivot in this node. So upper bound
-            //! will be the parent's upper bound.
-            lower_bound = pivot_start_range;
-        } else if (pivot_no == 0) {
-            //! Means that this is the first pivot in the node, so lower bound
-            //! will be that of the parent.
-            upper_bound = pivot_start_range;
-        }
+
         bool32 should_continue =
                 trunk_pivot_lookup(spl, &node, pdata, target, result);
         if (!should_continue) {
@@ -6817,6 +6809,19 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             }
         }
         trunk_node_get(spl->cc, pdata->addr, &child);
+        if (pivot_no == node.hdr->num_pivot_keys - 1) {
+            //! Means that this is the last pivot in this node. So upper bound
+            //! will be the parent's upper bound.
+            lower_bound = pivot_start_range;
+        } else if (pivot_no == 0) {
+            //! Means that this is the first pivot in the node, so lower bound
+            //! will be that of the parent.
+            upper_bound = pivot_start_range;
+        } else {
+            //! Pivot is somewhere in the middle, so get the lower and upper bound
+            lower_bound = pivot_start_range;
+            upper_bound = ondisk_key_to_key(&trunk_get_pivot_data(spl, &node, pivot_no + 1)->pivot);
+        }
         trunk_node_unget(spl->cc, &node);
         node = child;
     }
@@ -6826,6 +6831,10 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     bool32 should_continue =
             trunk_pivot_lookup(spl, &node, pdata, target, result);
     if (!should_continue) {
+        trunk_aux_pivot *aux = TYPED_ZALLOC(spl->heap_id, aux);
+        aux->range_start = lower_bound.user_slice;
+        aux->range_end = upper_bound.user_slice;
+        aux->node_addr = node.addr;
         result_found_at_node_addr = node.addr;
         goto found_final_answer_early;
     }
