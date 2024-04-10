@@ -6789,8 +6789,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         trunk_node child;
         if (node.hdr->aux_pivot != NULL) {
             //! see if target key falls in this range
-            key start = key_create_from_slice(node.hdr->aux_pivot->range_start);
-            key end = key_create_from_slice(node.hdr->aux_pivot->range_end);
+            key start = node.hdr->aux_pivot->range_start;
+            key end = node.hdr->aux_pivot->range_end;
             int cmp;
             if (start == NEGATIVE_INFINITY_KEY) {
                 cmp = trunk_key_compare(spl, end, target);
