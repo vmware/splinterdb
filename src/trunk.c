@@ -6764,7 +6764,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         debug_assert(pivot_no < trunk_num_children(spl, &node));
         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
         key pivot_start_range = ondisk_key_to_key(pdata->pivot);
-        platform_default_log("Pivot range is %p", *pivot_start_range);
+        platform_default_log("Pivot range is %p", pivot_start_range);
         bool32 should_continue =
                 trunk_pivot_lookup(spl, &node, pdata, target, result);
         if (!should_continue) {
