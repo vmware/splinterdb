@@ -340,8 +340,11 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
+                // TODO upper and lower
+                slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+                slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
                rc = trunk_lookup(
-                  spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
+                  spl, key_create(YCSB_KEY_SIZE, ops->key), &value, lower_bound, upper_bound);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];

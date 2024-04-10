@@ -181,7 +181,10 @@ verify_against_shadow(trunk_handle               *spl,
       if (ctxt == NULL) {
          test_int_to_key(&keybuf, keynum, key_size);
          key target = key_buffer_key(&keybuf);
-         rc         = trunk_lookup(spl, target, &merge_acc);
+         // TODO upper and lower
+          slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+          slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
+         rc         = trunk_lookup(spl, target, &merge_acc, lower_bound, upper_bound);
          if (!SUCCESS(rc)) {
             return rc;
          }

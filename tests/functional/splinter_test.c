@@ -292,7 +292,10 @@ test_trunk_lookup_thread(void *arg)
                         trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &data);
+               // TODO upper and lower
+                slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+                slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
+               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &data, lower_bound, upper_bound);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -620,7 +623,10 @@ do_operation(test_splinter_thread_params *params,
                         trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &msg);
+               // TODO upper and lower
+                slice lower_bound = slice_create((size_t) sizeof(NEGATIVE_INFINITY), (void *)NEGATIVE_INFINITY);
+                slice upper_bound = slice_create((size_t) sizeof(POSITIVE_INFINITY), (void *)POSITIVE_INFINITY);
+               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &msg, lower_bound, upper_bound);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
