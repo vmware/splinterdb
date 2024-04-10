@@ -6800,8 +6800,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                     cmp = trunk_key_compare(spl, end, target);
                     if (cmp == less_than) {
                         //! We can use this pivot
-                        trunk_node_get(spl->cc, aux->node_addr, &child);
-                        h -= aux->num_hops;
+                        trunk_node_get(spl->cc, node.hdr->aux_pivot->node_addr, &child);
+                        h -= node.hdr->aux_pivot->num_hops;
                         continue;
                     }
             }
