@@ -65,7 +65,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 # use += here, so that extra flags can be provided via the environment
 
-CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
+CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla -Wno-atomic-alignment
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
@@ -82,11 +82,11 @@ endif
 
 LDFLAGS += -ggdb3 -pthread
 
-LIBS      = -lm -lpthread -laio -lxxhash
+LIBS      = -lm -lpthread -laio -lxxhash -latomic
 DEPFLAGS  = -MMD -MP
 
 # Flags for iceberg hash table
-CFLAGS += -DENABLE_BLOCK_LOCKING
+CFLAGS += -DENABLE_BLOCK_LOCKING -mavx -mavx2 -mbmi2 -mlzcnt
 # CFLAGS  += -DENABLE_RESIZE
 LIBS	+= -lssl -lcrypto -ltbb
 
