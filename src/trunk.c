@@ -6866,7 +6866,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 break;
             } else {
                 //! add P* pivot, check for space
-
+                //! Calculate space taken by fractional branches
             }
             //! If no space, go one level down.
             trunk_node child;
@@ -6876,8 +6876,10 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             //! This acts like the "recursion"
             temp_root = child;
         }
+        if (temp_root.addr != node.addr) {
+            trunk_node_unget(spl->cc, &node);
+        }
         trunk_node_unget(spl->cc, &temp_root);
-        trunk_node_unget(spl->cc, &node);
     }
     if (spl->cfg.use_stats) {
         threadid tid = platform_get_tid();
@@ -9468,6 +9470,7 @@ trunk_config_init(trunk_config *trunk_cfg,
 
     // Setting hard limit and check configuration for over-provisioning
     trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
+    // TODO size
     uint64 header_bytes = sizeof(trunk_hdr);
 
     uint64 pivot_bytes = (trunk_cfg->max_pivot_keys
