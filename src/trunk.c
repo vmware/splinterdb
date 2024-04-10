@@ -535,9 +535,9 @@ typedef struct ONDISK trunk_pivot_data {
 } trunk_pivot_data;
 
 typedef struct ONDISK trunk_aux_pivot {
-    slice range_start;
-    slice range_end;
-    trunk_pivot_data *pdata;
+    key range_start;
+    key range_end;
+    uint64 node_addr;
 } trunk_aux_pivot;
 
 
@@ -576,7 +576,7 @@ typedef struct ONDISK trunk_hdr {
     trunk_bundle bundle[TRUNK_MAX_BUNDLES];
     trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
     routing_filter sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
-    trunk_aux_pivot aux_pivot[TRUNK_MAX_AUX_PIVOTS];
+    trunk_aux_pivot aux_pivot;
 } trunk_hdr;
 
 /*
@@ -6757,6 +6757,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
 
     // look in index nodes
     //! Does this give height of the whole tree? I think so.
+    key upper_bound = key_create_from_slice(node_upper_bound);
+    key lower_bound = key_create_from_slice(node_lower_bound);
     uint16 height = trunk_node_height(&node);
     for (uint16 h = height; h > 0; h--) {
         uint16 pivot_no =
@@ -6764,10 +6766,23 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         debug_assert(pivot_no < trunk_num_children(spl, &node));
         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
         key pivot_start_range = ondisk_key_to_key(&pdata->pivot);
-        platform_default_log("Pivot range is %d", pivot_start_range.kind);
+        if (pivot_no == node.hdr->num_pivot_keys - 1) {
+            //! Means that this is the last pivot in this node. So upper bound
+            //! will be the parent's upper bound.
+            lower_bound = pivot_start_range;
+        } else if (pivot_no == 0) {
+            //! Means that this is the first pivot in the node, so lower bound
+            //! will be that of the parent.
+            upper_bound = pivot_start_range;
+        }
         bool32 should_continue =
                 trunk_pivot_lookup(spl, &node, pdata, target, result);
         if (!should_continue) {
+            //! We have found the result, so let's create a P* pivot.
+            trunk_aux_pivot *aux = TYPED_ZALLOC(spl->heap_id, aux);
+            aux->range_start = lower_bound;
+            aux->range_end = upper_bound;
+            aux->node_addr = node.addr;
             result_found_at_node_addr = node.addr;
             goto found_final_answer_early;
         }
