@@ -6878,8 +6878,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             trunk_pivot_lookup(spl, &node, pdata, target, result);
     if (!should_continue) {
         aux = TYPED_ZALLOC(spl->heap_id, aux);
-        aux->range_start = lower_bound.user_slice;
-        aux->range_end = upper_bound.user_slice;
+        aux->range_start = lower_bound;
+        aux->range_end = upper_bound
         aux->node_addr = node.addr;
         aux->num_hops = height;
         result_found_at_node_addr = node.addr;
