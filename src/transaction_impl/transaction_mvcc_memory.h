@@ -568,6 +568,32 @@ find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, key target_mvcc_key)
                key_create_from_slice(range_mvcc_key))
             == 0)
       {
+         {
+            splinterdb_lookup_result result;
+            splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
+            rc = splinterdb_lookup(txn_kvsb->kvsb, key_slice(target_mvcc_key), &result);
+            platform_assert(rc == 0);
+            if(splinterdb_lookup_found(&result))
+            {
+               platform_default_log("target_mvcc_key found\n");
+            } else {
+               platform_default_log("target_mvcc_key not found\n");
+            }
+            splinterdb_lookup_result_deinit(&result);
+         }
+         {
+            splinterdb_lookup_result result;
+            splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
+            rc = splinterdb_lookup(txn_kvsb->kvsb, range_mvcc_key, &result);
+            platform_assert(rc == 0);
+            if(splinterdb_lookup_found(&result))
+            {
+               platform_default_log("range_mvcc_key found\n");
+            } else {
+               platform_default_log("range_mvcc_key not found\n");
+            }
+            splinterdb_lookup_result_deinit(&result);
+         }
          platform_default_log(
             "attempt to find %s, v: %u, (actual, %s, v: %u) "
             "(key_len: %lu) exists in db, but cannot be found\n",
