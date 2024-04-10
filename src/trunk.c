@@ -576,7 +576,7 @@ typedef struct ONDISK trunk_hdr {
     trunk_bundle bundle[TRUNK_MAX_BUNDLES];
     trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
     routing_filter sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
-    trunk_aux_pivot aux_pivot;
+    trunk_aux_pivot *aux_pivot;
 } trunk_hdr;
 
 /*
@@ -1649,6 +1649,7 @@ trunk_find_pivot(trunk_handle *spl,
         return 0;
     }
 
+    // TODO key cmp
     if (size == 1) {
         cmp = trunk_key_compare(spl, trunk_get_pivot(spl, node, 0), target);
         switch (comp) {
@@ -3597,6 +3598,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle *spl,
             spl, &stream, "----------------------------------------\n");
 
     // Add the memtable to the new root as a new compacted bundle
+    //! Remove all P* from old root
     trunk_compacted_memtable *cmt =
             trunk_get_compacted_memtable(spl, generation);
     trunk_compact_bundle_req *req = cmt->req;
@@ -4642,6 +4644,9 @@ trunk_flush_fullest(trunk_handle *spl, trunk_node *node) {
         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
         // if a pivot has too many branches, just flush it here
         if (trunk_pivot_needs_flush(spl, node, pdata, spl->cfg.max_branches_per_node)) {
+            //! Remove P*
+            //! Iterate through all P* pivots.
+            node->hdr->aux_pivot = NULL;
             rc = trunk_flush(spl, node, pdata, FALSE);
             if (!SUCCESS(rc)) {
                 return rc;
