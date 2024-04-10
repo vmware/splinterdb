@@ -538,6 +538,7 @@ typedef struct ONDISK trunk_aux_pivot {
     slice range_start;
     slice range_end;
     uint64 node_addr;
+    uint64 num_hops;
 } trunk_aux_pivot;
 
 
@@ -6764,6 +6765,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     //! Does this give height of the whole tree? I think so.
     key upper_bound = key_create_from_slice(node_upper_bound);
     key lower_bound = key_create_from_slice(node_lower_bound);
+    trunk_aux_pivot *aux;
     uint16 height = trunk_node_height(&node);
     for (uint16 h = height; h > 0; h--) {
         uint16 pivot_no =
@@ -6776,14 +6778,34 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 trunk_pivot_lookup(spl, &node, pdata, target, result);
         if (!should_continue) {
             //! We have found the result, so let's create a P* pivot.
-            trunk_aux_pivot *aux = TYPED_ZALLOC(spl->heap_id, aux);
+            aux = TYPED_ZALLOC(spl->heap_id, aux);
             aux->range_start = lower_bound.user_slice;
             aux->range_end = upper_bound.user_slice;
             aux->node_addr = node.addr;
+            aux->num_hops = h;
             result_found_at_node_addr = node.addr;
             goto found_final_answer_early;
         }
         trunk_node child;
+        if (node.hdr->aux_pivot != NULL) {
+            //! see if target key falls in this range
+            key start = key_create_from_slice(node.hdr->aux_pivot->range_start);
+            key end = key_create_from_slice(node.hdr->aux_pivot->range_end);
+            int cmp;
+            cmp = trunk_key_compare(spl, start, target);
+            switch(cmp) {
+                case greater_than:
+                case greater_than_or_equal:
+                    //! see if target is less than 'end'
+                    cmp = trunk_key_compare(spl, end, target);
+                    if (cmp == less_than) {
+                        //! We can use this pivot
+                        trunk_node_get(spl->cc, aux->node_addr, &child);
+                        h -= aux->num_hops;
+                        continue;
+                    }
+            }
+        }
         //! This acts like the "recursion"
         //! Before we do this, flush the messages.
         // TODO check and flush
@@ -6836,10 +6858,11 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     bool32 should_continue =
             trunk_pivot_lookup(spl, &node, pdata, target, result);
     if (!should_continue) {
-        trunk_aux_pivot *aux = TYPED_ZALLOC(spl->heap_id, aux);
+        aux = TYPED_ZALLOC(spl->heap_id, aux);
         aux->range_start = lower_bound.user_slice;
         aux->range_end = upper_bound.user_slice;
         aux->node_addr = node.addr;
+        aux->num_hops = height;
         result_found_at_node_addr = node.addr;
         goto found_final_answer_early;
     }
@@ -6872,6 +6895,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             } else {
                 //! add P* pivot, check for space
                 //! Calculate space taken by fractional branches
+                node.hdr->aux_pivot = aux;
+                break;
             }
             //! If no space, go one level down.
             trunk_node child;
