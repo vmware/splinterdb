@@ -535,8 +535,8 @@ typedef struct ONDISK trunk_pivot_data {
 } trunk_pivot_data;
 
 typedef struct ONDISK trunk_aux_pivot {
-    key range_start;
-    key range_end;
+    slice range_start;
+    slice range_end;
     uint64 node_addr;
 } trunk_aux_pivot;
 
@@ -6780,8 +6780,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
         if (!should_continue) {
             //! We have found the result, so let's create a P* pivot.
             trunk_aux_pivot *aux = TYPED_ZALLOC(spl->heap_id, aux);
-            aux->range_start = lower_bound;
-            aux->range_end = upper_bound;
+            aux->range_start = lower_bound.user_slice;
+            aux->range_end = upper_bound.user_slice;
             aux->node_addr = node.addr;
             result_found_at_node_addr = node.addr;
             goto found_final_answer_early;
