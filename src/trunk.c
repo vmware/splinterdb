@@ -6771,8 +6771,9 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     key upper_bound = POSITIVE_INFINITY_KEY;
     key lower_bound = NEGATIVE_INFINITY_KEY;
     trunk_aux_pivot *aux;
+    uint16 hops = 1;
     uint16 height = trunk_node_height(&node);
-    for (uint16 h = height; h > 0; h--) {
+    for (uint16 h = height; h > 0; h = h - hops) {
         uint16 pivot_no =
                 trunk_find_pivot(spl, &node, target, less_than_or_equal);
         debug_assert(pivot_no < trunk_num_children(spl, &node));
@@ -6803,7 +6804,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                     case less_than:
                     case less_than_or_equal:
                         trunk_node_get(spl->cc, node.hdr->aux_pivot->node_addr, &child);
-                        h -= node.hdr->aux_pivot->num_hops;
+                        hops = node.hdr->aux_pivot->num_hops;
                         continue;
                 }
             } else if (end.kind == POSITIVE_INFINITY) {
@@ -6812,7 +6813,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                     case greater_than:
                     case greater_than_or_equal:
                         trunk_node_get(spl->cc, node.hdr->aux_pivot->node_addr, &child);
-                        h -= node.hdr->aux_pivot->num_hops;
+                        hops = node.hdr->aux_pivot->num_hops;
                         continue;
                 }
             }
@@ -6825,10 +6826,12 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                     if (cmp == less_than) {
                         //! We can use this pivot
                         trunk_node_get(spl->cc, node.hdr->aux_pivot->node_addr, &child);
-                        h -= node.hdr->aux_pivot->num_hops;
+                        hops = node.hdr->aux_pivot->num_hops;
                         continue;
                     }
             }
+        } else {
+            hops = 1;
         }
         //! This acts like the "recursion"
         //! Before we do this, flush the messages.
