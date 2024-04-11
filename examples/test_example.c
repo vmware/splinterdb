@@ -30,15 +30,15 @@ typedef struct key_value_pair {
 
 
 void timer_start(uint64_t *timer) {
-    struct timeval t;
-    assert(!gettimeofday(&t, NULL));
-    timer -= 1000000 * t.tv_sec + t.tv_usec;
+    struct timeval start_time;
+    assert(!gettimeofday(&start_time, NULL));
+    *timer = 1000000 * start_time.tv_sec + start_time.tv_usec;
 }
 
 void timer_stop(uint64_t *timer) {
-    struct timeval t;
-    assert(!gettimeofday(&t, NULL));
-    timer += 1000000 * t.tv_sec + t.tv_usec;
+    struct timeval stop_time;
+    assert(!gettimeofday(&stop_time, NULL));
+    *timer = (1000000 * stop_time.tv_sec + stop_time.tv_usec) - *timer;
 }
 
 
