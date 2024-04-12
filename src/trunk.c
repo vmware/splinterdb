@@ -579,6 +579,7 @@ typedef struct ONDISK trunk_hdr {
     trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
     routing_filter sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
     trunk_aux_pivot *aux_pivot;
+    uint8 num_aux_pivots;
 } trunk_hdr;
 
 /*
@@ -6924,7 +6925,17 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             } else {
                 //! add P* pivot, check for space
                 //! Calculate space taken by fractional branches
-                temp_root.hdr->aux_pivot = aux;
+                uint8 num_elements = (temp_root.hdr->num_aux_pivots + 1);
+                int size = num_elements * sizeof(trunk_aux_pivot);
+                if (temp_root.hdr->aux_pivot != NULL) {
+                    trunk_aux_pivot *aux_array = TYPED_ARRAY_ZALLOC(spl->heap_id, aux_array, num_elements);
+                    memcpy(aux_array, temp_root.hdr->aux_pivot, size);
+                    aux_array[num_elements] = aux;
+                    temp_root.hdr->aux_pivot = aux_array;
+                } else {
+                    temp_root.hdr->aux_pivot = aux;
+                }
+
                 break;
             }
             //! If no space, go one level down.
