@@ -6917,7 +6917,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             trunk_pivot_data *pivot = trunk_get_pivot_data(spl, &temp_root, pivot_no);
             // TODO: check if we have enough space to add a P* pivot.
             // TODO: check P* pivots also
-            if (pivot->addr == result_found_at_node_addr) {
+            if (temp_root.addr == result_found_at_node_addr || pivot->addr == result_found_at_node_addr) {
                 //! This means that we already have a p* pivot to this node.
                 //! Do not do anything;
                 break;
