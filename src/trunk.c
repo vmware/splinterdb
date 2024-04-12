@@ -6513,6 +6513,57 @@ trunk_maybe_reclaim_space(trunk_handle *spl) {
     }
 }
 
+
+
+/*
+ * Returns the amount of space used by each level of the tree
+ */
+bool32
+trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg) {
+    uint64 *bytes_used_on_level = (uint64 *)
+            arg;
+    uint64 bytes_used_in_node = 0;
+    trunk_node node;
+    // TODO space
+    trunk_node_get(spl->cc, addr, &node);
+    uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
+    uint16 num_children = trunk_num_children(spl, &node);
+    for (uint16 branch_no = trunk_start_branch(spl, &node);
+         branch_no != trunk_end_branch(spl, &node);
+         branch_no = trunk_add_branch_number(spl, branch_no, 1)) {
+        trunk_branch *branch = trunk_get_branch(spl, &node, branch_no);
+        key start_key = NULL_KEY;
+        key end_key = NULL_KEY;
+        for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
+            if (1 && pivot_no != num_children
+                && trunk_branch_live_for_pivot(spl, &node, branch_no, pivot_no)) {
+                if (key_is_null(start_key)) {
+                    start_key = trunk_get_pivot(spl, &node, pivot_no);
+                }
+            } else {
+                if (!key_is_null(start_key)) {
+                    end_key = trunk_get_pivot(spl, &node, pivot_no);
+                    uint64 bytes_used_in_branch_range =
+                            btree_space_use_in_range(spl->cc,
+                                                     &spl->cfg.btree_cfg,
+                                                     branch->root_addr,
+                                                     PAGE_TYPE_BRANCH,
+                                                     start_key,
+                                                     end_key);
+                    bytes_used_in_node += bytes_used_in_branch_range;
+                }
+                start_key = NULL_KEY;
+                end_key = NULL_KEY;
+            }
+        }
+    }
+
+    uint16 height = trunk_node_height(&node);
+    bytes_used_on_level[height] += bytes_used_in_node;
+    trunk_node_unget(spl->cc, &node);
+    return TRUE;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * Main Splinter API functions
@@ -6922,10 +6973,22 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
             if (temp_root.addr == result_found_at_node_addr || pivot->addr == result_found_at_node_addr) {
                 //! This means that we already have a p* pivot to this node.
                 //! Do not do anything;
+
                 break;
-            } else {
+            }
+            else {
+                while (temp_root.hdr->aux_pivot != NULL) {
+                    if (temp_root.hdr->aux_pivot->node_addr == result_found_at_node_addr)
+                        break;
+                    temp_root.hdr->aux_pivot++;
+                }
                 //! add P* pivot, check for space
                 //! Calculate space taken by fractional branches
+                uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
+                trunk_node_space_use(spl, temp_root.addr, bytes_used_by_level);
+                if (!bytes_used_by_level[height] < spl->cfg.max_branches_per_node * spl->cfg.memtable_capacity) {
+                    break;
+                }
                 uint8 num_elements = (temp_root.hdr->num_aux_pivots + 1);
                 int size = num_elements * sizeof(trunk_aux_pivot);
                 if (temp_root.hdr->aux_pivot != NULL) {
@@ -8351,54 +8414,7 @@ trunk_verify_tree(trunk_handle *spl) {
     return success;
 }
 
-/*
- * Returns the amount of space used by each level of the tree
- */
-bool32
-trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg) {
-    uint64 *bytes_used_on_level = (uint64 *)
-            arg;
-    uint64 bytes_used_in_node = 0;
-    trunk_node node;
-    // TODO space
-    trunk_node_get(spl->cc, addr, &node);
-    uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
-    uint16 num_children = trunk_num_children(spl, &node);
-    for (uint16 branch_no = trunk_start_branch(spl, &node);
-         branch_no != trunk_end_branch(spl, &node);
-         branch_no = trunk_add_branch_number(spl, branch_no, 1)) {
-        trunk_branch *branch = trunk_get_branch(spl, &node, branch_no);
-        key start_key = NULL_KEY;
-        key end_key = NULL_KEY;
-        for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
-            if (1 && pivot_no != num_children
-                && trunk_branch_live_for_pivot(spl, &node, branch_no, pivot_no)) {
-                if (key_is_null(start_key)) {
-                    start_key = trunk_get_pivot(spl, &node, pivot_no);
-                }
-            } else {
-                if (!key_is_null(start_key)) {
-                    end_key = trunk_get_pivot(spl, &node, pivot_no);
-                    uint64 bytes_used_in_branch_range =
-                            btree_space_use_in_range(spl->cc,
-                                                     &spl->cfg.btree_cfg,
-                                                     branch->root_addr,
-                                                     PAGE_TYPE_BRANCH,
-                                                     start_key,
-                                                     end_key);
-                    bytes_used_in_node += bytes_used_in_branch_range;
-                }
-                start_key = NULL_KEY;
-                end_key = NULL_KEY;
-            }
-        }
-    }
 
-    uint16 height = trunk_node_height(&node);
-    bytes_used_on_level[height] += bytes_used_in_node;
-    trunk_node_unget(spl->cc, &node);
-    return TRUE;
-}
 
 void
 trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl) {
