@@ -6986,7 +6986,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 //! Calculate space taken by fractional branches
                 uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
                 trunk_node_space_use(spl, temp_root.addr, bytes_used_by_level);
-                if (!bytes_used_by_level[height] < spl->cfg.max_branches_per_node * spl->cfg.memtable_capacity) {
+                if (!bytes_used_by_level[height] < spl->cfg.max_branches_per_node * spl->cfg.memtable_capacity * 1024 * 1024) {
                     break;
                 }
                 uint8 num_elements = (temp_root.hdr->num_aux_pivots + 1);
