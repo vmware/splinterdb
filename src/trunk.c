@@ -6931,7 +6931,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 if (temp_root.hdr->aux_pivot != NULL) {
                     trunk_aux_pivot *aux_array = TYPED_ARRAY_ZALLOC(spl->heap_id, aux_array, num_elements);
                     memcpy(aux_array, temp_root.hdr->aux_pivot, size);
-                    aux_array[num_elements] = aux;
+                    aux_array[num_elements] = *aux;
                     temp_root.hdr->aux_pivot = aux_array;
                     temp_root.hdr->num_aux_pivots = num_elements;
                 } else {
