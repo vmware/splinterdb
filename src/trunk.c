@@ -4653,6 +4653,7 @@ trunk_flush_fullest(trunk_handle *spl, trunk_node *node) {
             //! Remove P*
             //! Iterate through all P* pivots.
             node->hdr->aux_pivot = NULL;
+            node->hdr->num_aux_pivots = 0;
             rc = trunk_flush(spl, node, pdata, FALSE);
             if (!SUCCESS(rc)) {
                 return rc;
@@ -6932,8 +6933,10 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                     memcpy(aux_array, temp_root.hdr->aux_pivot, size);
                     aux_array[num_elements] = aux;
                     temp_root.hdr->aux_pivot = aux_array;
+                    temp_root.hdr->num_aux_pivots = num_elements;
                 } else {
                     temp_root.hdr->aux_pivot = aux;
+                    temp_root.hdr->num_aux_pivots = 1;
                 }
 
                 break;
