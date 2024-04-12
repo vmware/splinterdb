@@ -578,7 +578,7 @@ typedef struct ONDISK trunk_hdr {
     trunk_bundle bundle[TRUNK_MAX_BUNDLES];
     trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
     routing_filter sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
-    trunk_aux_pivot aux_pivot;
+    trunk_aux_pivot *aux_pivot;
 } trunk_hdr;
 
 /*
@@ -6770,7 +6770,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     //! Does this give height of the whole tree? I think so.
     key upper_bound = POSITIVE_INFINITY_KEY;
     key lower_bound = NEGATIVE_INFINITY_KEY;
-    trunk_aux_pivot aux;
+    trunk_aux_pivot *aux;
     uint16 hops = 1;
     uint16 height = trunk_node_height(&node);
     for (uint16 h = height; h > 0; h = h - hops) {
@@ -6784,10 +6784,11 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
                 trunk_pivot_lookup(spl, &node, pdata, target, result);
         if (!should_continue) {
             //! We have found the result, so let's create a P* pivot.
-            aux.range_start = lower_bound;
-            aux.range_end = upper_bound;
-            aux.node_addr = node.addr;
-            aux.num_hops = h;
+            aux = TYPED_ZALLOC(spl->heap_id, aux);
+            aux->range_start = lower_bound;
+            aux->range_end = upper_bound;
+            aux->node_addr = node.addr;
+            aux->num_hops = h;
             result_found_at_node_addr = node.addr;
             goto found_final_answer_early;
         }
@@ -6885,10 +6886,11 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result, slice nod
     bool32 should_continue =
             trunk_pivot_lookup(spl, &node, pdata, target, result);
     if (!should_continue) {
-        aux.range_start = lower_bound;
-        aux.range_end = upper_bound;
-        aux.node_addr = node.addr;
-        aux.num_hops = height;
+        aux = TYPED_ZALLOC(spl->heap_id, aux);
+        aux->range_start = lower_bound;
+        aux->range_end = upper_bound;
+        aux->node_addr = node.addr;
+        aux->num_hops = height;
         result_found_at_node_addr = node.addr;
         goto found_final_answer_early;
     }
