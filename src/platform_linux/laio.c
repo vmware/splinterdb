@@ -129,9 +129,12 @@ get_ctx_idx(laio_handle *io)
       if (io->ctx[i].pid == 0) {
          int status = io_setup(io->cfg->kernel_queue_size, &io->ctx[i].ctx);
          if (status != 0) {
-            platform_error_log("io_setup() failed with error=%d: %s\n",
-                               -status,
-                               strerror(-status));
+            platform_error_log(
+               "io_setup() failed for PID=%d, ctx=%p with error=%d: %s\n",
+               pid,
+               &io->ctx[i].ctx,
+               -status,
+               strerror(-status));
             unlock_ctx(io);
             return INVALID_TID;
          }
@@ -574,7 +577,14 @@ laio_deregister_thread(io_handle *ioh)
    pctx->thread_count--;
    if (pctx->thread_count == 0) {
       debug_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
-      io_destroy(pctx->ctx);
+      int status = io_destroy(pctx->ctx);
+      platform_assert(status == 0,
+                      "io_destroy() failed with error=%d: %s\n",
+                      -status,
+                      strerror(-status));
+      // subsequent io_setup calls on this ctx will fail if we don't reset it.
+      // Seems like a bug in libaio/linux.
+      memset(&pctx->ctx, 0, sizeof(pctx->ctx));
       pctx->pid = 0;
    }
    unlock_ctx(io);
