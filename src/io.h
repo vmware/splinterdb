@@ -57,7 +57,7 @@ typedef platform_status (*io_write_async_fn)(io_handle     *io,
                                              uint64         count,
                                              uint64         addr);
 typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
-typedef void (*io_cleanup_all_fn)(io_handle *io);
+typedef void (*io_wait_all_fn)(io_handle *io);
 typedef void (*io_register_thread_fn)(io_handle *io);
 typedef void (*io_deregister_thread_fn)(io_handle *io);
 typedef bool32 (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
@@ -76,7 +76,7 @@ typedef struct io_ops {
    io_read_async_fn          read_async;
    io_write_async_fn         write_async;
    io_cleanup_fn             cleanup;
-   io_cleanup_all_fn         cleanup_all;
+   io_wait_all_fn            wait_all;
    io_register_thread_fn     register_thread;
    io_deregister_thread_fn   deregister_thread;
    io_max_latency_elapsed_fn max_latency_elapsed;
@@ -154,9 +154,9 @@ io_cleanup(io_handle *io, uint64 count)
 
 // Guarantees all in-flight IOs are complete before return
 static inline void
-io_cleanup_all(io_handle *io)
+io_wait_all(io_handle *io)
 {
-   return io->ops->cleanup_all(io);
+   return io->ops->wait_all(io);
 }
 
 static inline void
@@ -182,14 +182,6 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
       return io->ops->max_latency_elapsed(io, ts);
    }
    return TRUE;
-}
-
-// Return the opaque handle to the IO-context, established by
-// a call to io_setup() off of this IO-handle 'io'.
-static inline void *
-io_get_context(io_handle *io)
-{
-   return io->ops->get_context(io);
 }
 
 /*
