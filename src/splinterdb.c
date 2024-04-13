@@ -364,6 +364,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_cache;
    }
 
+   kvs->spl->cfg.memtable_capacity = kvs_cfg->memtable_capacity;
    *kvs_out = kvs;
    return platform_status_to_int(status);
 

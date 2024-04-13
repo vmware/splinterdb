@@ -75,6 +75,7 @@ typedef struct trunk_config {
    // verbose logging
    bool32               verbose_logging_enabled;
    platform_log_handle *log_handle;
+   uint64 memtable_capacity;
 } trunk_config;
 
 typedef struct trunk_stats {
