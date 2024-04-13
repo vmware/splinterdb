@@ -417,7 +417,13 @@ laio_read_async(io_handle     *ioh,
    req->count    = count;
    io_set_callback(&req->iocb, laio_callback);
    do {
+      // We increment the io_count before submitting the request to avoid
+      // having the io_count go negative if another thread calls io_cleanup
+      __sync_fetch_and_add(&pctx->io_count, 1);
       status = io_submit(pctx->ctx, 1, &req->iocb_p);
+      if (status <= 0) {
+         __sync_fetch_and_sub(&pctx->io_count, 1);
+      }
       if (status < 0) {
          platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
                             ", io_submit errorno=%d: %s\n",
@@ -427,8 +433,6 @@ laio_read_async(io_handle     *ioh,
                             req,
                             -status,
                             strerror(-status));
-      } else {
-         __sync_fetch_and_add(&pctx->io_count, 1);
       }
       io_cleanup(ioh, 0);
    } while (status != 1);
@@ -456,7 +460,13 @@ laio_write_async(io_handle     *ioh,
    io_set_callback(&req->iocb, laio_callback);
 
    do {
+      // We increment the io_count before submitting the request to avoid
+      // having the io_count go negative if another thread calls io_cleanup
+      __sync_fetch_and_add(&pctx->io_count, 1);
       status = io_submit(pctx->ctx, 1, &req->iocb_p);
+      if (status <= 0) {
+         __sync_fetch_and_sub(&pctx->io_count, 1);
+      }
       if (status < 0) {
          platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
                             ", io_submit errorno=%d: %s\n",
@@ -466,8 +476,6 @@ laio_write_async(io_handle     *ioh,
                             req,
                             -status,
                             strerror(-status));
-      } else {
-         __sync_fetch_and_add(&pctx->io_count, 1);
       }
       io_cleanup(ioh, 0);
    } while (status != 1);
@@ -516,9 +524,10 @@ laio_cleanup(io_handle *ioh, uint64 count)
          continue;
       }
 
+      __sync_fetch_and_sub(&pctx->io_count, 1);
+
       // Invoke the callback for the one event that completed.
       laio_callback(pctx->ctx, event.obj, event.res, 0);
-      __sync_fetch_and_sub(&pctx->io_count, 1);
    }
 }
 
@@ -537,7 +546,7 @@ laio_wait_all(io_handle *ioh)
       if (io->ctx[i].pid == getpid()) {
          io_cleanup(ioh, 0);
       } else {
-         while (io->ctx[i].io_count > 0) {
+         while (0 < io->ctx[i].io_count) {
             io_cleanup(ioh, 0);
          }
       }
