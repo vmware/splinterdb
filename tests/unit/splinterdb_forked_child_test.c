@@ -314,7 +314,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
  *     completed, we can verify that invoking this completion -before- the
  *     process deregisters itself from Splinter will work correctly. We use
  *     splinterdb_cache_flush() as a testing hook, to trigger a cache-flush
- *     which will go down the path of calling io_cleanup_all(). A registered
+ *     which will go down the path of calling io_wait_all(). A registered
  *     process can do IOs and process IO completion -before- it deregisters.
  *     An attempt to deregister with outstanding pending IOs will trigger an
  *     assert.

@@ -1687,7 +1687,7 @@ void
 clockcache_flush(clockcache *cc)
 {
    // make sure all aio is complete first
-   io_cleanup_all(cc->io);
+   io_wait_all(cc->io);
 
    // there can be no references or pins or things won't flush
    // clockcache_assert_no_locks_held(cc); // take out for performance
@@ -1701,7 +1701,7 @@ clockcache_flush(clockcache *cc)
    }
 
    // make sure all aio is complete again
-   io_cleanup_all(cc->io);
+   io_wait_all(cc->io);
 
    debug_assert(clockcache_assert_clean(cc));
 }
