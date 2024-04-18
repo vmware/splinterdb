@@ -629,7 +629,9 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       platform_assert(rw_entry_is_write(w));
 
       // If the message type is the user-level update, then it needs
-      // to merge with the previous version.
+      // to merge with the previous version. The buffer of the merge
+      // accumulator will be simply freed by platform_free later, not
+      // merge_accumulator_deinit.
       if (message_class(w->msg) == MESSAGE_TYPE_UPDATE) {
          const bool is_key_not_inserted = (w->version == w->version_list_head);
          if (is_key_not_inserted) {
@@ -639,8 +641,6 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
                key_create_from_slice(w->key),
                &new_message);
-            // The buffer will be simply freed by platform_free, not
-            // merge_accumulator_deinit.
             platform_free_from_heap(0, (void *)message_data(w->msg));
             w->msg = merge_accumulator_to_message(&new_message);
          } else {
@@ -673,13 +673,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          }
       }
 
-      // Insert the new version to the version list
-      list_node *new_version =
-         list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF);
-      new_version->meta->version_number = w->version->meta->version_number + 1;
-      new_version->next                 = w->version_list_head->next;
-      w->version_list_head->next        = new_version;
-
+      const uint32 new_version_number = w->version->meta->version_number + 1;
       // platform_default_log("insert key: %s\n", (char *)slice_data(w->key));
       // list_node_dump(w->version_list_head);
 
@@ -687,7 +681,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       if (0) {
 #endif
          slice new_key =
-            mvcc_key_create_slice(w->key, new_version->meta->version_number);
+            mvcc_key_create_slice(w->key, new_version_number);
          int rc =
             splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
          platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
@@ -695,9 +689,18 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       }
 #endif
+
+      // Make the new version visible by inserting it into the list.
+      list_node *new_version =
+         list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF);
+      new_version->meta->version_number = new_version_number;
+      new_version->next                 = w->version_list_head->next;
+      w->version_list_head->next        = new_version;
+   
       // Update the wts_max of the previous version and unlock the previous
       // version (x)
       w->version->meta->wts_max = txn->ts;
+
       version_meta_unlock(w->version->meta);
    }
 
