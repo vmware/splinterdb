@@ -36,7 +36,7 @@ typedef struct transactional_splinterdb {
 #define MVCC_VERSION_NODATA 0
 #define MVCC_VERSION_START  1
 #define MVCC_VERSION_INF    UINT32_MAX
-#define MVCC_TIMESTAMP_INF  UINT32_MAX
+#define MVCC_TIMESTAMP_INF  ((txn_timestamp)-1)
 
 typedef struct ONDISK mvcc_key_header {
    uint32 version_number;
@@ -690,6 +690,9 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       }
 #endif
 
+      // Update the wts_max of the previous version.
+      w->version->meta->wts_max = txn->ts;
+
       // Make the new version visible by inserting it into the list.
       list_node *new_version =
          list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF);
@@ -697,10 +700,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       new_version->next                 = w->version_list_head->next;
       w->version_list_head->next        = new_version;
    
-      // Update the wts_max of the previous version and unlock the previous
-      // version (x)
-      w->version->meta->wts_max = txn->ts;
-
+      // Unlock the previous version (x)
       version_meta_unlock(w->version->meta);
    }
 
@@ -1008,6 +1008,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    // For debugging
    if (!splinterdb_lookup_found(result)) {
+      platform_default_log("find_key_in_splinterdb in lookup\n");
       find_key_in_splinterdb(txn_kvsb, key_create_from_slice(spl_key));
    }
 

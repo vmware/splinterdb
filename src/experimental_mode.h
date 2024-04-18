@@ -23,6 +23,8 @@
 #if EXPERIMENTAL_MODE_TICTOC_DISK || EXPERIMENTAL_MODE_STO_DISK                \
    || EXPERIMENTAL_MODE_MVCC_DISK
 typedef uint32 txn_timestamp;
+#elif EXPERIMENTAL_MODE_MVCC_MEMORY
+typedef uint64 txn_timestamp;
 #else
 typedef uint128 txn_timestamp;
 #endif
