@@ -545,79 +545,80 @@ transaction_deinit(transactional_splinterdb *txn_kvsb, transaction *txn)
    }
 }
 
-static void
-find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, key target_mvcc_key)
-{
-   splinterdb_iterator *it;
-   int                  rc =
-      splinterdb_iterator_init(txn_kvsb->kvsb, &it, NULL_SLICE);
-   if (rc != 0) {
-      platform_error_log("Error from SplinterDB: %d\n", rc);
-   }
+// static void
+// find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, key
+// target_mvcc_key)
+// {
+//    splinterdb_iterator *it;
+//    int                  rc =
+//       splinterdb_iterator_init(txn_kvsb->kvsb, &it, NULL_SLICE);
+//    if (rc != 0) {
+//       platform_error_log("Error from SplinterDB: %d\n", rc);
+//    }
 
-   slice range_mvcc_key   = NULL_SLICE;
-   slice range_value = NULL_SLICE;
+//    slice range_mvcc_key   = NULL_SLICE;
+//    slice range_value = NULL_SLICE;
 
-   for (; splinterdb_iterator_valid(it);
-         splinterdb_iterator_next(it)) {
-      splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
-      // Insert the latest version data into the hash table.
-      if (data_key_compare(
-               (const data_config *)&txn_kvsb->tcfg->txn_data_cfg,
-               target_mvcc_key,
-               key_create_from_slice(range_mvcc_key))
-            == 0)
-      {
-         {
-            splinterdb_lookup_result result;
-            splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
-            rc = splinterdb_lookup(txn_kvsb->kvsb, key_slice(target_mvcc_key), &result);
-            platform_assert(rc == 0);
-            if(splinterdb_lookup_found(&result))
-            {
-               platform_default_log("target_mvcc_key found\n");
-            } else {
-               platform_default_log("target_mvcc_key not found\n");
-            }
-            splinterdb_lookup_result_deinit(&result);
-         }
-         {
-            splinterdb_lookup_result result;
-            splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
-            rc = splinterdb_lookup(txn_kvsb->kvsb, range_mvcc_key, &result);
-            platform_assert(rc == 0);
-            if(splinterdb_lookup_found(&result))
-            {
-               platform_default_log("range_mvcc_key found\n");
-            } else {
-               platform_default_log("range_mvcc_key not found\n");
-            }
-            splinterdb_lookup_result_deinit(&result);
-         }
-         platform_default_log(
-            "attempt to find %s, v: %u, (actual, %s, v: %u) "
-            "(key_len: %lu) exists in db, but cannot be found\n",
-            (char *)key_data(mvcc_user_key(key_slice(target_mvcc_key))),
-            mvcc_version_number(key_slice(target_mvcc_key)),
-            (char *)key_data(mvcc_user_key(range_mvcc_key)),
-            mvcc_version_number(range_mvcc_key),
-            slice_length(range_mvcc_key));
-         break;
-      }
-   }
+//    for (; splinterdb_iterator_valid(it);
+//          splinterdb_iterator_next(it)) {
+//       splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
+//       // Insert the latest version data into the hash table.
+//       if (data_key_compare(
+//                (const data_config *)&txn_kvsb->tcfg->txn_data_cfg,
+//                target_mvcc_key,
+//                key_create_from_slice(range_mvcc_key))
+//             == 0)
+//       {
+//          {
+//             splinterdb_lookup_result result;
+//             splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
+//             rc = splinterdb_lookup(txn_kvsb->kvsb,
+//             key_slice(target_mvcc_key), &result); platform_assert(rc == 0);
+//             if(splinterdb_lookup_found(&result))
+//             {
+//                platform_default_log("target_mvcc_key found\n");
+//             } else {
+//                platform_default_log("target_mvcc_key not found\n");
+//             }
+//             splinterdb_lookup_result_deinit(&result);
+//          }
+//          {
+//             splinterdb_lookup_result result;
+//             splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
+//             rc = splinterdb_lookup(txn_kvsb->kvsb, range_mvcc_key, &result);
+//             platform_assert(rc == 0);
+//             if(splinterdb_lookup_found(&result))
+//             {
+//                platform_default_log("range_mvcc_key found\n");
+//             } else {
+//                platform_default_log("range_mvcc_key not found\n");
+//             }
+//             splinterdb_lookup_result_deinit(&result);
+//          }
+//          platform_default_log(
+//             "attempt to find %s, v: %u, (actual, %s, v: %u) "
+//             "(key_len: %lu) exists in db, but cannot be found\n",
+//             (char *)key_data(mvcc_user_key(key_slice(target_mvcc_key))),
+//             mvcc_version_number(key_slice(target_mvcc_key)),
+//             (char *)key_data(mvcc_user_key(range_mvcc_key)),
+//             mvcc_version_number(range_mvcc_key),
+//             slice_length(range_mvcc_key));
+//          break;
+//       }
+//    }
 
-   // loop exit may mean error, or just that we've reached the end
-   // of the range
-   rc = splinterdb_iterator_status(it);
-   if (rc != 0) {
-      platform_error_log("Error from SplinterDB: %d\n", rc);
-   }
+//    // loop exit may mean error, or just that we've reached the end
+//    // of the range
+//    rc = splinterdb_iterator_status(it);
+//    if (rc != 0) {
+//       platform_error_log("Error from SplinterDB: %d\n", rc);
+//    }
 
-   // Release resources acquired by the iterator
-   // If you skip this, other operations, including close(), may
-   // hang.
-   splinterdb_iterator_deinit(it);
-}
+//    // Release resources acquired by the iterator
+//    // If you skip this, other operations, including close(), may
+//    // hang.
+//    splinterdb_iterator_deinit(it);
+// }
 
 int
 transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
@@ -651,11 +652,12 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
             int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, &result);
             platform_assert(rc == 0);
 
-            // For debugging BEGIN
-            if (!splinterdb_lookup_found(&result)) {
-               find_key_in_splinterdb(txn_kvsb, key_create_from_slice(spl_key));
-            }
-            // For debugging END
+            // // For debugging BEGIN
+            // if (!splinterdb_lookup_found(&result)) {
+            //    find_key_in_splinterdb(txn_kvsb,
+            //    key_create_from_slice(spl_key));
+            // }
+            // // For debugging END
             mvcc_key_destroy_slice(spl_key);
             platform_assert(splinterdb_lookup_found(&result));
             _splinterdb_lookup_result *_result =
@@ -680,9 +682,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       if (0) {
 #endif
-         slice new_key =
-            mvcc_key_create_slice(w->key, new_version_number);
-         int rc =
+         slice new_key = mvcc_key_create_slice(w->key, new_version_number);
+         int   rc =
             splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
          platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
          mvcc_key_destroy_slice(new_key);
@@ -690,7 +691,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       }
 #endif
 
-      // Update the wts_max of the previous version.
+      // Update the wts_max of the previous version. Atomic update
+      // (currently implemented by using 64 bits variable)
       w->version->meta->wts_max = txn->ts;
 
       // Make the new version visible by inserting it into the list.
@@ -699,7 +701,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       new_version->meta->version_number = new_version_number;
       new_version->next                 = w->version_list_head->next;
       w->version_list_head->next        = new_version;
-   
+
       // Unlock the previous version (x)
       version_meta_unlock(w->version->meta);
    }
@@ -739,18 +741,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    // Save to the local write set
    if (message_is_null(entry->msg)) {
       // This function will get version_list_head from the iceberg table.
-
-      // For debugging
-      if (rw_entry_iceberg_insert(txn_kvsb, entry)) {
-         // The entry is newly inserted into the iceberg table. It should
-         // never happen in the current YCSB workloads because they have
-         // only read and updates on existing keys.
-         slice target_mvcc_key_slice = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
-         find_key_in_splinterdb(txn_kvsb, key_create_from_slice(target_mvcc_key_slice));
-         mvcc_key_destroy_slice(target_mvcc_key_slice);
-         platform_assert(FALSE, "A new key %s shouldn't be inserted.\n",
-                     (char *)slice_data(entry->key));
-      }
+      rw_entry_iceberg_insert(txn_kvsb, entry);
 
       // Find the latest version
       bool should_retry;
@@ -804,6 +795,8 @@ local_write(transactional_splinterdb *txn_kvsb,
             transactional_splinterdb_abort(txn_kvsb, txn);
             return -1;
          }
+         // Read wts_max atomically (currently, it is implemented as a 64bits
+         // variable.)
          if (entry->version->meta->wts_max != MVCC_TIMESTAMP_INF) {
             if (entry->version->meta->wts_max > txn->ts) {
                // platform_default_log(
@@ -932,17 +925,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       return 0;
    }
 
-   // For debugging
-   if (rw_entry_iceberg_insert(txn_kvsb, entry)) {
-      // The entry is newly inserted into the iceberg table. It should
-      // never happen in the current YCSB workloads because they have
-      // only read and updates on existing keys.
-      slice target_mvcc_key_slice = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
-      find_key_in_splinterdb(txn_kvsb, key_create_from_slice(target_mvcc_key_slice));
-      mvcc_key_destroy_slice(target_mvcc_key_slice);
-      platform_assert(FALSE, "A new key %s shouldn't be inserted.\n",
-                   (char *)slice_data(entry->key));
-   }
+   rw_entry_iceberg_insert(txn_kvsb, entry);
 
    // Find the latest readable version in the list. If there is no
    // version in the list but the key is in the database, it fills the
@@ -983,6 +966,8 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          return -1;
       }
       // Lock acquired
+      // Read wts_max atomically (currently, it is implemented as a 64bits
+      // variable.)
       if (readable_version->meta->wts_max < txn->ts) {
          if (lc == VERSION_LOCK_STATUS_OK) {
             version_meta_unlock(readable_version->meta);
@@ -1006,11 +991,11 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       mvcc_key_create_slice(user_key, readable_version->meta->version_number);
    int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
 
-   // For debugging
-   if (!splinterdb_lookup_found(result)) {
-      platform_default_log("find_key_in_splinterdb in lookup\n");
-      find_key_in_splinterdb(txn_kvsb, key_create_from_slice(spl_key));
-   }
+   // // For debugging
+   // if (!splinterdb_lookup_found(result)) {
+   //    platform_default_log("find_key_in_splinterdb in lookup\n");
+   //    find_key_in_splinterdb(txn_kvsb, key_create_from_slice(spl_key));
+   // }
 
    platform_assert(rc == 0);
    mvcc_key_destroy_slice(spl_key);
