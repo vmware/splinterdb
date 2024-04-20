@@ -82,6 +82,9 @@ mvcc_version_number(slice s)
 static int
 mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
 {
+   platform_assert(slice_length(key1) >= sizeof(mvcc_key_header));
+   platform_assert(slice_length(key2) >= sizeof(mvcc_key_header));
+
    // user_keys are increasingly ordered, but versions are ordered in decreasing
    // order.
    int ret = data_key_compare(
@@ -93,7 +96,13 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
       return ret;
    }
 
-   return mvcc_version_number(key2) - mvcc_version_number(key1);
+   if (mvcc_version_number(key1) < mvcc_version_number(key2)) {
+      return 1;
+   } else if (mvcc_version_number(key1) > mvcc_version_number(key2)) {
+      return -1;
+   } else {
+      return 0;
+   }
 }
 
 typedef struct {

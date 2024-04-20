@@ -91,7 +91,17 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
       return ret;
    }
 
-   return mvcc_key_get_version_from_slice(key2) - mvcc_key_get_version_from_slice(key1);
+   if (mvcc_key_get_version_from_slice(key1)
+       < mvcc_key_get_version_from_slice(key2))
+   {
+      return 1;
+   } else if (mvcc_key_get_version_from_slice(key1)
+              > mvcc_key_get_version_from_slice(key2))
+   {
+      return -1;
+   } else {
+      return 0;
+   }
 }
 
 typedef struct ONDISK mvcc_timestamp_update {
@@ -455,13 +465,15 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          if (message_class(w->msg) == MESSAGE_TYPE_UPDATE) {
             if (mkey->header.version == MVCC_VERSION_NODATA) {
                merge_accumulator new_message;
-               merge_accumulator_init_from_message(&new_message, 0, get_app_value_from_message(w->msg));
+               merge_accumulator_init_from_message(
+                  &new_message, 0, get_app_value_from_message(w->msg));
                data_merge_tuples_final(
                   txn_kvsb->tcfg->txn_data_cfg->application_data_config,
                   mvcc_user_key(w->key),
                   &new_message);
                platform_free_from_heap(0, (void *)message_data(w->msg));
-               rw_entry_set_msg(w, txn->ts, merge_accumulator_to_message(&new_message));
+               rw_entry_set_msg(
+                  w, txn->ts, merge_accumulator_to_message(&new_message));
                merge_accumulator_deinit(&new_message);
             } else {
                splinterdb_lookup_result result;
@@ -472,14 +484,16 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                _splinterdb_lookup_result *_result =
                   (_splinterdb_lookup_result *)&result;
                merge_accumulator new_message;
-               merge_accumulator_init_from_message(&new_message, 0, get_app_value_from_message(w->msg));
+               merge_accumulator_init_from_message(
+                  &new_message, 0, get_app_value_from_message(w->msg));
                data_merge_tuples(
                   txn_kvsb->tcfg->txn_data_cfg->application_data_config,
                   mvcc_user_key(w->key),
                   get_app_value_from_merge_accumulator(&_result->value),
                   &new_message);
                platform_free_from_heap(0, (void *)message_data(w->msg));
-               rw_entry_set_msg(w, txn->ts, merge_accumulator_to_message(&new_message));
+               rw_entry_set_msg(
+                  w, txn->ts, merge_accumulator_to_message(&new_message));
                merge_accumulator_deinit(&new_message);
                splinterdb_lookup_result_deinit(&result);
             }
@@ -491,7 +505,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          int rc =
             splinterdb_insert(txn_kvsb->kvsb, w->key, message_slice(w->msg));
          platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-         
+
          // Get the version number back to update the timestamps of
          // the current version afterward.
          --mkey->header.version;
@@ -549,70 +563,74 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
 }
 
 
-static void
-find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, key
-target_user_key)
-{
-   splinterdb_iterator *it;
-   int                  rc =
-      splinterdb_iterator_init(txn_kvsb->kvsb, &it, NULL_SLICE);
-   if (rc != 0) {
-      platform_error_log("Error from SplinterDB: %d\n", rc);
-   }
+// static void
+// find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, key
+// target_user_key)
+// {
+//    splinterdb_iterator *it;
+//    int                  rc =
+//       splinterdb_iterator_init(txn_kvsb->kvsb, &it, NULL_SLICE);
+//    if (rc != 0) {
+//       platform_error_log("Error from SplinterDB: %d\n", rc);
+//    }
 
-   slice range_mvcc_key   = NULL_SLICE;
-   slice range_value = NULL_SLICE;
+//    slice range_mvcc_key   = NULL_SLICE;
+//    slice range_value = NULL_SLICE;
 
-   int cnt = 0;
+//    int cnt = 0;
 
-   for (; splinterdb_iterator_valid(it);
-         splinterdb_iterator_next(it)) {
-      splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
-      // Insert the latest version data into the hash table.
-      if (data_key_compare(
-               txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-               target_user_key,
-               mvcc_user_key(range_mvcc_key))
-            == 0)
-      {
-         platform_default_log(
-            "attempt to find %s, v: %u, (actual, %s, v: %u) "
-            "(key_len: %lu) exists in db, but cannot be found\n",
-            (char *)key_data(target_user_key), 0,
-            (char *)key_data(mvcc_user_key(range_mvcc_key)),
-            mvcc_key_get_version_from_slice(range_mvcc_key),
-            slice_length(range_mvcc_key));
-         platform_default_log("%s:%u -> ", (char *)key_data(mvcc_user_key(range_mvcc_key)), mvcc_key_get_version_from_slice(range_mvcc_key));
-         cnt++;
-         break;
-      }
-   }
+//    for (; splinterdb_iterator_valid(it);
+//          splinterdb_iterator_next(it)) {
+//       splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
+//       // Insert the latest version data into the hash table.
+//       if (data_key_compare(
+//                txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+//                target_user_key,
+//                mvcc_user_key(range_mvcc_key))
+//             == 0)
+//       {
+//          platform_default_log(
+//             "attempt to find %s, v: %u, (actual, %s, v: %u) "
+//             "(key_len: %lu) exists in db, but cannot be found\n",
+//             (char *)key_data(target_user_key), 0,
+//             (char *)key_data(mvcc_user_key(range_mvcc_key)),
+//             mvcc_key_get_version_from_slice(range_mvcc_key),
+//             slice_length(range_mvcc_key));
+//          platform_default_log("%s:%u -> ", (char
+//          *)key_data(mvcc_user_key(range_mvcc_key)),
+//          mvcc_key_get_version_from_slice(range_mvcc_key)); cnt++; break;
+//       }
+//    }
 
-   for(; 0 < cnt && cnt < 4; cnt++) {
-      splinterdb_iterator_next(it);
-      if (splinterdb_iterator_valid(it)) {
-         splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
-         platform_default_log("%s:%u -> ", (char *)key_data(mvcc_user_key(range_mvcc_key)), mvcc_key_get_version_from_slice(range_mvcc_key));
-      }
-   }
+//    for(; 0 < cnt && cnt < 4; cnt++) {
+//       splinterdb_iterator_next(it);
+//       if (splinterdb_iterator_valid(it)) {
+//          splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
+//          platform_default_log("%s:%u -> ", (char
+//          *)key_data(mvcc_user_key(range_mvcc_key)),
+//          mvcc_key_get_version_from_slice(range_mvcc_key));
+//       }
+//    }
 
-   splinterdb_iterator_next(it);
-   if (splinterdb_iterator_valid(it)) {
-      splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
-      platform_default_log("%s:%u\n", (char *)key_data(mvcc_user_key(range_mvcc_key)), mvcc_key_get_version_from_slice(range_mvcc_key));
-   }
-   // loop exit may mean error, or just that we've reached the end
-   // of the range
-   rc = splinterdb_iterator_status(it);
-   if (rc != 0) {
-      platform_error_log("Error from SplinterDB: %d\n", rc);
-   }
+//    splinterdb_iterator_next(it);
+//    if (splinterdb_iterator_valid(it)) {
+//       splinterdb_iterator_get_current(it, &range_mvcc_key, &range_value);
+//       platform_default_log("%s:%u\n", (char
+//       *)key_data(mvcc_user_key(range_mvcc_key)),
+//       mvcc_key_get_version_from_slice(range_mvcc_key));
+//    }
+//    // loop exit may mean error, or just that we've reached the end
+//    // of the range
+//    rc = splinterdb_iterator_status(it);
+//    if (rc != 0) {
+//       platform_error_log("Error from SplinterDB: %d\n", rc);
+//    }
 
-   // Release resources acquired by the iterator
-   // If you skip this, other operations, including close(), may
-   // hang.
-   splinterdb_iterator_deinit(it);
-}
+//    // Release resources acquired by the iterator
+//    // If you skip this, other operations, including close(), may
+//    // hang.
+//    splinterdb_iterator_deinit(it);
+// }
 
 static int
 local_write(transactional_splinterdb *txn_kvsb,
@@ -633,59 +651,55 @@ local_write_begin:
       platform_assert(rc == 0, "splinterdb_iterator_init: %d\n", rc);
       slice latest_version_key   = NULL_SLICE;
       slice latest_version_tuple = NULL_SLICE;
-      bool should_retry;
-      do {
-         should_retry = FALSE;
-         if (splinterdb_iterator_valid(it)) {
-            splinterdb_iterator_get_current(
-               it, &latest_version_key, &latest_version_tuple);
-            int cmp_ret = data_key_compare(
-                  txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-                  mvcc_user_key(latest_version_key),
-                  key_create_from_slice(user_key));
-            if (cmp_ret == 0) {
-               mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
-               if (tuple->header.wts_min > txn->ts
-                  || tuple->header.update.rts > txn->ts) {
-                  // Need to abort because the latest version is younger than me
-                  /* if (tuple->header.wts_min > txn->ts) { */
-                  /*    platform_default_log("abort because the latest version
-                  * wts_min (%u) is younger than me(%u)\n", */
-                  /* 			       tuple->header.wts_min, */
-                  /*                         (uint32)txn->ts); */
-                  /* } */
-                  /* if (tuple->header.rts > txn->ts) { */
-                  /*    platform_default_log("abort because the latest version
-                  * rts(%u) is younger than me (%u)\n", */
-                  /*                         tuple->header.rts, */
-                  /*                         (uint32)txn->ts); */
-                  /* } */
-                  transactional_splinterdb_abort(txn_kvsb, txn);
-                  splinterdb_iterator_deinit(it);
-                  return 1;
-               }
-               entry_mkey->header.version =
-                  mvcc_key_get_version_from_slice(latest_version_key);
-            } else {
-               // There is no version had been inserted yet
-               platform_default_log("%s (v: %u) is not inserted yet. (latest_key: %s)\n", 
-               entry_mkey->key, entry_mkey->header.version,
-               (char *)key_data(mvcc_user_key(latest_version_key)));
-               find_key_in_splinterdb(txn_kvsb, key_create_from_slice(user_key));
-               platform_assert(FALSE);
-               entry_mkey->header.version = MVCC_VERSION_NODATA;
+      if (splinterdb_iterator_valid(it)) {
+         splinterdb_iterator_get_current(
+            it, &latest_version_key, &latest_version_tuple);
+         if (data_key_compare(
+                txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                mvcc_user_key(latest_version_key),
+                key_create_from_slice(user_key))
+             == 0)
+         {
+            mvcc_value *tuple = (mvcc_value *)slice_data(latest_version_tuple);
+            if (tuple->header.wts_min > txn->ts
+                || tuple->header.update.rts > txn->ts) {
+               // Need to abort because the latest version is younger than me
+               /* if (tuple->header.wts_min > txn->ts) { */
+               /*    platform_default_log("abort because the latest version
+                * wts_min (%u) is younger than me(%u)\n", */
+               /* 			       tuple->header.wts_min, */
+               /*                         (uint32)txn->ts); */
+               /* } */
+               /* if (tuple->header.rts > txn->ts) { */
+               /*    platform_default_log("abort because the latest version
+                * rts(%u) is younger than me (%u)\n", */
+               /*                         tuple->header.rts, */
+               /*                         (uint32)txn->ts); */
+               /* } */
+               transactional_splinterdb_abort(txn_kvsb, txn);
+               splinterdb_iterator_deinit(it);
+               return 1;
             }
+            entry_mkey->header.version =
+               mvcc_key_get_version_from_slice(latest_version_key);
          } else {
-            // it may mean error, or just that we've reached the end of the
-            // range
-            rc = splinterdb_iterator_status(it);
-            platform_assert(rc == 0, "splinterdb_iterator_status: %d\n", rc);
-
-            // It means the database is empty now
+            // There is no version had been inserted yet
+            // platform_default_log("%s (v: %u) is not inserted yet.
+            // (latest_key: %s)\n", entry_mkey->key, entry_mkey->header.version,
+            // (char *)key_data(mvcc_user_key(latest_version_key)));
+            // find_key_in_splinterdb(txn_kvsb,
+            // key_create_from_slice(user_key)); platform_assert(FALSE);
             entry_mkey->header.version = MVCC_VERSION_NODATA;
-            platform_default_log("The database is empty\n");
          }
-      } while(should_retry);
+      } else {
+         // it may mean error, or just that we've reached the end of the
+         // range
+         rc = splinterdb_iterator_status(it);
+         platform_assert(rc == 0, "splinterdb_iterator_status: %d\n", rc);
+
+         // It means the database is empty now
+         entry_mkey->header.version = MVCC_VERSION_NODATA;
+      }
       // Release resources acquired by the iterator
       // If you skip this, other operations, including close(), may hang.
       splinterdb_iterator_deinit(it);
@@ -782,10 +796,11 @@ local_write_begin:
 
          merge_accumulator new_message;
          merge_accumulator_init_from_message(&new_message, 0, msg);
-         data_merge_tuples(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-                           key_create_from_slice(user_key),
-                           get_app_value_from_message(entry->msg),
-                           &new_message);
+         data_merge_tuples(
+            txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+            key_create_from_slice(user_key),
+            get_app_value_from_message(entry->msg),
+            &new_message);
          platform_free_from_heap(0, (void *)message_data(entry->msg));
          rw_entry_set_msg(
             entry, txn->ts, merge_accumulator_to_message(&new_message));
