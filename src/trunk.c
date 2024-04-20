@@ -6446,10 +6446,6 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
                       == MESSAGE_TYPE_UPDATE);
    if (!merge_accumulator_is_null(result)) {
       data_merge_tuples_final(spl->cfg.data_cfg, target, result);
-   } else {
-      platform_default_log("No data for key %s (v: %u)\n",
-                           (char *)key_data(target) + 4,
-                           *((uint32 *)key_data(target)));
    }
 
 found_final_answer_early:
