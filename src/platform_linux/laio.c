@@ -44,9 +44,6 @@ laio_get_iovec(io_handle *ioh, io_async_req *req);
 static void *
 laio_get_metadata(io_handle *ioh, io_async_req *req);
 
-static void *
-laio_get_context(io_handle *ioh);
-
 static platform_status
 laio_read_async(io_handle     *ioh,
                 io_async_req  *req,
@@ -65,7 +62,7 @@ static void
 laio_cleanup(io_handle *ioh, uint64 count);
 
 static void
-laio_cleanup_all(io_handle *ioh);
+laio_wait_all(io_handle *ioh);
 
 static void
 laio_register_thread(io_handle *ioh);
@@ -88,93 +85,68 @@ static io_ops laio_ops = {
    .read_async        = laio_read_async,
    .write_async       = laio_write_async,
    .cleanup           = laio_cleanup,
-   .cleanup_all       = laio_cleanup_all,
+   .wait_all          = laio_wait_all,
    .register_thread   = laio_register_thread,
    .deregister_thread = laio_deregister_thread,
-   .get_context       = laio_get_context,
 };
 
-/*
- * Given an AIO handle, set up a thread-specific IO context opaque handle.
- */
-static platform_status
-io_context_setup(laio_handle *io)
-{
-   int status;
-
-   const threadid tid = platform_get_tid();
-
-   // Expect that this was never setup; otherwise it's a coding error.
-   platform_assert((io->ctx[tid] == NULL),
-                   "IO-context for ThreadID=%lu is expected to be NULL"
-                   ", but it is ctx[tid]=%p\n",
-                   tid,
-                   io->ctx[tid]);
-
-   status = io_setup(io->cfg->kernel_queue_size, &io->ctx[tid]);
-   platform_assert((status == 0),
-                   "io_setup() failed for thread-ID=%lu "
-                   "with status=%d (%s)\n",
-                   tid,
-                   status,
-                   strerror(status));
-
-   return STATUS_OK;
-}
-
-/*
- * As part of thread deregistration, we need to release the IO context
- * that was setup for this thread. Here, we assume that required io_cleanup()
- * has already been done to drain out pending IOs. This is quite the very
- * last thing that happens before thread deregistration completes.
- *
- * This routine will also be called when Splinter is being shutdown as
- * part of deinitializing the IO system. For that usage, allow for a case when
- * some threads' IO-context may not have been cleaned up previously; so be
- * a bit little lax on the assertion checks.
- *
- * NOTE: This should only be called if the thread has a valid IO context
- * Returns: 0, for successful destroy; 1, otherwise.
- */
-static int
-io_context_cleanup(laio_handle *io, threadid tid)
-{
-   // Expect that this was setup previously; otherwise it's a coding error.
-   platform_assert((io->ctx[tid] != NULL),
-                   "IO-context for ThreadID=%lu should be non-NULL"
-                   " for cleanup.\n",
-                   tid);
-
-   int status = io_destroy(io->ctx[tid]);
-   if (status != 0) {
-      platform_error_log("io_destroy() on IO-context at %p"
-                         " for threadID=%lu failed with error=%d: %s\n",
-                         io->ctx[tid],
-                         tid,
-                         -status,
-                         strerror(-status));
-   }
-   io->ctx[tid] = NULL;
-   return ((status == 0) ? 0 : 1);
-}
-
-/*
- * io_handle_deinit_ctxts() -
- *
- * As part of dismantling the IO sub-system, destroy any active IO contexts.
- */
 static void
-io_handle_deinit_ctxts(laio_handle *io)
+lock_ctx(laio_handle *io)
 {
-   int nfails = 0;
-   for (int tid = 0; tid < ARRAY_SIZE(io->ctx); tid++) {
-      if (io->ctx[tid]) {
-         nfails += io_context_cleanup(io, tid);
+   while (__sync_lock_test_and_set(&io->ctx_lock, 1)) {
+      while (io->ctx_lock) {
+         platform_pause();
       }
    }
-   // We should have destroyed all IO contexts.
-   platform_assert(
-      (nfails == 0), "Failed to destroy %d IO contexts.\n", nfails);
+}
+
+static void
+unlock_ctx(laio_handle *io)
+{
+   __sync_lock_release(&io->ctx_lock);
+}
+
+/*
+ * Find the index of the IO context for this thread. If it doesn't exist,
+ * create it.
+ */
+static uint64
+get_ctx_idx(laio_handle *io)
+{
+   const pid_t pid = platform_getpid();
+
+   lock_ctx(io);
+
+   for (int i = 0; i < MAX_THREADS; i++) {
+      if (io->ctx[i].pid == pid) {
+         io->ctx[i].thread_count++;
+         unlock_ctx(io);
+         return i;
+      }
+   }
+
+   for (int i = 0; i < MAX_THREADS; i++) {
+      if (io->ctx[i].pid == 0) {
+         int status = io_setup(io->cfg->kernel_queue_size, &io->ctx[i].ctx);
+         if (status != 0) {
+            platform_error_log(
+               "io_setup() failed for PID=%d, ctx=%p with error=%d: %s\n",
+               pid,
+               &io->ctx[i].ctx,
+               -status,
+               strerror(-status));
+            unlock_ctx(io);
+            return INVALID_TID;
+         }
+         io->ctx[i].pid          = pid;
+         io->ctx[i].thread_count = 1;
+         unlock_ctx(io);
+         return i;
+      }
+   }
+
+   unlock_ctx(io);
+   return INVALID_TID;
 }
 
 /*
@@ -239,10 +211,10 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
 
    // Initialize each Async IO request structure
    for (int i = 0; i < cfg->async_queue_size; i++) {
-      req         = laio_get_kth_req(io, i);
-      req->iocb_p = &req->iocb;
-      req->number = i;
-      req->busy   = FALSE;
+      req          = laio_get_kth_req(io, i);
+      req->iocb_p  = &req->iocb;
+      req->number  = i;
+      req->ctx_idx = INVALID_TID;
       // We only issue IOs in units of one page
       for (int j = 0; j < cfg->async_max_pages; j++) {
          req->iovec[j].iov_len = cfg->page_size;
@@ -263,8 +235,13 @@ io_handle_deinit(laio_handle *io)
 {
    int status;
 
-   // Destroy the array of IO-contexts that may have been established.
-   io_handle_deinit_ctxts(io);
+   for (int i = 0; i < MAX_THREADS; i++) {
+      if (io->ctx[i].pid != 0) {
+         platform_error_log("ERROR: io_handle_deinit(): IO context for PID=%d"
+                            " is still active.\n",
+                            io->ctx[i].pid);
+      }
+   }
 
    status = close(io->fd);
    if (status != 0) {
@@ -335,13 +312,15 @@ laio_get_kth_req(laio_handle *io, uint64 k)
 static io_async_req *
 laio_get_async_req(io_handle *ioh, bool32 blocking)
 {
-   laio_handle   *io;
-   io_async_req  *req;
-   uint64         batches = 0;
-   const threadid tid     = platform_get_tid();
+   laio_handle  *io      = (laio_handle *)ioh;
+   uint64        batches = 0;
+   io_async_req *req;
 
-   io = (laio_handle *)ioh;
-   debug_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
+   const threadid tid = platform_get_tid();
+   platform_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
+   uint64 ctx_idx = io->ctx_idx[tid];
+   platform_assert(ctx_idx < MAX_THREADS, "Invalid ctx_idx=%lu", ctx_idx);
+
    while (1) {
       if (io->req_hand[tid] % LAIO_HAND_BATCH_SIZE == 0) {
          if (!blocking && batches++ >= io->max_batches_nonblocking_get) {
@@ -352,7 +331,7 @@ laio_get_async_req(io_handle *ioh, bool32 blocking)
          laio_cleanup(ioh, 0);
       }
       req = laio_get_kth_req(io, io->req_hand[tid]++);
-      if (__sync_bool_compare_and_swap(&req->busy, FALSE, TRUE)) {
+      if (__sync_bool_compare_and_swap(&req->ctx_idx, INVALID_TID, ctx_idx)) {
          return req;
       }
    }
@@ -386,11 +365,24 @@ laio_get_metadata(io_handle *ioh, io_async_req *req)
 /*
  * Accessor method: Return opaque handle to IO-context setup by io_setup().
  */
-static void *
-laio_get_context(io_handle *ioh)
+static io_process_context *
+laio_get_thread_context(io_handle *ioh)
 {
-   threadid tid = platform_get_tid();
-   return ((laio_handle *)ioh)->ctx[tid];
+   laio_handle *io  = (laio_handle *)ioh;
+   threadid     tid = platform_get_tid();
+   platform_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
+   platform_assert(
+      io->ctx_idx[tid] < MAX_THREADS, "Invalid ctx_idx=%lu", io->ctx_idx[tid]);
+   return &io->ctx[io->ctx_idx[tid]];
+}
+
+static io_process_context *
+laio_get_req_context(io_handle *ioh, io_async_req *req)
+{
+   laio_handle *io = (laio_handle *)ioh;
+   platform_assert(
+      req->ctx_idx < MAX_THREADS, "Invalid ctx_idx=%lu", req->ctx_idx);
+   return &io->ctx[req->ctx_idx];
 }
 
 void
@@ -402,7 +394,7 @@ laio_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
    platform_assert(res2 == 0);
    req = (io_async_req *)((char *)iocb - offsetof(io_async_req, iocb));
    req->callback(req->metadata, req->iovec, req->count, status);
-   req->busy = FALSE;
+   req->ctx_idx = INVALID_TID;
 }
 
 /*
@@ -416,24 +408,28 @@ laio_read_async(io_handle     *ioh,
                 uint64         count,
                 uint64         addr)
 {
-   laio_handle *io;
-   int          status;
+   int                 status;
+   laio_handle        *io   = (laio_handle *)ioh;
+   io_process_context *pctx = laio_get_req_context(ioh, req);
 
-   threadid tid = platform_get_tid();
-
-   io = (laio_handle *)ioh;
    io_prep_preadv(&req->iocb, io->fd, req->iovec, count, addr);
    req->callback = callback;
    req->count    = count;
    io_set_callback(&req->iocb, laio_callback);
    do {
-      status = io_submit(io->ctx[tid], 1, &req->iocb_p);
+      // We increment the io_count before submitting the request to avoid
+      // having the io_count go negative if another thread calls io_cleanup
+      __sync_fetch_and_add(&pctx->io_count, 1);
+      status = io_submit(pctx->ctx, 1, &req->iocb_p);
+      if (status <= 0) {
+         __sync_fetch_and_sub(&pctx->io_count, 1);
+      }
       if (status < 0) {
          platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
                             ", io_submit errorno=%d: %s\n",
                             __func__,
                             platform_getpid(),
-                            tid,
+                            platform_get_tid(),
                             req,
                             -status,
                             strerror(-status));
@@ -454,24 +450,29 @@ laio_write_async(io_handle     *ioh,
                  uint64         count,
                  uint64         addr)
 {
-   laio_handle *io;
-   int          status;
+   int                 status;
+   laio_handle        *io   = (laio_handle *)ioh;
+   io_process_context *pctx = laio_get_req_context(ioh, req);
 
-   threadid tid = platform_get_tid();
-
-   io = (laio_handle *)ioh;
    io_prep_pwritev(&req->iocb, io->fd, req->iovec, count, addr);
    req->callback = callback;
    req->count    = count;
    io_set_callback(&req->iocb, laio_callback);
+
    do {
-      status = io_submit(io->ctx[tid], 1, &req->iocb_p);
+      // We increment the io_count before submitting the request to avoid
+      // having the io_count go negative if another thread calls io_cleanup
+      __sync_fetch_and_add(&pctx->io_count, 1);
+      status = io_submit(pctx->ctx, 1, &req->iocb_p);
+      if (status <= 0) {
+         __sync_fetch_and_sub(&pctx->io_count, 1);
+      }
       if (status < 0) {
          platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
                             ", io_submit errorno=%d: %s\n",
                             __func__,
                             platform_getpid(),
-                            tid,
+                            platform_get_tid(),
                             req,
                             -status,
                             strerror(-status));
@@ -484,72 +485,70 @@ laio_write_async(io_handle     *ioh,
 
 /*
  * laio_cleanup() - Handle completion of outstanding IO requests for currently
- * running thread. Up to 'count' outstanding IO requests will be processed.
+ * running process. Up to 'count' outstanding IO requests will be processed.
  * Specify 'count' as 0 to process completion of all pending IO requests.
  */
 static void
 laio_cleanup(io_handle *ioh, uint64 count)
 {
-   laio_handle    *io;
+   laio_handle    *io    = (laio_handle *)ioh;
    struct io_event event = {0};
    uint64          i;
    int             status;
 
    threadid tid = platform_get_tid();
-
-   io = (laio_handle *)ioh;
+   platform_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
+   platform_assert(
+      io->ctx_idx[tid] < MAX_THREADS, "Invalid ctx_idx=%lu", io->ctx_idx[tid]);
+   io_process_context *pctx = &io->ctx[io->ctx_idx[tid]];
 
    // Check for completion of up to 'count' events, one event at a time.
    // Or, check for all outstanding events (count == 0)
-   for (i = 0; ((count == 0) || (i < count)); i++) {
-      status = io_getevents(io->ctx[tid], 0, 1, &event, NULL);
+   for (i = 0; (count == 0 || i < count) && 0 < pctx->io_count; i++) {
+      status = io_getevents(pctx->ctx, 0, 1, &event, NULL);
       if (status < 0) {
-         platform_error_log(
-            "%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], count=%lu, "
-            "failed with errorno=%d: %s\n",
-            __func__,
-            platform_getpid(),
-            tid,
-            i,
-            count,
-            -status,
-            strerror(-status));
+         platform_error_log("%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], "
+                            "count=%lu, io_count=%lu,"
+                            "failed with errorno=%d: %s\n",
+                            __func__,
+                            platform_getpid(),
+                            tid,
+                            i,
+                            count,
+                            pctx->io_count,
+                            -status,
+                            strerror(-status));
+      }
+      if (status <= 0) {
          i--;
          continue;
       }
-      // No event has completed, so we are done. Exit.
-      if (status == 0) {
-         break;
-      }
+
+      __sync_fetch_and_sub(&pctx->io_count, 1);
+
       // Invoke the callback for the one event that completed.
-      laio_callback(io->ctx[tid], event.obj, event.res, 0);
+      laio_callback(pctx->ctx, event.obj, event.res, 0);
    }
 }
 
 /*
- * laio_cleanup_all() - Handle completion of outstanding IO requests,
- * for all async requests in the queue.
- *
- * NOTE:  This interface is potentially problematic when deployed
- * using a process model. The expectation is that only the parent process
- * will invoke this to do a final cleanup. But if there are any pending
- * aios left behind by a process that exited before deregistering itself
- * cleanly, we may find that AIO-request busy below, and will try to call
- * the cleanup function. As the IO-context is no longer correct, we will
- * get a hard-error from io_getevents() call.
+ * laio_wait_all() - Handle completion of outstanding IO requests for our
+ * process, and wait for all other process's IOs to complete.
  */
 static void
-laio_cleanup_all(io_handle *ioh)
+laio_wait_all(io_handle *ioh)
 {
-   laio_handle  *io;
-   uint64        i;
-   io_async_req *req;
+   laio_handle *io;
+   uint64       i;
 
    io = (laio_handle *)ioh;
-   for (i = 0; i < io->cfg->async_queue_size; i++) {
-      req = laio_get_kth_req(io, i);
-      while (req->busy) {
+   for (i = 0; i < MAX_THREADS; i++) {
+      if (io->ctx[i].pid == getpid()) {
          io_cleanup(ioh, 0);
+      } else {
+         while (0 < io->ctx[i].io_count) {
+            io_cleanup(ioh, 0);
+         }
       }
    }
 }
@@ -561,21 +560,43 @@ laio_cleanup_all(io_handle *ioh)
 static void
 laio_register_thread(io_handle *ioh)
 {
-   io_context_setup((laio_handle *)ioh);
+   const threadid tid = platform_get_tid();
+   laio_handle   *io  = (laio_handle *)ioh;
+   uint64         idx = get_ctx_idx(io);
+   platform_assert(
+      (idx != INVALID_TID), "Failed to register IO for thread ID=%lu\n", tid);
+   io->ctx_idx[tid] = idx;
 }
 
 static void
 laio_deregister_thread(io_handle *ioh)
 {
-   const threadid tid = platform_get_tid();
-   platform_assert((laio_get_context(ioh) != NULL),
+   laio_handle        *io   = (laio_handle *)ioh;
+   io_process_context *pctx = laio_get_thread_context(ioh);
+
+   platform_assert((pctx != NULL),
                    "Attempting to deregister IO for thread ID=%lu"
                    " found an uninitialized IO-context handle.\n",
-                   tid);
+                   platform_get_tid());
 
    // Process pending AIO-requests for this thread before deregistering it
    laio_cleanup(ioh, 0);
-   io_context_cleanup((laio_handle *)ioh, tid);
+
+   lock_ctx(io);
+   pctx->thread_count--;
+   if (pctx->thread_count == 0) {
+      debug_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
+      int status = io_destroy(pctx->ctx);
+      platform_assert(status == 0,
+                      "io_destroy() failed with error=%d: %s\n",
+                      -status,
+                      strerror(-status));
+      // subsequent io_setup calls on this ctx will fail if we don't reset it.
+      // Seems like a bug in libaio/linux.
+      memset(&pctx->ctx, 0, sizeof(pctx->ctx));
+      pctx->pid = 0;
+   }
+   unlock_ctx(io);
 }
 
 static inline bool32
