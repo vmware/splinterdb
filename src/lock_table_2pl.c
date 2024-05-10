@@ -465,7 +465,7 @@ lock_table_2pl_try_acquire_entry_lock(lock_table_2pl *lock_tbl,
    // or create a new one
    entry->le = lock_entry_init();
 
-   ValueType  value_to_be_inserted     = (ValueType)entry->le;
+   ValueType  value_to_be_inserted     = (ValueType)(uint64)entry->le;
    ValueType *pointer_of_iceberg_value = &value_to_be_inserted;
    bool       is_newly_inserted =
       iceberg_insert_and_get(&lock_tbl->table,

@@ -4809,6 +4809,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    platform_status pack_status = btree_pack(&pack_req);
+   platform_assert_status_ok(pack_status);
    if (!SUCCESS(pack_status)) {
       platform_default_log("btree_pack failed: %s\n",
                            platform_status_to_string(pack_status));
