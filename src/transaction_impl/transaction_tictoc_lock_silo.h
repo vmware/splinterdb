@@ -108,7 +108,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //           txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
    //    {
    //       if (slice_data(entry->key) != key_ht) {
-   //          platform_free_from_heap(0, key_ht);
+   //          platform_free(0, key_ht);
    //       } else {
    //          entry->need_to_keep_key = 0;
    //       }
@@ -129,7 +129,7 @@ static inline void
 rw_entry_deinit(rw_entry *entry)
 {
    if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
+      platform_free(0, (void *)message_data(entry->msg));
    }
 }
 
@@ -544,7 +544,7 @@ local_write(transactional_splinterdb *txn_kvsb,
       key wkey = key_create_from_slice(entry->key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
-            platform_free_from_heap(0, (void *)message_data(entry->msg));
+            platform_free(0, (void *)message_data(entry->msg));
             rw_entry_set_msg(entry, msg);
          } else {
             platform_assert(message_class(entry->msg) != MESSAGE_TYPE_DELETE);
@@ -552,7 +552,7 @@ local_write(transactional_splinterdb *txn_kvsb,
             merge_accumulator new_message;
             merge_accumulator_init_from_message(&new_message, 0, msg);
             data_merge_tuples(cfg, ukey, entry->msg, &new_message);
-            platform_free_from_heap(0, (void *)message_data(entry->msg));
+            platform_free(0, (void *)message_data(entry->msg));
             entry->msg = merge_accumulator_to_message(&new_message);
          }
       }

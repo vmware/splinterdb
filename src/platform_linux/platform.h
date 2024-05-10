@@ -33,6 +33,8 @@
  * Section 1:
  * Shared types/typedefs that don't rely on anything platform-specific
  */
+typedef int32 bool32;
+
 #if !defined(SPLINTER_DEBUG)
 #   define SPLINTER_DEBUG 0
 #else
@@ -88,14 +90,27 @@
 
 // Data unit constants
 #define KiB (1024UL)
-#define MiB (KiB * KiB)
-#define GiB (MiB * KiB)
+#define MiB (KiB * 1024)
+#define GiB (MiB * 1024)
+#define TiB (GiB * 1024)
 
+// Convert 'x' in unit-specifiers to bytes
 #define KiB_TO_B(x) ((x)*KiB)
 #define MiB_TO_B(x) ((x)*MiB)
 #define GiB_TO_B(x) ((x)*GiB)
+#define TiB_TO_B(x) ((x)*TiB)
+
+// Convert 'x' in bytes to 'int'-value with unit-specifiers
+#define B_TO_KiB(x) ((x) / KiB)
 #define B_TO_MiB(x) ((x) / MiB)
 #define B_TO_GiB(x) ((x) / GiB)
+#define B_TO_TiB(x) ((x) / TiB)
+
+// For x bytes, returns as int the fractional portion modulo a unit-specifier
+#define B_TO_KiB_FRACT(x) ((100 * ((x) % KiB)) / KiB)
+#define B_TO_MiB_FRACT(x) ((100 * ((x) % MiB)) / MiB)
+#define B_TO_GiB_FRACT(x) ((100 * ((x) % GiB)) / GiB)
+#define B_TO_TiB_FRACT(x) ((100 * ((x) % TiB)) / TiB)
 
 // Time unit constants
 #define THOUSAND (1000UL)
@@ -167,8 +182,8 @@ typedef struct {
    int   last_token_len;
 } platform_strtok_ctx;
 
-extern bool platform_use_hugetlb;
-extern bool platform_use_mlock;
+extern bool32 platform_use_hugetlb;
+extern bool32 platform_use_mlock;
 
 
 /*
@@ -203,6 +218,17 @@ extern platform_log_handle *Platform_error_log_handle;
 
 // hash functions
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
+
+extern platform_heap_id Heap_id;
+
+/*
+ * Provide a tag for callers that do not want to use shared-memory allocation,
+ * when configured but want to fallback to default scheme of allocating
+ * process-private memory. Typically, this would default to malloc()/free().
+ * (Clients that repeatedly allocate and free a large chunk of memory in some
+ *  code path would want to use this tag.)
+ */
+#define PROCESS_PRIVATE_HEAP_ID (platform_heap_id) NULL
 
 /*
  * -----------------------------------------------------------------------------
@@ -302,12 +328,24 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 #define TYPED_MANUAL_MALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid, PLATFORM_CACHELINE_SIZE, (n));   \
+      (typeof(v))platform_aligned_malloc(hid,                                  \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         STRINGIFY(v),                         \
+                                         __func__,                             \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 #define TYPED_MANUAL_ZALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid, PLATFORM_CACHELINE_SIZE, (n));   \
+      (typeof(v))platform_aligned_zalloc(hid,                                  \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         STRINGIFY(v),                         \
+                                         __func__,                             \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 
 /*
@@ -326,12 +364,14 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 #define TYPED_ALIGNED_MALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid, (a), (n));                       \
+      (typeof(v))platform_aligned_malloc(                                      \
+         hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);           \
    })
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid, (a), (n));                       \
+      (typeof(v))platform_aligned_zalloc(                                      \
+         hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);           \
    })
 
 /*
@@ -405,8 +445,8 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  */
-#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, (v), 1)
-#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, (v), 1)
+#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, v, 1)
+#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, v, 1)
 
 /*
  * -----------------------------------------------------------------------------
@@ -429,7 +469,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  */
 #define ZERO_ARRAY(v)                                                          \
    do {                                                                        \
-      _Static_assert(IS_ARRAY(v), "ZERO_ARRAY on non-array");                  \
+      _Static_assert(IS_ARRAY(v), "Use of ZERO_ARRAY on non-array object");    \
       memset((v), 0, sizeof(v));                                               \
    } while (0)
 
@@ -439,7 +479,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  */
 #define ZERO_CONTENTS_N(v, n)                                                  \
    do {                                                                        \
-      _Static_assert(!IS_ARRAY(v), "ZERO_CONTENTS on array");                  \
+      _Static_assert(!IS_ARRAY(v), "Use of ZERO_CONTENTS on array");           \
       debug_assert((v) != NULL);                                               \
       memset((v), 0, (n) * sizeof(*(v)));                                      \
    } while (0)
@@ -565,7 +605,7 @@ platform_assert_msg(platform_log_handle *log_handle,
 #define platform_assert(expr, ...)                                             \
    ((expr) ? (void)0                                                           \
            : (platform_assert_false(                                           \
-                 __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__),     \
+                 __FILE__, __LINE__, __func__, #expr, "" __VA_ARGS__),         \
               (void)fprintf(stderr, " " __VA_ARGS__)))
 
 static inline timestamp
@@ -601,7 +641,7 @@ platform_histo_create(platform_heap_id       heap_id,
                       platform_histo_handle *histo);
 
 void
-platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle histo);
+platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle *histo);
 
 void
 platform_histo_print(platform_histo_handle histo,
@@ -617,25 +657,34 @@ platform_set_tid(threadid t);
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen);
 
+platform_log_handle *
+platform_get_stdout_stream(void);
+
+typedef struct shmem_heap shmem_heap;
+
 platform_status
-platform_heap_create(platform_module_id    module_id,
-                     uint32                max,
-                     platform_heap_handle *heap_handle,
-                     platform_heap_id     *heap_id);
+platform_heap_create(platform_module_id module_id,
+                     size_t             max,
+                     bool               use_shmem,
+                     platform_heap_id  *heap_id);
 
 void
-platform_heap_destroy(platform_heap_handle *heap_handle);
+platform_heap_destroy(platform_heap_id *heap_id);
 
-buffer_handle *
-platform_buffer_create(size_t               length,
-                       platform_heap_handle heap_handle,
-                       platform_module_id   module_id);
+void
+platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr);
+
+shmem_heap *
+platform_heap_id_to_shmaddr(platform_heap_id hid);
+
+platform_status
+platform_buffer_init(buffer_handle *bh, size_t length);
 
 void *
 platform_buffer_getaddr(const buffer_handle *bh);
 
 platform_status
-platform_buffer_destroy(buffer_handle *bh);
+platform_buffer_deinit(buffer_handle *bh);
 
 platform_status
 platform_mutex_init(platform_mutex    *mu,
@@ -663,7 +712,7 @@ platform_rwlock_destroy(platform_rwlock *rwlock);
 
 platform_status
 platform_thread_create(platform_thread       *thread,
-                       bool                   detached,
+                       bool32                 detached,
                        platform_thread_worker worker,
                        void                  *arg,
                        platform_heap_id       heap_id);
@@ -677,7 +726,6 @@ platform_thread_id_self();
 
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
-
 
 /*
  * Section 5:
@@ -703,28 +751,40 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  */
 #define platform_free(id, p)                                                   \
    do {                                                                        \
-      platform_free_from_heap(id, (p));                                        \
-      (p) = NULL;                                                              \
+      platform_free_from_heap(                                                 \
+         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
    } while (0)
 
 #define platform_free_volatile(id, p)                                          \
    do {                                                                        \
-      platform_free_volatile_from_heap(id, (p));                               \
-      (p) = NULL;                                                              \
+      platform_free_volatile_from_heap(                                        \
+         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
    } while (0)
 
 // Convenience function to free something volatile
 static inline void
-platform_free_volatile_from_heap(platform_heap_id heap_id, volatile void *ptr)
+platform_free_volatile_from_heap(platform_heap_id heap_id,
+                                 volatile void   *ptr,
+                                 const char      *objname,
+                                 const char      *func,
+                                 const char      *file,
+                                 int              lineno)
 {
    // Ok to discard volatile qualifier for free
-   platform_free_from_heap(heap_id, (void *)ptr);
+   platform_free_from_heap(heap_id, (void *)ptr, objname, func, file, lineno);
 }
 
 static inline void *
-platform_aligned_zalloc(platform_heap_id heap_id, size_t alignment, size_t size)
+platform_aligned_zalloc(platform_heap_id heap_id,
+                        size_t           alignment,
+                        size_t           size,
+                        const char      *objname,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno)
 {
-   void *x = platform_aligned_malloc(heap_id, alignment, size);
+   void *x = platform_aligned_malloc(
+      heap_id, alignment, size, objname, func, file, lineno);
    if (LIKELY(x)) {
       memset(x, 0, size);
    }
@@ -737,7 +797,7 @@ max_size_t(size_t a, size_t b)
    return a > b ? a : b;
 }
 
-static inline bool
+static inline bool32
 SUCCESS(const platform_status s)
 {
    return STATUS_IS_EQ(s, STATUS_OK);
@@ -774,4 +834,4 @@ platform_backtrace(void **buffer, int size)
    return backtrace(buffer, size);
 }
 
-#endif
+#endif // PLATFORM_H

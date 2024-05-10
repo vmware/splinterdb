@@ -46,8 +46,8 @@ typedef struct {
    task_system *tasks;
    threadid     exp_thread_idx; // Splinter-generated expected thread index
    threadid     exp_max_tid;    // After this thread gets created
-   bool         stop_thread;
-   bool         waitfor_stop_signal;
+   bool32       stop_thread;
+   bool32       waitfor_stop_signal;
    int          line; // Thread created on / around this line #
 } thread_config_lockstep;
 
@@ -80,8 +80,7 @@ exec_user_thread_loop_for_stop(void *arg);
 CTEST_DATA(task_system)
 {
    // Declare heap handles for io allocation.
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
 
    // Config structs required, to exercise task subsystem
    io_config          io_cfg;
@@ -104,26 +103,12 @@ CTEST_DATA(task_system)
 CTEST_SETUP(task_system)
 {
    platform_status rc = STATUS_OK;
-   // This test exercises error cases, so even when everything succeeds
-   // it generates lots of "error" messages.
-   // By default, that would go to stderr, which would pollute test output.
-   // Here we ensure those expected error messages are only printed
-   // when the caller sets the VERBOSE env var to opt-in.
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-      CTEST_LOG_INFO("\nVerbose mode on.  This test exercises an error case, "
-                     "so on sucess it "
-                     "will print a message that appears to be an error.\n");
-   } else {
-      FILE *dev_null = fopen("/dev/null", "w");
-      ASSERT_NOT_NULL(dev_null);
-      platform_set_log_streams(dev_null, dev_null);
-   }
+   bool use_shmem     = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
    rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+      platform_get_module_id(), heap_capacity, use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
@@ -142,7 +127,7 @@ CTEST_SETUP(task_system)
                   master_cfg.io_async_queue_depth,
                   master_cfg.io_filename);
 
-   rc = io_handle_init(data->ioh, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->ioh, &data->io_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc),
                "Failed to init IO handle: %s\n",
                platform_status_to_string(rc));
@@ -176,7 +161,7 @@ CTEST_TEARDOWN(task_system)
 {
    task_system_destroy(data->hid, &data->tasks);
    io_handle_deinit(data->ioh);
-   platform_heap_destroy(&data->hh);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -322,7 +307,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
  * Background threads are off, by default.
  * ------------------------------------------------------------------------
  */
-CTEST2(task_system, test_multiple_threads)
+CTEST2(task_system, test_max_threads_using_lower_apis)
 {
    platform_thread new_thread;
    thread_config   thread_cfg[MAX_THREADS];
@@ -336,9 +321,13 @@ CTEST2(task_system, test_multiple_threads)
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 
+   // We may have started some background threads, if this test was so
+   // configured. So, start-up all the remaining threads.
+   threadid max_tid_so_far = task_get_max_tid(data->tasks);
+
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -354,7 +343,7 @@ CTEST2(task_system, test_multiple_threads)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -399,18 +388,19 @@ CTEST2(task_system, test_task_system_creation_with_bg_threads)
 /*
  * ------------------------------------------------------------------------
  * Test creation of task system using up the threads for background threads.
- * Verify ththe we can create just one more user-thread and that the next
+ * Verify that we can create just one more user-thread and that the next
  * user-thread creation should fail with a proper error message.
  * ------------------------------------------------------------------------
  */
 CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
 {
    platform_status rc = STATUS_OK;
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
 
    // Destroy the task system setup by the harness, by default, w/o bg threads.
    task_system_destroy(data->hid, &data->tasks);
 
-   // Consume all available threads with background threads.
+   // Consume all-but-one available threads with background threads.
    rc = create_task_system_with_bg_threads(data, 1, (MAX_THREADS - 3));
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -466,6 +456,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
          ASSERT_TRUE(SUCCESS(rc));
       }
    }
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
 }
 
 /* Wrapper function to create Splinter Task system w/o background threads. */
@@ -692,6 +683,9 @@ exec_one_of_n_threads(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
+   // Before registration, thread ID should be in an uninit'ed state
+   ASSERT_EQUAL(INVALID_TID, platform_get_tid());
+
    task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
 
    threadid this_threads_index = platform_get_tid();
@@ -710,15 +704,14 @@ exec_one_of_n_threads(void *arg)
    task_deregister_this_thread(thread_cfg->tasks);
 
    // Register / de-register of thread with SplinterDB's task system is just
-   // SplinterDB's jugglery to keep track of resources. get_tid() should still
-   // remain the expected index into the threads[] array.
+   // SplinterDB's jugglery to keep track of resources. Deregistration should
+   // have re-init'ed the thread ID.
    threadid get_tid_after_deregister = platform_get_tid();
    ASSERT_EQUAL(INVALID_TID,
                 get_tid_after_deregister,
-                "get_tid_after_deregister=%lu is != the index into"
-                " thread array, %lu ",
+                "get_tid_after_deregister=%lu should be an invalid tid, %lu",
                 get_tid_after_deregister,
-                this_threads_index);
+                INVALID_TID);
 }
 
 /*

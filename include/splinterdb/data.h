@@ -90,10 +90,10 @@ merge_accumulator_length(const merge_accumulator *ma);
 slice
 merge_accumulator_to_slice(const merge_accumulator *ma);
 
-bool
+_Bool
 merge_accumulator_copy_message(merge_accumulator *ma, message msg);
 
-bool
+_Bool
 merge_accumulator_resize(merge_accumulator *ma, uint64 newsize);
 
 void
@@ -162,8 +162,10 @@ struct data_config {
    // FIXME: Planned for deprecation.
    uint64 max_key_size;
 
-   key_compare_fn       key_compare;
-   key_hash_fn          key_hash;
+   key_compare_fn key_compare;
+   key_hash_fn    key_hash;
+   /* The merge functions may be NULL, in which case
+      splinterdb_update() is not allowed. */
    merge_tuple_fn       merge_tuples;
    merge_tuple_final_fn merge_tuples_final;
    key_to_str_fn        key_to_string;

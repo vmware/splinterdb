@@ -44,19 +44,19 @@ typedef struct key {
    ((key){.kind = POSITIVE_INFINITY, .user_slice = INVALID_SLICE})
 #define NULL_KEY ((key){.kind = USER_KEY, .user_slice = NULL_SLICE})
 
-static inline bool
+static inline bool32
 key_is_negative_infinity(key k)
 {
    return k.kind == NEGATIVE_INFINITY;
 }
 
-static inline bool
+static inline bool32
 key_is_positive_infinity(key k)
 {
    return k.kind == POSITIVE_INFINITY;
 }
 
-static inline bool
+static inline bool32
 key_is_user_key(key k)
 {
    return k.kind == USER_KEY;
@@ -81,7 +81,7 @@ key_create(uint64 length, const void *data)
    return (key){.kind = USER_KEY, .user_slice = slice_create(length, data)};
 }
 
-static inline bool
+static inline bool32
 key_equals(key a, key b)
 {
    return a.kind == b.kind
@@ -89,7 +89,7 @@ key_equals(key a, key b)
                      slice_equals(a.user_slice, b.user_slice));
 }
 
-static inline bool
+static inline bool32
 key_is_null(key k)
 {
    return k.kind == USER_KEY && slice_is_null(k.user_slice);
@@ -180,6 +180,12 @@ key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
 {
    key_buffer_init(kb, hid);
    return key_buffer_copy_key(kb, src);
+}
+
+static inline uint64
+key_buffer_length(key_buffer *kb)
+{
+   return writable_buffer_length(&kb->wb);
 }
 
 /* Converts kb to a user key if it isn't already. */
@@ -322,21 +328,21 @@ message_create(message_type type, slice data)
    return (message){.type = type, .data = data};
 }
 
-static inline bool
+static inline bool32
 message_is_null(message msg)
 {
-   bool r = slice_is_null(msg.data);
+   bool32 r = slice_is_null(msg.data);
    debug_assert(IMPLIES(r, msg.type == MESSAGE_TYPE_INVALID));
    return r;
 }
 
-static inline bool
+static inline bool32
 message_is_definitive(message msg)
 {
    return msg.type == MESSAGE_TYPE_INSERT || msg.type == MESSAGE_TYPE_DELETE;
 }
 
-static inline bool
+static inline bool32
 message_is_invalid_user_type(message msg)
 {
    return msg.type == MESSAGE_TYPE_INVALID
@@ -488,7 +494,7 @@ merge_accumulator_deinit(merge_accumulator *ma)
    ma->type = MESSAGE_TYPE_INVALID;
 }
 
-static inline bool
+static inline bool32
 merge_accumulator_is_definitive(const merge_accumulator *ma)
 {
    return ma->type == MESSAGE_TYPE_INSERT || ma->type == MESSAGE_TYPE_DELETE;
@@ -508,7 +514,7 @@ merge_accumulator_to_value(const merge_accumulator *ma)
 }
 
 /* Initialize an uninitialized merge_accumulator and copy msg into it. */
-static inline bool
+static inline bool32
 merge_accumulator_init_from_message(merge_accumulator *ma,
                                     platform_heap_id   heap_id,
                                     message            msg)
@@ -524,10 +530,10 @@ merge_accumulator_set_to_null(merge_accumulator *ma)
    writable_buffer_set_to_null(&ma->data);
 }
 
-static inline bool
+static inline bool32
 merge_accumulator_is_null(const merge_accumulator *ma)
 {
-   bool r = writable_buffer_is_null(&ma->data);
+   bool32 r = writable_buffer_is_null(&ma->data);
    debug_assert(IMPLIES(r, ma->type == MESSAGE_TYPE_INVALID));
    return r;
 }
@@ -604,7 +610,7 @@ static inline void
 data_key_to_string(const data_config *cfg, key k, char *str, size_t size)
 {
    if (key_is_negative_infinity(k)) {
-      snprintf(str, size, "(negaitive_infinity)");
+      snprintf(str, size, "(negative_infinity)");
    } else if (key_is_negative_infinity(k)) {
       snprintf(str, size, "(positive_infinity)");
    } else {

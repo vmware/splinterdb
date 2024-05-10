@@ -1178,7 +1178,7 @@ iceberg_put_or_insert(iceberg_table *table,
    // If it fails to insert the key, free the key memory and return
    // the key as NULL.
    if (!ret) {
-      platform_free_from_heap(0, key_copy_buffer);
+      platform_free(0, key_copy_buffer);
       *key = NULL_SLICE;
    }
 
@@ -1307,8 +1307,8 @@ iceberg_put(iceberg_table *table,
 static inline void
 iceberg_lv3_node_deinit(iceberg_lv3_node *node)
 {
-   platform_free_from_heap(0, (void *)slice_data(node->kv.key));
-   platform_free_from_heap(0, (void *)node);
+   platform_free(0, (void *)slice_data(node->kv.key));
+   platform_free(0, (void *)node);
 }
 
 static inline bool
@@ -1539,7 +1539,7 @@ iceberg_lv2_remove(iceberg_table *table,
 
                      metadata->lv2_md[old_bindex][old_boffset].block_md[slot] =
                         0;
-                     platform_free_from_heap(
+                     platform_free(
                         0, slice_data(blocks[old_boffset].slots[slot].key));
                      blocks[old_boffset].slots[slot].key      = NULL_SLICE;
                      blocks[old_boffset].slots[slot].refcount = 0;
@@ -1602,7 +1602,7 @@ iceberg_lv2_remove(iceberg_table *table,
                                 blocks[boffset].slots[slot].val);
                }
                metadata->lv2_md[bindex][boffset].block_md[slot] = 0;
-               platform_free_from_heap(
+               platform_free(
                   0, (void *)slice_data(blocks[boffset].slots[slot].key));
                blocks[boffset].slots[slot].key      = NULL_SLICE;
                blocks[boffset].slots[slot].refcount = 0;
@@ -1702,7 +1702,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                                    blocks[old_boffset].slots[slot].val);
                   }
                   metadata->lv1_md[old_bindex][old_boffset].block_md[slot] = 0;
-                  platform_free_from_heap(
+                  platform_free(
                      0, slice_data(blocks[old_boffset].slots[slot].key));
                   blocks[old_boffset].slots[slot].key      = NULL_SLICE;
                   blocks[old_boffset].slots[slot].refcount = 0;
@@ -1776,7 +1776,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                              blocks[boffset].slots[slot].val);
             }
             metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
-            platform_free_from_heap(
+            platform_free(
                0, (void *)slice_data(blocks[boffset].slots[slot].key));
             blocks[boffset].slots[slot].key      = NULL_SLICE;
             blocks[boffset].slots[slot].refcount = 0;

@@ -29,7 +29,7 @@ typedef struct clockcache_config {
    cache_config super;
    io_config   *io_cfg;
    uint64       capacity;
-   bool         use_stats;
+   bool32       use_stats;
    char         logfile[MAX_STRING_LENGTH];
 
    // computed
@@ -116,26 +116,25 @@ struct clockcache {
 
    uint32              *lookup;
    clockcache_entry    *entry;
-   buffer_handle       *bh;   // actual memory for pages
+   buffer_handle        bh;   // actual memory for pages
    char                *data; // convenience pointer for bh
    platform_log_handle *logfile;
-   platform_heap_handle heap_handle;
    platform_heap_id     heap_id;
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
-   buffer_handle  *rc_bh;
+   buffer_handle   rc_bh;
    volatile uint8 *refcount;
    volatile uint8 *pincount;
 
    // Clock hands and related metadata
-   volatile uint32 evict_hand;
-   volatile uint32 free_hand;
-   volatile bool  *batch_busy;
-   uint64          cleaner_gap;
+   volatile uint32  evict_hand;
+   volatile uint32  free_hand;
+   volatile bool32 *batch_busy;
+   uint64           cleaner_gap;
 
    volatile struct {
       volatile uint32 free_hand;
-      bool            enable_sync_get;
+      bool32          enable_sync_get;
    } PLATFORM_CACHELINE_ALIGNED per_thread[MAX_THREADS];
 
    // Stats
@@ -157,14 +156,13 @@ clockcache_config_init(clockcache_config *cache_config,
                        uint64             use_stats);
 
 platform_status
-clockcache_init(clockcache          *cc,   // OUT
-                clockcache_config   *cfg,  // IN
-                io_handle           *io,   // IN
-                allocator           *al,   // IN
-                char                *name, // IN
-                platform_heap_handle hh,   // IN
-                platform_heap_id     hid,  // IN
-                platform_module_id   mid);   // IN
+clockcache_init(clockcache        *cc,   // OUT
+                clockcache_config *cfg,  // IN
+                io_handle         *io,   // IN
+                allocator         *al,   // IN
+                char              *name, // IN
+                platform_heap_id   hid,  // IN
+                platform_module_id mid); // IN
 
 void
 clockcache_deinit(clockcache *cc); // IN

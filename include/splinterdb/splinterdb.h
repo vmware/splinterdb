@@ -20,8 +20,29 @@
 const char *
 splinterdb_get_version();
 
-// Configuration options for SplinterDB
-typedef struct {
+/*
+ * ****************************************************************************
+ * Configuration options for SplinterDB:
+ *
+ * Physical configuration things such as file name, cache & disk-size,
+ * extent- and page-size are specified here. Application-specific data
+ * configuration is also provided through this struct. Additionally,
+ * user can select whether to use malloc()/free()-based memory allocation
+ * for all structures (default), or choose to setup a shared segment
+ * which will be used for shared structures.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
+ *
+ * - use_shmem: Support for shared memory segments:
+ *   This flag will configure a shared memory segment. All (most) run-time
+ *   memory allocation will be done from this shared segment. Currently,
+ *   we do not support free(), so you will likely run out of shared memory
+ *   and run into shared-memory OOM errors. This functionality is
+ *   solely meant for internal development uses.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
+ */
+typedef struct splinterdb_config {
    // required configuration
    const char *filename;
    uint64      cache_size;
@@ -32,11 +53,14 @@ typedef struct {
    // For a simple reference implementation, see default_data_config.h
    data_config *data_cfg;
 
-
    // optional advanced config below
    // if unset, defaults will be used
    void *heap_handle;
    void *heap_id;
+
+   // Shared memory support
+   uint64 shmem_size;
+   _Bool  use_shmem; // Default is FALSE.
 
    uint64 page_size;
    uint64 extent_size;
@@ -47,7 +71,7 @@ typedef struct {
    uint64 io_async_queue_depth;
 
    // cache
-   bool        cache_use_stats;
+   _Bool       cache_use_stats;
    const char *cache_logfile;
 
    // task system
@@ -73,7 +97,7 @@ typedef struct {
    uint64 filter_index_size;
 
    // log
-   bool use_log;
+   _Bool use_log;
 
    // splinter
    uint64 memtable_capacity;
@@ -121,7 +145,6 @@ typedef struct {
    // work to be performed on foreground threads, increasing tail
    // latencies.
    uint64 queue_scale_percent;
-
 } splinterdb_config;
 
 // Opaque handle to an opened instance of SplinterDB
@@ -237,7 +260,7 @@ void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 
 // Returns true if the result was found
-bool
+_Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 
 // Decode the value from a found result
@@ -330,12 +353,36 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter);
 
 // Checks that the iterator status is OK (no errors) and that get_current()
 // will succeed. If false, there are two possibilities:
-// 1. Iterator has passed the final item.  In this case, status() == 0
+// 1. Iterator is out of bounds.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
-bool
+_Bool
 splinterdb_iterator_valid(splinterdb_iterator *iter);
 
-// Attempts to advance the iterator to the next item.
+/*
+ * splinterdb_iterator_can_next --
+ * splinterdb_iterator_can_prev --
+ *
+ * Knowing the iterator is invalid does not provide enough information to
+ * determine if next and prev are safe operations.
+ *
+ * These functions provide granular information on which operations are safe.
+ * splinterdb_iterator_can_next == TRUE <-> splinterdb_iterator_next is safe
+ * splinterdb_iterator_can_prev == TRUE <-> splinterdb_iterator_prev is safe
+ */
+_Bool
+splinterdb_iterator_can_prev(splinterdb_iterator *iter);
+
+_Bool
+splinterdb_iterator_can_next(splinterdb_iterator *iter);
+
+// Moves the iterator to the previous item.
+// Precondition for calling: splinterdb_iterator_can_prev() returns TRUE
+// Any error will cause valid() == false and be visible with status()
+void
+splinterdb_iterator_prev(splinterdb_iterator *iter);
+
+// Moves the iterator to the next item.
+// Precondition for calling: splinterdb_iterator_can_next() returns TRUE
 // Any error will cause valid() == false and be visible with status()
 void
 splinterdb_iterator_next(splinterdb_iterator *iter);
@@ -366,7 +413,6 @@ splinterdb_iterator_status(const splinterdb_iterator *iter);
  *
  * Reset statistics clears all statistics, including cache statistics.
  */
-
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs);
 

@@ -78,7 +78,6 @@ _Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
 typedef struct btree_config {
    cache_config *cache_cfg;
    data_config  *data_cfg;
-   uint64        rough_count_height;
 } btree_config;
 
 typedef struct ONDISK btree_hdr btree_hdr;
@@ -131,7 +130,7 @@ typedef struct btree_iterator {
    iterator      super;
    cache        *cc;
    btree_config *cfg;
-   bool          do_prefetch;
+   bool32        do_prefetch;
    uint32        height;
    page_type     page_type;
    key           min_key;
@@ -139,7 +138,8 @@ typedef struct btree_iterator {
 
    uint64     root_addr;
    btree_node curr;
-   uint64     idx;
+   int64      idx;
+   int64      curr_min_idx;
    uint64     end_addr;
    uint64     end_idx;
    uint64     end_generation;
@@ -195,7 +195,7 @@ typedef struct btree_async_ctxt {
    cache_async_ctxt *cache_ctxt; // cache ctxt for async get
    btree_async_state prev_state; // Previous state
    btree_async_state state;      // Current state
-   bool              was_async;  // Was the last cache_get async ?
+   bool32            was_async;  // Was the last cache_get async ?
    btree_node        node;       // Current node
    uint64            child_addr; // Child disk address
 } btree_async_ctxt;
@@ -210,7 +210,7 @@ btree_insert(cache              *cc,         // IN
              key                 tuple_key,  // IN
              message             data,       // IN
              uint64             *generation, // OUT
-             bool               *was_unique);              // OUT
+             bool32             *was_unique);            // OUT
 
 /*
  *-----------------------------------------------------------------------------
@@ -248,14 +248,14 @@ btree_inc_ref_range(cache              *cc,
                     key                 start_key,
                     key                 end_key);
 
-bool
+bool32
 btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
                     key                 start_key,
                     key                 end_key);
 
-bool
+bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
@@ -277,7 +277,7 @@ btree_lookup(cache             *cc,
              key                target,
              merge_accumulator *result);
 
-static inline bool
+static inline bool32
 btree_found(merge_accumulator *result)
 {
    return !merge_accumulator_is_null(result);
@@ -290,7 +290,7 @@ btree_lookup_and_merge(cache             *cc,
                        page_type          type,
                        key                target,
                        merge_accumulator *data,
-                       bool              *local_found);
+                       bool32            *local_found);
 
 cache_async_result
 btree_lookup_async(cache             *cc,
@@ -306,24 +306,26 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
                              uint64             root_addr,   // IN
                              key                target,      // IN
                              merge_accumulator *data,        // OUT
-                             bool              *local_found, // OUT
+                             bool32            *local_found, // OUT
                              btree_async_ctxt  *ctxt);        // IN
 
 void
 btree_iterator_init(cache          *cc,
                     btree_config   *cfg,
-                    btree_iterator *iterator,
+                    btree_iterator *itor,
                     uint64          root_addr,
                     page_type       page_type,
                     key             min_key,
                     key             max_key,
-                    bool            do_prefetch,
+                    key             start_key,
+                    comparison      start_type,
+                    bool32          do_prefetch,
                     uint32          height);
 
 void
 btree_iterator_deinit(btree_iterator *itor);
 
-static inline void
+static inline platform_status
 btree_pack_req_init(btree_pack_req  *req,
                     cache           *cc,
                     btree_config    *cfg,
@@ -342,8 +344,18 @@ btree_pack_req_init(btree_pack_req  *req,
    req->seed       = seed;
    if (hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
-         TYPED_ARRAY_MALLOC(hid, req->fingerprint_arr, max_tuples);
+         TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
+
+      // When we run with shared-memory configured, we expect that it is sized
+      // big-enough to not get OOMs from here. Hence, only a debug_assert().
+      debug_assert(req->fingerprint_arr,
+                   "Unable to allocate memory for %lu tuples",
+                   max_tuples);
+      if (!req->fingerprint_arr) {
+         return STATUS_NO_MEMORY;
+      }
    }
+   return STATUS_OK;
 }
 
 static inline void
@@ -373,30 +385,32 @@ btree_count_in_range_by_iterator(cache             *cc,
                                  key                max_key,
                                  btree_pivot_stats *stats);
 
-uint64
-btree_rough_count(cache        *cc,
-                  btree_config *cfg,
-                  uint64        root_addr,
-                  key           min_key,
-                  key           max_key);
+void
+btree_print_memtable_tree(platform_log_handle *log_handle,
+                          cache               *cc,
+                          btree_config        *cfg,
+                          uint64               addr);
 
 void
 btree_print_tree(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
-                 uint64               addr);
+                 uint64               addr,
+                 page_type            type);
 
 void
 btree_print_locked_node(platform_log_handle *log_handle,
                         btree_config        *cfg,
                         uint64               addr,
-                        btree_hdr           *hdr);
+                        btree_hdr           *hdr,
+                        page_type            type);
 
 void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
-                 btree_node          *node);
+                 btree_node          *node,
+                 page_type            type);
 
 void
 btree_print_tree_stats(platform_log_handle *log_handle,
@@ -411,7 +425,7 @@ btree_print_lookup(cache        *cc,
                    page_type     type,
                    key           target);
 
-bool
+bool32
 btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type);
 
 uint64
@@ -428,8 +442,7 @@ btree_space_use_in_range(cache        *cc,
 void
 btree_config_init(btree_config *btree_cfg,
                   cache_config *cache_cfg,
-                  data_config  *data_cfg,
-                  uint64        rough_count_height);
+                  data_config  *data_cfg);
 
 // robj: I propose making all the following functions private to
 // btree.c

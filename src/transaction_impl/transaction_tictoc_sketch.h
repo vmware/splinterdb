@@ -175,7 +175,7 @@ static inline void
 rw_entry_deinit(rw_entry *entry)
 {
    if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
+      platform_free(0, (void *)message_data(entry->msg));
    }
 }
 
@@ -452,7 +452,7 @@ RETRY_LOCK_WRITE_SET:
          // the current key should be freed after that.
          slice to_be_freed = w->key;
          rw_entry_iceberg_insert(txn_kvsb, w);
-         platform_free_from_heap(0, (void *)slice_data(to_be_freed));
+         platform_free(0, (void *)slice_data(to_be_freed));
       }
 
       if (!rw_entry_try_lock(w)) {
@@ -618,7 +618,7 @@ local_write(transactional_splinterdb *txn_kvsb,
       const key ukey = key_create_from_slice(user_key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
-            platform_free_from_heap(0, (void *)message_data(entry->msg));
+            platform_free(0, (void *)message_data(entry->msg));
             rw_entry_set_msg(entry, msg);
          } else {
             platform_assert(message_class(entry->msg) != MESSAGE_TYPE_DELETE);
@@ -626,7 +626,7 @@ local_write(transactional_splinterdb *txn_kvsb,
             merge_accumulator new_message;
             merge_accumulator_init_from_message(&new_message, 0, msg);
             data_merge_tuples(cfg, ukey, entry->msg, &new_message);
-            platform_free_from_heap(0, (void *)message_data(entry->msg));
+            platform_free(0, (void *)message_data(entry->msg));
             entry->msg = merge_accumulator_to_message(&new_message);
          }
       }

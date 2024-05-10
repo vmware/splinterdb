@@ -3,14 +3,9 @@
 
 #include "platform.h"
 #include "task.h"
+#include "util.h"
 
 #include "poison.h"
-
-#define MAX_HOOKS (8)
-
-int              hook_init_done = 0;
-static int       num_hooks      = 0;
-static task_hook hooks[MAX_HOOKS];
 
 const char *task_type_name[] = {"TASK_TYPE_INVALID",
                                 "TASK_TYPE_MEMTABLE",
@@ -21,7 +16,6 @@ _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
 /****************************************
  * Thread ID allocation and management  *
  ****************************************/
-
 /*
  * task_init_tid_bitmask() - Initialize the global bitmask of active threads in
  * the task system structure to indicate that no threads are currently active.
@@ -148,13 +142,13 @@ task_get_max_tid(task_system *ts)
  ****************************************/
 
 static platform_status
-task_register_hook(task_hook newhook)
+task_register_hook(task_system *ts, task_hook newhook)
 {
-   int my_hook_idx = __sync_fetch_and_add(&num_hooks, 1);
-   if (my_hook_idx >= MAX_HOOKS) {
+   int my_hook_idx = __sync_fetch_and_add(&ts->num_hooks, 1);
+   if (my_hook_idx >= TASK_MAX_HOOKS) {
       return STATUS_LIMIT_EXCEEDED;
    }
-   hooks[my_hook_idx] = newhook;
+   ts->hooks[my_hook_idx] = newhook;
 
    return STATUS_OK;
 }
@@ -162,7 +156,13 @@ task_register_hook(task_hook newhook)
 static void
 task_system_io_register_thread(task_system *ts)
 {
-   io_thread_register(&ts->ioh->super);
+   io_register_thread(&ts->ioh->super);
+}
+
+static void
+task_system_io_deregister_thread(task_system *ts)
+{
+   io_deregister_thread(&ts->ioh->super);
 }
 
 /*
@@ -171,19 +171,19 @@ task_system_io_register_thread(task_system *ts)
  * __attribute__((constructor)) works.
  */
 static void
-register_standard_hooks(void)
+register_standard_hooks(task_system *ts)
 {
    // hooks need to be initialized only once.
-   if (__sync_fetch_and_add(&hook_init_done, 1) == 0) {
-      task_register_hook(task_system_io_register_thread);
+   if (__sync_fetch_and_add(&ts->hook_init_done, 1) == 0) {
+      task_register_hook(ts, task_system_io_register_thread);
    }
 }
 
 static void
 task_run_thread_hooks(task_system *ts)
 {
-   for (int i = 0; i < num_hooks; i++) {
-      hooks[i](ts);
+   for (int i = 0; i < ts->num_hooks; i++) {
+      ts->hooks[i](ts);
    }
 }
 
@@ -226,11 +226,9 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
-   platform_free(thread_started->ts->heap_id,
-                 thread_started->ts->thread_scratch[thread_started->tid]);
-
-   platform_set_tid(INVALID_TID);
-   task_deallocate_threadid(thread_started->ts, thread_started->tid);
+   // Release scratch space, release thread-ID
+   // For background threads, also, IO-deregistration will happen here.
+   task_deregister_this_thread(thread_started->ts);
 
    platform_free(thread_started->heap_id, func_and_args);
 }
@@ -241,7 +239,7 @@ task_invoke_with_hooks(void *func_and_args)
  */
 static platform_status
 task_create_thread_with_hooks(platform_thread       *thread,
-                              bool                   detached,
+                              bool32                 detached,
                               platform_thread_worker func,
                               void                  *arg,
                               size_t                 scratch_size,
@@ -255,7 +253,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
       platform_error_log("Cannot create a new thread as the limit on"
                          " concurrent threads, %d, will be exceeded.\n",
                          MAX_THREADS);
-      return STATUS_LIMIT_EXCEEDED;
+      return STATUS_BUSY;
    }
 
    if (0 < scratch_size) {
@@ -350,7 +348,13 @@ task_register_thread(task_system *ts,
    threadid thread_tid;
 
    thread_tid = platform_get_tid();
-   platform_assert(thread_tid == INVALID_TID,
+
+   // Before registration, all SplinterDB threads' tid will be its default
+   // value; i.e. INVALID_TID. However, for the special case when we run tests
+   // that simulate process-model of execution, we fork() from the main test.
+   // Before registration, this 'thread' inherits the thread ID from the main
+   // thread, which will be == 0.
+   platform_assert(((thread_tid == INVALID_TID) || (thread_tid == 0)),
                    "[%s:%d::%s()] Attempt to register thread that is already "
                    "registered as thread %lu\n",
                    file,
@@ -359,8 +363,9 @@ task_register_thread(task_system *ts,
                    thread_tid);
 
    thread_tid = task_allocate_threadid(ts);
+   // Unavailable threads is a temporary state that could go away.
    if (thread_tid == INVALID_TID) {
-      return STATUS_NO_SPACE;
+      return STATUS_BUSY;
    }
 
    platform_assert(ts->thread_scratch[thread_tid] == NULL,
@@ -387,6 +392,7 @@ task_register_thread(task_system *ts,
  *
  * Deregistration involves:
  *  - Releasing any scratch space acquired for this thread.
+ *  - De-registering w/ IO sub-system, which will release IO resources
  *  - Clearing the thread ID (index) for this thread
  */
 void
@@ -404,12 +410,15 @@ task_deregister_thread(task_system *ts,
       lineno,
       func);
 
+   // Some [test] callers may have created a task w/o requesting for any
+   // scratch space. So, check before trying to free memory.
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
       platform_free(ts->heap_id, scratch);
       ts->thread_scratch[tid] = NULL;
    }
 
+   task_system_io_deregister_thread(ts);
    platform_set_tid(INVALID_TID);
    task_deallocate_threadid(ts, tid); // allow thread id to be re-used
 }
@@ -452,7 +461,10 @@ task_group_get_next_task(task_group *group)
    if (tq->head == NULL) {
       platform_assert(tq->tail == assigned_task);
       tq->tail = NULL;
-      platform_assert(outstanding_tasks == 1);
+      platform_assert((outstanding_tasks == 1),
+                      "outstanding_tasks=%lu\n",
+                      outstanding_tasks);
+      ;
    }
 
    return assigned_task;
@@ -568,7 +580,7 @@ task_group_deinit(task_group *group)
 static platform_status
 task_group_init(task_group  *group,
                 task_system *ts,
-                bool         use_stats,
+                bool32       use_stats,
                 uint8        num_bg_threads,
                 uint64       scratch_size)
 {
@@ -613,7 +625,7 @@ task_enqueue(task_system *ts,
              task_type    type,
              task_fn      func,
              void        *arg,
-             bool         at_head)
+             bool32       at_head)
 {
    task *new_task = TYPED_ZALLOC(ts->heap_id, new_task);
    if (new_task == NULL) {
@@ -652,13 +664,12 @@ task_enqueue(task_system *ts,
 
    if (group->use_stats) {
       new_task->enqueue_time = platform_get_timestamp();
-   }
-   if (group->use_stats) {
-      const threadid tid = platform_get_tid();
+      const threadid tid     = platform_get_tid();
       if (group->current_waiting_tasks
           > group->stats[tid].max_outstanding_tasks) {
          group->stats[tid].max_outstanding_tasks = group->current_waiting_tasks;
       }
+      group->stats[tid].total_tasks_enqueued += 1;
    }
    platform_condvar_signal(&group->cv);
    return task_group_unlock(group);
@@ -747,12 +758,12 @@ task_perform_all(task_system *ts)
    } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
 }
 
-bool
+bool32
 task_system_is_quiescent(task_system *ts)
 {
    platform_status rc;
    task_type       ttlocked;
-   bool            result = FALSE;
+   bool32          result = FALSE;
 
    for (ttlocked = TASK_TYPE_FIRST; ttlocked < NUM_TASK_TYPES; ttlocked++) {
       rc = task_group_lock(&ts->group[ttlocked]);
@@ -822,7 +833,7 @@ task_config_valid(const uint64 num_background_threads[NUM_TASK_TYPES])
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
-                        bool                use_stats,
+                        bool32              use_stats,
                         const uint64        num_bg_threads[NUM_TASK_TYPES],
                         uint64              scratch_size)
 {
@@ -871,7 +882,7 @@ task_system_create(platform_heap_id          hid,
    task_init_tid_bitmask(&ts->tid_bitmask);
 
    // task initialization
-   register_standard_hooks();
+   register_standard_hooks(ts);
 
    // Ensure that the main thread gets registered and init'ed first before
    // any background threads are created. (Those may grab their own tids.).
@@ -925,7 +936,10 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
    }
    if (ts->tid_bitmask != ((uint64)-1)) {
       platform_error_log(
-         "Destroying task system that still has some registered threads.\n");
+         "Destroying task system that still has some registered threads."
+         ", tid=%lu, tid_bitmask=0x%lx\n",
+         tid,
+         ts->tid_bitmask);
    }
    platform_free(hid, ts);
    *ts_in = (task_system *)NULL;
@@ -983,6 +997,7 @@ task_group_print_stats(task_group *group, task_type type)
       }
       global.max_outstanding_tasks = MAX(global.max_outstanding_tasks,
                                          group->stats[i].max_outstanding_tasks);
+      global.total_tasks_enqueued += group->stats[i].total_tasks_enqueued;
    }
 
    switch (type) {
@@ -1005,6 +1020,14 @@ task_group_print_stats(task_group *group, task_type type)
                         global.total_queue_wait_time_ns);
    platform_default_log("| max queue_wait_time (ns)     : %10lu\n",
                         global.max_queue_wait_time_ns);
+
+   uint64 nbytes = (global.total_tasks_enqueued * sizeof(task));
+   platform_default_log("| total tasks enqueued : %lu consumed=%lu bytes (%s) "
+                        "of memory\n",
+                        global.total_tasks_enqueued,
+                        nbytes,
+                        size_str(nbytes));
+
    platform_default_log("| total bg tasks run      : %10lu\n",
                         global.total_bg_task_executions);
    platform_default_log("| total fg tasks run      : %10lu\n",

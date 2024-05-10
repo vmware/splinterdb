@@ -30,6 +30,7 @@ typedef typeof(EINVAL) internal_platform_status;
 #define STATUS_INVALID_STATE  CONST_STATUS(EINVAL)
 #define STATUS_NOT_FOUND      CONST_STATUS(ENOENT)
 #define STATUS_IO_ERROR       CONST_STATUS(EIO)
+#define STATUS_NOTSUP         CONST_STATUS(ENOTSUP)
 #define STATUS_TEST_FAILED    CONST_STATUS(-1)
 
 // checksums
@@ -84,6 +85,76 @@ typedef pthread_spinlock_t platform_spinlock;
 // Read-write lock
 typedef pthread_rwlock_t platform_rwlock;
 
+// Distributed Batch RW Lock
+typedef struct {
+   volatile uint8 lock;
+   volatile uint8 claim;
+} platform_claimlock;
+
+typedef struct {
+   platform_claimlock write_lock[PLATFORM_CACHELINE_SIZE / 2];
+   volatile uint8     read_counter[MAX_THREADS][PLATFORM_CACHELINE_SIZE / 2];
+} PLATFORM_CACHELINE_ALIGNED platform_batch_rwlock;
+
+_Static_assert(sizeof(platform_batch_rwlock)
+                  == PLATFORM_CACHELINE_SIZE * (MAX_THREADS / 2 + 1),
+               "Missized platform_batch_rwlock\n");
+
+
+/*
+ * The state machine for a thread interacting with a batch_rwlock is:
+ *
+ *             get                   claim                lock
+ * unlocked <-------> read-locked <----------> claimed <--------> write-locked
+ *            unget                 unclaim              unlock
+ *
+ * Note that try_claim() may fail, in which case the state of the lock
+ * is unchanged, i.e. the caller still holds a read lock.
+ */
+
+
+void
+platform_batch_rwlock_init(platform_batch_rwlock *lock);
+
+/* no lock -> shared lock */
+void
+platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* shared lock -> no lock */
+void
+platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/*
+ * shared-lock -> claim (may fail)
+ *
+ * Callers still hold a shared lock after a failed claim attempt.
+ * Callers _must_ release their shared lock after a failed claim attempt.
+ */
+bool32
+platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* shared-lock -> claim, BUT(!) may temporarily release the shared-lock in the
+ * process. */
+void
+platform_batch_rwlock_claim_loop(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* claim -> shared lock */
+void
+platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* claim -> exclusive lock */
+void
+platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* exclusive lock -> claim */
+void
+platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* exclusive-lock -> unlocked */
+void
+platform_batch_rwlock_full_unlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+
 // Buffer handle
 typedef struct {
    void  *addr;
@@ -94,7 +165,6 @@ typedef struct {
 typedef struct laio_handle platform_io_handle;
 
 typedef void *platform_module_id;
-typedef void *platform_heap_handle;
 typedef void *platform_heap_id;
 
 typedef struct {

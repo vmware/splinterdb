@@ -63,7 +63,7 @@ mvcc_key_create_slice(slice user_key, uint32 version_number)
 static void
 mvcc_key_destroy_slice(slice s)
 {
-   platform_free_from_heap(0, (void *)slice_data(s));
+   platform_free(0, (void *)slice_data(s));
 }
 
 static key
@@ -285,7 +285,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //        txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
    // {
    //    if (slice_data(entry->key) != key_ht) {
-   //       platform_free_from_heap(0, key_ht);
+   //       platform_free(0, key_ht);
    //    } else {
    //       entry->need_to_keep_key = 0;
    //    }
@@ -307,7 +307,7 @@ static inline void
 rw_entry_deinit(rw_entry *entry)
 {
    if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
+      platform_free(0, (void *)message_data(entry->msg));
    }
 }
 
@@ -660,7 +660,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                   txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
                   key_create_from_slice(w->key),
                   &new_message);
-               platform_free_from_heap(0, (void *)message_data(w->msg));
+               platform_free(0, (void *)message_data(w->msg));
                w->msg = merge_accumulator_to_message(&new_message);
             } else {
                splinterdb_lookup_result result;
@@ -687,7 +687,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                   key_create_from_slice(w->key),
                   merge_accumulator_to_message(&_result->value),
                   &new_message);
-               platform_free_from_heap(0, (void *)message_data(w->msg));
+               platform_free(0, (void *)message_data(w->msg));
                w->msg = merge_accumulator_to_message(&new_message);
                splinterdb_lookup_result_deinit(&result);
             }
@@ -834,7 +834,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    } else {
       // Same key is written multiple times in the same transaction
       if (message_is_definitive(msg)) {
-         platform_free_from_heap(0, (void *)message_data(entry->msg));
+         platform_free(0, (void *)message_data(entry->msg));
          rw_entry_set_msg(entry, msg);
       } else {
          // TODO it needs to be checked later for upsert
@@ -845,7 +845,7 @@ local_write(transactional_splinterdb *txn_kvsb,
              == 0)
          {
             if (message_is_definitive(msg)) {
-               platform_free_from_heap(0, (void *)message_data(entry->msg));
+               platform_free(0, (void *)message_data(entry->msg));
                rw_entry_set_msg(entry, msg);
             } else {
                platform_assert(message_class(entry->msg)
@@ -857,7 +857,7 @@ local_write(transactional_splinterdb *txn_kvsb,
                   ukey,
                   entry->msg,
                   &new_message);
-               platform_free_from_heap(0, (void *)message_data(entry->msg));
+               platform_free(0, (void *)message_data(entry->msg));
                entry->msg = merge_accumulator_to_message(&new_message);
             }
          }

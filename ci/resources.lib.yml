@@ -3,6 +3,8 @@
 
 #@ load("@ytt:template", "template")
 
+---
+
 #@ def resource_container_image(name, tag):
 name: #@ name + "-image-" + tag
 type: registry-image
