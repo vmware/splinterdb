@@ -16,6 +16,7 @@
 #include "splinterdb/splinterdb.h"
 #include "platform.h"
 #include "clockcache.h"
+#include "platform_linux/platform.h"
 #include "rc_allocator.h"
 #include "trunk.h"
 #include "btree_private.h"
@@ -215,7 +216,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                           cfg.use_log,
                           cfg.use_stats,
                           FALSE,
-                          NULL);
+                          Platform_default_log_handle);
    if (!SUCCESS(rc)) {
       return rc;
    }
