@@ -186,16 +186,9 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
       return CONST_STATUS(errno);
    }
 
-   struct stat statbuf;
-   int         r = fstat(io->fd, &statbuf);
-   if (r) {
-      platform_error_log("fstat failed: %s\n", strerror(errno));
-      return STATUS_IO_ERROR;
-   }
-
-   if (S_ISREG(statbuf.st_mode) && statbuf.st_size < 128 * 1024) {
-      r = fallocate(io->fd, 0, 0, 128 * 1024);
-      if (r) {
+   if (is_create) {
+      int rc = fallocate(io->fd, 0, 0, 128 * 1024);
+      if (rc) {
          platform_error_log("fallocate failed: %s\n", strerror(errno));
          return STATUS_IO_ERROR;
       }
