@@ -7686,6 +7686,10 @@ trunk_create(trunk_config     *cfg,
    trunk_add_pivot_new_root(spl, &root, &leaf);
    trunk_inc_pivot_generation(spl, &root);
 
+   root.hdr->node_id = trunk_next_node_id(spl);
+   leaf.hdr->node_id = trunk_next_node_id(spl);
+
+
    trunk_node_unlock(spl->cc, &leaf);
    trunk_node_unclaim(spl->cc, &leaf);
    trunk_node_unget(spl->cc, &leaf);
@@ -8511,12 +8515,13 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 
    // clang-format off
    platform_log(log_handle, "---------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "|          |     addr      | height | pvt gen |                                       |\n");
-   platform_log(log_handle, "|  HEADER  |---------------|--------|---------|---------|-----------------------------|\n");
-   platform_log(log_handle, "|          | %12lu^ | %6u | %7lu |                                       |\n",
+   platform_log(log_handle, "|          |     addr      | height | pvt gen |     ID        |                       |\n");
+   platform_log(log_handle, "|  HEADER  |---------------|--------|---------|---------------|-----------------------|\n");
+   platform_log(log_handle, "|          | %12lu^ | %6u | %7lu | #%-12lu |                       |\n",
       node->addr,
       height,
-      trunk_pivot_generation(spl, node));
+      trunk_pivot_generation(spl, node),
+      node->hdr->node_id);
    // clang-format on
 
    trunk_print_pivots(log_handle, spl, node);
@@ -8662,7 +8667,7 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
 
             // clang-format off
             platform_log(log_handle,
-               "|     |  -- %2scomp subbundle %2u --  | %12lu | %12lu | %12lu | %14s |\n",
+               "|     |  -- %2scomp subbundle %2u --  | %12lu | %12lu | %12lu | %15s |\n",
                sb->state == SB_STATE_COMPACTED ? "" : "un",
                sb_no,
                0 < filter_count ? trunk_subbundle_filter(spl, node, sb, 0)->addr : 0,
