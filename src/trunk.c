@@ -5377,7 +5377,11 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
       trunk_log_node_if_enabled(&stream, spl, &node);
 
-      should_continue = trunk_compact_bundle_node_has_split(spl, req, &node);
+      should_continue = trunk_compact_bundle_node_has_split(spl, req, &node)
+                        && trunk_key_compare(spl,
+                                             trunk_max_key(spl, &node),
+                                             POSITIVE_INFINITY_KEY)
+                              < 0;
       if (!should_continue && num_replacements != 0 && pack_req.num_tuples != 0)
       {
          key max_key = trunk_max_key(spl, &node);
@@ -5387,23 +5391,18 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
       debug_assert(trunk_verify_node(spl, &node));
 
+      // garbage collect the old path and bundle
+      trunk_garbage_collect_bundle(spl, old_root_addr, req);
+
       if (should_continue) {
          debug_assert(height != 0);
          key_buffer_copy_key(&req->start_key, trunk_max_key(spl, &node));
       }
 
-      // garbage collect the old path and bundle
-      trunk_garbage_collect_bundle(spl, old_root_addr, req);
-
       // only release locks on node after the garbage collection is complete
       trunk_node_unlock(spl->cc, &node);
       trunk_node_unclaim(spl->cc, &node);
       trunk_node_unget(spl->cc, &node);
-
-      if (should_continue) {
-         rc = trunk_compact_bundle_node_get(spl, req, &node);
-         platform_assert_status_ok(rc);
-      }
    }
 
    if (spl->cfg.use_stats) {
