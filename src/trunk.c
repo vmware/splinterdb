@@ -5111,6 +5111,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    compact_bundle_scratch   *scratch      = &task_scratch->compact_bundle;
    trunk_handle             *spl          = req->spl;
    threadid                  tid;
+   key                       start_key = key_buffer_key(&req->start_key);
+   key                       end_key   = key_buffer_key(&req->end_key);
 
    /*
     * 1. Acquire node read lock
@@ -5139,10 +5141,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       node.addr,
       key_string(trunk_data_config(spl), trunk_min_key(spl, &node)),
       key_string(trunk_data_config(spl), trunk_max_key(spl, &node)),
-      key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
-      key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
-      trunk_key_compare(
-         spl, trunk_max_key(spl, &node), key_buffer_key(&req->end_key)),
+      key_string(trunk_data_config(spl), start_key),
+      key_string(trunk_data_config(spl), end_key),
+      trunk_key_compare(spl, trunk_max_key(spl, &node), end_key),
       req->node_id,
       node.hdr->node_id);
 
@@ -5155,8 +5156,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_default_log_if_enabled(
          spl,
          "compact_bundle abort flushed: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
-         key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+         key_string(trunk_data_config(spl), start_key),
+         key_string(trunk_data_config(spl), end_key),
          req->height,
          req->bundle_no);
       platform_free(spl->heap_id, req);
@@ -5195,8 +5196,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       &stream,
       "compact_bundle starting: addr %lu, range %s-%s, height %u, bundle %u\n",
       node.addr,
-      key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
-      key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+      key_string(trunk_data_config(spl), start_key),
+      key_string(trunk_data_config(spl), end_key),
       req->height,
       req->bundle_no);
 
@@ -5311,6 +5312,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       uint64 old_root_addr;
       trunk_compact_bundle_node_copy_path(spl, req, &node, &old_root_addr);
       trunk_log_node_if_enabled(&stream, spl, &node);
+      key max_key = trunk_max_key(spl, &node);
 
       /*
        * 11a. ...unless node is a leaf which has split, in which case discard
@@ -5327,8 +5329,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             spl,
             &stream,
             "compact_bundle discard split: range %s-%s, height %u, bundle %u\n",
-            key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
-            key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+            key_string(trunk_data_config(spl), start_key),
+            key_string(trunk_data_config(spl), end_key),
             req->height,
             req->bundle_no);
          if (spl->cfg.use_stats) {
@@ -5377,14 +5379,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
       trunk_log_node_if_enabled(&stream, spl, &node);
 
-      should_continue = trunk_compact_bundle_node_has_split(spl, req, &node)
-                        && trunk_key_compare(spl,
-                                             trunk_max_key(spl, &node),
-                                             POSITIVE_INFINITY_KEY)
-                              < 0;
+      should_continue = trunk_key_compare(spl, max_key, end_key) < 0;
+      platform_assert(!should_continue
+                      || trunk_compact_bundle_node_has_split(spl, req, &node));
+
       if (!should_continue && num_replacements != 0 && pack_req.num_tuples != 0)
       {
-         key max_key = trunk_max_key(spl, &node);
          trunk_zap_branch_range(
             spl, &new_branch, max_key, max_key, PAGE_TYPE_BRANCH);
       }
@@ -5396,7 +5396,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
       if (should_continue) {
          debug_assert(height != 0);
-         key_buffer_copy_key(&req->start_key, trunk_max_key(spl, &node));
+         key_buffer_copy_key(&req->start_key, max_key);
       }
 
       // only release locks on node after the garbage collection is complete
@@ -5441,8 +5441,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl,
          &stream,
          "build_filter enqueue: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), key_buffer_key(&req->start_key)),
-         key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
+         key_string(trunk_data_config(spl), start_key),
+         key_string(trunk_data_config(spl), end_key),
          req->height,
          req->bundle_no);
       task_enqueue(
