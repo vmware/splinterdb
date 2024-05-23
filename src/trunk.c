@@ -749,6 +749,7 @@ typedef struct {
    iterator              *itor_arr[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    uint64                 num_saved_pivot_keys;
    key_buffer             saved_pivot_keys[TRUNK_MAX_PIVOTS];
+   key_buffer             req_original_start_key;
 } compact_bundle_scratch;
 
 // Used by trunk_split_leaf()
@@ -4384,7 +4385,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       should_continue_build_filters =
          trunk_key_compare(spl,
                            key_buffer_key(&compact_req->start_key),
-                           key_buffer_key(&compact_req->end_key));
+                           key_buffer_key(&compact_req->end_key)) < 0;
       if (should_continue_build_filters) {
          trunk_log_stream_if_enabled(
             spl,
@@ -5303,6 +5304,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
    deinit_saved_pivots_in_scratch(scratch);
 
+   rc = key_buffer_init_from_key(&scratch->req_original_start_key, spl->heap_id, key_buffer_key(&req->start_key));
+   platform_assert_status_ok(rc);
+
    /*
     * 11. For each newly split sibling replace bundle with new branch
     */
@@ -5349,6 +5353,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          }
          platform_free(spl->heap_id, req->fp_arr);
          platform_free(spl->heap_id, req);
+         key_buffer_deinit(&scratch->req_original_start_key);
          goto out;
       }
 
@@ -5445,8 +5450,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          key_string(trunk_data_config(spl), end_key),
          req->height,
          req->bundle_no);
+      key_buffer_copy_key(&req->start_key, key_buffer_key(&scratch->req_original_start_key));
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
+      key_buffer_deinit(&scratch->req_original_start_key);
    }
 out:
    trunk_log_stream_if_enabled(spl, &stream, "\n");
