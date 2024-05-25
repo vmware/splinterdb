@@ -283,7 +283,8 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
                              (ValueType **)&entry->version_list_head,
                              platform_get_tid());
    if (!is_first_item) {
-      list_node_destroy(head);
+      list_node_destroy(first_version);
+      platform_free(0, head);
    }
 
    // platform_default_log("insert key: %s, head: %p\n",
@@ -296,7 +297,7 @@ static inline void
 rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
    if (entry->version_list_head) {
-      iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
+      // iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
       entry->version_list_head = NULL;
    }
 }
