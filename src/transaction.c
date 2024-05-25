@@ -20,6 +20,10 @@
 #   include "transaction_impl/transaction_mvcc_disk.h"
 #elif EXPERIMENTAL_MODE_MVCC_MEMORY
 #   include "transaction_impl/transaction_mvcc_memory.h"
+#elif EXPERIMENTAL_MODE_MVCC_COUNTER
+#   include "transaction_impl/transaction_mvcc_sketch.h"
+#elif EXPERIMENTAL_MODE_MVCC_SKETCH
+#   include "transaction_impl/transaction_mvcc_sketch.h"
 #elif EXPERIMENTAL_MODE_2PL_NO_WAIT || EXPERIMENTAL_MODE_2PL_WAIT_DIE          \
    || EXPERIMENTAL_MODE_2PL_WOUND_WAIT
 #   include "transaction_impl/transaction_2pl.h"
