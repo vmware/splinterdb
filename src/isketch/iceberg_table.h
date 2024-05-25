@@ -78,10 +78,12 @@ typedef void(merge_value_from_sketch_fn)(ValueType *hash_table_value,
                                      ValueType  sketch_value);
 typedef void(transform_sketch_value_fn)(ValueType *hash_table_value,
                                      ValueType  sketch_value);
+typedef void(post_remove_fn)(ValueType *hash_table_value);
 typedef struct iceberg_config {
    uint64_t log_slots;
    merge_value_from_sketch_fn *merge_value_from_sketch;
    transform_sketch_value_fn *transform_sketch_value;
+   post_remove_fn *post_remove;
 } iceberg_config;
 
 void
