@@ -1059,10 +1059,18 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
                                     slice             user_key,
                                     slice             value)
 {
-   slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
-   int   rc      = splinterdb_insert(kvsb, spl_key, value);
-   platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-   mvcc_key_destroy_slice(spl_key);
+   {
+      slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
+      int   rc      = splinterdb_insert(kvsb, spl_key, value);
+      platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+      mvcc_key_destroy_slice(spl_key);
+   }
+   {
+      slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
+      int   rc      = splinterdb_insert(kvsb, spl_key, value);
+      platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+      mvcc_key_destroy_slice(spl_key);
+   }
    return rc;
 }
 
