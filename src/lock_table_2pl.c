@@ -7,7 +7,7 @@ lock_table_2pl *
 lock_table_2pl_create(const data_config *spl_data_config)
 {
    lock_table_2pl *lt;
-   lt = TYPED_ZALLOC(0, lt);
+   lt                  = TYPED_ZALLOC(0, lt);
    iceberg_config icfg = {0};
    iceberg_config_default_init(&icfg);
    icfg.log_slots = 20;

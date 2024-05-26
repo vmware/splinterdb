@@ -389,9 +389,9 @@ transactional_splinterdb_config_init(
       (data_config *)&txn_splinterdb_cfg->txn_data_cfg;
 
    iceberg_config_default_init(&txn_splinterdb_cfg->iceberght_config);
-   txn_splinterdb_cfg->iceberght_config.log_slots = 29;
+   txn_splinterdb_cfg->iceberght_config.log_slots               = 29;
    txn_splinterdb_cfg->iceberght_config.merge_value_from_sketch = NULL;
-   txn_splinterdb_cfg->iceberght_config.transform_sketch_value = NULL;
+   txn_splinterdb_cfg->iceberght_config.transform_sketch_value  = NULL;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy

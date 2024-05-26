@@ -75,15 +75,15 @@ typedef struct iceberg_metadata {
 } iceberg_metadata;
 
 typedef void(merge_value_from_sketch_fn)(ValueType *hash_table_value,
-                                     ValueType  sketch_value);
+                                         ValueType  sketch_value);
 typedef void(transform_sketch_value_fn)(ValueType *hash_table_value,
-                                     ValueType  sketch_value);
+                                        ValueType  sketch_value);
 typedef void(post_remove_fn)(ValueType *hash_table_value);
 typedef struct iceberg_config {
-   uint64_t log_slots;
+   uint64_t                    log_slots;
    merge_value_from_sketch_fn *merge_value_from_sketch;
-   transform_sketch_value_fn *transform_sketch_value;
-   post_remove_fn *post_remove;
+   transform_sketch_value_fn  *transform_sketch_value;
+   post_remove_fn             *post_remove;
 } iceberg_config;
 
 void
@@ -95,7 +95,7 @@ typedef struct iceberg_table {
    iceberg_lv1_block *level1[MAX_RESIZES];
    iceberg_lv2_block *level2[MAX_RESIZES];
    iceberg_lv3_list  *level3[MAX_RESIZES];
-   iceberg_config config;
+   iceberg_config     config;
    const data_config *spl_data_config;
    sketch            *sktch;
 } iceberg_table;

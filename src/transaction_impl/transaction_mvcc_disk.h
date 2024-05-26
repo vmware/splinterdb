@@ -582,7 +582,8 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
 
 
 static void
-find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, slice target_user_key)
+find_key_in_splinterdb(transactional_splinterdb *txn_kvsb,
+                       slice                     target_user_key)
 {
    splinterdb_iterator *it;
    int rc = splinterdb_iterator_init(txn_kvsb->kvsb, &it, NULL_SLICE);
@@ -605,7 +606,8 @@ find_key_in_splinterdb(transactional_splinterdb *txn_kvsb, slice target_user_key
           == 0)
       {
          platform_default_log(
-            "[%lu] range query attempt to find \"%s\" (%s), v: %u, (actual, \"%s\" "
+            "[%lu] range query attempt to find \"%s\" (%s), v: %u, (actual, "
+            "\"%s\" "
             "(%s), v: %u) "
             "(key_len: %lu) exists in db, but cannot be found\n",
             platform_get_tid(),
@@ -872,14 +874,19 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     value)
 {
-   
+
    if (!txn) {
       return non_transactional_splinterdb_insert(
          txn_kvsb->kvsb, user_key, value);
    }
 
-   platform_default_log("[%lu] %lu %s key: %s\n", platform_get_tid(), (uint64)txn->ts, __func__, 
-   key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config, key_create_from_slice(user_key)));
+   platform_default_log(
+      "[%lu] %lu %s key: %s\n",
+      platform_get_tid(),
+      (uint64)txn->ts,
+      __func__,
+      key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                 key_create_from_slice(user_key)));
 
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, value));
@@ -890,9 +897,14 @@ transactional_splinterdb_delete(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn,
                                 slice                     user_key)
 {
-   
-   platform_default_log("[%lu] %lu %s key: %s\n", platform_get_tid(), (uint64)txn->ts, __func__, 
-   key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config, key_create_from_slice(user_key)));
+
+   platform_default_log(
+      "[%lu] %lu %s key: %s\n",
+      platform_get_tid(),
+      (uint64)txn->ts,
+      __func__,
+      key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                 key_create_from_slice(user_key)));
 
    return local_write(txn_kvsb, txn, user_key, DELETE_MESSAGE);
 }
@@ -903,10 +915,15 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
-   
-   platform_default_log("[%lu] %lu %s key: %s\n", platform_get_tid(), (uint64)txn->ts, __func__, 
-   key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config, key_create_from_slice(user_key)));
-   
+
+   platform_default_log(
+      "[%lu] %lu %s key: %s\n",
+      platform_get_tid(),
+      (uint64)txn->ts,
+      __func__,
+      key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                 key_create_from_slice(user_key)));
+
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
 }
@@ -917,8 +934,13 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 splinterdb_lookup_result *result)
 {
-   platform_default_log("[%lu] %lu %s key: %s\n", platform_get_tid(), (uint64)txn->ts, __func__, 
-   key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config, key_create_from_slice(user_key)));
+   platform_default_log(
+      "[%lu] %lu %s key: %s\n",
+      platform_get_tid(),
+      (uint64)txn->ts,
+      __func__,
+      key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                 key_create_from_slice(user_key)));
    rw_entry *entry;
 find_readable_version:
    /* platform_default_log("[%ld] lookup start for %s at %lu\n", (int64)txn->ts,

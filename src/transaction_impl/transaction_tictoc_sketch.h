@@ -288,7 +288,8 @@ transactional_splinterdb_config_init(
 
    iceberg_config_default_init(&txn_splinterdb_cfg->iceberght_config);
    txn_splinterdb_cfg->iceberght_config.log_slots = 29;
-   txn_splinterdb_cfg->iceberght_config.merge_value_from_sketch = &sketch_insert_timestamp_set;
+   txn_splinterdb_cfg->iceberght_config.merge_value_from_sketch =
+      &sketch_insert_timestamp_set;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy

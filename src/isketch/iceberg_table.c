@@ -315,32 +315,31 @@ static inline size_t __attribute__((unused)) round_up(size_t n, size_t k)
    return n;
 }
 
-void transform_sketch_value_default(ValueType *hash_table_value,
-                                     ValueType  sketch_value)
+void
+transform_sketch_value_default(ValueType *hash_table_value,
+                               ValueType  sketch_value)
 {
-   bool should_retry;
+   bool      should_retry;
    ValueType expected;
    do {
       should_retry = TRUE;
-      expected =
-         __atomic_load_n(hash_table_value, __ATOMIC_RELAXED);
-         should_retry =
-            !__atomic_compare_exchange_n(hash_table_value,
-                                         &expected,
-                                         sketch_value,
-                                         TRUE,
-                                         __ATOMIC_RELAXED,
-                                         __ATOMIC_RELAXED);
+      expected     = __atomic_load_n(hash_table_value, __ATOMIC_RELAXED);
+      should_retry = !__atomic_compare_exchange_n(hash_table_value,
+                                                  &expected,
+                                                  sketch_value,
+                                                  TRUE,
+                                                  __ATOMIC_RELAXED,
+                                                  __ATOMIC_RELAXED);
    } while (should_retry);
 }
 
 void
 iceberg_config_default_init(iceberg_config *config)
 {
-   config->log_slots = 0;
+   config->log_slots               = 0;
    config->merge_value_from_sketch = NULL;
-   config->transform_sketch_value = &transform_sketch_value_default;
-   config->post_remove            = NULL;
+   config->transform_sketch_value  = &transform_sketch_value_default;
+   config->post_remove             = NULL;
 }
 
 int
@@ -1167,7 +1166,8 @@ iceberg_put_or_insert(iceberg_table *table,
       *key   = kv->key;
       *value = &kv->val;
 
-      // printf("tid %lu %p %s %s refcount: %lu (val1: %lu, val2: %lu)\n", thread_id, (void *)table,
+      // printf("tid %lu %p %s %s refcount: %lu (val1: %lu, val2: %lu)\n",
+      // thread_id, (void *)table,
       //       __func__, (char *)slice_data(*key), kv->refcount - 1,
       //       *((uint64 *)&kv->val), *((uint64 *)&kv->val + 8));
 
@@ -1204,7 +1204,7 @@ iceberg_put_or_insert(iceberg_table *table,
       if (table->sktch && !overwrite_value) {
          platform_assert(table->config.merge_value_from_sketch);
          table->config.merge_value_from_sketch(&kv->val,
-                                         sketch_get(table->sktch, *key));
+                                               sketch_get(table->sktch, *key));
       }
       *value = &kv->val;
    }
@@ -1224,7 +1224,8 @@ iceberg_put_or_insert(iceberg_table *table,
    // before_lock.tv_sec) * 1000000000 + (unlock.tv_nsec -
    // before_lock.tv_nsec));
 
-   // printf("tid %lu %p %s %s refcount: %lu (val1: %lu, val2: %lu)\n", thread_id, (void *)table,
+   // printf("tid %lu %p %s %s refcount: %lu (val1: %lu, val2: %lu)\n",
+   // thread_id, (void *)table,
    //          __func__, (char *)slice_data(*key), kv->refcount - 1,
    //          *((uint64 *)&kv->val), *((uint64 *)&kv->val + 8));
    unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
@@ -1578,7 +1579,8 @@ iceberg_lv2_remove(iceberg_table *table,
                                       blocks[old_boffset].slots[slot].val);
                      }
                      if (table->config.post_remove) {
-                        table->config.post_remove(&blocks[old_boffset].slots[slot].val);
+                        table->config.post_remove(
+                           &blocks[old_boffset].slots[slot].val);
                      }
 
                      metadata->lv2_md[old_bindex][old_boffset].block_md[slot] =
@@ -1749,7 +1751,8 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                                    blocks[old_boffset].slots[slot].val);
                   }
                   if (table->config.post_remove) {
-                     table->config.post_remove(&blocks[old_boffset].slots[slot].val);
+                     table->config.post_remove(
+                        &blocks[old_boffset].slots[slot].val);
                   }
                   metadata->lv1_md[old_bindex][old_boffset].block_md[slot] = 0;
                   platform_free_from_heap(
@@ -1812,10 +1815,13 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
 
          // printf("tid %d %p %s %s before decreasing %lu\n", thread_id, (void
          // *)table, __func__, key, blocks[boffset].slots[slot].refcount);
-         
-         // printf("tid %lu %p %s %s refcount: %lu (val1: %lu, val2: %lu)\n", thread_id, (void *)table,
-         //    __func__, (char *)slice_data(blocks[boffset].slots[slot].key), blocks[boffset].slots[slot].refcount - 1,
-         //    *((uint64 *)&blocks[boffset].slots[slot].val), *((uint64 *)&blocks[boffset].slots[slot].val + 8));
+
+         // printf("tid %lu %p %s %s refcount: %lu (val1: %lu, val2: %lu)\n",
+         // thread_id, (void *)table,
+         //    __func__, (char *)slice_data(blocks[boffset].slots[slot].key),
+         //    blocks[boffset].slots[slot].refcount - 1,
+         //    *((uint64 *)&blocks[boffset].slots[slot].val), *((uint64
+         //    *)&blocks[boffset].slots[slot].val + 8));
 
          if (value) {
             *value = blocks[boffset].slots[slot].val;
@@ -2289,7 +2295,7 @@ iceberg_get_value_internal(iceberg_table                   *table,
          ValueType value_from_sketch = sketch_get(table->sktch, key);
          ValueType transformed_item;
          table->config.transform_sketch_value(&transformed_item,
-                                                value_from_sketch);
+                                              value_from_sketch);
          iceberg_put_nolock(table, key, transformed_item, thread_id);
          ret =
             iceberg_get_value_internal(table, key, kv, thread_id, false, false);
