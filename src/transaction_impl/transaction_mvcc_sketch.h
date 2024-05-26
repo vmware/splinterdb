@@ -183,14 +183,15 @@ typedef struct list_node {
 static void
 list_node_init(list_node *node, txn_timestamp rts,
                  txn_timestamp wts_min,
-                 txn_timestamp wts_max)
+                 txn_timestamp wts_max,
+                 uint32 version_number)
 {
    version_meta *meta;
    meta = TYPED_ZALLOC(0, meta);
    platform_assert(meta != NULL);
    platform_rwlock_init(&meta->rwlock, 0, 0);
    meta->wrlock_holder_ts = -1;
-   meta->version_number   = MVCC_VERSION_LATEST; // The version list's head always keeps timestamps of the latest version.
+   meta->version_number   = version_number;
    meta->rts              = rts;
    meta->wts_min          = wts_min;
    meta->wts_max          = wts_max;
@@ -200,12 +201,13 @@ list_node_init(list_node *node, txn_timestamp rts,
 static list_node *
 list_node_create(txn_timestamp rts,
                  txn_timestamp wts_min,
-                 txn_timestamp wts_max)
+                 txn_timestamp wts_max,
+                 uint32 version_number)
 {
    list_node *new_node;
    new_node = TYPED_ZALLOC(0, new_node);
    platform_assert(new_node != NULL);
-   list_node_init(new_node, rts, wts_min, wts_max);
+   list_node_init(new_node, rts, wts_min, wts_max, version_number);
    return new_node;
 }
 
@@ -272,10 +274,9 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    // increase refcount for key
    
-   list_node *head;
-   head = TYPED_ZALLOC(0, head);
-   list_node *first_version = list_node_create(0, 0, MVCC_TIMESTAMP_INF);
-   head->next = first_version;
+   list_node *head = list_node_create(0, 0, 0, 0);
+   platform_rwlock_wrlock(&head->meta->rwlock);
+
    entry->version_list_head = head;
    bool is_first_item =
       iceberg_insert_and_get(txn_kvsb->tscache,
@@ -283,9 +284,37 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
                              (ValueType **)&entry->version_list_head,
                              platform_get_tid());
    if (!is_first_item) {
-      list_node_destroy(first_version);
-      platform_free(0, head);
+      platform_rwlock_rdlock(&entry->version_list_head->meta->rwlock);
+      platform_rwlock_unlock(&entry->version_list_head->meta->rwlock);
+      list_node_destroy(head);
+   } else {
+      {
+         splinterdb_lookup_result v0_result;
+         splinterdb_lookup_result_init(txn_kvsb->kvsb, &v0_result, 0, NULL);
+         slice v0_key = mvcc_key_create_slice(entry->key, MVCC_VERSION_LATEST);
+         splinterdb_lookup(txn_kvsb->kvsb, v0_key, &v0_result);
+         _splinterdb_lookup_result *_v0_result = (_splinterdb_lookup_result *)&v0_result;
+         slice v1_key = mvcc_key_create_slice(entry->key, MVCC_VERSION_START);
+         splinterdb_insert(txn_kvsb->kvsb, v1_key, merge_accumulator_to_slice(&_v0_result->value));
+         mvcc_key_destroy_slice(v0_key);
+         mvcc_key_destroy_slice(v1_key);
+         splinterdb_lookup_result_deinit(&v0_result);
+      }
+
+      list_node *first_version = list_node_create(entry->version_list_head->meta->rts, 
+                                                   entry->version_list_head->meta->wts_min, 
+                                                   MVCC_TIMESTAMP_INF, 
+                                                   MVCC_VERSION_START);
+      entry->version_list_head->next = first_version;
+
+      platform_assert(head->meta == entry->version_list_head->meta, 
+      "head->meta: %p, entry->version_list_head->meta: %p\n", 
+      head->meta, entry->version_list_head->meta);
+
+      platform_rwlock_unlock(&entry->version_list_head->meta->rwlock);
    }
+
+   platform_assert(entry->version_list_head->next != NULL);
 
    // platform_default_log("insert key: %s, head: %p\n",
    // (char *)slice_data(entry->key), entry->version_list_head);
@@ -297,7 +326,7 @@ static inline void
 rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
    if (entry->version_list_head) {
-      // iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
+      iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
       entry->version_list_head = NULL;
    }
 }
@@ -396,7 +425,7 @@ sketch_insert_timestamps(ValueType *current_value, ValueType new_value)
 static void
 sketch_merge_timestamps_to_cache(ValueType *hash_table_item, ValueType sketch_item)
 {
-   list_node *head = ((list_node *)hash_table_item)->next;
+   list_node *head = (list_node *)hash_table_item;
    sketch_value *new_node     = (sketch_value *)&sketch_item;
    head->meta->wts_min = MAX(head->meta->wts_min, new_node->wts);
    head->meta->rts = MAX(head->meta->rts, new_node->rts);
@@ -871,8 +900,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
       // Make the new version visible by inserting it into the list.
       list_node *new_version =
-         list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF);
-      new_version->meta->version_number = new_version_number;
+         list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF, new_version_number);
       new_version->next                 = w->version_list_head->next;
       w->version_list_head->next        = new_version;
 
@@ -1059,18 +1087,10 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
                                     slice             user_key,
                                     slice             value)
 {
-   {
-      slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
-      int   rc      = splinterdb_insert(kvsb, spl_key, value);
-      platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-      mvcc_key_destroy_slice(spl_key);
-   }
-   {
-      slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
-      int   rc      = splinterdb_insert(kvsb, spl_key, value);
-      platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-      mvcc_key_destroy_slice(spl_key);
-   }
+   slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
+   int   rc      = splinterdb_insert(kvsb, spl_key, value);
+   platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+   mvcc_key_destroy_slice(spl_key);
    return rc;
 }
 
