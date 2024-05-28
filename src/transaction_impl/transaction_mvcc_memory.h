@@ -920,7 +920,8 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     delta)
 {
    return local_write(
-      txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
+      txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, delta));
+      // txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
 }
 
 int
