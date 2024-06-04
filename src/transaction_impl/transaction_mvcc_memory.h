@@ -766,7 +766,8 @@ local_write(transactional_splinterdb *txn_kvsb,
             // platform_default_log("entry->version found: %p\n",
             // entry->version);
 
-            if (entry->version->meta->wts_min > txn->ts
+            if ((entry->version->meta->wts_max != MVCC_TIMESTAMP_INF
+                 && entry->version->meta->wts_max > txn->ts)
                 || entry->version->meta->rts > txn->ts)
             {
                // if (entry->version->meta->wts_min > txn->ts)
@@ -921,7 +922,7 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
 {
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_INSERT, delta));
-      // txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
+   // txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
 }
 
 int

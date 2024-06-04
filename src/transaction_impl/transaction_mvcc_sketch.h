@@ -985,7 +985,8 @@ local_write(transactional_splinterdb *txn_kvsb,
       do {
          should_retry   = FALSE;
          entry->version = entry->version_list_head->next;
-         if (entry->version->meta->wts_min > txn->ts
+         if ((entry->version->meta->wts_max != MVCC_TIMESTAMP_INF
+              && entry->version->meta->wts_max > txn->ts)
              || entry->version->meta->rts > txn->ts)
          {
             // if (entry->version->meta->wts_min > txn->ts)
