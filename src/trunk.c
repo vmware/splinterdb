@@ -8805,7 +8805,36 @@ void
 trunk_reset_stats(trunk_handle *spl)
 {
    if (spl->cfg.use_stats) {
+
+      for (uint64 i = 0; i < MAX_THREADS; i++) {
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[i].insert_latency_histo);
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[i].update_latency_histo);
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[i].delete_latency_histo);
+      }
+
       memset(spl->stats, 0, MAX_THREADS * sizeof(trunk_stats));
+
+      for (uint64 i = 0; i < MAX_THREADS; i++) {
+         platform_status rc;
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[i].insert_latency_histo);
+         platform_assert_status_ok(rc);
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[i].update_latency_histo);
+         platform_assert_status_ok(rc);
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[i].delete_latency_histo);
+         platform_assert_status_ok(rc);
+      }
    }
 }
 
