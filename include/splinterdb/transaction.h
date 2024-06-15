@@ -136,3 +136,7 @@ void
 transactional_splinterdb_set_isolation_level(
    transactional_splinterdb   *txn_kvsb,
    transaction_isolation_level isol_level);
+
+   
+void
+transactional_splinterdb_disable_upsert(transactional_splinterdb *txn_kvsb);

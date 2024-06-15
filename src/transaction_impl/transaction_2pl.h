@@ -93,6 +93,7 @@ transactional_splinterdb_config_init(
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
+   txn_splinterdb_cfg->is_upsert_disabled = FALSE;
 }
 
 static int
@@ -331,8 +332,11 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
+   message_type msg_type = txn_kvsb->tcfg->is_upsert_disabled
+                              ? MESSAGE_TYPE_INSERT
+                              : MESSAGE_TYPE_UPDATE;
    return local_write(
-      txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
+      txn_kvsb, txn, user_key, message_create(msg_type, delta));
 }
 
 int

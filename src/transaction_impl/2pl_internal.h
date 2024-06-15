@@ -13,6 +13,7 @@
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
+   bool                        is_upsert_disabled;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {

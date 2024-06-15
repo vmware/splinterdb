@@ -38,3 +38,9 @@ transactional_splinterdb_get_db(transactional_splinterdb *txn_kvsb)
 {
    return txn_kvsb->kvsb;
 }
+
+void
+transactional_splinterdb_disable_upsert(transactional_splinterdb *txn_kvsb)
+{
+   txn_kvsb->tcfg->is_upsert_disabled = TRUE;
+}
