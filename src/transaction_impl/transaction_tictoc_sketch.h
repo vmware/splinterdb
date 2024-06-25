@@ -669,8 +669,7 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
    message_type msg_type = txn_kvsb->tcfg->is_upsert_disabled
                               ? MESSAGE_TYPE_INSERT
                               : MESSAGE_TYPE_UPDATE;
-   return local_write(
-      txn_kvsb, txn, user_key, message_create(msg_type, delta));
+   return local_write(txn_kvsb, txn, user_key, message_create(msg_type, delta));
 }
 
 int
