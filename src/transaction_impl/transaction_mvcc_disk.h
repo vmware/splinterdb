@@ -351,6 +351,7 @@ transactional_splinterdb_config_init(
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
+   txn_splinterdb_cfg->is_upsert_disabled = FALSE;
 }
 
 static int
