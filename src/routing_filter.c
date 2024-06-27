@@ -1312,29 +1312,30 @@ routing_filter_print_index(cache          *cc,
 //          if (iter->index == iter->num_indices) {
 //             return STATUS_OK;
 //          }
-//          iter->hdr = routing_get_header(cc, cfg, filter->addr, iter->index, &filter_page);
-//          platform_assert(iter->hdr);
+//          iter->hdr = routing_get_header(cc, cfg, filter->addr, iter->index,
+//          &filter_page); platform_assert(iter->hdr);
 //       }
 
-//       uint64 encoding_size = (hdr->num_remainders + cfg->index_size - 1) / 8 + 1;
-//       iter->header_length = encoding_size + sizeof(routing_hdr);
-//       routing_get_bucket_bounds(iter->hdr->encoding, iter->header_length, iter->bucket, 
+//       uint64 encoding_size = (hdr->num_remainders + cfg->index_size - 1) / 8
+//       + 1; iter->header_length = encoding_size + sizeof(routing_hdr);
+//       routing_get_bucket_bounds(iter->hdr->encoding, iter->header_length,
+//       iter->bucket,
 //                                 &iter->entry, &iter->bucket_end);
 //    }
 //    return STATUS_OK;
 // }
 
-// static platform_status 
-// routing_filter_iterator_init(routing_filter_iterator *iter, 
-//                              cache *cc, 
-//                              routing_config *cfg, 
+// static platform_status
+// routing_filter_iterator_init(routing_filter_iterator *iter,
+//                              cache *cc,
+//                              routing_config *cfg,
 //                              routing_filter *filter)
 // {
 //    memset(iter, 0, sizeof(iter));
 //    iter->cc = cc;
 //    iter->filter = *filter;
 //    iter->cfg = cfg;
-   
+
 //    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
 //    if (log_num_buckets < cfg->log_index_size) {
 //       log_num_buckets = cfg->log_index_size;
@@ -1347,9 +1348,9 @@ routing_filter_print_index(cache          *cc,
 //    iter->hdr = routing_get_header(cc, cfg, filter->addr, 0, &filter_page);
 //    platform_assert(iter->hdr);
 
-//    uint64 encoding_size = (hdr->num_remainders + cfg->index_size - 1) / 8 + 1;
-//    iter->header_length = encoding_size + sizeof(routing_hdr);
-//    routing_get_bucket_bounds(iter->hdr->encoding, iter->header_length, 0, 
+//    uint64 encoding_size = (hdr->num_remainders + cfg->index_size - 1) / 8 +
+//    1; iter->header_length = encoding_size + sizeof(routing_hdr);
+//    routing_get_bucket_bounds(iter->hdr->encoding, iter->header_length, 0,
 //                              &iter->entry, &iter->bucket_end);
 //    return routing_filter_iterator_maybe_advance_bucket(iter);
 // }
@@ -1387,8 +1388,9 @@ routing_filter_print_index(cache          *cc,
 //    remainder         = remainder_and_value >> value_size;
 //    uint32 value_mask = (1UL << value_size) - 1;
 //    value             = remainder_and_value & value_mask;
-//    *fprint = (iter->index << (iter->log_num_indices + iter->remainder_size)) + 
-//              (iter->bucket << iter->remainder_size) + 
+//    *fprint = (iter->index << (iter->log_num_indices + iter->remainder_size))
+//    +
+//              (iter->bucket << iter->remainder_size) +
 //              remainder;
 // }
 

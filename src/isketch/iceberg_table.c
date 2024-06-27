@@ -1839,8 +1839,8 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                table->config.post_remove(&blocks[boffset].slots[slot].val);
             }
             metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
-            platform_free(
-               0, (void *)slice_data(blocks[boffset].slots[slot].key));
+            platform_free(0,
+                          (void *)slice_data(blocks[boffset].slots[slot].key));
             blocks[boffset].slots[slot].key      = NULL_SLICE;
             blocks[boffset].slots[slot].refcount = 0;
             pc_add(&metadata->lv1_balls, -1, thread_id);

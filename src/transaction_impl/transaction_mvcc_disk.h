@@ -589,8 +589,8 @@ find_key_in_splinterdb(transactional_splinterdb *txn_kvsb,
 {
 
    trunk_print_lookup(txn_kvsb->kvsb->spl,
-                   key_create_from_slice(target_user_key),
-                   Platform_default_log_handle);
+                      key_create_from_slice(target_user_key),
+                      Platform_default_log_handle);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
@@ -598,7 +598,8 @@ find_key_in_splinterdb(transactional_splinterdb *txn_kvsb,
    if (r != 0) {
       platform_default_log("find_key_in_splintedb: lookup failed %d\n", r);
    } else {
-      platform_default_log("find_key_in_splintedb: lookup did%s find key\n", splinterdb_lookup_found(&result) ? "" : " NOT");
+      platform_default_log("find_key_in_splintedb: lookup did%s find key\n",
+                           splinterdb_lookup_found(&result) ? "" : " NOT");
    }
    splinterdb_lookup_result_deinit(&result);
 
@@ -872,14 +873,15 @@ local_write_begin:
 
 static int
 non_transactional_splinterdb_insert(const transactional_splinterdb *txn_kvsb,
-                                    slice             key,
-                                    slice             value)
+                                    slice                           key,
+                                    slice                           value)
 {
    rw_entry entry;
    rw_entry_set_key(&entry, key);
    ((mvcc_key *)slice_data(entry.key))->header.version = MVCC_VERSION_START;
    rw_entry_set_msg(&entry, 0, message_create(MESSAGE_TYPE_INSERT, value));
-   int rc = splinterdb_insert(txn_kvsb->kvsb, entry.key, message_slice(entry.msg));
+   int rc =
+      splinterdb_insert(txn_kvsb->kvsb, entry.key, message_slice(entry.msg));
    platform_assert(rc == 0);
    rw_entry_deinit(&entry);
    return 0;
@@ -892,8 +894,7 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     value)
 {
    if (!txn) {
-      return non_transactional_splinterdb_insert(
-         txn_kvsb, user_key, value);
+      return non_transactional_splinterdb_insert(txn_kvsb, user_key, value);
    }
 
    platform_default_log(
@@ -978,7 +979,7 @@ find_readable_version:
    splinterdb_iterator *it;
    int rc = splinterdb_iterator_init(txn_kvsb->kvsb, &it, entry->key);
    platform_assert(rc == 0, "splinterdb_iterator_init: %d\n", rc);
-   int num_versions_found = 0;
+   int  num_versions_found     = 0;
    bool found_readable_version = 0;
 
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
