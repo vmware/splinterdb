@@ -192,7 +192,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                           cfg.queue_scale_percent,
                           cfg.use_log,
                           cfg.use_stats,
-                          TRUE,
+                          FALSE,
                           Platform_default_log_handle);
    if (!SUCCESS(rc)) {
       return rc;
