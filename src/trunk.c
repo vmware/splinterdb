@@ -8835,6 +8835,8 @@ trunk_reset_stats(trunk_handle *spl)
                                     &spl->stats[i].delete_latency_histo);
          platform_assert_status_ok(rc);
       }
+
+      cache_reset_stats(spl->cc);
    }
 }
 
