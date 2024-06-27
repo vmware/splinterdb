@@ -24,8 +24,11 @@ lock_table *
 lock_table_create(const data_config *spl_data_config)
 {
    lock_table *lt;
-   lt = TYPED_ZALLOC(0, lt);
-   iceberg_init(&lt->table, 20, spl_data_config);
+   lt                  = TYPED_ZALLOC(0, lt);
+   iceberg_config icfg = {0};
+   iceberg_config_default_init(&icfg);
+   icfg.log_slots = 20;
+   iceberg_init(&lt->table, &icfg, spl_data_config);
    lt->attr = LOCK_TABLE_ATTR_INVALID;
    return lt;
 }

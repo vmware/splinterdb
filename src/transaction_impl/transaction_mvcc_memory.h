@@ -18,8 +18,9 @@ typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transactional_data_config   txn_data_cfg;
    transaction_isolation_level isol_level;
-   uint64                      tscache_log_slots;
+   iceberg_config              iceberght_config;
    sketch_config               sktch_config;
+   bool                        is_upsert_disabled;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
@@ -388,11 +389,15 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->kvsb_cfg.data_cfg =
       (data_config *)&txn_splinterdb_cfg->txn_data_cfg;
 
-   txn_splinterdb_cfg->tscache_log_slots = 29;
+   iceberg_config_default_init(&txn_splinterdb_cfg->iceberght_config);
+   txn_splinterdb_cfg->iceberght_config.log_slots               = 29;
+   txn_splinterdb_cfg->iceberght_config.merge_value_from_sketch = NULL;
+   txn_splinterdb_cfg->iceberght_config.transform_sketch_value  = NULL;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
+   txn_splinterdb_cfg->is_upsert_disabled = FALSE;
 
    sketch_config_default_init(&txn_splinterdb_cfg->sktch_config);
 }
@@ -480,7 +485,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    tscache = TYPED_ZALLOC(0, tscache);
    platform_assert(
       iceberg_init(tscache,
-                   txn_splinterdb_cfg->tscache_log_slots,
+                   &txn_splinterdb_cfg->iceberght_config,
                    txn_splinterdb_cfg->txn_data_cfg.application_data_cfg)
       == 0);
 
@@ -763,7 +768,8 @@ local_write(transactional_splinterdb *txn_kvsb,
             // platform_default_log("entry->version found: %p\n",
             // entry->version);
 
-            if (entry->version->meta->wts_min > txn->ts
+            if ((entry->version->meta->wts_max != MVCC_TIMESTAMP_INF
+                 && entry->version->meta->wts_max > txn->ts)
                 || entry->version->meta->rts > txn->ts)
             {
                // if (entry->version->meta->wts_min > txn->ts)
@@ -916,8 +922,10 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
-   return local_write(
-      txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
+   message_type msg_type = txn_kvsb->tcfg->is_upsert_disabled
+                              ? MESSAGE_TYPE_INSERT
+                              : MESSAGE_TYPE_UPDATE;
+   return local_write(txn_kvsb, txn, user_key, message_create(msg_type, delta));
 }
 
 int

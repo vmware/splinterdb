@@ -15,7 +15,8 @@
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
-   uint64                      tscache_log_slots;
+   iceberg_config              iceberght_config;
+   bool                        is_upsert_disabled;
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
@@ -217,11 +218,13 @@ transactional_splinterdb_config_init(
           kvsb_cfg,
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
 
-   txn_splinterdb_cfg->tscache_log_slots = 29;
+   iceberg_config_default_init(&txn_splinterdb_cfg->iceberght_config);
+   txn_splinterdb_cfg->iceberght_config.log_slots = 29;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
+   txn_splinterdb_cfg->is_upsert_disabled = FALSE;
 }
 
 static int
@@ -254,7 +257,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
    platform_assert(iceberg_init(tscache,
-                                txn_splinterdb_cfg->tscache_log_slots,
+                                &txn_splinterdb_cfg->iceberght_config,
                                 kvsb_cfg->data_cfg)
                    == 0);
    _txn_kvsb->tscache = tscache;
@@ -588,12 +591,10 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
-   // platform_error_log("[%lu] update %s\n",
-   //                    ((unsigned long)txn) % 100,
-   //                    (char *)slice_data(user_key));
-
-   return local_write(
-      txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
+   message_type msg_type = txn_kvsb->tcfg->is_upsert_disabled
+                              ? MESSAGE_TYPE_INSERT
+                              : MESSAGE_TYPE_UPDATE;
+   return local_write(txn_kvsb, txn, user_key, message_create(msg_type, delta));
 }
 
 int
