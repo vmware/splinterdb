@@ -1178,28 +1178,32 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
             }
          }
 
-         slice new_key = mvcc_key_create_slice(w->key, new_version_number);
-         int   rc =
-            splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
-         platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-         mvcc_key_destroy_slice(new_key);
+         {
+            slice new_key = mvcc_key_create_slice(w->key, new_version_number);
+            int   rc =
+               splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
+            platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+            mvcc_key_destroy_slice(new_key);
+         }
 
          // maintain another version for the latest
-         slice latest_key = mvcc_key_create_slice(w->key, MVCC_VERSION_LATEST);
-         char *update;
-         const uint64 update_len =
-            sizeof(mvcc_latest_key_update) + message_length(w->msg);
-         update = TYPED_ARRAY_ZALLOC(0, update, update_len);
-         ((mvcc_latest_key_update *)update)->type =
-            MVCC_LATEST_KEY_UPDATE_TYPE_X;
-         memcpy(((mvcc_latest_key_update *)update)->value,
-                message_data(w->msg),
-                message_length(w->msg));
-         rc = splinterdb_update(
-            txn_kvsb->kvsb, latest_key, slice_create(update_len, update));
-         platform_free(0, update);
-         platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-         mvcc_key_destroy_slice(latest_key);
+         {
+            slice latest_key = mvcc_key_create_slice(w->key, MVCC_VERSION_LATEST);
+            char *update;
+            const uint64 update_len =
+               sizeof(mvcc_latest_key_update) + message_length(w->msg);
+            update = TYPED_ARRAY_ZALLOC(0, update, update_len);
+            ((mvcc_latest_key_update *)update)->type =
+               MVCC_LATEST_KEY_UPDATE_TYPE_X;
+            memcpy(((mvcc_latest_key_update *)update)->value,
+                  message_data(w->msg),
+                  message_length(w->msg));
+            int rc = splinterdb_update(
+               txn_kvsb->kvsb, latest_key, slice_create(update_len, update));
+            platform_free(0, update);
+            platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+            mvcc_key_destroy_slice(latest_key);
+         }
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       }
 #endif
@@ -1404,25 +1408,44 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
                                     slice             value)
 {
    int rc;
-   {
-      slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
-      rc            = splinterdb_insert(kvsb, spl_key, value);
-      platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-      mvcc_key_destroy_slice(spl_key);
-   }
+   // {
+   //    slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
+   //    rc            = splinterdb_insert(kvsb, spl_key, value);
+   //    platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+   //    mvcc_key_destroy_slice(spl_key);
+   // }
+   // {
+   //    slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
+   //    char *update;
+   //    const uint64 update_len =
+   //       sizeof(mvcc_latest_key_update) + slice_length(value);
+   //    update = TYPED_ARRAY_ZALLOC(0, update, update_len);
+   //    ((mvcc_latest_key_update *)update)->type  = MVCC_LATEST_KEY_UPDATE_TYPE_X;
+   //    memcpy(((mvcc_latest_key_update *)update)->value,
+   //           slice_data(value),
+   //           slice_length(value));
+   //    rc = splinterdb_update(kvsb, spl_key, slice_create(update_len, update));
+   //    platform_free(0, update);
+   //    platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+   //    mvcc_key_destroy_slice(spl_key);
+   // }
    {
       slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
       char *update;
       const uint64 update_len =
-         sizeof(mvcc_latest_key_update) + slice_length(value);
+         sizeof(mvcc_latest_key_version) + slice_length(value) * 2;
       update = TYPED_ARRAY_ZALLOC(0, update, update_len);
-      ((mvcc_latest_key_update *)update)->type  = MVCC_LATEST_KEY_UPDATE_TYPE_X;
-      memcpy(((mvcc_latest_key_update *)update)->value,
+      mvcc_latest_key_version *latest_version =
+         (mvcc_latest_key_version *)update;
+      latest_version->a_len = slice_length(value);
+      latest_version->b_len = slice_length(value);
+      memcpy(latest_version->ab, slice_data(value), slice_length(value));
+      memcpy(latest_version->ab + slice_length(value),
              slice_data(value),
              slice_length(value));
-      rc = splinterdb_update(kvsb, spl_key, slice_create(update_len, update));
-      platform_free(0, update);
+      rc = splinterdb_insert(kvsb, spl_key, slice_create(update_len, update));
       platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+      platform_free(0, update);
       mvcc_key_destroy_slice(spl_key);
    }
    return rc;
@@ -1581,10 +1604,12 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    // }
 
    platform_assert(rc == 0);
-   mvcc_key_destroy_slice(spl_key);
 
    if (splinterdb_lookup_found(result)) {
       if (readable_version->meta->version_number == MVCC_VERSION_LATEST) {
+         // rc = splinterdb_insert(txn_kvsb->kvsb, spl_key, merge_accumulator_to_slice(&_result->value));
+         // platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+
          // Copy the value of v0.a to the user buffer
          _splinterdb_lookup_result *_result =
             (_splinterdb_lookup_result *)result;
@@ -1619,6 +1644,8 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          }
       } while (should_retry);
    }
+
+   mvcc_key_destroy_slice(spl_key);
 
    // platform_default_log("%lu lookup key: %s, rts %lu, wts_min %lu, wts_max
    // %lu\n",
