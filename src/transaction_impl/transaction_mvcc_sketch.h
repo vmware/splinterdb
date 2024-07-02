@@ -109,13 +109,21 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
    }
 }
 
+typedef enum mvcc_latest_key_update_type {
+   MVCC_LATEST_KEY_UPDATE_TYPE_INVALID = 0,
+   MVCC_LATEST_KEY_UPDATE_TYPE_C, // copy b into a
+   MVCC_LATEST_KEY_UPDATE_TYPE_X, // assign X to b
+   MVCC_LATEST_KEY_UPDATE_TYPE_CX // copy b into a and then assign X to b
+} mvcc_latest_key_update_type;
+
 // Need better naming
 // a: the latest value before eviction
 // b: the current latest value
 typedef struct ONDISK mvcc_latest_key_version {
-   uint64 a_len;
-   uint64 b_len;
-   char   ab[];
+   mvcc_latest_key_update_type type;
+   uint64                      a_len;
+   uint64                      b_len;
+   char                        ba[];
 } mvcc_latest_key_version;
 
 static bool
@@ -124,210 +132,205 @@ is_mvcc_latest_key_version(message msg)
    return message_class(msg) == MESSAGE_TYPE_INSERT;
 }
 
-typedef enum mvcc_latest_key_update_type {
-   MVCC_LATEST_KEY_UPDATE_TYPE_INVALID = 0,
-   MVCC_LATEST_KEY_UPDATE_TYPE_C,  // copy b into a
-   MVCC_LATEST_KEY_UPDATE_TYPE_X,  // assign X to b
-   MVCC_LATEST_KEY_UPDATE_TYPE_CX // copy b into a and then assign X to b
-} mvcc_latest_key_update_type;
-
-typedef struct ONDISK mvcc_latest_key_update {
-   mvcc_latest_key_update_type type;
-   char                        value[];
-} mvcc_latest_key_update;
-
 static int
 merge_mvcc_latest_tuple(const data_config *cfg,
                         slice              key,         // IN
                         message            old_message, // IN
                         merge_accumulator *new_message) // IN/OUT
 {
+   // platform_default_log(
+   //    "old_message: type=%d, a_len=%lu, b_len=%lu\n",
+   //    ((mvcc_latest_key_version *)message_data(old_message))->type,
+   //    ((mvcc_latest_key_version *)message_data(old_message))->a_len,
+   //    ((mvcc_latest_key_version *)message_data(old_message))->b_len);
+   // platform_default_log(
+   //    "new_message: type=%d, a_len=%lu, b_len=%lu\n",
+   //    ((mvcc_latest_key_version *)merge_accumulator_data(new_message))->type,
+   //    ((mvcc_latest_key_version
+   //    *)merge_accumulator_data(new_message))->a_len,
+   //    ((mvcc_latest_key_version
+   //    *)merge_accumulator_data(new_message))->b_len);
    platform_assert(merge_accumulator_message_class(new_message)
                    == MESSAGE_TYPE_UPDATE);
    platform_assert(mvcc_version_number(key) == MVCC_VERSION_LATEST);
-
+   mvcc_latest_key_version *new_message_data =
+      (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+   mvcc_latest_key_version *old_message_data =
+      (mvcc_latest_key_version *)message_data(old_message);
    if (is_mvcc_latest_key_version(old_message)) {
-      mvcc_latest_key_update update;
-      update.type =
-         *((mvcc_latest_key_update_type *)merge_accumulator_data(new_message));
-      platform_assert(update.type == MVCC_LATEST_KEY_UPDATE_TYPE_C
-                         || update.type == MVCC_LATEST_KEY_UPDATE_TYPE_X
-                         || update.type == MVCC_LATEST_KEY_UPDATE_TYPE_CX,
-                      "Invalid update type: %d\n",
-                      update.type);
-      if (update.type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
-         merge_accumulator v0;
-         merge_accumulator_init(&v0, 0);
-         merge_accumulator_copy_message(&v0, old_message);
-         mvcc_latest_key_version *latest_version =
-            (mvcc_latest_key_version *)merge_accumulator_data(&v0);
-         latest_version->a_len = latest_version->b_len;
-         merge_accumulator_resize(&v0,
+      platform_assert(old_message_data->type
+                         == MVCC_LATEST_KEY_UPDATE_TYPE_INVALID,
+                      "Invalid old_message_data type: %d\n",
+                      old_message_data->type);
+      platform_assert(
+         old_message_data->a_len > 0 && old_message_data->b_len > 0,
+         "Invalid lengths: %lu, %lu (type: %d, message_class: %d)\n",
+         old_message_data->a_len,
+         old_message_data->b_len,
+         old_message_data->type,
+         message_class(old_message));
+      platform_assert(
+         new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_C
+            || new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_X
+            || new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX,
+         "Invalid new_message_data type: %d\n",
+         new_message_data->type);
+      if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
+         platform_assert(new_message_data->a_len == 0
+                         && new_message_data->b_len == 0);
+         new_message_data->a_len = old_message_data->b_len;
+         new_message_data->b_len = old_message_data->b_len;
+         merge_accumulator_resize(new_message,
                                   sizeof(mvcc_latest_key_version)
-                                     + latest_version->a_len
-                                     + latest_version->b_len);
+                                     + new_message_data->b_len
+                                     + new_message_data->a_len);
+         new_message_data =
+            (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+         memcpy(new_message_data->ba,
+                old_message_data->ba,
+                new_message_data->b_len);
+         memcpy(new_message_data->ba + new_message_data->b_len,
+                old_message_data->ba,
+                new_message_data->a_len);
+      } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
+         platform_assert(new_message_data->a_len == 0
+                         && new_message_data->b_len > 0);
+         new_message_data->a_len = old_message_data->a_len;
+         merge_accumulator_resize(new_message,
+                                  sizeof(mvcc_latest_key_version)
+                                     + new_message_data->b_len
+                                     + new_message_data->a_len);
+         new_message_data =
+            (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+         memcpy(new_message_data->ba + new_message_data->b_len,
+                old_message_data->ba + old_message_data->b_len,
+                new_message_data->a_len);
+      } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
+         platform_assert(new_message_data->a_len == 0
+                         && new_message_data->b_len > 0);
          mvcc_latest_key_version *old_message_data =
             (mvcc_latest_key_version *)message_data(old_message);
-         const void *old_message_data_b =
-            old_message_data->ab + old_message_data->a_len;
-         memcpy(latest_version->ab, old_message_data_b, latest_version->a_len);
-         memcpy(latest_version->ab + latest_version->a_len,
-                old_message_data_b,
-                latest_version->b_len);
-         merge_accumulator_copy_message(new_message,
-                                        merge_accumulator_to_message(&v0));
-         merge_accumulator_deinit(&v0);
-      } else if (update.type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
-         merge_accumulator v0;
-         merge_accumulator_init(&v0, 0);
-         merge_accumulator_copy_message(&v0, old_message);
-         mvcc_latest_key_version *latest_version =
-            (mvcc_latest_key_version *)merge_accumulator_data(&v0);
-         latest_version->b_len = merge_accumulator_length(new_message)
-                               - sizeof(mvcc_latest_key_update);
-         merge_accumulator_resize(&v0,
+         new_message_data->a_len = old_message_data->b_len;
+         merge_accumulator_resize(new_message,
                                   sizeof(mvcc_latest_key_version)
-                                     + latest_version->a_len
-                                     + latest_version->b_len);
-         memcpy(latest_version->ab + latest_version->a_len,
-                merge_accumulator_data(new_message)
-                   + sizeof(mvcc_latest_key_update),
-                latest_version->b_len);
-         merge_accumulator_copy_message(new_message,
-                                        merge_accumulator_to_message(&v0));
-         merge_accumulator_deinit(&v0);
-      } else if (update.type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
-         merge_accumulator v0;
-         merge_accumulator_init(&v0, 0);
-         merge_accumulator_copy_message(&v0, old_message);
-         mvcc_latest_key_version *latest_version =
-            (mvcc_latest_key_version *)merge_accumulator_data(&v0);
-         latest_version->a_len = latest_version->b_len;
-         merge_accumulator_resize(&v0,
-                                  sizeof(mvcc_latest_key_version)
-                                     + latest_version->a_len
-                                     + latest_version->b_len);
-         mvcc_latest_key_version *old_message_data =
-            (mvcc_latest_key_version *)message_data(old_message);
-         const void *old_message_data_b =
-            old_message_data->ab + old_message_data->a_len;
-         memcpy(latest_version->ab, old_message_data_b, latest_version->a_len);
-         memcpy(latest_version->ab + latest_version->a_len,
-                old_message_data_b,
-                latest_version->b_len);
-         latest_version->b_len = merge_accumulator_length(new_message)
-                               - sizeof(mvcc_latest_key_update);
-         merge_accumulator_resize(&v0,
-                                  sizeof(mvcc_latest_key_version)
-                                     + latest_version->a_len
-                                     + latest_version->b_len);
-         memcpy(latest_version->ab + latest_version->a_len,
-                merge_accumulator_data(new_message)
-                   + sizeof(mvcc_latest_key_update),
-                latest_version->b_len);
-         merge_accumulator_copy_message(new_message,
-                                        merge_accumulator_to_message(&v0));
-         merge_accumulator_deinit(&v0);
+                                     + new_message_data->b_len
+                                     + new_message_data->a_len);
+         new_message_data =
+            (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+         memcpy(new_message_data->ba + new_message_data->b_len,
+                old_message_data->ba,
+                new_message_data->a_len);
       }
+      new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
+      merge_accumulator_set_class(new_message, MESSAGE_TYPE_INSERT);
    } else {
-      mvcc_latest_key_update *old_update =
-         (mvcc_latest_key_update *)message_data(old_message);
-      mvcc_latest_key_update *new_update =
-         (mvcc_latest_key_update *)merge_accumulator_data(new_message);
-      if (old_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
-         if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
+      if (old_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
+         platform_assert(old_message_data->a_len == 0
+                         && old_message_data->b_len == 0);
+         if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
             // Do nothing.
-         } else if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
-            new_update->type = MVCC_LATEST_KEY_UPDATE_TYPE_CX;
-         } else if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len == 0);
+         } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
+            new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_CX;
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len > 0);
+         } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
             // Do nothing.
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len > 0);
          }
-      } else if (old_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
-         if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
-            mvcc_latest_key_version *latest_version =
-               (mvcc_latest_key_version *)merge_accumulator_data(new_message);
-            latest_version->a_len = message_length(old_message)
-                                  - sizeof(mvcc_latest_key_update);
-            latest_version->b_len = latest_version->a_len;
+      } else if (old_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
+         platform_assert(old_message_data->a_len == 0
+                         && old_message_data->b_len > 0);
+         if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
+            new_message_data->a_len = old_message_data->b_len;
+            new_message_data->b_len = old_message_data->b_len;
             merge_accumulator_resize(new_message,
                                      sizeof(mvcc_latest_key_version)
-                                        + latest_version->a_len
-                                        + latest_version->b_len);
-            memcpy(latest_version->ab, old_update->value, latest_version->a_len);
-            memcpy(latest_version->ab + latest_version->a_len,
-                   old_update->value,
-                   latest_version->b_len);
-            merge_accumulator_set_class(new_message, MESSAGE_TYPE_INSERT);
-         } else if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
-            // Do nothing.
-         } else if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
-            merge_accumulator v0;
-            merge_accumulator_init(&v0, 0);
-            merge_accumulator_set_class(&v0, MESSAGE_TYPE_INSERT);
-            uint64 old_update_value_len = message_length(old_message)
-                                        - sizeof(mvcc_latest_key_update);
-            uint64 new_update_value_len = merge_accumulator_length(new_message) -
-                                          sizeof(mvcc_latest_key_update);
-            merge_accumulator_resize(&v0,
-                                     sizeof(mvcc_latest_key_update)
-                                        + old_update_value_len
-                                        + new_update_value_len);
-            mvcc_latest_key_version *latest_version =
-               (mvcc_latest_key_version *)merge_accumulator_data(&v0);
-            latest_version->a_len = old_update_value_len;
-            latest_version->b_len = new_update_value_len;
-            memcpy(latest_version->ab, old_update->value, latest_version->a_len);
-            memcpy(latest_version->ab + latest_version->a_len,
-                   new_update->value,
-                   latest_version->b_len);
-            merge_accumulator_copy_message(new_message,
-                                           merge_accumulator_to_message(&v0));
-            merge_accumulator_deinit(&v0);
-         }
-      } else if (old_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
-         if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
-            mvcc_latest_key_version *latest_version =
+                                        + new_message_data->a_len
+                                        + new_message_data->b_len);
+            new_message_data =
                (mvcc_latest_key_version *)merge_accumulator_data(new_message);
-            latest_version->a_len = message_length(old_message)
-                                        - sizeof(mvcc_latest_key_update);
-            latest_version->b_len = latest_version->a_len;
+            memcpy(new_message_data->ba,
+                   old_message_data->ba,
+                   new_message_data->b_len);
+            memcpy(new_message_data->ba + new_message_data->b_len,
+                   old_message_data->ba,
+                   new_message_data->a_len);
+            new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
+            merge_accumulator_set_class(new_message, MESSAGE_TYPE_INSERT);
+         } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
+            // Do nothing.
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len > 0);
+         } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len > 0);
+            new_message_data->a_len = old_message_data->b_len;
             merge_accumulator_resize(new_message,
                                      sizeof(mvcc_latest_key_version)
-                                        + latest_version->a_len
-                                        + latest_version->b_len);
-            memcpy(latest_version->ab, old_update->value, latest_version->a_len);
-            memcpy(latest_version->ab + latest_version->a_len,
-                   old_update->value,
-                   latest_version->b_len);
+                                        + new_message_data->a_len
+                                        + new_message_data->b_len);
+            new_message_data =
+               (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+            memcpy(new_message_data->ba + new_message_data->b_len,
+                   old_message_data->ba,
+                   new_message_data->a_len);
+            new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
             merge_accumulator_set_class(new_message, MESSAGE_TYPE_INSERT);
-         } else if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
-            new_update->type = MVCC_LATEST_KEY_UPDATE_TYPE_CX;
-         } else if (new_update->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
-            merge_accumulator v0;
-            merge_accumulator_init(&v0, 0);
-            merge_accumulator_set_class(&v0, MESSAGE_TYPE_INSERT);
-            uint64 old_update_value_len = message_length(old_message)
-                                        - sizeof(mvcc_latest_key_update);
-            uint64 new_update_value_len = merge_accumulator_length(new_message) -
-                                          sizeof(mvcc_latest_key_update);
-            merge_accumulator_resize(&v0,
-                                     sizeof(mvcc_latest_key_update)
-                                        + old_update_value_len
-                                        + new_update_value_len);
-            mvcc_latest_key_version *latest_version =
-               (mvcc_latest_key_version *)merge_accumulator_data(&v0);
-            latest_version->a_len = old_update_value_len;
-            latest_version->b_len = new_update_value_len;
-            memcpy(latest_version->ab, old_update->value, latest_version->a_len);
-            memcpy(latest_version->ab + latest_version->a_len,
-                   new_update->value,
-                   latest_version->b_len);
-            merge_accumulator_copy_message(new_message,
-                                           merge_accumulator_to_message(&v0));
-            merge_accumulator_deinit(&v0);
+         }
+      } else if (old_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
+         platform_assert(old_message_data->a_len == 0
+                         && old_message_data->b_len > 0);
+         if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_C) {
+            new_message_data->a_len = old_message_data->b_len;
+            new_message_data->b_len = old_message_data->b_len;
+            merge_accumulator_resize(new_message,
+                                     sizeof(mvcc_latest_key_version)
+                                        + new_message_data->a_len
+                                        + new_message_data->b_len);
+            new_message_data =
+               (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+            memcpy(new_message_data->ba,
+                   old_message_data->ba,
+                   new_message_data->b_len);
+            memcpy(new_message_data->ba + new_message_data->b_len,
+                   old_message_data->ba,
+                   new_message_data->a_len);
+            new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
+            merge_accumulator_set_class(new_message, MESSAGE_TYPE_INSERT);
+         } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_X) {
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len > 0);
+            new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_CX;
+         } else if (new_message_data->type == MVCC_LATEST_KEY_UPDATE_TYPE_CX) {
+            platform_assert(new_message_data->a_len == 0
+                            && new_message_data->b_len > 0);
+            new_message_data->a_len = old_message_data->b_len;
+            merge_accumulator_resize(new_message,
+                                     sizeof(mvcc_latest_key_version)
+                                        + new_message_data->a_len
+                                        + new_message_data->b_len);
+            new_message_data =
+               (mvcc_latest_key_version *)merge_accumulator_data(new_message);
+            memcpy(new_message_data->ba + new_message_data->b_len,
+                   old_message_data->ba,
+                   new_message_data->a_len);
+            new_message_data->type = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
+            merge_accumulator_set_class(new_message, MESSAGE_TYPE_INSERT);
          }
       }
    }
+
+   // platform_default_log(
+   //    "MERGED new_message: type=%d(%d), a_len=%lu, b_len=%lu\n",
+   //    ((mvcc_latest_key_version *)merge_accumulator_data(new_message))->type,
+   //    new_message_data->type,
+   //    ((mvcc_latest_key_version
+   //    *)merge_accumulator_data(new_message))->a_len,
+   //    ((mvcc_latest_key_version
+   //    *)merge_accumulator_data(new_message))->b_len);
    return 0;
 }
 
@@ -340,31 +343,21 @@ merge_mvcc_latest_tuple_final(const data_config *cfg,
                    == MESSAGE_TYPE_UPDATE);
    platform_assert(mvcc_version_number(key) == MVCC_VERSION_LATEST);
 
-   mvcc_latest_key_update update;
-   update.type =
-      *((mvcc_latest_key_update_type *)merge_accumulator_data(oldest_message));
-   platform_assert(update.type == MVCC_LATEST_KEY_UPDATE_TYPE_X,
+   mvcc_latest_key_version *update_v0 =
+      (mvcc_latest_key_version *)merge_accumulator_data(oldest_message);
+   platform_assert(update_v0->type == MVCC_LATEST_KEY_UPDATE_TYPE_X,
                    "Invalid update type: %d\n",
-                   update.type);
-   merge_accumulator v0;
-   merge_accumulator_init(&v0, 0);
-   merge_accumulator_set_class(&v0, MESSAGE_TYPE_INSERT);
-   const uint64 value_len =
-      merge_accumulator_length(oldest_message) - sizeof(mvcc_latest_key_update);
-   merge_accumulator_resize(&v0,
-                            sizeof(mvcc_latest_key_version) + value_len * 2);
-   mvcc_latest_key_version *latest_version =
-      (mvcc_latest_key_version *)merge_accumulator_data(&v0);
-   latest_version->a_len = value_len;
-   latest_version->b_len = value_len;
-   const void *value =
-      merge_accumulator_data(oldest_message) + sizeof(mvcc_latest_key_update);
-   memcpy(latest_version->ab, value, latest_version->a_len);
-   memcpy(
-      latest_version->ab + latest_version->a_len, value, latest_version->b_len);
-   merge_accumulator_copy_message(oldest_message,
-                                  merge_accumulator_to_message(&v0));
-   merge_accumulator_deinit(&v0);
+                   update_v0->type);
+   platform_assert(update_v0->a_len == 0 && update_v0->b_len > 0);
+   update_v0->a_len = update_v0->b_len;
+   merge_accumulator_resize(oldest_message,
+                            sizeof(mvcc_latest_key_version) + update_v0->b_len
+                               + update_v0->a_len);
+   update_v0 =
+      (mvcc_latest_key_version *)merge_accumulator_data(oldest_message);
+   memcpy(update_v0->ba + update_v0->b_len, update_v0->ba, update_v0->b_len);
+   update_v0->type = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
+   merge_accumulator_set_class(oldest_message, MESSAGE_TYPE_INSERT);
    return 0;
 }
 
@@ -600,8 +593,8 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
          iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
       if (evicted) {
          // Is it okay if it is called without locks?
-         mvcc_latest_key_update update;
-         update.type   = MVCC_LATEST_KEY_UPDATE_TYPE_C;
+         mvcc_latest_key_version update = {0};
+         update.type                    = MVCC_LATEST_KEY_UPDATE_TYPE_C;
          slice spl_key = mvcc_key_create_slice(entry->key, MVCC_VERSION_LATEST);
          splinterdb_update(txn_kvsb->kvsb,
                            spl_key,
@@ -1180,24 +1173,26 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
          {
             slice new_key = mvcc_key_create_slice(w->key, new_version_number);
-            int   rc =
-               splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
+            int   rc      = splinterdb_insert(
+               txn_kvsb->kvsb, new_key, message_slice(w->msg));
             platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
             mvcc_key_destroy_slice(new_key);
          }
 
          // maintain another version for the latest
          {
-            slice latest_key = mvcc_key_create_slice(w->key, MVCC_VERSION_LATEST);
-            char *update;
+            slice latest_key =
+               mvcc_key_create_slice(w->key, MVCC_VERSION_LATEST);
+            char        *update;
             const uint64 update_len =
-               sizeof(mvcc_latest_key_update) + message_length(w->msg);
+               sizeof(mvcc_latest_key_version) + message_length(w->msg);
             update = TYPED_ARRAY_ZALLOC(0, update, update_len);
-            ((mvcc_latest_key_update *)update)->type =
+            ((mvcc_latest_key_version *)update)->type =
                MVCC_LATEST_KEY_UPDATE_TYPE_X;
-            memcpy(((mvcc_latest_key_update *)update)->value,
-                  message_data(w->msg),
-                  message_length(w->msg));
+            ((mvcc_latest_key_version *)update)->b_len = message_length(w->msg);
+            memcpy(((mvcc_latest_key_version *)update)->ba,
+                   message_data(w->msg),
+                   message_length(w->msg));
             int rc = splinterdb_update(
                txn_kvsb->kvsb, latest_key, slice_create(update_len, update));
             platform_free(0, update);
@@ -1402,33 +1397,13 @@ local_write(transactional_splinterdb *txn_kvsb,
    return 0;
 }
 
+// This function is used to initialize benchmarks.
 static int
 non_transactional_splinterdb_insert(const splinterdb *kvsb,
                                     slice             user_key,
                                     slice             value)
 {
    int rc;
-   // {
-   //    slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_START);
-   //    rc            = splinterdb_insert(kvsb, spl_key, value);
-   //    platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-   //    mvcc_key_destroy_slice(spl_key);
-   // }
-   // {
-   //    slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
-   //    char *update;
-   //    const uint64 update_len =
-   //       sizeof(mvcc_latest_key_update) + slice_length(value);
-   //    update = TYPED_ARRAY_ZALLOC(0, update, update_len);
-   //    ((mvcc_latest_key_update *)update)->type  = MVCC_LATEST_KEY_UPDATE_TYPE_X;
-   //    memcpy(((mvcc_latest_key_update *)update)->value,
-   //           slice_data(value),
-   //           slice_length(value));
-   //    rc = splinterdb_update(kvsb, spl_key, slice_create(update_len, update));
-   //    platform_free(0, update);
-   //    platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-   //    mvcc_key_destroy_slice(spl_key);
-   // }
    {
       slice spl_key = mvcc_key_create_slice(user_key, MVCC_VERSION_LATEST);
       char *update;
@@ -1437,12 +1412,13 @@ non_transactional_splinterdb_insert(const splinterdb *kvsb,
       update = TYPED_ARRAY_ZALLOC(0, update, update_len);
       mvcc_latest_key_version *latest_version =
          (mvcc_latest_key_version *)update;
+      latest_version->type  = MVCC_LATEST_KEY_UPDATE_TYPE_INVALID;
       latest_version->a_len = slice_length(value);
       latest_version->b_len = slice_length(value);
-      memcpy(latest_version->ab, slice_data(value), slice_length(value));
-      memcpy(latest_version->ab + slice_length(value),
+      memcpy(latest_version->ba, slice_data(value), latest_version->b_len);
+      memcpy(latest_version->ba + latest_version->b_len,
              slice_data(value),
-             slice_length(value));
+             latest_version->a_len);
       rc = splinterdb_insert(kvsb, spl_key, slice_create(update_len, update));
       platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
       platform_free(0, update);
@@ -1607,23 +1583,20 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    if (splinterdb_lookup_found(result)) {
       if (readable_version->meta->version_number == MVCC_VERSION_LATEST) {
-         // rc = splinterdb_insert(txn_kvsb->kvsb, spl_key, merge_accumulator_to_slice(&_result->value));
-         // platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+         // rc = splinterdb_insert(txn_kvsb->kvsb, spl_key,
+         // merge_accumulator_to_slice(&_result->value)); platform_assert(rc ==
+         // 0, "Error from SplinterDB: %d\n", rc);
 
          // Copy the value of v0.a to the user buffer
          _splinterdb_lookup_result *_result =
             (_splinterdb_lookup_result *)result;
          mvcc_latest_key_version *latest_version =
             (mvcc_latest_key_version *)merge_accumulator_data(&_result->value);
-         char *result_only;
-         result_only =
-            TYPED_ARRAY_ZALLOC(0, result_only, latest_version->a_len);
-         memcpy(result_only, latest_version->ab, latest_version->a_len);
-         merge_accumulator_resize(&_result->value, latest_version->a_len);
-         memcpy(merge_accumulator_data(&_result->value),
-                result_only,
-                latest_version->a_len);
-         platform_free(0, result_only);
+         const void *a_slot_value = latest_version->ba + latest_version->b_len;
+         uint64      a_slot_len   = latest_version->a_len;
+         memmove(
+            merge_accumulator_data(&_result->value), a_slot_value, a_slot_len);
+         merge_accumulator_resize(&_result->value, a_slot_len);
       }
       txn_timestamp expected;
       do {
