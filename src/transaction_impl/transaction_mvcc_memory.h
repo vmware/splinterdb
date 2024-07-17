@@ -108,10 +108,15 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
 
 typedef struct {
    txn_timestamp lock_bit : 1;
-   txn_timestamp wts_max : 63;
-   txn_timestamp rts : 64;
-   uint64        version_number : 63;
-   txn_timestamp wts_min : 64;
+   txn_timestamp lock_holder : 63;
+} mvcc_lock;
+
+typedef struct {
+   txn_timestamp wts_max;
+   txn_timestamp rts;
+   txn_timestamp version_number;
+   txn_timestamp wts_min;
+   mvcc_lock lock;
 } version_meta __attribute__((aligned(sizeof(txn_timestamp))));
 
 typedef enum {
@@ -125,7 +130,7 @@ typedef enum {
 static void
 version_meta_unlock(version_meta *meta)
 {
-   __atomic_clear(&meta->lock, __ATOMIC_RELAXED);
+   meta->lock = 0;
 }
 
 static version_lock_status
@@ -133,17 +138,32 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 {
    if (ts < meta->wts_min || ts < meta->rts) {
       // TO rule would be violated so we need to abort
-	platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
+	   platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
       return VERSION_LOCK_STATUS_ABORT;
    }
-	   platform_default_log("lock check %d\n", meta->lock);
-   if (meta->lock) {
+
+   platform_default_log("lock check %d\n", meta->lock);
+   mvcc_lock l = meta->lock; //atomically read the lock's lock_bit and holder (64-bit aligned)
+   if (l && l.lock_holder > ts) {
+      // a transaction with higher timestamp already holds this lock
+      // so we abort to prevent deadlocks
       return VERSION_LOCK_STATUS_ABORT;
    }
-   bool is_locked = __atomic_test_and_set(&meta->lock, __ATOMIC_RELAXED);
-   if (is_locked) {
+
+   mvcc_lock expected = 0;
+   mvcc_lock desired;
+   desired.lock_bit = 1;
+   desired.lock_holder = ts;
+   bool locked = __atomic_compare_exchange((volatile txn_timestamp *) meta->lock,
+                                    (txn_timestamp *)expected,
+                                    (txn_timestamp *)desired,
+                                    TRUE,
+                                    __ATOMIC_RELAXED,
+                                    __ATOMIC_RELAXED);
+
+   if (locked) {
       if (ts < meta->wts_min || ts < meta->rts) {
-	 platform_default_log("2 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
+	      platform_default_log("2 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
          version_meta_unlock(meta);
          return VERSION_LOCK_STATUS_ABORT;
       }
@@ -175,11 +195,26 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
       // TO rule would be violated so we need to abort
       return VERSION_LOCK_STATUS_ABORT;
    }
-   if (meta->lock) {
+
+   mvcc_lock l = meta->lock; //atomically read the lock's lock_bit and holder (64-bit aligned)
+   if (l && l.lock_holder > ts) {
+      // a transaction with higher timestamp already holds this lock
+      // so we abort to prevent deadlocks
       return VERSION_LOCK_STATUS_ABORT;
    }
-   bool is_locked = __atomic_test_and_set(&meta->lock, __ATOMIC_RELAXED);
-   if (is_locked) {
+
+   mvcc_lock expected = 0;
+   mvcc_lock desired;
+   desired.lock_bit = 1;
+   desired.lock_holder = ts;
+   bool locked = __atomic_compare_exchange((volatile txn_timestamp *) meta->lock,
+                                    (txn_timestamp *)expected,
+                                    (txn_timestamp *)desired,
+                                    TRUE,
+                                    __ATOMIC_RELAXED,
+                                    __ATOMIC_RELAXED);
+
+   if (locked) {
       if (ts < meta->wts_min) {
          version_meta_unlock(meta);
          return VERSION_LOCK_STATUS_ABORT;
