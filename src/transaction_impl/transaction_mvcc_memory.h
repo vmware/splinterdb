@@ -156,7 +156,7 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
    mvcc_lock v2;
    v2.lock_bit = 1;
    v2.lock_holder = ts;
-   bool locked = __atomic_compare_exchange((volatile txn_timestamp *) meta->lock,
+   bool locked = __atomic_compare_exchange((volatile uint64_t *)&meta->lock,
                                     (txn_timestamp *)&v1,
                                     (txn_timestamp *)&v2,
                                     TRUE,
@@ -211,7 +211,7 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
    mvcc_lock v2;
    v2.lock_bit = 1;
    v2.lock_holder = ts;
-   bool locked = __atomic_compare_exchange((volatile txn_timestamp *) meta->lock,
+   bool locked = __atomic_compare_exchange((volatile uint64_t *) &meta->lock,
                                     (txn_timestamp *)&v1,
                                     (txn_timestamp *)&v2,
                                     TRUE,
