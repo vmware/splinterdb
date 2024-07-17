@@ -107,8 +107,8 @@ mvcc_key_compare(const data_config *cfg, slice key1, slice key2)
 }
 
 typedef struct {
-   txn_timestamp lock_bit : 1;
-   txn_timestamp lock_holder : 63;
+   uint64_t lock_bit : 1;
+   uint64_t lock_holder : 63;
 } mvcc_lock;
 
 typedef struct {
@@ -130,7 +130,7 @@ typedef enum {
 static void
 version_meta_unlock(version_meta *meta)
 {
-   meta->lock = 0;
+   *(uint64_t *)&meta->lock = 0;
 }
 
 static version_lock_status
@@ -150,13 +150,13 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
       return VERSION_LOCK_STATUS_ABORT;
    }
 
-   mvcc_lock expected = 0;
-   mvcc_lock desired;
-   desired.lock_bit = 1;
-   desired.lock_holder = ts;
+   mvcc_lock v1 = 0;
+   mvcc_lock v2;
+   v2.lock_bit = 1;
+   v2.lock_holder = ts;
    bool locked = __atomic_compare_exchange((volatile txn_timestamp *) meta->lock,
-                                    (txn_timestamp *)expected,
-                                    (txn_timestamp *)desired,
+                                    (txn_timestamp *)&v1,
+                                    (txn_timestamp *)&v2,
                                     TRUE,
                                     __ATOMIC_RELAXED,
                                     __ATOMIC_RELAXED);
@@ -203,13 +203,13 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
       return VERSION_LOCK_STATUS_ABORT;
    }
 
-   mvcc_lock expected = 0;
-   mvcc_lock desired;
-   desired.lock_bit = 1;
-   desired.lock_holder = ts;
+   mvcc_lock v1 = 0;
+   mvcc_lock v2;
+   v2.lock_bit = 1;
+   v2.lock_holder = ts;
    bool locked = __atomic_compare_exchange((volatile txn_timestamp *) meta->lock,
-                                    (txn_timestamp *)expected,
-                                    (txn_timestamp *)desired,
+                                    (txn_timestamp *)&v1,
+                                    (txn_timestamp *)&v2,
                                     TRUE,
                                     __ATOMIC_RELAXED,
                                     __ATOMIC_RELAXED);
