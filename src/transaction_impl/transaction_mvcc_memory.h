@@ -434,7 +434,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
       entry->key = user_key;
       if (!is_read) {
          txn->rw_entries[txn->num_rw_entries++] = entry;
-	 platform_default_log("%lu entry %lu\n", (uint64)txn, txn->num_rw_entries);
+	// platform_default_log("%lu entry %lu\n", (uint64)txn, txn->num_rw_entries);
       }
    }
 
