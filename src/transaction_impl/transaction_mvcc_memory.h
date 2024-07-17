@@ -144,7 +144,7 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 
    mvcc_lock l = meta->lock; //atomically read the lock's lock_bit and holder (64-bit aligned)
    platform_default_log("lock check %lu\n", *(uint64_t *)&l);
-   if (l && l.lock_holder > ts) {
+   if (l.lock_bit && l.lock_holder > ts) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
       return VERSION_LOCK_STATUS_ABORT;
@@ -196,8 +196,8 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
       return VERSION_LOCK_STATUS_ABORT;
    }
 
-   mvcc_lock l = meta->lock; //atomically read the lock's lock_bit and holder (64-bit aligned)
-   if (l && l.lock_holder > ts) {
+   mvcc_lock l = meta->lock; //TODO: does this atomically read the lock's lock_bit and holder (64-bit aligned)?
+   if (l.lock_bit && l.lock_holder > ts) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
       return VERSION_LOCK_STATUS_ABORT;
