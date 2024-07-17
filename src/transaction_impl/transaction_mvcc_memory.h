@@ -264,7 +264,8 @@ list_node_create(txn_timestamp rts,
    meta->rts            = rts;
    meta->wts_min        = wts_min;
    meta->wts_max        = wts_max;
-   meta->lock           = 0;
+   meta->lock.lock_bit    = 0;
+   meta->lock.lock_holder = 0;
    new_node->meta       = meta;
    return new_node;
 }
