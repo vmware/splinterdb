@@ -150,7 +150,9 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
       return VERSION_LOCK_STATUS_ABORT;
    }
 
-   mvcc_lock v1 = 0;
+   mvcc_lock v1;
+   v1.lock_bit = 0;
+   v1.lock_holder = 0;
    mvcc_lock v2;
    v2.lock_bit = 1;
    v2.lock_holder = ts;
@@ -203,7 +205,9 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
       return VERSION_LOCK_STATUS_ABORT;
    }
 
-   mvcc_lock v1 = 0;
+   mvcc_lock v1;
+   v1.lock_bit = 0;
+   v1.lock_holder = 0;
    mvcc_lock v2;
    v2.lock_bit = 1;
    v2.lock_holder = ts;
