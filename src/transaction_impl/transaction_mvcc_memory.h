@@ -143,7 +143,7 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
    }
 
    mvcc_lock l = meta->lock; //atomically read the lock's lock_bit and holder (64-bit aligned)
-   platform_default_log("lock check %d\n", *(uint64_t *)&l);
+   platform_default_log("lock check %lu\n", *(uint64_t *)&l);
    if (l && l.lock_holder > ts) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
