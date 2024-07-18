@@ -138,7 +138,7 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 {
    if (ts < meta->wts_min || ts < meta->rts) {
       // TO rule would be violated so we need to abort
-	   platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
+	   //platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
       return VERSION_LOCK_STATUS_ABORT;
    }
 
@@ -165,14 +165,14 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 
    if (locked) {
       if (ts < meta->wts_min || ts < meta->rts) {
-	      platform_default_log("2 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
+	      //platform_default_log("2 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
          version_meta_unlock(meta);
          return VERSION_LOCK_STATUS_ABORT;
       }
    } else {
       return VERSION_LOCK_STATUS_BUSY;
    }
-   platform_default_log("ts %lu lock\n", ts);
+   //platform_default_log("ts %lu lock\n", ts);
    return VERSION_LOCK_STATUS_OK;
 }
 
