@@ -143,7 +143,7 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
    }
 
    mvcc_lock l = meta->lock; //atomically read the lock's lock_bit and holder (64-bit aligned)
-   platform_default_log("lock check %lu\n", *(uint64_t *)&l);
+   //platform_default_log("lock check %lu\n", *(uint64_t *)&l);
    if (l.lock_bit && l.lock_holder > ts) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
@@ -626,7 +626,7 @@ transaction_deinit(transactional_splinterdb *txn_kvsb, transaction *txn)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry_iceberg_remove(txn_kvsb, txn->rw_entries[i]);
-      platform_default_log("%lu deinit %d\n", (uint64)txn, i);
+      //platform_default_log("%lu deinit %d\n", (uint64)txn, i);
       rw_entry_destroy(txn->rw_entries[i]);
    }
 }
