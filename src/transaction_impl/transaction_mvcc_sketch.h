@@ -362,69 +362,154 @@ merge_mvcc_latest_tuple_final(const data_config *cfg,
 }
 
 typedef struct {
-   platform_rwlock rwlock;
-   int32           wrlock_holder_ts;
-   uint32          version_number;
-   txn_timestamp   rts;
-   txn_timestamp   wts_min;
-   txn_timestamp   wts_max;
-} version_meta PLATFORM_CACHELINE_ALIGNED;
+   uint64_t lock_bit : 1;
+   uint64_t lock_holder : 63;
+} mvcc_lock;
+
+typedef struct {
+   txn_timestamp wts_max;
+   txn_timestamp rts;
+   txn_timestamp version_number;
+   txn_timestamp wts_min;
+   mvcc_lock     lock;
+} version_meta __attribute__((aligned(sizeof(txn_timestamp))));
 
 typedef enum {
    VERSION_LOCK_STATUS_INVALID = 0,
    VERSION_LOCK_STATUS_OK,
    VERSION_LOCK_STATUS_BUSY,
-   VERSION_LOCK_STATUS_DEADLK,
+   VERSION_LOCK_STATUS_RETRY_VERSION,
+   VERSION_LOCK_STATUS_ABORT
 } version_lock_status;
+
+static version_lock_status
+version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
+{
+   if ((meta->wts_max != MVCC_TIMESTAMP_INF && meta->wts_max > ts)
+       || ts < meta->rts)
+   {
+      // TO rule would be violated so we need to abort
+      // platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts,
+      // meta->wts_min, meta->rts);
+      return VERSION_LOCK_STATUS_ABORT;
+   }
+
+   mvcc_lock l = meta->lock; // atomically read the lock's lock_bit and holder
+                             // (64-bit aligned)
+   // platform_default_log("lock check %lu\n", *(uint64_t *)&l);
+   if (l.lock_bit && l.lock_holder > ts) {
+      // a transaction with higher timestamp already holds this lock
+      // so we abort to prevent deadlocks
+      return VERSION_LOCK_STATUS_ABORT;
+   }
+
+   mvcc_lock v1;
+   v1.lock_bit    = 0;
+   v1.lock_holder = 0;
+   mvcc_lock v2;
+   v2.lock_bit    = 1;
+   v2.lock_holder = ts;
+   bool locked    = __atomic_compare_exchange((volatile uint64_t *)&meta->lock,
+                                           (txn_timestamp *)&v1,
+                                           (txn_timestamp *)&v2,
+                                           TRUE,
+                                           __ATOMIC_RELAXED,
+                                           __ATOMIC_RELAXED);
+
+   if (locked) {
+      if (meta->wts_max != MVCC_TIMESTAMP_INF) {
+         if (meta->wts_max > ts) {
+            version_meta_unlock(meta);
+            return VERSION_LOCK_STATUS_ABORT;
+         } else {
+            version_meta_unlock(meta);
+            return VERSION_LOCK_STATUS_RETRY_VERSION;
+         }
+      }
+
+      if (ts < meta->rts) {
+         version_meta_unlock(meta);
+         return VERSION_LOCK_STATUS_ABORT;
+      }
+   } else {
+      return VERSION_LOCK_STATUS_BUSY;
+   }
+   // platform_default_log("ts %lu lock\n", ts);
+   return VERSION_LOCK_STATUS_OK;
+}
 
 static version_lock_status
 version_meta_wrlock(version_meta *meta, txn_timestamp ts)
 {
-   while (1) {
-      platform_status rc = platform_rwlock_trywrlock(&meta->rwlock);
-      if (rc.r == EBUSY) {
-         if (meta->wrlock_holder_ts == -1) {
-            platform_sleep_ns(1000);
-         } else {
-            // platform_default_log("write lock holder = %u(me: %u)\n",
-            // (int32)meta->wrlock_holder_ts, (int32)ts);
-            return VERSION_LOCK_STATUS_BUSY;
-         }
-      } else if (rc.r == 0) {
-         meta->wrlock_holder_ts = ts;
-         return VERSION_LOCK_STATUS_OK;
-      } else {
-         platform_assert(0, "platform_rwlock_trywrlock: %d\n", rc.r);
+   version_lock_status rc;
+   do {
+      rc = version_meta_try_wrlock(meta, ts);
+      if (rc == VERSION_LOCK_STATUS_BUSY) {
+         // 1us is the value that is mentioned in the paper
+         platform_sleep_ns(1000);
       }
+   } while (rc == VERSION_LOCK_STATUS_BUSY);
+   return rc;
+}
+
+static version_lock_status
+version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
+{
+   if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
+      // TO rule would be violated so we need to abort
+      return VERSION_LOCK_STATUS_ABORT;
    }
+
+   mvcc_lock l = meta->lock; // TODO: does this atomically read the lock's
+                             // lock_bit and holder (64-bit aligned)?
+   if (l.lock_bit && l.lock_holder > ts) {
+      // a transaction with higher timestamp already holds this lock
+      // so we abort to prevent deadlocks
+      return VERSION_LOCK_STATUS_ABORT;
+   }
+
+   mvcc_lock v1;
+   v1.lock_bit    = 0;
+   v1.lock_holder = 0;
+   mvcc_lock v2;
+   v2.lock_bit    = 1;
+   v2.lock_holder = 0;
+   bool locked    = __atomic_compare_exchange((volatile uint64_t *)&meta->lock,
+                                           (txn_timestamp *)&v1,
+                                           (txn_timestamp *)&v2,
+                                           TRUE,
+                                           __ATOMIC_RELAXED,
+                                           __ATOMIC_RELAXED);
+
+   if (locked) {
+      if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
+         version_meta_unlock(meta);
+         return VERSION_LOCK_STATUS_RETRY_VERSION;
+      }
+   } else {
+      return VERSION_LOCK_STATUS_BUSY;
+   }
+   return VERSION_LOCK_STATUS_OK;
 }
 
 static version_lock_status
 version_meta_rdlock(version_meta *meta, txn_timestamp ts)
 {
-   while (1) {
-      platform_status rc = platform_rwlock_tryrdlock(&meta->rwlock);
-      if (rc.r == EBUSY) {
-         if (meta->wrlock_holder_ts == ts) {
-            return VERSION_LOCK_STATUS_DEADLK;
-         } else if (meta->wrlock_holder_ts > ts) {
-            platform_sleep_ns(1000);
-         } else {
-            return VERSION_LOCK_STATUS_BUSY;
-         }
-      } else if (rc.r == 0) {
-         return VERSION_LOCK_STATUS_OK;
-      } else {
-         platform_assert(0, "platform_rwlock_tryrdlock: %d\n", rc.r);
+   version_lock_status rc;
+   do {
+      rc = version_meta_try_rdlock(meta, ts);
+      if (rc == VERSION_LOCK_STATUS_BUSY) {
+         // 1us is the value that is mentioned in the paper
+         platform_sleep_ns(1000);
       }
-   }
+   } while (rc == VERSION_LOCK_STATUS_BUSY);
+   return rc;
 }
 
 static void
 version_meta_unlock(version_meta *meta)
 {
-   meta->wrlock_holder_ts = -1;
-   platform_rwlock_unlock(&meta->rwlock);
+   *(uint64_t *)&meta->lock = 0;
 }
 
 // This list node will be stored in the iceberg table.
@@ -1269,91 +1354,44 @@ local_write(transactional_splinterdb *txn_kvsb,
       rw_entry_iceberg_insert(txn_kvsb, entry);
 
       // Find the latest version
-      bool should_retry;
+      version_lock_status lc;
       do {
-         should_retry   = FALSE;
          entry->version = entry->version_list_head->next;
-         if ((entry->version->meta->wts_max != MVCC_TIMESTAMP_INF
-              && entry->version->meta->wts_max > txn->ts)
-             || entry->version->meta->rts > txn->ts)
-         {
-            // if (entry->version->meta->wts_min > txn->ts)
-            //    platform_default_log(
-            //       "entry->version->meta->wts_min(%u) > txn->ts (%u)\n",
-            //       (uint32)entry->version->meta->wts_min,
-            //       (uint32)txn->ts);
+         if (entry->version) {
+            // platform_default_log("entry->version found: %p\n",
+            // entry->version);
 
-            // if (entry->version->meta->rts > txn->ts)
-            //    platform_default_log(
-            //       "entry->version->meta->rts(%u) > txn->ts (%u)\n",
-            //       (uint32)entry->version->meta->rts,
-            //       (uint32)txn->ts);
+            if ((entry->version->meta->wts_max != MVCC_TIMESTAMP_INF
+                 && entry->version->meta->wts_max > txn->ts)
+                || entry->version->meta->rts > txn->ts)
+            {
+               // if (entry->version->meta->wts_min > txn->ts)
+               //    platform_default_log(
+               //       "entry->version->meta->wts_min(%u) > txn->ts (%u)\n",
+               //       (uint32)entry->version->meta->wts_min,
+               //       (uint32)txn->ts);
 
-            transactional_splinterdb_abort(txn_kvsb, txn);
-            return -1;
-         }
-
-         if (version_meta_wrlock(entry->version->meta, txn->ts)
-             == VERSION_LOCK_STATUS_BUSY)
-         {
-            // platform_default_log("%lu version_meta_wrlock failed key: %s, rts
-            // %lu, wts_min %lu, wts_max %lu\n",
-            //    (uint64)txn->ts,
-            //    (char *)slice_data(user_key),
-            //    entry->version->meta->rts,
-            //    entry->version->meta->wts_min,
-            //    entry->version->meta->wts_max);
-            transactional_splinterdb_abort(txn_kvsb, txn);
-            return -1;
-         }
-         // platform_default_log("[%u] wrlock acquired version: %s, write lock
-         // holder = %u\n",
-         //                      (uint32)txn->ts,
-         //                      (char *)slice_data(user_key),
-         //                      (int32)entry->version->meta->wrlock_holder_ts);
-
-         // Lock is acquired
-         if (entry->version->meta->rts > txn->ts) {
-            // platform_default_log("[%u] %s abort after wrlock acquired due to
-            // entry->version->meta->rts(%u) > txn->ts(%u)\n", (uint32)txn->ts,
-            // (char *)slice_data(user_key), (uint32)entry->version->meta->rts,
-            // (uint32)txn->ts);
-            transactional_splinterdb_abort(txn_kvsb, txn);
-            return -1;
-         }
-         // Read wts_max atomically (currently, it is implemented as a 64bits
-         // variable.)
-         if (entry->version->meta->wts_max != MVCC_TIMESTAMP_INF) {
-            if (entry->version->meta->wts_max > txn->ts) {
-               // platform_default_log(
-               //    "[lock acquired] entry->version->meta->wts_max(%u) >
-               //    txn->ts "
-               //    "(%u)\n",
-               //    (uint32)entry->version->meta->wts_max,
-               //    (uint32)txn->ts);
-
-               // platform_default_log(
-               //    "[%u] abort %s (wts_max: %lu > ts: %lu)\n",
-               //    (uint32)txn->ts,
-               //    (char *)slice_data(user_key),
-               //    entry->version->meta->wts_max,
-               //    (uint64)txn->ts);
+               // if (entry->version->meta->rts > txn->ts)
+               //    platform_default_log(
+               //       "entry->version->meta->rts(%u) > txn->ts (%u)\n",
+               //       (uint32)entry->version->meta->rts,
+               //       (uint32)txn->ts);
 
                transactional_splinterdb_abort(txn_kvsb, txn);
                return -1;
-            } else {
-               // platform_default_log(
-               //    "[%u] %s lock release and retry = %u (wts_max: %lu, ts:
-               //    %lu)\n", (uint32)txn->ts, (char *)slice_data(user_key),
-               //    (int32)entry->version->meta->wrlock_holder_ts,
-               //    entry->version->meta->wts_max,
-               //    (uint64)txn->ts);
-
-               version_meta_unlock(entry->version->meta);
-               should_retry = TRUE;
             }
+         } else {
+            // There is no data with the key, it becomes the first version.
+            entry->version = entry->version_list_head;
          }
-      } while (should_retry);
+
+         lc = version_meta_wrlock(entry->version->meta, txn->ts);
+         if (lc == VERSION_LOCK_STATUS_ABORT) {
+            // platform_default_log("version_meta_wrlock failed\n");
+            transactional_splinterdb_abort(txn_kvsb, txn);
+            return -1;
+         }
+      } while (lc == VERSION_LOCK_STATUS_RETRY_VERSION);
       // platform_default_log("%lu insert key: %s, rts %lu, wts_min %lu, wts_max
       // %lu\n",
       //    (uint64)txn->ts,
@@ -1495,58 +1533,35 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    // version metadata on demand. However, it causes a higher abort
    // rate by the r-w lock conflict on the list head.
    list_node          *readable_version;
-   bool                should_retry;
    version_lock_status lc;
    do {
-      should_retry     = FALSE;
       readable_version = entry->version_list_head->next;
       while (readable_version != NULL) {
          if (readable_version->meta->wts_min <= txn->ts) {
-            break;
+            if (txn->ts < readable_version->meta->wts_max) {
+               break;
+            }
          }
          readable_version = readable_version->next;
+         if (readable_version == NULL) {
+            // platform_default_log(
+            //    "abort -- all versions' timestamps are higher than me(%u) \n",
+            //    (int32)txn->ts);
+            rw_entry_destroy(entry);
+            transactional_splinterdb_abort(txn_kvsb, txn);
+            return -1;
+         }
       }
       if (readable_version == NULL) {
-         // No versions in the list.
-         transactional_splinterdb_abort(txn_kvsb, txn);
-         return -1;
+         readable_version = entry->version_list_head;
       }
-
-      // platform_default_log(
-      //    "[%u] read %s try to acquire read lock(holder: %u)\n",
-      //    (int32)txn->ts,
-      //    (char *)slice_data(user_key),
-      //    (int32)readable_version->meta->wrlock_holder_ts);
       lc = version_meta_rdlock(readable_version->meta, txn->ts);
-      if (lc == VERSION_LOCK_STATUS_BUSY) {
-         // platform_default_log(
-         //    "[%s] abort %u failed to acquire read lock(holder: %u)\n",
-         //    (char *)slice_data(user_key),
-         //    (int32)txn->ts,
-         //    (int32)readable_version->meta->wrlock_holder_ts);
+      if (lc == VERSION_LOCK_STATUS_ABORT) {
+         rw_entry_destroy(entry);
          transactional_splinterdb_abort(txn_kvsb, txn);
          return -1;
       }
-      //  else if (lc == VERSION_LOCK_STATUS_INVALID) {
-      //    platform_assert(FALSE,
-      //       "[%u] %s failed to acquire read lock due to infinite loop(holder:
-      //       %u)\n", (int32)txn->ts, (char *)slice_data(user_key),
-      //       (int32)readable_version->meta->wrlock_holder_ts);
-      // }
-
-      // Lock acquired
-      // Read wts_max atomically (currently, it is implemented as a 64bits
-      // variable.)
-      if (readable_version->meta->wts_max < txn->ts) {
-         // platform_default_log("[%lu] retry read lock wts_max: %lu\n",
-         //                            (uint64)txn->ts,
-         //                            readable_version->meta->wts_max);
-         if (lc == VERSION_LOCK_STATUS_OK) {
-            version_meta_unlock(readable_version->meta);
-         }
-         should_retry = TRUE;
-      }
-   } while (should_retry);
+   } while (lc == VERSION_LOCK_STATUS_RETRY_VERSION);
 
    // const bool is_key_not_inserted =
    //    (readable_version == entry->version_list_head);
@@ -1598,24 +1613,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
             merge_accumulator_data(&_result->value), a_slot_value, a_slot_len);
          merge_accumulator_resize(&_result->value, a_slot_len);
       }
-      txn_timestamp expected;
-      do {
-         should_retry = TRUE;
-         expected =
-            __atomic_load_n(&readable_version->meta->rts, __ATOMIC_RELAXED);
-         if (expected < txn->ts) {
-            // atomic update to txn->ts
-            should_retry =
-               !__atomic_compare_exchange_n(&readable_version->meta->rts,
-                                            &expected,
-                                            txn->ts,
-                                            TRUE,
-                                            __ATOMIC_RELAXED,
-                                            __ATOMIC_RELAXED);
-         } else {
-            should_retry = FALSE;
-         }
-      } while (should_retry);
+     readable_version->meta->rts = txn->ts;
    }
 
    mvcc_key_destroy_slice(spl_key);
@@ -1628,10 +1626,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    //    readable_version->meta->wts_min,
    //    readable_version->meta->wts_max);
 
-
-   if (lc == VERSION_LOCK_STATUS_OK) {
-      version_meta_unlock(readable_version->meta);
-   }
+   version_meta_unlock(readable_version->meta);
    return rc;
 }
 
