@@ -730,7 +730,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       rw_entry *w = txn->rw_entries[i];
       platform_assert(rw_entry_is_write(w));
 
-      // const uint32 new_version_number = w->version->meta->version_number + 1;
+      const uint32 new_version_number = w->version->meta->version_number + 1;
       //  platform_default_log("insert key: %s\n", (char *)slice_data(w->key));
       //  list_node_dump(w->version_list_head);
 
@@ -742,71 +742,62 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          // to merge with the previous version. The buffer of the merge
          // accumulator will be simply freed by platform_free later, not
          // merge_accumulator_deinit.
-         //         if (message_class(w->msg) == MESSAGE_TYPE_UPDATE) {
-         //            const bool is_key_not_inserted =
-         //               (w->version == w->version_list_head);
-         //            if (is_key_not_inserted) {
-         //               merge_accumulator new_message;
-         //               merge_accumulator_init_from_message(&new_message, 0,
-         //               w->msg); data_merge_tuples_final(
-         //                  txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
-         //                  key_create_from_slice(w->key),
-         //                  &new_message);
-         //               platform_free_from_heap(0, (void
-         //               *)message_data(w->msg)); w->msg =
-         //               merge_accumulator_to_message(&new_message);
-         //            } else {
-         //               splinterdb_lookup_result result;
-         //               splinterdb_lookup_result_init(txn_kvsb->kvsb, &result,
-         //               0, NULL); slice spl_key = mvcc_key_create_slice(
-         //                  w->key, w->version->meta->version_number);
-         //               int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key,
-         //               &result); platform_assert(rc == 0);
-         //
-         //               // // For debugging BEGIN
-         //               // if (!splinterdb_lookup_found(&result)) {
-         //               //    find_key_in_splinterdb(txn_kvsb,
-         //               //    key_create_from_slice(spl_key));
-         //               // }
-         //               // // For debugging END
-         //               mvcc_key_destroy_slice(spl_key);
-         //               platform_assert(splinterdb_lookup_found(&result));
-         //               _splinterdb_lookup_result *_result =
-         //                  (_splinterdb_lookup_result *)&result;
-         //               merge_accumulator new_message;
-         //               merge_accumulator_init_from_message(&new_message, 0,
-         //               w->msg); data_merge_tuples(
-         //                  txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
-         //                  key_create_from_slice(w->key),
-         //                  merge_accumulator_to_message(&_result->value),
-         //                  &new_message);
-         //               platform_free_from_heap(0, (void
-         //               *)message_data(w->msg)); w->msg =
-         //               merge_accumulator_to_message(&new_message);
-         //               splinterdb_lookup_result_deinit(&result);
-         //            }
-         //         }
-         //
-         // slice new_key = mvcc_key_create_slice(w->key, new_version_number);
-         // int   rc =
-         // splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
-         int rc = 0;
+         if (message_class(w->msg) == MESSAGE_TYPE_UPDATE) {
+            platform_assert(FALSE, "MVCC does not support user-level update\n");
+            const bool is_key_not_inserted =
+               (w->version == w->version_list_head);
+            if (is_key_not_inserted) {
+               merge_accumulator new_message;
+               merge_accumulator_init_from_message(&new_message, 0, w->msg);
+               data_merge_tuples_final(
+                  txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
+                  key_create_from_slice(w->key),
+                  &new_message);
+               platform_free_from_heap(0, (void *)message_data(w->msg));
+               w->msg = merge_accumulator_to_message(&new_message);
+            } else {
+               splinterdb_lookup_result result;
+               splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
+               slice spl_key = mvcc_key_create_slice(
+                  w->key, w->version->meta->version_number);
+               int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, &result);
+               platform_assert(rc == 0);
+               mvcc_key_destroy_slice(spl_key);
+               platform_assert(splinterdb_lookup_found(&result));
+               _splinterdb_lookup_result *_result =
+                  (_splinterdb_lookup_result *)&result;
+               merge_accumulator new_message;
+               merge_accumulator_init_from_message(&new_message, 0, w->msg);
+               data_merge_tuples(
+                  txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
+                  key_create_from_slice(w->key),
+                  merge_accumulator_to_message(&_result->value),
+                  &new_message);
+               platform_free_from_heap(0, (void *)message_data(w->msg));
+               w->msg = merge_accumulator_to_message(&new_message);
+               splinterdb_lookup_result_deinit(&result);
+            }
+         }
+
+         slice new_key = mvcc_key_create_slice(w->key, new_version_number);
+         int   rc =
+            splinterdb_insert(txn_kvsb->kvsb, new_key, message_slice(w->msg));
          platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-         // mvcc_key_destroy_slice(new_key);
+         mvcc_key_destroy_slice(new_key);
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       }
 #endif
 
       // Update the wts_max of the previous version. Atomic update
       // (currently implemented by using 64 bits variable)
-      // w->version->meta->wts_max = txn->ts;
+      w->version->meta->wts_max = txn->ts;
 
       // Make the new version visible by inserting it into the list.
-      // list_node *new_version =
-      //    list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF);
-      // new_version->meta->version_number = new_version_number;
-      // new_version->next                 = w->version_list_head->next;
-      // w->version_list_head->next        = new_version;
+      list_node *new_version =
+         list_node_create(txn->ts, txn->ts, MVCC_TIMESTAMP_INF);
+      new_version->meta->version_number = new_version_number;
+      new_version->next                 = w->version_list_head->next;
+      w->version_list_head->next        = new_version;
 
       // Unlock the previous version (x)
       version_meta_unlock(w->version->meta);
@@ -938,14 +929,14 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     value)
 {
    if (!txn) {
-      //      rw_entry entry;
-      //      memset(&entry, 0, sizeof(entry));
-      //      entry.key = user_key;
-      //      rw_entry_iceberg_insert(txn_kvsb, &entry);
-      //      list_node *version = list_node_create(0, 0, MVCC_TIMESTAMP_INF);
-      //      version->meta->version_number = MVCC_VERSION_START;
-      //      platform_assert(entry.version_list_head->next == NULL);
-      //      entry.version_list_head->next = version;
+      rw_entry entry;
+      memset(&entry, 0, sizeof(entry));
+      entry.key = user_key;
+      rw_entry_iceberg_insert(txn_kvsb, &entry);
+      list_node *version = list_node_create(0, 0, MVCC_TIMESTAMP_INF);
+      version->meta->version_number = MVCC_VERSION_START;
+      platform_assert(entry.version_list_head->next == NULL);
+      entry.version_list_head->next = version;
 
       return non_transactional_splinterdb_insert(
          txn_kvsb->kvsb, user_key, value);
@@ -1038,15 +1029,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    slice spl_key =
       mvcc_key_create_slice(user_key, readable_version->meta->version_number);
-   // int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
-   int rc = 0;
-
-   // // For debugging
-   // if (!splinterdb_lookup_found(result)) {
-   //    platform_default_log("find_key_in_splinterdb in lookup\n");
-   //    find_key_in_splinterdb(txn_kvsb, key_create_from_slice(spl_key));
-   // }
-
+   int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
    platform_assert(rc == 0);
    mvcc_key_destroy_slice(spl_key);
 
