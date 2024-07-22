@@ -136,7 +136,9 @@ version_meta_unlock(version_meta *meta)
 static version_lock_status
 version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 {
-   if (ts < meta->wts_min || ts < meta->rts) {
+   if ((meta->wts_max != MVCC_TIMESTAMP_INF && meta->wts_max > ts)
+       || ts < meta->rts)
+   {
       // TO rule would be violated so we need to abort
       // platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts,
       // meta->wts_min, meta->rts);
@@ -204,7 +206,7 @@ version_meta_wrlock(version_meta *meta, txn_timestamp ts)
 static version_lock_status
 version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
 {
-   if (ts < meta->wts_min) {
+   if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
       // TO rule would be violated so we need to abort
       return VERSION_LOCK_STATUS_ABORT;
    }
