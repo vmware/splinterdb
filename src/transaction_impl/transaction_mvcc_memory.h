@@ -123,7 +123,7 @@ typedef enum {
    VERSION_LOCK_STATUS_INVALID = 0,
    VERSION_LOCK_STATUS_OK,
    VERSION_LOCK_STATUS_BUSY,
-   VERSION_LOCK_STATUS_DEADLK,
+   VERSION_LOCK_STATUS_RETRY_VERSION,
    VERSION_LOCK_STATUS_ABORT
 } version_lock_status;
 
@@ -164,7 +164,7 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
                                     __ATOMIC_RELAXED);
 
    if (locked) {
-      if (ts < meta->wts_min || ts < meta->rts) {
+      if ((meta->wts_max != MVCC_VERSION_INF && ts < meta->wts_max) || ts < meta->rts) {
 	      //platform_default_log("2 ts %lu, wts_min: %lu, rts: %lu\n", ts, meta->wts_min, meta->rts);
          version_meta_unlock(meta);
          return VERSION_LOCK_STATUS_ABORT;
@@ -210,7 +210,7 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
    v1.lock_holder = 0;
    mvcc_lock v2;
    v2.lock_bit = 1;
-   v2.lock_holder = ts;
+   v2.lock_holder = 0;
    bool locked = __atomic_compare_exchange((volatile uint64_t *) &meta->lock,
                                     (txn_timestamp *)&v1,
                                     (txn_timestamp *)&v2,
@@ -219,9 +219,9 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
                                     __ATOMIC_RELAXED);
 
    if (locked) {
-      if (ts < meta->wts_min) {
+      if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
          version_meta_unlock(meta);
-         return VERSION_LOCK_STATUS_ABORT;
+         return VERSION_LOCK_STATUS_RETRY_VERSION;
       }
    } else {
       return VERSION_LOCK_STATUS_BUSY;
@@ -1035,13 +1035,16 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          transactional_splinterdb_abort(txn_kvsb, txn);
          return -1;
       }
+      if (lc == VERSION_LOCK_STATUS_RETRY_VERSION) {
+         should_retry = TRUE;
+      }
       // Lock acquired
       // Read wts_max atomically (currently, it is implemented as a 64bits
       // variable.)
-      if (readable_version->meta->wts_max < txn->ts) {
-         version_meta_unlock(readable_version->meta);
-         should_retry = TRUE;
-      }
+      // if (readable_version->meta->wts_max < txn->ts) {
+      //    version_meta_unlock(readable_version->meta);
+      //    should_retry = TRUE;
+      // }
    } while (should_retry);
 
    const bool is_key_not_inserted =
@@ -1054,7 +1057,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    slice spl_key =
       mvcc_key_create_slice(user_key, readable_version->meta->version_number);
-   // int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
+   //int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
    int rc = 0;
 
    // // For debugging
