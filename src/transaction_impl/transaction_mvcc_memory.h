@@ -136,22 +136,28 @@ version_meta_unlock(version_meta *meta)
 static version_lock_status
 version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 {
-   if ((meta->wts_max != MVCC_TIMESTAMP_INF && meta->wts_max > ts)
-       || ts < meta->rts)
-   {
-      // TO rule would be violated so we need to abort
-      // platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts,
-      // meta->wts_min, meta->rts);
+   if (meta->wts_max != MVCC_TIMESTAMP_INF) {
+      if (meta->wts_max > ts) {
+         return VERSION_LOCK_STATUS_ABORT;
+      } else {
+         return VERSION_LOCK_STATUS_RETRY_VERSION;
+      }
+   }
+
+   if (ts < meta->rts) {
       return VERSION_LOCK_STATUS_ABORT;
    }
 
    mvcc_lock l = meta->lock; // atomically read the lock's lock_bit and holder
                              // (64-bit aligned)
-   // platform_default_log("lock check %lu\n", *(uint64_t *)&l);
-   if (l.lock_bit && l.lock_holder > ts) {
+   if (l.lock_bit) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
-      return VERSION_LOCK_STATUS_ABORT;
+      if (l.lock_holder > ts) {
+         return VERSION_LOCK_STATUS_ABORT;
+      } else {
+         return VERSION_LOCK_STATUS_BUSY;
+      }
    }
 
    mvcc_lock v1;
@@ -208,15 +214,19 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
 {
    if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
       // TO rule would be violated so we need to abort
-      return VERSION_LOCK_STATUS_ABORT;
+      return VERSION_LOCK_STATUS_RETRY_VERSION;
    }
 
    mvcc_lock l = meta->lock; // TODO: does this atomically read the lock's
                              // lock_bit and holder (64-bit aligned)?
-   if (l.lock_bit && l.lock_holder > ts) {
+   if (l.lock_bit) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
-      return VERSION_LOCK_STATUS_ABORT;
+      if (l.lock_holder > ts) {
+         return VERSION_LOCK_STATUS_ABORT;
+      } else {
+         return VERSION_LOCK_STATUS_BUSY;
+      }
    }
 
    mvcc_lock v1;
