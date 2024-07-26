@@ -595,6 +595,76 @@ typedef struct rw_entry {
    list_node *version;
 } rw_entry;
 
+static rw_entry *
+rw_entry_create()
+{
+   rw_entry *new_entry;
+   new_entry = TYPED_ZALLOC(0, new_entry);
+   platform_assert(new_entry != NULL);
+   new_entry->version_list_head = NULL;
+   new_entry->version           = NULL;
+   return new_entry;
+}
+
+static inline void
+rw_entry_deinit(rw_entry *entry)
+{
+   if (!message_is_null(entry->msg)) {
+      platform_free_from_heap(0, (void *)message_data(entry->msg));
+   }
+}
+
+static inline void
+rw_entry_destroy(rw_entry *entry)
+{
+   rw_entry_deinit(entry);
+   platform_free(0, entry);
+}
+
+static inline void
+rw_entry_set_msg(rw_entry *e, message msg)
+{
+   char *msg_buf;
+   msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, message_length(msg));
+   memcpy(msg_buf, message_data(msg), message_length(msg));
+   e->msg = message_create(message_class(msg),
+                           slice_create(message_length(msg), msg_buf));
+}
+
+static inline bool
+rw_entry_is_write(const rw_entry *entry)
+{
+   return !message_is_null(entry->msg);
+}
+
+/*
+ * Will Set timestamps in entry later.
+ * In MVCC, txn maintains only write set.
+ */
+static inline rw_entry *
+rw_entry_get(transactional_splinterdb *txn_kvsb,
+             transaction              *txn,
+             slice                     user_key,
+             const bool                is_read)
+{
+   rw_entry *entry = NULL;
+   for (int i = 0; i < txn->num_rw_entries; ++i) {
+      entry = txn->rw_entries[i];
+      if (data_key_compare(txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
+                           key_create_from_slice(entry->key),
+                           key_create_from_slice(user_key))
+          == 0)
+      {
+         return entry;
+      }
+   }
+
+   entry                                  = rw_entry_create();
+   entry->key                             = user_key;
+   txn->rw_entries[txn->num_rw_entries++] = entry;
+   return entry;
+}
+
 /*
  * This function has the following effects:
  * A. If entry key is not in the cache, it inserts the key in the cache with
@@ -611,7 +681,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    // increase refcount for key
 
-   list_node *head       = list_node_create(0, 0, 0, 0);
+   list_node *head       = list_node_create(0, 0, 0, MVCC_VERSION_LATEST);
    head->meta->head_lock = 1;
 
    entry->version_list_head = head;
@@ -682,93 +752,30 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 }
 
 static inline void
-rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
+rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb,
+                        rw_entry                 *entry,
+                        bool                      aborted)
 {
    if (entry->version_list_head) {
-      bool evicted =
-         iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
-      if (evicted) {
-         // Is it okay if it is called without locks?
-         mvcc_latest_key_version update = {0};
-         update.type                    = MVCC_LATEST_KEY_UPDATE_TYPE_C;
+      if (!rw_entry_is_write(entry) && !aborted) {
          slice spl_key = mvcc_key_create_slice(entry->key, MVCC_VERSION_LATEST);
-         splinterdb_update(txn_kvsb->kvsb,
-                           spl_key,
-                           slice_create(sizeof(update), (const void *)&update));
+         bool  evicted =
+            iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
+         if (evicted) {
+            mvcc_latest_key_version update = {0};
+            update.type                    = MVCC_LATEST_KEY_UPDATE_TYPE_C;
+            splinterdb_update(
+               txn_kvsb->kvsb,
+               spl_key,
+               slice_create(sizeof(update), (const void *)&update));
+         }
          mvcc_key_destroy_slice(spl_key);
+
+      } else {
+         iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
       }
       entry->version_list_head = NULL;
    }
-}
-
-static rw_entry *
-rw_entry_create()
-{
-   rw_entry *new_entry;
-   new_entry = TYPED_ZALLOC(0, new_entry);
-   platform_assert(new_entry != NULL);
-   new_entry->version_list_head = NULL;
-   new_entry->version           = NULL;
-   return new_entry;
-}
-
-static inline void
-rw_entry_deinit(rw_entry *entry)
-{
-   if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
-   }
-}
-
-static inline void
-rw_entry_destroy(rw_entry *entry)
-{
-   rw_entry_deinit(entry);
-   platform_free(0, entry);
-}
-
-static inline void
-rw_entry_set_msg(rw_entry *e, message msg)
-{
-   char *msg_buf;
-   msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, message_length(msg));
-   memcpy(msg_buf, message_data(msg), message_length(msg));
-   e->msg = message_create(message_class(msg),
-                           slice_create(message_length(msg), msg_buf));
-}
-
-static inline bool
-rw_entry_is_write(const rw_entry *entry)
-{
-   return !message_is_null(entry->msg);
-}
-
-/*
- * Will Set timestamps in entry later.
- * In MVCC, txn maintains only write set.
- */
-static inline rw_entry *
-rw_entry_get(transactional_splinterdb *txn_kvsb,
-             transaction              *txn,
-             slice                     user_key,
-             const bool                is_read)
-{
-   rw_entry *entry = NULL;
-   for (int i = 0; i < txn->num_rw_entries; ++i) {
-      entry = txn->rw_entries[i];
-      if (data_key_compare(txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
-                           key_create_from_slice(entry->key),
-                           key_create_from_slice(user_key))
-          == 0)
-      {
-         return entry;
-      }
-   }
-
-   entry                                  = rw_entry_create();
-   entry->key                             = user_key;
-   txn->rw_entries[txn->num_rw_entries++] = entry;
-   return entry;
 }
 
 typedef struct sketch_value {
@@ -1059,10 +1066,12 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 }
 
 static inline void
-transaction_deinit(transactional_splinterdb *txn_kvsb, transaction *txn)
+transaction_deinit(transactional_splinterdb *txn_kvsb,
+                   transaction              *txn,
+                   bool                      aborted)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
-      rw_entry_iceberg_remove(txn_kvsb, txn->rw_entries[i]);
+      rw_entry_iceberg_remove(txn_kvsb, txn->rw_entries[i], aborted);
       rw_entry_destroy(txn->rw_entries[i]);
    }
 }
@@ -1317,7 +1326,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       version_meta_unlock(w->version->meta);
    }
 
-   transaction_deinit(txn_kvsb, txn);
+   transaction_deinit(txn_kvsb, txn, FALSE);
    return 0;
 }
 
@@ -1332,7 +1341,7 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
          }
       }
    }
-   transaction_deinit(txn_kvsb, txn);
+   transaction_deinit(txn_kvsb, txn, TRUE);
    return 0;
 }
 
@@ -1594,13 +1603,15 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    if (splinterdb_lookup_found(result)) {
       if (readable_version->meta->version_number == MVCC_VERSION_LATEST) {
-         // rc = splinterdb_insert(txn_kvsb->kvsb, spl_key,
-         // merge_accumulator_to_slice(&_result->value)); platform_assert(rc ==
-         // 0, "Error from SplinterDB: %d\n", rc);
-
-         // Copy the value of v0.a to the user buffer
          _splinterdb_lookup_result *_result =
             (_splinterdb_lookup_result *)result;
+
+         rc = splinterdb_insert(txn_kvsb->kvsb,
+                                spl_key,
+                                merge_accumulator_to_slice(&_result->value));
+         platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+
+         // Copy the value of v0.a to the user buffer
          mvcc_latest_key_version *latest_version =
             (mvcc_latest_key_version *)merge_accumulator_data(&_result->value);
          const void *a_slot_value = latest_version->ba + latest_version->b_len;
