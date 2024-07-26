@@ -372,6 +372,7 @@ typedef struct {
    txn_timestamp version_number;
    txn_timestamp wts_min;
    mvcc_lock     lock;
+   uint64_t      head_lock; // A special lock used for the head insertion
 } version_meta __attribute__((aligned(sizeof(txn_timestamp))));
 
 typedef enum {
@@ -381,6 +382,12 @@ typedef enum {
    VERSION_LOCK_STATUS_RETRY_VERSION,
    VERSION_LOCK_STATUS_ABORT
 } version_lock_status;
+
+static void
+version_meta_unlock(version_meta *meta)
+{
+   *(uint64_t *)&meta->lock = 0;
+}
 
 static version_lock_status
 version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
@@ -455,7 +462,7 @@ version_meta_wrlock(version_meta *meta, txn_timestamp ts)
 static version_lock_status
 version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
 {
-   if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
+   if (meta->wts_max != MVCC_TIMESTAMP_INF && ts > meta->wts_max) {
       // TO rule would be violated so we need to abort
       return VERSION_LOCK_STATUS_ABORT;
    }
@@ -482,7 +489,7 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
                                            __ATOMIC_RELAXED);
 
    if (locked) {
-      if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
+      if (meta->wts_max != MVCC_TIMESTAMP_INF && ts > meta->wts_max) {
          version_meta_unlock(meta);
          return VERSION_LOCK_STATUS_RETRY_VERSION;
       }
@@ -506,12 +513,6 @@ version_meta_rdlock(version_meta *meta, txn_timestamp ts)
    return rc;
 }
 
-static void
-version_meta_unlock(version_meta *meta)
-{
-   *(uint64_t *)&meta->lock = 0;
-}
-
 // This list node will be stored in the iceberg table.
 typedef struct list_node {
    version_meta     *meta;
@@ -528,13 +529,11 @@ list_node_init(list_node    *node,
    version_meta *meta;
    meta = TYPED_ZALLOC(0, meta);
    platform_assert(meta != NULL);
-   platform_rwlock_init(&meta->rwlock, 0, 0);
-   meta->wrlock_holder_ts = -1;
-   meta->version_number   = version_number;
-   meta->rts              = rts;
-   meta->wts_min          = wts_min;
-   meta->wts_max          = wts_max;
-   node->meta             = meta;
+   meta->version_number = version_number;
+   meta->rts            = rts;
+   meta->wts_min        = wts_min;
+   meta->wts_max        = wts_max;
+   node->meta           = meta;
 }
 
 static list_node *
@@ -553,7 +552,6 @@ list_node_create(txn_timestamp rts,
 static void
 list_node_deinit(list_node *node)
 {
-   platform_rwlock_destroy(&node->meta->rwlock);
    platform_free(0, node->meta);
    node->next = NULL;
 }
@@ -613,8 +611,8 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    // increase refcount for key
 
-   list_node *head = list_node_create(0, 0, 0, 0);
-   platform_rwlock_wrlock(&head->meta->rwlock);
+   list_node *head       = list_node_create(0, 0, 0, 0);
+   head->meta->head_lock = 1;
 
    entry->version_list_head = head;
    bool is_first_item =
@@ -622,10 +620,22 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
                              &entry->key,
                              (ValueType **)&entry->version_list_head,
                              platform_get_tid());
-
    if (!is_first_item) {
-      platform_rwlock_rdlock(&entry->version_list_head->meta->rwlock);
-      platform_rwlock_unlock(&entry->version_list_head->meta->rwlock);
+      while (1) {
+         uint64_t zero   = 0;
+         uint64_t one    = 1;
+         bool     locked = __atomic_compare_exchange(
+            (volatile uint64_t *)&entry->version_list_head->meta->head_lock,
+            &zero,
+            &one,
+            TRUE,
+            __ATOMIC_RELAXED,
+            __ATOMIC_RELAXED);
+         if (locked) {
+            break;
+         }
+      }
+      entry->version_list_head->meta->head_lock = 0;
       list_node_destroy(head);
    } else {
       platform_assert(head->meta == entry->version_list_head->meta,
@@ -657,9 +667,10 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
                           entry->version_list_head->meta->wts_min,
                           MVCC_TIMESTAMP_INF,
                           MVCC_VERSION_LATEST);
-      entry->version_list_head->next = first_version;
-
-      platform_rwlock_unlock(&entry->version_list_head->meta->rwlock);
+      entry->version_list_head->meta->wts_max =
+         entry->version_list_head->meta->wts_min;
+      entry->version_list_head->next            = first_version;
+      entry->version_list_head->meta->head_lock = 0;
    }
 
    platform_assert(entry->version_list_head->next != NULL);
@@ -742,8 +753,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
              slice                     user_key,
              const bool                is_read)
 {
-   rw_entry *entry                    = NULL;
-   bool      need_to_create_new_entry = TRUE;
+   rw_entry *entry = NULL;
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       entry = txn->rw_entries[i];
       if (data_key_compare(txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
@@ -751,17 +761,13 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
                            key_create_from_slice(user_key))
           == 0)
       {
-         need_to_create_new_entry = FALSE;
-         break;
+         return entry;
       }
    }
 
-   if (need_to_create_new_entry) {
-      entry                                  = rw_entry_create();
-      entry->key                             = user_key;
-      txn->rw_entries[txn->num_rw_entries++] = entry;
-   }
-
+   entry                                  = rw_entry_create();
+   entry->key                             = user_key;
+   txn->rw_entries[txn->num_rw_entries++] = entry;
    return entry;
 }
 
@@ -1320,17 +1326,9 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
                                transaction              *txn)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
-      rw_entry *w = txn->rw_entries[i];
-      if (w->version) { // Transaction gets a corresponding version.
-         if (w->version->meta->wrlock_holder_ts == txn->ts) {
-            // platform_default_log("[%lu] key: %s, lock release and abort = %u
-            // (instance: %p)\n",
-            //                      (uint64)txn->ts,
-            //                      (char *)slice_data(w->key),
-            //                      (int32)w->version->meta->wrlock_holder_ts,
-            //                      w->version->meta);
-
-            version_meta_unlock(w->version->meta);
+      if (rw_entry_is_write(txn->rw_entries[i])) {
+         if (txn->rw_entries[i]->version->meta->lock.lock_holder == txn->ts) {
+            version_meta_unlock(txn->rw_entries[i]->version->meta);
          }
       }
    }
@@ -1547,7 +1545,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
             // platform_default_log(
             //    "abort -- all versions' timestamps are higher than me(%u) \n",
             //    (int32)txn->ts);
-            rw_entry_destroy(entry);
             transactional_splinterdb_abort(txn_kvsb, txn);
             return -1;
          }
@@ -1557,7 +1554,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       }
       lc = version_meta_rdlock(readable_version->meta, txn->ts);
       if (lc == VERSION_LOCK_STATUS_ABORT) {
-         rw_entry_destroy(entry);
          transactional_splinterdb_abort(txn_kvsb, txn);
          return -1;
       }
@@ -1613,7 +1609,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
             merge_accumulator_data(&_result->value), a_slot_value, a_slot_len);
          merge_accumulator_resize(&_result->value, a_slot_len);
       }
-     readable_version->meta->rts = txn->ts;
+      readable_version->meta->rts = txn->ts;
    }
 
    mvcc_key_destroy_slice(spl_key);

@@ -36,7 +36,6 @@ typedef struct transactional_splinterdb {
 
 #define MVCC_VERSION_NODATA 0
 #define MVCC_VERSION_START  1
-#define MVCC_VERSION_INF    UINT32_MAX
 #define MVCC_TIMESTAMP_INF  ((txn_timestamp)-1)
 
 typedef struct ONDISK mvcc_key_header {
@@ -167,8 +166,8 @@ version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
    v2.lock_bit    = 1;
    v2.lock_holder = ts;
    bool locked    = __atomic_compare_exchange((volatile uint64_t *)&meta->lock,
-                                           (txn_timestamp *)&v1,
-                                           (txn_timestamp *)&v2,
+                                           (uint64_t *)&v1,
+                                           (uint64_t *)&v2,
                                            TRUE,
                                            __ATOMIC_RELAXED,
                                            __ATOMIC_RELAXED);
@@ -212,7 +211,7 @@ version_meta_wrlock(version_meta *meta, txn_timestamp ts)
 static version_lock_status
 version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
 {
-   if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
+   if (meta->wts_max != MVCC_TIMESTAMP_INF && ts > meta->wts_max) {
       // TO rule would be violated so we need to abort
       return VERSION_LOCK_STATUS_RETRY_VERSION;
    }
@@ -236,14 +235,14 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
    v2.lock_bit    = 1;
    v2.lock_holder = 0;
    bool locked    = __atomic_compare_exchange((volatile uint64_t *)&meta->lock,
-                                           (txn_timestamp *)&v1,
-                                           (txn_timestamp *)&v2,
+                                           (uint64_t *)&v1,
+                                           (uint64_t *)&v2,
                                            TRUE,
                                            __ATOMIC_RELAXED,
                                            __ATOMIC_RELAXED);
 
    if (locked) {
-      if (meta->wts_max != MVCC_VERSION_INF && ts > meta->wts_max) {
+      if (meta->wts_max != MVCC_TIMESTAMP_INF && ts > meta->wts_max) {
          version_meta_unlock(meta);
          return VERSION_LOCK_STATUS_RETRY_VERSION;
       }
@@ -439,8 +438,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
              slice                     user_key,
              const bool                is_read)
 {
-   rw_entry *entry                    = NULL;
-   bool      need_to_create_new_entry = TRUE;
+   rw_entry *entry = NULL;
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       entry = txn->rw_entries[i];
       if (data_key_compare(txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
@@ -448,21 +446,16 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
                            key_create_from_slice(user_key))
           == 0)
       {
-         need_to_create_new_entry = FALSE;
-         break;
+         return entry;
       }
    }
 
-   if (need_to_create_new_entry) {
-      entry      = rw_entry_create();
-      entry->key = user_key;
-      if (!is_read) {
-         txn->rw_entries[txn->num_rw_entries++] = entry;
-         // platform_default_log("%lu entry %lu\n", (uint64)txn,
-         // txn->num_rw_entries);
-      }
+   entry      = rw_entry_create();
+   entry->key = user_key;
+   // This protocol keeps entry only for writes.
+   if (!is_read) {
+      txn->rw_entries[txn->num_rw_entries++] = entry;
    }
-
    return entry;
 }
 
@@ -824,7 +817,9 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       if (rw_entry_is_write(txn->rw_entries[i])) {
-         version_meta_unlock(txn->rw_entries[i]->version->meta);
+         if (txn->rw_entries[i]->version->meta->lock.lock_holder == txn->ts) {
+            version_meta_unlock(txn->rw_entries[i]->version->meta);
+         }
       }
    }
    transaction_deinit(txn_kvsb, txn);
