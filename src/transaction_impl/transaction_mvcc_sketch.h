@@ -681,7 +681,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    // increase refcount for key
 
-   list_node *head       = list_node_create(0, 0, 0, MVCC_VERSION_LATEST);
+   list_node *head       = list_node_create(0, 0, 0, 0);
    head->meta->head_lock = 1;
 
    entry->version_list_head = head;
@@ -737,8 +737,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
                           entry->version_list_head->meta->wts_min,
                           MVCC_TIMESTAMP_INF,
                           MVCC_VERSION_LATEST);
-      entry->version_list_head->meta->wts_max =
-         entry->version_list_head->meta->wts_min;
       entry->version_list_head->next            = first_version;
       entry->version_list_head->meta->head_lock = 0;
    }
