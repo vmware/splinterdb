@@ -755,7 +755,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb,
                         bool                      aborted)
 {
    if (entry->version_list_head) {
-      if (!rw_entry_is_write(entry) && !aborted) {
+      if (!aborted) {
          slice spl_key = mvcc_key_create_slice(entry->key, MVCC_VERSION_LATEST);
          bool  evicted =
             iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
@@ -768,7 +768,6 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb,
                slice_create(sizeof(update), (const void *)&update));
          }
          mvcc_key_destroy_slice(spl_key);
-
       } else {
          iceberg_remove(txn_kvsb->tscache, entry->key, platform_get_tid());
       }
@@ -1014,6 +1013,9 @@ transactional_splinterdb_create(const splinterdb_config   *kvsb_cfg,
 }
 
 
+uint64 num_read_V0 = 0;
+uint64 num_read_V1 = 0;
+
 int
 transactional_splinterdb_open(const splinterdb_config   *kvsb_cfg,
                               transactional_splinterdb **txn_kvsb)
@@ -1029,6 +1031,8 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    transactional_splinterdb *_txn_kvsb = *txn_kvsb;
    splinterdb_close(&_txn_kvsb->kvsb);
    iceberg_print_state(_txn_kvsb->tscache);
+
+   platform_default_log("num_read_V0: %lu, num_read_V1: %lu\n", num_read_V0, num_read_V1);
 
    // For debugging
    {
@@ -1556,9 +1560,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
             return -1;
          }
       }
-      if (readable_version == NULL) {
-         readable_version = entry->version_list_head;
-      }
       lc = version_meta_rdlock(readable_version->meta, txn->ts);
       if (lc == VERSION_LOCK_STATUS_ABORT) {
          transactional_splinterdb_abort(txn_kvsb, txn);
@@ -1566,37 +1567,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       }
    } while (lc == VERSION_LOCK_STATUS_RETRY_VERSION);
 
-   // const bool is_key_not_inserted =
-   //    (readable_version == entry->version_list_head);
-   // if (is_key_not_inserted) {
-
-
-   //    platform_default_log("%lu lookup failed key: %s, rts %lu, wts_min %lu,
-   //    wts_max %lu\n",
-   //       (uint64)txn->ts,
-   //       (char *)slice_data(user_key),
-   //       readable_version->meta->rts,
-   //       readable_version->meta->wts_min,
-   //       readable_version->meta->wts_max);
-
-
-   //    if (lc == VERSION_LOCK_STATUS_OK) {
-   //       version_meta_unlock(readable_version->meta);
-   //    }
-   //    return 0;
-   // }
-
-
    slice spl_key =
       mvcc_key_create_slice(user_key, readable_version->meta->version_number);
    int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
-
-   // // For debugging
-   // if (!splinterdb_lookup_found(result)) {
-   //    platform_default_log("find_key_in_splinterdb in lookup\n");
-   //    find_key_in_splinterdb(txn_kvsb, key_create_from_slice(spl_key));
-   // }
-
    platform_assert(rc == 0);
 
    if (splinterdb_lookup_found(result)) {
@@ -1617,6 +1590,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          memmove(
             merge_accumulator_data(&_result->value), a_slot_value, a_slot_len);
          merge_accumulator_resize(&_result->value, a_slot_len);
+
+         __atomic_add_fetch(&num_read_V0, 1, __ATOMIC_RELAXED);
+      } else {
+         __atomic_add_fetch(&num_read_V1, 1, __ATOMIC_RELAXED);
       }
       readable_version->meta->rts = txn->ts;
    }
