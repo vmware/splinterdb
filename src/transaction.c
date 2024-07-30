@@ -67,3 +67,17 @@ transactional_splinterdb_disable_upsert(transactional_splinterdb *txn_kvsb)
 {
    txn_kvsb->tcfg->is_upsert_disabled = TRUE;
 }
+
+transaction *
+transaction_create()
+{
+   transaction *txn;
+   txn = TYPED_ZALLOC(0, txn);
+   return txn;
+}
+
+void
+transaction_destroy(transaction *txn)
+{
+   platform_free(0, txn);
+}
