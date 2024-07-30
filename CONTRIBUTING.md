@@ -26,4 +26,4 @@ and follow [testing](docs/testing.md) for instructions on testing your changes.
         ln -s -f ../../format-check.sh .git/hooks/pre-commit
         ```
 
-3. Then open a [Pull Request](https://github.com/vmware/splinterdb/pulls).  Our continuous integration (CI) system will run additional checks, which can take a couple hours.  If you have not signed our Contributor License Agreement (CLA), a "CLA-bot" will take you through the process and update the issue.  If you have questions about the CLA process, see our CLA [FAQ](https://cla.vmware.com/faq) or just ask for help on your pull request.
+3. Then open a [Pull Request](https://github.com/vmware/splinterdb/pulls).  You'll need to wait for a project maintainer to add the `ok-to-test` label to your PR.  Then our continuous integration (CI) system will run checks, which can take a couple hours.  Also, if you have not signed our Contributor License Agreement (CLA), a "CLA-bot" will take you through the process and update the issue.  If you have questions about the CLA process, see our CLA [FAQ](https://cla.vmware.com/faq) or just ask for help on your pull request.

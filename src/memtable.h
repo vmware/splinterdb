@@ -36,7 +36,7 @@ typedef struct memtable {
    btree_config           *cfg;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
-static inline bool
+static inline bool32
 memtable_try_transition(memtable      *mt,
                         memtable_state old_state,
                         memtable_state new_state)
@@ -95,7 +95,7 @@ memtable_transition(memtable      *mt,
                     memtable_state old_state,
                     memtable_state new_state)
 {
-   bool success = memtable_try_transition(mt, old_state, new_state);
+   bool32 success = memtable_try_transition(mt, old_state, new_state);
    platform_assert(success);
 }
 
@@ -115,21 +115,23 @@ typedef struct memtable_context {
    process_fn process;
    void      *process_ctxt;
 
-   // Protected by insert_lock. Can read without lock. Must get read lock to
-   // freeze and write lock to modify.
-   uint64          insert_lock_addr;
+   // batch distributed read/write locks protect the generation and
+   // generation_retired counters
+   platform_batch_rwlock *rwlock;
+
+   // Protected by the MEMTABLE_INSERT_LOCK_IDX'th lock of rwlock. Can read
+   // without lock. Must get read lock to freeze and write lock to modify.
    volatile uint64 generation;
 
-   // Protected by incorporation_lock. Must hold to read or modify.
-   platform_spinlock incorporation_lock;
-   volatile uint64   generation_to_incorporate;
+   // Protected by incorporation_mutex. Must hold to read or modify.
+   platform_mutex  incorporation_mutex;
+   volatile uint64 generation_to_incorporate;
 
-   // Protected by the lookup lock. Must hold read lock to read and write lock
-   // to modify.
-   uint64          lookup_lock_addr;
+   // Protected by the MEMTABLE_LOOKUP_LOCK_IDX'th lock of rwlock. Must hold
+   // read lock to read and write lock to modify.
    volatile uint64 generation_retired;
 
-   bool is_empty;
+   bool32 is_empty;
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];
@@ -138,12 +140,23 @@ typedef struct memtable_context {
 } memtable_context;
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
-                                          uint64           *generation,
-                                          page_handle     **lock_page);
+memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
+                                       uint64           *generation);
 
 void
-memtable_unget_insert_lock(memtable_context *ctxt, page_handle *lock_page);
+memtable_end_insert(memtable_context *ctxt);
+
+void
+memtable_begin_lookup(memtable_context *ctxt);
+
+void
+memtable_end_lookup(memtable_context *ctxt);
+
+void
+memtable_block_lookups(memtable_context *ctxt);
+
+void
+memtable_unblock_lookups(memtable_context *ctxt);
 
 platform_status
 memtable_insert(memtable_context *ctxt,
@@ -153,20 +166,7 @@ memtable_insert(memtable_context *ctxt,
                 message           msg,
                 uint64           *generation);
 
-page_handle *
-memtable_get_lookup_lock(memtable_context *ctxt);
-
-void
-memtable_unget_lookup_lock(memtable_context *ctxt, page_handle *lock_page);
-
-page_handle *
-memtable_uncontended_get_claim_lock_lookup_lock(memtable_context *ctxt);
-
-void
-memtable_unlock_unclaim_unget_lookup_lock(memtable_context *ctxt,
-                                          page_handle      *lock_page);
-
-bool
+bool32
 memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt);
 
 uint64
@@ -245,13 +245,13 @@ memtable_increment_to_generation_retired(memtable_context *ctxt,
 static inline void
 memtable_lock_incorporation_lock(memtable_context *ctxt)
 {
-   platform_spin_lock(&ctxt->incorporation_lock);
+   platform_mutex_lock(&ctxt->incorporation_mutex);
 }
 
 static inline void
 memtable_unlock_incorporation_lock(memtable_context *ctxt)
 {
-   platform_spin_unlock(&ctxt->incorporation_lock);
+   platform_mutex_unlock(&ctxt->incorporation_mutex);
 }
 
 static inline void
@@ -260,24 +260,24 @@ memtable_zap(cache *cc, memtable *mt)
    btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
-static inline bool
+static inline bool32
 memtable_ok_to_lookup(memtable *mt)
 {
    return mt->state != MEMTABLE_STATE_INCORPORATING
           && mt->state != MEMTABLE_STATE_INCORPORATED;
 }
 
-static inline bool
+static inline bool32
 memtable_ok_to_lookup_compacted(memtable *mt)
 {
    return mt->state == MEMTABLE_STATE_COMPACTED
           || mt->state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
 }
 
-bool
+bool32
 memtable_is_empty(memtable_context *mt_ctxt);
 
-static inline bool
+static inline bool32
 memtable_verify(cache *cc, memtable *mt)
 {
    return btree_verify_tree(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
@@ -286,11 +286,11 @@ memtable_verify(cache *cc, memtable *mt)
 static inline void
 memtable_print(platform_log_handle *log_handle, cache *cc, memtable *mt)
 {
-   btree_print_tree(log_handle, cc, mt->cfg, mt->root_addr);
+   btree_print_memtable_tree(log_handle, cc, mt->cfg, mt->root_addr);
 }
 
 static inline void
 memtable_print_stats(platform_log_handle *log_handle, cache *cc, memtable *mt)
 {
    btree_print_tree_stats(log_handle, cc, mt->cfg, mt->root_addr);
-};
+}

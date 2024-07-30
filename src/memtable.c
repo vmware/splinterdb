@@ -16,13 +16,16 @@
 
 #define MEMTABLE_COUNT_GRANULARITY 128
 
-bool
+#define MEMTABLE_INSERT_LOCK_IDX 0
+#define MEMTABLE_LOOKUP_LOCK_IDX 1
+
+bool32
 memtable_is_full(const memtable_config *cfg, memtable *mt)
 {
    return cfg->max_extents_per_memtable <= mini_num_extents(&mt->mini);
 }
 
-bool
+bool32
 memtable_is_empty(memtable_context *ctxt)
 {
    return ctxt->is_empty;
@@ -40,61 +43,143 @@ memtable_process(memtable_context *ctxt, uint64 generation)
    ctxt->process(ctxt->process_ctxt, generation);
 }
 
+static inline void
+memtable_begin_insert(memtable_context *ctxt)
+{
+   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+void
+memtable_end_insert(memtable_context *ctxt)
+{
+   platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+static inline bool32
+memtable_try_begin_insert_rotation(memtable_context *ctxt)
+{
+   if (!platform_batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX))
+   {
+      return FALSE;
+   }
+   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   return TRUE;
+}
+
+static inline void
+memtable_end_insert_rotation(memtable_context *ctxt)
+{
+   platform_batch_rwlock_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   platform_batch_rwlock_unclaim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+static inline void
+memtable_begin_raw_rotation(memtable_context *ctxt)
+{
+   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   platform_batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+static inline void
+memtable_end_raw_rotation(memtable_context *ctxt)
+{
+   platform_batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+void
+memtable_begin_lookup(memtable_context *ctxt)
+{
+   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+}
+
+void
+memtable_end_lookup(memtable_context *ctxt)
+{
+   platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+}
+
+void
+memtable_block_lookups(memtable_context *ctxt)
+{
+   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   platform_batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+}
+
+void
+memtable_unblock_lookups(memtable_context *ctxt)
+{
+   platform_batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+}
+
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
-                                          uint64           *generation,
-                                          page_handle     **lock_page)
+memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
+                                       uint64           *generation)
 {
-   cache *cc        = ctxt->cc;
-   uint64 lock_addr = ctxt->insert_lock_addr;
-   uint64 wait      = 100;
+   uint64 wait = 100;
    while (TRUE) {
-      *lock_page      = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
-      *generation     = ctxt->generation;
-      uint64    mt_no = *generation % ctxt->cfg.max_memtables;
-      memtable *mt    = &ctxt->mt[mt_no];
-      if (mt->state != MEMTABLE_STATE_READY) {
+      memtable_begin_insert(ctxt);
+      uint64    current_generation = ctxt->generation;
+      uint64    current_mt_no = current_generation % ctxt->cfg.max_memtables;
+      memtable *current_mt    = &ctxt->mt[current_mt_no];
+      if (current_mt->state != MEMTABLE_STATE_READY) {
          // The next memtable is not ready yet, back off and wait.
-         cache_unget(cc, *lock_page);
+         memtable_end_insert(ctxt);
          platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
          continue;
       }
+      wait = 100;
 
-      if (memtable_is_full(&ctxt->cfg, &ctxt->mt[mt_no])) {
+      if (memtable_is_full(&ctxt->cfg, current_mt)) {
          // If the current memtable is full, try to retire it
 
-         uint64    process_generation = ctxt->generation;
-         uint64    next_generation    = process_generation + 1;
-         uint64    next_mt_no = next_generation % ctxt->cfg.max_memtables;
-         memtable *next_mt    = &ctxt->mt[next_mt_no];
+         uint64    next_generation = current_generation + 1;
+         uint64    next_mt_no      = next_generation % ctxt->cfg.max_memtables;
+         memtable *next_mt         = &ctxt->mt[next_mt_no];
          if (next_mt->state != MEMTABLE_STATE_READY) {
-            cache_unget(cc, *lock_page);
+            memtable_end_insert(ctxt);
             return STATUS_BUSY;
          }
 
-         if (cache_try_claim(cc, *lock_page)) {
-            // We successfully got the claim, so we do the finalization
-            cache_lock(cc, *lock_page);
+         if (memtable_try_begin_insert_rotation(ctxt)) {
+            // We successfully got the lock, so we do the finalization
             memtable_transition(
-               mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
+               current_mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
+
+            // Safe to increment non-atomically because we have a lock on
+            // the insert lock
             ctxt->generation++;
-            platform_assert(ctxt->generation - ctxt->generation_retired <= 4);
-            platform_assert(process_generation + 1 == ctxt->generation);
+            platform_assert(ctxt->generation - ctxt->generation_retired
+                               <= ctxt->cfg.max_memtables,
+                            "ctxt->generation: %lu, "
+                            "ctxt->generation_retired: %lu, "
+                            "current_generation: %lu\n",
+                            ctxt->generation,
+                            ctxt->generation_retired,
+                            current_generation);
+            platform_assert(current_generation + 1 == ctxt->generation,
+                            "ctxt->generation: %lu, "
+                            "ctxt->generation_retired: %lu, "
+                            "current_generation: %lu\n",
+                            ctxt->generation,
+                            ctxt->generation_retired,
+                            current_generation);
+
             memtable_mark_empty(ctxt);
-            cache_unlock(cc, *lock_page);
-            cache_unclaim(cc, *lock_page);
-            cache_unget(cc, *lock_page);
-            memtable_process(ctxt, process_generation);
+            memtable_end_insert_rotation(ctxt);
+            memtable_end_insert(ctxt);
+            memtable_process(ctxt, current_generation);
          } else {
-            cache_unget(cc, *lock_page);
+            memtable_end_insert(ctxt);
             platform_sleep_ns(wait);
-            wait *= 2;
+            wait = wait > 2048 ? wait : 2 * wait;
          }
          continue;
       }
-      *generation = ctxt->generation;
+      *generation = current_generation;
       return STATUS_OK;
    }
 }
@@ -132,7 +217,7 @@ memtable_insert(memtable_context *ctxt,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
-   bool           was_unique;
+   bool32         was_unique;
 
    platform_status rc = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,
@@ -155,56 +240,16 @@ memtable_insert(memtable_context *ctxt,
    return rc;
 }
 
-void
-memtable_unget_insert_lock(memtable_context *ctxt, page_handle *lock_page)
-{
-   cache_unget(ctxt->cc, lock_page);
-}
-
-page_handle *
-memtable_get_lookup_lock(memtable_context *ctxt)
-{
-   return cache_get(
-      ctxt->cc, ctxt->lookup_lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
-}
-
-void
-memtable_unget_lookup_lock(memtable_context *ctxt, page_handle *lock_page)
-{
-   cache_unget(ctxt->cc, lock_page);
-}
-
-page_handle *
-memtable_uncontended_get_claim_lock_lookup_lock(memtable_context *ctxt)
-{
-   page_handle *lock_page = memtable_get_lookup_lock(ctxt);
-   cache       *cc        = ctxt->cc;
-   bool         claimed   = cache_try_claim(cc, lock_page);
-   platform_assert(claimed);
-   cache_lock(cc, lock_page);
-   return lock_page;
-}
-
-void
-memtable_unlock_unclaim_unget_lookup_lock(memtable_context *ctxt,
-                                          page_handle      *lock_page)
-{
-   cache *cc = ctxt->cc;
-   cache_unlock(cc, lock_page);
-   cache_unclaim(cc, lock_page);
-   cache_unget(cc, lock_page);
-}
-
 /*
  * if there are no outstanding refs, then destroy and reinit memtable and
  * transition to READY
  */
-bool
+bool32
 memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;
 
-   bool freed = btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   bool32 freed = btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
       mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
@@ -220,32 +265,19 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
 uint64
 memtable_force_finalize(memtable_context *ctxt)
 {
-   uint64       lock_addr = ctxt->insert_lock_addr;
-   cache       *cc        = ctxt->cc;
-   page_handle *lock_page =
-      cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
-   uint64 wait = 100;
-   while (!cache_try_claim(cc, lock_page)) {
-      cache_unget(cc, lock_page);
-      platform_sleep_ns(wait);
-      wait *= 2;
-      lock_page = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
-   }
-   cache_lock(cc, lock_page);
+   memtable_begin_raw_rotation(ctxt);
 
    uint64    generation = ctxt->generation;
    uint64    mt_no      = generation % ctxt->cfg.max_memtables;
    memtable *mt         = &ctxt->mt[mt_no];
    memtable_transition(mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
-   uint64 process_generation = ctxt->generation++;
-   platform_assert(ctxt->generation - ctxt->generation_retired <= 4);
+   uint64 current_generation = ctxt->generation++;
+   platform_assert(ctxt->generation - ctxt->generation_retired
+                   <= ctxt->cfg.max_memtables);
    memtable_mark_empty(ctxt);
 
-   cache_unlock(cc, lock_page);
-   cache_unclaim(cc, lock_page);
-   cache_unget(cc, lock_page);
-
-   return process_generation;
+   memtable_end_raw_rotation(ctxt);
+   return current_generation;
 }
 
 void
@@ -263,7 +295,7 @@ void
 memtable_deinit(cache *cc, memtable *mt)
 {
    mini_release(&mt->mini, NULL_KEY);
-   debug_only bool freed =
+   debug_only bool32 freed =
       btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);
 }
@@ -280,29 +312,10 @@ memtable_context_create(platform_heap_id hid,
    ctxt->cc = cc;
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
-   uint64          base_addr;
-   allocator      *al = cache_get_allocator(cc);
-   platform_status rc = allocator_alloc(al, &base_addr, PAGE_TYPE_LOCK_NO_DATA);
-   platform_assert_status_ok(rc);
-
-   ctxt->insert_lock_addr = base_addr;
-   ctxt->lookup_lock_addr = base_addr + cache_page_size(cc);
-
-   page_handle *lock_page =
-      cache_alloc(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   cache_pin(cc, lock_page);
-   cache_unlock(cc, lock_page);
-   cache_unclaim(cc, lock_page);
-   cache_unget(cc, lock_page);
-
-   lock_page = cache_alloc(cc, ctxt->lookup_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   cache_pin(cc, lock_page);
-   cache_unlock(cc, lock_page);
-   cache_unclaim(cc, lock_page);
-   cache_unget(cc, lock_page);
-
-   platform_spinlock_init(
-      &ctxt->incorporation_lock, platform_get_module_id(), hid);
+   platform_mutex_init(
+      &ctxt->incorporation_mutex, platform_get_module_id(), hid);
+   ctxt->rwlock = TYPED_MALLOC(hid, ctxt->rwlock);
+   platform_batch_rwlock_init(ctxt->rwlock);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
       uint64 generation = mt_no;
@@ -329,19 +342,8 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
       memtable_deinit(cc, &ctxt->mt[mt_no]);
    }
 
-   platform_spinlock_destroy(&ctxt->incorporation_lock);
-
-   /*
-    * lookup lock and insert lock share extents but not pages.
-    * this deallocs both.
-    */
-   allocator *al = cache_get_allocator(cc);
-   uint8      ref =
-      allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   platform_assert(ref == AL_NO_REFS);
-   cache_extent_discard(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   ref = allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   platform_assert(ref == AL_FREE);
+   platform_mutex_destroy(&ctxt->incorporation_mutex);
+   platform_free(hid, ctxt->rwlock);
 
    platform_free(hid, ctxt);
 }

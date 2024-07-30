@@ -16,6 +16,7 @@
 #include "unit_tests.h"
 #include "util.h"
 #include "../functional/random.h"
+#include "config.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #define TEST_KEY_SIZE   20
@@ -48,17 +49,17 @@ CTEST_DATA(splinterdb_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_stress)
 {
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-   }
-
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
                                              .cache_size = 1000 * Mega,
                                              .disk_size  = 9000 * Mega,
                                              .data_cfg   = &data->default_data_config,
-                                             .queue_scale_percent = 100};
+                                             .num_memtable_bg_threads = 2,
+                                             .num_normal_bg_threads   = 2};
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
+
+   data->cfg.use_shmem =
+      config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -142,6 +143,135 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
    }
 }
 
+/*
+ * Test case that inserts a large number of KV-pairs and then performs a
+ * range query over them, backwards and then forwards.
+ */
+#define KEY_SIZE 13
+CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
+{
+   char         key_str[KEY_SIZE];
+   char        *value_str = "This is the value string\0";
+   const uint32 inserts   = 1 << 25; // 16 million
+   for (int i = 0; i < inserts; i++) {
+      snprintf(key_str, sizeof(key_str), "key-%08x", i);
+      slice key = slice_create(sizeof(key_str), key_str);
+      slice val = slice_create(sizeof(value_str), value_str);
+      ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, val));
+   }
+
+   // create an iterator at end of keys
+   splinterdb_iterator *it = NULL;
+   snprintf(key_str, sizeof(key_str), "key-%08x", inserts);
+   slice start_key = slice_create(sizeof(key_str), key_str);
+   ASSERT_EQUAL(0, splinterdb_iterator_init(data->kvsb, &it, start_key));
+
+   // assert that the iterator is in the state we expect
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_FALSE(splinterdb_iterator_can_next(it));
+   ASSERT_TRUE(splinterdb_iterator_can_prev(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+
+   splinterdb_iterator_prev(it);
+
+   // iterate down all the keys
+   for (int i = inserts - 1; i >= 0; i--) {
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      slice key;
+      slice val;
+      splinterdb_iterator_get_current(it, &key, &val);
+      snprintf(key_str, sizeof(key_str), "key-%08x", i);
+
+      ASSERT_EQUAL(KEY_SIZE, slice_length(key));
+      int comp = memcmp(slice_data(key), key_str, slice_length(key));
+      ASSERT_EQUAL(0, comp);
+      splinterdb_iterator_prev(it);
+   }
+
+   // assert that the iterator is in the state we expect
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_TRUE(splinterdb_iterator_can_next(it));
+   ASSERT_FALSE(splinterdb_iterator_can_prev(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+
+   splinterdb_iterator_next(it);
+
+   // iterate back up all the keys
+   for (int i = 0; i < inserts; i++) {
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      slice key;
+      slice val;
+      splinterdb_iterator_get_current(it, &key, &val);
+      snprintf(key_str, sizeof(key_str), "key-%08x", i);
+
+      ASSERT_EQUAL(KEY_SIZE, slice_length(key));
+      int comp = memcmp(slice_data(key), key_str, slice_length(key));
+      ASSERT_EQUAL(0, comp);
+      splinterdb_iterator_next(it);
+   }
+
+   // assert that the iterator is in the state we expect
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_FALSE(splinterdb_iterator_can_next(it));
+   ASSERT_TRUE(splinterdb_iterator_can_prev(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+
+   splinterdb_iterator_deinit(it);
+}
+
+/*
+ * Test case that inserts large # of KV-pairs, and goes into a code path
+ * reported by issue# 458, tripping a debug assert. This test case also
+ * triggered the failure(s) reported by issue # 545.
+ * FIXME: This test still runs into an assertion "filter->addr != 0"
+ * from trunk_inc_filter(), which is being triaged separately.
+ */
+CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
+{
+   char key_data[TEST_KEY_SIZE];
+   char val_data[TEST_VALUE_SIZE];
+
+   uint64 test_start_time = platform_get_timestamp();
+
+   for (uint64 ictr = 0, jctr = 0; ictr < 100; ictr++) {
+
+      uint64 start_time = platform_get_timestamp();
+
+      for (jctr = 0; jctr < MILLION; jctr++) {
+
+         uint64 id = (ictr * MILLION) + jctr;
+         snprintf(key_data, sizeof(key_data), "%lu", id);
+         snprintf(val_data, sizeof(val_data), "Row-%lu", id);
+
+         slice key = slice_create(strlen(key_data), key_data);
+         slice val = slice_create(strlen(val_data), val_data);
+
+         int rc = splinterdb_insert(data->kvsb, key, val);
+         ASSERT_EQUAL(0, rc);
+      }
+      uint64 elapsed_ns      = platform_timestamp_elapsed(start_time);
+      uint64 test_elapsed_ns = platform_timestamp_elapsed(test_start_time);
+
+      uint64 elapsed_s = NSEC_TO_SEC(elapsed_ns);
+      if (elapsed_s == 0) {
+         elapsed_s = 1;
+      }
+      uint64 test_elapsed_s = NSEC_TO_SEC(test_elapsed_ns);
+      if (test_elapsed_s == 0) {
+         test_elapsed_s = 1;
+      }
+
+      CTEST_LOG_INFO(
+         "\n" // PLATFORM_CR
+         "Inserted %lu million KV-pairs"
+         ", this batch: %lu s, %lu rows/s, cumulative: %lu s, %lu rows/s ...",
+         (ictr + 1),
+         elapsed_s,
+         (jctr / elapsed_s),
+         test_elapsed_s,
+         (((ictr + 1) * jctr) / test_elapsed_s));
+   }
+}
 
 // Per-thread workload
 static void *

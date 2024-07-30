@@ -15,13 +15,13 @@
 #include <stdarg.h>
 #include <string.h>
 #include <sys/time.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <wchar.h>
 
 #include "util.h"
 #include "ctest.h"
+#include "unit_tests.h"
 
 #define MSG_SIZE 4096
 
@@ -35,8 +35,9 @@ static const char *testcase_name = NULL;
 
 typedef int (*ctest_filter_func)(struct ctest *);
 
-// If false, then CTEST_LOG_INFO() and CTEST_LOG() will no-op.
-_Bool Ctest_verbose = FALSE;
+// Default: CTEST_LOG_INFO() and CTEST_LOG() will no-op.
+// Will print messages to stdout at any other verbosity level.
+msg_level Ctest_verbosity = MSG_LEVEL_SILENT;
 
 /*
  * Global handles to command-line args are provided so that we can access
@@ -91,7 +92,7 @@ ctest_process_args(const int    argc,
 int
 ctest_is_unit_test(const char *argv0);
 
-static bool
+static msg_level
 ctest_get_verbosity();
 
 static int
@@ -142,7 +143,7 @@ sighandler(int signum)
     * so it can terminate as expected
     */
    signal(signum, SIG_DFL);
-   kill(getpid(), signum);
+   kill(platform_getpid(), signum);
 }
 #endif // CTEST_SEGFAULT
 
@@ -176,7 +177,7 @@ ctest_main(int argc, const char *argv[])
    signal(SIGSEGV, sighandler);
 #endif
 
-   Ctest_verbose = ctest_get_verbosity();
+   Ctest_verbosity = ctest_get_verbosity();
 
    int program_is_unit_test = ctest_is_unit_test(argv[0]);
 
@@ -230,6 +231,11 @@ ctest_main(int argc, const char *argv[])
    struct ctest *ctest_begin = &CTEST_IMPL_TNAME(suite, test);
    struct ctest *ctest_end   = &CTEST_IMPL_TNAME(suite, test);
 
+   // By default, all unit-tests will only report error messages. If you wish
+   // to also see other informational messages from the library, run the
+   // tests with env-var VERBOSE=6 verbosity level.
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
+
    // find begin and end of section by comparing magics
    while (1) {
       struct ctest *t = ctest_begin - 1;
@@ -276,8 +282,15 @@ ctest_main(int argc, const char *argv[])
    if (!suite_name && (num_suites == 1)) {
       suite_name = curr_suite_name;
    }
-   printf("Running %d CTests, suite name '%s', test case '%s'.\n",
+   // Test will be run with shared memory configured if --use-shmem arg is
+   // specified. As a convenience for test-execution, if this happens to be
+   // the very 1st arg, a helpful info message indicating that the test is
+   // being run 'using shared memory' will be emitted.
+   bool use_shmem =
+      ((argc > 1) && STRING_EQUALS_LITERAL(argv[1], "--use-shmem"));
+   printf("Running %d CTests%s, suite name '%s', test case '%s'.\n",
           num_suites,
+          (use_shmem ? " using shared memory" : ""),
           (suite_name ? suite_name : "all"),
           (testcase_name ? testcase_name : "all"));
 
@@ -349,10 +362,11 @@ ctest_main(int argc, const char *argv[])
             (t2 - t1) / 1000);
    color_print(color, results);
 
-   if (num_fail > 0 && !Ctest_verbose) {
+   if (num_fail > 0 && (Ctest_verbosity != MSG_LEVEL_SILENT)) {
       snprintf(results,
                sizeof(results),
-               "(Rerun with env var VERBOSE=1 to see more log messages)");
+               "(Rerun with env var VERBOSE=%d to see more log messages)",
+               MSG_LEVEL_ERRORS);
       color_print(color, results);
    }
    return num_fail;
@@ -399,20 +413,29 @@ ctest_is_unit_test(const char *argv0)
    return 0;
 }
 
-// Determine the log message verbosity to use for this test run.
-// If env var VERBOSE is unset, or is set to "0" or "false", the be quiet.
-// Otherwise, be verbose.
-static bool
+/*
+ * Determine the log message verbosity level to use for this test run.
+ *
+ * If env var VERBOSE is unset, or is set to "0" then be quiet.
+ * If env var VERBOSE=3 then be verbose reporting only errors.
+ * Otherwise, settle for the specified verbosity level.
+ *
+ * Examples:
+ *  - To see only error and informational messages, run as:
+ *     $ VERBOSE=6 bin/unit/task_system_test
+ *
+ *  - To see outputs from a test case that generates diagnostic output, run as:
+ *     $ VERBOSE=7 bin/unit/splinter_test test_splinter_print_diags
+ */
+static msg_level
 ctest_get_verbosity()
 {
    char *val = getenv("VERBOSE");
    if (val == NULL) {
-      return 0;
+      return MSG_LEVEL_SILENT;
    }
-   if ((strcmp(val, "0") == 0) || (strcmp(val, "false") == 0)) {
-      return 0;
-   }
-   return 1;
+   // Expect user to pass-in a legit value.
+   return atoi(val);
 }
 
 /*
@@ -545,6 +568,13 @@ ctest_usage(const char *progname, int program_is_unit_test)
    } else {
       printf("[ --list | [ --<config options> ]* <test-case-name> ]\n");
    }
+   printf(
+      "\nUse env-var VERBOSE=<n> to control verbosity of output from tests.\n");
+   printf("  %d - Or, unset, turns off all output from tests. (Default).\n",
+          MSG_LEVEL_SILENT);
+   printf("  %d - Only error messages are printed.\n", MSG_LEVEL_ERRORS);
+   printf("  %d - All messages, including debugging output is printed.\n",
+          MSG_LEVEL_DEBUG);
 }
 
 /*
@@ -746,10 +776,15 @@ msg_end(void)
    print_errormsg("\n");
 }
 
+/*
+ * CTest message logging interface. By default, all message logging is
+ * "silent"; i.e. turned OFF. Messages will be printed to stderr at any other
+ * verbosity level.
+ */
 void
 CTEST_LOG(const char *fmt, ...)
 {
-   if (!Ctest_verbose) {
+   if (Ctest_verbosity == MSG_LEVEL_SILENT) {
       return;
    }
 

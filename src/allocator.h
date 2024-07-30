@@ -54,7 +54,6 @@ typedef enum page_type {
    PAGE_TYPE_LOG,
    PAGE_TYPE_SUPERBLOCK,
    PAGE_TYPE_MISC, // Used mainly as a testing hook, for cache access testing.
-   PAGE_TYPE_LOCK_NO_DATA,
    NUM_PAGE_TYPES,
 } page_type;
 
@@ -65,8 +64,7 @@ static const char *const page_type_str[] = {"invalid",
                                             "filter",
                                             "log",
                                             "superblock",
-                                            "misc",
-                                            "lock"};
+                                            "misc"};
 
 // Ensure that the page-type lookup array is adequately sized.
 _Static_assert(
@@ -253,7 +251,7 @@ allocator_print_allocated(allocator *al)
    return al->ops->print_allocated(al);
 }
 
-static inline bool
+static inline bool32
 allocator_page_valid(allocator *al, uint64 addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);
@@ -261,7 +259,7 @@ allocator_page_valid(allocator *al, uint64 addr)
    if ((addr % allocator_cfg->io_cfg->page_size) != 0) {
       platform_error_log("%s():%d: Specified addr=%lu is not divisible by"
                          " configured page size=%lu\n",
-                         __FUNCTION__,
+                         __func__,
                          __LINE__,
                          addr,
                          allocator_cfg->io_cfg->page_size);
@@ -275,7 +273,7 @@ allocator_page_valid(allocator *al, uint64 addr)
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."
             " base_addr=%lu, addr=%lu, allocator_get_refcount()=%d\n",
-            __FUNCTION__,
+            __func__,
             __LINE__,
             base_addr,
             addr,
@@ -286,7 +284,7 @@ allocator_page_valid(allocator *al, uint64 addr)
       platform_error_log("%s():%d: Extent out of allocator capacity range."
                          " base_addr=%lu, addr=%lu"
                          ", allocator_get_capacity()=%lu\n",
-                         __FUNCTION__,
+                         __func__,
                          __LINE__,
                          base_addr,
                          addr,

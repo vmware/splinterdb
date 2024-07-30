@@ -38,32 +38,35 @@ struct io_async_req {
    io_callback_fn callback;     // issuer callback
    char           metadata[64]; // issuer callback data
    uint64         number;       // request number/id
-   bool           busy;         // request in-use flag
+   uint64         ctx_idx;      // context index. INVALID_TID if not in use
    uint64         bytes;        // total bytes in the IO request
    uint64         count;        // number of vector elements
    struct iovec   iovec[];      // vector with IO offsets and size
 };
 
+typedef struct io_process_context {
+   pid_t        pid;
+   uint64       thread_count;
+   uint64       io_count; // inflight ios
+   io_context_t ctx;
+} io_process_context;
+
 /*
  * Async IO context structure handle:
  */
 typedef struct laio_handle {
-   io_handle        super;
-   io_config       *cfg;
-   io_context_t     ctx; // Opaque handle returned by system call
-   io_async_req    *req; // Ptr to array of async req structs
-   uint64           max_batches_nonblocking_get;
-   uint64           req_hand_base;
-   uint64           req_hand[MAX_THREADS];
-   platform_heap_id heap_id;
-   int              fd; // File descriptor to Splinter device/file.
+   io_handle          super;
+   io_config         *cfg;
+   int                ctx_lock;
+   io_process_context ctx[MAX_THREADS];
+   uint64             ctx_idx[MAX_THREADS];
+   io_async_req      *req; // Ptr to allocated array of async req structs
+   uint64             max_batches_nonblocking_get;
+   uint64             req_hand_base;
+   uint64             req_hand[MAX_THREADS];
+   platform_heap_id   heap_id;
+   int                fd; // File descriptor to Splinter device/file.
 } laio_handle;
 
 platform_status
 laio_config_valid(io_config *cfg);
-
-static inline io_context_t
-platform_io_context(laio_handle *ioh)
-{
-   return ioh->ctx;
-}

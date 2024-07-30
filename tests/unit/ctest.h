@@ -79,14 +79,26 @@ struct ctest {
    unsigned int magic;
 };
 
-// If FALSE (default), then CTEST_LOG_INFO() and CTEST_LOG() will no-op.
-extern _Bool Ctest_verbose;
+/*
+ * Message verbosity levels: For every message level, all messages at a lower
+ * severity level are also printed. (Modelled on syslog's severity levels.)
+ * See: https://en.wikipedia.org/wiki/Syslog
+ */
+typedef enum msg_level {
+   MSG_LEVEL_SILENT = 0, // No messages are printed
+   MSG_LEVEL_ERRORS = 3, // Only error messages are printed
+   MSG_LEVEL_INFO   = 6, // Informational messages are printed
+   MSG_LEVEL_DEBUG  = 7, // All messages, including debug outputs, are printed
+} msg_level;
 
-// For immedate logging to stdout
+// If FALSE (default), then CTEST_LOG_INFO() and CTEST_LOG() will no-op.
+extern msg_level Ctest_verbosity;
+
+// For immediate logging to stdout at any message verbosity level.
 // (contrast with CTEST_LOG which does buffered/delayed logging to stderr)
 #define CTEST_LOG_INFO(...)                                                    \
    do {                                                                        \
-      if (Ctest_verbose) {                                                     \
+      if (Ctest_verbosity >= MSG_LEVEL_INFO) {                                 \
          fprintf(stdout, __VA_ARGS__);                                         \
          fflush(stdout);                                                       \
       }                                                                        \
@@ -322,4 +334,4 @@ assert_dbl_far(double      exp,
       va_end(varargs);                                                         \
    } while (0)
 
-#endif
+#endif /* CTEST_H */

@@ -48,14 +48,14 @@ pcq_count(const pcq *q)
 }
 
 // Return TRUE if PCQ is empty, FALSE otherwise
-static inline bool
+static inline bool32
 pcq_is_empty(const pcq *q)
 {
    return q->head.v == q->tail.v;
 }
 
 // Return TRUE if PCQ is full, FALSE otherwise
-static inline bool
+static inline bool32
 pcq_is_full(const pcq *q)
 {
    return pcq_count(q) == q->num_elems;

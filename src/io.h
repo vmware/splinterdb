@@ -43,7 +43,7 @@ typedef platform_status (*io_write_fn)(io_handle *io,
                                        void      *buf,
                                        uint64     bytes,
                                        uint64     addr);
-typedef io_async_req *(*io_get_async_req_fn)(io_handle *io, bool blocking);
+typedef io_async_req *(*io_get_async_req_fn)(io_handle *io, bool32 blocking);
 typedef struct iovec *(*io_get_iovec_fn)(io_handle *io, io_async_req *req);
 typedef void *(*io_get_metadata_fn)(io_handle *io, io_async_req *req);
 typedef platform_status (*io_read_async_fn)(io_handle     *io,
@@ -57,11 +57,12 @@ typedef platform_status (*io_write_async_fn)(io_handle     *io,
                                              uint64         count,
                                              uint64         addr);
 typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
-typedef void (*io_cleanup_all_fn)(io_handle *io);
-typedef void (*io_thread_register_fn)(io_handle *io);
-typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
-typedef void *(*io_get_context_fn)(io_handle *io);
+typedef void (*io_wait_all_fn)(io_handle *io);
+typedef void (*io_register_thread_fn)(io_handle *io);
+typedef void (*io_deregister_thread_fn)(io_handle *io);
+typedef bool32 (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
 
+typedef void *(*io_get_context_fn)(io_handle *io);
 
 /*
  * An abstract IO interface, holding different IO Ops function pointers.
@@ -75,8 +76,9 @@ typedef struct io_ops {
    io_read_async_fn          read_async;
    io_write_async_fn         write_async;
    io_cleanup_fn             cleanup;
-   io_cleanup_all_fn         cleanup_all;
-   io_thread_register_fn     thread_register;
+   io_wait_all_fn            wait_all;
+   io_register_thread_fn     register_thread;
+   io_deregister_thread_fn   deregister_thread;
    io_max_latency_elapsed_fn max_latency_elapsed;
    io_get_context_fn         get_context;
 } io_ops;
@@ -89,10 +91,7 @@ struct io_handle {
 };
 
 platform_status
-io_handle_init(platform_io_handle  *ioh,
-               io_config           *cfg,
-               platform_heap_handle hh,
-               platform_heap_id     hid);
+io_handle_init(platform_io_handle *ioh, io_config *cfg, platform_heap_id hid);
 
 void
 io_handle_deinit(platform_io_handle *ioh);
@@ -110,7 +109,7 @@ io_write(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 }
 
 static inline io_async_req *
-io_get_async_req(io_handle *io, bool blocking)
+io_get_async_req(io_handle *io, bool32 blocking)
 {
    return io->ops->get_async_req(io, blocking);
 }
@@ -155,32 +154,34 @@ io_cleanup(io_handle *io, uint64 count)
 
 // Guarantees all in-flight IOs are complete before return
 static inline void
-io_cleanup_all(io_handle *io)
+io_wait_all(io_handle *io)
 {
-   return io->ops->cleanup_all(io);
+   return io->ops->wait_all(io);
 }
 
 static inline void
-io_thread_register(io_handle *io)
+io_register_thread(io_handle *io)
 {
-   if (io->ops->thread_register) {
-      return io->ops->thread_register(io);
+   if (io->ops->register_thread) {
+      return io->ops->register_thread(io);
    }
 }
 
-static inline bool
+static inline void
+io_deregister_thread(io_handle *io)
+{
+   if (io->ops->deregister_thread) {
+      return io->ops->deregister_thread(io);
+   }
+}
+
+static inline bool32
 io_max_latency_elapsed(io_handle *io, timestamp ts)
 {
    if (io->ops->max_latency_elapsed) {
       return io->ops->max_latency_elapsed(io, ts);
    }
    return TRUE;
-}
-
-static inline void *
-io_get_context(io_handle *io)
-{
-   return io->ops->get_context(io);
 }
 
 /*

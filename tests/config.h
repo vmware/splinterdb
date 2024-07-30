@@ -9,13 +9,7 @@
 
 #pragma once
 
-#include "clockcache.h"
-#include "splinterdb/data.h"
-#include "io.h"
-#include "rc_allocator.h"
-#include "shard_log.h"
-#include "trunk.h"
-#include "util.h"
+#include "cache.h"
 
 extern const char *BUILD_VERSION;
 
@@ -40,6 +34,16 @@ _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
  * Convenience structure to hold configuration options for all sub-systems.
  * Command-line parsing routines parse config params into these structs.
  * Mostly needed for testing interfaces.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
+ *
+ * - use_shmem: Support for shared memory segments:
+ *
+ *   This flag will configure a shared memory segment. All (most) run-time
+ *   memory allocation will be done from this shared segment. Currently,
+ *   we do not support free(), so you will likely run out of shared memory
+ *   and run into shared-memory OOM errors. This functionality is
+ *   solely meant for internal development uses.
  * --------------------------------------------------------------------------
  */
 typedef struct master_config {
@@ -57,7 +61,7 @@ typedef struct master_config {
 
    // cache
    uint64 cache_capacity;
-   bool   cache_use_stats;
+   bool32 cache_use_stats;
    char   cache_logfile[MAX_STRING_LENGTH];
 
    // btree
@@ -68,21 +72,27 @@ typedef struct master_config {
    uint64 filter_index_size;
 
    // log
-   bool use_log;
+   bool32 use_log;
 
    // task system
    uint64 num_normal_bg_threads;   // Both bg_threads fields have to be non-zero
    uint64 num_memtable_bg_threads; // for background threads to be enabled
 
    // splinter
-   uint64               memtable_capacity;
-   uint64               fanout;
-   uint64               max_branches_per_node;
-   uint64               use_stats;
-   uint64               reclaim_threshold;
-   uint64               queue_scale_percent;
-   bool                 verbose_logging_enabled;
-   bool                 verbose_progress;
+   uint64 memtable_capacity;
+   uint64 fanout;
+   uint64 max_branches_per_node;
+   uint64 use_stats;
+   uint64 reclaim_threshold;
+   uint64 queue_scale_percent;
+   bool   verbose_logging_enabled;
+   bool   verbose_progress;
+
+   // Shared memory support      **** Experimental feature ****
+   uint64 shmem_size;
+   bool   use_shmem;  // Memory allocation done from shared segment
+   bool   fork_child; // Default is FALSE
+
    platform_log_handle *log_handle;
 
    // data
@@ -92,6 +102,8 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 num_processes; // # of [forked] processes
+   bool   wait_for_gdb;  // To debug child processes.
 } master_config;
 
 
@@ -107,6 +119,8 @@ config_parse(master_config *cfg,
              int            argc,
              char          *argv[]);
 
+bool
+config_parse_use_shmem(int argc, char *argv[]);
 
 /*
  * Config option parsing macros

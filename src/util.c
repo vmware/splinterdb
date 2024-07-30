@@ -18,14 +18,19 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
       minspace = 2 * wb->buffer_capacity;
    }
 
-   void *oldptr  = wb->can_free ? wb->buffer : NULL;
-   void *newdata = platform_realloc(wb->heap_id, oldptr, minspace);
+   void *newdata = NULL;
+   if (wb->can_free) {
+      newdata = platform_realloc(
+         wb->heap_id, wb->buffer_capacity, wb->buffer, minspace);
+   } else {
+      char *newbuf = TYPED_MANUAL_MALLOC(wb->heap_id, newbuf, minspace);
+      if (newbuf && writable_buffer_data(wb)) {
+         memcpy(newbuf, wb->buffer, wb->length);
+      }
+      newdata = (void *)newbuf;
+   }
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
-   }
-
-   if (oldptr == NULL && wb->length != WRITABLE_BUFFER_NULL_LENGTH) {
-      memcpy(newdata, wb->buffer, wb->length);
    }
 
    wb->buffer_capacity = minspace;
@@ -52,7 +57,7 @@ writable_buffer_resize(writable_buffer *wb, uint64 newlength)
  * negative_limit and positive_limit are absolute values
  *----------------------------------------------------------------------
  */
-static inline bool
+static inline bool32
 try_string_to_uint64_limit(const char  *nptr,           // IN
                            const uint64 negative_limit, // IN
                            const uint64 positive_limit, // IN
@@ -67,7 +72,7 @@ try_string_to_uint64_limit(const char  *nptr,           // IN
    } while (isspace(c));
 
    // Skip (single) leading '+', treat single leading '-' as negative
-   bool negative = FALSE;
+   bool32 negative = FALSE;
    if (c == '-') {
       if (negative_limit == 0) {
          goto negative_disallowed;
@@ -109,7 +114,7 @@ try_string_to_uint64_limit(const char  *nptr,           // IN
    const int    cutlim = limit % (uint64)base;
 
    uint64 value;
-   bool   converted_any = FALSE;
+   bool32 converted_any = FALSE;
    for (value = 0; c != '\0'; c = *s++) {
       if (isspace(c)) {
          break;
@@ -195,7 +200,7 @@ multiple_strings:
  * Base is automatically detected based on the regular expressions above
  *----------------------------------------------------------------------
  */
-bool
+bool32
 try_string_to_uint64(const char *nptr, // IN
                      uint64     *n)        // OUT
 {
@@ -204,7 +209,7 @@ try_string_to_uint64(const char *nptr, // IN
    return try_string_to_uint64_limit(nptr, negative_limit, positive_limit, n);
 }
 
-bool
+bool32
 try_string_to_int64(const char *nptr, // IN
                     int64      *n)         // OUT
 {
@@ -220,7 +225,7 @@ try_string_to_int64(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint32(const char *nptr, // IN
                      uint32     *n)        // OUT
 {
@@ -232,7 +237,7 @@ try_string_to_uint32(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint16(const char *nptr, // IN
                      uint16     *n)        // OUT
 {
@@ -244,7 +249,7 @@ try_string_to_uint16(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_uint8(const char *nptr, // IN
                     uint8      *n)         // OUT
 {
@@ -256,7 +261,7 @@ try_string_to_uint8(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int32(const char *nptr, // IN
                     int32      *n)         // OUT
 {
@@ -268,7 +273,7 @@ try_string_to_int32(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int16(const char *nptr, // IN
                     int16      *n)         // OUT
 {
@@ -280,7 +285,7 @@ try_string_to_int16(const char *nptr, // IN
    return TRUE;
 }
 
-bool
+bool32
 try_string_to_int8(const char *nptr, // IN
                    int8       *n)          // OUT
 {
@@ -363,4 +368,65 @@ void
 debug_hex_dump_slice(platform_log_handle *plh, uint64 grouping, slice data)
 {
    debug_hex_dump(plh, grouping, slice_length(data), slice_data(data));
+}
+
+/*
+ * Format a size value with unit-specifiers, in an output buffer.
+ * Returns 'outbuf', as ptr to size-value snprintf()'ed as a string.
+ */
+char *
+size_to_str(char *outbuf, size_t outbuflen, size_t size)
+{
+   debug_assert(outbuflen >= SIZE_TO_STR_LEN, "outbuflen=%lu.\n", outbuflen);
+   size_t unit_val  = 0;
+   size_t frac_val  = 0;
+   bool32 is_approx = FALSE;
+
+   char *units = NULL;
+   if (size >= TiB) {
+      unit_val  = B_TO_TiB(size);
+      frac_val  = B_TO_TiB_FRACT(size);
+      is_approx = (size > TiB_TO_B(unit_val));
+      units     = "TiB";
+
+   } else if (size >= GiB) {
+      unit_val  = B_TO_GiB(size);
+      frac_val  = B_TO_GiB_FRACT(size);
+      is_approx = (size > GiB_TO_B(unit_val));
+      units     = "GiB";
+
+   } else if (size >= MiB) {
+      unit_val  = B_TO_MiB(size);
+      frac_val  = B_TO_MiB_FRACT(size);
+      is_approx = (size > MiB_TO_B(unit_val));
+      units     = "MiB";
+
+   } else if (size >= KiB) {
+      unit_val  = B_TO_KiB(size);
+      frac_val  = B_TO_KiB_FRACT(size);
+      is_approx = (size > KiB_TO_B(unit_val));
+      units     = "KiB";
+   } else {
+      unit_val = size;
+      units    = "bytes";
+   }
+
+   if (frac_val || is_approx) {
+      snprintf(outbuf, outbuflen, "~%ld.%02ld %s", unit_val, frac_val, units);
+   } else {
+      snprintf(outbuf, outbuflen, "%ld %s", unit_val, units);
+   }
+   return outbuf;
+}
+
+/*
+ * Sibling of size_to_str(), but uses user-provided print format specifier.
+ * 'fmtstr' is expected to have just one '%s', and whatever other text user
+ * wishes to print with the output string.
+ */
+char *
+size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size)
+{
+   snprintf(outbuf, outbuflen, fmtstr, size_str(size));
+   return outbuf;
 }
