@@ -525,11 +525,13 @@ static inline void
 rw_entry_deinit(rw_entry *entry)
 {
    if (!slice_is_null(entry->key)) {
-      platform_free_from_heap(0, (void *)slice_data(entry->key));
+      void *ptr = (void *)slice_data(entry->key);
+      platform_free(0, ptr);
    }
 
    if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
+      void *ptr = (void *)message_data(entry->msg);
+      platform_free(0, ptr);
    }
 }
 
@@ -763,7 +765,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          //          txn_kvsb->tcfg->txn_data_cfg->application_data_config,
          //          mvcc_user_key(w->key),
          //          &new_message);
-         //       platform_free_from_heap(0, (void *)message_data(w->msg));
+         //       void *ptr = (void *)message_data(w->msg);
+         //       platform_free(0, ptr);
          //       rw_entry_set_msg(
          //          w, txn->ts, merge_accumulator_to_message(&new_message));
          //       merge_accumulator_deinit(&new_message);
@@ -783,7 +786,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          //          mvcc_user_key(w->key),
          //          get_app_value_from_merge_accumulator(&_result->value),
          //          &new_message);
-         //       platform_free_from_heap(0, (void *)message_data(w->msg));
+         //       void *ptr = (void *)message_data(w->msg);
+         //       platform_free(0, ptr);
          //       rw_entry_set_msg(
          //          w, txn->ts, merge_accumulator_to_message(&new_message));
          //       merge_accumulator_deinit(&new_message);
@@ -1018,7 +1022,8 @@ local_write(transactional_splinterdb *txn_kvsb,
    } else {
       // Same key is written multiple times in the same transaction
       if (message_is_definitive(msg)) {
-         platform_free_from_heap(0, (void *)message_data(entry->msg));
+         void *ptr = (void *)message_data(entry->msg);
+         platform_free(0, ptr);
          rw_entry_set_msg(entry, txn->ts, msg);
       } else {
          platform_assert(message_class(entry->msg) == MESSAGE_TYPE_UPDATE);
@@ -1030,7 +1035,8 @@ local_write(transactional_splinterdb *txn_kvsb,
             key_create_from_slice(user_key),
             get_app_value_from_message(entry->msg),
             &new_message);
-         platform_free_from_heap(0, (void *)message_data(entry->msg));
+         void *ptr = (void *)message_data(entry->msg);
+         platform_free(0, ptr);
          rw_entry_set_msg(
             entry, txn->ts, merge_accumulator_to_message(&new_message));
          merge_accumulator_deinit(&new_message);

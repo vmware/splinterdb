@@ -49,33 +49,3 @@ lock_table_rc
 lock_table_release_entry_lock(lock_table *lock_tbl, lock_table_entry *entry);
 lock_table_rc
 lock_table_get_entry_lock_state(lock_table *lock_tbl, lock_table_entry *entry);
-
-
-/*
- * Read-Writer lock
- */
-
-lock_table *
-lock_table_create_with_rwlock(const data_config *spl_data_config);
-
-void
-lock_table_entry_deinit(lock_table *lock_tbl, lock_table_entry *entry);
-
-lock_table_rc
-lock_table_try_acquire_entry_wrlock(lock_table       *lock_tbl,
-                                    lock_table_entry *entry);
-lock_table_rc
-lock_table_try_acquire_entry_rdlock(lock_table       *lock_tbl,
-                                    lock_table_entry *entry);
-lock_table_rc
-lock_table_acquire_entry_wrlock(lock_table *lock_tbl, lock_table_entry *entry);
-lock_table_rc
-lock_table_acquire_entry_rdlock(lock_table *lock_tbl, lock_table_entry *entry);
-lock_table_rc
-lock_table_release_entry_wrlock(lock_table *lock_tbl, lock_table_entry *entry);
-lock_table_rc
-lock_table_release_entry_rdlock(lock_table *lock_tbl, lock_table_entry *entry);
-
-lock_table_rc
-lock_table_get_entry_rwlock_state(lock_table       *lock_tbl,
-                                  lock_table_entry *entry);

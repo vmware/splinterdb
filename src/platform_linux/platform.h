@@ -703,14 +703,6 @@ platform_status
 platform_spinlock_destroy(platform_spinlock *lock);
 
 platform_status
-platform_rwlock_init(platform_rwlock   *rwlock,
-                     platform_module_id module_id,
-                     platform_heap_id   heap_id);
-
-platform_status
-platform_rwlock_destroy(platform_rwlock *rwlock);
-
-platform_status
 platform_thread_create(platform_thread       *thread,
                        bool32                 detached,
                        platform_thread_worker worker,
