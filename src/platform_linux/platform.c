@@ -509,6 +509,22 @@ platform_condvar_wait(platform_condvar *cv)
    return CONST_STATUS(status);
 }
 
+// The pthread function requires the absolute time, but this function
+// takes a duration for waiting in ns for convenience.
+platform_status
+platform_condvar_timedwait(platform_condvar *cv, timestamp timeouts_ns)
+{
+   int status;
+
+   struct timespec ts;
+   clock_gettime(CLOCK_REALTIME, &ts);
+   const timestamp one_second_ns = SEC_TO_NSEC(1);
+   ts.tv_sec += (ts.tv_nsec + timeouts_ns) / one_second_ns;
+   ts.tv_nsec = (ts.tv_nsec + timeouts_ns) % one_second_ns;
+   status     = pthread_cond_timedwait(&cv->cond, &cv->lock, &ts);
+   return CONST_STATUS(status);
+}
+
 platform_status
 platform_condvar_signal(platform_condvar *cv)
 {
