@@ -758,7 +758,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                   txn_kvsb->tcfg->txn_data_cfg.application_data_cfg,
                   key_create_from_slice(w->key),
                   &new_message);
-                  void *ptr = (void *)message_data(w->msg);
+               void *ptr = (void *)message_data(w->msg);
                platform_free(0, ptr);
                w->msg = merge_accumulator_to_message(&new_message);
             } else {
@@ -779,7 +779,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                   key_create_from_slice(w->key),
                   merge_accumulator_to_message(&_result->value),
                   &new_message);
-                  void *ptr = (void *)message_data(w->msg);
+               void *ptr = (void *)message_data(w->msg);
                platform_free(0, ptr);
                w->msg = merge_accumulator_to_message(&new_message);
                splinterdb_lookup_result_deinit(&result);

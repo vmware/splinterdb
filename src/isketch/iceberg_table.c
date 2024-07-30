@@ -1587,9 +1587,9 @@ iceberg_lv2_remove(iceberg_table *table,
 
                      metadata->lv2_md[old_bindex][old_boffset].block_md[slot] =
                         0;
-                     void *ptr = slice_data(blocks[old_boffset].slots[slot].key);
-                     platform_free(
-                        0, ptr);
+                     void *ptr =
+                        slice_data(blocks[old_boffset].slots[slot].key);
+                     platform_free(0, ptr);
                      blocks[old_boffset].slots[slot].key      = NULL_SLICE;
                      blocks[old_boffset].slots[slot].refcount = 0;
                      pc_add(&metadata->lv2_balls, -1, thread_id);
@@ -1655,8 +1655,7 @@ iceberg_lv2_remove(iceberg_table *table,
                }
                metadata->lv2_md[bindex][boffset].block_md[slot] = 0;
                void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
-               platform_free(
-                  0, ptr);
+               platform_free(0, ptr);
                blocks[boffset].slots[slot].key      = NULL_SLICE;
                blocks[boffset].slots[slot].refcount = 0;
                pc_add(&metadata->lv2_balls, -1, thread_id);
@@ -1760,8 +1759,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                   }
                   metadata->lv1_md[old_bindex][old_boffset].block_md[slot] = 0;
                   void *ptr = slice_data(blocks[old_boffset].slots[slot].key);
-                  platform_free(
-                     0, ptr);
+                  platform_free(0, ptr);
                   blocks[old_boffset].slots[slot].key      = NULL_SLICE;
                   blocks[old_boffset].slots[slot].refcount = 0;
                   pc_add(&metadata->lv1_balls, -1, thread_id);
@@ -1845,8 +1843,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             }
             metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
             void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
-            platform_free(
-               0, ptr);
+            platform_free(0, ptr);
             blocks[boffset].slots[slot].key      = NULL_SLICE;
             blocks[boffset].slots[slot].refcount = 0;
             pc_add(&metadata->lv1_balls, -1, thread_id);

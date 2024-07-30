@@ -1,5 +1,26 @@
 #include "experimental_mode.h"
 
+// Define struct transaction
+
+#if EXPERIMENTAL_MODE_KR_OCC || EXPERIMENTAL_MODE_KR_OCC_PARALLEL
+typedef struct transaction {
+   void *internal;
+} transaction;
+#else
+#   define RW_SET_SIZE_LIMIT 64
+typedef struct rw_entry rw_entry;
+typedef struct transaction {
+   rw_entry *rw_entries[RW_SET_SIZE_LIMIT];
+   uint64    num_rw_entries;
+   uint128   ts;
+#   if EXPERIMENTAL_MODE_2PL_WAIT_DIE || EXPERIMENTAL_MODE_2PL_WOUND_WAIT
+   bool      wounded;
+#   endif
+} transaction;
+#endif
+
+// Include the header file for implementation
+
 #if EXPERIMENTAL_MODE_TICTOC_DISK
 #   include "transaction_impl/transaction_tictoc_disk.h"
 #elif EXPERIMENTAL_MODE_TICTOC_MEMORY
@@ -27,6 +48,8 @@
 #elif EXPERIMENTAL_MODE_2PL_NO_WAIT || EXPERIMENTAL_MODE_2PL_WAIT_DIE          \
    || EXPERIMENTAL_MODE_2PL_WOUND_WAIT
 #   include "transaction_impl/transaction_2pl.h"
+#elif EXPERIMENTAL_MODE_KR_OCC || EXPERIMENTAL_MODE_KR_OCC_PARALLEL
+#   include "transaction_impl/transaction_kr_occ.h"
 #elif EXPERIMENTAL_MODE_SILO_MEMORY
 #   include "transaction_impl/transaction_tictoc_lock_silo.h"
 #else

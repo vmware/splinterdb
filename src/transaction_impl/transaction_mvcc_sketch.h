@@ -1034,7 +1034,8 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    splinterdb_close(&_txn_kvsb->kvsb);
    iceberg_print_state(_txn_kvsb->tscache);
 
-   platform_default_log("num_read_V0: %lu, num_read_V1: %lu\n", num_read_V0, num_read_V1);
+   platform_default_log(
+      "num_read_V0: %lu, num_read_V1: %lu\n", num_read_V0, num_read_V1);
 
    // For debugging
    {
