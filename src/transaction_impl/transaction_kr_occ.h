@@ -43,8 +43,9 @@ typedef struct transaction_internal {
 } transaction_internal;
 
 typedef struct transactional_splinterdb_config {
-   splinterdb_config kvsb_cfg;
-   bool              is_upsert_disabled;
+   splinterdb_config           kvsb_cfg;
+   transaction_isolation_level isol_level;
+   bool                        is_upsert_disabled;
 } transactional_splinterdb_config;
 
 typedef struct atomic_counter {
