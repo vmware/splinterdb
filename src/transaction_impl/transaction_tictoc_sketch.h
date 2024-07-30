@@ -724,26 +724,3 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    return rc;
 }
-
-void
-transactional_splinterdb_lookup_result_init(
-   transactional_splinterdb *txn_kvsb,   // IN
-   splinterdb_lookup_result *result,     // IN/OUT
-   uint64                    buffer_len, // IN
-   char                     *buffer      // IN
-)
-{
-   return splinterdb_lookup_result_init(
-      txn_kvsb->kvsb, result, buffer_len, buffer);
-}
-
-void
-transactional_splinterdb_set_isolation_level(
-   transactional_splinterdb   *txn_kvsb,
-   transaction_isolation_level isol_level)
-{
-   platform_assert(isol_level > TRANSACTION_ISOLATION_LEVEL_INVALID);
-   platform_assert(isol_level < TRANSACTION_ISOLATION_LEVEL_MAX_VALID);
-
-   txn_kvsb->tcfg->isol_level = isol_level;
-}

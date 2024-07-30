@@ -793,23 +793,3 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    return rc;
 }
-
-void
-transactional_splinterdb_lookup_result_init(
-   transactional_splinterdb *txn_kvsb,   // IN
-   splinterdb_lookup_result *result,     // IN/OUT
-   uint64                    buffer_len, // IN
-   char                     *buffer      // IN
-)
-{
-   return splinterdb_lookup_result_init(
-      txn_kvsb->kvsb, result, buffer_len, buffer);
-}
-
-void
-transactional_splinterdb_set_isolation_level(
-   transactional_splinterdb   *txn_kvsb,
-   transaction_isolation_level isol_level)
-{
-   // TODO: implement isolation_level. Current: serializable
-}
