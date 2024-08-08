@@ -128,6 +128,7 @@ config_usage()
    platform_error_log("\t--db-capacity-mib (%d)\n",
                       (int)(TEST_CONFIG_DEFAULT_DISK_SIZE_GB * KiB));
    platform_error_log("\t--libaio-queue-depth\n");
+   platform_error_log("\t--io-contexts-per-process (1)\n");
    platform_error_log("\t--cache-capacity-gib (%d)\n",
                       TEST_CONFIG_DEFAULT_CACHE_SIZE_GB);
    platform_error_log("\t--cache-capacity-mib (%d)\n",
