@@ -18,6 +18,7 @@ typedef struct io_async_req io_async_req;
  * IO Configuration structure - used to setup the run-time IO system.
  */
 typedef struct io_config {
+   uint64 io_contexts_per_process;
    uint64 async_queue_size;
    uint64 kernel_queue_size;
    uint64 page_size;
@@ -200,6 +201,7 @@ io_config_init(io_config  *io_cfg,
                uint64      extent_size,
                int         flags,
                uint32      perms,
+               uint64      io_contexts_per_process,
                uint64      async_queue_depth,
                const char *io_filename)
 {
@@ -211,10 +213,11 @@ io_config_init(io_config  *io_cfg,
    int rc = snprintf(io_cfg->filename, MAX_STRING_LENGTH, "%s", io_filename);
    platform_assert(rc < MAX_STRING_LENGTH);
 
-   io_cfg->flags             = flags;
-   io_cfg->perms             = perms;
-   io_cfg->async_queue_size  = async_queue_depth;
-   io_cfg->kernel_queue_size = async_queue_depth;
+   io_cfg->flags                   = flags;
+   io_cfg->perms                   = perms;
+   io_cfg->io_contexts_per_process = io_contexts_per_process;
+   io_cfg->async_queue_size        = async_queue_depth;
+   io_cfg->kernel_queue_size       = async_queue_depth;
 
    // computed values
    io_cfg->async_max_pages = extent_size / page_size;

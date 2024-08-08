@@ -73,6 +73,7 @@ config_set_defaults(master_config *cfg)
       .extent_size              = TEST_CONFIG_DEFAULT_EXTENT_SIZE,
       .io_flags                 = O_RDWR | O_CREAT,
       .io_perms                 = 0755,
+      .io_contexts_per_process  = 1,
       .io_async_queue_depth     = TEST_CONFIG_DEFAULT_IO_ASYNC_Q_DEPTH,
       .allocator_capacity       = GiB_TO_B(TEST_CONFIG_DEFAULT_DISK_SIZE_GB),
       .cache_capacity           = GiB_TO_B(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB),
@@ -279,6 +280,9 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_mib("db-capacity", cfg, allocator_capacity) {}
          config_set_gib("db-capacity", cfg, allocator_capacity) {}
          config_set_uint64("libaio-queue-depth", cfg, io_async_queue_depth) {}
+         config_set_uint64(
+            "io-contexts-per-process", cfg, io_contexts_per_process)
+         {}
          config_set_mib("cache-capacity", cfg, cache_capacity) {}
          config_set_gib("cache-capacity", cfg, cache_capacity) {}
          config_set_string("cache-debug-log", cfg, cache_logfile) {}

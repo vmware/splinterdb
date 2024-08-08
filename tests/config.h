@@ -55,6 +55,7 @@ typedef struct master_config {
    int    io_flags;
    uint32 io_perms;
    uint64 io_async_queue_depth;
+   uint64 io_contexts_per_process;
 
    // allocator
    uint64 allocator_capacity;

@@ -69,6 +69,7 @@ typedef struct splinterdb_config {
    int    io_flags;
    uint32 io_perms;
    uint64 io_async_queue_depth;
+   uint64 io_contexts_per_process;
 
    // cache
    _Bool       cache_use_stats;
