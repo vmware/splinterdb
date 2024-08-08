@@ -273,10 +273,10 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
 
    // Initialize each Async IO request structure
    for (int i = 0; i < cfg->async_queue_size; i++) {
-      req          = laio_get_kth_req(io, i);
-      req->iocb_p  = &req->iocb;
-      req->number  = i;
-      req->ctx_idx = INVALID_TID;
+      req           = laio_get_kth_req(io, i);
+      req->iocb_p   = &req->iocb;
+      req->number   = i;
+      req->pctx_idx = INVALID_TID;
       // We only issue IOs in units of one page
       for (int j = 0; j < cfg->async_max_pages; j++) {
          req->iovec[j].iov_len = cfg->page_size;
@@ -395,7 +395,8 @@ laio_get_async_req(io_handle *ioh, bool32 blocking)
       req = laio_get_kth_req(io, io->req_hand[tid]++);
       if (__sync_bool_compare_and_swap(&req->pctx_idx, INVALID_TID, pctx_idx)) {
          req->ctx_idx =
-            __sync_fetch_and_add(&io->ctx[pctx_idx].next_submit_ctx_idx, 1);
+            __sync_fetch_and_add(&io->ctx[pctx_idx].next_submit_ctx_idx, 1)
+            % io->cfg->io_contexts_per_process;
          return req;
       }
    }
@@ -445,7 +446,7 @@ laio_get_req_context(io_handle *ioh, io_async_req *req)
 {
    laio_handle *io = (laio_handle *)ioh;
    platform_assert(
-      req->pctx_idx < MAX_THREADS, "Invalid ctx_idx=%lu", req->pctx_idx);
+      req->pctx_idx < MAX_THREADS, "Invalid pctx_idx=%lu", req->pctx_idx);
    return &io->ctx[req->pctx_idx];
 }
 
