@@ -731,9 +731,8 @@ node_is_well_formed_leaf(const data_config *data_cfg, const trunk_node *node)
    pivot *ub    = vector_get(&node->pivots, 1);
    key    lbkey = pivot_key(lb);
    key    ubkey = pivot_key(ub);
-   bool32 ret   = lb->child_addr == 0
-                && data_key_compare(data_cfg, lbkey, ubkey) < 0
-                && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
+   bool32 ret =
+      lb->child_addr == 0 && data_key_compare(data_cfg, lbkey, ubkey) < 0;
    if (!ret) {
       platform_error_log("ILL-FORMED LEAF:\n");
       node_print(node, Platform_error_log_handle, data_cfg, 4);
@@ -832,6 +831,7 @@ ondisk_pivot_key(ondisk_pivot *odp)
 static platform_status
 ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
 {
+   platform_assert(addr != 0);
    handle->cc          = cc;
    handle->header_page = cache_get(cc, addr, TRUE, PAGE_TYPE_TRUNK);
    if (handle->header_page == NULL) {
@@ -849,7 +849,9 @@ trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle)
        && handle->content_page != handle->header_page) {
       cache_unget(handle->cc, handle->content_page);
    }
-   cache_unget(handle->cc, handle->header_page);
+   if (handle->header_page != NULL) {
+      cache_unget(handle->cc, handle->header_page);
+   }
    handle->header_page  = NULL;
    handle->content_page = NULL;
 }
@@ -1660,7 +1662,14 @@ trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle)
 {
    platform_status rc;
    trunk_read_begin(context);
-   rc = ondisk_node_handle_init(handle, context->cc, context->root_addr);
+   if (context->root_addr == 0) {
+      handle->cc           = context->cc;
+      handle->header_page  = NULL;
+      handle->content_page = NULL;
+      rc                   = STATUS_OK;
+   } else {
+      rc = ondisk_node_handle_init(handle, context->cc, context->root_addr);
+   }
    trunk_read_end(context);
    return rc;
 }
@@ -2026,6 +2035,7 @@ pivot_state_destroy(pivot_compaction_state *state)
       bc = next;
    }
    pivot_state_unlock_compactions(state);
+   platform_spinlock_destroy(&state->compactions_lock);
    platform_free(state->context->hid, state);
    __sync_fetch_and_add(&pivot_state_destructions, 1);
 }
@@ -2065,7 +2075,7 @@ pivot_compaction_state_append_compaction(pivot_compaction_state     *state,
       }
       last->next = compaction;
    }
-   pivot_state_lock_compactions(state);
+   pivot_state_unlock_compactions(state);
 
    platform_default_log("pivot_compaction_state_append_compaction: %p\n",
                         state);
@@ -2134,6 +2144,8 @@ pivot_state_map_create(trunk_node_context         *context,
    state->maplet  = pivot_bundle->maplet;
    routing_filter_inc_ref(context->cc, &state->maplet);
    state->num_branches = bundle_num_branches(pivot_bundle);
+   platform_spinlock_init(&state->compactions_lock, NULL, context->hid);
+
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;
    __sync_fetch_and_add(&map->num_states, 1);
@@ -3692,7 +3704,7 @@ trunk_merge_lookup(trunk_node_context *context,
                    key                 tgt,
                    merge_accumulator  *result)
 {
-   platform_status rc;
+   platform_status rc = STATUS_OK;
 
    while (handle->header_page) {
       uint64 pivot_num;
