@@ -7623,45 +7623,21 @@ trunk_mount(trunk_config     *cfg,
 
    // find the unmounted super block
    spl->root_addr                      = 0;
-   uint64             meta_tail        = 0;
    uint64             latest_timestamp = 0;
    page_handle       *super_page;
    trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
    if (super != NULL) {
       if (super->unmounted && super->timestamp > latest_timestamp) {
          spl->root_addr   = super->root_addr;
-         meta_tail        = super->meta_tail;
          latest_timestamp = super->timestamp;
       }
       trunk_release_super_block(spl, super_page);
    }
-   if (spl->root_addr == 0) {
-      platform_error_log(
-         "SplinterDB device's root_addr=%lu, trunk super_block=%p."
-         " meta_tail=%lu, latest_timestamp=%lu."
-         " Cannot mount device.\n",
-         spl->root_addr,
-         super,
-         meta_tail,
-         latest_timestamp);
-      platform_free(hid, spl);
-      return (trunk_handle *)NULL;
-   }
-   uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    spl->mt_ctxt            = memtable_context_create(
       spl->heap_id, cc, mt_cfg, trunk_memtable_flush_virtual, spl);
 
-   // The trunk uses an unkeyed mini allocator
-   mini_init(&spl->mini,
-             cc,
-             spl->cfg.data_cfg,
-             meta_head,
-             meta_tail,
-             TRUNK_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK,
-             FALSE);
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }
