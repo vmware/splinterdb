@@ -165,7 +165,7 @@ trunk_fork(trunk_node_context *dst, trunk_node_context *src);
 
 /* Make a trunk durable */
 platform_status
-trunk__make_durable(trunk_node_context *context);
+trunk_node_make_durable(trunk_node_context *context);
 
 /* Unmount a trunk.  Does NOT guarantee durability first. */
 platform_status

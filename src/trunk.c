@@ -925,7 +925,7 @@ trunk_set_super_block(trunk_handle *spl,
    cache_lock(spl->cc, super_page);
 
    super            = (trunk_super_block *)super_page->data;
-   super->root_addr = spl->root_addr;
+   super->root_addr = spl->trunk_context.root_addr;
    super->meta_tail = mini_meta_tail(&spl->mini);
    if (spl->cfg.use_log) {
       if (spl->log) {
@@ -7674,7 +7674,7 @@ trunk_mount(trunk_config     *cfg,
                     cc,
                     al,
                     ts,
-                    super->root_addr);
+                    spl->root_addr);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
