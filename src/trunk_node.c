@@ -132,9 +132,9 @@ branch_ref_addr(branch_ref bref)
 #define NULL_BRANCH_REF ((branch_ref){.addr = 0})
 
 static bool32
-branches_equal(branch_ref a, branch_ref b)
+branch_is_null(branch_ref bref)
 {
-   return a.addr == b.addr;
+   return bref.addr == 0;
 }
 
 /**************************
@@ -1869,7 +1869,7 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
       platform_free(context->hid, compaction->fingerprints);
    }
 
-   if (!branches_equal(compaction->output_branch, NULL_BRANCH_REF)) {
+   if (!branch_is_null(compaction->output_branch)) {
       btree_dec_ref_range(context->cc,
                           context->cfg->btree_cfg,
                           branch_ref_addr(compaction->output_branch),
@@ -2292,33 +2292,37 @@ maplet_compaction_task(void *arg, void *scratch)
    apply_args.state = state;
    vector_init(&apply_args.branches, context->hid);
 
-   routing_filter     new_maplet;
-   routing_filter     old_maplet = state->maplet;
+   routing_filter     new_maplet = state->maplet;
    bundle_compaction *bc         = state->bundle_compactions;
    while (bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
-      rc = routing_filter_add(context->cc,
-                              context->cfg->filter_cfg,
-                              &old_maplet,
-                              &new_maplet,
-                              bc->fingerprints,
-                              bc->output_stats.num_tuples,
-                              state->num_branches
-                                 + vector_length(&apply_args.branches));
-      if (0 < apply_args.num_input_bundles) {
-         routing_filter_dec_ref(context->cc, &old_maplet);
-      }
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
+      if (!branch_is_null(bc->output_branch)) {
+         routing_filter tmp_maplet;
+         rc = routing_filter_add(context->cc,
+                                 context->cfg->filter_cfg,
+                                 &new_maplet,
+                                 &tmp_maplet,
+                                 bc->fingerprints,
+                                 bc->output_stats.num_tuples,
+                                 state->num_branches
+                                    + vector_length(&apply_args.branches));
+         if (new_maplet.addr != state->maplet.addr) {
+            routing_filter_dec_ref(context->cc, &new_maplet);
+         }
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         new_maplet = tmp_maplet;
 
-      rc = vector_append(&apply_args.branches, bc->output_branch);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
+         rc = vector_append(&apply_args.branches, bc->output_branch);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
       }
 
       trunk_pivot_stats delta =
          trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
       apply_args.delta = trunk_pivot_stats_add(apply_args.delta, delta);
+      apply_args.num_input_bundles += bc->num_bundles;
 
       if (context->stats) {
          context->stats[tid].filters_built[state->height]++;
@@ -2326,8 +2330,6 @@ maplet_compaction_task(void *arg, void *scratch)
             bc->output_stats.num_tuples;
       }
 
-      old_maplet = new_maplet;
-      apply_args.num_input_bundles += bc->num_bundles;
       bc = bc->next;
    }
 
@@ -2355,9 +2357,9 @@ cleanup:
                                state->height);
 
    if (SUCCESS(rc)) {
+      routing_filter_inc_ref(context->cc, &new_maplet);
       routing_filter_dec_ref(context->cc, &state->maplet);
       state->maplet = new_maplet;
-      routing_filter_inc_ref(context->cc, &state->maplet);
       state->num_branches += vector_length(&apply_args.branches);
       while (state->bundle_compactions != bc) {
          bundle_compaction *next = state->bundle_compactions->next;
@@ -2371,7 +2373,7 @@ cleanup:
       }
    } else {
       state->maplet_compaction_failed = TRUE;
-      if (0 < apply_args.num_input_bundles) {
+      if (new_maplet.addr != state->maplet.addr) {
          routing_filter_dec_ref(context->cc, &new_maplet);
       }
    }
