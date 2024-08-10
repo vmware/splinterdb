@@ -207,7 +207,12 @@ trunk_merge_lookup(trunk_node_context *context,
                    merge_accumulator  *result);
 
 platform_status
-trunk_collect_branches(trunk_node_context *context,
-                       ondisk_node_handle *handle,
-                       key                 tgt,
-                       branch_merger      *accumulator);
+trunk_collect_branches(const trunk_node_context *context,
+                       const ondisk_node_handle *handle,
+                       key                       tgt,
+                       comparison                start_type,
+                       uint64                    capacity,
+                       uint64                   *num_branches,
+                       uint64                   *branches,
+                       key_buffer               *min_key,
+                       key_buffer               *max_key);

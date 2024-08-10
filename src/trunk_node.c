@@ -1600,17 +1600,6 @@ branch_merger_add_bundle(branch_merger      *merger,
 }
 
 static platform_status
-branch_merger_add_ondisk_bundle(branch_merger      *merger,
-                                cache              *cc,
-                                const btree_config *btree_cfg,
-                                ondisk_bundle      *routed)
-{
-   return branch_merger_add_branches(
-      merger, cc, btree_cfg, routed->num_branches, routed->branches);
-}
-
-
-static platform_status
 branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
 {
    platform_assert(merger->merge_itor == NULL);
@@ -3635,10 +3624,11 @@ cleanup_vectors:
  ***********************************/
 
 static platform_status
-ondisk_node_find_pivot(trunk_node_context *context,
-                       ondisk_node_handle *handle,
-                       key                 tgt,
-                       uint64             *pivot)
+ondisk_node_find_pivot(const trunk_node_context *context,
+                       ondisk_node_handle       *handle,
+                       key                       tgt,
+                       comparison                cmp,
+                       uint64                   *pivot)
 {
    platform_status rc;
    uint64          num_pivots = ondisk_node_num_pivots(handle);
@@ -3646,6 +3636,7 @@ ondisk_node_find_pivot(trunk_node_context *context,
    uint64          max        = num_pivots - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
+   int last_cmp;
    while (min + 1 < max) {
       uint64 mid = (min + max) / 2;
       key    mid_key;
@@ -3653,11 +3644,19 @@ ondisk_node_find_pivot(trunk_node_context *context,
       if (!SUCCESS(rc)) {
          return rc;
       }
-      if (data_key_compare(context->cfg->data_cfg, tgt, mid_key) < 0) {
+      last_cmp = data_key_compare(context->cfg->data_cfg, tgt, mid_key);
+      if (last_cmp < 0) {
          max = mid;
       } else {
          min = mid;
       }
+   }
+   /* 0 < min means we executed the loop at least once.
+      last_cmp == 0 means we found an exact match at pivot[mid], and we then
+      assigned mid to min, which means that pivot[min] == tgt.
+   */
+   if (0 < min && last_cmp == 0 && cmp == less_than) {
+      min--;
    }
    *pivot = min;
    return STATUS_OK;
@@ -3710,7 +3709,8 @@ trunk_merge_lookup(trunk_node_context *context,
 
    while (handle->header_page) {
       uint64 pivot_num;
-      rc = ondisk_node_find_pivot(context, handle, tgt, &pivot_num);
+      rc = ondisk_node_find_pivot(
+         context, handle, tgt, less_than_or_equal, &pivot_num);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -3779,16 +3779,45 @@ cleanup:
 }
 
 platform_status
-trunk_collect_branches(trunk_node_context *context,
-                       ondisk_node_handle *handle,
-                       key                 tgt,
-                       branch_merger      *accumulator)
+trunk_collect_bundle_branches(ondisk_bundle *bndl,
+                              uint64         capacity,
+                              uint64        *num_branches,
+                              uint64        *branches)
+{
+   for (uint64 i = 0; i < bndl->num_branches; i++) {
+      if (*num_branches == capacity) {
+         return STATUS_LIMIT_EXCEEDED;
+      }
+      branches[*num_branches] = branch_ref_addr(bndl->branches[i]);
+      (*num_branches)++;
+   }
+   return STATUS_OK;
+}
+
+platform_status
+trunk_collect_branches(const trunk_node_context *context,
+                       const ondisk_node_handle *inhandle,
+                       key                       tgt,
+                       comparison                start_type,
+                       uint64                    capacity,
+                       uint64                   *num_branches,
+                       uint64                   *branches,
+                       key_buffer               *min_key,
+                       key_buffer               *max_key)
 {
    platform_status rc;
 
-   while (handle->header_page) {
+   ondisk_node_handle handle = *inhandle;
+
+   while (handle.header_page) {
       uint64 pivot_num;
-      rc = ondisk_node_find_pivot(context, handle, tgt, &pivot_num);
+      if (start_type != less_than) {
+         rc = ondisk_node_find_pivot(
+            context, &handle, tgt, less_than_or_equal, &pivot_num);
+      } else {
+         rc = ondisk_node_find_pivot(
+            context, &handle, tgt, less_than, &pivot_num);
+      }
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -3797,7 +3826,7 @@ trunk_collect_branches(trunk_node_context *context,
       uint64 num_inflight_bundles;
       {
          // Restrict the scope of odp
-         ondisk_pivot *odp = ondisk_node_get_pivot(handle, pivot_num);
+         ondisk_pivot *odp = ondisk_node_get_pivot(&handle, pivot_num);
          if (odp == NULL) {
             rc = STATUS_IO_ERROR;
             goto cleanup;
@@ -3807,47 +3836,62 @@ trunk_collect_branches(trunk_node_context *context,
       }
 
       // Add branches from the inflight bundles
-      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(handle);
+      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
-         rc = branch_merger_add_ondisk_bundle(
-            accumulator, context->cc, context->cfg->btree_cfg, bndl);
+         rc = trunk_collect_bundle_branches(
+            bndl, capacity, num_branches, branches);
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
          if (i < num_inflight_bundles - 1) {
-            bndl = ondisk_node_get_next_inflight_bundle(handle, bndl);
+            bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
          }
       }
 
       // Add branches from the pivot bundle
-      bndl = ondisk_node_get_pivot_bundle(handle, pivot_num);
+      bndl = ondisk_node_get_pivot_bundle(&handle, pivot_num);
       if (bndl == NULL) {
          rc = STATUS_IO_ERROR;
          goto cleanup;
       }
-      rc = branch_merger_add_ondisk_bundle(
-         accumulator, context->cc, context->cfg->btree_cfg, bndl);
+      rc =
+         trunk_collect_bundle_branches(bndl, capacity, num_branches, branches);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
 
-      // Proceed to child the child
+      // Proceed to the child
       if (child_addr != 0) {
          ondisk_node_handle child_handle;
          rc = ondisk_node_handle_init(&child_handle, context->cc, child_addr);
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
-         trunk_ondisk_node_handle_deinit(handle);
-         *handle = child_handle;
-      } else {
-         trunk_ondisk_node_handle_deinit(handle);
+         if (handle.header_page != inhandle->header_page) {
+            trunk_ondisk_node_handle_deinit(&handle);
+         }
+         handle = child_handle;
+      } else if (handle.header_page != inhandle->header_page) {
+         key leaf_min_key;
+         key leaf_max_key;
+         debug_assert(ondisk_node_num_pivots(&handle) == 2);
+         rc = ondisk_node_get_pivot_key(&handle, 0, &leaf_min_key);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         rc = ondisk_node_get_pivot_key(&handle, 1, &leaf_max_key);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         key_buffer_copy_key(min_key, leaf_min_key);
+         key_buffer_copy_key(max_key, leaf_max_key);
+         trunk_ondisk_node_handle_deinit(&handle);
       }
    }
 
 cleanup:
-   if (handle->header_page) {
-      trunk_ondisk_node_handle_deinit(handle);
+   if (handle.header_page != inhandle->header_page) {
+      trunk_ondisk_node_handle_deinit(&handle);
    }
    return rc;
 }
