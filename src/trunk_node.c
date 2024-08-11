@@ -3833,8 +3833,13 @@ trunk_collect_branches(const trunk_node_context *context,
                        key_buffer               *min_key,
                        key_buffer               *max_key)
 {
-   platform_status rc;
+   platform_status rc                    = STATUS_OK;
    uint64          original_num_branches = *num_branches;
+
+   rc = key_buffer_copy_key(min_key, NEGATIVE_INFINITY_KEY);
+   platform_assert_status_ok(rc);
+   rc = key_buffer_copy_key(max_key, POSITIVE_INFINITY_KEY);
+   platform_assert_status_ok(rc);
 
    ondisk_node_handle handle = *inhandle;
 
