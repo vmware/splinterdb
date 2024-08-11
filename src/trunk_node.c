@@ -1172,9 +1172,8 @@ cleanup:
 }
 
 static void
-bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
+bundle_inc_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 {
-   routing_filter_inc_ref(context->cc, &bndl->maplet);
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
       branch_ref bref = vector_get(&bndl->branches, i);
       btree_inc_ref_range(context->cc,
@@ -1186,9 +1185,8 @@ bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
 }
 
 static void
-bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
+bundle_dec_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 {
-   routing_filter_dec_ref(context->cc, &bndl->maplet);
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
       branch_ref bref = vector_get(&bndl->branches, i);
       btree_dec_ref_range(context->cc,
@@ -1197,6 +1195,20 @@ bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
                           NEGATIVE_INFINITY_KEY,
                           POSITIVE_INFINITY_KEY);
    }
+}
+
+static void
+bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
+{
+   routing_filter_inc_ref(context->cc, &bndl->maplet);
+   bundle_inc_all_branch_refs(context, bndl);
+}
+
+static void
+bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
+{
+   routing_filter_dec_ref(context->cc, &bndl->maplet);
+   bundle_dec_all_branch_refs(context, bndl);
 }
 
 void
@@ -3789,9 +3801,25 @@ trunk_collect_bundle_branches(ondisk_bundle *bndl,
          return STATUS_LIMIT_EXCEEDED;
       }
       branches[*num_branches] = branch_ref_addr(bndl->branches[i]);
+
       (*num_branches)++;
    }
    return STATUS_OK;
+}
+
+static void
+ondisk_bundle_inc_all_branch_refs(const trunk_node_context *context,
+                                  ondisk_bundle            *bndl)
+{
+   for (uint64 i = 0; i < bndl->num_branches; i++) {
+      branch_ref bref = bndl->branches[i];
+      ;
+      btree_inc_ref_range(context->cc,
+                          context->cfg->btree_cfg,
+                          branch_ref_addr(bref),
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
+   }
 }
 
 platform_status
@@ -3806,6 +3834,7 @@ trunk_collect_branches(const trunk_node_context *context,
                        key_buffer               *max_key)
 {
    platform_status rc;
+   uint64          original_num_branches = *num_branches;
 
    ondisk_node_handle handle = *inhandle;
 
@@ -3843,6 +3872,9 @@ trunk_collect_branches(const trunk_node_context *context,
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
+
+         ondisk_bundle_inc_all_branch_refs(context, bndl);
+
          if (i < num_inflight_bundles - 1) {
             bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
          }
@@ -3859,6 +3891,8 @@ trunk_collect_branches(const trunk_node_context *context,
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
+
+      ondisk_bundle_inc_all_branch_refs(context, bndl);
 
       // Proceed to the child
       if (child_addr != 0) {
@@ -3883,8 +3917,14 @@ trunk_collect_branches(const trunk_node_context *context,
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
-         key_buffer_copy_key(min_key, leaf_min_key);
-         key_buffer_copy_key(max_key, leaf_max_key);
+         rc = key_buffer_copy_key(min_key, leaf_min_key);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
+         rc = key_buffer_copy_key(max_key, leaf_max_key);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
          trunk_ondisk_node_handle_deinit(&handle);
       }
    }
@@ -3893,6 +3933,17 @@ cleanup:
    if (handle.header_page != inhandle->header_page) {
       trunk_ondisk_node_handle_deinit(&handle);
    }
+   if (!SUCCESS(rc)) {
+      for (uint64 i = original_num_branches; i < *num_branches; i++) {
+         btree_dec_ref_range(context->cc,
+                             context->cfg->btree_cfg,
+                             branches[i],
+                             NEGATIVE_INFINITY_KEY,
+                             POSITIVE_INFINITY_KEY);
+      }
+      *num_branches = original_num_branches;
+   }
+
    return rc;
 }
 
