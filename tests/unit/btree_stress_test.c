@@ -184,6 +184,40 @@ CTEST_TEARDOWN(btree_stress)
    platform_heap_destroy(&data->hid);
 }
 
+CTEST2(btree_stress, iterator_basics)
+{
+   uint8          keybuf[1024];
+   uint8          msgbuf[1024];
+   mini_allocator mini;
+
+   uint64 root_addr = btree_create(
+      (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+
+   for (int i = 0; i < 1000; i++) {
+      uint64 generation;
+      bool32 was_unique;
+      iterator_tests(
+         (cache *)&data->cc, &data->dbtree_cfg, root_addr, i, TRUE, data->hid);
+      iterator_tests(
+         (cache *)&data->cc, &data->dbtree_cfg, root_addr, i, FALSE, data->hid);
+
+      if (!SUCCESS(
+             btree_insert((cache *)&data->cc,
+                          &data->dbtree_cfg,
+                          data->hid,
+                          &data->test_scratch,
+                          root_addr,
+                          &mini,
+                          gen_key(&data->dbtree_cfg, i, keybuf, sizeof(keybuf)),
+                          gen_msg(&data->dbtree_cfg, i, msgbuf, sizeof(msgbuf)),
+                          &generation,
+                          &was_unique)))
+      {
+         ASSERT_TRUE(FALSE, "Failed to insert 4-byte %d\n", i);
+      }
+   }
+}
+
 /*
  * -------------------------------------------------------------------------
  * Test case to exercise random inserts of large volumes of data, across
@@ -527,7 +561,7 @@ iterator_tests(cache           *cc,
 
    iterator *iter = (iterator *)&dbiter;
 
-   if (!start_front) {
+   if (0 < nkvs && !start_front) {
       iterator_prev(iter);
    }
    bool32 nonempty = iterator_can_curr(iter);
