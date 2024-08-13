@@ -182,6 +182,7 @@ typedef struct trunk_compacted_memtable {
 struct trunk_handle {
    volatile uint64       root_addr;
    uint64                super_block_idx;
+   uint64                next_node_id;
    trunk_config          cfg;
    platform_heap_id      heap_id;
    platform_batch_rwlock trunk_root_lock;

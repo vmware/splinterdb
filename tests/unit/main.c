@@ -15,7 +15,6 @@
 #include <stdarg.h>
 #include <string.h>
 #include <sys/time.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -144,7 +143,7 @@ sighandler(int signum)
     * so it can terminate as expected
     */
    signal(signum, SIG_DFL);
-   kill(getpid(), signum);
+   kill(platform_getpid(), signum);
 }
 #endif // CTEST_SEGFAULT
 

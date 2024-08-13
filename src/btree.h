@@ -141,7 +141,7 @@ typedef struct btree_iterator {
    int64      idx;
    int64      curr_min_idx;
    uint64     end_addr;
-   uint64     end_idx;
+   int64      end_idx;
    uint64     end_generation;
 } btree_iterator;
 

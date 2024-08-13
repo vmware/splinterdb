@@ -8,7 +8,6 @@
  *     This file contains the implementation for a routing filter
  *----------------------------------------------------------------------
  */
-#include <unistd.h>
 #include "platform.h"
 #include "routing_filter.h"
 #include "PackedArray.h"
@@ -104,7 +103,7 @@ RadixSort(uint32 *pData,
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
                          ", mIndex[j][c]=%d, count=%u\n",
-                         getpid(),
+                         platform_getpid(),
                          platform_get_tid(),
                          i,
                          j,
@@ -500,6 +499,7 @@ routing_filter_add(cache                *cc,
       uint32 *dst_fp             = fp_buffer;
       uint32  index_bucket_start = old_index_no * index_size;
       if (old_index_count != 0) {
+         platform_assert(old_index_count <= ROUTING_FPS_PER_PAGE);
          PackedArray_unpack((uint32 *)old_block_start,
                             0,
                             old_src_fp,

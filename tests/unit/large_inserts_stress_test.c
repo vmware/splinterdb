@@ -11,7 +11,6 @@
  * -----------------------------------------------------------------------------
  */
 #include <fcntl.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/wait.h>
 
@@ -101,7 +100,7 @@ CTEST_SETUP(large_inserts_stress)
 {
    // First, register that main() is being run as a parent process
    data->am_parent = TRUE;
-   data->this_pid  = getpid();
+   data->this_pid  = platform_getpid();
 
    platform_status rc;
    uint64          heap_capacity = (64 * MiB); // small heap is sufficient.
@@ -120,6 +119,7 @@ CTEST_SETUP(large_inserts_stress)
    platform_assert_status_ok(rc);
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                   .io_flags   = data->master_cfg.io_flags,
                                    .cache_size = 1 * Giga,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = data->master_cfg.use_shmem,
@@ -314,7 +314,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
    wcfg.master_cfg  = &data->master_cfg;
    wcfg.num_inserts = data->num_inserts;
 
-   int pid = getpid();
+   int pid = platform_getpid();
 
    if (wcfg.master_cfg->fork_child) {
       pid = fork();
@@ -325,7 +325,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
       } else if (pid) {
          platform_default_log("OS-pid=%d, Thread-ID=%lu: "
                               "Waiting for child pid=%d to complete ...\n",
-                              getpid(),
+                              platform_getpid(),
                               platform_get_tid(),
                               pid);
 
@@ -335,13 +335,13 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
                               "Child execution wait() completed."
                               " Resuming parent ...\n",
                               platform_get_tid(),
-                              getpid());
+                              platform_getpid());
       }
    }
    if (pid == 0) {
       // Record in global data that we are now running as a child.
       data->am_parent = FALSE;
-      data->this_pid  = getpid();
+      data->this_pid  = platform_getpid();
 
       platform_default_log(
          "OS-pid=%d Running as %s process ...\n",
@@ -682,7 +682,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert random value of "
                                     "fixed-length=%lu bytes.\n",
-                                    getpid(),
+                                    platform_getpid(),
                                     thread_idx,
                                     val_len);
                val_length_msg_printed = TRUE;
@@ -696,7 +696,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert small-width sequential values of "
                                     "different lengths.\n",
-                                    getpid(),
+                                    platform_getpid(),
                                     thread_idx);
                val_length_msg_printed = TRUE;
             }
@@ -705,7 +705,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert fully-packed fixed value of "
                                     "length=%lu bytes.\n",
-                                    getpid(),
+                                    platform_getpid(),
                                     thread_idx,
                                     val_len);
                val_length_msg_printed = TRUE;

@@ -606,9 +606,12 @@ function run_fast_unit_tests() {
    # shellcheck disable=SC2086
    "$BINDIR"/unit/task_system_test $Use_shmem
 
+   rm splinterdb_unit_tests_db
+   
    echo " "
    # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $Use_shmem
+   rm db
 }
 
 # ##################################################################
@@ -635,6 +638,7 @@ function run_slower_unit_tests() {
     # in the program to cough-up an error.
     # shellcheck disable=SC2086
     run_with_timing "${msg}" "$BINDIR"/unit/splinter_test ${Use_shmem} test_inserts
+    rm db
 
     # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
     msg="Splinter lookups test ${use_msg}"
@@ -643,6 +647,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
           "$BINDIR"/unit/splinter_test ${Use_shmem} --num-inserts ${num_rows} test_lookups
+    rm db
 
     unset VERBOSE
 
@@ -650,6 +655,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
           "$BINDIR"/unit/splinter_test ${Use_shmem} test_splinter_print_diags
+    rm db
 
     # Test runs w/ default of 1M rows for --num-inserts
     n_mills=1
@@ -667,6 +673,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
             "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} --num-inserts ${num_rows}
+    rm splinterdb_unit_tests_db
 
     # Test runs w/ more inserts and enable bg-threads
     n_mills=2
@@ -679,6 +686,7 @@ function run_slower_unit_tests() {
                                                         --num-inserts ${num_rows} \
                                                         --num-normal-bg-threads 4 \
                                                         --num-memtable-bg-threads 3
+    rm splinterdb_unit_tests_db
     set -e
 }
 
@@ -694,7 +702,8 @@ function run_slower_forked_process_tests() {
 
     local msg="Splinter tests using default number of forked child processes"
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
-
+    rm splinterdb_forked_child_test_db
+    
     # --------------------------------------------------------------------------
     # Will be an interesting test to exercise, but ASAN job in CI failed with:
     # TEST 4/4 splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1569, OS-tid=1569, Thread-ID=1, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
@@ -720,6 +729,7 @@ function run_slower_forked_process_tests() {
                                         --fork-child \
                                         --num-inserts ${num_rows} \
                                         test_seq_key_seq_values_inserts_forked
+    rm splinterdb_unit_tests_db
 }
 
 # ##################################################################
@@ -739,12 +749,14 @@ function run_splinter_functionality_tests() {
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             $Use_shmem \
                                             --key-size ${key_size} --seed "$SEED"
+    rm db
 
     # shellcheck disable=SC2086
     run_with_timing "Functionality test, with default key size${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             $Use_shmem \
                                             --seed "$SEED"
+    rm db
 
     # shellcheck disable=SC2086
     run_with_timing "Functionality test, default key size, with background threads${use_msg}" \
@@ -752,6 +764,7 @@ function run_splinter_functionality_tests() {
                                             $Use_shmem \
                                             --num-normal-bg-threads 4 --num-memtable-bg-threads 2 \
                                             --seed "$SEED"
+    rm db
 
     max_key_size=102
     # shellcheck disable=SC2086
@@ -759,6 +772,7 @@ function run_splinter_functionality_tests() {
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             $Use_shmem \
                                             --key-size ${max_key_size} --seed "$SEED"
+    rm db
 }
 
 # ##################################################################
@@ -784,6 +798,7 @@ function run_splinter_perf_tests() {
                                             --num-inserts 10000 \
                                             --cache-capacity-mib 512 \
                                             --verbose-progress
+    rm db
 
    # Re-run small perf test configuring background threads. This scenario
    # validates that we can configure bg- and user-threads in one go.
@@ -797,6 +812,7 @@ function run_splinter_perf_tests() {
                                             --cache-capacity-mib 512 \
                                             --num-normal-bg-threads 1 \
                                             --num-memtable-bg-threads 1
+    rm db
 
    # shellcheck disable=SC2086
    run_with_timing "Performance test${use_msg}" \
@@ -808,6 +824,7 @@ function run_splinter_perf_tests() {
                                             --num-range-lookup-threads 0 \
                                             --tree-size-gib 2 \
                                             --cache-capacity-mib 512
+    rm db
 }
 
 # ##################################################################
@@ -824,16 +841,19 @@ function run_btree_tests() {
         "$BINDIR"/driver_test btree_test --key-size ${key_size} \
                                          $Use_shmem \
                                          --seed "$SEED"
+    rm db
 
     # shellcheck disable=SC2086
     run_with_timing "BTree test, with default key size${use_msg}" \
         "$BINDIR"/driver_test btree_test $Use_shmem --seed "$SEED"
+    rm db
 
     key_size=100
     # shellcheck disable=SC2086
     run_with_timing "BTree test, key size=${key_size} bytes${use_msg}" \
         "$BINDIR"/driver_test btree_test $Use_shmem \
                                           --key-size ${key_size} --seed "$SEED"
+    rm db
 
     # shellcheck disable=SC2086
     run_with_timing "BTree Perf test${use_msg}" \
@@ -841,6 +861,7 @@ function run_btree_tests() {
                                          --cache-capacity-gib 4 \
                                          --seed "$SEED" \
                                          $Use_shmem
+    rm db
 }
 
 # ##################################################################
@@ -854,14 +875,17 @@ function run_other_driver_tests() {
     # shellcheck disable=SC2086
     run_with_timing "Cache test${use_msg}" \
         "$BINDIR"/driver_test cache_test --seed "$SEED" $Use_shmem
+    rm db
 
     # shellcheck disable=SC2086
     run_with_timing "Log test${use_msg}" \
         "$BINDIR"/driver_test log_test --seed "$SEED" $Use_shmem
+    rm db
 
     # shellcheck disable=SC2086
     run_with_timing "Filter test${use_msg}" \
         "$BINDIR"/driver_test filter_test --seed "$SEED" $Use_shmem
+    rm db
 }
 
 # #######################################################################
@@ -882,12 +906,14 @@ function run_tests_with_shared_memory() {
 
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
+   rm splinterdb_unit_tests_db
 
    # Additional case exercised while developing shared memory support for multi
    # process execution to verify management of IO-contexts under forked processes
    run_with_timing "IO APIs test using shared memory and forked child" \
                    "$BINDIR"/driver_test io_apis_test \
                    --use-shmem --fork-child
+   rm splinterdb_io_apis_test_db
 
    Use_shmem="--use-shmem" run_slower_unit_tests
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi

@@ -32,7 +32,6 @@
  *  Hence, there is no separate lower-level API exerciser unit-test.
  * ----------------------------------------------------------------------------
  */
-#include <unistd.h>
 #include <sys/wait.h>
 
 #include "platform.h"
@@ -51,7 +50,6 @@ typedef struct io_test_fn_args {
    platform_heap_id    hid;
    io_config          *io_cfgp;
    platform_io_handle *io_hdlp;
-   io_context_t        io_ctxt; // Expected opaque context handle
    task_system        *tasks;
    uint64              start_addr;
    uint64              end_addr;
@@ -230,7 +228,7 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.io_async_queue_depth,
                   "splinterdb_io_apis_test_db");
 
-   int pid = getpid();
+   int pid = platform_getpid();
    platform_default_log("Parent OS-pid=%d, Exercise IO sub-system test on"
                         " device '%s'"
                         ", page_size=%lu, extent_size=%lu, async_queue_size=%lu"
@@ -296,18 +294,13 @@ splinter_io_apis_test(int argc, char *argv[])
     * io_setup(). This will be used to compare the address as seen by
     * child threads in its IO context.
     */
-   io_context_t io_ctxt = io_get_context((io_handle *)io_hdl);
    if (Verbose_progress) {
       platform_default_log("Before fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
-                           ", Parent io_hdl=%p"
-                           ", IO context[%lu]: %p (%d bytes)\n",
+                           ", Parent io_hdl=%p\n",
                            pid,
                            main_thread_idx,
                            whoami,
-                           io_hdl,
-                           main_thread_idx,
-                           io_ctxt,
-                           (int)sizeof(io_ctxt));
+                           io_hdl);
    }
 
    /*
@@ -319,7 +312,6 @@ splinter_io_apis_test(int argc, char *argv[])
    io_test_fn_args io_test_fn_arg = {.hid        = hid,
                                      .io_cfgp    = &io_cfg,
                                      .io_hdlp    = io_hdl,
-                                     .io_ctxt    = io_ctxt,
                                      .tasks      = tasks,
                                      .start_addr = start_addr,
                                      .end_addr   = end_addr,
@@ -347,7 +339,7 @@ splinter_io_apis_test(int argc, char *argv[])
                                  "Child execution wait() completed."
                                  " Resuming parent ...\n",
                                  platform_get_tid(),
-                                 getpid());
+                                 platform_getpid());
          }
       }
    }
@@ -366,45 +358,35 @@ splinter_io_apis_test(int argc, char *argv[])
             platform_default_log("After  fork()'ing: OS-pid=%d"
                                  ", ThreadID=%lu (%s)"
                                  ", before thread registration"
-                                 ", Parent io_handle=%p, io_hdl=%p"
-                                 ", IO context[%lu]: "
-                                 "%p\n",
-                                 getpid(),
+                                 ", Parent io_handle=%p, io_hdl=%p\n",
+                                 platform_getpid(),
                                  this_thread_idx,
                                  whoami,
                                  Parent_io_handle,
-                                 io_hdl,
-                                 this_thread_idx,
-                                 io_get_context((io_handle *)io_hdl));
+                                 io_hdl);
          }
 
          task_register_this_thread(tasks, trunk_get_scratch_size());
          this_thread_idx = platform_get_tid();
 
-         io_ctxt = io_get_context((io_handle *)io_hdl);
-
          // Reset the handles / variables that have changed in the child
          // process now that we have re-done IO-setup in the child's context
          io_test_fn_arg.io_hdlp = io_hdl;
-         io_test_fn_arg.io_ctxt = io_ctxt;
          io_test_fn_arg.whoami  = whoami;
 
          // Trace handles in child process, after thread registration
          platform_default_log("After  fork()'ing: %s OS-pid=%d"
                               ", ThreadID=%lu",
                               whoami,
-                              getpid(),
+                              platform_getpid(),
                               this_thread_idx);
 
          if (Verbose_progress) {
             platform_default_log("%s after  thread registration"
-                                 ", Parent io_handle=%p, child io_hdl=%p"
-                                 ", IO context[%lu]: %p\n",
+                                 ", Parent io_handle=%p, child io_hdl=%p\n",
                                  whoami,
                                  Parent_io_handle,
-                                 io_hdl,
-                                 this_thread_idx,
-                                 io_ctxt);
+                                 io_hdl);
          }
       }
 
@@ -441,7 +423,7 @@ heap_destroy:
       platform_default_log("%s: OS-pid=%d, Thread-ID=%lu"
                            " execution completed.\n",
                            whoami,
-                           getpid(),
+                           platform_getpid(),
                            platform_get_tid());
    }
    return (SUCCESS(rc) ? 0 : -1);
@@ -507,7 +489,7 @@ test_sync_writes(platform_heap_id    hid,
          "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page write IOs "
          "from start addr=%lu through end addr=%lu\n",
          __func__,
-         getpid(),
+         platform_getpid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -531,18 +513,6 @@ void
 test_sync_writes_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
-
-   threadid     this_thread_idx = platform_get_tid();
-   io_context_t act_ctxt =
-      (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
-
-   // Each thread, including the main thread, should have its own IO context
-   platform_assert((argp->io_ctxt != act_ctxt),
-                   "In thread tid=%lu: Actual opaque IO context handle, %p"
-                   " should not match expected context handle, %p\n",
-                   this_thread_idx,
-                   act_ctxt,
-                   argp->io_ctxt);
 
    test_sync_writes(argp->hid,
                     argp->io_cfgp,
@@ -618,7 +588,7 @@ test_sync_reads(platform_heap_id    hid,
          "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page read  IOs "
          "from start addr=%lu through end addr=%lu\n",
          __func__,
-         getpid(),
+         platform_getpid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -642,19 +612,6 @@ void
 test_sync_reads_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
-
-   threadid     this_thread_idx = platform_get_tid();
-   io_context_t act_ctxt =
-      (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
-
-   // Each thread, including the main thread, should have its own IO context
-   platform_assert((argp->io_ctxt != act_ctxt),
-                   "In thread tid=%lu: Actual opaque IO context handle, %p"
-                   " should not match expected context handle, %p\n",
-                   this_thread_idx,
-                   act_ctxt,
-                   argp->io_ctxt);
-
 
    test_sync_reads(argp->hid,
                    argp->io_cfgp,
@@ -693,7 +650,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
       "\n%s(): %s process, OS-pid=%d, creates %d threads, %lu pages/thread \n",
       __func__,
       whoami,
-      getpid(),
+      platform_getpid(),
       nthreads,
       npages);
 
@@ -786,10 +743,6 @@ load_thread_params(io_test_fn_args *io_test_param,
 
       // Reset start of the next chunk for next thread to work on
       start_addr = end_addr;
-
-      // Pass-down IO context established in main thread, used for
-      // assertion verification in thread after it's been started.
-      param->io_ctxt = io_test_param->io_ctxt;
 
       param->stamp_char = io_test_param->stamp_char;
       param->whoami     = io_test_param->whoami;
@@ -979,18 +932,6 @@ void
 test_async_reads_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
-
-   threadid     this_thread_idx = platform_get_tid();
-   io_context_t act_ctxt =
-      (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
-
-   // Each thread, including the main thread, should have its own IO context
-   platform_assert((argp->io_ctxt != act_ctxt),
-                   "In thread tid=%lu: Actual opaque IO context handle, %p"
-                   " should not match expected context handle, %p\n",
-                   this_thread_idx,
-                   act_ctxt,
-                   argp->io_ctxt);
 
    test_async_reads(argp->hid,
                     argp->io_cfgp,

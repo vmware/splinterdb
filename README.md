@@ -1,5 +1,8 @@
 ![SplinterDB Project Logo](docs/images/splinterDB-logo.png)
 
+![Splinter Tests](https://github.com/vmware/splinterdb/actions/workflows/run-tests.yml/badge.svg)
+
+
 ## What is SplinterDB?
 SplinterDB is a key-value store designed for high performance on fast storage devices.
 

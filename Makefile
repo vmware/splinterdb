@@ -72,7 +72,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 # use += here, so that extra flags can be provided via the environment
 
-CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
+CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
@@ -87,7 +87,7 @@ ifeq ($(cpu_arch),x86_64)
   CFLAGS += -march=native
 endif
 
-LDFLAGS += -ggdb3 -pthread
+LDFLAGS += -ggdb -pthread
 
 LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
@@ -445,8 +445,7 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                              $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                              $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)            \
-                                           $(COMMON_TESTOBJ)      \
+$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(COMMON_TESTOBJ)      \
                                            $(COMMON_UNIT_TESTOBJ) \
                                            $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                            $(LIBDIR)/libsplinterdb.so
@@ -456,14 +455,12 @@ $(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)                        
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                                   \
-                                        $(COMMON_TESTOBJ)                             \
+$(BINDIR)/$(UNITDIR)/config_parse_test: $(COMMON_TESTOBJ)                             \
                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                         $(COMMON_UNIT_TESTOBJ)                        \
                                         $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                                   \
-                                       $(COMMON_TESTOBJ)                             \
+$(BINDIR)/$(UNITDIR)/task_system_test: $(COMMON_TESTOBJ)                             \
                                        $(COMMON_UNIT_TESTOBJ)                        \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
@@ -473,8 +470,7 @@ $(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)                        \
                                          $(OBJDIR)/$(TESTS_DIR)/config.o    \
                                          $(PLATFORM_SYS)
 
-$(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS)            \
-                                          $(COMMON_UNIT_TESTOBJ) \
+$(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(COMMON_UNIT_TESTOBJ) \
                                           $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test: $(UTIL_SYS)            \
@@ -486,8 +482,7 @@ $(BINDIR)/$(UNITDIR)/splinterdb_forked_child_test: $(OBJDIR)/$(TESTS_DIR)/config
                                                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                    $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/large_inserts_stress_test: $(UTIL_SYS)                      \
-                                                $(OBJDIR)/$(TESTS_DIR)/config.o  \
+$(BINDIR)/$(UNITDIR)/large_inserts_stress_test: $(OBJDIR)/$(TESTS_DIR)/config.o  \
                                                 $(COMMON_UNIT_TESTOBJ)           \
                                                 $(LIBDIR)/libsplinterdb.so
 
