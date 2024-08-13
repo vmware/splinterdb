@@ -152,7 +152,7 @@ CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
 {
    char         key_str[KEY_SIZE];
    char        *value_str = "This is the value string\0";
-   const uint32 inserts   = 1 << 0; // 16 million
+   const uint32 inserts   = 1 << 25; // 16 million
    for (int i = 0; i < inserts; i++) {
       snprintf(key_str, sizeof(key_str), "key-%08x", i);
       slice key = slice_create(sizeof(key_str), key_str);
