@@ -3813,12 +3813,13 @@ ondisk_bundle_inc_all_branch_refs(const trunk_node_context *context,
 {
    for (uint64 i = 0; i < bndl->num_branches; i++) {
       branch_ref bref = bndl->branches[i];
-      ;
-      btree_inc_ref_range(context->cc,
-                          context->cfg->btree_cfg,
-                          branch_ref_addr(bref),
-                          NEGATIVE_INFINITY_KEY,
-                          POSITIVE_INFINITY_KEY);
+      // btree_inc_ref_range(context->cc,
+      //                     context->cfg->btree_cfg,
+      //                     branch_ref_addr(bref),
+      //                     NEGATIVE_INFINITY_KEY,
+      //                     POSITIVE_INFINITY_KEY);
+      btree_block_dec_ref(
+         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
    }
 }
 
@@ -3910,27 +3911,28 @@ trunk_collect_branches(const trunk_node_context *context,
             trunk_ondisk_node_handle_deinit(&handle);
          }
          handle = child_handle;
-      } else if (handle.header_page != inhandle->header_page) {
-         key leaf_min_key;
-         key leaf_max_key;
-         debug_assert(ondisk_node_num_pivots(&handle) == 2);
-         rc = ondisk_node_get_pivot_key(&handle, 0, &leaf_min_key);
-         if (!SUCCESS(rc)) {
-            goto cleanup;
-         }
-         rc = ondisk_node_get_pivot_key(&handle, 1, &leaf_max_key);
-         if (!SUCCESS(rc)) {
-            goto cleanup;
-         }
-         rc = key_buffer_copy_key(min_key, leaf_min_key);
-         if (!SUCCESS(rc)) {
-            goto cleanup;
-         }
-         rc = key_buffer_copy_key(max_key, leaf_max_key);
-         if (!SUCCESS(rc)) {
-            goto cleanup;
-         }
-         trunk_ondisk_node_handle_deinit(&handle);
+      }
+   }
+
+   if (handle.header_page) {
+      key leaf_min_key;
+      key leaf_max_key;
+      debug_assert(ondisk_node_num_pivots(&handle) == 2);
+      rc = ondisk_node_get_pivot_key(&handle, 0, &leaf_min_key);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      rc = ondisk_node_get_pivot_key(&handle, 1, &leaf_max_key);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      rc = key_buffer_copy_key(min_key, leaf_min_key);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      rc = key_buffer_copy_key(max_key, leaf_max_key);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
       }
    }
 
@@ -3940,11 +3942,8 @@ cleanup:
    }
    if (!SUCCESS(rc)) {
       for (uint64 i = original_num_branches; i < *num_branches; i++) {
-         btree_dec_ref_range(context->cc,
-                             context->cfg->btree_cfg,
-                             branches[i],
-                             NEGATIVE_INFINITY_KEY,
-                             POSITIVE_INFINITY_KEY);
+         btree_unblock_dec_ref(
+            context->cc, context->cfg->btree_cfg, branches[i]);
       }
       *num_branches = original_num_branches;
    }

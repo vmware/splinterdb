@@ -1272,14 +1272,14 @@ btree_dec_ref(cache              *cc,
 }
 
 void
-btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
+btree_block_dec_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
 {
    uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
    mini_block_dec_ref(cc, meta_head);
 }
 
 void
-btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
+btree_unblock_dec_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
 {
    uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
    mini_unblock_dec_ref(cc, meta_head);

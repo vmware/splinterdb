@@ -262,10 +262,10 @@ btree_dec_ref(cache              *cc,
               page_type           type);
 
 void
-btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
+btree_block_dec_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
 
 void
-btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
+btree_unblock_dec_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
 
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);
