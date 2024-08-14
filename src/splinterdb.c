@@ -89,6 +89,10 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->io_async_queue_depth = 256;
    }
 
+   if (!cfg->io_contexts_per_process) {
+      cfg->io_contexts_per_process = 1;
+   }
+
    if (!cfg->btree_rough_count_height) {
       cfg->btree_rough_count_height = 1;
    }
@@ -173,6 +177,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                   cfg.extent_size,
                   cfg.io_flags,
                   cfg.io_perms,
+                  cfg.io_contexts_per_process,
                   cfg.io_async_queue_depth,
                   cfg.filename);
 

@@ -225,6 +225,7 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.extent_size,
                   master_cfg.io_flags,
                   master_cfg.io_perms,
+                  master_cfg.io_contexts_per_process,
                   master_cfg.io_async_queue_depth,
                   "splinterdb_io_apis_test_db");
 

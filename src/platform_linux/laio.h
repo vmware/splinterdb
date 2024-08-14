@@ -38,17 +38,20 @@ struct io_async_req {
    io_callback_fn callback;     // issuer callback
    char           metadata[64]; // issuer callback data
    uint64         number;       // request number/id
-   uint64         ctx_idx;      // context index. INVALID_TID if not in use
-   uint64         bytes;        // total bytes in the IO request
-   uint64         count;        // number of vector elements
-   struct iovec   iovec[];      // vector with IO offsets and size
+   uint64         pctx_idx; // process context index. INVALID_TID if not in use
+   uint64         ctx_idx;  // io_contexts index within the process context
+   uint64         bytes;    // total bytes in the IO request
+   uint64         count;    // number of vector elements
+   struct iovec   iovec[];  // vector with IO offsets and size
 };
 
 typedef struct io_process_context {
-   pid_t        pid;
-   uint64       thread_count;
-   uint64       io_count; // inflight ios
-   io_context_t ctx;
+   pid_t         pid;
+   uint64        thread_count;
+   uint64        io_count; // inflight ios summed across all io_contexts
+   uint64        next_submit_ctx_idx;
+   uint64        next_cleanup_ctx_idx;
+   io_context_t *io_contexts;
 } io_process_context;
 
 /*

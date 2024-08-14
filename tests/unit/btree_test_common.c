@@ -22,6 +22,7 @@ init_io_config_from_master_config(io_config *io_cfg, master_config *master_cfg)
                   master_cfg->extent_size,
                   master_cfg->io_flags,
                   master_cfg->io_perms,
+                  master_cfg->io_contexts_per_process,
                   master_cfg->io_async_queue_depth,
                   master_cfg->io_filename);
    return 1;
