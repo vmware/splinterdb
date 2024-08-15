@@ -28,9 +28,6 @@ typedef struct transactional_splinterdb {
    transactional_splinterdb_config *tcfg;
    iceberg_table                   *tscache;
 
-   // For debugging
-   iceberg_table *version_numbers;
-
 #if USE_TRANSACTION_STATS
    // For experimental purpose
    transaction_stats txn_stats;
@@ -141,13 +138,28 @@ version_meta_unlock(version_meta *meta)
 static version_lock_status
 version_meta_try_wrlock(version_meta *meta, txn_timestamp ts)
 {
-   if ((meta->wts_max != MVCC_TIMESTAMP_INF && meta->wts_max > ts)
-       || ts < meta->rts)
-   {
-      // TO rule would be violated so we need to abort
-      // platform_default_log("1 ts %lu, wts_min: %lu, rts: %lu\n", ts,
-      // meta->wts_min, meta->rts);
+   if (meta->wts_max != MVCC_TIMESTAMP_INF) {
+      if (meta->wts_max > ts) {
+         return VERSION_LOCK_STATUS_ABORT;
+      } else {
+         return VERSION_LOCK_STATUS_RETRY_VERSION;
+      }
+   }
+
+   if (ts < meta->rts) {
       return VERSION_LOCK_STATUS_ABORT;
+   }
+
+   mvcc_lock l = meta->lock; // atomically read the lock's lock_bit and holder
+                             // (64-bit aligned)
+   if (l.lock_bit) {
+      // a transaction with higher timestamp already holds this lock
+      // so we abort to prevent deadlocks
+      if (l.lock_holder > ts) {
+         return VERSION_LOCK_STATUS_ABORT;
+      } else {
+         return VERSION_LOCK_STATUS_BUSY;
+      }
    }
 
    mvcc_lock l = meta->lock; // atomically read the lock's lock_bit and holder
@@ -213,15 +225,19 @@ version_meta_try_rdlock(version_meta *meta, txn_timestamp ts)
 {
    if (meta->wts_max != MVCC_TIMESTAMP_INF && ts > meta->wts_max) {
       // TO rule would be violated so we need to abort
-      return VERSION_LOCK_STATUS_ABORT;
+      return VERSION_LOCK_STATUS_RETRY_VERSION;
    }
 
    mvcc_lock l = meta->lock; // TODO: does this atomically read the lock's
                              // lock_bit and holder (64-bit aligned)?
-   if (l.lock_bit && l.lock_holder > ts) {
+   if (l.lock_bit) {
       // a transaction with higher timestamp already holds this lock
       // so we abort to prevent deadlocks
-      return VERSION_LOCK_STATUS_ABORT;
+      if (l.lock_holder > ts) {
+         return VERSION_LOCK_STATUS_ABORT;
+      } else {
+         return VERSION_LOCK_STATUS_BUSY;
+      }
    }
 
    mvcc_lock v1;
@@ -722,15 +738,6 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       == 0);
    _txn_kvsb->tscache = tscache;
 
-   // For debugging
-   {
-      _txn_kvsb->version_numbers = TYPED_ZALLOC(0, _txn_kvsb->version_numbers);
-      platform_assert(iceberg_init(_txn_kvsb->version_numbers,
-                                   &txn_splinterdb_cfg->iceberght_config,
-                                   kvsb_cfg->data_cfg)
-                      == 0);
-   }
-
    *txn_kvsb = _txn_kvsb;
 
    return 0;
@@ -742,10 +749,6 @@ transactional_splinterdb_create(const splinterdb_config   *kvsb_cfg,
 {
    return transactional_splinterdb_create_or_open(kvsb_cfg, txn_kvsb, FALSE);
 }
-
-
-uint64 num_read_V0 = 0;
-uint64 num_read_V1 = 0;
 
 int
 transactional_splinterdb_open(const splinterdb_config   *kvsb_cfg,
@@ -763,13 +766,6 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    splinterdb_close(&_txn_kvsb->kvsb);
    iceberg_print_state(_txn_kvsb->tscache);
 
-   platform_default_log(
-      "num_read_V0: %lu, num_read_V1: %lu\n", num_read_V0, num_read_V1);
-
-   // For debugging
-   {
-      platform_free(0, _txn_kvsb->version_numbers);
-   }
    platform_free(0, _txn_kvsb->tscache);
    platform_free(0, _txn_kvsb->tcfg);
    platform_free(0, _txn_kvsb);
@@ -1106,10 +1102,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    rw_entry_iceberg_insert(txn_kvsb, entry);
 
-   // Find the latest readable version in the list. If there is no
-   // version in the list but the key is in the database, it fills the
-   // version metadata on demand. However, it causes a higher abort
-   // rate by the r-w lock conflict on the list head.
    list_node          *readable_version;
    version_lock_status lc;
    do {
@@ -1122,9 +1114,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          }
          readable_version = readable_version->next;
          if (readable_version == NULL) {
-            // platform_default_log(
-            //    "abort -- all versions' timestamps are higher than me(%u) \n",
-            //    (int32)txn->ts);
             transactional_splinterdb_abort(txn_kvsb, txn);
             return -1;
          }
@@ -1143,14 +1132,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    platform_assert(splinterdb_lookup_found(result));
    readable_version->meta->rts = txn->ts;
    mvcc_key_destroy_slice(spl_key);
-
-   // platform_default_log("%lu lookup key: %s, rts %lu, wts_min %lu, wts_max
-   // %lu\n",
-   //    (uint64)txn->ts,
-   //    (char *)slice_data(user_key),
-   //    readable_version->meta->rts,
-   //    readable_version->meta->wts_min,
-   //    readable_version->meta->wts_max);
 
    version_meta_unlock(readable_version->meta);
    return rc;
