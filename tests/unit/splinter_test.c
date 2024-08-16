@@ -66,8 +66,8 @@ test_lookup_by_range(void         *datap,
 /* Macro to show progress message as workload is running */
 #define SHOW_PCT_PROGRESS(op_num, num_ops, msg)                                \
    do {                                                                        \
-      if (((op_num) % ((num_ops) / 100)) == 0) {                               \
-         platform_default_log(PLATFORM_CR msg, (op_num) / ((num_ops) / 100));  \
+      if ((num_ops) < 100 || ((op_num) % ((num_ops) / 100)) == 0) {            \
+         platform_default_log(PLATFORM_CR msg, 100 * (op_num) / (num_ops));    \
       }                                                                        \
    } while (0)
 

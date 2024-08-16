@@ -113,6 +113,9 @@ _Static_assert(sizeof(platform_batch_rwlock)
 void
 platform_batch_rwlock_init(platform_batch_rwlock *lock);
 
+void
+platform_batch_rwlock_deinit(platform_batch_rwlock *lock);
+
 /* no lock -> shared lock */
 void
 platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx);

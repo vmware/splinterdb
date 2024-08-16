@@ -159,6 +159,10 @@ trunk_node_create(trunk_node_context      *context,
                   task_system             *ts);
 
 
+/* Destroy a trunk */
+void
+trunk_node_destroy(trunk_node_context *context);
+
 /* Create a writable snapshot of a trunk */
 platform_status
 trunk_fork(trunk_node_context *dst, trunk_node_context *src);

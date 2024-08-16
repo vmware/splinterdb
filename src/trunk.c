@@ -3631,6 +3631,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
                        cmt->branch.root_addr,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY);
+   routing_filter_dec_ref(spl->cc, &cmt->filter);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -7722,7 +7723,7 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
 }
 
 bool32
-trunk_node_destroy(trunk_handle *spl, uint64 addr, void *arg)
+trunk_destroy_node(trunk_handle *spl, uint64 addr, void *arg)
 {
    trunk_node node;
    trunk_node_get(spl->cc, addr, &node);
@@ -7767,7 +7768,8 @@ trunk_destroy(trunk_handle *spl)
 {
    srq_deinit(&spl->srq);
    trunk_prepare_for_shutdown(spl);
-   trunk_for_each_node(spl, trunk_node_destroy, NULL);
+   trunk_node_destroy(&spl->trunk_context);
+   trunk_for_each_node(spl, trunk_destroy_node, NULL);
    mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
