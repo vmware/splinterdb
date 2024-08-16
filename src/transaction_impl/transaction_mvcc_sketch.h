@@ -36,7 +36,6 @@ typedef struct transactional_splinterdb {
 
 #define MVCC_VERSION_LATEST 0
 #define MVCC_VERSION_START  1
-#define MVCC_VERSION_NODATA UINT32_MAX
 #define MVCC_TIMESTAMP_INF  ((txn_timestamp)-1)
 
 typedef struct ONDISK mvcc_key_header {
@@ -859,6 +858,12 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          mvcc_key_destroy_slice(new_key);
       }
 
+      // Make the new version visible by inserting it into the list.
+      list_node *new_version = list_node_create(
+         txn->ts, txn->ts, MVCC_TIMESTAMP_INF, new_version_number);
+      new_version->next          = w->version_list_head->next;
+      w->version_list_head->next = new_version;
+
       // Update the wts_max of the previous version. Atomic update
       // (currently implemented by using 64 bits variable)
       if (w->version->meta->version_number == MVCC_VERSION_LATEST) {
@@ -867,12 +872,6 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       } else {
          w->version->meta->wts_max = txn->ts;
       }
-
-      // Make the new version visible by inserting it into the list.
-      list_node *new_version = list_node_create(
-         txn->ts, txn->ts, MVCC_TIMESTAMP_INF, new_version_number);
-      new_version->next          = w->version_list_head->next;
-      w->version_list_head->next = new_version;
 
       // maintain another version for the latest
       {
