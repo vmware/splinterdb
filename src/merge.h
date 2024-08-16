@@ -99,6 +99,7 @@ merge_iterator_create(platform_heap_id   hid,
                       int                num_trees,
                       iterator         **itor_arr,
                       merge_behavior     merge_mode,
+                      bool32             forwards,
                       merge_iterator   **out_itor);
 
 platform_status

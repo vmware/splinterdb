@@ -523,6 +523,7 @@ merge_iterator_create(platform_heap_id   hid,
                       int                num_trees,
                       iterator         **itor_arr,
                       merge_behavior     merge_mode,
+                      bool32             forwards,
                       merge_iterator   **out_itor)
 {
    int             i;
@@ -562,7 +563,7 @@ merge_iterator_create(platform_heap_id   hid,
 
    merge_itor->cfg      = cfg;
    merge_itor->curr_key = NULL_KEY;
-   merge_itor->forwards = TRUE;
+   merge_itor->forwards = forwards;
 
    // index -1 initializes the pad variable
    for (i = -1; i < num_trees; i++) {
@@ -764,14 +765,21 @@ merge_iterator_print(merge_iterator *merge_itor)
    key                curr_key;
    message            data;
    const data_config *data_cfg = merge_itor->cfg;
-   iterator_curr(&merge_itor->super, &curr_key, &data);
+
+   if (iterator_can_curr(&merge_itor->super)) {
+      iterator_curr(&merge_itor->super, &curr_key, &data);
+   }
 
    platform_default_log("****************************************\n");
    platform_default_log("** merge iterator\n");
    platform_default_log("**  - trees: %u remaining: %u\n",
                         merge_itor->num_trees,
                         merge_itor->num_remaining);
-   platform_default_log("** curr: %s\n", key_string(data_cfg, curr_key));
+   if (iterator_can_curr(&merge_itor->super)) {
+      platform_default_log("** curr: %s\n", key_string(data_cfg, curr_key));
+   } else {
+      platform_default_log("** curr: NULL\n");
+   }
    platform_default_log("----------------------------------------\n");
    for (i = 0; i < merge_itor->num_trees; i++) {
       platform_default_log("%u: ", merge_itor->ordered_iterators[i]->seq);

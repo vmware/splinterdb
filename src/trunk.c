@@ -5164,6 +5164,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                               num_branches,
                               itor_arr,
                               merge_mode,
+                              TRUE,
                               &merge_itor);
    platform_assert_status_ok(rc);
    btree_pack_req pack_req;
@@ -5735,6 +5736,7 @@ trunk_split_leaf(trunk_handle *spl,
                                                  num_branches,
                                                  rough_itor,
                                                  MERGE_RAW,
+                                                 TRUE,
                                                  &rough_merge_itor);
       platform_assert_status_ok(rc);
 
@@ -6197,6 +6199,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
                               range_itor->num_branches,
                               range_itor->itor,
                               MERGE_FULL,
+                              greater_than <= start_type,
                               &range_itor->merge_itor);
    platform_assert_status_ok(rc);
 
