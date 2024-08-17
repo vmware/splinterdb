@@ -897,10 +897,10 @@ transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 slice                     value)
 {
    if (!txn) {
-      rw_entry entry;
-      memset(&entry, 0, sizeof(entry));
-      entry.key = user_key;
-      rw_entry_iceberg_insert(txn_kvsb, &entry);
+      // rw_entry entry;
+      // memset(&entry, 0, sizeof(entry));
+      // entry.key = user_key;
+      // rw_entry_iceberg_insert(txn_kvsb, &entry);
 
       return non_transactional_splinterdb_insert(
          txn_kvsb->kvsb, user_key, value);
