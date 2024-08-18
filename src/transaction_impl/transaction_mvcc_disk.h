@@ -338,16 +338,14 @@ rw_entry_unlock(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //                                 mvcc_user_key(entry->key))
    //                                 ,
    //                                 mvcc_key_get_version_from_slice(entry->key));
-   do {
-      mvcc_lock_load(entry->lock, &v1);
-      platform_assert(
-         v1.locked,
-         "%lu (key: %s, version: %u)\n",
-         v1.locked,
-         key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-                    mvcc_user_key(entry->key)),
-         mvcc_key_get_version_from_slice(entry->key));
-   } while (!mvcc_lock_compare_and_swap(entry->lock, &v1, &v2));
+   mvcc_lock_load(entry->lock, &v1);
+   platform_assert(
+      mvcc_lock_compare_and_swap(entry->lock, &v1, &v2),
+      "%lu (key: %s, version: %u)\n",
+      v1.locked,
+      key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                 mvcc_user_key(entry->key)),
+      mvcc_key_get_version_from_slice(entry->key));
 }
 
 
@@ -856,7 +854,11 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       if (rw_entry_is_write(txn->rw_entries[i])) {
-         rw_entry_unlock_and_remove(txn_kvsb, txn->rw_entries[i]);
+         mvcc_lock l;
+         mvcc_lock_load(txn->rw_entries[i]->lock, &l);
+         if (l.lock_holder == txn->ts) {
+            rw_entry_unlock_and_remove(txn_kvsb, txn->rw_entries[i]);
+         }
       }
    }
    transaction_deinit(txn_kvsb, txn);
