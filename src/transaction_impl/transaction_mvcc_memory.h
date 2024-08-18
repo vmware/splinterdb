@@ -33,8 +33,8 @@ typedef struct transactional_splinterdb {
 #endif
 } transactional_splinterdb;
 
-#define MVCC_VERSION_START  1
-#define MVCC_TIMESTAMP_INF  ((txn_timestamp)-1)
+#define MVCC_VERSION_START 1
+#define MVCC_TIMESTAMP_INF ((txn_timestamp)-1)
 
 typedef struct ONDISK mvcc_key_header {
    uint32 version_number;
@@ -483,8 +483,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 }
 
 static inline void
-rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb,
-                        rw_entry                 *entry)
+rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
    if (entry->version_list_head) {
       entry->version_list_head = NULL;
@@ -669,8 +668,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 }
 
 static inline void
-transaction_deinit(transactional_splinterdb *txn_kvsb,
-                   transaction              *txn)
+transaction_deinit(transactional_splinterdb *txn_kvsb, transaction *txn)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry_iceberg_remove(txn_kvsb, txn->rw_entries[i]);
