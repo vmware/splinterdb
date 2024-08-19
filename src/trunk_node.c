@@ -1342,22 +1342,22 @@ ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
 }
 
 static void
-ondisk_node_ref_destroy(ondisk_node_ref    *pvt,
+ondisk_node_ref_destroy(ondisk_node_ref    *odnref,
                         trunk_node_context *context,
                         platform_heap_id    hid)
 {
-   if (pvt->addr != 0) {
-      ondisk_node_dec_ref(context, pvt->addr);
+   if (odnref->addr != 0) {
+      ondisk_node_dec_ref(context, odnref->addr);
    }
-   platform_free(hid, pvt);
+   platform_free(hid, odnref);
 }
 
 static pivot *
-pivot_create_from_ondisk_node_ref(ondisk_node_ref *rcpvt, platform_heap_id hid)
+pivot_create_from_ondisk_node_ref(ondisk_node_ref *odnref, platform_heap_id hid)
 {
    return pivot_create(hid,
-                       ondisk_key_to_key(&rcpvt->key),
-                       rcpvt->addr,
+                       ondisk_key_to_key(&odnref->key),
+                       odnref->addr,
                        0,
                        TRUNK_STATS_ZERO,
                        TRUNK_STATS_ZERO);
