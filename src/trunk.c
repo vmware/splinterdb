@@ -928,8 +928,12 @@ trunk_set_super_block(trunk_handle *spl,
    wait = 1;
    cache_lock(spl->cc, super_page);
 
-   super            = (trunk_super_block *)super_page->data;
-   super->root_addr = spl->trunk_context.root_addr;
+   super = (trunk_super_block *)super_page->data;
+   if (spl->trunk_context.root != NULL) {
+      super->root_addr = spl->trunk_context.root->child_addr;
+   } else {
+      super->root_addr = 0;
+   }
    super->meta_tail = mini_meta_tail(&spl->mini);
    if (spl->cfg.use_log) {
       if (spl->log) {
@@ -3618,14 +3622,14 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
    trunk_compact_bundle_req *req = cmt->req;
-   uint64                    new_root_addr;
+   rc_pivot                 *new_root_pivot;
    uint64                    flush_start;
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
-   rc = trunk_incorporate(
-      &spl->trunk_context, cmt->filter, cmt->branch.root_addr, &new_root_addr);
-   platform_assert_status_ok(rc);
+   new_root_pivot = trunk_incorporate(
+      &spl->trunk_context, cmt->filter, cmt->branch.root_addr);
+   platform_assert(new_root_pivot != NULL, "new_root_pivot is NULL\n");
    btree_dec_ref_range(spl->cc,
                        &spl->cfg.btree_cfg,
                        cmt->branch.root_addr,
@@ -3659,7 +3663,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
 
    // Switch in the new root and release all locks
-   trunk_set_root_address(&spl->trunk_context, new_root_addr);
+   trunk_set_root(&spl->trunk_context, new_root_pivot);
    trunk_modification_end(&spl->trunk_context);
    memtable_unblock_lookups(spl->mt_ctxt);
 
@@ -7571,8 +7575,8 @@ trunk_create(trunk_config     *cfg,
    trunk_node_unclaim(spl->cc, &root);
    trunk_node_unget(spl->cc, &root);
 
-   trunk_node_create(
-      &spl->trunk_context, &spl->cfg.trunk_node_cfg, hid, cc, al, ts);
+   trunk_node_context_init(
+      &spl->trunk_context, &spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -7650,13 +7654,13 @@ trunk_mount(trunk_config     *cfg,
 
    trunk_set_super_block(spl, FALSE, FALSE, FALSE);
 
-   trunk_node_mount(&spl->trunk_context,
-                    &spl->cfg.trunk_node_cfg,
-                    hid,
-                    cc,
-                    al,
-                    ts,
-                    spl->root_addr);
+   trunk_node_context_init(&spl->trunk_context,
+                           &spl->cfg.trunk_node_cfg,
+                           hid,
+                           cc,
+                           al,
+                           ts,
+                           spl->root_addr);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -7768,7 +7772,7 @@ trunk_destroy(trunk_handle *spl)
 {
    srq_deinit(&spl->srq);
    trunk_prepare_for_shutdown(spl);
-   trunk_node_destroy(&spl->trunk_context);
+   trunk_node_context_deinit(&spl->trunk_context);
    trunk_for_each_node(spl, trunk_destroy_node, NULL);
    mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
    // clear out this splinter table from the meta page.

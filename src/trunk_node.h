@@ -95,6 +95,14 @@ typedef struct pivot_state_map {
    pivot_compaction_state *buckets[PIVOT_STATE_MAP_BUCKETS];
 } pivot_state_map;
 
+/* An rc_pivot is a pivot that has an associated bump in the refcount of the
+ * child, so destroying an rc_pivot will perform an ondisk_node_dec_ref. */
+typedef struct rc_pivot {
+   uint64     child_addr;
+   ondisk_key key;
+} rc_pivot;
+
+
 typedef struct trunk_node_context {
    const trunk_node_config *cfg;
    platform_heap_id         hid;
@@ -104,7 +112,7 @@ typedef struct trunk_node_context {
    trunk_node_stats        *stats;
    pivot_state_map          pivot_states;
    platform_batch_rwlock    root_lock;
-   uint64                   root_addr;
+   rc_pivot                *root;
 } trunk_node_context;
 
 typedef struct ondisk_node_handle {
@@ -139,41 +147,26 @@ trunk_node_config_init(trunk_node_config    *config,
                        uint64                target_fanout,
                        uint64 per_child_flush_threshold_kv_bytes);
 
-/* Mount an existing trunk */
-void
-trunk_node_mount(trunk_node_context      *context,
-                 const trunk_node_config *cfg,
-                 platform_heap_id         hid,
-                 cache                   *cc,
-                 allocator               *al,
-                 task_system             *ts,
-                 uint64                   root_addr);
-
-/* Create an empty trunk */
-void
-trunk_node_create(trunk_node_context      *context,
-                  const trunk_node_config *cfg,
-                  platform_heap_id         hid,
-                  cache                   *cc,
-                  allocator               *al,
-                  task_system             *ts);
+platform_status
+trunk_node_context_init(trunk_node_context      *context,
+                        const trunk_node_config *cfg,
+                        platform_heap_id         hid,
+                        cache                   *cc,
+                        allocator               *al,
+                        task_system             *ts,
+                        uint64                   root_addr);
 
 
-/* Destroy a trunk */
 void
-trunk_node_destroy(trunk_node_context *context);
+trunk_node_context_deinit(trunk_node_context *context);
 
 /* Create a writable snapshot of a trunk */
 platform_status
-trunk_fork(trunk_node_context *dst, trunk_node_context *src);
+trunk_node_context_clone(trunk_node_context *dst, trunk_node_context *src);
 
 /* Make a trunk durable */
 platform_status
 trunk_node_make_durable(trunk_node_context *context);
-
-/* Unmount a trunk.  Does NOT guarantee durability first. */
-platform_status
-trunk_node_unmount(trunk_node_context *context);
 
 /********************************
  * Mutations
@@ -182,14 +175,13 @@ trunk_node_unmount(trunk_node_context *context);
 void
 trunk_modification_begin(trunk_node_context *context);
 
-platform_status
+rc_pivot *
 trunk_incorporate(trunk_node_context *context,
                   routing_filter      filter,
-                  uint64              branch,
-                  uint64             *new_root_addr);
+                  uint64              branch);
 
 void
-trunk_set_root_address(trunk_node_context *context, uint64 new_root_addr);
+trunk_set_root(trunk_node_context *context, rc_pivot *root);
 
 void
 trunk_modification_end(trunk_node_context *context);
