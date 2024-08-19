@@ -56,7 +56,7 @@ typedef struct pivot {
 
 typedef VECTOR(pivot *) pivot_vector;
 
-typedef VECTOR(rc_pivot *) rc_pivot_vector;
+typedef VECTOR(ondisk_node_ref *) ondisk_node_ref_vector;
 
 typedef struct ONDISK ondisk_pivot {
    trunk_pivot_stats stats;
@@ -1326,38 +1326,38 @@ node_inc_all_refs(trunk_node_context *context, trunk_node *node)
    }
 }
 
-static rc_pivot *
-rc_pivot_create(platform_heap_id hid, key k, uint64 child_addr)
+static ondisk_node_ref *
+ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
 {
-   rc_pivot *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+   ondisk_node_ref *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, result, key.bytes, ondisk_key_required_data_capacity(k));
    if (result == NULL) {
       platform_error_log(
          "%s():%d: TYPED_FLEXIBLE_STRUCT_ZALLOC() failed", __func__, __LINE__);
       return NULL;
    }
-   result->child_addr = child_addr;
+   result->addr = child_addr;
    copy_key_to_ondisk_key(&result->key, k);
    return result;
 }
 
 static void
-rc_pivot_destroy(rc_pivot           *pvt,
-                 trunk_node_context *context,
-                 platform_heap_id    hid)
+ondisk_node_ref_destroy(ondisk_node_ref    *pvt,
+                        trunk_node_context *context,
+                        platform_heap_id    hid)
 {
-   if (pvt->child_addr != 0) {
-      ondisk_node_dec_ref(context, pvt->child_addr);
+   if (pvt->addr != 0) {
+      ondisk_node_dec_ref(context, pvt->addr);
    }
    platform_free(hid, pvt);
 }
 
 static pivot *
-pivot_create_from_rc_pivot(rc_pivot *rcpvt, platform_heap_id hid)
+pivot_create_from_ondisk_node_ref(ondisk_node_ref *rcpvt, platform_heap_id hid)
 {
    return pivot_create(hid,
                        ondisk_key_to_key(&rcpvt->key),
-                       rcpvt->child_addr,
+                       rcpvt->addr,
                        0,
                        TRUNK_STATS_ZERO,
                        TRUNK_STATS_ZERO);
@@ -1438,7 +1438,7 @@ node_serialize_maybe_setup_next_page(cache        *cc,
    return STATUS_OK;
 }
 
-static rc_pivot *
+static ondisk_node_ref *
 node_serialize(trunk_node_context *context, trunk_node *node)
 {
    platform_status rc;
@@ -1525,8 +1525,8 @@ node_serialize(trunk_node_context *context, trunk_node *node)
 
    node_inc_all_refs(context, node);
 
-   rc_pivot *result =
-      rc_pivot_create(context->hid, node_pivot_key(node, 0), header_addr);
+   ondisk_node_ref *result = ondisk_node_ref_create(
+      context->hid, node_pivot_key(node, 0), header_addr);
    if (result == NULL) {
       goto cleanup;
    }
@@ -1559,15 +1559,15 @@ cleanup:
       cache_extent_discard(context->cc, header_addr, PAGE_TYPE_TRUNK);
    }
    if (result != NULL) {
-      rc_pivot_destroy(result, context, context->hid);
+      ondisk_node_ref_destroy(result, context, context->hid);
    }
    return NULL;
 }
 
 static platform_status
-serialize_nodes(trunk_node_context *context,
-                trunk_node_vector  *nodes,
-                rc_pivot_vector    *result)
+serialize_nodes(trunk_node_context     *context,
+                trunk_node_vector      *nodes,
+                ondisk_node_ref_vector *result)
 {
    platform_status rc;
 
@@ -1576,18 +1576,20 @@ serialize_nodes(trunk_node_context *context,
       goto finish;
    }
    for (uint64 i = 0; i < vector_length(nodes); i++) {
-      rc_pivot *pvt = node_serialize(context, vector_get_ptr(nodes, i));
-      if (pvt == NULL) {
+      ondisk_node_ref *odnref =
+         node_serialize(context, vector_get_ptr(nodes, i));
+      if (odnref == NULL) {
          rc = STATUS_NO_MEMORY;
          goto finish;
       }
-      rc = vector_append(result, pvt);
+      rc = vector_append(result, odnref);
       platform_assert_status_ok(rc);
    }
 
 finish:
    if (!SUCCESS(rc)) {
-      VECTOR_APPLY_TO_ELTS(result, rc_pivot_destroy, context, context->hid);
+      VECTOR_APPLY_TO_ELTS(
+         result, ondisk_node_ref_destroy, context, context->hid);
       vector_truncate(result, 0);
    }
 
@@ -1720,8 +1722,7 @@ trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle)
       handle->content_page = NULL;
       rc                   = STATUS_OK;
    } else {
-      rc = ondisk_node_handle_init(
-         handle, context->cc, context->root->child_addr);
+      rc = ondisk_node_handle_init(handle, context->cc, context->root->addr);
    }
    trunk_read_end(context);
    return rc;
@@ -1735,15 +1736,15 @@ trunk_modification_begin(trunk_node_context *context)
 }
 
 void
-trunk_set_root(trunk_node_context *context, rc_pivot *new_root)
+trunk_set_root(trunk_node_context *context, ondisk_node_ref *new_root_ref)
 {
-   rc_pivot *old_root;
+   ondisk_node_ref *old_root_ref;
    platform_batch_rwlock_lock(&context->root_lock, 0);
-   old_root      = context->root;
-   context->root = new_root;
+   old_root_ref  = context->root;
+   context->root = new_root_ref;
    platform_batch_rwlock_unlock(&context->root_lock, 0);
-   if (old_root != NULL) {
-      rc_pivot_destroy(old_root, context, context->hid);
+   if (old_root_ref != NULL) {
+      ondisk_node_ref_destroy(old_root_ref, context, context->hid);
    }
 }
 
@@ -1763,7 +1764,7 @@ typedef platform_status(apply_changes_fn)(trunk_node_context *context,
                                           trunk_node         *node,
                                           void               *arg);
 
-static rc_pivot *
+static ondisk_node_ref *
 apply_changes_internal(trunk_node_context *context,
                        uint64              addr,
                        key                 minkey,
@@ -1780,13 +1781,13 @@ apply_changes_internal(trunk_node_context *context,
       return NULL;
    }
 
-   rc_pivot_vector new_child_pivots;
-   vector_init(&new_child_pivots, context->hid);
+   ondisk_node_ref_vector new_child_refs;
+   vector_init(&new_child_refs, context->hid);
 
    if (node_height(&node) == height) {
       rc = func(context, addr, &node, arg);
    } else {
-      rc = vector_ensure_capacity(&new_child_pivots, node_num_children(&node));
+      rc = vector_ensure_capacity(&new_child_refs, node_num_children(&node));
       if (SUCCESS(rc)) {
          for (uint64 i = 0; i < node_num_children(&node); i++) {
             pivot *child_pivot  = node_pivot(&node, i);
@@ -1798,30 +1799,30 @@ apply_changes_internal(trunk_node_context *context,
                       context->cfg->data_cfg, minkey, child_maxkey)
                       < 0)
             {
-               uint64    child_addr      = pivot_child_addr(child_pivot);
-               rc_pivot *new_child_pivot = apply_changes_internal(
+               uint64           child_addr    = pivot_child_addr(child_pivot);
+               ondisk_node_ref *new_child_ref = apply_changes_internal(
                   context, child_addr, minkey, maxkey, height, func, arg);
-               if (new_child_pivot == NULL) {
+               if (new_child_ref == NULL) {
                   rc = STATUS_NO_MEMORY;
                   break;
                }
-               rc = vector_append(&new_child_pivots, new_child_pivot);
+               rc = vector_append(&new_child_refs, new_child_ref);
                platform_assert_status_ok(rc);
 
-               pivot_set_child_addr(child_pivot, new_child_pivot->child_addr);
+               pivot_set_child_addr(child_pivot, new_child_ref->addr);
             }
          }
       }
    }
 
-   rc_pivot *result = NULL;
+   ondisk_node_ref *result = NULL;
    if (SUCCESS(rc)) {
       result = node_serialize(context, &node);
    }
 
    node_deinit(&node, context);
    VECTOR_APPLY_TO_ELTS(
-      &new_child_pivots, rc_pivot_destroy, context, context->hid);
+      &new_child_refs, ondisk_node_ref_destroy, context, context->hid);
 
    return result;
 }
@@ -1835,13 +1836,13 @@ apply_changes(trunk_node_context *context,
               void               *arg)
 {
    trunk_modification_begin(context);
-   rc_pivot *new_root = apply_changes_internal(
-      context, context->root->child_addr, minkey, maxkey, height, func, arg);
-   if (new_root != NULL) {
-      trunk_set_root(context, new_root);
+   ondisk_node_ref *new_root_ref = apply_changes_internal(
+      context, context->root->addr, minkey, maxkey, height, func, arg);
+   if (new_root_ref != NULL) {
+      trunk_set_root(context, new_root_ref);
    }
    trunk_modification_end(context);
-   return new_root == NULL ? STATUS_NO_MEMORY : STATUS_OK;
+   return new_root_ref == NULL ? STATUS_NO_MEMORY : STATUS_OK;
 }
 
 /*******************************************************************************
@@ -2704,17 +2705,17 @@ enqueue_bundle_compaction(trunk_node_context *context,
 }
 
 static platform_status
-enqueue_bundle_compactions(trunk_node_context *context,
-                           rc_pivot_vector    *pivots,
-                           trunk_node_vector  *nodes)
+enqueue_bundle_compactions(trunk_node_context     *context,
+                           ondisk_node_ref_vector *odnrefs,
+                           trunk_node_vector      *nodes)
 {
-   debug_assert(vector_length(pivots) == vector_length(nodes));
+   debug_assert(vector_length(odnrefs) == vector_length(nodes));
 
-   for (uint64 i = 0; i < vector_length(pivots); i++) {
-      platform_status rc;
-      rc_pivot       *pvt  = vector_get(pivots, i);
-      trunk_node     *node = vector_get_ptr(nodes, i);
-      rc = enqueue_bundle_compaction(context, pvt->child_addr, node);
+   for (uint64 i = 0; i < vector_length(odnrefs); i++) {
+      platform_status  rc;
+      ondisk_node_ref *odnref = vector_get(odnrefs, i);
+      trunk_node      *node   = vector_get_ptr(nodes, i);
+      rc = enqueue_bundle_compaction(context, odnref->addr, node);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -2724,9 +2725,9 @@ enqueue_bundle_compactions(trunk_node_context *context,
 }
 
 static platform_status
-serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context *context,
-                                               trunk_node_vector  *nodes,
-                                               rc_pivot_vector    *result)
+serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
+                                               trunk_node_vector      *nodes,
+                                               ondisk_node_ref_vector *result)
 {
    platform_status rc;
 
@@ -2737,7 +2738,8 @@ serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context *context,
 
    rc = enqueue_bundle_compactions(context, result, nodes);
    if (!SUCCESS(rc)) {
-      VECTOR_APPLY_TO_ELTS(result, rc_pivot_destroy, context, context->hid);
+      VECTOR_APPLY_TO_ELTS(
+         result, ondisk_node_ref_destroy, context, context->hid);
       vector_truncate(result, 0);
       return rc;
    }
@@ -3297,9 +3299,9 @@ abandon_compactions(trunk_node_context *context, key k, uint64 height)
 }
 
 static platform_status
-restore_balance_leaf(trunk_node_context *context,
-                     trunk_node         *leaf,
-                     rc_pivot_vector    *new_leaves)
+restore_balance_leaf(trunk_node_context     *context,
+                     trunk_node             *leaf,
+                     ondisk_node_ref_vector *new_leaf_refs)
 {
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, context->hid);
@@ -3310,7 +3312,7 @@ restore_balance_leaf(trunk_node_context *context,
       return rc;
    }
 
-   rc = vector_ensure_capacity(new_leaves, vector_length(&new_nodes));
+   rc = vector_ensure_capacity(new_leaf_refs, vector_length(&new_nodes));
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
       vector_deinit(&new_nodes);
@@ -3318,7 +3320,7 @@ restore_balance_leaf(trunk_node_context *context,
    }
 
    rc = serialize_nodes_and_enqueue_bundle_compactions(
-      context, &new_nodes, new_leaves);
+      context, &new_nodes, new_leaf_refs);
    VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
    vector_deinit(&new_nodes);
 
@@ -3350,18 +3352,18 @@ bundle_vector_init_empty(bundle_vector   *new_bundles,
 }
 
 static platform_status
-flush_then_compact(trunk_node_context *context,
-                   trunk_node         *node,
-                   bundle             *routed,
-                   bundle_vector      *inflight,
-                   uint64              inflight_start,
-                   rc_pivot_vector    *new_nodes);
+flush_then_compact(trunk_node_context     *context,
+                   trunk_node             *node,
+                   bundle                 *routed,
+                   bundle_vector          *inflight,
+                   uint64                  inflight_start,
+                   ondisk_node_ref_vector *new_node_refs);
 
 static platform_status
-flush_to_one_child(trunk_node_context *context,
-                   trunk_node         *index,
-                   uint64              pivot_num,
-                   rc_pivot_vector    *new_children_accumulator)
+flush_to_one_child(trunk_node_context     *context,
+                   trunk_node             *index,
+                   uint64                  pivot_num,
+                   ondisk_node_ref_vector *new_childrefs_accumulator)
 {
    platform_status rc = STATUS_OK;
 
@@ -3386,15 +3388,15 @@ flush_to_one_child(trunk_node_context *context,
    }
 
    // Perform the flush, getting back the new children
-   bundle         *pivot_bundle = node_pivot_bundle(index, pivot_num);
-   rc_pivot_vector new_children;
-   vector_init(&new_children, context->hid);
+   bundle                *pivot_bundle = node_pivot_bundle(index, pivot_num);
+   ondisk_node_ref_vector new_childrefs;
+   vector_init(&new_childrefs, context->hid);
    rc = flush_then_compact(context,
                            &child,
                            pivot_bundle,
                            &index->inflight_bundles,
                            pivot_inflight_bundle_start(pvt),
-                           &new_children);
+                           &new_childrefs);
    node_deinit(&child, context);
    if (!SUCCESS(rc)) {
       goto cleanup_new_children;
@@ -3403,12 +3405,14 @@ flush_to_one_child(trunk_node_context *context,
    // Construct our new pivots for the new children
    pivot_vector new_pivots;
    vector_init(&new_pivots, context->hid);
-   rc = vector_ensure_capacity(&new_pivots, vector_length(&new_children));
+   rc = vector_ensure_capacity(&new_pivots, vector_length(&new_childrefs));
    if (!SUCCESS(rc)) {
       goto cleanup_new_pivots;
    }
-   rc = VECTOR_MAP_ELTS(
-      &new_pivots, pivot_create_from_rc_pivot, &new_children, context->hid);
+   rc = VECTOR_MAP_ELTS(&new_pivots,
+                        pivot_create_from_ondisk_node_ref,
+                        &new_childrefs,
+                        context->hid);
    if (!SUCCESS(rc)) {
       goto cleanup_new_pivots;
    }
@@ -3440,7 +3444,7 @@ flush_to_one_child(trunk_node_context *context,
       goto cleanup_new_pivot_bundles;
    }
 
-   rc = vector_append_vector(new_children_accumulator, &new_children);
+   rc = vector_append_vector(new_childrefs_accumulator, &new_childrefs);
    if (!SUCCESS(rc)) {
       goto cleanup_new_pivot_bundles;
    }
@@ -3479,24 +3483,24 @@ cleanup_new_pivot_bundles:
 cleanup_new_pivots:
    vector_deinit(&new_pivots);
 cleanup_new_children:
-   vector_deinit(&new_children);
+   vector_deinit(&new_childrefs);
    return rc;
 }
 
 static platform_status
-restore_balance_index(trunk_node_context *context,
-                      trunk_node         *index,
-                      rc_pivot_vector    *new_indexes)
+restore_balance_index(trunk_node_context     *context,
+                      trunk_node             *index,
+                      ondisk_node_ref_vector *new_index_refs)
 {
    platform_status rc;
 
    debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
 
-   rc_pivot_vector all_new_children;
-   vector_init(&all_new_children, context->hid);
+   ondisk_node_ref_vector all_new_childrefs;
+   vector_init(&all_new_childrefs, context->hid);
 
    for (uint64 i = 0; i < node_num_children(index); i++) {
-      rc = flush_to_one_child(context, index, i, &all_new_children);
+      rc = flush_to_one_child(context, index, i, &all_new_childrefs);
       if (!SUCCESS(rc)) {
          goto cleanup_all_new_children;
       }
@@ -3510,15 +3514,15 @@ restore_balance_index(trunk_node_context *context,
    }
 
    rc = serialize_nodes_and_enqueue_bundle_compactions(
-      context, &new_nodes, new_indexes);
+      context, &new_nodes, new_index_refs);
 
 cleanup_new_nodes:
    VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
    vector_deinit(&new_nodes);
 cleanup_all_new_children:
    VECTOR_APPLY_TO_ELTS(
-      &all_new_children, rc_pivot_destroy, context, context->hid);
-   vector_deinit(&all_new_children);
+      &all_new_childrefs, ondisk_node_ref_destroy, context, context->hid);
+   vector_deinit(&all_new_childrefs);
    return rc;
 }
 
@@ -3532,12 +3536,12 @@ cleanup_all_new_children:
  * node/nodes are returned in new_nodes.
  */
 static platform_status
-flush_then_compact(trunk_node_context *context,
-                   trunk_node         *node,
-                   bundle             *routed,
-                   bundle_vector      *inflight,
-                   uint64              inflight_start,
-                   rc_pivot_vector    *new_nodes)
+flush_then_compact(trunk_node_context     *context,
+                   trunk_node             *node,
+                   bundle                 *routed,
+                   bundle_vector          *inflight,
+                   uint64                  inflight_start,
+                   ondisk_node_ref_vector *new_node_refs)
 {
    platform_status rc;
 
@@ -3554,22 +3558,22 @@ flush_then_compact(trunk_node_context *context,
 
    // Perform any needed recursive flushes and node splits
    if (node_is_leaf(node)) {
-      rc = restore_balance_leaf(context, node, new_nodes);
+      rc = restore_balance_leaf(context, node, new_node_refs);
    } else {
-      rc = restore_balance_index(context, node, new_nodes);
+      rc = restore_balance_index(context, node, new_node_refs);
    }
 
    return rc;
 }
 
 static platform_status
-build_new_roots(trunk_node_context *context,
-                uint64              height, // height of current root
-                rc_pivot_vector    *nodes)
+build_new_roots(trunk_node_context     *context,
+                uint64                  height, // height of current root
+                ondisk_node_ref_vector *node_refs)
 {
    platform_status rc;
 
-   debug_assert(1 < vector_length(nodes));
+   debug_assert(1 < vector_length(node_refs));
 
    // platform_default_log("build_new_roots\n");
    // VECTOR_APPLY_TO_PTRS(nodes,
@@ -3581,12 +3585,12 @@ build_new_roots(trunk_node_context *context,
    // Create the pivots vector for the new root
    pivot_vector pivots;
    vector_init(&pivots, context->hid);
-   rc = vector_ensure_capacity(&pivots, vector_length(nodes) + 1);
+   rc = vector_ensure_capacity(&pivots, vector_length(node_refs) + 1);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
    }
-   rc =
-      VECTOR_MAP_ELTS(&pivots, pivot_create_from_rc_pivot, nodes, context->hid);
+   rc = VECTOR_MAP_ELTS(
+      &pivots, pivot_create_from_ondisk_node_ref, node_refs, context->hid);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
    }
@@ -3637,18 +3641,19 @@ build_new_roots(trunk_node_context *context,
       return rc;
    }
 
-   rc_pivot_vector new_rc_pivots;
-   vector_init(&new_rc_pivots, context->hid);
+   ondisk_node_ref_vector new_ondisk_node_refs;
+   vector_init(&new_ondisk_node_refs, context->hid);
    rc = serialize_nodes_and_enqueue_bundle_compactions(
-      context, &new_nodes, &new_rc_pivots);
+      context, &new_nodes, &new_ondisk_node_refs);
    VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
    vector_deinit(&new_nodes);
    if (!SUCCESS(rc)) {
       goto cleanup_pivots;
    }
 
-   VECTOR_APPLY_TO_ELTS(nodes, rc_pivot_destroy, context, context->hid);
-   rc = vector_copy(nodes, &new_rc_pivots);
+   VECTOR_APPLY_TO_ELTS(
+      node_refs, ondisk_node_ref_destroy, context, context->hid);
+   rc = vector_copy(node_refs, &new_ondisk_node_refs);
    platform_assert_status_ok(rc);
    return STATUS_OK;
 
@@ -3666,22 +3671,22 @@ cleanup_pivots:
    return rc;
 }
 
-rc_pivot *
+ondisk_node_ref *
 trunk_incorporate(trunk_node_context *context,
                   routing_filter      filter,
                   uint64              branch_addr)
 {
-   platform_status rc;
-   rc_pivot       *result = NULL;
-   uint64          height;
+   platform_status  rc;
+   ondisk_node_ref *result = NULL;
+   uint64           height;
 
    branch_ref branch = create_branch_ref(branch_addr);
 
    bundle_vector inflight;
    vector_init(&inflight, context->hid);
 
-   rc_pivot_vector new_nodes;
-   vector_init(&new_nodes, context->hid);
+   ondisk_node_ref_vector new_node_refs;
+   vector_init(&new_node_refs, context->hid);
 
    pivot_vector new_pivot;
    vector_init(&new_pivot, context->hid);
@@ -3697,7 +3702,7 @@ trunk_incorporate(trunk_node_context *context,
    // Read the old root.
    trunk_node root;
    if (context->root != NULL) {
-      rc = node_deserialize(context, context->root->child_addr, &root);
+      rc = node_deserialize(context, context->root->addr, &root);
       if (!SUCCESS(rc)) {
          goto cleanup_vectors;
       }
@@ -3714,7 +3719,7 @@ trunk_incorporate(trunk_node_context *context,
    height = node_height(&root);
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
-   rc = flush_then_compact(context, &root, NULL, &inflight, 0, &new_nodes);
+   rc = flush_then_compact(context, &root, NULL, &inflight, 0, &new_node_refs);
    node_deinit(&root, context);
    if (!SUCCESS(rc)) {
       goto cleanup_vectors;
@@ -3722,21 +3727,22 @@ trunk_incorporate(trunk_node_context *context,
 
    // Build new roots, possibly splitting them, until we get down to a single
    // root with fanout that is within spec.
-   while (1 < vector_length(&new_nodes)) {
-      rc = build_new_roots(context, height, &new_nodes);
+   while (1 < vector_length(&new_node_refs)) {
+      rc = build_new_roots(context, height, &new_node_refs);
       if (!SUCCESS(rc)) {
          goto cleanup_vectors;
       }
       height++;
    }
 
-   result = vector_get(&new_nodes, 0);
+   result = vector_get(&new_node_refs, 0);
 
 cleanup_vectors:
    if (!SUCCESS(rc)) {
-      VECTOR_APPLY_TO_ELTS(&new_nodes, rc_pivot_destroy, context, context->hid);
+      VECTOR_APPLY_TO_ELTS(
+         &new_node_refs, ondisk_node_ref_destroy, context, context->hid);
    }
-   vector_deinit(&new_nodes);
+   vector_deinit(&new_node_refs);
    VECTOR_APPLY_TO_PTRS(&inflight, bundle_deinit);
    vector_deinit(&inflight);
 
@@ -4103,7 +4109,8 @@ trunk_node_context_init(trunk_node_context      *context,
                         uint64                   root_addr)
 {
    if (root_addr != 0) {
-      context->root = rc_pivot_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
+      context->root =
+         ondisk_node_ref_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
       if (context->root == NULL) {
          return STATUS_NO_MEMORY;
       }
@@ -4128,7 +4135,7 @@ trunk_node_context_deinit(trunk_node_context *context)
 {
    platform_assert(context->pivot_states.num_states == 0);
    if (context->root != NULL) {
-      ondisk_node_dec_ref(context, context->root->child_addr);
+      ondisk_node_dec_ref(context, context->root->addr);
    }
    pivot_state_map_deinit(&context->pivot_states);
    platform_batch_rwlock_deinit(&context->root_lock);

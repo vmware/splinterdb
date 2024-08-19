@@ -97,10 +97,10 @@ typedef struct pivot_state_map {
 
 /* An rc_pivot is a pivot that has an associated bump in the refcount of the
  * child, so destroying an rc_pivot will perform an ondisk_node_dec_ref. */
-typedef struct rc_pivot {
-   uint64     child_addr;
+typedef struct ondisk_node_ref {
+   uint64     addr;
    ondisk_key key;
-} rc_pivot;
+} ondisk_node_ref;
 
 
 typedef struct trunk_node_context {
@@ -112,7 +112,7 @@ typedef struct trunk_node_context {
    trunk_node_stats        *stats;
    pivot_state_map          pivot_states;
    platform_batch_rwlock    root_lock;
-   rc_pivot                *root;
+   ondisk_node_ref         *root;
 } trunk_node_context;
 
 typedef struct ondisk_node_handle {
@@ -175,13 +175,13 @@ trunk_node_make_durable(trunk_node_context *context);
 void
 trunk_modification_begin(trunk_node_context *context);
 
-rc_pivot *
+ondisk_node_ref *
 trunk_incorporate(trunk_node_context *context,
                   routing_filter      filter,
                   uint64              branch);
 
 void
-trunk_set_root(trunk_node_context *context, rc_pivot *root);
+trunk_set_root(trunk_node_context *context, ondisk_node_ref *root);
 
 void
 trunk_modification_end(trunk_node_context *context);

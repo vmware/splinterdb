@@ -930,7 +930,7 @@ trunk_set_super_block(trunk_handle *spl,
 
    super = (trunk_super_block *)super_page->data;
    if (spl->trunk_context.root != NULL) {
-      super->root_addr = spl->trunk_context.root->child_addr;
+      super->root_addr = spl->trunk_context.root->addr;
    } else {
       super->root_addr = 0;
    }
@@ -3622,7 +3622,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
    trunk_compact_bundle_req *req = cmt->req;
-   rc_pivot                 *new_root_pivot;
+   ondisk_node_ref          *new_root_pivot;
    uint64                    flush_start;
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
