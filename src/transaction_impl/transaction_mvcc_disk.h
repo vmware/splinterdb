@@ -269,13 +269,18 @@ rw_entry_load_timestamps_from_splinter(transactional_splinterdb *txn_kvsb,
    splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
    int rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, &result);
    platform_assert(rc == 0);
-   platform_assert(splinterdb_lookup_found(&result));
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)&result;
-   mvcc_value_header         *header =
-      (mvcc_value_header *)merge_accumulator_data(&_result->value);
-   entry->rts     = header->update.rts;
-   entry->wts_min = header->wts_min;
-   entry->wts_max = header->update.wts_max;
+   if (splinterdb_lookup_found(&result)) {
+      _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)&result;
+      mvcc_value_header         *header =
+         (mvcc_value_header *)merge_accumulator_data(&_result->value);
+      entry->rts     = header->update.rts;
+      entry->wts_min = header->wts_min;
+      entry->wts_max = header->update.wts_max;
+   } else {
+      entry->rts     = 0;
+      entry->wts_min = 0;
+      entry->wts_max = MVCC_TIMESTAMP_INF;
+   }
    splinterdb_lookup_result_deinit(&result);
 }
 
