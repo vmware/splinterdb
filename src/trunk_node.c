@@ -2414,8 +2414,10 @@ cleanup:
                                state->height);
 
    if (SUCCESS(rc)) {
-      routing_filter_dec_ref(context->cc, &state->maplet);
-      state->maplet = new_maplet;
+      if (new_maplet.addr != state->maplet.addr) {
+         routing_filter_dec_ref(context->cc, &state->maplet);
+         state->maplet = new_maplet;
+      }
       state->num_branches += vector_length(&apply_args.branches);
       while (state->bundle_compactions != bc) {
          bundle_compaction *next = state->bundle_compactions->next;
