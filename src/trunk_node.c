@@ -1021,6 +1021,9 @@ static ondisk_bundle *
 ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle)
 {
    ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   if (header->num_inflight_bundles == 0) {
+      return NULL;
+   }
    ondisk_pivot *pivot  = ondisk_node_get_pivot(handle, header->num_pivots - 1);
    uint64        offset = header->pivot_offsets[header->num_pivots - 1]
                    + sizeof_ondisk_pivot(pivot);
@@ -1425,13 +1428,14 @@ node_serialize_maybe_setup_next_page(cache        *cc,
          cache_unget(cc, *current_page);
       }
       uint64 addr = (*current_page)->disk_addr + page_size;
-      if (extent_size < addr - header_page->disk_addr) {
+      if (extent_size <= addr - header_page->disk_addr) {
          return STATUS_LIMIT_EXCEEDED;
       }
       *current_page = cache_alloc(cc, addr, PAGE_TYPE_TRUNK);
       if (*current_page == NULL) {
          return STATUS_NO_MEMORY;
       }
+      cache_mark_dirty(cc, *current_page);
       *page_offset = 0;
    }
 
@@ -1441,10 +1445,11 @@ node_serialize_maybe_setup_next_page(cache        *cc,
 static ondisk_node_ref *
 node_serialize(trunk_node_context *context, trunk_node *node)
 {
-   platform_status rc;
-   uint64          header_addr  = 0;
-   page_handle    *header_page  = NULL;
-   page_handle    *current_page = NULL;
+   platform_status  rc;
+   uint64           header_addr  = 0;
+   page_handle     *header_page  = NULL;
+   page_handle     *current_page = NULL;
+   ondisk_node_ref *result       = NULL;
 
    if (node_is_leaf(node)) {
       platform_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
@@ -1462,6 +1467,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       rc = STATUS_NO_MEMORY;
       goto cleanup;
    }
+   cache_mark_dirty(context->cc, header_page);
 
    int64 min_inflight_bundle_start = node_first_live_inflight_bundle(node);
 
@@ -1525,7 +1531,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
 
    node_inc_all_refs(context, node);
 
-   ondisk_node_ref *result = ondisk_node_ref_create(
+   result = ondisk_node_ref_create(
       context->hid, node_pivot_key(node, 0), header_addr);
    if (result == NULL) {
       goto cleanup;
@@ -3390,12 +3396,11 @@ flush_to_one_child(trunk_node_context     *context,
    }
 
    // Perform the flush, getting back the new children
-   bundle                *pivot_bundle = node_pivot_bundle(index, pivot_num);
    ondisk_node_ref_vector new_childrefs;
    vector_init(&new_childrefs, context->hid);
    rc = flush_then_compact(context,
                            &child,
-                           pivot_bundle,
+                           node_pivot_bundle(index, pivot_num),
                            &index->inflight_bundles,
                            pivot_inflight_bundle_start(pvt),
                            &new_childrefs);
@@ -3439,7 +3444,10 @@ flush_to_one_child(trunk_node_context     *context,
    if (!SUCCESS(rc)) {
       goto cleanup_new_pivot_bundles;
    }
-   rc = vector_ensure_capacity(&index->pivot_bundles,
+   // Reget this since the pointer may have
+   // changed due to the vector_ensure_capacity
+   pvt = node_pivot(index, pivot_num);
+   rc  = vector_ensure_capacity(&index->pivot_bundles,
                                vector_length(&index->pivot_bundles)
                                   + vector_length(&new_pivot_bundles) - 1);
    if (!SUCCESS(rc)) {
@@ -3462,7 +3470,7 @@ flush_to_one_child(trunk_node_context     *context,
    rc = vector_replace(
       &index->pivots, pivot_num, 1, &new_pivots, 0, vector_length(&new_pivots));
    platform_assert_status_ok(rc);
-   bundle_deinit(pivot_bundle);
+   bundle_deinit(node_pivot_bundle(index, pivot_num));
    rc = vector_replace(&index->pivot_bundles,
                        pivot_num,
                        1,
