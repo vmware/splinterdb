@@ -42,8 +42,8 @@ typedef struct ONDISK ondisk_bundle {
 } ondisk_bundle;
 
 typedef struct ONDISK trunk_pivot_stats {
-   uint64 num_kv_bytes;
-   uint64 num_tuples;
+   int64 num_kv_bytes;
+   int64 num_tuples;
 } trunk_pivot_stats;
 
 typedef struct pivot {
@@ -277,8 +277,6 @@ trunk_pivot_stats_from_btree_pivot_stats(btree_pivot_stats stats)
 static trunk_pivot_stats
 trunk_pivot_stats_subtract(trunk_pivot_stats a, trunk_pivot_stats b)
 {
-   platform_assert(a.num_kv_bytes >= b.num_kv_bytes);
-   platform_assert(a.num_tuples >= b.num_tuples);
    return (trunk_pivot_stats){.num_kv_bytes = a.num_kv_bytes - b.num_kv_bytes,
                               .num_tuples   = a.num_tuples - b.num_tuples};
 }
@@ -288,6 +286,12 @@ trunk_pivot_stats_add(trunk_pivot_stats a, trunk_pivot_stats b)
 {
    return (trunk_pivot_stats){.num_kv_bytes = a.num_kv_bytes + b.num_kv_bytes,
                               .num_tuples   = a.num_tuples + b.num_tuples};
+}
+
+static bool32
+trunk_pivot_stats_are_nonnegative(trunk_pivot_stats stats)
+{
+   return stats.num_kv_bytes >= 0 && stats.num_tuples >= 0;
 }
 
 /******************
@@ -315,8 +319,10 @@ pivot_create(platform_heap_id  hid,
    copy_key_to_ondisk_key(&result->key, k);
    result->child_addr            = child_addr;
    result->inflight_bundle_start = inflight_bundle_start;
-   result->prereceive_stats      = prereceive_stats;
-   result->stats                 = stats;
+   platform_assert(trunk_pivot_stats_are_nonnegative(prereceive_stats));
+   platform_assert(trunk_pivot_stats_are_nonnegative(stats));
+   result->prereceive_stats = prereceive_stats;
+   result->stats            = stats;
    return result;
 }
 
@@ -377,7 +383,10 @@ pivot_set_inflight_bundle_start(pivot *pvt, uint64 start)
 static trunk_pivot_stats
 pivot_received_bundles_stats(const pivot *pvt)
 {
-   return trunk_pivot_stats_subtract(pvt->stats, pvt->prereceive_stats);
+   trunk_pivot_stats result =
+      trunk_pivot_stats_subtract(pvt->stats, pvt->prereceive_stats);
+   platform_assert(trunk_pivot_stats_are_nonnegative(result));
+   return result;
 }
 
 static uint64
@@ -404,6 +413,7 @@ pivot_add_tuple_counts(pivot *pvt, int coefficient, trunk_pivot_stats stats)
    } else {
       platform_assert(0);
    }
+   platform_assert(trunk_pivot_stats_are_nonnegative(pvt->stats));
 }
 
 debug_only static void
@@ -767,7 +777,8 @@ node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
          lb->child_addr != 0
          && lb->inflight_bundle_start <= vector_length(&node->inflight_bundles)
          && data_key_compare(data_cfg, lbkey, ubkey) < 0
-         && lb->prereceive_stats.num_tuples <= lb->stats.num_tuples;
+         && trunk_pivot_stats_are_nonnegative(lb->prereceive_stats)
+         && trunk_pivot_stats_are_nonnegative(lb->stats);
       if (!valid_pivots) {
          platform_error_log("ILL-FORMED INDEX: invalid pivots\n");
          node_print(node, Platform_error_log_handle, data_cfg, 4);
@@ -1177,15 +1188,10 @@ node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
              inflight_bundles);
 
    if (node_is_leaf(result)) {
-      platform_assert(node_is_well_formed_leaf(context->cfg->data_cfg, result));
+      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, result));
    } else {
-      platform_assert(
-         node_is_well_formed_index(context->cfg->data_cfg, result));
+      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, result));
    }
-
-   // platform_default_log("node_deserialize addr: %lu\n", addr);
-   // node_print(result, Platform_default_log_handle, context->cfg->data_cfg,
-   // 4);
 
    return STATUS_OK;
 
@@ -1384,7 +1390,8 @@ pivot_serialize(trunk_node_context *context,
                 uint64              pivot_num,
                 ondisk_pivot       *dest)
 {
-   pivot *pvt       = vector_get(&node->pivots, pivot_num);
+   pivot *pvt = vector_get(&node->pivots, pivot_num);
+   platform_assert(trunk_pivot_stats_are_nonnegative(pvt->stats));
    dest->stats      = pvt->stats;
    dest->child_addr = pvt->child_addr;
    if (pivot_num < vector_length(&node->pivots) - 1) {
@@ -1452,9 +1459,9 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    ondisk_node_ref *result       = NULL;
 
    if (node_is_leaf(node)) {
-      platform_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
+      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
    } else {
-      platform_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
+      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
    }
 
    rc = allocator_alloc(context->al, &header_addr, PAGE_TYPE_TRUNK);
@@ -1545,10 +1552,6 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    cache_unlock(context->cc, header_page);
    cache_unclaim(context->cc, header_page);
    cache_unget(context->cc, header_page);
-
-
-   // platform_default_log("node_serialize: addr=%lu\n", header_addr);
-   // node_print(node, Platform_default_log_handle, context->cfg->data_cfg, 4);
 
    return result;
 
@@ -1784,6 +1787,10 @@ apply_changes_internal(trunk_node_context *context,
    trunk_node node;
    rc = node_deserialize(context, addr, &node);
    if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: node_deserialize() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
       return NULL;
    }
 
@@ -1809,6 +1816,9 @@ apply_changes_internal(trunk_node_context *context,
                ondisk_node_ref *new_child_ref = apply_changes_internal(
                   context, child_addr, minkey, maxkey, height, func, arg);
                if (new_child_ref == NULL) {
+                  platform_error_log("%s():%d: apply_changes_internal() failed",
+                                     __func__,
+                                     __LINE__);
                   rc = STATUS_NO_MEMORY;
                   break;
                }
@@ -1846,6 +1856,9 @@ apply_changes(trunk_node_context *context,
       context, context->root->addr, minkey, maxkey, height, func, arg);
    if (new_root_ref != NULL) {
       trunk_set_root(context, new_root_ref);
+   } else {
+      platform_error_log(
+         "%s():%d: apply_changes_internal() failed", __func__, __LINE__);
    }
    trunk_modification_end(context);
    return new_root_ref == NULL ? STATUS_NO_MEMORY : STATUS_OK;
@@ -2070,6 +2083,21 @@ pivot_compaction_state_print(pivot_compaction_state *state,
    pivot_state_unlock_compactions(state);
 }
 
+debug_only static void
+pivot_compaction_state_map_print(pivot_state_map     *map,
+                                 platform_log_handle *log,
+                                 const data_config   *data_cfg)
+{
+   platform_log(log, "pivot_state_map: %lu states\n", map->num_states);
+   for (uint64 i = 0; i < PIVOT_STATE_MAP_BUCKETS; i++) {
+      pivot_compaction_state *state = map->buckets[i];
+      while (state != NULL) {
+         pivot_compaction_state_print(state, log, data_cfg, 0);
+         state = state->next;
+      }
+   }
+}
+
 uint64 pivot_state_destructions = 0;
 
 static void
@@ -2275,6 +2303,42 @@ typedef struct maplet_compaction_apply_args {
    trunk_pivot_stats       delta;
 } maplet_compaction_apply_args;
 
+static bool32
+pivot_matches_compaction(const trunk_node_context           *context,
+                         trunk_node                         *target,
+                         uint64                              pivot_num,
+                         const maplet_compaction_apply_args *args)
+{
+   pivot  *pvt        = node_pivot(target, pivot_num);
+   bundle *pivot_bndl = node_pivot_bundle(target, pivot_num);
+
+   platform_assert(0 < args->num_input_bundles);
+   platform_assert(args->state->bundle_compactions != NULL);
+   platform_assert(
+      0 < vector_length(&args->state->bundle_compactions->input_branches));
+
+   branch_ref first_input_branch =
+      vector_get(&args->state->bundle_compactions->input_branches, 0);
+
+   uint64 ifs = pivot_inflight_bundle_start(pvt);
+   bool32 result =
+      data_key_compare(context->cfg->data_cfg,
+                       key_buffer_key(&args->state->key),
+                       pivot_key(pvt))
+         == 0
+      && data_key_compare(context->cfg->data_cfg,
+                          key_buffer_key(&args->state->ubkey),
+                          node_pivot_key(target, pivot_num + 1))
+            == 0
+      && routing_filters_equal(&pivot_bndl->maplet, &args->state->maplet)
+      && ifs + args->num_input_bundles
+            <= vector_length(&target->inflight_bundles)
+      && bundle_branch_array(vector_get_ptr(&target->inflight_bundles, ifs))[0]
+               .addr
+            == first_input_branch.addr;
+   return result;
+}
+
 static platform_status
 apply_changes_maplet_compaction(trunk_node_context *context,
                                 uint64              addr,
@@ -2285,49 +2349,36 @@ apply_changes_maplet_compaction(trunk_node_context *context,
    maplet_compaction_apply_args *args = (maplet_compaction_apply_args *)arg;
 
    for (uint64 i = 0; i < node_num_children(target); i++) {
-      pivot  *pvt  = node_pivot(target, i);
-      bundle *bndl = node_pivot_bundle(target, i);
-      if (data_key_compare(context->cfg->data_cfg,
-                           key_buffer_key(&args->state->key),
-                           pivot_key(pvt))
-             == 0
-          && routing_filters_equal(&bndl->maplet, &args->state->maplet))
-      {
-         // platform_default_log(
-         //    "\n\napply_changes_maplet_compaction: pivot %lu key: %s "
-         //    "old_maplet: %lu num_input_bundles: %lu new_maplet: %lu "
-         //    "delta_kv_pairs: "
-         //    "%lu delta_kv_bytes: %lu, branches: ",
-         //    i,
-         //    key_string(context->cfg->data_cfg,
-         //               key_buffer_key(&args->state->key)),
-         //    bndl->maplet.addr,
-         //    args->num_input_bundles,
-         //    args->new_maplet.addr,
-         //    args->delta.num_tuples,
-         //    args->delta.num_kv_bytes);
-         // for (uint64 j = 0; j < vector_length(&args->branches); j++) {
-         //    branch_ref bref = vector_get(&args->branches, j);
-         //    platform_default_log("%lu ", branch_ref_addr(bref));
-         // }
-         // platform_default_log("\n");
-         // node_print(
-         //    target, Platform_default_log_handle, context->cfg->data_cfg, 4);
+      if (node_is_leaf(target)) {
+         debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, target));
+      } else {
+         debug_assert(
+            node_is_well_formed_index(context->cfg->data_cfg, target));
+      }
 
+      if (pivot_matches_compaction(context, target, i, args)) {
+         bundle *bndl = node_pivot_bundle(target, i);
          rc = bundle_add_branches(bndl, args->new_maplet, &args->branches);
          if (!SUCCESS(rc)) {
+            platform_error_log("apply_changes_maplet_compaction: "
+                               "bundle_add_branches failed: %d\n",
+                               rc.r);
             return rc;
          }
          pivot *pvt = node_pivot(target, i);
          pivot_set_inflight_bundle_start(
             pvt, pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
          pivot_add_tuple_counts(pvt, -1, args->delta);
-
-         // node_print(
-         //    target, Platform_default_log_handle, context->cfg->data_cfg, 4);
          break;
       }
    }
+
+   if (node_is_leaf(target)) {
+      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, target));
+   } else {
+      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, target));
+   }
+
 
    return STATUS_OK;
 }
@@ -2372,12 +2423,16 @@ maplet_compaction_task(void *arg, void *scratch)
             routing_filter_dec_ref(context->cc, &new_maplet);
          }
          if (!SUCCESS(rc)) {
+            platform_error_log(
+               "maplet_compaction_task: routing_filter_add failed: %d\n", rc.r);
             goto cleanup;
          }
          new_maplet = tmp_maplet;
 
          rc = vector_append(&apply_args.branches, bc->output_branch);
          if (!SUCCESS(rc)) {
+            platform_error_log(
+               "maplet_compaction_task: vector_append failed: %d\n", rc.r);
             goto cleanup;
          }
       }
@@ -2407,7 +2462,7 @@ maplet_compaction_task(void *arg, void *scratch)
 
    rc = apply_changes(context,
                       key_buffer_key(&state->key),
-                      key_buffer_key(&state->key),
+                      key_buffer_key(&state->ubkey),
                       state->height,
                       apply_changes_maplet_compaction,
                       &apply_args);
@@ -2601,7 +2656,7 @@ bundle_compaction_task(void *arg, void *scratch)
    bc->output_stats  = (trunk_pivot_stats){
        .num_tuples   = pack_req.num_tuples,
        .num_kv_bytes = pack_req.key_bytes + pack_req.message_bytes};
-   trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
+   // trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
    bc->fingerprints         = pack_req.fingerprint_arr;
    pack_req.fingerprint_arr = NULL;
 
@@ -2670,6 +2725,8 @@ enqueue_bundle_compaction(trunk_node_context *context,
                                           height,
                                           pivot_bundle);
          if (state == NULL) {
+            platform_error_log("enqueue_bundle_compaction: "
+                               "pivot_state_map_get_or_create failed\n");
             rc = STATUS_NO_MEMORY;
             goto next;
          }
@@ -2677,11 +2734,16 @@ enqueue_bundle_compaction(trunk_node_context *context,
          bundle_compaction *bc =
             bundle_compaction_create(node, pivot_num, context);
          if (bc == NULL) {
+            platform_error_log("enqueue_bundle_compaction: "
+                               "bundle_compaction_create failed\n");
             rc = STATUS_NO_MEMORY;
             goto next;
          }
 
          pivot_compaction_state_append_compaction(state, &lock, bc);
+
+         pivot_compaction_state_print(
+            state, Platform_default_log_handle, context->cfg->data_cfg, 4);
 
          rc = task_enqueue(context->ts,
                            TASK_TYPE_NORMAL,
@@ -2689,6 +2751,8 @@ enqueue_bundle_compaction(trunk_node_context *context,
                            state,
                            FALSE);
          if (!SUCCESS(rc)) {
+            platform_error_log(
+               "enqueue_bundle_compaction: task_enqueue failed\n");
             goto next;
          }
 
@@ -2825,18 +2889,6 @@ node_receive_bundles(trunk_node_context *context,
 {
    platform_status rc;
 
-   // platform_default_log("node_receive_bundles:\n    routed: ");
-   // if (routed) {
-   //    bundle_print(routed, Platform_default_log_handle, 0);
-   // } else {
-   //    platform_log(Platform_default_log_handle, "NULL\n");
-   // }
-   // platform_default_log("    inflight_start: %lu\n    inflight:\n",
-   //                      inflight_start);
-   // bundle_vector_print(inflight, Platform_default_log_handle, 4);
-   // platform_log(Platform_default_log_handle, "    node:\n");
-   // node_print(node, Platform_default_log_handle, context->cfg->data_cfg, 8);
-
    rc = vector_ensure_capacity(&node->inflight_bundles,
                                (routed ? 1 : 0) + vector_length(inflight));
    if (!SUCCESS(rc)) {
@@ -2883,9 +2935,6 @@ node_receive_bundles(trunk_node_context *context,
       pivot *pvt = node_pivot(node, i);
       pivot_add_tuple_counts(pvt, 1, trunk_stats);
    }
-
-   // platform_log(Platform_default_log_handle, "    result:\n");
-   // node_print(node, Platform_default_log_handle, context->cfg->data_cfg, 8);
 
    return rc;
 }
@@ -3299,6 +3348,9 @@ abandon_compactions(trunk_node_context *context, key k, uint64 height)
    pivot_compaction_state *pivot_state =
       pivot_state_map_get(context, &context->pivot_states, &lock, k, height);
    if (pivot_state) {
+      platform_default_log("Abandoning compactions for key: %s height %lu",
+                           key_string(context->cfg->data_cfg, k),
+                           height);
       pivot_state_map_remove(&context->pivot_states, &lock, pivot_state);
       result = TRUE;
    }
@@ -3327,15 +3379,14 @@ restore_balance_leaf(trunk_node_context     *context,
       return rc;
    }
 
+   if (1 < vector_length(&new_nodes)) {
+      abandon_compactions(context, node_pivot_min_key(leaf), node_height(leaf));
+   }
+
    rc = serialize_nodes_and_enqueue_bundle_compactions(
       context, &new_nodes, new_leaf_refs);
    VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
    vector_deinit(&new_nodes);
-
-   if (SUCCESS(rc)) {
-      abandon_compactions(context, node_pivot_min_key(leaf), node_height(leaf));
-   }
-
 
    return rc;
 }
@@ -3585,13 +3636,6 @@ build_new_roots(trunk_node_context     *context,
 
    debug_assert(1 < vector_length(node_refs));
 
-   // platform_default_log("build_new_roots\n");
-   // VECTOR_APPLY_TO_PTRS(nodes,
-   //                      node_print,
-   //                      Platform_default_log_handle,
-   //                      context->cfg->data_cfg,
-   //                      4);
-
    // Create the pivots vector for the new root
    pivot_vector pivots;
    vector_init(&pivots, context->hid);
@@ -3634,10 +3678,6 @@ build_new_roots(trunk_node_context     *context,
    node_init(&new_root, height + 1, pivots, pivot_bundles, 0, inflight);
    debug_assert(node_is_well_formed_index(context->cfg->data_cfg, &new_root));
 
-   // platform_default_log("new root\n");
-   // node_print(
-   //    &new_root, Platform_default_log_handle, context->cfg->data_cfg, 4);
-
    // At this point, all our resources that we've allocated have been put
    // into the new root.
 
@@ -3670,13 +3710,6 @@ build_new_roots(trunk_node_context     *context,
 cleanup_pivots:
    VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, context->hid);
    vector_deinit(&pivots);
-
-   // platform_default_log("new roots\n");
-   // VECTOR_APPLY_TO_PTRS(nodes,
-   //                      node_print,
-   //                      Platform_default_log_handle,
-   //                      context->cfg->data_cfg,
-   //                      4);
 
    return rc;
 }
