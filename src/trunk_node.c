@@ -4192,6 +4192,7 @@ trunk_collect_bundle_branches(ondisk_bundle *bndl,
       if (*num_branches == capacity) {
          platform_error_log("trunk_collect_bundle_branches: "
                             "capacity exceeded\n");
+         *num_branches -= i;
          return STATUS_LIMIT_EXCEEDED;
       }
       branches[*num_branches] = branch_ref_addr(bndl->branches[i]);
