@@ -29,7 +29,8 @@ typedef struct ONDISK branch_ref {
 typedef VECTOR(branch_ref) branch_ref_vector;
 
 typedef struct bundle {
-   routing_filter    maplet;
+   routing_filter maplet;
+   // branches[0] is the oldest branch
    branch_ref_vector branches;
 } bundle;
 
@@ -38,7 +39,8 @@ typedef VECTOR(bundle) bundle_vector;
 typedef struct ONDISK ondisk_bundle {
    routing_filter maplet;
    uint16         num_branches;
-   branch_ref     branches[];
+   // branches[0] is the oldest branch
+   branch_ref branches[];
 } ondisk_bundle;
 
 typedef struct ONDISK trunk_pivot_stats {
@@ -50,8 +52,9 @@ typedef struct pivot {
    trunk_pivot_stats prereceive_stats;
    trunk_pivot_stats stats;
    uint64            child_addr;
-   uint64            inflight_bundle_start;
-   ondisk_key        key;
+   // Index of the oldest bundle that is live for this pivot
+   uint64     inflight_bundle_start;
+   ondisk_key key;
 } pivot;
 
 typedef VECTOR(pivot *) pivot_vector;
@@ -70,6 +73,7 @@ typedef struct trunk_node {
    pivot_vector  pivots;
    bundle_vector pivot_bundles; // indexed by child
    uint64        num_old_bundles;
+   // inflight_bundles[0] is the oldest bundle
    bundle_vector inflight_bundles;
 } trunk_node;
 
@@ -78,6 +82,7 @@ typedef VECTOR(trunk_node) trunk_node_vector;
 typedef struct ONDISK ondisk_trunk_node {
    uint16 height;
    uint16 num_pivots;
+   // On disk, inflight bundles are ordered from newest to oldest.
    uint16 num_inflight_bundles;
    uint32 pivot_offsets[];
 } ondisk_trunk_node;
@@ -92,6 +97,7 @@ typedef enum bundle_compaction_state {
 
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
+   uint64                    root_addr_when_created; // for debugging
    uint64                    num_bundles;
    trunk_pivot_stats         input_stats;
    bundle_compaction_state   state;
@@ -226,6 +232,12 @@ static uint64
 bundle_num_branches(const bundle *bndl)
 {
    return vector_length(&bndl->branches);
+}
+
+static branch_ref
+bundle_branch(const bundle *bndl, uint64 i)
+{
+   return vector_get(&bndl->branches, i);
 }
 
 static const branch_ref *
@@ -1499,6 +1511,66 @@ node_serialize_maybe_setup_next_page(cache        *cc,
    return STATUS_OK;
 }
 
+// For debugging
+uint64 max_pivots                   = 0;
+uint64 max_inflight_bundles         = 0;
+uint64 max_inflight_bundle_branches = 0;
+uint64 max_inflight_branches        = 0;
+uint64 max_pivot_bundle_branches    = 0;
+
+debug_only static bool32
+record_and_report_max(const char *name, uint64 value, uint64 *max)
+{
+   if (value > *max) {
+      *max = value;
+      platform_error_log("%s: %lu\n", name, value);
+      return TRUE;
+   }
+   return FALSE;
+}
+
+debug_only static void
+print_pivot_states_for_node(trunk_node_context *context, trunk_node *node);
+
+debug_only static void
+node_record_and_report_maxes(trunk_node_context *context, trunk_node *node)
+{
+   bool32 big = FALSE;
+
+   big |= record_and_report_max(
+      "max_pivots", vector_length(&node->pivots), &max_pivots);
+
+   uint64 inflight_start = node_first_live_inflight_bundle(node);
+   big |= record_and_report_max("max_inflight_bundles",
+                                vector_length(&node->inflight_bundles)
+                                   - inflight_start,
+                                &max_inflight_bundles);
+
+   uint64 inflight_branches = 0;
+   for (int i = inflight_start; i < vector_length(&node->inflight_bundles); i++)
+   {
+      bundle *bndl = vector_get_ptr(&node->inflight_bundles, i);
+      big |= record_and_report_max("max_inflight_bundle_branches",
+                                   vector_length(&bndl->branches),
+                                   &max_inflight_bundle_branches);
+      inflight_branches += vector_length(&bndl->branches);
+   }
+   big |= record_and_report_max(
+      "max_inflight_branches", inflight_branches, &max_inflight_branches);
+
+   for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
+      bundle *bndl = vector_get_ptr(&node->pivot_bundles, i);
+      big |= record_and_report_max("max_pivot_bundle_branches",
+                                   vector_length(&bndl->branches),
+                                   &max_pivot_bundle_branches);
+   }
+
+   if (big) {
+      node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
+      print_pivot_states_for_node(context, node);
+   }
+}
+
 static ondisk_node_ref *
 node_serialize(trunk_node_context *context, trunk_node *node)
 {
@@ -1507,6 +1579,8 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    page_handle     *header_page  = NULL;
    page_handle     *current_page = NULL;
    ondisk_node_ref *result       = NULL;
+
+   // node_record_and_report_maxes(context, node);
 
    if (node_is_leaf(node)) {
       debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
@@ -2044,6 +2118,8 @@ bundle_compaction_create(trunk_node         *node,
    result->state       = BUNDLE_COMPACTION_NOT_STARTED;
    result->input_stats = pivot_received_bundles_stats(pvt);
 
+   result->root_addr_when_created = context->root ? context->root->addr : 0;
+
    if (node_is_leaf(node) && pvt->inflight_bundle_start == node->num_old_bundles
        && bundle_num_branches(bndl) == 0)
    {
@@ -2404,6 +2480,33 @@ pivot_state_map_abandon_entry(trunk_node_context *context, key k, uint64 height)
    return result;
 }
 
+debug_only static void
+print_pivot_states_for_node(trunk_node_context *context, trunk_node *node)
+{
+   uint64 height = node_height(node);
+   for (int i = 0; i < node_num_children(node); i++) {
+      key                  k = node_pivot_key(node, i);
+      pivot_state_map_lock lock;
+      pivot_state_map_aquire_lock(
+         &lock, context, &context->pivot_states, k, height);
+      pivot_compaction_state *state = pivot_state_map_get_entry(
+         context, &context->pivot_states, &lock, k, height);
+      if (state != NULL) {
+         pivot_state_incref(state);
+      }
+      pivot_state_map_release_lock(&lock, &context->pivot_states);
+      if (state != NULL) {
+         pivot_compaction_state_print(
+            state, Platform_error_log_handle, context->cfg->data_cfg, 4);
+      } else {
+         platform_error_log("    No pivot compaction state for pivot %d\n", i);
+      }
+      if (state != NULL) {
+         pivot_state_decref(state);
+      }
+   }
+}
+
 
 /*********************************************
  * maplet compaction
@@ -2431,10 +2534,20 @@ pivot_matches_compaction(const trunk_node_context           *context,
    platform_assert(
       0 < vector_length(&args->state->bundle_compactions->input_branches));
 
-   branch_ref first_input_branch =
-      vector_get(&args->state->bundle_compactions->input_branches, 0);
+   bundle_compaction *oldest_bc = args->state->bundle_compactions;
+   branch_ref         oldest_input_branch =
+      vector_get(&oldest_bc->input_branches,
+                 vector_length(&oldest_bc->input_branches) - 1);
 
    uint64 ifs = pivot_inflight_bundle_start(pvt);
+   if (vector_length(&target->inflight_bundles) < ifs + args->num_input_bundles)
+   {
+      return FALSE;
+   }
+
+   bundle    *ifbndl = vector_get_ptr(&target->inflight_bundles, ifs);
+   branch_ref oldest_pivot_inflight_branch = bundle_branch(ifbndl, 0);
+
    bool32 result =
       data_key_compare(context->cfg->data_cfg,
                        key_buffer_key(&args->state->key),
@@ -2445,11 +2558,7 @@ pivot_matches_compaction(const trunk_node_context           *context,
                           node_pivot_key(target, pivot_num + 1))
             == 0
       && routing_filters_equal(&pivot_bndl->maplet, &args->state->maplet)
-      && ifs + args->num_input_bundles
-            <= vector_length(&target->inflight_bundles)
-      && bundle_branch_array(vector_get_ptr(&target->inflight_bundles, ifs))[0]
-               .addr
-            == first_input_branch.addr;
+      && oldest_pivot_inflight_branch.addr == oldest_input_branch.addr;
    return result;
 }
 
@@ -2461,6 +2570,8 @@ apply_changes_maplet_compaction(trunk_node_context *context,
 {
    platform_status               rc;
    maplet_compaction_apply_args *args = (maplet_compaction_apply_args *)arg;
+
+   bool32 found_match = FALSE;
 
    for (uint64 i = 0; i < node_num_children(target); i++) {
       if (node_is_leaf(target)) {
@@ -2483,8 +2594,15 @@ apply_changes_maplet_compaction(trunk_node_context *context,
          pivot_set_inflight_bundle_start(
             pvt, pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
          pivot_add_tuple_counts(pvt, -1, args->delta);
+         found_match = TRUE;
          break;
       }
+   }
+
+   if (!found_match && !args->state->abandoned) {
+      platform_error_log("Failed to find matching pivot for non-abandoned "
+                         "compaction state %d\n",
+                         pivot_matches_compaction(context, target, 0, args));
    }
 
    if (node_is_leaf(target)) {
@@ -2549,6 +2667,10 @@ maplet_compaction_task(void *arg, void *scratch)
                "maplet_compaction_task: vector_append failed: %d\n", rc.r);
             goto cleanup;
          }
+      }
+
+      if (context->root && context->root->addr == bc->root_addr_when_created) {
+         platform_error_log("Maplet compaction task: root addr unchanged\n");
       }
 
       trunk_pivot_stats delta =
