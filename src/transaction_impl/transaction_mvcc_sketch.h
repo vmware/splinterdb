@@ -1119,11 +1119,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       mvcc_key_create_slice(user_key, readable_version->meta->version_number);
    int rc = splinterdb_lookup(txn_kvsb->kvsb, spl_key, result);
    platform_assert(rc == 0);
-   if (!splinterdb_lookup_found(result)) {
-      version_meta_unlock(readable_version->meta);
-      transactional_splinterdb_abort(txn_kvsb, txn);
-      return -1;
-   }
+   platform_assert(splinterdb_lookup_found(result));
    readable_version->meta->rts = txn->ts;
    mvcc_key_destroy_slice(spl_key);
 
