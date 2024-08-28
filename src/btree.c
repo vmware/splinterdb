@@ -1375,6 +1375,7 @@ btree_split_child_leaf(cache                 *cc,
          btree_node_unget(cc, cfg, &child_next);
          retries++;
          if (100 < retries) {
+            btree_node_full_unlock(cc, cfg, &right_child);
             btree_node_full_unlock(cc, cfg, parent);
             btree_node_unclaim(cc, cfg, child);
             btree_node_unget(cc, cfg, child);
