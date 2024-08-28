@@ -109,7 +109,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //           txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
    //    {
    //       if (slice_data(entry->key) != key_ht) {
-   //          platform_free_from_heap(0, key_ht);
+   //          platform_free(0, key_ht);
    //       } else {
    //          entry->need_to_keep_key = 0;
    //       }
@@ -130,7 +130,8 @@ static inline void
 rw_entry_deinit(rw_entry *entry)
 {
    if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
+      void *ptr = (void *)message_data(entry->msg);
+      platform_free(0, ptr);
    }
 }
 
@@ -547,7 +548,8 @@ local_write(transactional_splinterdb *txn_kvsb,
       key wkey = key_create_from_slice(entry->key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
-            platform_free_from_heap(0, (void *)message_data(entry->msg));
+            void *ptr = (void *)message_data(entry->msg);
+            platform_free(0, ptr);
             rw_entry_set_msg(entry, msg);
          } else {
             platform_assert(message_class(entry->msg) != MESSAGE_TYPE_DELETE);
@@ -555,7 +557,8 @@ local_write(transactional_splinterdb *txn_kvsb,
             merge_accumulator new_message;
             merge_accumulator_init_from_message(&new_message, 0, msg);
             data_merge_tuples(cfg, ukey, entry->msg, &new_message);
-            platform_free_from_heap(0, (void *)message_data(entry->msg));
+            void *ptr = (void *)message_data(entry->msg);
+            platform_free(0, ptr);
             entry->msg = merge_accumulator_to_message(&new_message);
          }
       }
@@ -647,27 +650,4 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    entry->rts = timestamp_set_get_rts(&v1);
 
    return rc;
-}
-
-void
-transactional_splinterdb_lookup_result_init(
-   transactional_splinterdb *txn_kvsb,   // IN
-   splinterdb_lookup_result *result,     // IN/OUT
-   uint64                    buffer_len, // IN
-   char                     *buffer      // IN
-)
-{
-   return splinterdb_lookup_result_init(
-      txn_kvsb->kvsb, result, buffer_len, buffer);
-}
-
-void
-transactional_splinterdb_set_isolation_level(
-   transactional_splinterdb   *txn_kvsb,
-   transaction_isolation_level isol_level)
-{
-   platform_assert(isol_level > TRANSACTION_ISOLATION_LEVEL_INVALID);
-   platform_assert(isol_level < TRANSACTION_ISOLATION_LEVEL_MAX_VALID);
-
-   txn_kvsb->tcfg->isol_level = isol_level;
 }

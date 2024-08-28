@@ -269,13 +269,18 @@ rw_entry_load_timestamps_from_splinter(transactional_splinterdb *txn_kvsb,
    splinterdb_lookup_result_init(txn_kvsb->kvsb, &result, 0, NULL);
    int rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, &result);
    platform_assert(rc == 0);
-   platform_assert(splinterdb_lookup_found(&result));
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)&result;
-   mvcc_value_header         *header =
-      (mvcc_value_header *)merge_accumulator_data(&_result->value);
-   entry->rts     = header->update.rts;
-   entry->wts_min = header->wts_min;
-   entry->wts_max = header->update.wts_max;
+   if (splinterdb_lookup_found(&result)) {
+      _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)&result;
+      mvcc_value_header         *header =
+         (mvcc_value_header *)merge_accumulator_data(&_result->value);
+      entry->rts     = header->update.rts;
+      entry->wts_min = header->wts_min;
+      entry->wts_max = header->update.wts_max;
+   } else {
+      entry->rts     = 0;
+      entry->wts_min = 0;
+      entry->wts_max = MVCC_TIMESTAMP_INF;
+   }
    splinterdb_lookup_result_deinit(&result);
 }
 
@@ -338,16 +343,14 @@ rw_entry_unlock(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //                                 mvcc_user_key(entry->key))
    //                                 ,
    //                                 mvcc_key_get_version_from_slice(entry->key));
-   do {
-      mvcc_lock_load(entry->lock, &v1);
-      platform_assert(
-         v1.locked,
-         "%lu (key: %s, version: %u)\n",
-         v1.locked,
-         key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
-                    mvcc_user_key(entry->key)),
-         mvcc_key_get_version_from_slice(entry->key));
-   } while (!mvcc_lock_compare_and_swap(entry->lock, &v1, &v2));
+   mvcc_lock_load(entry->lock, &v1);
+   platform_assert(
+      mvcc_lock_compare_and_swap(entry->lock, &v1, &v2),
+      "%lu (key: %s, version: %u)\n",
+      v1.locked,
+      key_string(txn_kvsb->tcfg->txn_data_cfg->application_data_config,
+                 mvcc_user_key(entry->key)),
+      mvcc_key_get_version_from_slice(entry->key));
 }
 
 
@@ -525,11 +528,13 @@ static inline void
 rw_entry_deinit(rw_entry *entry)
 {
    if (!slice_is_null(entry->key)) {
-      platform_free_from_heap(0, (void *)slice_data(entry->key));
+      void *ptr = (void *)slice_data(entry->key);
+      platform_free(0, ptr);
    }
 
    if (!message_is_null(entry->msg)) {
-      platform_free_from_heap(0, (void *)message_data(entry->msg));
+      void *ptr = (void *)message_data(entry->msg);
+      platform_free(0, ptr);
    }
 }
 
@@ -763,7 +768,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          //          txn_kvsb->tcfg->txn_data_cfg->application_data_config,
          //          mvcc_user_key(w->key),
          //          &new_message);
-         //       platform_free_from_heap(0, (void *)message_data(w->msg));
+         //       void *ptr = (void *)message_data(w->msg);
+         //       platform_free(0, ptr);
          //       rw_entry_set_msg(
          //          w, txn->ts, merge_accumulator_to_message(&new_message));
          //       merge_accumulator_deinit(&new_message);
@@ -783,7 +789,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
          //          mvcc_user_key(w->key),
          //          get_app_value_from_merge_accumulator(&_result->value),
          //          &new_message);
-         //       platform_free_from_heap(0, (void *)message_data(w->msg));
+         //       void *ptr = (void *)message_data(w->msg);
+         //       platform_free(0, ptr);
          //       rw_entry_set_msg(
          //          w, txn->ts, merge_accumulator_to_message(&new_message));
          //       merge_accumulator_deinit(&new_message);
@@ -852,7 +859,11 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       if (rw_entry_is_write(txn->rw_entries[i])) {
-         rw_entry_unlock_and_remove(txn_kvsb, txn->rw_entries[i]);
+         mvcc_lock l;
+         mvcc_lock_load(txn->rw_entries[i]->lock, &l);
+         if (l.lock_holder == txn->ts) {
+            rw_entry_unlock_and_remove(txn_kvsb, txn->rw_entries[i]);
+         }
       }
    }
    transaction_deinit(txn_kvsb, txn);
@@ -1018,7 +1029,8 @@ local_write(transactional_splinterdb *txn_kvsb,
    } else {
       // Same key is written multiple times in the same transaction
       if (message_is_definitive(msg)) {
-         platform_free_from_heap(0, (void *)message_data(entry->msg));
+         void *ptr = (void *)message_data(entry->msg);
+         platform_free(0, ptr);
          rw_entry_set_msg(entry, txn->ts, msg);
       } else {
          platform_assert(message_class(entry->msg) == MESSAGE_TYPE_UPDATE);
@@ -1030,7 +1042,8 @@ local_write(transactional_splinterdb *txn_kvsb,
             key_create_from_slice(user_key),
             get_app_value_from_message(entry->msg),
             &new_message);
-         platform_free_from_heap(0, (void *)message_data(entry->msg));
+         void *ptr = (void *)message_data(entry->msg);
+         platform_free(0, ptr);
          rw_entry_set_msg(
             entry, txn->ts, merge_accumulator_to_message(&new_message));
          merge_accumulator_deinit(&new_message);
@@ -1243,27 +1256,4 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    rw_entry_destroy(entry);
 
    return 0;
-}
-
-void
-transactional_splinterdb_lookup_result_init(
-   transactional_splinterdb *txn_kvsb,   // IN
-   splinterdb_lookup_result *result,     // IN/OUT
-   uint64                    buffer_len, // IN
-   char                     *buffer      // IN
-)
-{
-   return splinterdb_lookup_result_init(
-      txn_kvsb->kvsb, result, buffer_len, buffer);
-}
-
-void
-transactional_splinterdb_set_isolation_level(
-   transactional_splinterdb   *txn_kvsb,
-   transaction_isolation_level isol_level)
-{
-   platform_assert(isol_level > TRANSACTION_ISOLATION_LEVEL_INVALID);
-   platform_assert(isol_level < TRANSACTION_ISOLATION_LEVEL_MAX_VALID);
-
-   txn_kvsb->tcfg->isol_level = isol_level;
 }
