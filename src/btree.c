@@ -1370,8 +1370,17 @@ btree_split_child_leaf(cache                 *cc,
    if (child_next.addr != 0) {
       btree_node_get(cc, cfg, &child_next, PAGE_TYPE_MEMTABLE);
       uint64 child_next_wait = 1;
+      uint64 retries         = 0;
       while (!btree_node_claim(cc, cfg, &child_next)) {
          btree_node_unget(cc, cfg, &child_next);
+         retries++;
+         if (100 < retries) {
+            btree_node_full_unlock(cc, cfg, &right_child);
+            btree_node_full_unlock(cc, cfg, parent);
+            btree_node_unclaim(cc, cfg, child);
+            btree_node_unget(cc, cfg, child);
+            return -1;
+         }
          platform_sleep_ns(child_next_wait);
          child_next_wait =
             child_next_wait > 2048 ? child_next_wait : 2 * child_next_wait;
@@ -1472,15 +1481,15 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       platform_assert(incorporated);
       btree_node_full_unlock(cc, cfg, child);
    } else {
-      btree_split_child_leaf(cc,
-                             cfg,
-                             mini,
-                             scratch,
-                             parent,
-                             index_of_child_in_parent,
-                             child,
-                             spec,
-                             generation);
+      return btree_split_child_leaf(cc,
+                                    cfg,
+                                    mini,
+                                    scratch,
+                                    parent,
+                                    index_of_child_in_parent,
+                                    child,
+                                    spec,
+                                    generation);
    }
 
    return 0;
@@ -1744,7 +1753,6 @@ btree_insert(cache              *cc,         // IN
 {
    platform_status       rc;
    leaf_incorporate_spec spec;
-   uint64                leaf_wait = 1;
 
    if (MAX_INLINE_KEY_SIZE(btree_page_size(cfg)) < key_length(tuple_key)) {
       return STATUS_BAD_PARAM;
@@ -1765,6 +1773,7 @@ btree_insert(cache              *cc,         // IN
 
 start_over:
    btree_node_get(cc, cfg, &root_node, PAGE_TYPE_MEMTABLE);
+   uint64 leaf_wait = 1;
 
    if (btree_height(root_node.hdr) == 0) {
       rc = btree_create_leaf_incorporate_spec(
@@ -2025,16 +2034,19 @@ start_over:
          return rc;
       }
    }
-   btree_defragment_or_split_child_leaf(cc,
-                                        cfg,
-                                        mini,
-                                        scratch,
-                                        &parent_node,
-                                        child_idx,
-                                        &child_node,
-                                        &spec,
-                                        generation);
+   int result = btree_defragment_or_split_child_leaf(cc,
+                                                     cfg,
+                                                     mini,
+                                                     scratch,
+                                                     &parent_node,
+                                                     child_idx,
+                                                     &child_node,
+                                                     &spec,
+                                                     generation);
    destroy_leaf_incorporate_spec(&spec);
+   if (result < 0) {
+      goto start_over;
+   }
    *was_unique = spec.old_entry_state == ENTRY_DID_NOT_EXIST;
    return STATUS_OK;
 }
