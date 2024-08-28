@@ -121,6 +121,7 @@ struct pivot_compaction_state {
    routing_filter                 maplet;
    uint64                         num_branches;
    bool32                         maplet_compaction_failed;
+   uint64                         total_bundles;
    platform_spinlock              compactions_lock;
    bundle_compaction             *bundle_compactions;
 };
@@ -2101,13 +2102,14 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
 }
 
 static bundle_compaction *
-bundle_compaction_create(trunk_node         *node,
-                         uint64              pivot_num,
-                         trunk_node_context *context)
+bundle_compaction_create(trunk_node_context     *context,
+                         trunk_node             *node,
+                         uint64                  pivot_num,
+                         pivot_compaction_state *state)
 {
    platform_status rc;
-   pivot          *pvt  = node_pivot(node, pivot_num);
-   bundle         *bndl = vector_get_ptr(&node->pivot_bundles, pivot_num);
+   pivot          *pvt      = node_pivot(node, pivot_num);
+   bundle         *pvt_bndl = vector_get_ptr(&node->pivot_bundles, pivot_num);
 
    bundle_compaction *result = TYPED_ZALLOC(context->hid, result);
    if (result == NULL) {
@@ -2120,8 +2122,8 @@ bundle_compaction_create(trunk_node         *node,
 
    result->root_addr_when_created = context->root ? context->root->addr : 0;
 
-   if (node_is_leaf(node) && pvt->inflight_bundle_start == node->num_old_bundles
-       && bundle_num_branches(bndl) == 0)
+   if (node_is_leaf(node) && state->bundle_compactions == NULL
+       && bundle_num_branches(pvt_bndl) == 0)
    {
       result->merge_mode = MERGE_FULL;
    } else {
@@ -2129,7 +2131,7 @@ bundle_compaction_create(trunk_node         *node,
    }
 
    vector_init(&result->input_branches, context->hid);
-   int64 num_old_bundles = node->num_old_bundles;
+   int64 num_old_bundles = state->total_bundles;
    for (int64 i = vector_length(&node->inflight_bundles) - 1;
         num_old_bundles <= i;
         i--)
@@ -2159,7 +2161,7 @@ bundle_compaction_create(trunk_node         *node,
       }
    }
    result->num_bundles =
-      vector_length(&node->inflight_bundles) - node->num_old_bundles;
+      vector_length(&node->inflight_bundles) - num_old_bundles;
 
    return result;
 }
@@ -2310,6 +2312,7 @@ pivot_compaction_state_append_compaction(pivot_compaction_state *state,
       }
       last->next = compaction;
    }
+   state->total_bundles += compaction->num_bundles;
    pivot_state_unlock_compactions(state);
 }
 
@@ -2783,7 +2786,6 @@ compute_tuple_bound(trunk_node_context *context,
 static void
 bundle_compaction_task(void *arg, void *scratch)
 {
-   // FIXME: locking
    platform_status         rc;
    pivot_compaction_state *state   = (pivot_compaction_state *)arg;
    trunk_node_context     *context = state->context;
@@ -2800,13 +2802,6 @@ bundle_compaction_task(void *arg, void *scratch)
    }
    pivot_state_unlock_compactions(state);
    platform_assert(bc != NULL);
-
-   // platform_default_log(
-   //    "bundle_compaction_task: state: %p bc: %p\n", state, bc);
-   // pivot_compaction_state_print(
-   //    state, Platform_default_log_handle, context->cfg->data_cfg, 4);
-   // bundle_compaction_print_table_header(Platform_default_log_handle, 4);
-   // bundle_compaction_print_table_entry(bc, Platform_default_log_handle, 4);
 
    branch_merger merger;
    branch_merger_init(&merger,
@@ -2883,9 +2878,6 @@ bundle_compaction_task(void *arg, void *scratch)
       goto cleanup;
    }
 
-   // platform_error_log("btree_pack succeeded for state: %p bc: %p\n", state,
-   // bc);
-
    bc->output_branch = create_branch_ref(pack_req.root_addr);
    bc->output_stats  = (trunk_pivot_stats){
        .num_tuples   = pack_req.num_tuples,
@@ -2898,17 +2890,7 @@ cleanup:
    btree_pack_req_deinit(&pack_req, context->hid);
    branch_merger_deinit(&merger);
 
-   // platform_error_log(
-   //    "bundle_compaction_task about to acquire lock: state: %p bc: %p\n",
-   //    state,
-   //    bc);
-   // platform_error_log(
-   //    "bundle_compaction_task acquired lock: state: %p bc: %p\n", state, bc);
-
    if (SUCCESS(rc)) {
-      // platform_error_log(
-      //    "Marking bundle compaction succeeded for state %p bc %p\n", state,
-      //    bc);
       bc->state = BUNDLE_COMPACTION_SUCCEEDED;
    } else {
       bc->state = BUNDLE_COMPACTION_FAILED;
@@ -2916,8 +2898,6 @@ cleanup:
    pivot_state_lock_compactions(state);
    if (bc->state == BUNDLE_COMPACTION_SUCCEEDED
        && state->bundle_compactions == bc) {
-      // platform_error_log("enqueueing maplet compaction for state %p\n",
-      // state);
       enqueue_maplet_compaction(state);
    }
    pivot_state_unlock_compactions(state);
@@ -2925,9 +2905,7 @@ cleanup:
 }
 
 static platform_status
-enqueue_bundle_compaction(trunk_node_context *context,
-                          uint64              addr,
-                          trunk_node         *node)
+enqueue_bundle_compaction(trunk_node_context *context, trunk_node *node)
 {
    uint64 height       = node_height(node);
    uint64 num_children = node_num_children(node);
@@ -2954,7 +2932,7 @@ enqueue_bundle_compaction(trunk_node_context *context,
          }
 
          bundle_compaction *bc =
-            bundle_compaction_create(node, pivot_num, context);
+            bundle_compaction_create(context, node, pivot_num, state);
          if (bc == NULL) {
             platform_error_log("enqueue_bundle_compaction: "
                                "bundle_compaction_create failed\n");
@@ -2991,17 +2969,13 @@ enqueue_bundle_compaction(trunk_node_context *context,
 }
 
 static platform_status
-enqueue_bundle_compactions(trunk_node_context     *context,
-                           ondisk_node_ref_vector *odnrefs,
-                           trunk_node_vector      *nodes)
+enqueue_bundle_compactions(trunk_node_context *context,
+                           trunk_node_vector  *nodes)
 {
-   debug_assert(vector_length(odnrefs) == vector_length(nodes));
-
-   for (uint64 i = 0; i < vector_length(odnrefs); i++) {
-      platform_status  rc;
-      ondisk_node_ref *odnref = vector_get(odnrefs, i);
-      trunk_node      *node   = vector_get_ptr(nodes, i);
-      rc = enqueue_bundle_compaction(context, odnref->addr, node);
+   for (uint64 i = 0; i < vector_length(nodes); i++) {
+      platform_status rc;
+      trunk_node     *node = vector_get_ptr(nodes, i);
+      rc                   = enqueue_bundle_compaction(context, node);
       if (!SUCCESS(rc)) {
          platform_error_log("enqueue_bundle_compactions: "
                             "enqueue_bundle_compaction failed: %d\n",
@@ -3028,7 +3002,7 @@ serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
       return rc;
    }
 
-   rc = enqueue_bundle_compactions(context, result, nodes);
+   rc = enqueue_bundle_compactions(context, nodes);
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
          result, ondisk_node_ref_destroy, context, context->hid);
