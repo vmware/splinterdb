@@ -450,9 +450,9 @@ splinterdb_close(splinterdb **kvs_in) // IN
     * created or re-opened. Otherwise, asserts will trip.
     */
    trunk_unmount(&kvs->spl);
-   task_system_destroy(kvs->heap_id, &kvs->task_sys);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
+   task_system_destroy(kvs->heap_id, &kvs->task_sys);
    io_handle_deinit(&kvs->io_handle);
 
    // Free resources carefully to avoid ASAN-test failures

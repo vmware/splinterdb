@@ -499,7 +499,7 @@ laio_read_async(io_handle     *ioh,
                             -status,
                             strerror(-status));
       }
-      io_cleanup(ioh, 0);
+      io_cleanup(ioh, 1);
    } while (status != 1);
 
    return STATUS_OK;
@@ -542,7 +542,7 @@ laio_write_async(io_handle     *ioh,
                             -status,
                             strerror(-status));
       }
-      io_cleanup(ioh, 0);
+      io_cleanup(ioh, 1);
    } while (status != 1);
 
    return STATUS_OK;
@@ -588,6 +588,9 @@ laio_cleanup(io_handle *ioh, uint64 count)
          continue;
       }
       if (status == 0) {
+         if (count == 0 && pctx->io_count > 0) {
+            continue;
+         }
          break;
       }
 
@@ -652,10 +655,7 @@ laio_deregister_thread(io_handle *ioh)
                    platform_get_tid());
 
    // Process pending AIO-requests for this thread before deregistering it
-   const threadid tid = platform_get_tid();
-   while (0 < io->ctx[tid].io_count) {
-      io_cleanup(ioh, 0);
-   }
+   io_cleanup(ioh, 0);
 
    lock_ctx(io);
    pctx->thread_count--;
