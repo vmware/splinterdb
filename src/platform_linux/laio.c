@@ -655,7 +655,7 @@ laio_deregister_thread(io_handle *ioh)
                    platform_get_tid());
 
    // Process pending AIO-requests for this thread before deregistering it
-   io_cleanup(ioh, 0);
+   laio_cleanup(ioh, 0);
 
    lock_ctx(io);
    pctx->thread_count--;
