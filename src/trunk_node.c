@@ -2132,10 +2132,8 @@ bundle_compaction_create(trunk_node_context     *context,
 
    vector_init(&result->input_branches, context->hid);
    int64 num_old_bundles = state->total_bundles;
-   for (int64 i = vector_length(&node->inflight_bundles) - 1;
-        num_old_bundles <= i;
-        i--)
-   {
+   for (int64 i = num_old_bundles; i < vector_length(&node->inflight_bundles);
+        i++) {
       bundle *bndl = vector_get_ptr(&node->inflight_bundles, i);
       rc           = vector_ensure_capacity(&result->input_branches,
                                   vector_length(&result->input_branches)
@@ -2148,7 +2146,7 @@ bundle_compaction_create(trunk_node_context     *context,
          bundle_compaction_destroy(result, context);
          return NULL;
       }
-      for (int64 j = bundle_num_branches(bndl) - 1; 0 <= j; j--) {
+      for (int64 j = 0; j < bundle_num_branches(bndl); j++) {
          branch_ref bref = vector_get(&bndl->branches, j);
          btree_inc_ref_range(context->cc,
                              context->cfg->btree_cfg,
@@ -2537,10 +2535,8 @@ pivot_matches_compaction(const trunk_node_context           *context,
    platform_assert(
       0 < vector_length(&args->state->bundle_compactions->input_branches));
 
-   bundle_compaction *oldest_bc = args->state->bundle_compactions;
-   branch_ref         oldest_input_branch =
-      vector_get(&oldest_bc->input_branches,
-                 vector_length(&oldest_bc->input_branches) - 1);
+   bundle_compaction *oldest_bc   = args->state->bundle_compactions;
+   branch_ref oldest_input_branch = vector_get(&oldest_bc->input_branches, 0);
 
    uint64 ifs = pivot_inflight_bundle_start(pvt);
    if (vector_length(&target->inflight_bundles) < ifs + args->num_input_bundles)
@@ -3302,7 +3298,7 @@ leaf_split_select_pivots(trunk_node_context *context,
       goto cleanup;
    }
 
-   for (uint64 bundle_num = 0;
+   for (uint64 bundle_num = pivot_inflight_bundle_start(first);
         bundle_num < vector_length(&leaf->inflight_bundles);
         bundle_num++)
    {
