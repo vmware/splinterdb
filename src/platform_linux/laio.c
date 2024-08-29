@@ -557,19 +557,20 @@ laio_write_async(io_handle     *ioh,
 static void
 laio_cleanup(io_handle *ioh, uint64 count)
 {
-   laio_handle        *io    = (laio_handle *)ioh;
-   io_process_context *pctx  = laio_get_thread_context(ioh);
-   struct io_event     event = {0};
-   uint64              i;
-   int                 status;
-
+   laio_handle        *io   = (laio_handle *)ioh;
+   io_process_context *pctx = laio_get_thread_context(ioh);
+   struct io_event    *events;
+   events = TYPED_ARRAY_ZALLOC(io->heap_id, events, pctx->io_count);
+   uint64 i, j;
+   int    status;
 
    // Check for completion of up to 'count' events, one event at a time.
    // Or, check for all outstanding events (count == 0)
    for (i = 0; (count == 0 || i < count) && 0 < pctx->io_count; i++) {
       uint64 ctx_idx = __sync_fetch_and_add(&pctx->next_cleanup_ctx_idx, 1);
       ctx_idx %= io->cfg->io_contexts_per_process;
-      status = io_getevents(pctx->io_contexts[ctx_idx], 0, 1, &event, NULL);
+      status = io_getevents(
+         pctx->io_contexts[ctx_idx], 0, pctx->io_count, events, NULL);
       if (status < 0) {
          threadid tid = platform_get_tid();
          platform_error_log("%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], "
@@ -583,17 +584,23 @@ laio_cleanup(io_handle *ioh, uint64 count)
                             pctx->io_count,
                             -status,
                             strerror(-status));
-      }
-      if (status <= 0) {
          i--;
          continue;
       }
+      if (status == 0) {
+         break;
+      }
 
-      __sync_fetch_and_sub(&pctx->io_count, 1);
+      __sync_fetch_and_sub(&pctx->io_count, status);
 
       // Invoke the callback for the one event that completed.
-      laio_callback(pctx->io_contexts[ctx_idx], event.obj, event.res, 0);
+      for (j = 0; j < status; j++) {
+         laio_callback(
+            pctx->io_contexts[ctx_idx], events[j].obj, events[j].res, 0);
+      }
    }
+
+   platform_free(0, events);
 }
 
 /*
@@ -645,7 +652,10 @@ laio_deregister_thread(io_handle *ioh)
                    platform_get_tid());
 
    // Process pending AIO-requests for this thread before deregistering it
-   laio_cleanup(ioh, 0);
+   const threadid tid = platform_get_tid();
+   while (0 < io->ctx[tid].io_count) {
+      io_cleanup(ioh, 0);
+   }
 
    lock_ctx(io);
    pctx->thread_count--;
