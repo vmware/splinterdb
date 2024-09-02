@@ -1993,6 +1993,7 @@ apply_changes_internal(trunk_node_context *context,
    node_deinit(&node, context);
    VECTOR_APPLY_TO_ELTS(
       &new_child_refs, ondisk_node_ref_destroy, context, context->hid);
+   vector_deinit(&new_child_refs);
 
    return result;
 }
@@ -3080,7 +3081,8 @@ node_receive_bundles(trunk_node_context *context,
    platform_status rc;
 
    rc = vector_ensure_capacity(&node->inflight_bundles,
-                               (routed ? 1 : 0) + vector_length(inflight));
+                               vector_length(&node->inflight_bundles)
+                                  + (routed ? 1 : 0) + vector_length(inflight));
    if (!SUCCESS(rc)) {
       platform_error_log("node_receive_bundles: vector_ensure_capacity failed: "
                          "%d\n",
@@ -3593,7 +3595,8 @@ uint64 abandoned_leaf_compactions = 0;
 static platform_status
 restore_balance_leaf(trunk_node_context     *context,
                      trunk_node             *leaf,
-                     ondisk_node_ref_vector *new_leaf_refs)
+                     ondisk_node_ref_vector *new_leaf_refs,
+                     trunk_node_vector      *modified_node_accumulator)
 {
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, context->hid);
@@ -3601,18 +3604,16 @@ restore_balance_leaf(trunk_node_context     *context,
    platform_status rc = leaf_split(context, leaf, &new_nodes);
    if (!SUCCESS(rc)) {
       platform_error_log("restore_balance_leaf: leaf_split failed: %d\n", rc.r);
-      vector_deinit(&new_nodes);
-      return rc;
+      goto cleanup_new_nodes;
    }
 
-   rc = vector_ensure_capacity(new_leaf_refs, vector_length(&new_nodes));
+   rc = vector_append_vector(modified_node_accumulator, &new_nodes);
    if (!SUCCESS(rc)) {
-      platform_error_log("restore_balance_leaf: vector_ensure_capacity failed: "
-                         "%d\n",
-                         rc.r);
-      VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
-      vector_deinit(&new_nodes);
-      return rc;
+      platform_error_log("%s():%d: vector_append_vector() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      goto cleanup_new_nodes;
    }
 
    if (1 < vector_length(&new_nodes)) {
@@ -3620,11 +3621,25 @@ restore_balance_leaf(trunk_node_context     *context,
          context, node_pivot_min_key(leaf), node_height(leaf));
    }
 
-   rc = serialize_nodes_and_enqueue_bundle_compactions(
-      context, &new_nodes, new_leaf_refs);
+   rc = serialize_nodes(context, &new_nodes, new_leaf_refs);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: serialize_nodes() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      goto cleanup_modified_node_accumulator;
+   }
+
+   return rc;
+
+cleanup_modified_node_accumulator:
+   vector_truncate(modified_node_accumulator,
+                   vector_length(modified_node_accumulator)
+                      - vector_length(&new_nodes));
+
+cleanup_new_nodes:
    VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
    vector_deinit(&new_nodes);
-
    return rc;
 }
 
@@ -3656,13 +3671,15 @@ flush_then_compact(trunk_node_context     *context,
                    bundle                 *routed,
                    bundle_vector          *inflight,
                    uint64                  inflight_start,
-                   ondisk_node_ref_vector *new_node_refs);
+                   ondisk_node_ref_vector *new_node_refs,
+                   trunk_node_vector      *modified_node_accumulator);
 
 static platform_status
 flush_to_one_child(trunk_node_context     *context,
                    trunk_node             *index,
                    uint64                  pivot_num,
-                   ondisk_node_ref_vector *new_childrefs_accumulator)
+                   ondisk_node_ref_vector *new_childrefs_accumulator,
+                   trunk_node_ref_vector  *modified_node_accumulator);
 {
    platform_status rc = STATUS_OK;
 
@@ -3696,7 +3713,8 @@ flush_to_one_child(trunk_node_context     *context,
                            node_pivot_bundle(index, pivot_num),
                            &index->inflight_bundles,
                            pivot_inflight_bundle_start(pvt),
-                           &new_childrefs);
+                           &new_childrefs,
+                           modified_node_accumulator);
    node_deinit(&child, context);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: flush_then_compact failed: %d\n",
@@ -3803,7 +3821,7 @@ cleanup_new_pivot_bundles:
    vector_deinit(&new_pivot_bundles);
 cleanup_new_pivots:
    vector_deinit(&new_pivots);
-cleanup_new_children:
+cleanup_new_childrefs:
    vector_deinit(&new_childrefs);
    return rc;
 }
@@ -3811,7 +3829,8 @@ cleanup_new_children:
 static platform_status
 restore_balance_index(trunk_node_context     *context,
                       trunk_node             *index,
-                      ondisk_node_ref_vector *new_index_refs)
+                      ondisk_node_ref_vector *new_index_refs,
+                      trunk_node_ref_vector  *modified_node_accumulator)
 {
    platform_status rc;
 
@@ -3823,9 +3842,10 @@ restore_balance_index(trunk_node_context     *context,
    for (uint64 i = 0; i < node_num_children(index); i++) {
       rc = flush_to_one_child(context, index, i, &all_new_childrefs);
       if (!SUCCESS(rc)) {
-         platform_error_log("restore_balance_index: flush_to_one_child failed: "
-                            "%d\n",
-                            rc.r);
+         platform_error_log("%s():%d: flush_to_one_child() failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_to_string(rc));
          goto cleanup_all_new_children;
       }
    }
@@ -3839,12 +3859,30 @@ restore_balance_index(trunk_node_context     *context,
       goto cleanup_new_nodes;
    }
 
-   rc = serialize_nodes_and_enqueue_bundle_compactions(
-      context, &new_nodes, new_index_refs);
+   rc = serialize_nodes(context, &new_nodes, new_index_refs);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: serialize_nodes() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      goto cleanup_new_nodes;
+   }
+
+   rc = vector_append_vector(modified_node_accumulator, &new_nodes);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_append_vector() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      goto cleanup_new_nodes;
+   }
 
 cleanup_new_nodes:
-   VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+   if (!SUCCESS(rc)) {
+      VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+   }
    vector_deinit(&new_nodes);
+
 cleanup_all_new_children:
    VECTOR_APPLY_TO_ELTS(
       &all_new_childrefs, ondisk_node_ref_destroy, context, context->hid);
@@ -3867,15 +3905,18 @@ flush_then_compact(trunk_node_context     *context,
                    bundle                 *routed,
                    bundle_vector          *inflight,
                    uint64                  inflight_start,
-                   ondisk_node_ref_vector *new_node_refs)
+                   ondisk_node_ref_vector *new_node_refs,
+                   trunk_node_vector      *modified_node_accumulator)
 {
    platform_status rc;
 
    // Add the bundles to the node
    rc = node_receive_bundles(context, node, routed, inflight, inflight_start);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "flush_then_compact: node_receive_bundles failed: %d\n", rc.r);
+      platform_error_log("%s():%d: node_receive_bundles() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
       return rc;
    }
    if (node_is_leaf(node)) {
@@ -3886,9 +3927,11 @@ flush_then_compact(trunk_node_context     *context,
 
    // Perform any needed recursive flushes and node splits
    if (node_is_leaf(node)) {
-      rc = restore_balance_leaf(context, node, new_node_refs);
+      rc = restore_balance_leaf(
+         context, node, new_node_refs, modified_node_accumulator);
    } else {
-      rc = restore_balance_index(context, node, new_node_refs);
+      rc = restore_balance_index(
+         context, node, new_node_refs, modified_node_accumulator);
    }
 
    return rc;
@@ -3897,7 +3940,8 @@ flush_then_compact(trunk_node_context     *context,
 static platform_status
 build_new_roots(trunk_node_context     *context,
                 uint64                  height, // height of current root
-                ondisk_node_ref_vector *node_refs)
+                ondisk_node_ref_vector *node_refs,
+                trunk_node_ref_vector  *modified_node_accumator)
 {
    platform_status rc;
 
@@ -3965,11 +4009,20 @@ build_new_roots(trunk_node_context     *context,
       return rc;
    }
 
+   rc = vector_append_vector(modified_node_accumator, &new_nodes);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_append_vector() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+      vector_deinit(&new_nodes);
+      return rc;
+   }
+
    ondisk_node_ref_vector new_ondisk_node_refs;
    vector_init(&new_ondisk_node_refs, context->hid);
-   rc = serialize_nodes_and_enqueue_bundle_compactions(
-      context, &new_nodes, &new_ondisk_node_refs);
-   VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+   rc = serialize_nodes(context, &new_nodes, &new_ondisk_node_refs);
    vector_deinit(&new_nodes);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: serialize_nodes_and_enqueue_bundle_"
