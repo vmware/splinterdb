@@ -9084,7 +9084,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
    const char *dashes = "-----------------------------------------------------------------";
    platform_log(log_handle, "Compaction Skipping Statistics\n");
-   platform_log(log_handle, "%.12s|%.32s|%.32s|%.32s|%.32s|\n", dashes, dashes, dashes, dashes, dashes);
+   platform_log(log_handle, "%.12s-%.32s-%.32s-%.32s-%.32s-\n", dashes, dashes, dashes, dashes, dashes);
    platform_log(log_handle, " %10s | %30s | %30s | %30s | %30s |\n",
    "height", "unskipped branch compactions", "skipped branch compactions",
    "unskipped bundle compactions", "skipped bundle compactions");
