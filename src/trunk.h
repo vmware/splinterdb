@@ -118,6 +118,11 @@ typedef struct trunk_stats {
    uint64 compaction_time_wasted_ns[TRUNK_MAX_HEIGHT];
    uint64 compaction_pack_time_ns[TRUNK_MAX_HEIGHT];
 
+   uint64 unskipped_branch_compactions[TRUNK_MAX_HEIGHT];
+   uint64 skipped_branch_compactions[TRUNK_MAX_HEIGHT];
+   uint64 unskipped_bundle_compactions[TRUNK_MAX_HEIGHT];
+   uint64 skipped_bundle_compactions[TRUNK_MAX_HEIGHT];
+
    uint64 root_compactions;
    uint64 root_compaction_pack_time_ns;
    uint64 root_compaction_tuples;
