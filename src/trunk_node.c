@@ -1360,6 +1360,7 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
                             platform_status_to_string(rc));
       }
       allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+      cache_extent_discard(context->cc, addr, PAGE_TYPE_TRUNK);
       allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    }
 }
