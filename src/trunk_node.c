@@ -3709,10 +3709,6 @@ flush_to_one_child(trunk_node_context     *context,
 
    // Check whether we need to flush to this child
    pivot *pvt = node_pivot(index, pivot_num);
-   if (pivot_num_kv_bytes(pvt)
-       <= context->cfg->per_child_flush_threshold_kv_bytes) {
-      return STATUS_OK;
-   }
 
    // Start a timer
    uint64 flush_start;
@@ -3863,8 +3859,30 @@ restore_balance_index(trunk_node_context     *context,
    ondisk_node_ref_vector all_new_childrefs;
    vector_init(&all_new_childrefs, context->hid);
 
+   uint64 fullest_child    = 0;
+   uint64 fullest_kv_bytes = 0;
    for (uint64 i = 0; i < node_num_children(index); i++) {
-      rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
+      pivot  *pvt  = node_pivot(index, i);
+      bundle *bndl = node_pivot_bundle(index, i);
+
+      if (2 * context->cfg->target_fanout < bundle_num_branches(bndl)) {
+         rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
+         if (!SUCCESS(rc)) {
+            platform_error_log("%s():%d: flush_to_one_child() failed: %s",
+                               __func__,
+                               __LINE__,
+                               platform_status_to_string(rc));
+            goto cleanup_all_new_children;
+         }
+      } else if (fullest_kv_bytes < pivot_num_kv_bytes(pvt)) {
+         fullest_child    = i;
+         fullest_kv_bytes = pivot_num_kv_bytes(pvt);
+      }
+   }
+
+   if (context->cfg->per_child_flush_threshold_kv_bytes < fullest_kv_bytes) {
+      rc = flush_to_one_child(
+         context, index, fullest_child, &all_new_childrefs, itasks);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: flush_to_one_child() failed: %s",
                             __func__,
