@@ -97,7 +97,6 @@ typedef enum bundle_compaction_state {
 
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
-   uint64                    root_addr_when_created; // for debugging
    uint64                    num_bundles;
    trunk_pivot_stats         input_stats;
    bundle_compaction_state   state;
@@ -1898,7 +1897,7 @@ trunk_modification_begin(trunk_node_context *context)
    platform_batch_rwlock_claim_loop(&context->root_lock, 0);
 }
 
-void
+static void
 trunk_set_root(trunk_node_context *context, ondisk_node_ref *new_root_ref)
 {
    ondisk_node_ref *old_root_ref;
@@ -2006,7 +2005,6 @@ apply_changes(trunk_node_context *context,
               apply_changes_fn   *func,
               void               *arg)
 {
-   trunk_modification_begin(context);
    ondisk_node_ref *new_root_ref = apply_changes_internal(
       context, context->root->addr, minkey, maxkey, height, func, arg);
    if (new_root_ref != NULL) {
@@ -2015,7 +2013,6 @@ apply_changes(trunk_node_context *context,
       platform_error_log(
          "%s():%d: apply_changes_internal() failed", __func__, __LINE__);
    }
-   trunk_modification_end(context);
    return new_root_ref == NULL ? STATUS_NO_MEMORY : STATUS_OK;
 }
 
@@ -2121,8 +2118,6 @@ bundle_compaction_create(trunk_node_context     *context,
    result->state       = BUNDLE_COMPACTION_NOT_STARTED;
    result->input_stats = pivot_received_bundles_stats(pvt);
 
-   result->root_addr_when_created = context->root ? context->root->addr : 0;
-
    if (node_is_leaf(node) && state->bundle_compactions == NULL
        && bundle_num_branches(pvt_bndl) == 0)
    {
@@ -2132,9 +2127,13 @@ bundle_compaction_create(trunk_node_context     *context,
    }
 
    vector_init(&result->input_branches, context->hid);
-   int64 num_old_bundles = state->total_bundles;
-   for (int64 i = num_old_bundles; i < vector_length(&node->inflight_bundles);
-        i++) {
+   int64  num_old_bundles  = state->total_bundles;
+   uint64 first_new_bundle = pivot_inflight_bundle_start(pvt) + num_old_bundles;
+   platform_assert(first_new_bundle == node->num_old_bundles);
+
+   for (int64 i = first_new_bundle; i < vector_length(&node->inflight_bundles);
+        i++)
+   {
       bundle *bndl = vector_get_ptr(&node->inflight_bundles, i);
       rc           = vector_ensure_capacity(&result->input_branches,
                                   vector_length(&result->input_branches)
@@ -2160,7 +2159,9 @@ bundle_compaction_create(trunk_node_context     *context,
       }
    }
    result->num_bundles =
-      vector_length(&node->inflight_bundles) - num_old_bundles;
+      vector_length(&node->inflight_bundles) - first_new_bundle;
+
+   platform_assert(0 < result->num_bundles);
 
    return result;
 }
@@ -2301,6 +2302,7 @@ pivot_compaction_state_append_compaction(pivot_compaction_state *state,
                                          bundle_compaction      *compaction)
 {
    platform_assert(compaction != NULL);
+   platform_assert(0 < vector_length(&compaction->input_branches));
    pivot_state_lock_compactions(state);
    if (state->bundle_compactions == NULL) {
       state->bundle_compactions = compaction;
@@ -2603,6 +2605,9 @@ apply_changes_maplet_compaction(trunk_node_context *context,
       platform_error_log("Failed to find matching pivot for non-abandoned "
                          "compaction state %d\n",
                          pivot_matches_compaction(context, target, 0, args));
+      node_print(target, Platform_error_log_handle, context->cfg->data_cfg, 4);
+      pivot_compaction_state_print(
+         args->state, Platform_error_log_handle, context->cfg->data_cfg, 4);
    }
 
    if (node_is_leaf(target)) {
@@ -2669,10 +2674,6 @@ maplet_compaction_task(void *arg, void *scratch)
          }
       }
 
-      if (context->root && context->root->addr == bc->root_addr_when_created) {
-         platform_error_log("Maplet compaction task: root addr unchanged\n");
-      }
-
       trunk_pivot_stats delta =
          trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
       apply_args.delta = trunk_pivot_stats_add(apply_args.delta, delta);
@@ -2698,37 +2699,49 @@ maplet_compaction_task(void *arg, void *scratch)
 
    apply_args.new_maplet = new_maplet;
 
+   trunk_modification_begin(context);
+
    rc = apply_changes(context,
                       key_buffer_key(&state->key),
                       key_buffer_key(&state->ubkey),
                       state->height,
                       apply_changes_maplet_compaction,
                       &apply_args);
+   if (!SUCCESS(rc)) {
+      platform_error_log("maplet_compaction_task: apply_changes failed: %d\n",
+                         rc.r);
+      trunk_modification_end(context);
+      goto cleanup;
+   }
+
+   if (new_maplet.addr != state->maplet.addr) {
+      routing_filter_dec_ref(context->cc, &state->maplet);
+      state->maplet = new_maplet;
+   }
+   state->num_branches += vector_length(&apply_args.branches);
+   pivot_state_lock_compactions(state);
+   while (state->bundle_compactions != last) {
+      bundle_compaction *next = state->bundle_compactions->next;
+      state->total_bundles -= state->bundle_compactions->num_bundles;
+      bundle_compaction_destroy(state->bundle_compactions, context);
+      state->bundle_compactions = next;
+   }
+   platform_assert(state->bundle_compactions == last);
+   state->bundle_compactions = last->next;
+   state->total_bundles -= last->num_bundles;
+   bundle_compaction_destroy(last, context);
+
+   if (state->bundle_compactions
+       && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
+   {
+      enqueue_maplet_compaction(state);
+   }
+   pivot_state_unlock_compactions(state);
+
+   trunk_modification_end(context);
 
 cleanup:
-   if (SUCCESS(rc)) {
-      if (new_maplet.addr != state->maplet.addr) {
-         routing_filter_dec_ref(context->cc, &state->maplet);
-         state->maplet = new_maplet;
-      }
-      state->num_branches += vector_length(&apply_args.branches);
-      pivot_state_lock_compactions(state);
-      while (state->bundle_compactions != last) {
-         bundle_compaction *next = state->bundle_compactions->next;
-         bundle_compaction_destroy(state->bundle_compactions, context);
-         state->bundle_compactions = next;
-      }
-      platform_assert(state->bundle_compactions == last);
-      state->bundle_compactions = last->next;
-      bundle_compaction_destroy(last, context);
-
-      if (state->bundle_compactions
-          && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
-      {
-         enqueue_maplet_compaction(state);
-      }
-      pivot_state_unlock_compactions(state);
-   } else {
+   if (!SUCCESS(rc)) {
       state->maplet_compaction_failed = TRUE;
       if (new_maplet.addr != state->maplet.addr) {
          routing_filter_dec_ref(context->cc, &new_maplet);
@@ -2799,6 +2812,7 @@ bundle_compaction_task(void *arg, void *scratch)
    }
    pivot_state_unlock_compactions(state);
    platform_assert(bc != NULL);
+   platform_assert(0 < vector_length(&bc->input_branches));
 
    branch_merger merger;
    branch_merger_init(&merger,
@@ -2965,29 +2979,44 @@ enqueue_bundle_compaction(trunk_node_context *context, trunk_node *node)
    return STATUS_OK;
 }
 
-static platform_status
-enqueue_bundle_compactions(trunk_node_context *context,
-                           trunk_node_vector  *nodes)
+typedef struct incorporation_tasks {
+   trunk_node_vector node_compactions;
+} incorporation_tasks;
+
+static void
+incorporation_tasks_init(incorporation_tasks *itasks, platform_heap_id hid)
 {
-   for (uint64 i = 0; i < vector_length(nodes); i++) {
-      platform_status rc;
-      trunk_node     *node = vector_get_ptr(nodes, i);
-      rc                   = enqueue_bundle_compaction(context, node);
+   vector_init(&itasks->node_compactions, hid);
+}
+
+static void
+incorporation_tasks_deinit(incorporation_tasks *itasks,
+                           trunk_node_context  *context)
+{
+   VECTOR_APPLY_TO_PTRS(&itasks->node_compactions, node_deinit, context);
+   vector_deinit(&itasks->node_compactions);
+}
+
+static void
+incorporation_tasks_execute(incorporation_tasks *itasks,
+                            trunk_node_context  *context)
+{
+   for (uint64 i = 0; i < vector_length(&itasks->node_compactions); i++) {
+      trunk_node     *node = vector_get_ptr(&itasks->node_compactions, i);
+      platform_status rc   = enqueue_bundle_compaction(context, node);
       if (!SUCCESS(rc)) {
-         platform_error_log("enqueue_bundle_compactions: "
+         platform_error_log("incorporation_tasks_execute: "
                             "enqueue_bundle_compaction failed: %d\n",
                             rc.r);
-         return rc;
       }
    }
-
-   return STATUS_OK;
 }
 
 static platform_status
-serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
-                                               trunk_node_vector      *nodes,
-                                               ondisk_node_ref_vector *result)
+serialize_nodes_and_save_contingent_compactions(trunk_node_context     *context,
+                                                trunk_node_vector      *nodes,
+                                                ondisk_node_ref_vector *result,
+                                                incorporation_tasks    *itasks)
 {
    platform_status rc;
 
@@ -2999,12 +3028,15 @@ serialize_nodes_and_enqueue_bundle_compactions(trunk_node_context     *context,
       return rc;
    }
 
-   rc = enqueue_bundle_compactions(context, nodes);
+   rc = vector_append_vector(&itasks->node_compactions, nodes);
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
          result, ondisk_node_ref_destroy, context, context->hid);
       vector_truncate(result, 0);
-      return rc;
+   }
+
+   if (SUCCESS(rc)) {
+      vector_truncate(nodes, 0);
    }
 
    return rc;
@@ -3074,7 +3106,7 @@ accumulate_inflight_bundle_tuple_counts_in_range(bundle             *bndl,
 static platform_status
 node_receive_bundles(trunk_node_context *context,
                      trunk_node         *node,
-                     bundle             *routed,
+                     bundle             *pivot_bundle,
                      bundle_vector      *inflight,
                      uint64              inflight_start)
 {
@@ -3082,7 +3114,8 @@ node_receive_bundles(trunk_node_context *context,
 
    rc = vector_ensure_capacity(&node->inflight_bundles,
                                vector_length(&node->inflight_bundles)
-                                  + (routed ? 1 : 0) + vector_length(inflight));
+                                  + (pivot_bundle ? 1 : 0)
+                                  + vector_length(inflight));
    if (!SUCCESS(rc)) {
       platform_error_log("node_receive_bundles: vector_ensure_capacity failed: "
                          "%d\n",
@@ -3090,9 +3123,9 @@ node_receive_bundles(trunk_node_context *context,
       return rc;
    }
 
-   if (routed && 0 < bundle_num_branches(routed)) {
+   if (pivot_bundle && 0 < bundle_num_branches(pivot_bundle)) {
       rc = VECTOR_EMPLACE_APPEND(
-         &node->inflight_bundles, bundle_init_copy, routed, context->hid);
+         &node->inflight_bundles, bundle_init_copy, pivot_bundle, context->hid);
       if (!SUCCESS(rc)) {
          platform_error_log("node_receive_bundles: bundle_init_copy failed: "
                             "%d\n",
@@ -3116,9 +3149,9 @@ node_receive_bundles(trunk_node_context *context,
    for (uint64 i = 0; i < node_num_children(node); i++) {
       btree_pivot_stats btree_stats;
       ZERO_CONTENTS(&btree_stats);
-      if (routed) {
+      if (pivot_bundle) {
          rc = accumulate_inflight_bundle_tuple_counts_in_range(
-            routed, context, &node->pivots, i, &btree_stats);
+            pivot_bundle, context, &node->pivots, i, &btree_stats);
          if (!SUCCESS(rc)) {
             platform_error_log(
                "node_receive_bundles: "
@@ -3596,7 +3629,7 @@ static platform_status
 restore_balance_leaf(trunk_node_context     *context,
                      trunk_node             *leaf,
                      ondisk_node_ref_vector *new_leaf_refs,
-                     trunk_node_vector      *modified_node_accumulator)
+                     incorporation_tasks    *itasks)
 {
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, context->hid);
@@ -3607,35 +3640,26 @@ restore_balance_leaf(trunk_node_context     *context,
       goto cleanup_new_nodes;
    }
 
-   rc = vector_append_vector(modified_node_accumulator, &new_nodes);
+   if (1 < vector_length(&new_nodes)) {
+      pivot_state_map_abandon_entry(
+         context, node_pivot_min_key(leaf), node_height(leaf));
+      abandoned_leaf_compactions++;
+   }
+
+   rc = serialize_nodes_and_save_contingent_compactions(
+      context, &new_nodes, new_leaf_refs, itasks);
    if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: vector_append_vector() failed: %s",
+      platform_error_log("%s():%d: serialize_nodes() failed: %s",
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
       goto cleanup_new_nodes;
    }
 
-   if (1 < vector_length(&new_nodes)) {
-      pivot_state_map_abandon_entry(
-         context, node_pivot_min_key(leaf), node_height(leaf));
-   }
 
-   rc = serialize_nodes(context, &new_nodes, new_leaf_refs);
-   if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: serialize_nodes() failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
-      goto cleanup_modified_node_accumulator;
-   }
+   vector_deinit(&new_nodes);
 
    return rc;
-
-cleanup_modified_node_accumulator:
-   vector_truncate(modified_node_accumulator,
-                   vector_length(modified_node_accumulator)
-                      - vector_length(&new_nodes));
 
 cleanup_new_nodes:
    VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
@@ -3672,14 +3696,14 @@ flush_then_compact(trunk_node_context     *context,
                    bundle_vector          *inflight,
                    uint64                  inflight_start,
                    ondisk_node_ref_vector *new_node_refs,
-                   trunk_node_vector      *modified_node_accumulator);
+                   incorporation_tasks    *itasks);
 
 static platform_status
 flush_to_one_child(trunk_node_context     *context,
                    trunk_node             *index,
                    uint64                  pivot_num,
                    ondisk_node_ref_vector *new_childrefs_accumulator,
-                   trunk_node_ref_vector  *modified_node_accumulator);
+                   incorporation_tasks    *itasks)
 {
    platform_status rc = STATUS_OK;
 
@@ -3714,12 +3738,12 @@ flush_to_one_child(trunk_node_context     *context,
                            &index->inflight_bundles,
                            pivot_inflight_bundle_start(pvt),
                            &new_childrefs,
-                           modified_node_accumulator);
+                           itasks);
    node_deinit(&child, context);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: flush_then_compact failed: %d\n",
                          rc.r);
-      goto cleanup_new_children;
+      goto cleanup_new_childrefs;
    }
 
    // Construct our new pivots for the new children
@@ -3830,7 +3854,7 @@ static platform_status
 restore_balance_index(trunk_node_context     *context,
                       trunk_node             *index,
                       ondisk_node_ref_vector *new_index_refs,
-                      trunk_node_ref_vector  *modified_node_accumulator)
+                      incorporation_tasks    *itasks)
 {
    platform_status rc;
 
@@ -3840,7 +3864,7 @@ restore_balance_index(trunk_node_context     *context,
    vector_init(&all_new_childrefs, context->hid);
 
    for (uint64 i = 0; i < node_num_children(index); i++) {
-      rc = flush_to_one_child(context, index, i, &all_new_childrefs);
+      rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: flush_to_one_child() failed: %s",
                             __func__,
@@ -3859,21 +3883,15 @@ restore_balance_index(trunk_node_context     *context,
       goto cleanup_new_nodes;
    }
 
-   rc = serialize_nodes(context, &new_nodes, new_index_refs);
+   rc = serialize_nodes_and_save_contingent_compactions(
+      context, &new_nodes, new_index_refs, itasks);
    if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: serialize_nodes() failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
-      goto cleanup_new_nodes;
-   }
-
-   rc = vector_append_vector(modified_node_accumulator, &new_nodes);
-   if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: vector_append_vector() failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "%s():%d: serialize_nodes_and_save_contingent_compactions() failed: "
+         "%s",
+         __func__,
+         __LINE__,
+         platform_status_to_string(rc));
       goto cleanup_new_nodes;
    }
 
@@ -3906,7 +3924,7 @@ flush_then_compact(trunk_node_context     *context,
                    bundle_vector          *inflight,
                    uint64                  inflight_start,
                    ondisk_node_ref_vector *new_node_refs,
-                   trunk_node_vector      *modified_node_accumulator)
+                   incorporation_tasks    *itasks)
 {
    platform_status rc;
 
@@ -3927,11 +3945,9 @@ flush_then_compact(trunk_node_context     *context,
 
    // Perform any needed recursive flushes and node splits
    if (node_is_leaf(node)) {
-      rc = restore_balance_leaf(
-         context, node, new_node_refs, modified_node_accumulator);
+      rc = restore_balance_leaf(context, node, new_node_refs, itasks);
    } else {
-      rc = restore_balance_index(
-         context, node, new_node_refs, modified_node_accumulator);
+      rc = restore_balance_index(context, node, new_node_refs, itasks);
    }
 
    return rc;
@@ -3940,8 +3956,7 @@ flush_then_compact(trunk_node_context     *context,
 static platform_status
 build_new_roots(trunk_node_context     *context,
                 uint64                  height, // height of current root
-                ondisk_node_ref_vector *node_refs,
-                trunk_node_ref_vector  *modified_node_accumator)
+                ondisk_node_ref_vector *node_refs)
 {
    platform_status rc;
 
@@ -4009,17 +4024,6 @@ build_new_roots(trunk_node_context     *context,
       return rc;
    }
 
-   rc = vector_append_vector(modified_node_accumator, &new_nodes);
-   if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: vector_append_vector() failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
-      VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
-      vector_deinit(&new_nodes);
-      return rc;
-   }
-
    ondisk_node_ref_vector new_ondisk_node_refs;
    vector_init(&new_ondisk_node_refs, context->hid);
    rc = serialize_nodes(context, &new_nodes, &new_ondisk_node_refs);
@@ -4044,7 +4048,7 @@ cleanup_pivots:
    return rc;
 }
 
-ondisk_node_ref *
+platform_status
 trunk_incorporate(trunk_node_context *context,
                   routing_filter      filter,
                   uint64              branch_addr)
@@ -4052,6 +4056,9 @@ trunk_incorporate(trunk_node_context *context,
    platform_status  rc;
    ondisk_node_ref *result = NULL;
    uint64           height;
+
+   incorporation_tasks itasks;
+   incorporation_tasks_init(&itasks, context->hid);
 
    branch_ref branch = create_branch_ref(branch_addr);
 
@@ -4098,7 +4105,8 @@ trunk_incorporate(trunk_node_context *context,
    height = node_height(&root);
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
-   rc = flush_then_compact(context, &root, NULL, &inflight, 0, &new_node_refs);
+   rc = flush_then_compact(
+      context, &root, NULL, &inflight, 0, &new_node_refs, &itasks);
    node_deinit(&root, context);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_incorporate: flush_then_compact failed: %d\n",
@@ -4120,6 +4128,9 @@ trunk_incorporate(trunk_node_context *context,
 
    result = vector_get(&new_node_refs, 0);
 
+   trunk_set_root(context, result);
+   incorporation_tasks_execute(&itasks, context);
+
 cleanup_vectors:
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
@@ -4128,8 +4139,9 @@ cleanup_vectors:
    vector_deinit(&new_node_refs);
    VECTOR_APPLY_TO_PTRS(&inflight, bundle_deinit);
    vector_deinit(&inflight);
+   incorporation_tasks_deinit(&itasks, context);
 
-   return result;
+   return rc;
 }
 
 /***********************************
@@ -4570,8 +4582,9 @@ trunk_node_context_init(trunk_node_context      *context,
    context->ts    = ts;
    context->stats = NULL;
 
-   platform_batch_rwlock_init(&context->root_lock);
    pivot_state_map_init(&context->pivot_states);
+   platform_batch_rwlock_init(&context->root_lock);
+
 
    return STATUS_OK;
 }

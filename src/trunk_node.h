@@ -112,7 +112,6 @@ typedef struct trunk_node_context {
    task_system             *ts;
    trunk_node_stats        *stats;
    pivot_state_map          pivot_states;
-   trunk_node_vector        contingent_bundle_compaction_nodes;
    platform_batch_rwlock    root_lock;
    ondisk_node_ref         *root;
 } trunk_node_context;

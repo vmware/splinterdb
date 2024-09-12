@@ -3622,14 +3622,13 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
    trunk_compact_bundle_req *req = cmt->req;
-   ondisk_node_ref          *new_root_pivot;
    uint64                    flush_start;
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
-   new_root_pivot = trunk_incorporate(
+   rc = trunk_incorporate(
       &spl->trunk_context, cmt->filter, cmt->branch.root_addr);
-   platform_assert(new_root_pivot != NULL, "new_root_pivot is NULL\n");
+   platform_assert_status_ok(rc);
    btree_dec_ref_range(spl->cc,
                        &spl->cfg.btree_cfg,
                        cmt->branch.root_addr,
@@ -3663,7 +3662,6 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
 
    // Switch in the new root and release all locks
-   trunk_set_root(&spl->trunk_context, new_root_pivot);
    trunk_modification_end(&spl->trunk_context);
    memtable_unblock_lookups(spl->mt_ctxt);
 
