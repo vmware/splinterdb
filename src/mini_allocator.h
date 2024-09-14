@@ -37,7 +37,6 @@ typedef struct mini_allocator {
    allocator      *al;
    cache          *cc;
    data_config    *data_cfg;
-   bool32          keyed;
    bool32          pinned;
    uint64          meta_head;
    volatile uint64 meta_tail;
@@ -56,46 +55,18 @@ mini_init(mini_allocator *mini,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
-          page_type       type,
-          bool32          keyed);
+          page_type       type);
 void
-mini_release(mini_allocator *mini, key end_key);
-
-/*
- * NOTE: Can only be called on a mini_allocator which has made no allocations.
- */
-void
-mini_destroy_unused(mini_allocator *mini);
+mini_release(mini_allocator *mini);
 
 uint64
-mini_alloc(mini_allocator *mini,
-           uint64          batch,
-           key             alloc_key,
-           uint64         *next_extent);
+mini_alloc(mini_allocator *mini, uint64 batch, uint64 *next_extent);
 
 
 refcount
-mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
+mini_inc_ref(cache *cc, uint64 meta_head);
 refcount
-mini_unkeyed_dec_ref(cache    *cc,
-                     uint64    meta_head,
-                     page_type type,
-                     bool32    pinned);
-
-void
-mini_keyed_inc_ref(cache       *cc,
-                   data_config *data_cfg,
-                   page_type    type,
-                   uint64       meta_head,
-                   key          start_key,
-                   key          end_key);
-bool32
-mini_keyed_dec_ref(cache       *cc,
-                   data_config *data_cfg,
-                   page_type    type,
-                   uint64       meta_head,
-                   key          start_key,
-                   key          end_key);
+mini_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned);
 
 void
 mini_block_dec_ref(cache *cc, uint64 meta_head);
@@ -103,23 +74,11 @@ mini_block_dec_ref(cache *cc, uint64 meta_head);
 void
 mini_unblock_dec_ref(cache *cc, uint64 meta_head);
 
-uint64
-mini_keyed_extent_count(cache       *cc,
-                        data_config *data_cfg,
-                        page_type    type,
-                        uint64       meta_head,
-                        key          start_key,
-                        key          end_key);
 void
-mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
+mini_prefetch(cache *cc, page_type type, uint64 meta_head);
 
 void
-mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type);
-void
-mini_keyed_print(cache       *cc,
-                 data_config *data_cfg,
-                 uint64       meta_head,
-                 page_type    type);
+mini_print(cache *cc, uint64 meta_head, page_type type);
 
 static inline uint64
 mini_meta_tail(mini_allocator *mini)

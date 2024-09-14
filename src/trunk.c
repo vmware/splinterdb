@@ -634,7 +634,7 @@ trunk_node_unlock(cache *cc, trunk_node *node)
 static inline void
 trunk_alloc(cache *cc, mini_allocator *mini, uint64 height, trunk_node *node)
 {
-   node->addr = mini_alloc(mini, height, NULL_KEY, NULL);
+   node->addr = mini_alloc(mini, height, NULL);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, PAGE_TYPE_TRUNK);
    node->hdr  = (trunk_hdr *)(node->page->data);
@@ -3428,7 +3428,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    memtable *mt = trunk_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
-   mini_release(&mt->mini, NULL_KEY);
+   mini_release(&mt->mini);
 
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
@@ -3830,7 +3830,7 @@ trunk_inc_filter_ref(trunk_handle *spl, routing_filter *filter, uint32 lineno)
                 filter->addr,
                 filter->meta_head,
                 filter->num_fingerprints);
-   mini_unkeyed_inc_ref(spl->cc, filter->meta_head);
+   mini_inc_ref(spl->cc, filter->meta_head);
 }
 
 static inline void
@@ -6111,7 +6111,11 @@ trunk_range_iterator_init(trunk_handle         *spl,
          trunk_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
       range_itor->compacted[range_itor->num_branches] = compacted;
       if (compacted) {
-         btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
+         btree_inc_ref_range(spl->cc,
+                             &spl->cfg.btree_cfg,
+                             root_addr,
+                             NEGATIVE_INFINITY_KEY,
+                             POSITIVE_INFINITY_KEY);
       } else {
          trunk_memtable_inc_ref(spl, mt_gen);
       }
@@ -6405,7 +6409,11 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
          if (range_itor->compacted[i]) {
             uint64 root_addr = btree_itor->root_addr;
             trunk_branch_iterator_deinit(spl, btree_itor, FALSE);
-            btree_unblock_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
+            btree_dec_ref_range(spl->cc,
+                                &spl->cfg.btree_cfg,
+                                root_addr,
+                                NEGATIVE_INFINITY_KEY,
+                                POSITIVE_INFINITY_KEY);
          } else {
             uint64 mt_gen = range_itor->memtable_start_gen - i;
             trunk_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
@@ -7526,15 +7534,13 @@ trunk_create(trunk_config     *cfg,
    // set up the mini allocator
    //    we use the root extent as the initial mini_allocator head
    uint64 meta_addr = spl->root_addr + trunk_page_size(cfg);
-   // The trunk uses an unkeyed mini allocator
    mini_init(&spl->mini,
              cc,
              spl->cfg.data_cfg,
              meta_addr,
              0,
              TRUNK_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK,
-             FALSE);
+             PAGE_TYPE_TRUNK);
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
@@ -7718,7 +7724,7 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
    }
 
    // release the trunk mini allocator
-   mini_release(&spl->mini, NULL_KEY);
+   mini_release(&spl->mini);
 
    // flush all dirty pages in the cache
    cache_flush(spl->cc);
@@ -7772,7 +7778,7 @@ trunk_destroy(trunk_handle *spl)
    trunk_prepare_for_shutdown(spl);
    trunk_node_context_deinit(&spl->trunk_context);
    trunk_for_each_node(spl, trunk_destroy_node, NULL);
-   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
+   mini_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 

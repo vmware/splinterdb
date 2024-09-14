@@ -4384,8 +4384,11 @@ ondisk_bundle_inc_all_branch_refs(const trunk_node_context *context,
 {
    for (uint64 i = 0; i < bndl->num_branches; i++) {
       branch_ref bref = bndl->branches[i];
-      btree_block_dec_ref(
-         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
+      btree_inc_ref_range(context->cc,
+                          context->cfg->btree_cfg,
+                          branch_ref_addr(bref),
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
    }
 }
 
@@ -4540,8 +4543,11 @@ cleanup:
    }
    if (!SUCCESS(rc)) {
       for (uint64 i = original_num_branches; i < *num_branches; i++) {
-         btree_unblock_dec_ref(
-            context->cc, context->cfg->btree_cfg, branches[i]);
+         btree_dec_ref_range(context->cc,
+                             context->cfg->btree_cfg,
+                             branches[i],
+                             NEGATIVE_INFINITY_KEY,
+                             POSITIVE_INFINITY_KEY);
       }
       *num_branches = original_num_branches;
    }

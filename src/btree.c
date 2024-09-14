@@ -1068,7 +1068,7 @@ btree_alloc(cache          *cc,
             page_type       type,
             btree_node     *node)
 {
-   node->addr = mini_alloc(mini, height, alloc_key, next_extent);
+   node->addr = mini_alloc(mini, height, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
 
@@ -1227,8 +1227,7 @@ btree_create(cache              *cc,
              root.addr + btree_page_size(cfg),
              0,
              BTREE_MAX_HEIGHT,
-             type,
-             type == PAGE_TYPE_BRANCH);
+             type);
 
    return root.addr;
 }
@@ -1242,8 +1241,7 @@ btree_inc_ref_range(cache              *cc,
 {
    debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
-   mini_keyed_inc_ref(
-      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
+   mini_inc_ref(cc, meta_page_addr);
 }
 
 bool32
@@ -1255,8 +1253,7 @@ btree_dec_ref_range(cache              *cc,
 {
    debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
-   return mini_keyed_dec_ref(
-      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
+   return mini_dec_ref(cc, meta_page_addr, PAGE_TYPE_BRANCH, FALSE);
 }
 
 bool32
@@ -1267,22 +1264,8 @@ btree_dec_ref(cache              *cc,
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64   meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   refcount ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
+   refcount ref       = mini_dec_ref(cc, meta_head, type, TRUE);
    return ref == 0;
-}
-
-void
-btree_block_dec_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
-{
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   mini_block_dec_ref(cc, meta_head);
-}
-
-void
-btree_unblock_dec_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
-{
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   mini_unblock_dec_ref(cc, meta_head);
 }
 
 /*
@@ -3202,7 +3185,12 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
 
    // if output tree is empty, deallocate any preallocated extents
    if (req->num_tuples == 0) {
-      mini_destroy_unused(&req->mini);
+      mini_release(&req->mini);
+      refcount r = mini_dec_ref(cc,
+                                btree_root_to_meta_addr(cfg, req->root_addr, 0),
+                                PAGE_TYPE_BRANCH,
+                                FALSE);
+      platform_assert(r == 0);
       req->root_addr = 0;
       return;
    }
@@ -3225,7 +3213,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
 
    btree_node_full_unlock(cc, cfg, &req->edge[req->height][0]);
 
-   mini_release(&req->mini, last_key);
+   mini_release(&req->mini);
 }
 
 static bool32
@@ -3693,10 +3681,8 @@ btree_space_use_in_range(cache        *cc,
                          key           start_key,
                          key           end_key)
 {
-   uint64 meta_head    = btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint64 extents_used = mini_keyed_extent_count(
-      cc, cfg->data_cfg, type, meta_head, start_key, end_key);
-   return extents_used * btree_extent_size(cfg);
+   platform_assert(0);
+   return 0;
 }
 
 bool32
