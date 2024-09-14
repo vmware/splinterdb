@@ -4619,7 +4619,7 @@ trunk_node_context_deinit(trunk_node_context *context)
 {
    platform_assert(context->pivot_states.num_states == 0);
    if (context->root != NULL) {
-      ondisk_node_dec_ref(context, context->root->addr);
+      ondisk_node_ref_destroy(context->root, context, context->hid);
    }
    pivot_state_map_deinit(&context->pivot_states);
    platform_batch_rwlock_deinit(&context->root_lock);

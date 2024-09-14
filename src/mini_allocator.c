@@ -467,7 +467,6 @@ mini_release(mini_allocator *mini)
       ref = allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
       platform_assert(ref == AL_FREE);
    }
-   memset(mini, 0, sizeof(*mini));
 }
 
 
