@@ -1233,27 +1233,10 @@ btree_create(cache              *cc,
 }
 
 void
-btree_inc_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key)
+btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
 {
-   debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
    mini_inc_ref(cc, meta_page_addr);
-}
-
-bool32
-btree_dec_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key)
-{
-   debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
-   uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
-   return mini_dec_ref(cc, meta_page_addr, PAGE_TYPE_BRANCH, FALSE);
 }
 
 bool32
@@ -1262,9 +1245,8 @@ btree_dec_ref(cache              *cc,
               uint64              root_addr,
               page_type           type)
 {
-   platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64   meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   refcount ref       = mini_dec_ref(cc, meta_head, type, TRUE);
+   refcount ref = mini_dec_ref(cc, meta_head, type, type == PAGE_TYPE_MEMTABLE);
    return ref == 0;
 }
 
@@ -3231,11 +3213,7 @@ btree_pack_abort(btree_pack_req *req)
       }
    }
 
-   btree_dec_ref_range(req->cc,
-                       req->cfg,
-                       req->root_addr,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY);
+   btree_dec_ref(req->cc, req->cfg, req->root_addr, PAGE_TYPE_BRANCH);
 }
 
 /*

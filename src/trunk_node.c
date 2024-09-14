@@ -1262,11 +1262,8 @@ bundle_inc_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 {
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
       branch_ref bref = vector_get(&bndl->branches, i);
-      btree_inc_ref_range(context->cc,
-                          context->cfg->btree_cfg,
-                          branch_ref_addr(bref),
-                          NEGATIVE_INFINITY_KEY,
-                          POSITIVE_INFINITY_KEY);
+      btree_inc_ref(
+         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
    }
 }
 
@@ -1275,11 +1272,10 @@ bundle_dec_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 {
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
       branch_ref bref = vector_get(&bndl->branches, i);
-      btree_dec_ref_range(context->cc,
-                          context->cfg->btree_cfg,
-                          branch_ref_addr(bref),
-                          NEGATIVE_INFINITY_KEY,
-                          POSITIVE_INFINITY_KEY);
+      btree_dec_ref(context->cc,
+                    context->cfg->btree_cfg,
+                    branch_ref_addr(bref),
+                    PAGE_TYPE_BRANCH);
    }
 }
 
@@ -2075,12 +2071,10 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
    //    compaction, Platform_default_log_handle, 4);
 
    for (uint64 i = 0; i < vector_length(&compaction->input_branches); i++) {
-      btree_dec_ref_range(
-         context->cc,
-         context->cfg->btree_cfg,
-         branch_ref_addr(vector_get(&compaction->input_branches, i)),
-         NEGATIVE_INFINITY_KEY,
-         POSITIVE_INFINITY_KEY);
+      btree_dec_ref(context->cc,
+                    context->cfg->btree_cfg,
+                    branch_ref_addr(vector_get(&compaction->input_branches, i)),
+                    PAGE_TYPE_BRANCH);
       __sync_fetch_and_add(&bc_decs, 1);
    }
    vector_deinit(&compaction->input_branches);
@@ -2090,11 +2084,10 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
    }
 
    if (!branch_is_null(compaction->output_branch)) {
-      btree_dec_ref_range(context->cc,
-                          context->cfg->btree_cfg,
-                          branch_ref_addr(compaction->output_branch),
-                          NEGATIVE_INFINITY_KEY,
-                          POSITIVE_INFINITY_KEY);
+      btree_dec_ref(context->cc,
+                    context->cfg->btree_cfg,
+                    branch_ref_addr(compaction->output_branch),
+                    PAGE_TYPE_BRANCH);
    }
 
    platform_free(context->hid, compaction);
@@ -2149,11 +2142,8 @@ bundle_compaction_create(trunk_node_context     *context,
       }
       for (int64 j = 0; j < bundle_num_branches(bndl); j++) {
          branch_ref bref = vector_get(&bndl->branches, j);
-         btree_inc_ref_range(context->cc,
-                             context->cfg->btree_cfg,
-                             branch_ref_addr(bref),
-                             NEGATIVE_INFINITY_KEY,
-                             POSITIVE_INFINITY_KEY);
+         btree_inc_ref(
+            context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
          rc = vector_append(&result->input_branches, bref);
          platform_assert_status_ok(rc);
          __sync_fetch_and_add(&bc_incs, 1);
@@ -4384,11 +4374,8 @@ ondisk_bundle_inc_all_branch_refs(const trunk_node_context *context,
 {
    for (uint64 i = 0; i < bndl->num_branches; i++) {
       branch_ref bref = bndl->branches[i];
-      btree_inc_ref_range(context->cc,
-                          context->cfg->btree_cfg,
-                          branch_ref_addr(bref),
-                          NEGATIVE_INFINITY_KEY,
-                          POSITIVE_INFINITY_KEY);
+      btree_inc_ref(
+         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
    }
 }
 
@@ -4543,11 +4530,10 @@ cleanup:
    }
    if (!SUCCESS(rc)) {
       for (uint64 i = original_num_branches; i < *num_branches; i++) {
-         btree_dec_ref_range(context->cc,
-                             context->cfg->btree_cfg,
-                             branches[i],
-                             NEGATIVE_INFINITY_KEY,
-                             POSITIVE_INFINITY_KEY);
+         btree_dec_ref(context->cc,
+                       context->cfg->btree_cfg,
+                       branches[i],
+                       PAGE_TYPE_BRANCH);
       }
       *num_branches = original_num_branches;
    }

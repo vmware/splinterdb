@@ -242,18 +242,7 @@ btree_create(cache              *cc,
              page_type           type);
 
 void
-btree_inc_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key);
-
-bool32
-btree_dec_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key);
+btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
 
 bool32
 btree_dec_ref(cache              *cc,

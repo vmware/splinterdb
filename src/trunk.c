@@ -2713,8 +2713,7 @@ trunk_bundle_inc_pivot_rc(trunk_handle *spl,
    {
       trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
       for (uint64 pivot_no = 1; pivot_no < num_children; pivot_no++) {
-         key pivot = trunk_get_pivot(spl, node, pivot_no);
-         btree_inc_ref_range(cc, btree_cfg, branch->root_addr, pivot, pivot);
+         btree_inc_ref(cc, btree_cfg, branch->root_addr);
       }
    }
 }
@@ -3141,8 +3140,7 @@ trunk_inc_branch_range(trunk_handle *spl,
                        key           end_key)
 {
    if (branch->root_addr) {
-      btree_inc_ref_range(
-         spl->cc, &spl->cfg.btree_cfg, branch->root_addr, start_key, end_key);
+      btree_inc_ref(spl->cc, &spl->cfg.btree_cfg, branch->root_addr);
    }
 }
 
@@ -3157,8 +3155,8 @@ trunk_zap_branch_range(trunk_handle *spl,
    platform_assert((key_is_null(start_key) && key_is_null(end_key))
                    || (type != PAGE_TYPE_MEMTABLE && !key_is_null(start_key)));
    platform_assert(branch->root_addr != 0, "root_addr=%lu", branch->root_addr);
-   btree_dec_ref_range(
-      spl->cc, &spl->cfg.btree_cfg, branch->root_addr, start_key, end_key);
+   btree_dec_ref(
+      spl->cc, &spl->cfg.btree_cfg, branch->root_addr, PAGE_TYPE_BRANCH);
 }
 
 /*
@@ -3629,11 +3627,8 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    rc = trunk_incorporate(
       &spl->trunk_context, cmt->filter, cmt->branch.root_addr);
    platform_assert_status_ok(rc);
-   btree_dec_ref_range(spl->cc,
-                       &spl->cfg.btree_cfg,
-                       cmt->branch.root_addr,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY);
+   btree_dec_ref(
+      spl->cc, &spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
    routing_filter_dec_ref(spl->cc, &cmt->filter);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
@@ -4771,7 +4766,7 @@ trunk_branch_iterator_init(trunk_handle   *spl,
    cache        *cc        = spl->cc;
    btree_config *btree_cfg = &spl->cfg.btree_cfg;
    if (branch_addr != 0 && should_inc_ref) {
-      btree_inc_ref_range(cc, btree_cfg, branch_addr, min_key, max_key);
+      btree_inc_ref(cc, btree_cfg, branch_addr);
    }
    btree_iterator_init(cc,
                        btree_cfg,
@@ -4796,11 +4791,9 @@ trunk_branch_iterator_deinit(trunk_handle   *spl,
    }
    cache        *cc        = spl->cc;
    btree_config *btree_cfg = &spl->cfg.btree_cfg;
-   key           min_key   = itor->min_key;
-   key           max_key   = itor->max_key;
    btree_iterator_deinit(itor);
    if (should_dec_ref) {
-      btree_dec_ref_range(cc, btree_cfg, itor->root_addr, min_key, max_key);
+      btree_dec_ref(cc, btree_cfg, itor->root_addr, PAGE_TYPE_BRANCH);
    }
 }
 
@@ -6111,11 +6104,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
          trunk_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
       range_itor->compacted[range_itor->num_branches] = compacted;
       if (compacted) {
-         btree_inc_ref_range(spl->cc,
-                             &spl->cfg.btree_cfg,
-                             root_addr,
-                             NEGATIVE_INFINITY_KEY,
-                             POSITIVE_INFINITY_KEY);
+         btree_inc_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       } else {
          trunk_memtable_inc_ref(spl, mt_gen);
       }
@@ -6409,11 +6398,8 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
          if (range_itor->compacted[i]) {
             uint64 root_addr = btree_itor->root_addr;
             trunk_branch_iterator_deinit(spl, btree_itor, FALSE);
-            btree_dec_ref_range(spl->cc,
-                                &spl->cfg.btree_cfg,
-                                root_addr,
-                                NEGATIVE_INFINITY_KEY,
-                                POSITIVE_INFINITY_KEY);
+            btree_dec_ref(
+               spl->cc, &spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
          } else {
             uint64 mt_gen = range_itor->memtable_start_gen - i;
             trunk_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
