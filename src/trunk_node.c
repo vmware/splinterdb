@@ -105,6 +105,7 @@ typedef struct bundle_compaction {
    branch_ref                output_branch;
    trunk_pivot_stats         output_stats;
    uint32                   *fingerprints;
+   uint64                    compaction_time_ns;
 } bundle_compaction;
 
 typedef struct trunk_node_context trunk_node_context;
@@ -2269,6 +2270,8 @@ uint64 pivot_state_destructions = 0;
 static void
 pivot_state_destroy(pivot_compaction_state *state)
 {
+   trunk_node_context *context = state->context;
+   threadid            tid     = platform_get_tid();
    platform_assert(state->refcount == 0);
    // platform_default_log("pivot_state_destroy: %p\n", state);
    // pivot_compaction_state_print(
@@ -2278,6 +2281,15 @@ pivot_state_destroy(pivot_compaction_state *state)
    pivot_state_lock_compactions(state);
    bundle_compaction *bc = state->bundle_compactions;
    while (bc != NULL) {
+      if (context->stats) {
+         if (bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
+            // Any completed bundle compactions still hanging off of this state
+            // were never applied.
+            context->stats[tid].compactions_discarded[state->height]++;
+            context->stats[tid].compaction_time_wasted_ns[state->height] +=
+               bc->compaction_time_ns;
+         }
+      }
       bundle_compaction *next = bc->next;
       bundle_compaction_destroy(bc, state->context);
       bc = next;
@@ -2513,6 +2525,8 @@ typedef struct maplet_compaction_apply_args {
    routing_filter          new_maplet;
    branch_ref_vector       branches;
    trunk_pivot_stats       delta;
+   // Outputs
+   bool32 found_match;
 } maplet_compaction_apply_args;
 
 static bool32
@@ -2564,8 +2578,6 @@ apply_changes_maplet_compaction(trunk_node_context *context,
    platform_status               rc;
    maplet_compaction_apply_args *args = (maplet_compaction_apply_args *)arg;
 
-   bool32 found_match = FALSE;
-
    for (uint64 i = 0; i < node_num_children(target); i++) {
       if (node_is_leaf(target)) {
          debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, target));
@@ -2587,18 +2599,9 @@ apply_changes_maplet_compaction(trunk_node_context *context,
          pivot_set_inflight_bundle_start(
             pvt, pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
          pivot_add_tuple_counts(pvt, -1, args->delta);
-         found_match = TRUE;
+         args->found_match = TRUE;
          break;
       }
-   }
-
-   if (!found_match && !args->state->abandoned) {
-      platform_error_log("Failed to find matching pivot for non-abandoned "
-                         "compaction state %d\n",
-                         pivot_matches_compaction(context, target, 0, args));
-      node_print(target, Platform_error_log_handle, context->cfg->data_cfg, 4);
-      pivot_compaction_state_print(
-         args->state, Platform_error_log_handle, context->cfg->data_cfg, 4);
    }
 
    if (node_is_leaf(target)) {
@@ -2622,22 +2625,34 @@ maplet_compaction_task(void *arg, void *scratch)
    trunk_node_context          *context = state->context;
    maplet_compaction_apply_args apply_args;
    threadid                     tid;
-   uint64                       filter_build_start;
 
-   if (context->stats) {
-      tid                = platform_get_tid();
-      filter_build_start = platform_get_timestamp();
-   }
+   tid = platform_get_tid();
 
    ZERO_STRUCT(apply_args);
    apply_args.state = state;
    vector_init(&apply_args.branches, context->hid);
 
-   routing_filter     new_maplet = state->maplet;
-   bundle_compaction *bc         = state->bundle_compactions;
-   bundle_compaction *last       = NULL;
+   if (state->abandoned) {
+      if (context->stats) {
+         for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
+              bc                    = bc->next)
+         {
+            context->stats[tid].maplet_builds_aborted[state->height]++;
+         }
+      }
+      goto cleanup;
+   }
+
+   routing_filter     new_maplet          = state->maplet;
+   bundle_compaction *bc                  = state->bundle_compactions;
+   bundle_compaction *last                = NULL;
+   uint64             num_builds          = 0;
+   uint64             total_build_time_ns = 0;
    while (bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
       if (!branch_is_null(bc->output_branch)) {
+         uint64 filter_build_start;
+         filter_build_start = platform_get_timestamp();
+
          routing_filter tmp_maplet;
          rc = routing_filter_add(context->cc,
                                  context->cfg->filter_cfg,
@@ -2663,18 +2678,25 @@ maplet_compaction_task(void *arg, void *scratch)
                "maplet_compaction_task: vector_append failed: %d\n", rc.r);
             goto cleanup;
          }
+
+         num_builds++;
+         uint64 filter_build_time_ns =
+            platform_timestamp_elapsed(filter_build_start);
+         total_build_time_ns += filter_build_time_ns;
+         if (context->stats) {
+            context->stats[tid].maplet_builds[state->height]++;
+            context->stats[tid].maplet_build_time_ns[state->height] +=
+               filter_build_time_ns;
+            context->stats[tid].maplet_build_time_max_ns[state->height] =
+               MAX(context->stats[tid].maplet_build_time_max_ns[state->height],
+                   filter_build_time_ns);
+         }
       }
 
       trunk_pivot_stats delta =
          trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
       apply_args.delta = trunk_pivot_stats_add(apply_args.delta, delta);
       apply_args.num_input_bundles += bc->num_bundles;
-
-      if (context->stats) {
-         context->stats[tid].filters_built[state->height]++;
-         context->stats[tid].filter_tuples[state->height] +=
-            bc->output_stats.num_tuples;
-      }
 
       last = bc;
       bc   = bc->next;
@@ -2684,8 +2706,8 @@ maplet_compaction_task(void *arg, void *scratch)
    platform_assert(0 < apply_args.num_input_bundles);
 
    if (context->stats) {
-      context->stats[tid].filter_time_ns[state->height] +=
-         platform_timestamp_elapsed(filter_build_start);
+      context->stats[tid].maplet_build_time_ns[state->height] +=
+         total_build_time_ns;
    }
 
    apply_args.new_maplet = new_maplet;
@@ -2702,6 +2724,34 @@ maplet_compaction_task(void *arg, void *scratch)
       platform_error_log("maplet_compaction_task: apply_changes failed: %d\n",
                          rc.r);
       trunk_modification_end(context);
+      goto cleanup;
+   }
+
+   if (!apply_args.found_match) {
+      if (!state->abandoned) {
+         platform_error_log("Failed to find matching pivot for non-abandoned "
+                            "compaction state\n");
+         pivot_compaction_state_print(
+            state, Platform_error_log_handle, context->cfg->data_cfg, 4);
+      }
+
+      pivot_state_map_lock lock;
+      pivot_state_map_aquire_lock(&lock,
+                                  context,
+                                  &context->pivot_states,
+                                  key_buffer_key(&state->key),
+                                  state->height);
+      pivot_state_map_remove(&context->pivot_states, &lock, apply_args.state);
+      pivot_state_map_release_lock(&lock, &context->pivot_states);
+      trunk_modification_end(context);
+
+      if (context->stats) {
+         context->stats[tid].maplet_builds_discarded[state->height] +=
+            num_builds;
+         context->stats[tid].maplet_build_time_wasted_ns[state->height] +=
+            total_build_time_ns;
+      }
+
       goto cleanup;
    }
 
@@ -2790,6 +2840,22 @@ bundle_compaction_task(void *arg, void *scratch)
    platform_status         rc;
    pivot_compaction_state *state   = (pivot_compaction_state *)arg;
    trunk_node_context     *context = state->context;
+   threadid                tid     = platform_get_tid();
+
+   if (context->stats) {
+      context->stats[tid].compactions[state->height]++;
+   }
+
+   if (state->abandoned) {
+      pivot_state_map_release_entry(context, &context->pivot_states, state);
+
+      if (context->stats) {
+         context->stats[tid].compactions_aborted[state->height]++;
+      }
+      return;
+   }
+
+   uint64 compaction_start = platform_get_timestamp();
 
    // Find a bundle compaction that needs doing for this pivot
    pivot_state_lock_compactions(state);
@@ -2871,13 +2937,18 @@ bundle_compaction_task(void *arg, void *scratch)
       goto cleanup;
    }
 
-   rc = btree_pack(&pack_req);
+   uint64 pack_start = platform_get_timestamp();
+   rc                = btree_pack(&pack_req);
    if (!SUCCESS(rc)) {
       platform_error_log("btree_pack failed for state: %p bc: %p: %s\n",
                          state,
                          bc,
                          platform_status_to_string(rc));
       goto cleanup;
+   }
+   if (context->stats) {
+      context->stats[tid].compaction_pack_time_ns[state->height] +=
+         platform_timestamp_elapsed(pack_start);
    }
 
    bc->output_branch = create_branch_ref(pack_req.root_addr);
@@ -2887,6 +2958,20 @@ bundle_compaction_task(void *arg, void *scratch)
    // trunk_pivot_stats_subtract(bc->input_stats, bc->output_stats);
    bc->fingerprints         = pack_req.fingerprint_arr;
    pack_req.fingerprint_arr = NULL;
+
+   if (context->stats) {
+      context->stats[tid].compaction_tuples[state->height] -=
+         pack_req.num_tuples;
+      context->stats[tid].compaction_max_tuples[state->height] =
+         MAX(context->stats[tid].compaction_max_tuples[state->height],
+             pack_req.num_tuples);
+      bc->compaction_time_ns = platform_timestamp_elapsed(compaction_start);
+      context->stats[tid].compaction_time_ns[state->height] +=
+         bc->compaction_time_ns;
+      context->stats[tid].compaction_time_max_ns[state->height] =
+         MAX(context->stats[tid].compaction_time_max_ns[state->height],
+             bc->compaction_time_ns);
+   }
 
 cleanup:
    btree_pack_req_deinit(&pack_req, context->hid);
@@ -3844,6 +3929,7 @@ restore_balance_index(trunk_node_context     *context,
                       incorporation_tasks    *itasks)
 {
    platform_status rc;
+   threadid        tid = platform_get_tid();
 
    debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
 
@@ -3865,6 +3951,11 @@ restore_balance_index(trunk_node_context     *context,
                                platform_status_to_string(rc));
             goto cleanup_all_new_children;
          }
+
+         if (context->stats) {
+            context->stats[tid].full_flushes[node_height(index)]++;
+         }
+
       } else if (fullest_kv_bytes < pivot_num_kv_bytes(pvt)) {
          fullest_child    = i;
          fullest_kv_bytes = pivot_num_kv_bytes(pvt);

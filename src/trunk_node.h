@@ -34,28 +34,30 @@ typedef struct trunk_node_stats {
    uint64 count_flushes[TRUNK_NODE_MAX_HEIGHT];
    uint64 flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
    uint64 flush_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 full_flushes[TRUNK_NODE_MAX_HEIGHT];
+   uint64 full_flushes[TRUNK_NODE_MAX_HEIGHT];
    // uint64 root_full_flushes;
    // uint64 root_count_flushes;
    // uint64 root_flush_time_ns;
    // uint64 root_flush_time_max_ns;
    // uint64 root_flush_wait_time_ns;
-   // uint64 failed_flushes[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 root_failed_flushes;
-   // uint64 memtable_failed_flushes;
 
-   // uint64 compactions[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_aborted_flushed[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_aborted_leaf_split[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_discarded_flushed[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_discarded_leaf_split[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compactions_empty[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_tuples[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_max_tuples[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 compaction_pack_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compactions[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compactions_aborted[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compactions_discarded[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compactions_empty[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compaction_tuples[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compaction_max_tuples[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compaction_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compaction_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 compaction_pack_time_ns[TRUNK_NODE_MAX_HEIGHT];
+
+   uint64 maplet_builds[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_builds_aborted[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_builds_discarded[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_build_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_build_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_build_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
 
    // uint64 discarded_deletes;
    // uint64 index_splits;
@@ -67,10 +69,6 @@ typedef struct trunk_node_stats {
    // uint64 single_leaf_splits;
    // uint64 single_leaf_tuples;
    // uint64 single_leaf_max_tuples;
-
-   uint64 filters_built[TRUNK_NODE_MAX_HEIGHT];
-   uint64 filter_tuples[TRUNK_NODE_MAX_HEIGHT];
-   uint64 filter_time_ns[TRUNK_NODE_MAX_HEIGHT];
 
    // uint64 lookups_found;
    // uint64 lookups_not_found;
