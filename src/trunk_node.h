@@ -28,13 +28,21 @@ typedef struct trunk_node_config {
    uint64                per_child_flush_threshold_kv_bytes;
 } trunk_node_config;
 
-#define TRUNK_NODE_MAX_HEIGHT 16
+#define TRUNK_NODE_MAX_HEIGHT             16
+#define TRUNK_NODE_MAX_DISTRIBUTION_VALUE 16
 
 typedef struct trunk_node_stats {
+   uint64
+      incorporation_footprint_distribution[TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
+
    uint64 count_flushes[TRUNK_NODE_MAX_HEIGHT];
    uint64 flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
    uint64 flush_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
    uint64 full_flushes[TRUNK_NODE_MAX_HEIGHT];
+
+   // We don't know whether a node is the root. So we can't track these stats
+   // carrying around some extra information that would be useful only for
+   // collecting these stats.
    // uint64 root_full_flushes;
    // uint64 root_count_flushes;
    // uint64 root_flush_time_ns;
@@ -59,24 +67,38 @@ typedef struct trunk_node_stats {
    uint64 maplet_build_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
    uint64 maplet_build_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
 
-   // uint64 discarded_deletes;
-   // uint64 index_splits;
-   // uint64 leaf_splits;
-   // uint64 leaf_splits_leaves_created;
-   // uint64 leaf_split_time_ns;
-   // uint64 leaf_split_max_time_ns;
+   uint64 fanout_distribution[TRUNK_NODE_MAX_HEIGHT]
+                             [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
+   uint64 num_inflight_bundles_distribution[TRUNK_NODE_MAX_HEIGHT]
+                                           [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
+   uint64 bundle_num_branches_distribution[TRUNK_NODE_MAX_HEIGHT]
+                                          [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
 
-   // uint64 single_leaf_splits;
-   // uint64 single_leaf_tuples;
-   // uint64 single_leaf_max_tuples;
+   uint64 node_size_pages_distribution[TRUNK_NODE_MAX_HEIGHT]
+                                      [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
 
+   uint64 node_splits[TRUNK_NODE_MAX_HEIGHT];
+   uint64 node_splits_nodes_created[TRUNK_NODE_MAX_HEIGHT];
+   uint64 leaf_split_time_ns;
+   uint64 leaf_split_time_max_ns;
+
+   uint64 single_leaf_splits;
+
+   // The compaction that computes these stats is down long after the decision
+   // to do a single-leaf split was made, so we can't track these stats.
+   //  uint64 single_leaf_tuples;
+   //  uint64 single_leaf_max_tuples;
+
+   // These are better tracked at the level that manages the memtable/trunk
+   // interaction.
    // uint64 lookups_found;
    // uint64 lookups_not_found;
-   // uint64 filter_lookups[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 branch_lookups[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 filter_false_positives[TRUNK_NODE_MAX_HEIGHT];
-   // uint64 filter_negatives[TRUNK_NODE_MAX_HEIGHT];
 
+   uint64 maplet_lookups[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_false_positives[TRUNK_NODE_MAX_HEIGHT];
+   uint64 branch_lookups[TRUNK_NODE_MAX_HEIGHT];
+
+   // Not yet implemented
    // uint64 space_recs[TRUNK_NODE_MAX_HEIGHT];
    // uint64 space_rec_time_ns[TRUNK_NODE_MAX_HEIGHT];
    // uint64 space_rec_tuples_reclaimed[TRUNK_NODE_MAX_HEIGHT];

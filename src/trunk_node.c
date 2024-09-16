@@ -952,6 +952,13 @@ ondisk_node_handle_setup_content_page(ondisk_node_handle *handle, uint64 offset)
 }
 
 static uint64
+ondisk_node_height(ondisk_node_handle *handle)
+{
+   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   return header->height;
+}
+
+static uint64
 ondisk_node_num_pivots(ondisk_node_handle *handle)
 {
    ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
@@ -1577,8 +1584,26 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    page_handle     *header_page  = NULL;
    page_handle     *current_page = NULL;
    ondisk_node_ref *result       = NULL;
+   threadid         tid          = platform_get_tid();
+
 
    // node_record_and_report_maxes(context, node);
+
+   if (context->stats) {
+      uint64 fanout = vector_length(&node->pivots) - 2;
+      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= fanout) {
+         fanout = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      }
+      context->stats[tid].fanout_distribution[node->height][fanout]++;
+
+      uint64 ifbundles = vector_length(&node->inflight_bundles)
+                         - node_first_live_inflight_bundle(node);
+      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= ifbundles) {
+         ifbundles = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      }
+      context->stats[tid]
+         .num_inflight_bundles_distribution[node->height][ifbundles]++;
+   }
 
    if (node_is_leaf(node)) {
       debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
@@ -1625,6 +1650,15 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          pivot_bundle = vector_get_ptr(&node->pivot_bundles, i);
          bundle_size  = bundle_ondisk_size(pivot_bundle);
          required_space += bundle_size;
+
+         if (context->stats) {
+            uint64 bundle_size = vector_length(&pivot_bundle->branches);
+            if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= bundle_size) {
+               bundle_size = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+            }
+            context->stats[tid]
+               .bundle_num_branches_distribution[node->height][bundle_size]++;
+         }
       }
 
       rc = node_serialize_maybe_setup_next_page(
@@ -1682,6 +1716,18 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          "%s():%d: ondisk_node_ref_create() failed", __func__, __LINE__);
       goto cleanup;
    }
+
+   if (context->stats) {
+      uint64 num_pages = 1
+                         + (current_page->disk_addr - header_addr)
+                              / cache_page_size(context->cc);
+      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= num_pages) {
+         num_pages = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      }
+      context->stats[tid]
+         .node_size_pages_distribution[node->height][num_pages]++;
+   }
+
    if (current_page != header_page) {
       cache_unlock(context->cc, current_page);
       cache_unclaim(context->cc, current_page);
@@ -3519,6 +3565,8 @@ leaf_split(trunk_node_context *context,
 {
    platform_status rc;
    uint64          target_num_leaves;
+   uint64          start_time = platform_get_timestamp();
+   threadid        tid        = platform_get_tid();
 
    rc = leaf_split_target_num_leaves(context, leaf, &target_num_leaves);
    if (!SUCCESS(rc)) {
@@ -3528,9 +3576,19 @@ leaf_split(trunk_node_context *context,
    }
 
    if (target_num_leaves == 1) {
+      if (context->stats) {
+         context->stats[tid].single_leaf_splits++;
+      }
       return VECTOR_EMPLACE_APPEND(
          new_leaves, node_copy_init, leaf, context->hid);
    }
+
+   if (context->stats) {
+      context->stats[tid].node_splits[leaf->height]++;
+      context->stats[tid].node_splits_nodes_created[leaf->height] +=
+         target_num_leaves - 1;
+   }
+
 
    key_buffer_vector pivots;
    vector_init(&pivots, context->hid);
@@ -3558,6 +3616,13 @@ leaf_split(trunk_node_context *context,
       }
       debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg,
                                             vector_get_ptr(new_leaves, i)));
+   }
+
+   if (context->stats) {
+      uint64 elapsed_time = platform_timestamp_elapsed(start_time);
+      context->stats[tid].leaf_split_time_ns += elapsed_time;
+      context->stats[tid].leaf_split_time_max_ns =
+         MAX(context->stats[tid].leaf_split_time_max_ns, elapsed_time);
    }
 
 cleanup_new_leaves:
@@ -3668,6 +3733,14 @@ index_split(trunk_node_context *context,
    uint64 num_children = node_num_children(index);
    uint64 num_nodes    = (num_children + context->cfg->target_fanout - 1)
                       / context->cfg->target_fanout;
+
+   if (context->stats && 1 < num_nodes) {
+      threadid tid = platform_get_tid();
+      context->stats[tid].node_splits[index->height]++;
+      context->stats[tid].node_splits_nodes_created[index->height] +=
+         num_nodes - 1;
+   }
+
 
    for (uint64 i = 0; i < num_nodes; i++) {
       rc = VECTOR_EMPLACE_APPEND(new_indexes,
@@ -4231,6 +4304,15 @@ trunk_incorporate(trunk_node_context *context,
    trunk_set_root(context, result);
    incorporation_tasks_execute(&itasks, context);
 
+   if (context->stats) {
+      threadid tid       = platform_get_tid();
+      uint64   footprint = vector_length(&itasks.node_compactions);
+      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE < footprint) {
+         footprint = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      }
+      context->stats[tid].incorporation_footprint_distribution[footprint]++;
+   }
+
 cleanup_vectors:
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
@@ -4293,10 +4375,12 @@ ondisk_node_find_pivot(const trunk_node_context *context,
 
 static platform_status
 ondisk_bundle_merge_lookup(trunk_node_context *context,
+                           uint64              height,
                            ondisk_bundle      *bndl,
                            key                 tgt,
                            merge_accumulator  *result)
 {
+   threadid        tid = platform_get_tid();
    uint64          found_values;
    platform_status rc = routing_filter_lookup(
       context->cc, context->cfg->filter_cfg, &bndl->maplet, tgt, &found_values);
@@ -4305,6 +4389,10 @@ ondisk_bundle_merge_lookup(trunk_node_context *context,
                          "routing_filter_lookup failed: %d\n",
                          rc.r);
       return rc;
+   }
+
+   if (context->stats) {
+      context->stats[tid].maplet_lookups[height]++;
    }
 
    for (uint64 idx =
@@ -4326,6 +4414,15 @@ ondisk_bundle_merge_lookup(trunk_node_context *context,
                             rc.r);
          return rc;
       }
+
+      if (context->stats) {
+         context->stats[tid].branch_lookups[height]++;
+         if (!local_found) {
+            context->stats[tid].maplet_false_positives[height]++;
+         }
+      }
+
+
       if (merge_accumulator_is_definitive(result)) {
          return STATUS_OK;
       }
@@ -4352,6 +4449,8 @@ trunk_merge_lookup(trunk_node_context *context,
    }
 
    while (handle.header_page) {
+      uint64 height = ondisk_node_height(&handle);
+
       uint64 pivot_num;
       rc = ondisk_node_find_pivot(
          context, &handle, tgt, less_than_or_equal, &pivot_num);
@@ -4381,7 +4480,7 @@ trunk_merge_lookup(trunk_node_context *context,
       // Search the inflight bundles
       ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
-         rc = ondisk_bundle_merge_lookup(context, bndl, tgt, result);
+         rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "ondisk_bundle_merge_lookup failed: %d\n",
@@ -4404,7 +4503,7 @@ trunk_merge_lookup(trunk_node_context *context,
          rc = STATUS_IO_ERROR;
          goto cleanup;
       }
-      rc = ondisk_bundle_merge_lookup(context, bndl, tgt, result);
+      rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_bundle_merge_lookup failed: %d\n",
