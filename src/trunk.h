@@ -95,6 +95,27 @@ typedef struct trunk_stats {
    uint64 memtable_flush_root_full;
    uint64 memtable_failed_flushes;
 
+<<<<<<< HEAD
+=======
+   uint64 compactions[TRUNK_MAX_HEIGHT];
+   uint64 compactions_aborted_flushed[TRUNK_MAX_HEIGHT];
+   uint64 compactions_aborted_leaf_split[TRUNK_MAX_HEIGHT];
+   uint64 compactions_discarded_flushed[TRUNK_MAX_HEIGHT];
+   uint64 compactions_discarded_leaf_split[TRUNK_MAX_HEIGHT];
+   uint64 compactions_empty[TRUNK_MAX_HEIGHT];
+   uint64 compaction_tuples[TRUNK_MAX_HEIGHT];
+   uint64 compaction_max_tuples[TRUNK_MAX_HEIGHT];
+   uint64 compaction_time_ns[TRUNK_MAX_HEIGHT];
+   uint64 compaction_time_max_ns[TRUNK_MAX_HEIGHT];
+   uint64 compaction_time_wasted_ns[TRUNK_MAX_HEIGHT];
+   uint64 compaction_pack_time_ns[TRUNK_MAX_HEIGHT];
+
+   uint64 unskipped_branch_compactions[TRUNK_MAX_HEIGHT];
+   uint64 skipped_branch_compactions[TRUNK_MAX_HEIGHT];
+   uint64 unskipped_bundle_compactions[TRUNK_MAX_HEIGHT];
+   uint64 skipped_bundle_compactions[TRUNK_MAX_HEIGHT];
+
+>>>>>>> origin/main
    uint64 root_compactions;
    uint64 root_compaction_pack_time_ns;
    uint64 root_compaction_tuples;
