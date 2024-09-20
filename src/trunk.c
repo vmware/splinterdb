@@ -898,22 +898,6 @@ trunk_subtract_branch_number(trunk_handle *spl, uint16 branch_no, uint16 offset)
 }
 
 static inline uint16
-trunk_subtract_bundle_number(trunk_handle *spl, uint16 start, uint16 end)
-{
-   return (start + TRUNK_MAX_BUNDLES - end) % TRUNK_MAX_BUNDLES;
-}
-
-static inline bool32
-trunk_bundle_in_range(trunk_handle *spl,
-                      uint16        bundle_no,
-                      uint16        start,
-                      uint16        end)
-{
-   return trunk_subtract_bundle_number(spl, bundle_no, start)
-          < trunk_subtract_bundle_number(spl, end, start);
-}
-
-static inline uint16
 trunk_subtract_subbundle_number(trunk_handle *spl, uint16 start, uint16 end)
 {
    return (start + TRUNK_MAX_SUBBUNDLES - end) % TRUNK_MAX_SUBBUNDLES;
@@ -932,39 +916,14 @@ trunk_add_subbundle_filter_number(trunk_handle *spl, uint16 start, uint16 end)
  */
 
 static inline uint16
-trunk_start_bundle(trunk_handle *spl, trunk_node *node)
-{
-   return node->hdr->start_bundle;
-}
-
-static inline uint16
 trunk_end_bundle(trunk_handle *spl, trunk_node *node)
 {
    return node->hdr->end_bundle;
 }
 
-/*
- * Returns TRUE if the bundle is live in the node and FALSE otherwise.
- */
-static inline bool32
-trunk_bundle_live(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
-{
-   return trunk_bundle_in_range(spl,
-                                bundle_no,
-                                trunk_start_bundle(spl, node),
-                                trunk_end_bundle(spl, node));
-}
-
 static inline trunk_bundle *
 trunk_get_bundle(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
 {
-   debug_assert(trunk_bundle_live(spl, node, bundle_no),
-                "Attempt to get a dead bundle.\n"
-                "addr: %lu, bundle_no: %u, start_bundle: %u, end_bundle: %u\n",
-                node->addr,
-                bundle_no,
-                trunk_start_bundle(spl, node),
-                trunk_end_bundle(spl, node));
    return &node->hdr->bundle[bundle_no];
 }
 
