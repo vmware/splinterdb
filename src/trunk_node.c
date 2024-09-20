@@ -805,7 +805,7 @@ node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
 }
 
 static void
-node_deinit(trunk_node *node, trunk_node_context *context)
+node_deinit(trunk_node *node, const trunk_node_context *context)
 {
    VECTOR_APPLY_TO_ELTS(
       &node->pivots, vector_apply_platform_free, context->hid);
@@ -1123,7 +1123,9 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
 }
 
 static platform_status
-node_deserialize(trunk_node_context *context, uint64 addr, trunk_node *result)
+node_deserialize(const trunk_node_context *context,
+                 uint64                    addr,
+                 trunk_node               *result)
 {
    platform_status    rc;
    ondisk_node_handle handle;
@@ -1594,7 +1596,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= fanout) {
          fanout = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
       }
-      context->stats[tid].fanout_distribution[node->height][fanout]++;
+      context->stats[tid].fanout_distribution[fanout][node->height]++;
 
       uint64 ifbundles = vector_length(&node->inflight_bundles)
                          - node_first_live_inflight_bundle(node);
@@ -1602,7 +1604,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          ifbundles = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid]
-         .num_inflight_bundles_distribution[node->height][ifbundles]++;
+         .num_inflight_bundles_distribution[ifbundles][node->height]++;
    }
 
    if (node_is_leaf(node)) {
@@ -1657,7 +1659,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
                bundle_size = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
             }
             context->stats[tid]
-               .bundle_num_branches_distribution[node->height][bundle_size]++;
+               .bundle_num_branches_distribution[bundle_size][node->height]++;
          }
       }
 
@@ -1725,7 +1727,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          num_pages = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid]
-         .node_size_pages_distribution[node->height][num_pages]++;
+         .node_size_pages_distribution[num_pages][node->height]++;
    }
 
    if (current_page != header_page) {
@@ -2733,6 +2735,8 @@ maplet_compaction_task(void *arg, void *scratch)
             context->stats[tid].maplet_builds[state->height]++;
             context->stats[tid].maplet_build_time_ns[state->height] +=
                filter_build_time_ns;
+            context->stats[tid].maplet_tuples[state->height] +=
+               new_maplet.num_fingerprints;
             context->stats[tid].maplet_build_time_max_ns[state->height] =
                MAX(context->stats[tid].maplet_build_time_max_ns[state->height],
                    filter_build_time_ns);
@@ -3006,7 +3010,7 @@ bundle_compaction_task(void *arg, void *scratch)
    pack_req.fingerprint_arr = NULL;
 
    if (context->stats) {
-      context->stats[tid].compaction_tuples[state->height] -=
+      context->stats[tid].compaction_tuples[state->height] +=
          pack_req.num_tuples;
       context->stats[tid].compaction_max_tuples[state->height] =
          MAX(context->stats[tid].compaction_max_tuples[state->height],
@@ -4743,7 +4747,8 @@ trunk_node_config_init(trunk_node_config    *config,
                        uint64                leaf_split_threshold_kv_bytes,
                        uint64                target_leaf_kv_bytes,
                        uint64                target_fanout,
-                       uint64                per_child_flush_threshold_kv_bytes)
+                       uint64                per_child_flush_threshold_kv_bytes,
+                       bool32                use_stats)
 {
    config->data_cfg                      = data_cfg;
    config->btree_cfg                     = btree_cfg;
@@ -4753,6 +4758,7 @@ trunk_node_config_init(trunk_node_config    *config,
    config->target_fanout                 = target_fanout;
    config->per_child_flush_threshold_kv_bytes =
       per_child_flush_threshold_kv_bytes;
+   config->use_stats = use_stats;
 }
 
 
@@ -4782,6 +4788,15 @@ trunk_node_context_init(trunk_node_context      *context,
    context->al    = al;
    context->ts    = ts;
    context->stats = NULL;
+   if (cfg->use_stats) {
+      context->stats = TYPED_ARRAY_MALLOC(hid, context->stats, MAX_THREADS);
+      if (context->stats == NULL) {
+         platform_error_log("trunk_node_context_init: "
+                            "TYPED_ARRAY_MALLOC failed\n");
+         return STATUS_NO_MEMORY;
+      }
+      memset(context->stats, 0, sizeof(trunk_node_stats) * MAX_THREADS);
+   }
 
    pivot_state_map_init(&context->pivot_states);
    platform_batch_rwlock_init(&context->root_lock);
@@ -4827,4 +4842,498 @@ trunk_node_make_durable(trunk_node_context *context)
 {
    cache_flush(context->cc);
    return STATUS_OK;
+}
+
+/************************************
+ * Statistics
+ ************************************/
+
+static void
+array_accumulate_add(uint64 len, uint64 *dst, uint64 *src)
+{
+   for (uint64 i = 0; i < len; i++) {
+      dst[i] += src[i];
+   }
+}
+
+static void
+array_accumulate_max(uint64 len, uint64 *dst, uint64 *src)
+{
+   for (uint64 i = 0; i < len; i++) {
+      dst[i] = MAX(dst[i], src[i]);
+   }
+}
+
+#define STATS_FIELD_ADD(dst, src, field)                                       \
+   array_accumulate_add(sizeof(dst->field) / sizeof(uint64),                   \
+                        (uint64 *)&dst->field,                                 \
+                        (uint64 *)&src->field)
+
+#define STATS_FIELD_MAX(dst, src, field)                                       \
+   array_accumulate_max(sizeof(dst->field) / sizeof(uint64),                   \
+                        (uint64 *)&dst->field,                                 \
+                        (uint64 *)&src->field)
+
+static void
+trunk_node_stats_accumulate(trunk_node_stats *dst, trunk_node_stats *src)
+{
+   STATS_FIELD_ADD(dst, src, fanout_distribution);
+   STATS_FIELD_ADD(dst, src, num_inflight_bundles_distribution);
+   STATS_FIELD_ADD(dst, src, bundle_num_branches_distribution);
+   STATS_FIELD_ADD(dst, src, node_size_pages_distribution);
+
+   STATS_FIELD_ADD(dst, src, incorporation_footprint_distribution);
+
+   STATS_FIELD_ADD(dst, src, count_flushes);
+   STATS_FIELD_ADD(dst, src, flush_time_ns);
+   STATS_FIELD_MAX(dst, src, flush_time_max_ns);
+   STATS_FIELD_ADD(dst, src, full_flushes);
+
+   STATS_FIELD_ADD(dst, src, compactions);
+   STATS_FIELD_ADD(dst, src, compactions_aborted);
+   STATS_FIELD_ADD(dst, src, compactions_discarded);
+   STATS_FIELD_ADD(dst, src, compactions_empty);
+   STATS_FIELD_ADD(dst, src, compaction_tuples);
+   STATS_FIELD_MAX(dst, src, compaction_max_tuples);
+   STATS_FIELD_ADD(dst, src, compaction_time_ns);
+   STATS_FIELD_MAX(dst, src, compaction_time_max_ns);
+   STATS_FIELD_ADD(dst, src, compaction_time_wasted_ns);
+   STATS_FIELD_ADD(dst, src, compaction_pack_time_ns);
+
+   STATS_FIELD_ADD(dst, src, maplet_builds);
+   STATS_FIELD_ADD(dst, src, maplet_builds_aborted);
+   STATS_FIELD_ADD(dst, src, maplet_builds_discarded);
+   STATS_FIELD_ADD(dst, src, maplet_build_time_ns);
+   STATS_FIELD_ADD(dst, src, maplet_tuples);
+   STATS_FIELD_MAX(dst, src, maplet_build_time_max_ns);
+   STATS_FIELD_ADD(dst, src, maplet_build_time_wasted_ns);
+
+   STATS_FIELD_ADD(dst, src, node_splits);
+   STATS_FIELD_ADD(dst, src, node_splits_nodes_created);
+   STATS_FIELD_ADD(dst, src, leaf_split_time_ns);
+   STATS_FIELD_MAX(dst, src, leaf_split_time_max_ns);
+
+   STATS_FIELD_ADD(dst, src, single_leaf_splits);
+
+   STATS_FIELD_ADD(dst, src, maplet_lookups);
+   STATS_FIELD_ADD(dst, src, maplet_false_positives);
+   STATS_FIELD_ADD(dst, src, branch_lookups);
+}
+
+
+typedef struct column {
+   const char *name;
+   enum { INT, FRACTION } type;
+   union {
+      const uint64   *integer;
+      const fraction *frac;
+   } data;
+   int width;
+} column;
+
+#define COLUMN(name, data)                                                     \
+   _Generic((data)[0], uint64                                                  \
+            : (column){name, INT, {.integer = (uint64 *)(data)}, 0}, fraction  \
+            : (column){name, FRACTION, {.frac = (fraction *)(data)}, 0})
+
+static void
+compute_column_width(column *col, uint64 num_rows)
+{
+   col->width = strlen(col->name);
+   for (uint64 i = 0; i < num_rows; i++) {
+      switch (col->type) {
+         case INT:
+         {
+            uint64 val = col->data.integer[i];
+            col->width = MAX(col->width, snprintf(NULL, 0, "%lu", val));
+            break;
+         }
+         case FRACTION:
+         {
+            fraction val = col->data.frac[i];
+            col->width =
+               MAX(col->width,
+                   snprintf(NULL, 0, FRACTION_FMT(12, 4), FRACTION_ARGS(val)));
+            break;
+         }
+      }
+   }
+}
+
+static void
+print_horizontal_separator(platform_log_handle *log_handle,
+                           uint64               num_columns,
+                           column              *cols,
+                           char                 colsep)
+{
+   static const char dashes[] = {[0 ... 1023] = '-'};
+   for (int i = 0; i < num_columns; i++) {
+      platform_log(log_handle, "%c%.*s", colsep, 2 + cols[i].width, dashes);
+   }
+   platform_log(log_handle, "%c\n", colsep);
+}
+
+static void
+print_column_table(platform_log_handle *log_handle,
+                   int                  num_columns,
+                   column              *columns,
+                   int                  num_rows)
+{
+   for (int i = 0; i < num_columns; i++) {
+      compute_column_width(&columns[i], num_rows);
+   }
+
+   print_horizontal_separator(log_handle, num_columns, columns, '-');
+
+   for (int i = 0; i < num_columns; i++) {
+      platform_log(log_handle, "| %*s ", columns[i].width, columns[i].name);
+   }
+   platform_log(log_handle, "|\n");
+
+   print_horizontal_separator(log_handle, num_columns, columns, '|');
+
+   for (int i = 0; i < num_rows; i++) {
+      for (int j = 0; j < num_columns; j++) {
+         if (columns[j].type == FRACTION) {
+            fraction f = columns[j].data.frac[i];
+            platform_log(log_handle,
+                         "| " FRACTION_FMT(*, 4) " ",
+                         columns[j].width,
+                         FRACTION_ARGS(f));
+         } else {
+            uint64 val = columns[j].data.integer[i];
+            platform_log(log_handle, "| %*lu ", columns[j].width, val);
+         }
+      }
+      platform_log(log_handle, "|\n");
+   }
+
+   print_horizontal_separator(log_handle, num_columns, columns, '-');
+}
+
+#define DISTRIBUTION_COLUMNS(dist, rows)                                       \
+   COLUMN("0", ((uint64 *)dist) + 0 * rows),                                   \
+      COLUMN("1", ((uint64 *)dist) + 1 * rows),                                \
+      COLUMN("2", ((uint64 *)dist) + 2 * rows),                                \
+      COLUMN("3", ((uint64 *)dist) + 3 * rows),                                \
+      COLUMN("4", ((uint64 *)dist) + 4 * rows),                                \
+      COLUMN("5", ((uint64 *)dist) + 5 * rows),                                \
+      COLUMN("6", ((uint64 *)dist) + 6 * rows),                                \
+      COLUMN("7", ((uint64 *)dist) + 7 * rows),                                \
+      COLUMN("8", ((uint64 *)dist) + 8 * rows),                                \
+      COLUMN("9", ((uint64 *)dist) + 9 * rows),                                \
+      COLUMN("10", ((uint64 *)dist) + 10 * rows),                              \
+      COLUMN("11", ((uint64 *)dist) + 11 * rows),                              \
+      COLUMN("12", ((uint64 *)dist) + 12 * rows),                              \
+      COLUMN("13", ((uint64 *)dist) + 13 * rows),                              \
+      COLUMN("14", ((uint64 *)dist) + 14 * rows),                              \
+      COLUMN(">= 15", ((uint64 *)dist) + 15 * rows)
+
+static fraction
+fraction_init_or_zero(uint64 num, uint64 den)
+{
+   return den ? init_fraction(num, den) : zero_fraction;
+}
+
+static void
+distribution_sum_avg(uint64       rows,
+                     uint64       sum[],
+                     fraction     avg[],
+                     const uint64 distribution[])
+{
+   for (uint64 i = 0; i < rows; i++) {
+      uint64 count    = 0;
+      uint64 sumcount = 0;
+      for (uint64 j = 0; j < TRUNK_NODE_MAX_DISTRIBUTION_VALUE; j++) {
+         count += distribution[i + j * rows];
+         sumcount += j * distribution[i + j * rows];
+      }
+      sum[i] = count;
+      avg[i] = fraction_init_or_zero(sumcount, count);
+   }
+}
+
+static void
+arrays_fraction(uint64 len, fraction *result, uint64 *num, uint64 *den)
+{
+   for (uint64 i = 0; i < len; i++) {
+      result[i] = fraction_init_or_zero(num[i], den[i]);
+   }
+}
+
+// static void
+// array_fraction(uint64 len, fraction *result, uint64 *num, uint64 den)
+// {
+//    for (uint64 i = 0; i < len; i++) {
+//       result[i] = fraction_init_or_zero(num[i], den);
+//    }
+// }
+
+static void
+arrays_subtract(uint64 len, uint64 *result, uint64 *a, uint64 *b)
+{
+   for (uint64 i = 0; i < len; i++) {
+      result[i] = a[i] - b[i];
+   }
+}
+
+void
+trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
+                                 const trunk_node_context *context)
+{
+   const uint64 height_array[TRUNK_NODE_MAX_HEIGHT] = {
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+
+   if (!context->stats) {
+      platform_log(log_handle, "Statistics are not enabled\n");
+      return;
+   }
+
+   if (context->root == NULL) {
+      platform_log(log_handle, "No root node\n");
+      return;
+   }
+
+   // Get the height of the tree
+   trunk_node      root;
+   platform_status rc = node_deserialize(context, context->root->addr, &root);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_node_print_insertion_stats: "
+                         "node_deserialize failed: %d\n",
+                         rc.r);
+      return;
+   }
+   uint64 height = node_height(&root);
+   node_deinit(&root, context);
+
+   // Merge all the stats
+   trunk_node_stats global_stats;
+   memcpy(&global_stats, &context->stats[0], sizeof(trunk_node_stats));
+   for (threadid tid = 1; tid < MAX_THREADS; tid++) {
+      trunk_node_stats_accumulate(&global_stats, &context->stats[tid]);
+   }
+
+   //
+   // Overall shape
+   //
+   platform_log(log_handle, "Height: %lu\n", height);
+   uint64   total[TRUNK_NODE_MAX_HEIGHT];
+   fraction avg[TRUNK_NODE_MAX_HEIGHT];
+
+   // Fanout
+   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+                        total,
+                        avg,
+                        &global_stats.fanout_distribution[0][0]);
+   column fanout_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("total", total),
+      COLUMN("avg", avg),
+      DISTRIBUTION_COLUMNS(global_stats.fanout_distribution,
+                           TRUNK_NODE_MAX_HEIGHT),
+   };
+   platform_log(log_handle, "Fanout distribution\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(fanout_columns), fanout_columns, height + 1);
+
+   // Inflight bundles
+   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+                        total,
+                        avg,
+                        &global_stats.num_inflight_bundles_distribution[0][0]);
+   column inflight_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("total", total),
+      COLUMN("avg", avg),
+      DISTRIBUTION_COLUMNS(global_stats.num_inflight_bundles_distribution,
+                           TRUNK_NODE_MAX_HEIGHT),
+   };
+   platform_log(log_handle, "Inflight bundles distribution\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(inflight_columns), inflight_columns, height + 1);
+
+   // Bundle size
+   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+                        total,
+                        avg,
+                        &global_stats.bundle_num_branches_distribution[0][0]);
+   column bundle_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("total", total),
+      COLUMN("avg", avg),
+      DISTRIBUTION_COLUMNS(global_stats.bundle_num_branches_distribution,
+                           TRUNK_NODE_MAX_HEIGHT),
+   };
+   platform_log(log_handle, "Bundle size distribution\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(bundle_columns), bundle_columns, height + 1);
+
+   // Node size
+   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+                        total,
+                        avg,
+                        &global_stats.node_size_pages_distribution[0][0]);
+   column node_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("total", total),
+      COLUMN("avg", avg),
+      DISTRIBUTION_COLUMNS(global_stats.node_size_pages_distribution,
+                           TRUNK_NODE_MAX_HEIGHT),
+   };
+   platform_log(log_handle, "Node size distribution\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(node_columns), node_columns, height + 1);
+
+   //
+   // Mutations
+   //
+
+   // Incorporations
+   uint64   total_incorporations;
+   fraction average_incorporation_footprint;
+   distribution_sum_avg(1,
+                        &total_incorporations,
+                        &average_incorporation_footprint,
+                        global_stats.incorporation_footprint_distribution);
+   column incorporation_columns[] = {
+      COLUMN("total incorporations", &total_incorporations),
+      COLUMN("average footprint", &average_incorporation_footprint),
+      DISTRIBUTION_COLUMNS(global_stats.incorporation_footprint_distribution,
+                           1),
+   };
+   platform_log(log_handle, "Incorporation footprint distribution\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(incorporation_columns), incorporation_columns, 1);
+
+   // Flushes
+   fraction avg_flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   avg_flush_time_ns,
+                   global_stats.flush_time_ns,
+                   global_stats.count_flushes);
+   column flush_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("count", global_stats.count_flushes),
+      COLUMN("avg time (ns)", avg_flush_time_ns),
+      COLUMN("max time (ns)", global_stats.flush_time_max_ns),
+      COLUMN("full flushes", global_stats.full_flushes),
+   };
+   platform_log(log_handle, "Flushes\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(flush_columns), flush_columns, height + 1);
+
+   // Compactions
+   fraction avg_compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   avg_compaction_time_ns,
+                   global_stats.compaction_time_ns,
+                   global_stats.compactions);
+   uint64 setup_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   arrays_subtract(TRUNK_NODE_MAX_HEIGHT,
+                   setup_time_ns,
+                   global_stats.compaction_time_ns,
+                   global_stats.compaction_pack_time_ns);
+   fraction avg_setup_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   avg_setup_time_ns,
+                   setup_time_ns,
+                   global_stats.compactions);
+   fraction avg_pack_time_per_tuple_ns[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   avg_pack_time_per_tuple_ns,
+                   global_stats.compaction_pack_time_ns,
+                   global_stats.compaction_tuples);
+   fraction avg_tuples[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   avg_tuples,
+                   global_stats.compaction_tuples,
+                   global_stats.compactions);
+   fraction fraction_wasted_compaction_time[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   fraction_wasted_compaction_time,
+                   global_stats.compaction_time_wasted_ns,
+                   global_stats.compaction_time_ns);
+   column compaction_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("num compactions", global_stats.compactions),
+      COLUMN("avg setup time (ns)", avg_setup_time_ns),
+      COLUMN("avg pack time / tuple (ns)", avg_pack_time_per_tuple_ns),
+      COLUMN("avg tuples", avg_tuples),
+      COLUMN("max tuples", global_stats.compaction_max_tuples),
+      COLUMN("max time (ns)", global_stats.compaction_time_max_ns),
+      COLUMN("empty", global_stats.compactions_empty),
+      COLUMN("aborted", global_stats.compactions_aborted),
+      COLUMN("discarded", global_stats.compactions_discarded),
+      COLUMN("fraction wasted time", fraction_wasted_compaction_time),
+   };
+   platform_log(log_handle, "Compactions\n");
+   print_column_table(log_handle,
+                      ARRAY_SIZE(compaction_columns),
+                      compaction_columns,
+                      height + 1);
+
+   // Maplets
+   fraction avg_maplet_build_time_per_tuple_ns[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   avg_maplet_build_time_per_tuple_ns,
+                   global_stats.maplet_build_time_ns,
+                   global_stats.maplet_tuples);
+   fraction fraction_wasted_maplet_time[TRUNK_NODE_MAX_HEIGHT];
+   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+                   fraction_wasted_maplet_time,
+                   global_stats.maplet_build_time_wasted_ns,
+                   global_stats.maplet_build_time_ns);
+   column maplet_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("num maplets", global_stats.maplet_builds),
+      COLUMN("avg time / tuple (ns)", avg_maplet_build_time_per_tuple_ns),
+      COLUMN("max time (ns)", global_stats.maplet_build_time_max_ns),
+      COLUMN("aborted", global_stats.maplet_builds_aborted),
+      COLUMN("discarded", global_stats.maplet_builds_discarded),
+      COLUMN("fraction wasted time", fraction_wasted_maplet_time),
+   };
+   platform_log(log_handle, "Maplets\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(maplet_columns), maplet_columns, height + 1);
+
+   // Splits
+   column split_columns[] = {
+      COLUMN("num splits", global_stats.node_splits),
+      COLUMN("num nodes created", global_stats.node_splits_nodes_created),
+   };
+   platform_log(log_handle, "Splits\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(split_columns), split_columns, height + 1);
+   // Leaf splits
+   fraction avg_leaf_split_time_ns = fraction_init_or_zero(
+      global_stats.leaf_split_time_ns, global_stats.node_splits[0]);
+   column leaf_split_columns[] = {
+      COLUMN("avg time (ns)", &avg_leaf_split_time_ns),
+      COLUMN("max time (ns)", &global_stats.leaf_split_time_max_ns),
+      COLUMN("single leaf splits", &global_stats.single_leaf_splits),
+   };
+   platform_log(log_handle, "Leaf splits\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(leaf_split_columns), leaf_split_columns, 1);
+
+   //
+   // Lookups
+   //
+   column lookup_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("maplet lookups", global_stats.maplet_lookups),
+      COLUMN("maplet false positives", global_stats.maplet_false_positives),
+      COLUMN("branch lookups", global_stats.branch_lookups),
+   };
+   platform_log(log_handle, "Lookups\n");
+   print_column_table(
+      log_handle, ARRAY_SIZE(lookup_columns), lookup_columns, height + 1);
+}
+
+void
+trunk_node_reset_stats(trunk_node_context *context)
+{
+   if (context->stats) {
+      memset(context->stats, 0, sizeof(trunk_node_stats) * MAX_THREADS);
+   }
 }

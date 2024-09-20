@@ -26,12 +26,23 @@ typedef struct trunk_node_config {
    uint64                target_leaf_kv_bytes;
    uint64                target_fanout;
    uint64                per_child_flush_threshold_kv_bytes;
+   bool32                use_stats;
 } trunk_node_config;
 
 #define TRUNK_NODE_MAX_HEIGHT             16
 #define TRUNK_NODE_MAX_DISTRIBUTION_VALUE 16
 
 typedef struct trunk_node_stats {
+   uint64 fanout_distribution[TRUNK_NODE_MAX_DISTRIBUTION_VALUE]
+                             [TRUNK_NODE_MAX_HEIGHT];
+   uint64 num_inflight_bundles_distribution[TRUNK_NODE_MAX_DISTRIBUTION_VALUE]
+                                           [TRUNK_NODE_MAX_HEIGHT];
+   uint64 bundle_num_branches_distribution[TRUNK_NODE_MAX_DISTRIBUTION_VALUE]
+                                          [TRUNK_NODE_MAX_HEIGHT];
+
+   uint64 node_size_pages_distribution[TRUNK_NODE_MAX_DISTRIBUTION_VALUE]
+                                      [TRUNK_NODE_MAX_HEIGHT];
+
    uint64
       incorporation_footprint_distribution[TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
 
@@ -64,27 +75,17 @@ typedef struct trunk_node_stats {
    uint64 maplet_builds_aborted[TRUNK_NODE_MAX_HEIGHT];
    uint64 maplet_builds_discarded[TRUNK_NODE_MAX_HEIGHT];
    uint64 maplet_build_time_ns[TRUNK_NODE_MAX_HEIGHT];
+   uint64 maplet_tuples[TRUNK_NODE_MAX_HEIGHT];
    uint64 maplet_build_time_max_ns[TRUNK_NODE_MAX_HEIGHT];
    uint64 maplet_build_time_wasted_ns[TRUNK_NODE_MAX_HEIGHT];
-
-   uint64 fanout_distribution[TRUNK_NODE_MAX_HEIGHT]
-                             [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
-   uint64 num_inflight_bundles_distribution[TRUNK_NODE_MAX_HEIGHT]
-                                           [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
-   uint64 bundle_num_branches_distribution[TRUNK_NODE_MAX_HEIGHT]
-                                          [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
-
-   uint64 node_size_pages_distribution[TRUNK_NODE_MAX_HEIGHT]
-                                      [TRUNK_NODE_MAX_DISTRIBUTION_VALUE];
 
    uint64 node_splits[TRUNK_NODE_MAX_HEIGHT];
    uint64 node_splits_nodes_created[TRUNK_NODE_MAX_HEIGHT];
    uint64 leaf_split_time_ns;
    uint64 leaf_split_time_max_ns;
-
    uint64 single_leaf_splits;
 
-   // The compaction that computes these stats is down long after the decision
+   // The compaction that computes these stats is donez long after the decision
    // to do a single-leaf split was made, so we can't track these stats.
    //  uint64 single_leaf_tuples;
    //  uint64 single_leaf_max_tuples;
@@ -166,7 +167,8 @@ trunk_node_config_init(trunk_node_config    *config,
                        uint64                leaf_split_threshold_kv_bytes,
                        uint64                target_leaf_kv_bytes,
                        uint64                target_fanout,
-                       uint64 per_child_flush_threshold_kv_bytes);
+                       uint64                per_child_flush_threshold_kv_bytes,
+                       bool32                use_stats);
 
 platform_status
 trunk_node_context_init(trunk_node_context      *context,
@@ -230,3 +232,14 @@ trunk_collect_branches(const trunk_node_context *context,
                        uint64                   *branches,
                        key_buffer               *min_key,
                        key_buffer               *max_key);
+
+/**********************************
+ * Statistics
+ **********************************/
+
+void
+trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
+                                 const trunk_node_context *context);
+
+void
+trunk_node_reset_stats(trunk_node_context *context);
