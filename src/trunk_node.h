@@ -217,10 +217,11 @@ void
 trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle);
 
 platform_status
-trunk_merge_lookup(trunk_node_context *context,
-                   ondisk_node_handle *handle,
-                   key                 tgt,
-                   merge_accumulator  *result);
+trunk_merge_lookup(trunk_node_context  *context,
+                   ondisk_node_handle  *handle,
+                   key                  tgt,
+                   merge_accumulator   *result,
+                   platform_log_handle *log);
 
 platform_status
 trunk_collect_branches(const trunk_node_context *context,

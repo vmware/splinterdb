@@ -2485,7 +2485,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
    }
 
 
-   rc = trunk_merge_lookup(&spl->trunk_context, &root_handle, target, result);
+   rc = trunk_merge_lookup(
+      &spl->trunk_context, &root_handle, target, result, NULL);
    // Release the node handle before handling any errors
    trunk_ondisk_node_handle_deinit(&root_handle);
    if (!SUCCESS(rc)) {
@@ -3936,7 +3937,10 @@ trunk_print_lookup(trunk_handle        *spl,
       }
    }
 
-   platform_assert(0, "Not implemented");
+   ondisk_node_handle handle;
+   trunk_init_root_handle(&spl->trunk_context, &handle);
+   trunk_merge_lookup(&spl->trunk_context, &handle, target, &data, log_handle);
+   trunk_ondisk_node_handle_deinit(&handle);
 }
 
 void

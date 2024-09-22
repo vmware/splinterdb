@@ -4378,11 +4378,12 @@ ondisk_node_find_pivot(const trunk_node_context *context,
 }
 
 static platform_status
-ondisk_bundle_merge_lookup(trunk_node_context *context,
-                           uint64              height,
-                           ondisk_bundle      *bndl,
-                           key                 tgt,
-                           merge_accumulator  *result)
+ondisk_bundle_merge_lookup(trunk_node_context  *context,
+                           uint64               height,
+                           ondisk_bundle       *bndl,
+                           key                  tgt,
+                           merge_accumulator   *result,
+                           platform_log_handle *log)
 {
    threadid        tid = platform_get_tid();
    uint64          found_values;
@@ -4397,6 +4398,12 @@ ondisk_bundle_merge_lookup(trunk_node_context *context,
 
    if (context->stats) {
       context->stats[tid].maplet_lookups[height]++;
+   }
+
+   if (log) {
+      platform_log(log, "maplet: %lu\n", bndl->maplet.addr);
+      platform_log(log, "found_values: %lu\n", found_values);
+      found_values = (1ULL << bndl->num_branches) - 1;
    }
 
    for (uint64 idx =
@@ -4427,8 +4434,30 @@ ondisk_bundle_merge_lookup(trunk_node_context *context,
       }
 
 
-      if (merge_accumulator_is_definitive(result)) {
+      if (!log && merge_accumulator_is_definitive(result)) {
          return STATUS_OK;
+      }
+
+      if (log) {
+         merge_accumulator ma;
+         merge_accumulator_init(&ma, context->hid);
+         rc = btree_lookup_and_merge(context->cc,
+                                     context->cfg->btree_cfg,
+                                     branch_ref_addr(bndl->branches[idx]),
+                                     PAGE_TYPE_BRANCH,
+                                     tgt,
+                                     &ma,
+                                     &local_found);
+         platform_log(log,
+                      "branch: %lu found: %u\n",
+                      branch_ref_addr(bndl->branches[idx]),
+                      local_found);
+         if (local_found) {
+            message msg = merge_accumulator_to_message(&ma);
+            platform_log(
+               log, "msg: %s\n", message_string(context->cfg->data_cfg, msg));
+         }
+         merge_accumulator_deinit(&ma);
       }
    }
 
@@ -4436,10 +4465,11 @@ ondisk_bundle_merge_lookup(trunk_node_context *context,
 }
 
 platform_status
-trunk_merge_lookup(trunk_node_context *context,
-                   ondisk_node_handle *inhandle,
-                   key                 tgt,
-                   merge_accumulator  *result)
+trunk_merge_lookup(trunk_node_context  *context,
+                   ondisk_node_handle  *inhandle,
+                   key                  tgt,
+                   merge_accumulator   *result,
+                   platform_log_handle *log)
 {
    platform_status rc = STATUS_OK;
 
@@ -4455,6 +4485,20 @@ trunk_merge_lookup(trunk_node_context *context,
    while (handle.header_page) {
       uint64 height = ondisk_node_height(&handle);
 
+      if (log) {
+         trunk_node node;
+         rc = node_deserialize(context, handle.header_page->disk_addr, &node);
+         if (!SUCCESS(rc)) {
+            platform_error_log("trunk_merge_lookup: "
+                               "node_deserialize failed: %d\n",
+                               rc.r);
+            goto cleanup;
+         }
+         platform_log(log, "addr: %lu\n", handle.header_page->disk_addr);
+         node_print(&node, log, context->cfg->data_cfg, 0);
+         node_deinit(&node, context);
+      }
+
       uint64 pivot_num;
       rc = ondisk_node_find_pivot(
          context, &handle, tgt, less_than_or_equal, &pivot_num);
@@ -4464,6 +4508,10 @@ trunk_merge_lookup(trunk_node_context *context,
             "%d\n",
             rc.r);
          goto cleanup;
+      }
+
+      if (log) {
+         platform_log(log, "pivot_num: %lu\n", pivot_num);
       }
 
       uint64 child_addr;
@@ -4484,7 +4532,8 @@ trunk_merge_lookup(trunk_node_context *context,
       // Search the inflight bundles
       ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
-         rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result);
+         rc =
+            ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "ondisk_bundle_merge_lookup failed: %d\n",
@@ -4507,14 +4556,14 @@ trunk_merge_lookup(trunk_node_context *context,
          rc = STATUS_IO_ERROR;
          goto cleanup;
       }
-      rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result);
+      rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_bundle_merge_lookup failed: %d\n",
                             rc.r);
          goto cleanup;
       }
-      if (merge_accumulator_is_definitive(result)) {
+      if (!log && merge_accumulator_is_definitive(result)) {
          goto cleanup;
       }
 
