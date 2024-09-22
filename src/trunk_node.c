@@ -2832,7 +2832,7 @@ maplet_compaction_task(void *arg, void *scratch)
    trunk_modification_end(context);
 
 cleanup:
-   if (!SUCCESS(rc)) {
+   if (!SUCCESS(rc) || !apply_args.found_match) {
       state->maplet_compaction_failed = TRUE;
       if (new_maplet.addr != state->maplet.addr) {
          routing_filter_dec_ref(context->cc, &new_maplet);
