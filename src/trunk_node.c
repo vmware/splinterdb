@@ -5015,7 +5015,7 @@ print_horizontal_separator(platform_log_handle *log_handle,
                            column              *cols,
                            char                 colsep)
 {
-   static const char dashes[] = {[0 ... 1023] = '-'};
+   static const char dashes[] = {[0 ... 1023] = '-', [1024] = '\0'};
    for (int i = 0; i < num_columns; i++) {
       platform_log(log_handle, "%c%.*s", colsep, 2 + cols[i].width, dashes);
    }

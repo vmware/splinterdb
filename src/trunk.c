@@ -1701,18 +1701,13 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
                                      uint64         generation,
                                      const threadid tid)
 {
-   trunk_node new_root;
    trunk_modification_begin(&spl->trunk_context);
 
    platform_stream_handle stream;
    platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
    platform_assert_status_ok(rc);
    trunk_log_stream_if_enabled(
-      spl,
-      &stream,
-      "incorporate memtable gen %lu into new root %lu\n",
-      generation,
-      new_root.addr);
+      spl, &stream, "incorporate memtable gen %lu\n", generation);
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
 
