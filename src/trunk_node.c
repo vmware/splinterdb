@@ -2668,9 +2668,10 @@ enqueue_maplet_compaction(pivot_compaction_state *args);
 static void
 maplet_compaction_task(void *arg, void *scratch)
 {
-   platform_status              rc      = STATUS_OK;
-   pivot_compaction_state      *state   = (pivot_compaction_state *)arg;
-   trunk_node_context          *context = state->context;
+   platform_status              rc         = STATUS_OK;
+   pivot_compaction_state      *state      = (pivot_compaction_state *)arg;
+   trunk_node_context          *context    = state->context;
+   routing_filter               new_maplet = state->maplet;
    maplet_compaction_apply_args apply_args;
    threadid                     tid;
 
@@ -2691,7 +2692,6 @@ maplet_compaction_task(void *arg, void *scratch)
       goto cleanup;
    }
 
-   routing_filter     new_maplet          = state->maplet;
    bundle_compaction *bc                  = state->bundle_compactions;
    bundle_compaction *last                = NULL;
    uint64             num_builds          = 0;

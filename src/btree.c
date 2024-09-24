@@ -2521,6 +2521,7 @@ find_key_in_node(btree_iterator *itor,
    } else if (itor->height > hdr->height) {
       // so we will always exceed height in future lookups
       itor->height = (uint32)-1;
+      *found       = FALSE;
       return 0; // this iterator is invalid, so return 0 for all lookups
    } else {
       tmp = btree_find_pivot(itor->cfg, hdr, itor->min_key, found);
@@ -2807,7 +2808,7 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    // If min key doesn't exist in current node, but is:
    // 1) in range:     Min idx = smallest key > min_key
    // 2) out of range: Min idx = -1
-   itor->curr_min_idx = !found && tmp == 0 ? --tmp : tmp;
+   itor->curr_min_idx = !found && tmp == 0 ? tmp - 1 : tmp;
    // if min_key is not within the current node but there is no previous node
    // then set curr_min_idx to 0
    if (itor->curr_min_idx == -1 && itor->curr.hdr->prev_addr == 0) {

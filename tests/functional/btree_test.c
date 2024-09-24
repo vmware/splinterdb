@@ -867,6 +867,7 @@ test_count_tuples_in_range(cache        *cc,
                            uint64        num_trees,
                            key           low_key,
                            key           high_key,
+                           bool32        verify_tree,
                            uint64       *count) // OUTPUT
 {
    platform_status rc;
@@ -874,7 +875,7 @@ test_count_tuples_in_range(cache        *cc,
    uint64          i;
    *count = 0;
    for (i = 0; i < num_trees; i++) {
-      if (!btree_verify_tree(cc, cfg, root_addr[i], type)) {
+      if (verify_tree && !btree_verify_tree(cc, cfg, root_addr[i], type)) {
          btree_print_tree(Platform_default_log_handle,
                           cc,
                           cfg,
@@ -1096,6 +1097,7 @@ test_btree_merge_basic(cache             *cc,
                                       arity,
                                       lo,
                                       hi,
+                                      TRUE,
                                       &input_count);
       if (!SUCCESS(rc)) {
          merge_iterator_destroy(hid, &merge_itor);
@@ -1110,6 +1112,7 @@ test_btree_merge_basic(cache             *cc,
                                       1,
                                       lo,
                                       hi,
+                                      TRUE,
                                       &output_count);
       if (!SUCCESS(rc)) {
          merge_iterator_destroy(hid, &merge_itor);
@@ -1167,7 +1170,17 @@ test_btree_count_in_range(cache             *cc,
    uint64 root_addr;
    test_btree_create_packed_trees(cc, cfg, hid, 1, &root_addr);
    btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
-   key_buffer   *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
+
+   if (!btree_verify_tree(cc, btree_cfg, root_addr, PAGE_TYPE_BRANCH)) {
+      btree_print_tree(Platform_default_log_handle,
+                       cc,
+                       btree_cfg,
+                       root_addr,
+                       PAGE_TYPE_BRANCH);
+      platform_assert(0);
+   }
+
+   key_buffer *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
    platform_assert(bound_key);
    key_buffer_init(&bound_key[0], hid);
    key_buffer_init(&bound_key[1], hid);
@@ -1213,6 +1226,7 @@ test_btree_count_in_range(cache             *cc,
                                       1,
                                       min_key,
                                       max_key,
+                                      FALSE,
                                       &iterator_count);
       platform_assert_status_ok(rc);
       if (stats.num_kvs != iterator_count) {
