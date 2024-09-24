@@ -356,7 +356,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                               kvs->trunk_id,
                               kvs->heap_id);
    }
-   if (kvs->spl == NULL) {
+   if (kvs->spl == NULL || !SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB instance.\n",
                          (open_existing ? "mount existing" : "initialize"));
 

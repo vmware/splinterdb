@@ -294,7 +294,7 @@ memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 void
 memtable_deinit(cache *cc, memtable *mt)
 {
-   mini_release(&mt->mini, NULL_KEY);
+   mini_release(&mt->mini);
    debug_only bool32 freed =
       btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);

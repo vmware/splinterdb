@@ -66,8 +66,8 @@ test_lookup_by_range(void         *datap,
 /* Macro to show progress message as workload is running */
 #define SHOW_PCT_PROGRESS(op_num, num_ops, msg)                                \
    do {                                                                        \
-      if (((op_num) % ((num_ops) / 100)) == 0) {                               \
-         platform_default_log(PLATFORM_CR msg, (op_num) / ((num_ops) / 100));  \
+      if ((num_ops) < 100 || ((op_num) % ((num_ops) / 100)) == 0) {            \
+         platform_default_log(PLATFORM_CR msg, 100 * (op_num) / (num_ops));    \
       }                                                                        \
    } while (0)
 
@@ -301,15 +301,19 @@ static void
 trunk_shadow_append(trunk_shadow *shadow, key tuple_key, message value)
 {
    platform_assert(message_class(value) == MESSAGE_TYPE_INSERT);
-   uint64 key_offset = writable_buffer_append(
+   uint64          key_offset = writable_buffer_length(&shadow->data);
+   platform_status rc         = writable_buffer_append(
       &shadow->data, key_length(tuple_key), key_data(tuple_key));
-   writable_buffer_append(
+   platform_assert_status_ok(rc);
+   rc = writable_buffer_append(
       &shadow->data, message_length(value), message_data(value));
+   platform_assert_status_ok(rc);
 
    shadow_entry new_entry = {.key_offset   = key_offset,
                              .key_length   = key_length(tuple_key),
                              .value_length = message_length(value)};
-   writable_buffer_append(&shadow->entries, sizeof(new_entry), &new_entry);
+   rc = writable_buffer_append(&shadow->entries, sizeof(new_entry), &new_entry);
+   platform_assert_status_ok(rc);
    shadow->sorted = FALSE;
 }
 

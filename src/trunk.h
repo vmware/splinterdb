@@ -19,6 +19,7 @@
 #include "allocator.h"
 #include "log.h"
 #include "srq.h"
+#include "trunk_node.h"
 
 /*
  * Max height of the Trunk Tree; Limited for convenience to allow for static
@@ -64,13 +65,14 @@ typedef struct trunk_config {
                                 // free space < threshold
    uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
                                 // task.h
-   bool32          use_stats;   // stats
-   memtable_config mt_cfg;
-   btree_config    btree_cfg;
-   routing_config  filter_cfg;
-   data_config    *data_cfg;
-   bool32          use_log;
-   log_config     *log_cfg;
+   bool32            use_stats; // stats
+   memtable_config   mt_cfg;
+   btree_config      btree_cfg;
+   routing_config    filter_cfg;
+   data_config      *data_cfg;
+   bool32            use_log;
+   log_config       *log_cfg;
+   trunk_node_config trunk_node_cfg;
 
    // verbose logging
    bool32               verbose_logging_enabled;
@@ -86,42 +88,12 @@ typedef struct trunk_stats {
    platform_histo_handle update_latency_histo;
    platform_histo_handle delete_latency_histo;
 
-   uint64 flush_wait_time_ns[TRUNK_MAX_HEIGHT];
-   uint64 flush_time_ns[TRUNK_MAX_HEIGHT];
-   uint64 flush_time_max_ns[TRUNK_MAX_HEIGHT];
-   uint64 full_flushes[TRUNK_MAX_HEIGHT];
-   uint64 count_flushes[TRUNK_MAX_HEIGHT];
    uint64 memtable_flushes;
    uint64 memtable_flush_time_ns;
    uint64 memtable_flush_time_max_ns;
    uint64 memtable_flush_wait_time_ns;
    uint64 memtable_flush_root_full;
-   uint64 root_full_flushes;
-   uint64 root_count_flushes;
-   uint64 root_flush_time_ns;
-   uint64 root_flush_time_max_ns;
-   uint64 root_flush_wait_time_ns;
-   uint64 failed_flushes[TRUNK_MAX_HEIGHT];
-   uint64 root_failed_flushes;
    uint64 memtable_failed_flushes;
-
-   uint64 compactions[TRUNK_MAX_HEIGHT];
-   uint64 compactions_aborted_flushed[TRUNK_MAX_HEIGHT];
-   uint64 compactions_aborted_leaf_split[TRUNK_MAX_HEIGHT];
-   uint64 compactions_discarded_flushed[TRUNK_MAX_HEIGHT];
-   uint64 compactions_discarded_leaf_split[TRUNK_MAX_HEIGHT];
-   uint64 compactions_empty[TRUNK_MAX_HEIGHT];
-   uint64 compaction_tuples[TRUNK_MAX_HEIGHT];
-   uint64 compaction_max_tuples[TRUNK_MAX_HEIGHT];
-   uint64 compaction_time_ns[TRUNK_MAX_HEIGHT];
-   uint64 compaction_time_max_ns[TRUNK_MAX_HEIGHT];
-   uint64 compaction_time_wasted_ns[TRUNK_MAX_HEIGHT];
-   uint64 compaction_pack_time_ns[TRUNK_MAX_HEIGHT];
-
-   uint64 unskipped_branch_compactions[TRUNK_MAX_HEIGHT];
-   uint64 skipped_branch_compactions[TRUNK_MAX_HEIGHT];
-   uint64 unskipped_bundle_compactions[TRUNK_MAX_HEIGHT];
-   uint64 skipped_bundle_compactions[TRUNK_MAX_HEIGHT];
 
    uint64 root_compactions;
    uint64 root_compaction_pack_time_ns;
@@ -131,22 +103,10 @@ typedef struct trunk_stats {
    uint64 root_compaction_time_max_ns;
 
    uint64 discarded_deletes;
-   uint64 index_splits;
-   uint64 leaf_splits;
-   uint64 leaf_splits_leaves_created;
-   uint64 leaf_split_time_ns;
-   uint64 leaf_split_max_time_ns;
-
-   uint64 single_leaf_splits;
-   uint64 single_leaf_tuples;
-   uint64 single_leaf_max_tuples;
 
    uint64 root_filters_built;
    uint64 root_filter_tuples;
    uint64 root_filter_time_ns;
-   uint64 filters_built[TRUNK_MAX_HEIGHT];
-   uint64 filter_tuples[TRUNK_MAX_HEIGHT];
-   uint64 filter_time_ns[TRUNK_MAX_HEIGHT];
 
    uint64 lookups_found;
    uint64 lookups_not_found;
@@ -154,11 +114,6 @@ typedef struct trunk_stats {
    uint64 branch_lookups[TRUNK_MAX_HEIGHT];
    uint64 filter_false_positives[TRUNK_MAX_HEIGHT];
    uint64 filter_negatives[TRUNK_MAX_HEIGHT];
-
-   uint64 space_recs[TRUNK_MAX_HEIGHT];
-   uint64 space_rec_time_ns[TRUNK_MAX_HEIGHT];
-   uint64 space_rec_tuples_reclaimed[TRUNK_MAX_HEIGHT];
-   uint64 tuples_reclaimed[TRUNK_MAX_HEIGHT];
 } PLATFORM_CACHELINE_ALIGNED trunk_stats;
 
 // splinter refers to btrees as branches
@@ -189,6 +144,8 @@ struct trunk_handle {
    trunk_config          cfg;
    platform_heap_id      heap_id;
    platform_batch_rwlock trunk_root_lock;
+
+   trunk_node_context trunk_context;
 
    // space reclamation
    uint64 est_tuples_in_compaction;
@@ -244,7 +201,7 @@ typedef struct trunk_range_iterator {
    key_buffer      local_min_key;
    key_buffer      local_max_key;
    btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-   trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   uint64          branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 
    // used for merge iterator construction
    iterator *itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
@@ -454,9 +411,6 @@ trunk_async_ctxt_init(trunk_async_ctxt *ctxt, trunk_async_cb cb)
 
 uint64
 trunk_pivot_message_size();
-
-uint64
-trunk_hdr_size();
 
 platform_status
 trunk_config_init(trunk_config        *trunk_cfg,
