@@ -441,7 +441,7 @@ laio_read_async(io_handle     *ioh,
                             -status,
                             strerror(-status));
       }
-      io_cleanup(ioh, 0);
+      laio_cleanup(ioh, 1);
    } while (status != 1);
 
    return STATUS_OK;
@@ -484,7 +484,7 @@ laio_write_async(io_handle     *ioh,
                             -status,
                             strerror(-status));
       }
-      io_cleanup(ioh, 0);
+      laio_cleanup(ioh, 1);
    } while (status != 1);
 
    return STATUS_OK;
@@ -498,21 +498,21 @@ laio_write_async(io_handle     *ioh,
 static void
 laio_cleanup(io_handle *ioh, uint64 count)
 {
-   laio_handle    *io    = (laio_handle *)ioh;
-   struct io_event event = {0};
-   uint64          i;
-   int             status;
-
-   threadid tid = platform_get_tid();
+   laio_handle *io  = (laio_handle *)ioh;
+   threadid     tid = platform_get_tid();
    platform_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
    platform_assert(
       io->ctx_idx[tid] < MAX_THREADS, "Invalid ctx_idx=%lu", io->ctx_idx[tid]);
    io_process_context *pctx = &io->ctx[io->ctx_idx[tid]];
+   struct io_event    *events;
+   events = TYPED_ARRAY_ZALLOC(io->heap_id, events, pctx->io_count);
+   uint64 i, j;
+   int    status;
 
    // Check for completion of up to 'count' events, one event at a time.
    // Or, check for all outstanding events (count == 0)
    for (i = 0; (count == 0 || i < count) && 0 < pctx->io_count; i++) {
-      status = io_getevents(pctx->ctx, 0, 1, &event, NULL);
+      status = io_getevents(pctx->ctx, 0, pctx->io_count, events, NULL);
       if (status < 0) {
          platform_error_log("%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], "
                             "count=%lu, io_count=%lu,"
@@ -525,17 +525,25 @@ laio_cleanup(io_handle *ioh, uint64 count)
                             pctx->io_count,
                             -status,
                             strerror(-status));
-      }
-      if (status <= 0) {
          i--;
          continue;
+      } else if (status == 0) {
+         if (count == 0) {
+            continue;
+         } else {
+            break;
+         }
       }
 
-      __sync_fetch_and_sub(&pctx->io_count, 1);
+      __sync_fetch_and_sub(&pctx->io_count, status);
 
-      // Invoke the callback for the one event that completed.
-      laio_callback(pctx->ctx, event.obj, event.res, 0);
+      // Invoke the callback for the events that completed.
+      for (j = 0; j < status; j++) {
+         laio_callback(pctx->ctx, events[j].obj, events[j].res, 0);
+      }
    }
+
+   platform_free(0, events);
 }
 
 /*
