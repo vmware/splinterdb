@@ -4204,20 +4204,26 @@ build_new_roots(trunk_node_context     *context,
    ondisk_node_ref_vector new_ondisk_node_refs;
    vector_init(&new_ondisk_node_refs, context->hid);
    rc = serialize_nodes(context, &new_nodes, &new_ondisk_node_refs);
+   VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
    vector_deinit(&new_nodes);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: serialize_nodes_and_enqueue_bundle_"
                          "compactions failed: %d\n",
                          rc.r);
-      goto cleanup_pivots;
+      goto cleanup_new_ondisk_node_refs;
    }
 
    VECTOR_APPLY_TO_ELTS(
       node_refs, ondisk_node_ref_destroy, context, context->hid);
    rc = vector_copy(node_refs, &new_ondisk_node_refs);
    platform_assert_status_ok(rc);
+   vector_deinit(&new_ondisk_node_refs);
    return STATUS_OK;
 
+cleanup_new_ondisk_node_refs:
+   VECTOR_APPLY_TO_ELTS(
+      &new_ondisk_node_refs, ondisk_node_ref_destroy, context, context->hid);
+   vector_deinit(&new_ondisk_node_refs);
 cleanup_pivots:
    VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, context->hid);
    vector_deinit(&pivots);
@@ -4851,6 +4857,50 @@ trunk_node_context_init(trunk_node_context      *context,
    platform_batch_rwlock_init(&context->root_lock);
 
 
+   return STATUS_OK;
+}
+
+platform_status
+trunk_node_inc_ref(const trunk_node_config *cfg,
+                   platform_heap_id         hid,
+                   cache                   *cc,
+                   allocator               *al,
+                   task_system             *ts,
+                   uint64                   root_addr)
+{
+   trunk_node_context context;
+   platform_status    rc =
+      trunk_node_context_init(&context, cfg, hid, cc, al, ts, root_addr);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_node_inc_ref: trunk_node_context_init failed: "
+                         "%d\n",
+                         rc.r);
+      return rc;
+   }
+   ondisk_node_inc_ref(&context, root_addr);
+   trunk_node_context_deinit(&context);
+   return STATUS_OK;
+}
+
+platform_status
+trunk_node_dec_ref(const trunk_node_config *cfg,
+                   platform_heap_id         hid,
+                   cache                   *cc,
+                   allocator               *al,
+                   task_system             *ts,
+                   uint64                   root_addr)
+{
+   trunk_node_context context;
+   platform_status    rc =
+      trunk_node_context_init(&context, cfg, hid, cc, al, ts, root_addr);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_node_dec_ref: trunk_node_context_init failed: "
+                         "%d\n",
+                         rc.r);
+      return rc;
+   }
+   ondisk_node_dec_ref(&context, root_addr);
+   trunk_node_context_deinit(&context);
    return STATUS_OK;
 }
 

@@ -130,15 +130,13 @@ typedef struct trunk_memtable_args {
 } trunk_memtable_args;
 
 typedef struct trunk_compacted_memtable {
-   trunk_branch              branch;
-   routing_filter            filter;
-   timestamp                 wait_start;
-   trunk_memtable_args       mt_args;
-   trunk_compact_bundle_req *req;
+   trunk_branch        branch;
+   routing_filter      filter;
+   timestamp           wait_start;
+   trunk_memtable_args mt_args;
 } trunk_compacted_memtable;
 
 struct trunk_handle {
-   volatile uint64       root_addr;
    uint64                super_block_idx;
    uint64                next_node_id;
    trunk_config          cfg;
@@ -151,10 +149,9 @@ struct trunk_handle {
    uint64 est_tuples_in_compaction;
 
    // allocator/cache/log
-   allocator     *al;
-   cache         *cc;
-   log_handle    *log;
-   mini_allocator mini;
+   allocator  *al;
+   cache      *cc;
+   log_handle *log;
 
    // memtables
    allocator_root_id id;
