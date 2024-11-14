@@ -1,4 +1,13 @@
-typedef void * async_state;
+// Copyright 2024 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+/*
+ * async.h --
+ *
+ *     This file contains the tools for implementing and using async functions.
+ */
+
+typedef void *async_state;
 #define ASYNC_STATE_INIT NULL
 #define ASYNC_STATE_DONE ((async_state)1)
 
@@ -6,69 +15,419 @@ typedef void * async_state;
  * A few macros we need internally.
  */
 #define _ASYNC_MERGE_TOKENS(a, b) a##b
-#define _ASYNC_MAKE_LABEL(a) _ASYNC_MERGE_TOKENS(_async_label_, a)
-#define _ASYNC_LABEL _ASYNC_MAKE_LABEL(__LINE__)
+#define _ASYNC_MAKE_LABEL(a)      _ASYNC_MERGE_TOKENS(_async_label_, a)
+#define _ASYNC_LABEL              _ASYNC_MAKE_LABEL(__LINE__)
 
 #ifdef __clang__
-#define WARNING_STATE_PUSH _Pragma("clang diagnostic push")
-#define WARNING_STATE_POP _Pragma("clang diagnostic pop")
-#define WARNING_IGNORE_DANGLING_LABEL_POINTER
+#   define WARNING_STATE_PUSH _Pragma("clang diagnostic push")
+#   define WARNING_STATE_POP  _Pragma("clang diagnostic pop")
+#   define WARNING_IGNORE_DANGLING_LABEL_POINTER
 #elif defined(__GNUC__)
-#define WARNING_STATE_PUSH _Pragma("GCC diagnostic push")
-#define WARNING_STATE_POP _Pragma("GCC diagnostic pop")
-#define WARNING_IGNORE_DANGLING_LABEL_POINTER _Pragma("GCC diagnostic ignored \"-Wdangling-pointer\"")
+#   define WARNING_STATE_PUSH _Pragma("GCC diagnostic push")
+#   define WARNING_STATE_POP  _Pragma("GCC diagnostic pop")
+#   define WARNING_IGNORE_DANGLING_LABEL_POINTER                               \
+      _Pragma("GCC diagnostic ignored \"-Wdangling-pointer\"")
 #endif
 
 /*
  * Macros for implementing async functions.
  */
 
-#define async_begin(statep) \
-    do { \
-        async_state *_async_state_p = (async_state *)(statep); \
-        if (*_async_state_p == ASYNC_STATE_DONE) { \
-            return; \
-        } else if (*_async_state_p != ASYNC_STATE_INIT) { \
-            goto **_async_state_p; \
-        } \
-    } while (0)
+// We declare a dummy local variable in async_begin.  We then reference this
+// variable in all our other macros.  This ensures that the user cannot forget
+// to call async_begin before calling any other async macros.  It also ensures
+// that they cannot call async_begin twice.
+#define ENSURE_ASYNC_BEGIN                                                     \
+   do {                                                                        \
+   } while (0 && __async_dummy)
 
-#define async_end(statep) \
-    do {\
-        *((async_state *)(statep)) = ASYNC_STATE_DONE; \
-        return; \
-    } while (0)
+#define async_begin(statep)                                                    \
+   int __async_dummy;                                                          \
+   do {                                                                        \
+      async_state *_async_state_p = (statep);                                  \
+      if (*_async_state_p == ASYNC_STATE_DONE) {                               \
+         return;                                                               \
+      } else if (*_async_state_p != ASYNC_STATE_INIT) {                        \
+         goto **_async_state_p;                                                \
+      }                                                                        \
+   } while (0)
 
-#define async_yield(statep) \
-    do {\
-        WARNING_STATE_PUSH \
-        WARNING_IGNORE_DANGLING_LABEL_POINTER \
-        *((async_state *)(statep)) = &&_ASYNC_LABEL; return; _ASYNC_LABEL: {}\
-        WARNING_STATE_POP \
-    } while (0)
+#define async_end(statep)                                                      \
+   ENSURE_ASYNC_BEGIN;                                                         \
+   do {                                                                        \
+      *(statep) = ASYNC_STATE_DONE;                                            \
+      return;                                                                  \
+   } while (0)
 
-#define async_await(statep, expr) \
-    do { \
-      WARNING_STATE_PUSH \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER \
-      *((async_state *)(statep)) = &&_ASYNC_LABEL; _ASYNC_LABEL:\
-      WARNING_STATE_POP \
-      if (!(expr)) { return; } \
-    } while (0)
+#define async_yield(statep)                                                    \
+   ENSURE_ASYNC_BEGIN;                                                         \
+   do {                                                                        \
+      WARNING_STATE_PUSH                                                       \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER                                    \
+      *(statep) = &&_ASYNC_LABEL;                                              \
+      return;                                                                  \
+   _ASYNC_LABEL:                                                               \
+   {}                                                                          \
+      WARNING_STATE_POP                                                        \
+   } while (0)
 
-#define async_exit(statep) \
-    do { *((async_state *)(statep)) = ASYNC_STATE_DONE; return; } while (0)
+#define async_await(statep, expr)                                              \
+   ENSURE_ASYNC_BEGIN;                                                         \
+   do {                                                                        \
+      WARNING_STATE_PUSH                                                       \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER                                    \
+      *(statep) = &&_ASYNC_LABEL;                                              \
+   _ASYNC_LABEL:                                                               \
+      WARNING_STATE_POP                                                        \
+      if (!(expr)) {                                                           \
+         return;                                                               \
+      }                                                                        \
+   } while (0)
+
+#define async_exit(statep)                                                     \
+   ENSURE_ASYNC_BEGIN;                                                         \
+   do {                                                                        \
+      *(statep) = ASYNC_STATE_DONE;                                            \
+      return;                                                                  \
+   } while (0)
 
 /*
  * Macros for calling async functions.
  */
 
-#define async_init(statep) \
-    do { *((async_state *)(statep)) = ASYNC_STATE_INIT; } while (0)
+#define async_init(statep)                                                     \
+   do {                                                                        \
+      *(statep) = ASYNC_STATE_INIT;                                            \
+   } while (0)
 
 #define async_deinit(statep)
 
-#define async_done(statep) \
-    (*((async_state *)(statep)) == ASYNC_STATE_DONE)
+#define async_done(statep) (*(statep) == ASYNC_STATE_DONE)
 
 #define async_call(func, statep) (((func)(statep)), async_done(statep))
+
+#define async_await_call(func, statep, ...)                                    \
+   do {                                                                        \
+      func##_state_init(statep __VA_OPT__(, __VA_ARGS__));                     \
+      async_await(async_call(func, statep));                                   \
+   } while (0)
+
+#define DEFINE_STATE_STRUCT_FIELDS0(kind, type, name) type name;
+#define DEFINE_STATE_STRUCT_FIELDS1(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS0(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS2(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS1(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS3(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS2(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS4(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS3(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS5(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS4(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS6(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS5(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS7(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS6(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS8(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS7(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS9(kind, type, name, ...)                     \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS8(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS10(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS9(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS11(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS10(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS12(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS11(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS13(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS12(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS14(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS13(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS15(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS14(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS16(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS15(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS17(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS16(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS18(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS17(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS19(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS18(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS20(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS19(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS21(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS20(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS22(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS21(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS23(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS22(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS24(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS23(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS25(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS24(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS26(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS25(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS27(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS26(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS28(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS27(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS29(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS28(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS30(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS29(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS31(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS30(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS32(kind, type, name, ...)                    \
+   type name;                                                                  \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS31(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_FIELDS(...)                                        \
+   __VA_OPT__(DEFINE_STATE_STRUCT_FIELDS32(__VA_ARGS__))
+
+#define DEFINE_STATE_STRUCT_INIT_param(type, name) , type name
+#define DEFINE_STATE_STRUCT_INIT_local(type, name)
+
+#define DEFINE_STATE_STRUCT_INIT_PARAMS0(kind, type, name)                     \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)
+#define DEFINE_STATE_STRUCT_INIT_PARAMS1(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS0(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS2(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS1(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS3(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS2(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS4(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS3(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS5(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS4(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS6(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS5(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS7(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS6(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS8(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS7(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS9(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS8(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS10(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS9(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS11(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS10(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS12(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS11(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS13(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS12(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS14(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS13(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS15(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS14(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS16(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS15(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS17(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS16(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS18(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS17(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS19(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS18(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS20(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS19(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS21(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS20(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS22(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS21(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS23(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS22(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS24(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS23(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS25(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS24(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS26(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS25(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS27(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS26(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS28(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS27(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS29(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS28(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS30(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS29(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS31(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS30(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS32(kind, type, name, ...)               \
+   DEFINE_STATE_STRUCT_INIT_##kind(type, name)                                 \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS31(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_PARAMS(...)                                   \
+   __VA_OPT__(DEFINE_STATE_STRUCT_INIT_PARAMS32(__VA_ARGS__))
+
+
+#define DEFINE_STATE_STRUCT_INIT_STMT_param(type, name) __state->name = name;
+#define DEFINE_STATE_STRUCT_INIT_STMT_local(type, name)
+
+#define DEFINE_STATE_STRUCT_INIT_STMTS0(kind, type, name)                      \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)
+#define DEFINE_STATE_STRUCT_INIT_STMTS1(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS0(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS2(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS1(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS3(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS2(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS4(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS3(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS5(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS4(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS6(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS5(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS7(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS6(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS8(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS7(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS9(kind, type, name, ...)                 \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS8(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS10(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS9(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS11(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS10(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS12(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS11(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS13(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS12(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS14(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS13(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS15(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS14(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS16(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS15(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS17(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS16(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS18(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS17(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS19(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS18(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS20(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS19(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS21(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS20(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS22(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS21(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS23(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS22(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS24(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS23(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS25(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS24(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS26(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS25(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS27(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS26(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS28(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS27(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS29(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS28(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS30(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS29(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS31(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS30(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS32(kind, type, name, ...)                \
+   DEFINE_STATE_STRUCT_INIT_STMT_##kind(type, name)                            \
+      __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS31(__VA_ARGS__))
+#define DEFINE_STATE_STRUCT_INIT_STMTS(...)                                    \
+   __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS32(__VA_ARGS__))
+
+
+#define DEFINE_ASYNC_STATE(name, ...)                                          \
+   typedef struct name##_state {                                               \
+      DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
+   } name##_state;                                                             \
+   void name##_state_init(                                                     \
+      name##_state *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))      \
+   {                                                                           \
+      DEFINE_STATE_STRUCT_INIT_STMTS(__VA_ARGS__)                              \
+   }

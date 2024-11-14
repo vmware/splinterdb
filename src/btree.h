@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "async.h"
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "util.h"

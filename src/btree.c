@@ -2079,6 +2079,72 @@ btree_lookup_node(cache              *cc,             // IN
    return STATUS_OK;
 }
 
+// clang-format off
+DEFINE_ASYNC_STATE(btree_lookup_node_async,
+   param, async_state,          state,
+   param, cache *,              cc,
+   param, const btree_config *, cfg,
+   param, uint64,               root_addr,
+   param, key,                  target,
+   param, uint16,               stop_at_height,
+   param, page_type,            type,
+   param, btree_node *,         out_node,
+   param, btree_pivot_stats *,  stats,
+   local, cache_async_ctxt,     cc_async_ctxt,
+   local, btree_node,           node,
+   local, btree_node,           child_node,
+   local, uint32,               h,
+   local, int64,                child_idx,
+   local, bool32,               found,
+   local, index_entry *,        entry)
+// clang-format on
+
+void
+btree_lookup_node_async(btree_lookup_node_async_state *state)
+{
+   async_begin(&state->state);
+
+   if (state->stats) {
+      memset(state->stats, 0, sizeof(*state->stats));
+   }
+
+   debug_assert(state->type == PAGE_TYPE_BRANCH
+                || state->type == PAGE_TYPE_MEMTABLE);
+   state->node.addr = state->root_addr;
+   btree_node_get(state->cc, state->cfg, &state->node, state->type);
+
+   for (state->h = btree_height(state->node.hdr);
+        state->h > state->stop_at_height;
+        state->h--)
+   {
+      state->child_idx =
+         key_is_positive_infinity(state->target)
+            ? btree_num_entries(state->node.hdr) - 1
+            : btree_find_pivot(
+               state->cfg, state->node.hdr, state->target, &state->found);
+      if (state->child_idx < 0) {
+         state->child_idx = 0;
+      }
+      state->entry =
+         btree_get_index_entry(state->cfg, state->node.hdr, state->child_idx);
+      state->child_node.addr = index_entry_child_addr(state->entry);
+
+      if (state->stats) {
+         accumulate_node_ranks(
+            state->cfg, state->node.hdr, 0, state->child_idx, state->stats);
+      }
+
+      btree_node_get(state->cc, state->cfg, &state->child_node, state->type);
+      debug_assert(state->child_node.page->disk_addr == state->child_node.addr);
+      btree_node_unget(state->cc, state->cfg, &state->node);
+      state->node = state->child_node;
+   }
+
+   *state->out_node = state->node;
+
+   async_end(&state->state);
+}
+
 
 static inline void
 btree_lookup_with_ref(cache              *cc,        // IN
