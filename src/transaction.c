@@ -7,7 +7,7 @@ typedef struct transaction {
    void *internal;
 } transaction;
 #else
-#   define RW_SET_SIZE_LIMIT 64
+#   define RW_SET_SIZE_LIMIT 1000
 typedef struct rw_entry rw_entry;
 typedef struct transaction {
    rw_entry *rw_entries[RW_SET_SIZE_LIMIT];
