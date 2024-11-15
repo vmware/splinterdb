@@ -4478,8 +4478,14 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
 
    trunk_bundle *bundle = trunk_get_bundle(spl, child, req->bundle_no);
 
+   uint64   parent_height = trunk_node_height(parent);
+   threadid tid           = platform_get_tid();
+
    // if there are whole branches, flush them into a subbundle
    if (trunk_branch_is_whole(spl, parent, pdata->start_branch)) {
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].unskipped_bundle_compactions[parent_height]++;
+      }
       trunk_subbundle *child_sb = trunk_get_new_subbundle(spl, child, 1);
       bundle->start_subbundle   = trunk_subbundle_no(spl, child, child_sb);
       child_sb->state           = SB_STATE_UNCOMPACTED_INDEX;
@@ -4492,6 +4498,9 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
            trunk_branch_is_whole(spl, parent, branch_no);
            branch_no = trunk_add_branch_number(spl, branch_no, 1))
       {
+         if (spl->cfg.use_stats) {
+            spl->stats[tid].unskipped_branch_compactions[parent_height]++;
+         }
          trunk_branch *parent_branch = trunk_get_branch(spl, parent, branch_no);
          trunk_log_stream_if_enabled(
             spl, &stream, "%lu\n", parent_branch->root_addr);
@@ -4517,6 +4526,9 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
            parent_sb_no != trunk_end_subbundle(spl, parent);
            parent_sb_no = trunk_add_subbundle_number(spl, parent_sb_no, 1))
       {
+         if (spl->cfg.use_stats) {
+            spl->stats[tid].skipped_bundle_compactions[parent_height]++;
+         }
          trunk_subbundle *parent_sb =
             trunk_get_subbundle(spl, parent, parent_sb_no);
          uint16 filter_count =
@@ -4535,6 +4547,9 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
               branch_no != parent_sb->end_branch;
               branch_no = trunk_add_branch_number(spl, branch_no, 1))
          {
+            if (spl->cfg.use_stats) {
+               spl->stats[tid].skipped_branch_compactions[parent_height]++;
+            }
             trunk_branch *parent_branch =
                trunk_get_branch(spl, parent, branch_no);
             trunk_log_stream_if_enabled(
@@ -8897,6 +8912,12 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
             global->compaction_time_max_ns[h] =
                spl->stats[thr_i].compaction_time_max_ns[h];
          }
+
+         global->unskipped_branch_compactions[h]     += spl->stats[thr_i].unskipped_branch_compactions[h];
+         global->skipped_branch_compactions[h]       += spl->stats[thr_i].skipped_branch_compactions[h];
+         global->unskipped_bundle_compactions[h]       += spl->stats[thr_i].unskipped_bundle_compactions[h];
+         global->skipped_bundle_compactions[h]         += spl->stats[thr_i].skipped_bundle_compactions[h];
+
          global->root_compactions                    += spl->stats[thr_i].root_compactions;
          global->root_compaction_pack_time_ns        += spl->stats[thr_i].root_compaction_pack_time_ns;
          global->root_compaction_tuples              += spl->stats[thr_i].root_compaction_tuples;
@@ -9060,6 +9081,25 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    }
    platform_log(log_handle, "------------------------------------------------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
+
+   const char *dashes = "-----------------------------------------------------------------";
+   platform_log(log_handle, "Compaction Skipping Statistics\n");
+   platform_log(log_handle, "%.12s-%.32s-%.32s-%.32s-%.32s-\n", dashes, dashes, dashes, dashes, dashes);
+   platform_log(log_handle, " %10s | %30s | %30s | %30s | %30s |\n",
+   "height", "unskipped branch compactions", "skipped branch compactions",
+   "unskipped bundle compactions", "skipped bundle compactions");
+   platform_log(log_handle, "%.12s|%.32s|%.32s|%.32s|%.32s|\n", dashes, dashes, dashes, dashes, dashes);
+   for (h = 1; h <= height; h++) {
+      rev_h = height - h;
+      platform_log(log_handle, " %10u | %30lu | %30lu | %30lu | %30lu |\n",
+            rev_h, global->unskipped_branch_compactions[rev_h],
+            global->skipped_branch_compactions[rev_h],
+            global->unskipped_bundle_compactions[rev_h],
+            global->skipped_bundle_compactions[rev_h]);
+   }
+   platform_log(log_handle, "%.12s-%.32s-%.32s-%.32s-%.32s-\n", dashes, dashes, dashes, dashes, dashes);
+   platform_log(log_handle, "\n");
+
 
    if (global->leaf_splits == 0) {
       avg_leaves_created = zero_fraction;

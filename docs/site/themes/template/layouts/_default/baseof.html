@@ -1,45 +1,68 @@
 <!DOCTYPE html>
-<html lang="{{ .Site.LanguageCode | default "en-us" }}">
+<html lang="{{ .Site.LanguageCode | default " en-us" }}">
+
 <head>
 	<!-- OneTrust -->
-	<meta name="microsites-utag" content="https://tags.tiqcdn.com/utag/vmware/microsites-privacy/prod/utag.js">
 	<meta name="onetrust-data-domain" content="018ee8c8-d89d-73d4-bd36-687bf6b17d17">
-	<script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
-	<script type="text/javascript" src="https://api.demandbase.com/api/v2/ip.js?key=e1f90d4a92d08428627aa34a78d58cc3e866c 84f&amp;var=db"></script> 
-	<script type="text/javascript" src="https://tags.tiqcdn.com/utag/vmware/microsites-privacy/prod/utag.sync.js"></script> 
-	<script src="//www.vmware.com/files/templates/inc/utag_data.js"></script>
+	<script src="https://code.jquery.com/jquery-3.6.0.min.js"
+		integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+	<script type="text/javascript"
+		src="https://api.demandbase.com/api/v2/ip.js?key=e1f90d4a92d08428627aa34a78d58cc3e866c 84f&amp;var=db"></script>
 
-		
+
+	<!-- Google Tag Manager -->
+	<script>(function (w, d, s, l, i) {
+			w[l] = w[l] || []; w[l].push({
+				'gtm.start':
+					new Date().getTime(), event: 'gtm.js'
+			}); var f = d.getElementsByTagName(s)[0],
+				j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+					'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+		})(window, document, 'script', 'dataLayer', 'GTM-KFH48ZHP');</script>
+	<!-- End Google Tag Manager -->
+
+
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<title>{{ if .Title }}{{ .Title }}{{ else }}Documentation{{ end }}</title>
-	{{ with .Site.Params.description }}<meta name="description" content="{{ . }}">{{ end }}
-	{{ with .Site.Params.author }}<meta name="author" content="{{ . }}">{{ end }}
-	{{ $options := (dict "targetPath" "css/style.css" "outputStyle" "compressed" "enableSourceMap" true "includePaths" (slice "node_modules/myscss")) }}
+	{{ with .Site.Params.description }}
+	<meta name="description" content="{{ . }}">{{ end }}
+	{{ with .Site.Params.author }}
+	<meta name="author" content="{{ . }}">{{ end }}
+	{{ $options := (dict "targetPath" "css/style.css" "outputStyle" "compressed" "enableSourceMap" true "includePaths"
+	(slice "node_modules/myscss")) }}
 	{{ $style := resources.Get "scss/site.scss" | resources.ToCSS $options }}
 	<link rel="stylesheet" href="{{ $style.Permalink }}" integrity="{{ $style.Data.Integrity }}" media="screen">
 	<link rel="icon" type="image/png" href="/img/favicon.png">
-	<script src="{{ "js/main.js" | relURL }}" type="text/javascript"></script>
+	<script src="{{ " js/main.js" | relURL }}" type="text/javascript"></script>
 	{{ with .OutputFormats.Get "RSS" -}}
-		{{ printf `<link rel="%s" type="%s" href="%s" title="%s">` .Rel .MediaType.Type .RelPermalink $.Site.Title | safeHTML }}
+	{{ printf `
+	<link rel="%s" type="%s" href="%s" title="%s">` .Rel .MediaType.Type .RelPermalink $.Site.Title | safeHTML }}
 	{{- end }}
 </head>
+
 <body>
+	<!-- Google Tag Manager (noscript) -->
+	<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KFH48ZHP" height="0" width="0"
+			style="display:none;visibility:hidden"></iframe></noscript>
+	<!-- End Google Tag Manager (noscript) -->
+
 	{{ partial "header" . }}
 	{{ block "main" . }}{{ end }}
 	{{ partial "getting-started" . }}
 	{{ partial "footer" . }}
-    {{ if .Site.Params.docs_search }}
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/docsearch.js@2/dist/cdn/docsearch.min.js"></script>
-    <script type="text/javascript"> docsearch({
-        apiKey: '{{ .Site.Params.Docs_search_api_key }}',
-        indexName: '{{ .Site.Params.Docs_search_index_name }}',
-        inputSelector: '.docsearch-input',
-        algoliaOptions: {'facetFilters': ["version:{{ .CurrentSection.Params.version }}"]},
-        debug: false // Set debug to true if you want to inspect the dropdown
-      });
-    </script>
-    {{ end }}
+	{{ if .Site.Params.docs_search }}
+	<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/docsearch.js@2/dist/cdn/docsearch.min.js"></script>
+	<script type="text/javascript"> docsearch({
+			apiKey: '{{ .Site.Params.Docs_search_api_key }}',
+			indexName: '{{ .Site.Params.Docs_search_index_name }}',
+			inputSelector: '.docsearch-input',
+			algoliaOptions: { 'facetFilters': ["version:{{ .CurrentSection.Params.version }}"] },
+			debug: false // Set debug to true if you want to inspect the dropdown
+		});
+	</script>
+	{{ end }}
 </body>
+
 </html>
