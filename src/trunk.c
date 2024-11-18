@@ -3153,6 +3153,84 @@ trunk_inc_branch_range(trunk_handle *spl,
 }
 
 static inline void
+trunk_perform_gc_tasks(trunk_handle *spl)
+{
+   uint64 my_idx               = spl->gc_task_queue_head;
+   my_idx                      = my_idx % TRUNK_GC_TASK_QUEUE_SIZE;
+   trunk_gc_task *task         = &spl->gc_task_queue[my_idx];
+   uint64         enqueue_time = task->enqueue_time;
+   while (enqueue_time != 0
+          && TRUNK_GC_DELAY < platform_timestamp_elapsed(enqueue_time))
+   {
+      if (__sync_bool_compare_and_swap(&task->enqueue_time, enqueue_time, 0)) {
+         __sync_fetch_and_add(&spl->gc_task_queue_head, 1);
+         switch (task->type) {
+            case TRUNK_GC_TYPE_ROUTING_FILTER_ZAP:
+               routing_filter_zap(spl->cc, &task->args.filter);
+               break;
+            case TRUNK_GC_TYPE_BTREE_DEC_REF_RANGE:
+               btree_dec_ref_range(
+                  spl->cc,
+                  &spl->cfg.btree_cfg,
+                  task->args.btree_dec_ref_range.root_addr,
+                  key_buffer_key(&task->args.btree_dec_ref_range.min_key),
+                  key_buffer_key(&task->args.btree_dec_ref_range.max_key));
+               key_buffer_deinit(&task->args.btree_dec_ref_range.min_key);
+               key_buffer_deinit(&task->args.btree_dec_ref_range.max_key);
+               break;
+            default:
+               platform_default_log("Unknown GC task type %d\n", task->type);
+               break;
+         }
+      }
+
+      my_idx       = spl->gc_task_queue_head;
+      my_idx       = my_idx % TRUNK_GC_TASK_QUEUE_SIZE;
+      task         = &spl->gc_task_queue[my_idx];
+      enqueue_time = task->enqueue_time;
+   }
+}
+
+static inline void
+trunk_enqueue_routing_filter_zap(trunk_handle *spl, routing_filter *filter)
+{
+   trunk_perform_gc_tasks(spl);
+
+   uint64 my_idx = __sync_fetch_and_add(&spl->gc_task_queue_tail, 1);
+   platform_assert(my_idx - spl->gc_task_queue_head < TRUNK_GC_TASK_QUEUE_SIZE);
+   my_idx              = my_idx % TRUNK_GC_TASK_QUEUE_SIZE;
+   trunk_gc_task *task = &spl->gc_task_queue[my_idx];
+   platform_assert(task->enqueue_time == 0);
+
+   task->type         = TRUNK_GC_TYPE_ROUTING_FILTER_ZAP;
+   task->args.filter  = *filter;
+   task->enqueue_time = platform_get_timestamp();
+}
+
+static inline void
+trunk_enqueue_btree_dec_ref_range(trunk_handle *spl,
+                                  uint64        btree_root_addr,
+                                  key           start_key,
+                                  key           end_key)
+{
+   trunk_perform_gc_tasks(spl);
+
+   uint64 my_idx = __sync_fetch_and_add(&spl->gc_task_queue_tail, 1);
+   platform_assert(my_idx - spl->gc_task_queue_head < TRUNK_GC_TASK_QUEUE_SIZE);
+   my_idx              = my_idx % TRUNK_GC_TASK_QUEUE_SIZE;
+   trunk_gc_task *task = &spl->gc_task_queue[my_idx];
+   platform_assert(task->enqueue_time == 0);
+
+   task->type                               = TRUNK_GC_TYPE_BTREE_DEC_REF_RANGE;
+   task->args.btree_dec_ref_range.root_addr = btree_root_addr;
+   key_buffer_init_from_key(
+      &task->args.btree_dec_ref_range.min_key, spl->heap_id, start_key);
+   key_buffer_init_from_key(
+      &task->args.btree_dec_ref_range.max_key, spl->heap_id, end_key);
+   task->enqueue_time = platform_get_timestamp();
+}
+
+static inline void
 trunk_zap_branch_range(trunk_handle *spl,
                        trunk_branch *branch,
                        key           start_key,
@@ -3163,8 +3241,10 @@ trunk_zap_branch_range(trunk_handle *spl,
    platform_assert((key_is_null(start_key) && key_is_null(end_key))
                    || (type != PAGE_TYPE_MEMTABLE && !key_is_null(start_key)));
    platform_assert(branch->root_addr != 0, "root_addr=%lu", branch->root_addr);
-   btree_dec_ref_range(
-      spl->cc, &spl->cfg.btree_cfg, branch->root_addr, start_key, end_key);
+   trunk_enqueue_btree_dec_ref_range(
+      spl, branch->root_addr, start_key, end_key);
+   // btree_dec_ref_range(
+   //    spl->cc, &spl->cfg.btree_cfg, branch->root_addr, start_key, end_key);
 }
 
 /*
@@ -3914,8 +3994,9 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
    if (filter->addr == 0) {
       return;
    }
-   cache *cc = spl->cc;
-   routing_filter_zap(cc, filter);
+   trunk_enqueue_routing_filter_zap(spl, filter);
+   // cache *cc = spl->cc;
+   // routing_filter_zap(cc, filter);
 }
 
 /*
@@ -4870,13 +4951,15 @@ trunk_branch_iterator_deinit(trunk_handle   *spl,
    if (itor->root_addr == 0) {
       return;
    }
-   cache        *cc        = spl->cc;
-   btree_config *btree_cfg = &spl->cfg.btree_cfg;
-   key           min_key   = itor->min_key;
-   key           max_key   = itor->max_key;
+   key min_key = itor->min_key;
+   key max_key = itor->max_key;
    btree_iterator_deinit(itor);
    if (should_dec_ref) {
-      btree_dec_ref_range(cc, btree_cfg, itor->root_addr, min_key, max_key);
+      trunk_enqueue_btree_dec_ref_range(spl, itor->root_addr, min_key, max_key);
+      // cache        *cc        = spl->cc;
+      // btree_config *btree_cfg = &spl->cfg.btree_cfg;
+      // btree_dec_ref_range(cc, btree_cfg, itor->root_addr, min_key,
+      //     max_key);
    }
 }
 
@@ -7852,6 +7935,10 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
 
       uint64 generation = memtable_force_finalize(spl->mt_ctxt);
       trunk_memtable_flush(spl, generation);
+   }
+
+   while (spl->gc_task_queue_head < spl->gc_task_queue_tail) {
+      trunk_perform_gc_tasks(spl);
    }
 
    // finish any outstanding tasks and destroy task system for this table.

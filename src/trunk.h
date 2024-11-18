@@ -177,6 +177,27 @@ typedef struct trunk_compacted_memtable {
    trunk_compact_bundle_req *req;
 } trunk_compacted_memtable;
 
+typedef enum trunk_gc_type {
+   TRUNK_GC_TYPE_ROUTING_FILTER_ZAP,
+   TRUNK_GC_TYPE_BTREE_DEC_REF_RANGE,
+} trunk_gc_type;
+
+typedef struct trunk_gc_task {
+   uint64_t      enqueue_time;
+   trunk_gc_type type;
+   union {
+      routing_filter filter;
+      struct {
+         uint64     root_addr;
+         key_buffer min_key;
+         key_buffer max_key;
+      } btree_dec_ref_range;
+   } args;
+} trunk_gc_task;
+
+#define TRUNK_GC_TASK_QUEUE_SIZE (1024 * 1024)
+#define TRUNK_GC_DELAY           (10ULL * 1000 * 1000 * 1000) // 10s
+
 struct trunk_handle {
    volatile uint64       root_addr;
    uint64                super_block_idx;
@@ -218,6 +239,11 @@ struct trunk_handle {
 
    // space rec queue
    srq srq;
+
+   // gc
+   uint64        gc_task_queue_head;
+   uint64        gc_task_queue_tail;
+   trunk_gc_task gc_task_queue[TRUNK_GC_TASK_QUEUE_SIZE];
 
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
