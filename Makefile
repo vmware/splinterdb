@@ -123,12 +123,12 @@ BUILD_DIR := $(BUILD_MODE)
 ifeq "$(BUILD_MODE)" "debug"
    CFLAGS    += -DSPLINTER_DEBUG
 else ifeq "$(BUILD_MODE)" "release"
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -O3 -ffast-math -flto
+   LDFLAGS   += -O3 -ffast-math -flto
 else ifeq "$(BUILD_MODE)" "optimized-debug"
    CFLAGS    += -DSPLINTER_DEBUG
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -O3 -ffast-math -flto
+   LDFLAGS   += -O3 -ffast-math -flto
 else
    $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif

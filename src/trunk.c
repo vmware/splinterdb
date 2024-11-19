@@ -3159,7 +3159,8 @@ trunk_perform_gc_tasks(trunk_handle *spl)
    my_idx                      = my_idx % TRUNK_GC_TASK_QUEUE_SIZE;
    trunk_gc_task *task         = &spl->gc_task_queue[my_idx];
    uint64         enqueue_time = task->enqueue_time;
-   while (enqueue_time != 0
+   int            i            = 0;
+   while (i < 2 && enqueue_time != 0
           && TRUNK_GC_DELAY < platform_timestamp_elapsed(enqueue_time))
    {
       if (__sync_bool_compare_and_swap(&task->enqueue_time, enqueue_time, 0)) {
@@ -3188,6 +3189,7 @@ trunk_perform_gc_tasks(trunk_handle *spl)
       my_idx       = my_idx % TRUNK_GC_TASK_QUEUE_SIZE;
       task         = &spl->gc_task_queue[my_idx];
       enqueue_time = task->enqueue_time;
+      i++;
    }
 }
 
