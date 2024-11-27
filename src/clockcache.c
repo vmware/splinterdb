@@ -2159,10 +2159,10 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
 }
 
 static bool32
-clockcache_load(clockcache   *cc,   // IN
-                uint64        addr, // IN
-                page_type     type, // IN
-                page_handle **page) // OUT
+clockcache_get_from_disk(clockcache   *cc,   // IN
+                         uint64        addr, // IN
+                         page_type     type, // IN
+                         page_handle **page) // OUT
 {
    threadid          tid          = platform_get_tid();
    uint64            page_size    = clockcache_page_size(cc);
@@ -2273,8 +2273,10 @@ clockcache_get_internal(clockcache   *cc,       // IN
    if (entry_number != CC_UNMAPPED_ENTRY) {
       return clockcache_get_in_cache(
          cc, addr, blocking, type, entry_number, page);
+   } else if (!blocking) {
+      return clockcache_from_disk(cc, addr, type, page);
    } else {
-      return clockcache_load(cc, addr, type, page);
+      return FALSE;
    }
 }
 
