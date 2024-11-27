@@ -27,6 +27,8 @@ typedef struct transaction {
 #   include "transaction_impl/transaction_tictoc_memory.h"
 #elif EXPERIMENTAL_MODE_TICTOC_COUNTER
 #   include "transaction_impl/transaction_tictoc_sketch.h"
+#elif EXPERIMENTAL_MODE_TICTOC_HASHTABLE
+#   include "transaction_impl/transaction_tictoc_sketch.h"
 #elif EXPERIMENTAL_MODE_TICTOC_SKETCH
 #   include "transaction_impl/transaction_tictoc_sketch.h"
 #elif EXPERIMENTAL_MODE_STO_DISK
@@ -35,6 +37,8 @@ typedef struct transaction {
 #   include "transaction_impl/transaction_sto_memory.h"
 #elif EXPERIMENTAL_MODE_STO_COUNTER
 #   include "transaction_impl/transaction_sto.h"
+#elif EXPERIMENTAL_MODE_STO_HASHTABLE
+#   include "transaction_impl/transaction_sto.h"
 #elif EXPERIMENTAL_MODE_STO_SKETCH
 #   include "transaction_impl/transaction_sto.h"
 #elif EXPERIMENTAL_MODE_MVCC_DISK
@@ -42,6 +46,8 @@ typedef struct transaction {
 #elif EXPERIMENTAL_MODE_MVCC_MEMORY
 #   include "transaction_impl/transaction_mvcc_memory.h"
 #elif EXPERIMENTAL_MODE_MVCC_COUNTER
+#   include "transaction_impl/transaction_mvcc_sketch.h"
+#elif EXPERIMENTAL_MODE_MVCC_HASHTABLE
 #   include "transaction_impl/transaction_mvcc_sketch.h"
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH
 #   include "transaction_impl/transaction_mvcc_sketch.h"

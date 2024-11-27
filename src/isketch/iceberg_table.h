@@ -1,5 +1,4 @@
-#ifndef _POTC_TABLE_H_
-#define _POTC_TABLE_H_
+#pragma once
 
 #include "lock.h"
 #include "types.h"
@@ -61,6 +60,9 @@ typedef struct iceberg_metadata {
    uint64_t             *lv3_sizes[MAX_RESIZES];
    uint8_t              *lv3_locks[MAX_RESIZES];
    uint64_t              nblocks_parts[MAX_RESIZES];
+
+   _Atomic uint64_t num_active_keys;
+   _Atomic uint64_t num_total_keys;
 #ifdef ENABLE_RESIZE
    volatile int lock;
    uint64_t     resize_cnt;
@@ -84,6 +86,7 @@ typedef struct iceberg_config {
    merge_value_from_sketch_fn *merge_value_from_sketch;
    transform_sketch_value_fn  *transform_sketch_value;
    post_remove_fn             *post_remove;
+   bool                        enable_lazy_eviction;
 } iceberg_config;
 
 void
@@ -238,5 +241,3 @@ iceberg_print_state(iceberg_table *table);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // _POTC_TABLE_H_

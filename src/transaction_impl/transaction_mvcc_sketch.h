@@ -630,6 +630,10 @@ transactional_splinterdb_config_init(
 #if EXPERIMENTAL_MODE_MVCC_COUNTER
    txn_splinterdb_cfg->sktch_config.rows = 1;
    txn_splinterdb_cfg->sktch_config.cols = 1;
+#elif EXPERIMENTAL_MODE_MVCC_HASHTABLE
+   txn_splinterdb_cfg->sktch_config.rows                     = 1;
+   txn_splinterdb_cfg->sktch_config.cols                     = 1;
+   txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols = 131072;

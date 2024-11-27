@@ -1,3 +1,5 @@
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -340,6 +342,7 @@ iceberg_config_default_init(iceberg_config *config)
    config->merge_value_from_sketch = NULL;
    config->transform_sketch_value  = &transform_sketch_value_default;
    config->post_remove             = NULL;
+   config->enable_lazy_eviction    = false;
 }
 
 int
@@ -496,6 +499,9 @@ iceberg_init(iceberg_table     *table,
    memset((char *)table->metadata.lv2_md[0], 0, lv2_md_size);
    memset(table->metadata.lv3_sizes[0], 0, total_blocks * sizeof(uint64_t));
    memset(table->metadata.lv3_locks[0], 0, total_blocks * sizeof(uint8_t));
+
+   table->metadata.num_active_keys = 0;
+   table->metadata.num_total_keys  = 0;
 
    table->spl_data_config = spl_data_config;
 
@@ -1158,7 +1164,14 @@ iceberg_put_or_insert(iceberg_table *table,
 
       if (increase_refcount) {
          kv->refcount++;
+
+         if (table->config.enable_lazy_eviction) {
+            if (kv->refcount == 1) {
+               atomic_fetch_add(&metadata->num_active_keys, 1);
+            }
+         }
       }
+
       if (overwrite_value) {
          kv->val = **value;
       }
@@ -1228,6 +1241,12 @@ iceberg_put_or_insert(iceberg_table *table,
    // thread_id, (void *)table,
    //          __func__, (char *)slice_data(*key), kv->refcount - 1,
    //          *((uint64 *)&kv->val), *((uint64 *)&kv->val + 8));
+
+   if (table->config.enable_lazy_eviction) {
+      atomic_fetch_add(&metadata->num_active_keys, 1);
+      atomic_fetch_add(&metadata->num_total_keys, 1);
+   }
+
    unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
    return ret;
 }
@@ -1350,6 +1369,12 @@ iceberg_lv3_node_deinit(iceberg_lv3_node *node)
 }
 
 static inline bool
+is_inactive_keys_over(iceberg_metadata *metadata)
+{
+   return (metadata->num_total_keys - metadata->num_active_keys) > 104857;
+}
+
+static inline bool
 iceberg_lv3_remove_internal(iceberg_table *table,
                             slice          key,
                             uint64_t       lv3_index,
@@ -1378,7 +1403,27 @@ iceberg_lv3_remove_internal(iceberg_table *table,
    if (iceberg_key_compare(table->spl_data_config, head->kv.key, key) == 0) {
       // printf("tid %d %p %s %s previous head refcount: %d\n", thread_id, (void
       // *)table, __func__, key, head->val.refcount);
-      if (force_remove || (delete_item && head->kv.refcount == 1)) {
+
+      bool should_remove = false;
+      if (force_remove) {
+         should_remove = true;
+      } else {
+         if (delete_item) {
+            if (head->kv.refcount == 1) {
+               if (table->config.enable_lazy_eviction) {
+                  if (is_inactive_keys_over(&table->metadata)) {
+                     should_remove = true;
+                  } else {
+                     head->kv.refcount = 0;
+                  }
+               } else {
+                  should_remove = true;
+               }
+            }
+         }
+      }
+
+      if (should_remove) {
          // If it has a sketch, insert the removed value to it.
          if (table->sktch) {
             sketch_insert(table->sktch, head->kv.key, head->kv.val);
@@ -1394,8 +1439,14 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          metadata->lv3_sizes[bindex][boffset]--;
          pc_add(&metadata->lv3_balls, -1, thread_id);
          ret = true;
+         if (table->config.enable_lazy_eviction) {
+            atomic_fetch_sub(&metadata->num_active_keys, 1);
+            atomic_fetch_sub(&metadata->num_total_keys, 1);
+         }
       } else if (head->kv.refcount == 0) {
-         ;
+         if (table->config.enable_lazy_eviction) {
+            atomic_fetch_sub(&metadata->num_active_keys, 1);
+         }
       } else {
          head->kv.refcount--;
       }
@@ -1416,7 +1467,26 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          // printf("tid %d %p %s %s before next_node refcount: %d\n", thread_id,
          // (void *)table, __func__, key, next_node->val.refcount);
 
-         if (force_remove || (delete_item && next_node->kv.refcount == 1)) {
+         bool should_remove = false;
+         if (force_remove) {
+            should_remove = true;
+         } else {
+            if (delete_item) {
+               if (next_node->kv.refcount == 1) {
+                  if (table->config.enable_lazy_eviction) {
+                     if (is_inactive_keys_over(&table->metadata)) {
+                        should_remove = true;
+                     } else {
+                        next_node->kv.refcount = 0;
+                     }
+                  } else {
+                     should_remove = true;
+                  }
+               }
+            }
+         }
+
+         if (should_remove) {
             // If it has a sketch, insert the removed value to it.
             if (table->sktch) {
                sketch_insert(
@@ -1434,8 +1504,14 @@ iceberg_lv3_remove_internal(iceberg_table *table,
             metadata->lv3_sizes[bindex][boffset]--;
             pc_add(&metadata->lv3_balls, -1, thread_id);
             ret = true;
+            if (table->config.enable_lazy_eviction) {
+               atomic_fetch_sub(&metadata->num_active_keys, 1);
+               atomic_fetch_sub(&metadata->num_total_keys, 1);
+            }
          } else if (next_node->kv.refcount == 0) {
-            ;
+            if (table->config.enable_lazy_eviction) {
+               atomic_fetch_sub(&metadata->num_active_keys, 1);
+            }
          } else {
             next_node->kv.refcount--;
          }
@@ -1642,8 +1718,26 @@ iceberg_lv2_remove(iceberg_table *table,
                *value = blocks[boffset].slots[slot].val;
             }
 
-            if (force_remove
-                || (delete_item && blocks[boffset].slots[slot].refcount == 1)) {
+            bool should_remove = false;
+            if (force_remove) {
+               should_remove = true;
+            } else {
+               if (delete_item) {
+                  if (blocks[boffset].slots[slot].refcount == 1) {
+                     if (table->config.enable_lazy_eviction) {
+                        if (is_inactive_keys_over(&table->metadata)) {
+                           should_remove = true;
+                        } else {
+                           blocks[boffset].slots[slot].refcount = 0;
+                        }
+                     } else {
+                        should_remove = true;
+                     }
+                  }
+               }
+            }
+
+            if (should_remove) {
                // If it has a sketch, insert the removed value to it.
                if (table->sktch) {
                   sketch_insert(table->sktch,
@@ -1660,7 +1754,14 @@ iceberg_lv2_remove(iceberg_table *table,
                blocks[boffset].slots[slot].refcount = 0;
                pc_add(&metadata->lv2_balls, -1, thread_id);
                ret = true;
+               if (table->config.enable_lazy_eviction) {
+                  atomic_fetch_sub(&metadata->num_active_keys, 1);
+                  atomic_fetch_sub(&metadata->num_total_keys, 1);
+               }
             } else if (blocks[boffset].slots[slot].refcount == 0) {
+               if (table->config.enable_lazy_eviction) {
+                  atomic_fetch_sub(&metadata->num_active_keys, 1);
+               }
                return false;
             } else {
                blocks[boffset].slots[slot].refcount--;
@@ -1830,8 +1931,26 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             *value = blocks[boffset].slots[slot].val;
          }
 
-         if (force_remove
-             || (delete_item && blocks[boffset].slots[slot].refcount == 1)) {
+         bool should_remove = false;
+         if (force_remove) {
+            should_remove = true;
+         } else {
+            if (delete_item) {
+               if (blocks[boffset].slots[slot].refcount == 1) {
+                  if (table->config.enable_lazy_eviction) {
+                     if (is_inactive_keys_over(&table->metadata)) {
+                        should_remove = true;
+                     } else {
+                        blocks[boffset].slots[slot].refcount = 0;
+                     }
+                  } else {
+                     should_remove = true;
+                  }
+               }
+            }
+         }
+
+         if (should_remove) {
             // If it has a sketch, insert the removed value to it.
             if (table->sktch) {
                sketch_insert(table->sktch,
@@ -1848,7 +1967,14 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             blocks[boffset].slots[slot].refcount = 0;
             pc_add(&metadata->lv1_balls, -1, thread_id);
             ret = true;
+            if (table->config.enable_lazy_eviction) {
+               atomic_fetch_sub(&metadata->num_active_keys, 1);
+               atomic_fetch_sub(&metadata->num_total_keys, 1);
+            }
          } else if (blocks[boffset].slots[slot].refcount == 0) {
+            if (table->config.enable_lazy_eviction) {
+               atomic_fetch_sub(&metadata->num_active_keys, 1);
+            }
             unlock_block(
                (uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
             return false;
@@ -2550,4 +2676,9 @@ iceberg_print_state(iceberg_table *table)
    printf("Number level 2 inserts: %ld\n", lv2_balls(table));
    printf("Number level 3 inserts: %ld\n", lv3_balls(table));
    printf("Total inserts: %ld\n", tot_balls(table));
+
+   if (table->config.enable_lazy_eviction) {
+      printf("Number of active keys: %ld\n", table->metadata.num_active_keys);
+      printf("Number of total keys: %ld\n", table->metadata.num_total_keys);
+   }
 }
