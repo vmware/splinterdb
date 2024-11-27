@@ -87,6 +87,7 @@ typedef struct iceberg_config {
    transform_sketch_value_fn  *transform_sketch_value;
    post_remove_fn             *post_remove;
    bool                        enable_lazy_eviction;
+   uint64_t                    max_num_inactive_keys;
 } iceberg_config;
 
 void

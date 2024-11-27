@@ -343,6 +343,7 @@ iceberg_config_default_init(iceberg_config *config)
    config->transform_sketch_value  = &transform_sketch_value_default;
    config->post_remove             = NULL;
    config->enable_lazy_eviction    = false;
+   config->max_num_inactive_keys   = 104857;
 }
 
 int
@@ -1369,9 +1370,9 @@ iceberg_lv3_node_deinit(iceberg_lv3_node *node)
 }
 
 static inline bool
-is_inactive_keys_over(iceberg_metadata *metadata)
+is_inactive_keys_over(iceberg_table *table)
 {
-   return (metadata->num_total_keys - metadata->num_active_keys) > 104857;
+   return (table->metadata.num_total_keys - table->metadata.num_active_keys) > table->config.max_num_inactive_keys;
 }
 
 static inline bool
@@ -1411,7 +1412,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          if (delete_item) {
             if (head->kv.refcount == 1) {
                if (table->config.enable_lazy_eviction) {
-                  if (is_inactive_keys_over(&table->metadata)) {
+                  if (is_inactive_keys_over(table)) {
                      should_remove = true;
                   } else {
                      head->kv.refcount = 0;
@@ -1474,7 +1475,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
             if (delete_item) {
                if (next_node->kv.refcount == 1) {
                   if (table->config.enable_lazy_eviction) {
-                     if (is_inactive_keys_over(&table->metadata)) {
+                     if (is_inactive_keys_over(table)) {
                         should_remove = true;
                      } else {
                         next_node->kv.refcount = 0;
@@ -1725,7 +1726,7 @@ iceberg_lv2_remove(iceberg_table *table,
                if (delete_item) {
                   if (blocks[boffset].slots[slot].refcount == 1) {
                      if (table->config.enable_lazy_eviction) {
-                        if (is_inactive_keys_over(&table->metadata)) {
+                        if (is_inactive_keys_over(table)) {
                            should_remove = true;
                         } else {
                            blocks[boffset].slots[slot].refcount = 0;
@@ -1938,7 +1939,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             if (delete_item) {
                if (blocks[boffset].slots[slot].refcount == 1) {
                   if (table->config.enable_lazy_eviction) {
-                     if (is_inactive_keys_over(&table->metadata)) {
+                     if (is_inactive_keys_over(table)) {
                         should_remove = true;
                      } else {
                         blocks[boffset].slots[slot].refcount = 0;
