@@ -2274,7 +2274,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
       return clockcache_get_in_cache(
          cc, addr, blocking, type, entry_number, page);
    } else if (!blocking) {
-      return clockcache_from_disk(cc, addr, type, page);
+      return clockcache_get_from_disk(cc, addr, type, page);
    } else {
       return FALSE;
    }
