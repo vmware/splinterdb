@@ -2141,7 +2141,7 @@ btree_lookup_node_async(btree_lookup_node_async_state *state)
 
    *state->out_node = state->node;
 
-   async_finish(state);
+   async_return(state);
 }
 
 

@@ -4,6 +4,7 @@
 #include "platform.h"
 #include "task.h"
 #include "util.h"
+#include "io.h"
 
 #include "poison.h"
 

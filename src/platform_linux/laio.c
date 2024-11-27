@@ -606,7 +606,7 @@ laio_async_read(io_async_read_state *gios)
    async_begin(ios);
 
    if (ios->iovlen == 0) {
-      async_finish(ios);
+      async_return(ios);
    }
 
    ios->pctx = laio_get_thread_context((io_handle *)ios->io);
@@ -653,7 +653,7 @@ laio_async_read(io_async_read_state *gios)
       async_await(ios, ios->io_completed);
    }
 
-   async_finish(ios);
+   async_return(ios);
 }
 
 static platform_status

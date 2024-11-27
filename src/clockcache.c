@@ -2243,6 +2243,115 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
    return FALSE;
 }
 
+static void
+waiters_lock(clockcache_entry *entry)
+{
+   while (__sync_lock_test_and_set(&entry->waiters_lock, 1)) {
+      platform_yield();
+   }
+}
+
+static void
+waiters_unlock(clockcache_entry *entry)
+{
+   __sync_lock_release(&entry->waiters_lock);
+}
+
+static void
+waiters_append(clockcache_entry        *entry,
+               clockcache_entry_waiter *node,
+               async_callback_fn        callback,
+               void                    *arg)
+{
+   node->callback     = callback;
+   node->callback_arg = arg;
+   node->next         = NULL;
+
+   if (entry->waiters_tail) {
+      entry->waiters_tail->next = node;
+   } else {
+      entry->waiters_head = node;
+   }
+   entry->waiters_tail = node;
+}
+
+static void
+waiters_release_all(clockcache_entry *entry)
+{
+   waiters_lock(entry);
+   clockcache_entry_waiter *node = entry->waiters_head;
+   while (node) {
+      clockcache_entry_waiter *next = node->next;
+      node->callback(node->callback_arg);
+      node = next;
+   }
+   entry->waiters_head = NULL;
+   entry->waiters_tail = NULL;
+   waiters_unlock(entry);
+}
+
+
+/*
+ * Get addr if addr is at entry_number.  Returns TRUE if successful.
+ */
+// clang-format off
+DEFINE_ASYNC_STATE(clockcache_get_in_cache_async,
+   param, clockcache *, cc,
+   param, uint64, addr,
+   param, page_type, type,
+   param, uint32, entry_number,
+   param, page_handle **, page,
+   local, bool32, __async_result,
+   local, threadid, tid,
+   local, clockcache_entry *, entry)
+// clang-format on
+
+static bool32
+clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
+{
+   async_begin(state);
+
+   state->tid = platform_get_tid();
+
+   // We don't bother yielding for writers because they are expected to be
+   // fast.  We do yield (below) if someone else is loading the page.
+   if (clockcache_get_read(state->cc, state->entry_number) != GET_RC_SUCCESS) {
+      // this means we raced with eviction, start over
+      clockcache_log(state->addr,
+                     state->entry_number,
+                     "get (eviction race): entry %u addr %lu\n",
+                     state->entry_number,
+                     state->addr);
+      async_return(state, TRUE);
+   }
+   if (clockcache_get_entry(state->cc, state->entry_number)->page.disk_addr
+       != state->addr)
+   {
+      // this also means we raced with eviction and really lost
+      clockcache_dec_ref(state->cc, state->entry_number, state->tid);
+      async_return(state, TRUE);
+   }
+
+   async_await(
+      state, !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING));
+
+   state->entry = clockcache_get_entry(state->cc, state->entry_number);
+
+   if (state->cc->cfg->use_stats) {
+      state->cc->stats[state->tid].cache_hits[state->type]++;
+   }
+   clockcache_log(
+      state->addr,
+      state->entry_number,
+      "get (cached): entry %u addr %lu rc %u\n",
+      state->entry_number,
+      state->addr,
+      clockcache_get_ref(state->cc, state->entry_number, state->tid));
+   *state->page = &state->entry->page;
+   async_return(state, FALSE);
+}
+
+
 // clang-format off
 DEFINE_ASYNC_STATE(clockcache_get_from_disk_async,
    param, clockcache *, cc,
@@ -2270,7 +2379,8 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    state->entry_number =
       clockcache_acquire_entry_for_load(state->cc, state->addr);
    if (state->entry_number == CC_UNMAPPED_ENTRY) {
-      // FIXME: wait queue
+      state->result = STATUS_OK;
+      async_return(state);
    }
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
@@ -2280,7 +2390,7 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    if (state->iostate == NULL) {
       state->result = STATUS_NO_MEMORY;
       // FIXME: release entry
-      async_finish(state);
+      async_return(state);
    }
 
    state->result =
@@ -2288,7 +2398,7 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    if (!SUCCESS(state->result)) {
       io_async_read_state_destroy(state->iostate);
       // FIXME: release entry
-      async_finish(state);
+      async_return(state);
    }
 
    while (io_async_read(state->iostate) != ASYNC_STATE_DONE) {
@@ -2394,6 +2504,51 @@ clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
       }
    }
 }
+
+
+static bool32
+clockcache_get_async_internal(clockcache   *cc,   // IN
+                              uint64        addr, // IN
+                              page_type     type, // IN
+                              page_handle **page) // OUT
+{
+   debug_only uint64 page_size = clockcache_page_size(cc);
+   debug_assert(
+      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
+
+#if SPLINTER_DEBUG
+   uint64 base_addr =
+      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
+   refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
+
+   // Dump allocated extents info for deeper debugging.
+   if (extent_ref_count <= 1) {
+      allocator_print_allocated(cc->al);
+   }
+   debug_assert((extent_ref_count > 1),
+                "Attempt to get a buffer for page addr=%lu"
+                ", page type=%d ('%s'),"
+                " from extent addr=%lu, (extent number=%lu)"
+                ", which is an unallocated extent, extent_ref_count=%u.",
+                addr,
+                type,
+                page_type_str[type],
+                base_addr,
+                (base_addr / clockcache_extent_size(cc)),
+                extent_ref_count);
+#endif // SPLINTER_DEBUG
+
+   // We expect entry_number to be valid, but it's still validated below
+   // in case some arithmetic goes wrong.
+   uint32 entry_number = clockcache_lookup(cc, addr);
+
+   if (entry_number != CC_UNMAPPED_ENTRY) {
+      return clockcache_get_in_cache_async(cc, addr, type, entry_number, page);
+   } else {
+      return clockcache_get_from_disk_async(cc, addr, type, page);
+   }
+}
+
 
 /*
  *----------------------------------------------------------------------

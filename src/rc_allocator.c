@@ -269,7 +269,7 @@ platform_status
 rc_allocator_valid_config(allocator_config *cfg)
 {
    platform_status rc = STATUS_OK;
-   rc                 = laio_config_valid(cfg->io_cfg);
+   rc                 = io_config_valid(cfg->io_cfg);
    if (!SUCCESS(rc)) {
       return rc;
    }

@@ -12,6 +12,20 @@
 #include "async.h"
 #include "platform.h"
 
+/*
+ * SplinterDB can be configured with different page-sizes, given by these
+ * min & max values. But for now, these are defined to just the one page
+ * size currently supported.
+ */
+#define IO_MIN_PAGE_SIZE (4096)
+#define IO_MAX_PAGE_SIZE (8192)
+
+#define IO_DEFAULT_PAGE_SIZE        IO_MIN_PAGE_SIZE
+#define IO_DEFAULT_PAGES_PER_EXTENT 32
+#define IO_DEFAULT_EXTENT_SIZE                                                 \
+   (IO_DEFAULT_PAGES_PER_EXTENT * IO_DEFAULT_PAGE_SIZE)
+
+
 typedef struct io_handle           io_handle;
 typedef struct io_async_req        io_async_req;
 typedef struct io_async_read_state io_async_read_state;
@@ -256,6 +270,42 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
    }
    return TRUE;
 }
+
+static inline bool32
+io_config_valid_page_size(io_config *cfg)
+{
+   return (cfg->page_size == IO_DEFAULT_PAGE_SIZE);
+}
+
+static inline bool32
+io_config_valid_extent_size(io_config *cfg)
+{
+   return (cfg->extent_size == IO_DEFAULT_EXTENT_SIZE);
+}
+
+
+/*
+ * Do basic validation of IO configuration so we don't have to deal
+ * with unsupported configurations that may creep through there.
+ */
+platform_status
+io_config_valid(io_config *cfg)
+{
+   if (!io_config_valid_page_size(cfg)) {
+      platform_error_log(
+         "Page-size, %lu bytes, is an invalid IO configuration.\n",
+         cfg->page_size);
+      return STATUS_BAD_PARAM;
+   }
+   if (!io_config_valid_extent_size(cfg)) {
+      platform_error_log(
+         "Extent-size, %lu bytes, is an invalid IO configuration.\n",
+         cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
+}
+
 
 /*
  *-----------------------------------------------------------------------------

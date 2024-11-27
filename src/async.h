@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "platform_inline.h"
+
 typedef void *async_state;
 #define ASYNC_STATE_INIT NULL
 #define ASYNC_STATE_DONE ((async_state)1)
@@ -80,10 +82,11 @@ typedef void *async_state;
       WARNING_STATE_POP                                                        \
    } while (0)
 
-#define async_finish(statep)                                                   \
+#define async_return(statep, ...)                                              \
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       (statep)->__async_state = ASYNC_STATE_DONE;                              \
+      __VA_OPT__((statep->__async_result = (__VA_ARGS__)));                    \
       return ASYNC_STATE_DONE;                                                 \
    } while (0)
 
@@ -107,6 +110,91 @@ typedef void *async_state;
    } while (0)
 
 
+/* Some async functions may support a callback that can be used to notify the
+ * user when it would be useful to continue executing the async function. */
+typedef void (*async_callback_fn)(void *);
+
+typedef struct async_waiter {
+   struct async_waiter *next;
+   async_callback_fn    callback;
+   void                *callback_arg;
+} async_waiter;
+
+typedef struct async_wait_queue {
+   uint64        lock;
+   async_waiter *head;
+   async_waiter *tail;
+} async_wait_queue;
+
+static inline void
+async_wait_queue_lock(async_wait_queue *q)
+{
+   while (__sync_lock_test_and_set(&q->lock, 1)) {
+      platform_pause();
+   }
+}
+
+static inline void
+async_wait_queue_unlock(async_wait_queue *q)
+{
+   __sync_lock_release(&q->lock);
+}
+
+static inline void
+async_wait_queue_append(async_wait_queue *q,
+                        async_waiter     *waiter,
+                        async_callback_fn callback,
+                        void             *callback_arg)
+{
+   waiter->callback     = callback;
+   waiter->callback_arg = callback_arg;
+   waiter->next         = NULL;
+
+   if (q->head == NULL) {
+      q->head = waiter;
+   } else {
+      q->tail->next = waiter;
+   }
+   q->tail = waiter;
+}
+
+static inline void
+async_wait_queue_release_one(async_wait_queue *q)
+{
+   async_waiter *waiter;
+
+   async_wait_queue_lock(q);
+
+   waiter = q->head;
+   if (waiter) {
+      q->head = waiter->next;
+      if (q->head == NULL) {
+         q->tail = NULL;
+      }
+   }
+   async_wait_queue_unlock(q);
+
+   if (waiter) {
+      waiter->callback(waiter->callback_arg);
+   }
+}
+
+static inline void
+async_wait_queue_release_all(async_wait_queue *q)
+{
+   async_waiter *waiter;
+
+   async_wait_queue_lock(q);
+
+   while ((waiter = q->head)) {
+      q->head = waiter->next;
+      waiter->callback(waiter->callback_arg);
+   }
+   q->tail = NULL;
+
+   async_wait_queue_unlock(q);
+}
+
 /*
  * Macros for calling async functions.
  */
@@ -114,11 +202,6 @@ typedef void *async_state;
 #define async_call(func, statep) (((func)(statep)) == ASYNC_STATE_DONE)
 
 #define async_done(statep) ((statep)->__async_state == ASYNC_STATE_DONE)
-
-/* Some async functions may support a callback that can be used to notify the
- * user when it would be useful to continue executing the async function. */
-typedef void (*async_callback_fn)(void *);
-
 
 /* Macros for defining the state structures and initialization functions of
  * asynchronous functions. */
