@@ -44,11 +44,20 @@ struct io_async_req {
    struct iovec   iovec[];      // vector with IO offsets and size
 };
 
+typedef struct io_submit_waiter {
+   struct io_submit_waiter *next;
+   async_callback_fn        callback;
+   void                    *callback_arg;
+} io_submit_waiter;
+
 typedef struct io_process_context {
-   pid_t        pid;
-   uint64       thread_count;
-   uint64       io_count; // inflight ios
-   io_context_t ctx;
+   pid_t             pid;
+   uint64            thread_count;
+   uint64            io_count; // inflight ios
+   io_context_t      ctx;
+   uint64            waiters_lock;
+   io_submit_waiter *waiters_head;
+   io_submit_waiter *waiters_tail;
 } io_process_context;
 
 /*

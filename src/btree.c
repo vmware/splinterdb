@@ -2081,7 +2081,6 @@ btree_lookup_node(cache              *cc,             // IN
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_lookup_node_async,
-   param, async_state,          state,
    param, cache *,              cc,
    param, const btree_config *, cfg,
    param, uint64,               root_addr,
@@ -2099,10 +2098,10 @@ DEFINE_ASYNC_STATE(btree_lookup_node_async,
    local, index_entry *,        entry)
 // clang-format on
 
-void
+async_state
 btree_lookup_node_async(btree_lookup_node_async_state *state)
 {
-   async_begin(&state->state);
+   async_begin(state);
 
    if (state->stats) {
       memset(state->stats, 0, sizeof(*state->stats));
@@ -2142,7 +2141,7 @@ btree_lookup_node_async(btree_lookup_node_async_state *state)
 
    *state->out_node = state->node;
 
-   async_end(&state->state);
+   async_finish(state);
 }
 
 

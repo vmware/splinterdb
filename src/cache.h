@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "allocator.h"
 #include "io.h"
+#include "async.h"
 
 typedef struct page_handle {
    char  *data;

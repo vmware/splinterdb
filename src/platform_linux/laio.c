@@ -20,6 +20,7 @@
 #define POISON_FROM_PLATFORM_IMPLEMENTATION
 #include "platform.h"
 
+#include "async.h"
 #include "laio.h"
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -56,6 +57,12 @@ laio_read_async(io_handle     *ioh,
                 uint64         count,
                 uint64         addr);
 
+static io_async_read_state *
+laio_async_read_state_create(io_handle        *ioh,
+                             uint64            addr,
+                             async_callback_fn callback,
+                             void             *callback_arg);
+
 static platform_status
 laio_write_async(io_handle     *ioh,
                  io_async_req  *req,
@@ -82,17 +89,18 @@ laio_get_kth_req(laio_handle *io, uint64 k);
  * Define an implementation of the abstract IO Ops interface methods.
  */
 static io_ops laio_ops = {
-   .read              = laio_read,
-   .write             = laio_write,
-   .get_iovec         = laio_get_iovec,
-   .get_async_req     = laio_get_async_req,
-   .get_metadata      = laio_get_metadata,
-   .read_async        = laio_read_async,
-   .write_async       = laio_write_async,
-   .cleanup           = laio_cleanup,
-   .wait_all          = laio_wait_all,
-   .register_thread   = laio_register_thread,
-   .deregister_thread = laio_deregister_thread,
+   .read                    = laio_read,
+   .write                   = laio_write,
+   .get_iovec               = laio_get_iovec,
+   .get_async_req           = laio_get_async_req,
+   .get_metadata            = laio_get_metadata,
+   .read_async              = laio_read_async,
+   .async_read_state_create = laio_async_read_state_create,
+   .write_async             = laio_write_async,
+   .cleanup                 = laio_cleanup,
+   .wait_all                = laio_wait_all,
+   .register_thread         = laio_register_thread,
+   .deregister_thread       = laio_deregister_thread,
 };
 
 static void
@@ -468,6 +476,216 @@ laio_read_async(io_handle     *ioh,
    return STATUS_OK;
 }
 
+static void
+waiters_lock(io_process_context *pctx)
+{
+   while (__sync_lock_test_and_set(&pctx->waiters_lock, 1)) {
+      while (pctx->waiters_lock) {
+         platform_pause();
+      }
+   }
+}
+
+static void
+waiters_unlock(io_process_context *pctx)
+{
+   __sync_lock_release(&pctx->waiters_lock);
+}
+
+static void
+waiters_append(io_process_context *pctx,
+               io_submit_waiter   *waiter,
+               async_callback_fn   callback,
+               void               *callback_arg)
+{
+   waiter->callback     = callback;
+   waiter->callback_arg = callback_arg;
+   waiter->next         = NULL;
+
+   if (pctx->waiters_head == NULL) {
+      pctx->waiters_head = waiter;
+   } else {
+      pctx->waiters_tail->next = waiter;
+   }
+   pctx->waiters_tail = waiter;
+}
+
+static void
+waiters_release_one(io_process_context *pctx)
+{
+   io_submit_waiter *waiter;
+
+   waiters_lock(pctx);
+
+   waiter = pctx->waiters_head;
+   if (waiter) {
+      pctx->waiters_head = waiter->next;
+      if (pctx->waiters_head == NULL) {
+         pctx->waiters_tail = NULL;
+      }
+   }
+   waiters_unlock(pctx);
+
+   if (waiter) {
+      waiter->callback(waiter->callback_arg);
+   }
+}
+
+typedef struct laio_async_read_state {
+   io_async_read_state super;
+   async_state         __async_state;
+   laio_handle        *io;
+   uint64              addr;
+   async_callback_fn   callback;
+   void               *callback_arg;
+   io_submit_waiter    waiter_node;
+   io_process_context *pctx;
+   platform_status     rc;
+   struct iocb         req;
+   struct iocb        *reqs[1];
+   uint64              ctx_idx;
+   int                 submit_status;
+   bool32              io_completed;
+   int                 status;
+   uint64              iovlen;
+   struct iovec        iov[];
+} laio_async_read_state;
+
+static void
+laio_async_read_state_destroy(io_async_read_state *ios)
+{
+   laio_async_read_state *lios = (laio_async_read_state *)ios;
+   platform_free(lios->io->heap_id, ios);
+}
+
+static platform_status
+laio_async_read_state_append_page(io_async_read_state *ios, void *buf)
+{
+   laio_async_read_state *lios = (laio_async_read_state *)lios;
+   uint64                 pages_per_extent =
+      lios->io->cfg->extent_size / lios->io->cfg->page_size;
+
+   if (lios->iovlen == pages_per_extent) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   lios->iov[lios->iovlen].iov_base = buf;
+   lios->iov[lios->iovlen].iov_len  = lios->io->cfg->page_size;
+   lios->iovlen++;
+   return STATUS_OK;
+}
+
+static const struct iovec *
+laio_async_read_state_get_iovec(io_async_read_state *ios, uint64 *iovlen)
+{
+   laio_async_read_state *lios = (laio_async_read_state *)ios;
+   *iovlen                     = lios->iovlen;
+   return lios->iov;
+}
+
+static void
+laio_async_read_callback(io_context_t ctx,
+                         struct iocb *iocb,
+                         long         res,
+                         long         res2)
+{
+   laio_async_read_state *ios =
+      (laio_async_read_state *)((char *)iocb
+                                - offsetof(laio_async_read_state, req));
+   ios->status       = res;
+   ios->io_completed = true;
+   if (ios->callback) {
+      ios->callback(ios->callback_arg);
+   }
+}
+
+static async_state
+laio_async_read(io_async_read_state *gios)
+{
+   laio_async_read_state *ios = (laio_async_read_state *)gios;
+   async_begin(ios);
+
+   if (ios->iovlen == 0) {
+      async_finish(ios);
+   }
+
+   ios->pctx = laio_get_thread_context((io_handle *)ios->io);
+   io_prep_preadv(&ios->req, ios->io->fd, ios->iov, ios->iovlen, ios->addr);
+   io_set_callback(&ios->req, laio_async_read_callback);
+
+   // We increment the io_count before submitting the request to avoid
+   // having the io_count go negative if another thread calls io_cleanup.
+   __sync_fetch_and_add(&ios->pctx->io_count, 1);
+
+   // We try to submit without locking the wait queue first, but if we
+   // get EAGAIN, we lock the wait queue, try again, and then wait if
+   // necessary.
+   ios->submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
+
+   // If the queue is full, we need to wait for a slot to open up
+   // before we can submit the request.  To avoid a race condition
+   // where the slot opens up before we start waiting, we need to
+   // lock the wait queue, try again, and then wait if necessary.
+   while (ios->submit_status == EAGAIN) {
+      waiters_lock(ios->pctx);
+      ios->submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
+      if (ios->submit_status == EAGAIN) {
+         waiters_append(
+            ios->pctx, &ios->waiter_node, ios->callback, ios->callback_arg);
+         async_yield_after(ios, waiters_unlock(ios->pctx));
+      } else {
+         waiters_unlock(ios->pctx);
+      }
+   }
+
+   if (ios->submit_status <= 0) {
+      __sync_fetch_and_sub(&ios->pctx->io_count, 1);
+      ios->status = ios->submit_status;
+
+      platform_error_log("%s(): OS-pid=%d, tid=%lu"
+                         ", io_submit errorno=%d: %s\n",
+                         __func__,
+                         platform_getpid(),
+                         platform_get_tid(),
+                         -ios->submit_status,
+                         strerror(-ios->submit_status));
+   } else {
+      async_await(ios, ios->io_completed);
+   }
+
+   async_finish(ios);
+}
+
+static io_async_read_state_ops laio_async_read_state_ops = {
+   .destroy     = laio_async_read_state_destroy,
+   .append_page = laio_async_read_state_append_page,
+   .get_iovec   = laio_async_read_state_get_iovec,
+   .read        = laio_async_read,
+};
+
+static io_async_read_state *
+laio_async_read_state_create(io_handle        *gio,
+                             uint64            addr,
+                             async_callback_fn callback,
+                             void             *callback_arg)
+{
+   laio_handle *io               = (laio_handle *)gio;
+   uint64       pages_per_extent = io->cfg->extent_size / io->cfg->page_size;
+   laio_async_read_state *ios =
+      TYPED_FLEXIBLE_STRUCT_ZALLOC(io->heap_id, ios, iov, pages_per_extent);
+   if (ios == NULL) {
+      return NULL;
+   }
+   ios->super.ops     = &laio_async_read_state_ops;
+   ios->__async_state = ASYNC_STATE_INIT;
+   ios->io            = io;
+   ios->addr          = addr;
+   ios->callback      = callback;
+   ios->callback_arg  = callback_arg;
+   ios->reqs[0]       = &ios->req;
+   return (io_async_read_state *)ios;
+}
+
 /*
  * laio_write_async() - Submit an Async write request.
  */
@@ -555,7 +773,11 @@ laio_cleanup(io_handle *ioh, uint64 count)
       __sync_fetch_and_sub(&pctx->io_count, 1);
 
       // Invoke the callback for the one event that completed.
-      laio_callback(pctx->ctx, event.obj, event.res, 0);
+      io_callback_t callback = (io_callback_t)event.obj->data;
+      callback(pctx->ctx, event.obj, event.res, 0);
+
+      // Release one waiter if there is one
+      waiters_release_one(pctx);
    }
 }
 

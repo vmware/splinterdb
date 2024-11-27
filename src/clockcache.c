@@ -2082,137 +2082,96 @@ clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
 }
 
 /*
- *----------------------------------------------------------------------
- * clockcache_get_internal --
- *
- *      Attempts to get a pointer to the page_handle for the page with
- *      address addr. If successful returns FALSE indicating no retries
- *      are needed, else TRUE indicating the caller needs to retry.
- *      Updates the "page" argument to the page_handle on success.
- *
- *      Will ask the caller to retry if we race with the eviction or if
- *      we have to evict an entry and race with someone else loading the
- *      entry.
- *      Blocks while the page is loaded into cache if necessary.
- *----------------------------------------------------------------------
+ * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
 static bool32
-clockcache_get_internal(clockcache   *cc,       // IN
-                        uint64        addr,     // IN
-                        bool32        blocking, // IN
-                        page_type     type,     // IN
-                        page_handle **page)     // OUT
+clockcache_get_in_cache(clockcache   *cc,           // IN
+                        uint64        addr,         // IN
+                        bool32        blocking,     // IN
+                        page_type     type,         // IN
+                        uint32        entry_number, // IN
+                        page_handle **page)         // OUT
 {
-   uint64 page_size = clockcache_page_size(cc);
-   debug_assert(
-      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
-   uint32            entry_number = CC_UNMAPPED_ENTRY;
-   uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
-   debug_only uint64 base_addr =
-      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
-   const threadid    tid = platform_get_tid();
-   clockcache_entry *entry;
-   platform_status   status;
-   uint64            start, elapsed;
+   threadid tid = platform_get_tid();
 
-#if SPLINTER_DEBUG
-   refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
-
-   // Dump allocated extents info for deeper debugging.
-   if (extent_ref_count <= 1) {
-      allocator_print_allocated(cc->al);
-   }
-   debug_assert((extent_ref_count > 1),
-                "Attempt to get a buffer for page addr=%lu"
-                ", page type=%d ('%s'),"
-                " from extent addr=%lu, (extent number=%lu)"
-                ", which is an unallocated extent, extent_ref_count=%u.",
-                addr,
-                type,
-                page_type_str[type],
-                base_addr,
-                (base_addr / clockcache_extent_size(cc)),
-                extent_ref_count);
-#endif // SPLINTER_DEBUG
-
-   // We expect entry_number to be valid, but it's still validated below
-   // in case some arithmetic goes wrong.
-   entry_number = clockcache_lookup(cc, addr);
-
-   if (entry_number != CC_UNMAPPED_ENTRY) {
-      if (blocking) {
-         if (clockcache_get_read(cc, entry_number) != GET_RC_SUCCESS) {
-            // this means we raced with eviction, start over
+   if (blocking) {
+      if (clockcache_get_read(cc, entry_number) != GET_RC_SUCCESS) {
+         // this means we raced with eviction, start over
+         clockcache_log(addr,
+                        entry_number,
+                        "get (eviction race): entry %u addr %lu\n",
+                        entry_number,
+                        addr);
+         return TRUE;
+      }
+      if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
+         // this also means we raced with eviction and really lost
+         clockcache_dec_ref(cc, entry_number, tid);
+         return TRUE;
+      }
+   } else {
+      clockcache_record_backtrace(cc, entry_number);
+      switch (clockcache_try_get_read(cc, entry_number, TRUE)) {
+         case GET_RC_CONFLICT:
+            clockcache_log(addr,
+                           entry_number,
+                           "get (locked -- non-blocking): entry %u addr %lu\n",
+                           entry_number,
+                           addr);
+            *page = NULL;
+            return FALSE;
+         case GET_RC_EVICTED:
             clockcache_log(addr,
                            entry_number,
                            "get (eviction race): entry %u addr %lu\n",
                            entry_number,
                            addr);
             return TRUE;
-         }
-         if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
-            // this also means we raced with eviction and really lost
-            clockcache_dec_ref(cc, entry_number, tid);
-            return TRUE;
-         }
-      } else {
-         clockcache_record_backtrace(cc, entry_number);
-         switch (clockcache_try_get_read(cc, entry_number, TRUE)) {
-            case GET_RC_CONFLICT:
-               clockcache_log(
-                  addr,
-                  entry_number,
-                  "get (locked -- non-blocking): entry %u addr %lu\n",
-                  entry_number,
-                  addr);
-               *page = NULL;
-               return FALSE;
-            case GET_RC_EVICTED:
-               clockcache_log(addr,
-                              entry_number,
-                              "get (eviction race): entry %u addr %lu\n",
-                              entry_number,
-                              addr);
+         case GET_RC_SUCCESS:
+            if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr)
+            {
+               // this also means we raced with eviction and really lost
+               clockcache_dec_ref(cc, entry_number, tid);
                return TRUE;
-            case GET_RC_SUCCESS:
-               if (clockcache_get_entry(cc, entry_number)->page.disk_addr
-                   != addr) {
-                  // this also means we raced with eviction and really lost
-                  clockcache_dec_ref(cc, entry_number, tid);
-                  return TRUE;
-               }
-               break;
-            default:
-               platform_assert(0);
-         }
+            }
+            break;
+         default:
+            platform_assert(0);
       }
-
-      while (clockcache_test_flag(cc, entry_number, CC_LOADING)) {
-         clockcache_wait(cc);
-      }
-      entry = clockcache_get_entry(cc, entry_number);
-
-      if (cc->cfg->use_stats) {
-         cc->stats[tid].cache_hits[type]++;
-      }
-      clockcache_log(addr,
-                     entry_number,
-                     "get (cached): entry %u addr %lu rc %u\n",
-                     entry_number,
-                     addr,
-                     clockcache_get_ref(cc, entry_number, tid));
-      *page = &entry->page;
-      return FALSE;
    }
-   /*
-    * If a matching entry was not found, evict a page and load the requested
-    * page from disk.
-    */
-   entry_number = clockcache_get_free_page(cc,
-                                           CC_READ_LOADING_STATUS,
-                                           TRUE,  // refcount
-                                           TRUE); // blocking
-   entry        = clockcache_get_entry(cc, entry_number);
+
+   while (clockcache_test_flag(cc, entry_number, CC_LOADING)) {
+      clockcache_wait(cc);
+   }
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].cache_hits[type]++;
+   }
+   clockcache_log(addr,
+                  entry_number,
+                  "get (cached): entry %u addr %lu rc %u\n",
+                  entry_number,
+                  addr,
+                  clockcache_get_ref(cc, entry_number, tid));
+   *page = &entry->page;
+   return FALSE;
+}
+
+static bool32
+clockcache_load(clockcache   *cc,   // IN
+                uint64        addr, // IN
+                page_type     type, // IN
+                page_handle **page) // OUT
+{
+   threadid          tid          = platform_get_tid();
+   uint64            page_size    = clockcache_page_size(cc);
+   uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
+   uint32            entry_number = clockcache_get_free_page(cc,
+                                                  CC_READ_LOADING_STATUS,
+                                                  TRUE,  // refcount
+                                                  TRUE); // blocking
+   clockcache_entry *entry        = clockcache_get_entry(cc, entry_number);
    /*
     * If someone else is loading the page and has reserved the lookup, let them
     * do it.
@@ -2231,12 +2190,13 @@ clockcache_get_internal(clockcache   *cc,       // IN
    }
 
    /* Set up the page */
+   uint64 start, elapsed;
    entry->page.disk_addr = addr;
    if (cc->cfg->use_stats) {
       start = platform_get_timestamp();
    }
 
-   status = io_read(cc->io, entry->page.data, page_size, addr);
+   platform_status status = io_read(cc->io, entry->page.data, page_size, addr);
    platform_assert_status_ok(status);
 
    if (cc->cfg->use_stats) {
@@ -2258,6 +2218,65 @@ clockcache_get_internal(clockcache   *cc,       // IN
    return FALSE;
 }
 
+/*
+ *----------------------------------------------------------------------
+ * clockcache_get_internal --
+ *
+ *      Attempts to get a pointer to the page_handle for the page with
+ *      address addr. If successful returns FALSE indicating no retries
+ *      are needed, else TRUE indicating the caller needs to retry.
+ *      Updates the "page" argument to the page_handle on success.
+ *
+ *      Will ask the caller to retry if we race with the eviction or if
+ *      we have to evict an entry and race with someone else loading the
+ *      entry.
+ *      Blocks while the page is loaded into cache if necessary.
+ *----------------------------------------------------------------------
+ */
+static bool32
+clockcache_get_internal(clockcache   *cc,       // IN
+                        uint64        addr,     // IN
+                        bool32        blocking, // IN
+                        page_type     type,     // IN
+                        page_handle **page)     // OUT
+{
+   debug_only uint64 page_size = clockcache_page_size(cc);
+   debug_assert(
+      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
+
+#if SPLINTER_DEBUG
+   uint64 base_addr =
+      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
+   refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
+
+   // Dump allocated extents info for deeper debugging.
+   if (extent_ref_count <= 1) {
+      allocator_print_allocated(cc->al);
+   }
+   debug_assert((extent_ref_count > 1),
+                "Attempt to get a buffer for page addr=%lu"
+                ", page type=%d ('%s'),"
+                " from extent addr=%lu, (extent number=%lu)"
+                ", which is an unallocated extent, extent_ref_count=%u.",
+                addr,
+                type,
+                page_type_str[type],
+                base_addr,
+                (base_addr / clockcache_extent_size(cc)),
+                extent_ref_count);
+#endif // SPLINTER_DEBUG
+
+   // We expect entry_number to be valid, but it's still validated below
+   // in case some arithmetic goes wrong.
+   uint32 entry_number = clockcache_lookup(cc, addr);
+
+   if (entry_number != CC_UNMAPPED_ENTRY) {
+      return clockcache_get_in_cache(
+         cc, addr, blocking, type, entry_number, page);
+   } else {
+      return clockcache_load(cc, addr, type, page);
+   }
+}
 
 /*
  *----------------------------------------------------------------------

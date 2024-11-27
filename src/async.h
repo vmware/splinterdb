@@ -7,6 +7,8 @@
  *     This file contains the tools for implementing and using async functions.
  */
 
+#pragma once
+
 typedef void *async_state;
 #define ASYNC_STATE_INIT NULL
 #define ASYNC_STATE_DONE ((async_state)1)
@@ -44,73 +46,82 @@ typedef void *async_state;
 #define async_begin(statep)                                                    \
    int __async_dummy;                                                          \
    do {                                                                        \
-      async_state *_async_state_p = (statep);                                  \
+      async_state *_async_state_p = &(statep)->__async_state;                  \
       if (*_async_state_p == ASYNC_STATE_DONE) {                               \
-         return;                                                               \
+         return ASYNC_STATE_DONE;                                              \
       } else if (*_async_state_p != ASYNC_STATE_INIT) {                        \
          goto **_async_state_p;                                                \
       }                                                                        \
    } while (0)
 
-#define async_end(statep)                                                      \
+#define async_yield_after(statep, stmt)                                        \
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
-      *(statep) = ASYNC_STATE_DONE;                                            \
-      return;                                                                  \
+      WARNING_STATE_PUSH                                                       \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER(statep)->__async_state =           \
+         &&_ASYNC_LABEL;                                                       \
+      stmt;                                                                    \
+      return (statep)->__async_state;                                          \
+   _ASYNC_LABEL:                                                               \
+   {}                                                                          \
+      WARNING_STATE_POP                                                        \
    } while (0)
+
 
 #define async_yield(statep)                                                    \
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER                                    \
-      *(statep) = &&_ASYNC_LABEL;                                              \
-      return;                                                                  \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER(statep)->__async_state =           \
+         &&_ASYNC_LABEL;                                                       \
+      return (statep)->__async_state;                                          \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
       WARNING_STATE_POP                                                        \
+   } while (0)
+
+#define async_finish(statep)                                                   \
+   ENSURE_ASYNC_BEGIN;                                                         \
+   do {                                                                        \
+      (statep)->__async_state = ASYNC_STATE_DONE;                              \
+      return ASYNC_STATE_DONE;                                                 \
    } while (0)
 
 #define async_await(statep, expr)                                              \
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER                                    \
-      *(statep) = &&_ASYNC_LABEL;                                              \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER(statep)->__async_state =           \
+         &&_ASYNC_LABEL;                                                       \
    _ASYNC_LABEL:                                                               \
       WARNING_STATE_POP                                                        \
       if (!(expr)) {                                                           \
-         return;                                                               \
+         return statep->__async_state;                                         \
       }                                                                        \
    } while (0)
 
-#define async_exit(statep)                                                     \
-   ENSURE_ASYNC_BEGIN;                                                         \
+#define async_await_call(mystatep, func, funcstatep, ...)                      \
    do {                                                                        \
-      *(statep) = ASYNC_STATE_DONE;                                            \
-      return;                                                                  \
+      func##_state_init(funcstatep __VA_OPT__(, __VA_ARGS__));                 \
+      async_await(mystatep, async_call(func, funcstatep));                     \
    } while (0)
+
 
 /*
  * Macros for calling async functions.
  */
 
-#define async_init(statep)                                                     \
-   do {                                                                        \
-      *(statep) = ASYNC_STATE_INIT;                                            \
-   } while (0)
+#define async_call(func, statep) (((func)(statep)) == ASYNC_STATE_DONE)
 
-#define async_deinit(statep)
+#define async_done(statep) ((statep)->__async_state == ASYNC_STATE_DONE)
 
-#define async_done(statep) (*(statep) == ASYNC_STATE_DONE)
+/* Some async functions may support a callback that can be used to notify the
+ * user when it would be useful to continue executing the async function. */
+typedef void (*async_callback_fn)(void *);
 
-#define async_call(func, statep) (((func)(statep)), async_done(statep))
 
-#define async_await_call(func, statep, ...)                                    \
-   do {                                                                        \
-      func##_state_init(statep __VA_OPT__(, __VA_ARGS__));                     \
-      async_await(async_call(func, statep));                                   \
-   } while (0)
+/* Macros for defining the state structures and initialization functions of
+ * asynchronous functions. */
 
 #define DEFINE_STATE_STRUCT_FIELDS0(kind, type, name) type name;
 #define DEFINE_STATE_STRUCT_FIELDS1(kind, type, name, ...)                     \
@@ -424,10 +435,12 @@ typedef void *async_state;
 
 #define DEFINE_ASYNC_STATE(name, ...)                                          \
    typedef struct name##_state {                                               \
+      async_state __async_state;                                               \
       DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
    } name##_state;                                                             \
    void name##_state_init(                                                     \
       name##_state *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))      \
    {                                                                           \
+      __state->__async_state = ASYNC_STATE_INIT;                               \
       DEFINE_STATE_STRUCT_INIT_STMTS(__VA_ARGS__)                              \
    }
