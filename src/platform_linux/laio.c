@@ -656,11 +656,21 @@ laio_async_read(io_async_read_state *gios)
    async_finish(ios);
 }
 
+static platform_status
+laio_async_read_state_get_result(io_async_read_state *gios)
+{
+   laio_async_read_state *ios = (laio_async_read_state *)gios;
+   return ios->status == ios->iovlen * ios->io->cfg->page_size
+             ? STATUS_OK
+             : STATUS_IO_ERROR;
+}
+
 static io_async_read_state_ops laio_async_read_state_ops = {
    .destroy     = laio_async_read_state_destroy,
    .append_page = laio_async_read_state_append_page,
    .get_iovec   = laio_async_read_state_get_iovec,
    .read        = laio_async_read,
+   .get_result  = laio_async_read_state_get_result,
 };
 
 static io_async_read_state *

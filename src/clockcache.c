@@ -2158,14 +2158,11 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
    return FALSE;
 }
 
-static bool32
-clockcache_get_from_disk(clockcache   *cc,   // IN
-                         uint64        addr, // IN
-                         page_type     type, // IN
-                         page_handle **page) // OUT
+static uint64
+clockcache_acquire_entry_for_load(clockcache *cc, // IN
+                                  uint64      addr)    // OUT
 {
    threadid          tid          = platform_get_tid();
-   uint64            page_size    = clockcache_page_size(cc);
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    uint32            entry_number = clockcache_get_free_page(cc,
                                                   CC_READ_LOADING_STATUS,
@@ -2186,12 +2183,45 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
                      "get abort: entry: %u addr: %lu\n",
                      entry_number,
                      addr);
-      return TRUE;
+      return CC_UNMAPPED_ENTRY;
    }
 
    /* Set up the page */
-   uint64 start, elapsed;
    entry->page.disk_addr = addr;
+   return entry_number;
+}
+
+static void
+clockcache_finish_load(clockcache *cc,      // IN
+                       uint64      addr,    // IN
+                       uint32      entry_number) // OUT
+{
+   clockcache_log(addr,
+                  entry_number,
+                  "get (load): entry %u addr %lu\n",
+                  entry_number,
+                  addr);
+
+   /* Clear the loading flag */
+   clockcache_clear_flag(cc, entry_number, CC_LOADING);
+}
+
+static bool32
+clockcache_get_from_disk(clockcache   *cc,   // IN
+                         uint64        addr, // IN
+                         page_type     type, // IN
+                         page_handle **page) // OUT
+{
+   threadid tid       = platform_get_tid();
+   uint64   page_size = clockcache_page_size(cc);
+
+   uint64 entry_number = clockcache_acquire_entry_for_load(cc, addr);
+   if (entry_number == CC_UNMAPPED_ENTRY) {
+      return TRUE;
+   }
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+
+   uint64 start, elapsed;
    if (cc->cfg->use_stats) {
       start = platform_get_timestamp();
    }
@@ -2206,17 +2236,73 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
       cc->stats[tid].cache_miss_time_ns[type] += elapsed;
    }
 
-   clockcache_log(addr,
-                  entry_number,
-                  "get (load): entry %u addr %lu\n",
-                  entry_number,
-                  addr);
+   clockcache_finish_load(cc, addr, entry_number);
 
-   /* Clear the loading flag */
-   clockcache_clear_flag(cc, entry_number, CC_LOADING);
    *page = &entry->page;
+
    return FALSE;
 }
+
+// clang-format off
+DEFINE_ASYNC_STATE(clockcache_get_from_disk_async,
+   param, clockcache *, cc,
+   param, uint64, addr,
+   param, page_type, type,
+   param, page_handle **, page,
+   param, async_callback_fn, callback,
+   param, void *, callback_arg,
+   local, platform_status, result,
+   local, threadid, tid,
+   local, uint64, page_size,
+   local, uint64, entry_number,
+   local, clockcache_entry *, entry,
+   local, io_async_read_state *, iostate)
+// clang-format on
+
+debug_only static async_state
+clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
+{
+   async_begin(state);
+
+   state->tid       = platform_get_tid();
+   state->page_size = clockcache_page_size(state->cc);
+
+   state->entry_number =
+      clockcache_acquire_entry_for_load(state->cc, state->addr);
+   if (state->entry_number == CC_UNMAPPED_ENTRY) {
+      // FIXME: wait queue
+   }
+   state->entry = clockcache_get_entry(state->cc, state->entry_number);
+
+
+   state->iostate = io_async_read_state_create(
+      state->cc->io, state->addr, state->callback, state->callback_arg);
+   if (state->iostate == NULL) {
+      state->result = STATUS_NO_MEMORY;
+      // FIXME: release entry
+      async_finish(state);
+   }
+
+   state->result =
+      io_async_read_state_append_page(state->iostate, state->entry->page.data);
+   if (!SUCCESS(state->result)) {
+      io_async_read_state_destroy(state->iostate);
+      // FIXME: release entry
+      async_finish(state);
+   }
+
+   while (io_async_read(state->iostate) != ASYNC_STATE_DONE) {
+      async_yield(state);
+   }
+   platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
+
+   clockcache_finish_load(state->cc, state->addr, state->entry_number);
+
+   *state->page = &state->entry->page;
+
+   return FALSE;
+}
+
 
 /*
  *----------------------------------------------------------------------
@@ -2273,7 +2359,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
    if (entry_number != CC_UNMAPPED_ENTRY) {
       return clockcache_get_in_cache(
          cc, addr, blocking, type, entry_number, page);
-   } else if (!blocking) {
+   } else if (blocking) {
       return clockcache_get_from_disk(cc, addr, type, page);
    } else {
       return FALSE;
@@ -2287,7 +2373,8 @@ clockcache_get_internal(clockcache   *cc,       // IN
  *      Returns a pointer to the page_handle for the page with address addr.
  *      Calls clockcachge_get_int till a retry is needed.
  *
- *      If blocking is set, then it blocks until the page is unlocked as well.
+ *      If blocking is set, then it blocks until the page is unlocked as
+ *well.
  *
  *      Returns with a read lock held.
  *----------------------------------------------------------------------
@@ -2366,8 +2453,8 @@ clockcache_read_async_callback(void           *metadata,
  *      following:
  *      - async_locked : page is write locked or being loaded
  *      - async_no_reqs : ran out of async requests (queue depth of device)
- *      - async_success : page hit in the cache. callback won't be called. Read
- *        lock is held on the page on return.
+ *      - async_success : page hit in the cache. callback won't be called.
+ *Read lock is held on the page on return.
  *      - async_io_started : page miss in the cache. callback will be called
  *        when it's loaded. Page read lock is held after callback is called.
  *        The callback is not called on a thread context. It's the user's
@@ -2458,8 +2545,8 @@ clockcache_get_async(clockcache       *cc,   // IN
    entry = clockcache_get_entry(cc, entry_number);
 
    /*
-    * If someone else is loading the page and has reserved the lookup, let them
-    * do it.
+    * If someone else is loading the page and has reserved the lookup, let
+    * them do it.
     */
    if (!__sync_bool_compare_and_swap(
           &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
@@ -2566,8 +2653,8 @@ clockcache_unget(clockcache *cc, page_handle *page)
  *
  *      A claimed node has the CC_CLAIMED bit set in its status vector.
  *
- *      NOTE: When a call to claim fails, the caller must drop and reobtain the
- *      readlock before trying to claim again to avoid deadlock.
+ *      NOTE: When a call to claim fails, the caller must drop and reobtain
+ *the readlock before trying to claim again to avoid deadlock.
  *----------------------------------------------------------------------
  */
 bool32
@@ -2607,7 +2694,8 @@ clockcache_unclaim(clockcache *cc, page_handle *page)
  *----------------------------------------------------------------------
  * clockcache_lock --
  *
- *     Write locks a claimed page and blocks while any read locks are released.
+ *     Write locks a claimed page and blocks while any read locks are
+ *released.
  *
  *     The write lock is indicated by having the CC_WRITELOCKED flag set in
  *     addition to the CC_CLAIMED flag.
@@ -2669,10 +2757,11 @@ clockcache_mark_dirty(clockcache *cc, page_handle *page)
  *----------------------------------------------------------------------
  * clockcache_pin --
  *
- *      Functionally equivalent to an anonymous read lock. Implemented using a
- *      special ref count.
+ *      Functionally equivalent to an anonymous read lock. Implemented using
+ *a special ref count.
  *
- *      A write lock must be held while pinning to avoid a race with eviction.
+ *      A write lock must be held while pinning to avoid a race with
+ *eviction.
  *----------------------------------------------------------------------
  */
 void
@@ -2708,8 +2797,8 @@ clockcache_unpin(clockcache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  * clockcache_page_sync --
  *
- *      Asynchronously syncs the page. Currently there is no way to check when
- *      the writeback has completed.
+ *      Asynchronously syncs the page. Currently there is no way to check
+ *when the writeback has completed.
  *-----------------------------------------------------------------------------
  */
 void
@@ -2800,7 +2889,8 @@ clockcache_sync_callback(void           *arg,
  *
  *      Adds the number of pages issued writeback to the counter pointed to
  *      by pages_outstanding. When the writes complete, a callback subtracts
- *      them off, so that the caller may track how many pages are in writeback.
+ *      them off, so that the caller may track how many pages are in
+ *writeback.
  *
  *      Assumes all pages in the extent are clean or cleanable
  *-----------------------------------------------------------------------------

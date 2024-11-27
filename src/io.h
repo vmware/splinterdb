@@ -108,11 +108,15 @@ typedef const struct iovec *(*io_async_read_state_get_iovec_fn)(
    uint64              *iovlen);
 typedef async_state (*io_async_read_fn)(io_async_read_state *state);
 
+typedef platform_status (*io_async_read_state_get_result_fn)(
+   io_async_read_state *state);
+
 typedef struct io_async_read_state_ops {
    io_async_read_state_destroy_fn     destroy;
    io_async_read_state_append_page_fn append_page;
    io_async_read_state_get_iovec_fn   get_iovec;
    io_async_read_fn                   read;
+   io_async_read_state_get_result_fn  get_result;
 } io_async_read_state_ops;
 
 struct io_async_read_state {
@@ -197,6 +201,12 @@ static inline async_state
 io_async_read(io_async_read_state *state)
 {
    return state->ops->read(state);
+}
+
+static inline platform_status
+io_async_read_state_get_result(io_async_read_state *state)
+{
+   return state->ops->get_result(state);
 }
 
 static inline platform_status
