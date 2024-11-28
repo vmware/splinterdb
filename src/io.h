@@ -12,20 +12,6 @@
 #include "async.h"
 #include "platform.h"
 
-/*
- * SplinterDB can be configured with different page-sizes, given by these
- * min & max values. But for now, these are defined to just the one page
- * size currently supported.
- */
-#define IO_MIN_PAGE_SIZE (4096)
-#define IO_MAX_PAGE_SIZE (8192)
-
-#define IO_DEFAULT_PAGE_SIZE        IO_MIN_PAGE_SIZE
-#define IO_DEFAULT_PAGES_PER_EXTENT 32
-#define IO_DEFAULT_EXTENT_SIZE                                                 \
-   (IO_DEFAULT_PAGES_PER_EXTENT * IO_DEFAULT_PAGE_SIZE)
-
-
 typedef struct io_handle           io_handle;
 typedef struct io_async_req        io_async_req;
 typedef struct io_async_read_state io_async_read_state;
@@ -68,11 +54,15 @@ typedef platform_status (*io_read_async_fn)(io_handle     *io,
                                             uint64         count,
                                             uint64         addr);
 
-typedef io_async_read_state *(*io_async_read_state_create_fn)(
-   io_handle        *io,
-   uint64            addr,
-   async_callback_fn callback,
-   void             *callback_arg);
+#define IO_ASYNC_READ_STATE_BUFFER_SIZE (4096)
+typedef uint8 io_async_read_state_buffer[IO_ASYNC_READ_STATE_BUFFER_SIZE];
+
+typedef platform_status (*io_async_read_state_init_fn)(
+   io_async_read_state *state,
+   io_handle           *io,
+   uint64               addr,
+   async_callback_fn    callback,
+   void                *callback_arg);
 
 typedef platform_status (*io_write_async_fn)(io_handle     *io,
                                              io_async_req  *req,
@@ -91,20 +81,20 @@ typedef void *(*io_get_context_fn)(io_handle *io);
  * An abstract IO interface, holding different IO Ops function pointers.
  */
 typedef struct io_ops {
-   io_read_fn                    read;
-   io_write_fn                   write;
-   io_get_async_req_fn           get_async_req;
-   io_get_iovec_fn               get_iovec;
-   io_get_metadata_fn            get_metadata;
-   io_read_async_fn              read_async;
-   io_async_read_state_create_fn async_read_state_create;
-   io_write_async_fn             write_async;
-   io_cleanup_fn                 cleanup;
-   io_wait_all_fn                wait_all;
-   io_register_thread_fn         register_thread;
-   io_deregister_thread_fn       deregister_thread;
-   io_max_latency_elapsed_fn     max_latency_elapsed;
-   io_get_context_fn             get_context;
+   io_read_fn                  read;
+   io_write_fn                 write;
+   io_get_async_req_fn         get_async_req;
+   io_get_iovec_fn             get_iovec;
+   io_get_metadata_fn          get_metadata;
+   io_read_async_fn            read_async;
+   io_async_read_state_init_fn async_read_state_init;
+   io_write_async_fn           write_async;
+   io_cleanup_fn               cleanup;
+   io_wait_all_fn              wait_all;
+   io_register_thread_fn       register_thread;
+   io_deregister_thread_fn     deregister_thread;
+   io_max_latency_elapsed_fn   max_latency_elapsed;
+   io_get_context_fn           get_context;
 } io_ops;
 
 /*
@@ -114,7 +104,7 @@ struct io_handle {
    const io_ops *ops;
 };
 
-typedef void (*io_async_read_state_destroy_fn)(io_async_read_state *state);
+typedef void (*io_async_read_state_deinit_fn)(io_async_read_state *state);
 typedef platform_status (
    *io_async_read_state_append_page_fn)(io_async_read_state *state, void *buf);
 typedef const struct iovec *(*io_async_read_state_get_iovec_fn)(
@@ -126,7 +116,7 @@ typedef platform_status (*io_async_read_state_get_result_fn)(
    io_async_read_state *state);
 
 typedef struct io_async_read_state_ops {
-   io_async_read_state_destroy_fn     destroy;
+   io_async_read_state_deinit_fn      deinit;
    io_async_read_state_append_page_fn append_page;
    io_async_read_state_get_iovec_fn   get_iovec;
    io_async_read_fn                   read;
@@ -184,42 +174,50 @@ io_read_async(io_handle     *io,
 }
 
 
-static inline void *
-io_async_read_state_create(io_handle        *io,
-                           uint64            addr,
-                           async_callback_fn callback,
-                           void             *callback_arg)
+static inline platform_status
+io_async_read_state_init(io_async_read_state_buffer buffer,
+                         io_handle                 *io,
+                         uint64                     addr,
+                         async_callback_fn          callback,
+                         void                      *callback_arg)
 {
-   return io->ops->async_read_state_create(io, addr, callback, callback_arg);
+   io_async_read_state *state = (io_async_read_state *)buffer;
+   return io->ops->async_read_state_init(
+      state, io, addr, callback, callback_arg);
 }
 
 static inline void
-io_async_read_state_destroy(io_async_read_state *state)
+io_async_read_state_deinit(io_async_read_state_buffer buffer)
 {
-   return state->ops->destroy(state);
+   io_async_read_state *state = (io_async_read_state *)buffer;
+   return state->ops->deinit(state);
 }
 
 static inline platform_status
-io_async_read_state_append_page(io_async_read_state *state, void *buf)
+io_async_read_state_append_page(io_async_read_state_buffer buffer, void *buf)
 {
+   io_async_read_state *state = (io_async_read_state *)buffer;
    return state->ops->append_page(state, buf);
 }
 
 static inline const struct iovec *
-io_async_read_state_get_iovec(io_async_read_state *state, uint64 *iovlen)
+io_async_read_state_get_iovec(io_async_read_state_buffer buffer, uint64 *iovlen)
 {
+   io_async_read_state *state = (io_async_read_state *)buffer;
    return state->ops->get_iovec(state, iovlen);
 }
 
 static inline async_state
-io_async_read(io_async_read_state *state)
+io_async_read(io_async_read_state_buffer buffer)
 {
+   io_async_read_state *state = (io_async_read_state *)buffer;
    return state->ops->read(state);
 }
 
 static inline platform_status
-io_async_read_state_get_result(io_async_read_state *state)
+io_async_read_state_get_result(io_async_read_state_buffer buffer)
 {
+   io_async_read_state *state = (io_async_read_state *)buffer;
    return state->ops->get_result(state);
 }
 
@@ -270,42 +268,6 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
    }
    return TRUE;
 }
-
-static inline bool32
-io_config_valid_page_size(io_config *cfg)
-{
-   return (cfg->page_size == IO_DEFAULT_PAGE_SIZE);
-}
-
-static inline bool32
-io_config_valid_extent_size(io_config *cfg)
-{
-   return (cfg->extent_size == IO_DEFAULT_EXTENT_SIZE);
-}
-
-
-/*
- * Do basic validation of IO configuration so we don't have to deal
- * with unsupported configurations that may creep through there.
- */
-platform_status
-io_config_valid(io_config *cfg)
-{
-   if (!io_config_valid_page_size(cfg)) {
-      platform_error_log(
-         "Page-size, %lu bytes, is an invalid IO configuration.\n",
-         cfg->page_size);
-      return STATUS_BAD_PARAM;
-   }
-   if (!io_config_valid_extent_size(cfg)) {
-      platform_error_log(
-         "Extent-size, %lu bytes, is an invalid IO configuration.\n",
-         cfg->extent_size);
-      return STATUS_BAD_PARAM;
-   }
-   return STATUS_OK;
-}
-
 
 /*
  *-----------------------------------------------------------------------------

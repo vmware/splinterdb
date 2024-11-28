@@ -13,7 +13,6 @@
 #include "allocator.h"
 #include "clockcache.h"
 #include "io.h"
-
 #include <stddef.h>
 #include "util.h"
 
@@ -2257,7 +2256,7 @@ waiters_unlock(clockcache_entry *entry)
    __sync_lock_release(&entry->waiters_lock);
 }
 
-static void
+debug_only static void
 waiters_append(clockcache_entry        *entry,
                clockcache_entry_waiter *node,
                async_callback_fn        callback,
@@ -2275,7 +2274,7 @@ waiters_append(clockcache_entry        *entry,
    entry->waiters_tail = node;
 }
 
-static void
+debug_only static void
 waiters_release_all(clockcache_entry *entry)
 {
    waiters_lock(entry);
@@ -2306,7 +2305,7 @@ DEFINE_ASYNC_STATE(clockcache_get_in_cache_async,
    local, clockcache_entry *, entry)
 // clang-format on
 
-static bool32
+debug_only static async_state
 clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
 {
    async_begin(state);
@@ -2365,7 +2364,7 @@ DEFINE_ASYNC_STATE(clockcache_get_from_disk_async,
    local, uint64, page_size,
    local, uint64, entry_number,
    local, clockcache_entry *, entry,
-   local, io_async_read_state *, iostate)
+   local, io_async_read_state_buffer, iostate)
 // clang-format on
 
 debug_only static async_state
@@ -2385,10 +2384,12 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
 
-   state->iostate = io_async_read_state_create(
-      state->cc->io, state->addr, state->callback, state->callback_arg);
-   if (state->iostate == NULL) {
-      state->result = STATUS_NO_MEMORY;
+   state->result = io_async_read_state_init(state->iostate,
+                                            state->cc->io,
+                                            state->addr,
+                                            state->callback,
+                                            state->callback_arg);
+   if (!SUCCESS(state->result)) {
       // FIXME: release entry
       async_return(state);
    }
@@ -2396,7 +2397,7 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    state->result =
       io_async_read_state_append_page(state->iostate, state->entry->page.data);
    if (!SUCCESS(state->result)) {
-      io_async_read_state_destroy(state->iostate);
+      io_async_read_state_deinit(state->iostate);
       // FIXME: release entry
       async_return(state);
    }
@@ -2506,48 +2507,50 @@ clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
 }
 
 
-static bool32
-clockcache_get_async_internal(clockcache   *cc,   // IN
-                              uint64        addr, // IN
-                              page_type     type, // IN
-                              page_handle **page) // OUT
-{
-   debug_only uint64 page_size = clockcache_page_size(cc);
-   debug_assert(
-      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
+// static bool32
+// clockcache_get_async_internal(clockcache   *cc,   // IN
+//                               uint64        addr, // IN
+//                               page_type     type, // IN
+//                               page_handle **page) // OUT
+// {
+//    debug_only uint64 page_size = clockcache_page_size(cc);
+//    debug_assert(
+//       ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr,
+//       page_size);
 
-#if SPLINTER_DEBUG
-   uint64 base_addr =
-      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
-   refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
+// #if SPLINTER_DEBUG
+//    uint64 base_addr =
+//       allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
+//    refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
 
-   // Dump allocated extents info for deeper debugging.
-   if (extent_ref_count <= 1) {
-      allocator_print_allocated(cc->al);
-   }
-   debug_assert((extent_ref_count > 1),
-                "Attempt to get a buffer for page addr=%lu"
-                ", page type=%d ('%s'),"
-                " from extent addr=%lu, (extent number=%lu)"
-                ", which is an unallocated extent, extent_ref_count=%u.",
-                addr,
-                type,
-                page_type_str[type],
-                base_addr,
-                (base_addr / clockcache_extent_size(cc)),
-                extent_ref_count);
-#endif // SPLINTER_DEBUG
+//    // Dump allocated extents info for deeper debugging.
+//    if (extent_ref_count <= 1) {
+//       allocator_print_allocated(cc->al);
+//    }
+//    debug_assert((extent_ref_count > 1),
+//                 "Attempt to get a buffer for page addr=%lu"
+//                 ", page type=%d ('%s'),"
+//                 " from extent addr=%lu, (extent number=%lu)"
+//                 ", which is an unallocated extent, extent_ref_count=%u.",
+//                 addr,
+//                 type,
+//                 page_type_str[type],
+//                 base_addr,
+//                 (base_addr / clockcache_extent_size(cc)),
+//                 extent_ref_count);
+// #endif // SPLINTER_DEBUG
 
-   // We expect entry_number to be valid, but it's still validated below
-   // in case some arithmetic goes wrong.
-   uint32 entry_number = clockcache_lookup(cc, addr);
+//    // We expect entry_number to be valid, but it's still validated below
+//    // in case some arithmetic goes wrong.
+//    uint32 entry_number = clockcache_lookup(cc, addr);
 
-   if (entry_number != CC_UNMAPPED_ENTRY) {
-      return clockcache_get_in_cache_async(cc, addr, type, entry_number, page);
-   } else {
-      return clockcache_get_from_disk_async(cc, addr, type, page);
-   }
-}
+//    if (entry_number != CC_UNMAPPED_ENTRY) {
+//       return clockcache_get_in_cache_async(cc, addr, type, entry_number,
+//       page);
+//    } else {
+//       return clockcache_get_from_disk_async(cc, addr, type, page);
+//    }
+// }
 
 
 /*

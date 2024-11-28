@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include "platform_inline.h"
-
 typedef void *async_state;
 #define ASYNC_STATE_INIT NULL
 #define ASYNC_STATE_DONE ((async_state)1)
@@ -130,7 +128,9 @@ static inline void
 async_wait_queue_lock(async_wait_queue *q)
 {
    while (__sync_lock_test_and_set(&q->lock, 1)) {
-      platform_pause();
+      // FIXME: Should be platform_pause() but cannot include platform_inline.h
+      // here due to circular dependency induced by leakage of laio.h
+      __builtin_ia32_pause();
    }
 }
 

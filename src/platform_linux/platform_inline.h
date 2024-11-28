@@ -5,7 +5,7 @@
 #define PLATFORM_LINUX_INLINE_H
 
 #include <unistd.h>
-//#include <laio.h>
+#include <laio.h>
 #include <string.h> // for memcpy, strerror
 #include <time.h>   // for nanosecond sleep api.
 
