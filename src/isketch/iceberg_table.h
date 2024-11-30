@@ -4,6 +4,7 @@
 #include "types.h"
 #include "sketch.h"
 #include "platform.h"
+#include "circular_queue.h"
 
 #ifdef __cplusplus
 #   define __restrict__
@@ -96,12 +97,13 @@ iceberg_config_default_init(iceberg_config *config);
 typedef struct iceberg_table {
    iceberg_metadata metadata;
    /* Only things that are persisted on PMEM */
-   iceberg_lv1_block *level1[MAX_RESIZES];
-   iceberg_lv2_block *level2[MAX_RESIZES];
-   iceberg_lv3_list  *level3[MAX_RESIZES];
-   iceberg_config     config;
-   const data_config *spl_data_config;
-   sketch            *sktch;
+   iceberg_lv1_block          *level1[MAX_RESIZES];
+   iceberg_lv2_block          *level2[MAX_RESIZES];
+   iceberg_lv3_list           *level3[MAX_RESIZES];
+   iceberg_config              config;
+   const data_config          *spl_data_config;
+   sketch                     *sktch;
+   partitioned_circular_queue *inactive_keys;
 } iceberg_table;
 
 uint64_t

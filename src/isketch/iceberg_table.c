@@ -11,6 +11,7 @@
 #include <sys/sysinfo.h>
 #include <math.h>
 
+#include "circular_queue.h"
 #include "iceberg_precompute.h"
 #include "iceberg_table.h"
 
@@ -503,6 +504,9 @@ iceberg_init(iceberg_table     *table,
 
    table->metadata.num_active_keys = 0;
    table->metadata.num_total_keys  = 0;
+
+   table->inactive_keys = TYPED_ZALLOC(0, table->inactive_keys);
+   partitioned_circular_queue_init(table->inactive_keys, procs);
 
    table->spl_data_config = spl_data_config;
 
@@ -1090,6 +1094,16 @@ iceberg_get_value_internal(iceberg_table *table,
                            bool           should_lock,
                            bool           should_lookup_sketch);
 
+static inline bool
+is_inactive_keys_over(iceberg_table *table)
+{
+   return (table->metadata.num_total_keys - table->metadata.num_active_keys)
+          > table->config.max_num_inactive_keys;
+}
+
+bool
+iceberg_evict(iceberg_table *table, slice key, threadid thread_id);
+
 static bool
 iceberg_put_or_insert(iceberg_table *table,
                       slice         *key,
@@ -1242,13 +1256,23 @@ iceberg_put_or_insert(iceberg_table *table,
    // thread_id, (void *)table,
    //          __func__, (char *)slice_data(*key), kv->refcount - 1,
    //          *((uint64 *)&kv->val), *((uint64 *)&kv->val + 8));
+   unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
 
+   // Lazy eviction logic
    if (table->config.enable_lazy_eviction) {
       atomic_fetch_add(&metadata->num_active_keys, 1);
       atomic_fetch_add(&metadata->num_total_keys, 1);
+
+      // Evict one from the queue
+      while (is_inactive_keys_over(table)) {
+         if (!pcq_empty(table->inactive_keys, thread_id)) {
+            slice evicted_key = pcq_front(table->inactive_keys, thread_id);
+            pcq_pop_front(table->inactive_keys, thread_id);
+            iceberg_evict(table, evicted_key, thread_id);
+         }
+      }
    }
 
-   unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
    return ret;
 }
 
@@ -1370,17 +1394,12 @@ iceberg_lv3_node_deinit(iceberg_lv3_node *node)
 }
 
 static inline bool
-is_inactive_keys_over(iceberg_table *table)
-{
-   return (table->metadata.num_total_keys - table->metadata.num_active_keys) > table->config.max_num_inactive_keys;
-}
-
-static inline bool
 iceberg_lv3_remove_internal(iceberg_table *table,
                             slice          key,
                             uint64_t       lv3_index,
                             bool           delete_item,
                             bool           force_remove,
+                            bool           remove_inactive,
                             threadid       thread_id)
 {
    uint64_t bindex, boffset;
@@ -1405,19 +1424,22 @@ iceberg_lv3_remove_internal(iceberg_table *table,
       // printf("tid %d %p %s %s previous head refcount: %d\n", thread_id, (void
       // *)table, __func__, key, head->val.refcount);
 
+      if (remove_inactive) {
+         if (head->kv.refcount == 0) {
+            force_remove = true;
+         } else {
+            metadata->lv3_locks[bindex][boffset] = 0;
+            return ret;
+         }
+      }
+
       bool should_remove = false;
       if (force_remove) {
          should_remove = true;
       } else {
          if (delete_item) {
             if (head->kv.refcount == 1) {
-               if (table->config.enable_lazy_eviction) {
-                  if (is_inactive_keys_over(table)) {
-                     should_remove = true;
-                  } else {
-                     head->kv.refcount = 0;
-                  }
-               } else {
+               if (!table->config.enable_lazy_eviction) {
                   should_remove = true;
                }
             }
@@ -1433,6 +1455,13 @@ iceberg_lv3_remove_internal(iceberg_table *table,
             table->config.post_remove(&head->kv.val);
          }
 
+         if (table->config.enable_lazy_eviction) {
+            if (head->kv.refcount == 1) {
+               atomic_fetch_sub(&metadata->num_active_keys, 1);
+            }
+            atomic_fetch_sub(&metadata->num_total_keys, 1);
+         }
+
          head->kv.refcount          = 0;
          iceberg_lv3_node *old_head = lists[boffset].head;
          lists[boffset].head        = lists[boffset].head->next_node;
@@ -1440,16 +1469,17 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          metadata->lv3_sizes[bindex][boffset]--;
          pc_add(&metadata->lv3_balls, -1, thread_id);
          ret = true;
-         if (table->config.enable_lazy_eviction) {
-            atomic_fetch_sub(&metadata->num_active_keys, 1);
-            atomic_fetch_sub(&metadata->num_total_keys, 1);
-         }
       } else if (head->kv.refcount == 0) {
-         if (table->config.enable_lazy_eviction) {
-            atomic_fetch_sub(&metadata->num_active_keys, 1);
-         }
+         ;
       } else {
          head->kv.refcount--;
+         if (table->config.enable_lazy_eviction) {
+            if (head->kv.refcount == 0) {
+               atomic_fetch_sub(&metadata->num_active_keys, 1);
+               // Insert the inactive key to the queue
+               pcq_push_back(table->inactive_keys, head->kv.key, thread_id);
+            }
+         }
       }
       // printf("tid %d %p %s %s after head refcount: %d\n", thread_id, (void
       // *)table, __func__, key, head->val.refcount);
@@ -1468,19 +1498,22 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          // printf("tid %d %p %s %s before next_node refcount: %d\n", thread_id,
          // (void *)table, __func__, key, next_node->val.refcount);
 
+         if (remove_inactive) {
+            if (next_node->kv.refcount == 0) {
+               force_remove = true;
+            } else {
+               metadata->lv3_locks[bindex][boffset] = 0;
+               return ret;
+            }
+         }
+
          bool should_remove = false;
          if (force_remove) {
             should_remove = true;
          } else {
             if (delete_item) {
                if (next_node->kv.refcount == 1) {
-                  if (table->config.enable_lazy_eviction) {
-                     if (is_inactive_keys_over(table)) {
-                        should_remove = true;
-                     } else {
-                        next_node->kv.refcount = 0;
-                     }
-                  } else {
+                  if (!table->config.enable_lazy_eviction) {
                      should_remove = true;
                   }
                }
@@ -1497,6 +1530,13 @@ iceberg_lv3_remove_internal(iceberg_table *table,
                table->config.post_remove(&next_node->kv.val);
             }
 
+            if (table->config.enable_lazy_eviction) {
+               if (next_node->kv.refcount == 1) {
+                  atomic_fetch_sub(&metadata->num_active_keys, 1);
+               }
+               atomic_fetch_sub(&metadata->num_total_keys, 1);
+            }
+
             key                        = next_node->kv.key;
             next_node->kv.refcount     = 0;
             iceberg_lv3_node *old_node = current_node->next_node;
@@ -1505,16 +1545,18 @@ iceberg_lv3_remove_internal(iceberg_table *table,
             metadata->lv3_sizes[bindex][boffset]--;
             pc_add(&metadata->lv3_balls, -1, thread_id);
             ret = true;
-            if (table->config.enable_lazy_eviction) {
-               atomic_fetch_sub(&metadata->num_active_keys, 1);
-               atomic_fetch_sub(&metadata->num_total_keys, 1);
-            }
          } else if (next_node->kv.refcount == 0) {
-            if (table->config.enable_lazy_eviction) {
-               atomic_fetch_sub(&metadata->num_active_keys, 1);
-            }
+            ;
          } else {
             next_node->kv.refcount--;
+
+            if (table->config.enable_lazy_eviction) {
+               if (next_node->kv.refcount == 0) {
+                  atomic_fetch_sub(&metadata->num_active_keys, 1);
+                  pcq_push_back(
+                     table->inactive_keys, next_node->kv.key, thread_id);
+               }
+            }
          }
          // printf("tid %d %p %s %s after next_node refcount: %d\n", thread_id,
          // (void *)table, __func__, key, next_node->val.refcount);
@@ -1536,11 +1578,17 @@ iceberg_lv3_remove(iceberg_table *table,
                    uint64_t       lv3_index,
                    bool           delete_item,
                    bool           force_remove,
+                   bool           remove_inactive,
                    threadid       thread_id)
 {
 
-   bool ret = iceberg_lv3_remove_internal(
-      table, key, lv3_index, delete_item, force_remove, thread_id);
+   bool ret = iceberg_lv3_remove_internal(table,
+                                          key,
+                                          lv3_index,
+                                          delete_item,
+                                          force_remove,
+                                          remove_inactive,
+                                          thread_id);
 
    if (ret)
       return true;
@@ -1588,6 +1636,7 @@ iceberg_lv2_remove(iceberg_table *table,
                    uint64_t       lv3_index,
                    bool           delete_item,
                    bool           force_remove,
+                   bool           remove_inactive,
                    threadid       thread_id)
 {
    iceberg_metadata *metadata = &table->metadata;
@@ -1711,6 +1760,14 @@ iceberg_lv2_remove(iceberg_table *table,
              == 0)
          {
 
+            if (remove_inactive) {
+               if (blocks[boffset].slots[slot].refcount == 0) {
+                  force_remove = true;
+               } else {
+                  return false;
+               }
+            }
+
             // printf("tid %d %p %s %s Found refcount: %d\n", thread_id, (void
             // *)table, __func__, key,
             // blocks[boffset].slots[slot].val.refcount);
@@ -1725,13 +1782,7 @@ iceberg_lv2_remove(iceberg_table *table,
             } else {
                if (delete_item) {
                   if (blocks[boffset].slots[slot].refcount == 1) {
-                     if (table->config.enable_lazy_eviction) {
-                        if (is_inactive_keys_over(table)) {
-                           should_remove = true;
-                        } else {
-                           blocks[boffset].slots[slot].refcount = 0;
-                        }
-                     } else {
+                     if (!table->config.enable_lazy_eviction) {
                         should_remove = true;
                      }
                   }
@@ -1748,6 +1799,14 @@ iceberg_lv2_remove(iceberg_table *table,
                if (table->config.post_remove) {
                   table->config.post_remove(&blocks[boffset].slots[slot].val);
                }
+
+               if (table->config.enable_lazy_eviction) {
+                  if (blocks[boffset].slots[slot].refcount == 1) {
+                     atomic_fetch_sub(&metadata->num_active_keys, 1);
+                  }
+                  atomic_fetch_sub(&metadata->num_total_keys, 1);
+               }
+
                metadata->lv2_md[bindex][boffset].block_md[slot] = 0;
                void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
                platform_free(0, ptr);
@@ -1755,17 +1814,19 @@ iceberg_lv2_remove(iceberg_table *table,
                blocks[boffset].slots[slot].refcount = 0;
                pc_add(&metadata->lv2_balls, -1, thread_id);
                ret = true;
-               if (table->config.enable_lazy_eviction) {
-                  atomic_fetch_sub(&metadata->num_active_keys, 1);
-                  atomic_fetch_sub(&metadata->num_total_keys, 1);
-               }
             } else if (blocks[boffset].slots[slot].refcount == 0) {
-               if (table->config.enable_lazy_eviction) {
-                  atomic_fetch_sub(&metadata->num_active_keys, 1);
-               }
                return false;
             } else {
                blocks[boffset].slots[slot].refcount--;
+
+               if (table->config.enable_lazy_eviction) {
+                  if (blocks[boffset].slots[slot].refcount == 0) {
+                     atomic_fetch_sub(&metadata->num_active_keys, 1);
+                     pcq_push_back(table->inactive_keys,
+                                   blocks[boffset].slots[slot].key,
+                                   thread_id);
+                  }
+               }
             }
 
             return ret;
@@ -1773,8 +1834,13 @@ iceberg_lv2_remove(iceberg_table *table,
       }
    }
 
-   return iceberg_lv3_remove(
-      table, key, lv3_index, delete_item, force_remove, thread_id);
+   return iceberg_lv3_remove(table,
+                             key,
+                             lv3_index,
+                             delete_item,
+                             force_remove,
+                             remove_inactive,
+                             thread_id);
 }
 
 static inline bool
@@ -1783,6 +1849,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                                   ValueType     *value,
                                   bool           delete_item,
                                   bool           force_remove,
+                                  bool           remove_inactive,
                                   threadid       thread_id)
 {
    iceberg_metadata *metadata = &table->metadata;
@@ -1913,6 +1980,15 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
              table->spl_data_config, blocks[boffset].slots[slot].key, key)
           == 0)
       {
+         if (remove_inactive) {
+            if (blocks[boffset].slots[slot].refcount == 0) {
+               force_remove = true;
+            } else {
+               unlock_block(
+                  (uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
+               return false;
+            }
+         }
 
          // printf("tid %lu %p %s %s boffset=%lu slot=%d\n", thread_id, (void
          // *)table,
@@ -1938,13 +2014,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
          } else {
             if (delete_item) {
                if (blocks[boffset].slots[slot].refcount == 1) {
-                  if (table->config.enable_lazy_eviction) {
-                     if (is_inactive_keys_over(table)) {
-                        should_remove = true;
-                     } else {
-                        blocks[boffset].slots[slot].refcount = 0;
-                     }
-                  } else {
+                  if (!table->config.enable_lazy_eviction) {
                      should_remove = true;
                   }
                }
@@ -1961,6 +2031,15 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             if (table->config.post_remove) {
                table->config.post_remove(&blocks[boffset].slots[slot].val);
             }
+
+            if (table->config.enable_lazy_eviction) {
+               // It can be 0 as well.
+               if (blocks[boffset].slots[slot].refcount == 1) {
+                  atomic_fetch_sub(&metadata->num_active_keys, 1);
+               }
+               atomic_fetch_sub(&metadata->num_total_keys, 1);
+            }
+
             metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
             void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
             platform_free(0, ptr);
@@ -1968,19 +2047,21 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             blocks[boffset].slots[slot].refcount = 0;
             pc_add(&metadata->lv1_balls, -1, thread_id);
             ret = true;
-            if (table->config.enable_lazy_eviction) {
-               atomic_fetch_sub(&metadata->num_active_keys, 1);
-               atomic_fetch_sub(&metadata->num_total_keys, 1);
-            }
          } else if (blocks[boffset].slots[slot].refcount == 0) {
-            if (table->config.enable_lazy_eviction) {
-               atomic_fetch_sub(&metadata->num_active_keys, 1);
-            }
             unlock_block(
                (uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
             return false;
          } else {
             blocks[boffset].slots[slot].refcount--;
+
+            if (table->config.enable_lazy_eviction) {
+               if (blocks[boffset].slots[slot].refcount == 0) {
+                  atomic_fetch_sub(&metadata->num_active_keys, 1);
+                  pcq_push_back(table->inactive_keys,
+                                blocks[boffset].slots[slot].key,
+                                thread_id);
+               }
+            }
          }
          // printf("tid %lu %p %s %s %s %lu\n", thread_id, (void *)table,
          // __func__, (char *)slice_data(key), ret ? "DELETED" : "REFCOUNT
@@ -1991,8 +2072,14 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
       }
    }
 
-   ret = iceberg_lv2_remove(
-      table, key, value, index, delete_item, force_remove, thread_id);
+   ret = iceberg_lv2_remove(table,
+                            key,
+                            value,
+                            index,
+                            delete_item,
+                            force_remove,
+                            remove_inactive,
+                            thread_id);
 
    unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
    return ret;
@@ -2004,7 +2091,7 @@ iceberg_remove(iceberg_table *table, slice key, threadid thread_id)
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
    return iceberg_get_and_remove_with_force(
-      table, key, NULL, true, false, thread_id);
+      table, key, NULL, true, false, false, thread_id);
 }
 
 __attribute__((always_inline)) bool
@@ -2016,7 +2103,7 @@ iceberg_get_and_remove(iceberg_table *table,
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
    return iceberg_get_and_remove_with_force(
-      table, key, value, true, false, thread_id);
+      table, key, value, true, false, false, thread_id);
 }
 
 __attribute__((always_inline)) bool
@@ -2025,16 +2112,24 @@ iceberg_force_remove(iceberg_table *table, slice key, threadid thread_id)
    // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
 
    return iceberg_get_and_remove_with_force(
-      table, key, NULL, true, true, thread_id);
+      table, key, NULL, true, true, false, thread_id);
 }
 
 __attribute__((always_inline)) bool
 iceberg_decrease_refcount(iceberg_table *table, slice key, threadid thread_id)
 {
    return iceberg_get_and_remove_with_force(
-      table, key, NULL, false, false, thread_id);
+      table, key, NULL, false, false, false, thread_id);
 }
 
+__attribute__((always_inline)) bool
+iceberg_evict(iceberg_table *table, slice key, threadid thread_id)
+{
+   // printf("tid %d %p %s %s\n", thread_id, (void *)table, __func__, key);
+
+   return iceberg_get_and_remove_with_force(
+      table, key, NULL, true, false, true, thread_id);
+}
 
 static bool
 iceberg_lv3_get_value_internal(iceberg_table *table,
