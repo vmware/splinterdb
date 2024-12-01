@@ -1269,6 +1269,8 @@ iceberg_put_or_insert(iceberg_table *table,
             slice evicted_key = pcq_front(table->inactive_keys, thread_id);
             pcq_pop_front(table->inactive_keys, thread_id);
             iceberg_evict(table, evicted_key, thread_id);
+         } else {
+            break;
          }
       }
    }
