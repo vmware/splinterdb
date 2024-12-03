@@ -203,6 +203,8 @@ async_wait_queue_release_all(async_wait_queue *q)
 
 #define async_done(statep) ((statep)->__async_state == ASYNC_STATE_DONE)
 
+#define async_result(statep) ((statep)->__async_result)
+
 /* Macros for defining the state structures and initialization functions of
  * asynchronous functions. */
 

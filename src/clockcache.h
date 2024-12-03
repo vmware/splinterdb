@@ -59,12 +59,6 @@ typedef struct history_record {
 
 typedef uint32 entry_status; // Saved in clockcache_entry->status
 
-typedef struct clockcache_entry_waiter {
-   struct clockcache_entry_waiter *next;
-   async_callback_fn               callback;
-   void                           *callback_arg;
-} clockcache_entry_waiter;
-
 /*
  *-----------------------------------------------------------------------------
  * clockcache_entry --
@@ -74,12 +68,10 @@ typedef struct clockcache_entry_waiter {
  *-----------------------------------------------------------------------------
  */
 struct clockcache_entry {
-   page_handle              page;
-   volatile entry_status    status;
-   page_type                type;
-   uint64                   waiters_lock;
-   clockcache_entry_waiter *waiters_head;
-   clockcache_entry_waiter *waiters_tail;
+   page_handle           page;
+   volatile entry_status status;
+   page_type             type;
+   async_wait_queue      waiters;
 #ifdef RECORD_ACQUISITION_STACKS
    int            next_history_record;
    history_record history[NUM_HISTORY_RECORDS];

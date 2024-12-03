@@ -2197,12 +2197,17 @@ clockcache_finish_load(clockcache *cc,      // IN
 {
    clockcache_log(addr,
                   entry_number,
-                  "get (load): entry %u addr %lu\n",
+                  "finish_load): entry %u addr %lu\n",
                   entry_number,
                   addr);
 
    /* Clear the loading flag */
-   clockcache_clear_flag(cc, entry_number, CC_LOADING);
+   debug_only uint32 was_loading =
+      clockcache_clear_flag(cc, entry_number, CC_LOADING);
+   debug_assert(was_loading);
+
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+   async_wait_queue_release_all(&entry->waiters);
 }
 
 static bool32
@@ -2242,54 +2247,6 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
    return FALSE;
 }
 
-static void
-waiters_lock(clockcache_entry *entry)
-{
-   while (__sync_lock_test_and_set(&entry->waiters_lock, 1)) {
-      platform_yield();
-   }
-}
-
-static void
-waiters_unlock(clockcache_entry *entry)
-{
-   __sync_lock_release(&entry->waiters_lock);
-}
-
-debug_only static void
-waiters_append(clockcache_entry        *entry,
-               clockcache_entry_waiter *node,
-               async_callback_fn        callback,
-               void                    *arg)
-{
-   node->callback     = callback;
-   node->callback_arg = arg;
-   node->next         = NULL;
-
-   if (entry->waiters_tail) {
-      entry->waiters_tail->next = node;
-   } else {
-      entry->waiters_head = node;
-   }
-   entry->waiters_tail = node;
-}
-
-debug_only static void
-waiters_release_all(clockcache_entry *entry)
-{
-   waiters_lock(entry);
-   clockcache_entry_waiter *node = entry->waiters_head;
-   while (node) {
-      clockcache_entry_waiter *next = node->next;
-      node->callback(node->callback_arg);
-      node = next;
-   }
-   entry->waiters_head = NULL;
-   entry->waiters_tail = NULL;
-   waiters_unlock(entry);
-}
-
-
 /*
  * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
@@ -2300,11 +2257,18 @@ DEFINE_ASYNC_STATE(clockcache_get_in_cache_async,
    param, page_type, type,
    param, uint32, entry_number,
    param, page_handle **, page,
+   param, async_callback_fn, callback,
+   param, void *, callback_arg,
    local, bool32, __async_result,
    local, threadid, tid,
-   local, clockcache_entry *, entry)
+   local, clockcache_entry *, entry,
+   local, async_waiter, wait_node)
 // clang-format on
 
+/*
+ * Result is FALSE if we failed to find the page in cache and hence need to
+ * retry the get from the beginning, TRUE if we succeeded.
+ */
 debug_only static async_state
 clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
 {
@@ -2321,18 +2285,29 @@ clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
                      "get (eviction race): entry %u addr %lu\n",
                      state->entry_number,
                      state->addr);
-      async_return(state, TRUE);
+      async_return(state, FALSE);
    }
    if (clockcache_get_entry(state->cc, state->entry_number)->page.disk_addr
        != state->addr)
    {
       // this also means we raced with eviction and really lost
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
-      async_return(state, TRUE);
+      async_return(state, FALSE);
    }
 
-   async_await(
-      state, !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING));
+   while (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
+      async_wait_queue_lock(&state->entry->waiters);
+      if (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
+         async_wait_queue_append(&state->entry->waiters,
+                                 &state->wait_node,
+                                 state->callback,
+                                 state->callback_arg);
+         async_yield_after(state,
+                           async_wait_queue_unlock(&state->entry->waiters));
+      } else {
+         async_wait_queue_unlock(&state->entry->waiters);
+      }
+   }
 
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
@@ -2347,7 +2322,7 @@ clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
       state->addr,
       clockcache_get_ref(state->cc, state->entry_number, state->tid));
    *state->page = &state->entry->page;
-   async_return(state, FALSE);
+   async_return(state, TRUE);
 }
 
 
@@ -2359,7 +2334,8 @@ DEFINE_ASYNC_STATE(clockcache_get_from_disk_async,
    param, page_handle **, page,
    param, async_callback_fn, callback,
    param, void *, callback_arg,
-   local, platform_status, result,
+   local, platform_status, rc,
+   local, platform_status, __async_result,
    local, threadid, tid,
    local, uint64, page_size,
    local, uint64, entry_number,
@@ -2367,6 +2343,8 @@ DEFINE_ASYNC_STATE(clockcache_get_from_disk_async,
    local, io_async_read_state_buffer, iostate)
 // clang-format on
 
+// Result is STATUS_BUSY if someone else beat us to perform the load, STATUS_OK
+// if we performed the load.
 debug_only static async_state
 clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
 {
@@ -2378,29 +2356,25 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    state->entry_number =
       clockcache_acquire_entry_for_load(state->cc, state->addr);
    if (state->entry_number == CC_UNMAPPED_ENTRY) {
-      state->result = STATUS_OK;
-      async_return(state);
+      async_return(state, STATUS_BUSY);
    }
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
 
-   state->result = io_async_read_state_init(state->iostate,
-                                            state->cc->io,
-                                            state->addr,
-                                            state->callback,
-                                            state->callback_arg);
-   if (!SUCCESS(state->result)) {
-      // FIXME: release entry
-      async_return(state);
-   }
+   state->rc = io_async_read_state_init(state->iostate,
+                                        state->cc->io,
+                                        state->addr,
+                                        state->callback,
+                                        state->callback_arg);
+   // FIXME: I'm not sure if the cache state machine allows us to bail out once
+   // we've acquired an entry, because other threads could now be waiting on the
+   // load to finish, and there is no way for them to handle our failure to load
+   // the page.
+   platform_assert_status_ok(state->rc);
 
-   state->result =
+   state->rc =
       io_async_read_state_append_page(state->iostate, state->entry->page.data);
-   if (!SUCCESS(state->result)) {
-      io_async_read_state_deinit(state->iostate);
-      // FIXME: release entry
-      async_return(state);
-   }
+   platform_assert_status_ok(state->rc);
 
    while (io_async_read(state->iostate) != ASYNC_STATE_DONE) {
       async_yield(state);
@@ -2408,10 +2382,128 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
 
    clockcache_finish_load(state->cc, state->addr, state->entry_number);
-
    *state->page = &state->entry->page;
+   async_return(state, STATUS_OK);
+}
 
-   return FALSE;
+// clang-format off
+DEFINE_ASYNC_STATE(clockcache_get_internal_async,
+   param, clockcache *, cc,
+   param, uint64, addr,
+   param, page_type, type,
+   param, page_handle **, page,
+   param, async_callback_fn, callback,
+   param, void *, callback_arg,
+   local, uint64, entry_number,
+   local, bool32, __async_result,
+   local, uint64, page_size,
+   local, uint64, base_addr,
+   local, refcount, extent_ref_count,
+   local, clockcache_get_in_cache_async_state, icstate,
+   local, clockcache_get_from_disk_async_state, fdstate
+)
+// clang-format on
+
+// Result is TRUE if successful, FALSE otherwise
+static async_state
+clockcache_get_internal_async(clockcache_get_internal_async_state *state)
+{
+   async_begin(state);
+
+   state->page_size = clockcache_page_size(state->cc);
+   debug_assert(((state->addr % state->page_size) == 0),
+                "addr=%lu, page_size=%lu\n",
+                state->addr,
+                state->page_size);
+
+#if SPLINTER_DEBUG
+   state->base_addr = allocator_config_extent_base_addr(
+      allocator_get_config(state->cc->al), state->addr);
+   state->extent_ref_count =
+      allocator_get_refcount(state->cc->al, state->base_addr);
+
+   // Dump allocated extents info for deeper debugging.
+   if (state->extent_ref_count <= 1) {
+      allocator_print_allocated(state->cc->al);
+   }
+   debug_assert((state->extent_ref_count > 1),
+                "Attempt to get a buffer for page addr=%lu"
+                ", page type=%d ('%s'),"
+                " from extent addr=%lu, (extent number=%lu)"
+                ", which is an unallocated extent, extent_ref_count=%u.",
+                state->addr,
+                state->type,
+                page_type_str[state->type],
+                state->base_addr,
+                (state->base_addr / clockcache_extent_size(state->cc)),
+                state->extent_ref_count);
+#endif // SPLINTER_DEBUG
+
+   // We expect entry_number to be valid, but it's still validated below
+   // in case some arithmetic goes wrong.
+   state->entry_number = clockcache_lookup(state->cc, state->addr);
+
+   if (state->entry_number != CC_UNMAPPED_ENTRY) {
+      async_await_call(state,
+                       clockcache_get_in_cache_async,
+                       &state->icstate,
+                       state->cc,
+                       state->addr,
+                       state->type,
+                       state->entry_number,
+                       state->page,
+                       state->callback,
+                       state->callback_arg);
+      async_return(state, async_result(&state->icstate));
+   } else {
+      async_await_call(state,
+                       clockcache_get_from_disk_async,
+                       &state->fdstate,
+                       state->cc,
+                       state->addr,
+                       state->type,
+                       state->page,
+                       state->callback,
+                       state->callback_arg);
+      async_return(state, SUCCESS(async_result(&state->fdstate)));
+   }
+}
+
+// clang-format off
+DEFINE_ASYNC_STATE(clockcache_get_async2,
+   param, clockcache *, cc,
+   param, uint64, addr,
+   param, page_type, type,
+   param, async_callback_fn, callback,
+   param, void *, callback_arg,
+   local, bool32, succeeded,
+   local, page_handle *, handle,
+   local, page_handle *, __async_result,
+   local, clockcache_get_internal_async_state, internal_state)
+// clang-format on
+
+async_state
+clockcache_get_async2(clockcache_get_async2_state *state)
+{
+   async_begin(state);
+
+   debug_assert(state->cc->per_thread[platform_get_tid()].enable_sync_get
+                || state->type == PAGE_TYPE_MEMTABLE);
+   while (1) {
+      async_await_call(state,
+                       clockcache_get_internal_async,
+                       &state->internal_state,
+                       state->cc,
+                       state->addr,
+                       state->type,
+                       &state->handle,
+                       state->callback,
+                       state->callback_arg);
+      state->succeeded = async_result(&state->internal_state);
+      if (state->succeeded) {
+         async_return(state, state->handle);
+      }
+   }
 }
 
 
@@ -2587,9 +2679,7 @@ clockcache_read_async_callback(void           *metadata,
    debug_only uint32 lookup_entry_number;
    debug_code(lookup_entry_number = clockcache_lookup(cc, addr));
    debug_assert(lookup_entry_number == entry_number);
-   debug_only uint32 was_loading =
-      clockcache_clear_flag(cc, entry_number, CC_LOADING);
-   debug_assert(was_loading);
+   clockcache_finish_load(cc, addr, entry_number);
    clockcache_log(addr,
                   entry_number,
                   "async_get (load): entry %u addr %lu\n",
@@ -3141,16 +3231,15 @@ clockcache_prefetch_callback(void           *metadata,
       } else {
          type = entry->type;
       }
-      debug_only uint32 was_loading =
-         clockcache_clear_flag(cc, entry_no, CC_LOADING);
-      debug_assert(was_loading);
 
-      debug_code(int64 addr = entry->page.disk_addr);
+      uint64 addr = entry->page.disk_addr;
       debug_assert(addr != CC_UNMAPPED_ADDR);
       debug_assert(last_addr == CC_UNMAPPED_ADDR
                    || addr == last_addr + page_size);
       debug_code(last_addr = addr);
       debug_assert(entry_no == clockcache_lookup(cc, addr));
+
+      clockcache_finish_load(cc, addr, entry_no);
    }
 
    if (cc->cfg->use_stats) {
