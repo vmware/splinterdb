@@ -2522,7 +2522,7 @@ clockcache_get_async2(clockcache_get_async2_state *state)
  *      Blocks while the page is loaded into cache if necessary.
  *----------------------------------------------------------------------
  */
-static bool32
+debug_only static bool32
 clockcache_get_internal(clockcache   *cc,       // IN
                         uint64        addr,     // IN
                         bool32        blocking, // IN
@@ -2585,17 +2585,18 @@ clockcache_get_internal(clockcache   *cc,       // IN
 page_handle *
 clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
 {
-   bool32       retry;
-   page_handle *handle;
+   // bool32       retry;
+   // page_handle *handle;
 
-   debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
-                || type == PAGE_TYPE_MEMTABLE);
-   while (1) {
-      retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
-      if (!retry) {
-         return handle;
-      }
-   }
+   // debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
+   //              || type == PAGE_TYPE_MEMTABLE);
+   // while (1) {
+   //    retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
+   //    if (!retry) {
+   //       return handle;
+   //    }
+   // }
+   return async_call_sync_callback(NULL, clockcache_get_async2, cc, addr, type);
 }
 
 

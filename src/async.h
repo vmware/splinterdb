@@ -205,6 +205,25 @@ async_wait_queue_release_all(async_wait_queue *q)
 
 #define async_result(statep) ((statep)->__async_result)
 
+void
+async_call_sync_callback_function(void *arg);
+
+#define async_call_sync_callback(hid, async_func, ...)                         \
+   ({                                                                          \
+      async_func##_state __async_state;                                        \
+      platform_mutex     __async_mutex;                                        \
+      platform_mutex_init(platform_get_module_id(), hid, &__async_mutex);      \
+      platform_mutex_lock(&__async_mutex);                                     \
+      async_func##_state_init(&__async_state,                                  \
+                              __VA_OPT__(__VA_ARGS__, )                        \
+                                 async_call_sync_callback_function,            \
+                              &__async_mutex);                                 \
+      while (!async_call(async_func, &__async_state)) {                        \
+         platform_mutex_lock(&__async_mutex);                                  \
+      }                                                                        \
+      async_result(&__async_state);                                            \
+   })
+
 /* Macros for defining the state structures and initialization functions of
  * asynchronous functions. */
 

@@ -392,12 +392,14 @@ PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o \
 
 PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
+
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
 CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(OBJDIR)/$(SRCDIR)/allocator.o    \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
+                 $(OBJDIR)/$(SRCDIR)/async.o         \
                  $(UTIL_SYS)                        \
                  $(PLATFORM_IO_SYS)
 
