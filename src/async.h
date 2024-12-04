@@ -208,18 +208,18 @@ async_wait_queue_release_all(async_wait_queue *q)
 void
 async_call_sync_callback_function(void *arg);
 
-#define async_call_sync_callback(hid, async_func, ...)                         \
+#define async_call_sync_callback(io, hid, async_func, ...)                     \
    ({                                                                          \
       async_func##_state __async_state;                                        \
-      platform_mutex     __async_mutex;                                        \
-      platform_mutex_init(platform_get_module_id(), hid, &__async_mutex);      \
-      platform_mutex_lock(&__async_mutex);                                     \
+      bool32             __async_ready = FALSE;                                \
       async_func##_state_init(&__async_state,                                  \
                               __VA_OPT__(__VA_ARGS__, )                        \
                                  async_call_sync_callback_function,            \
-                              &__async_mutex);                                 \
+                              &__async_ready);                                 \
       while (!async_call(async_func, &__async_state)) {                        \
-         platform_mutex_lock(&__async_mutex);                                  \
+         while (!__async_ready) {                                              \
+            io_cleanup(io, 1);                                                 \
+         }                                                                     \
       }                                                                        \
       async_result(&__async_state);                                            \
    })

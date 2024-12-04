@@ -2596,7 +2596,8 @@ clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
    //       return handle;
    //    }
    // }
-   return async_call_sync_callback(NULL, clockcache_get_async2, cc, addr, type);
+   return async_call_sync_callback(
+      cc->io, NULL, clockcache_get_async2, cc, addr, type);
 }
 
 

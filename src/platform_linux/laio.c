@@ -513,7 +513,7 @@ laio_async_read_state_deinit(io_async_read_state *ios)
 static platform_status
 laio_async_read_state_append_page(io_async_read_state *ios, void *buf)
 {
-   laio_async_read_state *lios = (laio_async_read_state *)lios;
+   laio_async_read_state *lios = (laio_async_read_state *)ios;
    uint64                 pages_per_extent =
       lios->io->cfg->extent_size / lios->io->cfg->page_size;
 
