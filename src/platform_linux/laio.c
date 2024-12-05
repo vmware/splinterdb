@@ -572,29 +572,13 @@ laio_async_read(io_async_read_state *gios)
    // having the io_count go negative if another thread calls io_cleanup.
    __sync_fetch_and_add(&ios->pctx->io_count, 1);
 
-   // We try to submit without locking the wait queue first, but if we
-   // get EAGAIN, we lock the wait queue, try again, and then wait if
-   // necessary.
-   ios->submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
-
-   // If the queue is full, we need to wait for a slot to open up
-   // before we can submit the request.  To avoid a race condition
-   // where the slot opens up before we start waiting, we need to
-   // lock the wait queue, try again, and then wait if necessary.
-   while (ios->submit_status == EAGAIN) {
-      async_wait_queue_lock(&ios->pctx->submit_waiters);
-      ios->submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
-      if (ios->submit_status == EAGAIN) {
-         async_wait_queue_append(&ios->pctx->submit_waiters,
-                                 &ios->waiter_node,
-                                 ios->callback,
-                                 ios->callback_arg);
-         async_yield_after(ios,
-                           async_wait_queue_unlock(&ios->pctx->submit_waiters));
-      } else {
-         async_wait_queue_unlock(&ios->pctx->submit_waiters);
-      }
-   }
+   async_wait_on_queue(
+      (ios->submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) != EAGAIN,
+      ios,
+      &ios->pctx->submit_waiters,
+      &ios->waiter_node,
+      ios->callback,
+      ios->callback_arg);
 
    if (ios->submit_status <= 0) {
       __sync_fetch_and_sub(&ios->pctx->io_count, 1);

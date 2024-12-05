@@ -214,6 +214,21 @@ async_wait_queue_release_all(async_wait_queue *q)
    }
 }
 
+#define async_wait_on_queue(ready, state, queue, node, callback, callback_arg) \
+   do {                                                                        \
+      if (!(ready)) {                                                          \
+         do {                                                                  \
+            async_wait_queue_lock(queue);                                      \
+            if (!(ready)) {                                                    \
+               async_wait_queue_append(queue, node, callback, callback_arg);   \
+               async_yield_after(state, async_wait_queue_unlock(queue));       \
+            } else {                                                           \
+               async_wait_queue_unlock(queue);                                 \
+            }                                                                  \
+         } while (!(ready));                                                   \
+      }                                                                        \
+   } while (0)
+
 /*
  * Macros for calling async functions.
  */
@@ -227,14 +242,14 @@ async_wait_queue_release_all(async_wait_queue *q)
 static inline void
 async_call_sync_callback_function(void *arg)
 {
-   bool32 *ready = (bool32 *)arg;
-   *ready        = TRUE;
+   int *ready = (int *)arg;
+   *ready     = TRUE;
 }
 
 #define async_call_sync_callback(io, async_func, ...)                          \
    ({                                                                          \
       async_func##_state __async_state;                                        \
-      bool32             __async_ready = FALSE;                                \
+      int                __async_ready = FALSE;                                \
       async_func##_state_init(&__async_state,                                  \
                               __VA_OPT__(__VA_ARGS__, )                        \
                                  async_call_sync_callback_function,            \

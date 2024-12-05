@@ -399,7 +399,6 @@ CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(OBJDIR)/$(SRCDIR)/allocator.o    \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
-                 $(OBJDIR)/$(SRCDIR)/async.o         \
                  $(UTIL_SYS)                        \
                  $(PLATFORM_IO_SYS)
 

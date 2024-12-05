@@ -2299,19 +2299,13 @@ clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
       async_return(state, FALSE);
    }
 
-   while (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
-      async_wait_queue_lock(&state->entry->waiters);
-      if (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
-         async_wait_queue_append(&state->entry->waiters,
-                                 &state->wait_node,
-                                 state->callback,
-                                 state->callback_arg);
-         async_yield_after(state,
-                           async_wait_queue_unlock(&state->entry->waiters));
-      } else {
-         async_wait_queue_unlock(&state->entry->waiters);
-      }
-   }
+   async_wait_on_queue(
+      !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING),
+      state,
+      &state->entry->waiters,
+      &state->wait_node,
+      state->callback,
+      state->callback_arg);
 
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
