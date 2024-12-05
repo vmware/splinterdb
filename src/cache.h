@@ -147,6 +147,20 @@ typedef cache_async_result (*page_get_async_fn)(cache            *cc,
 typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
+
+#define PAGE_GET_ASYNC2_STATE_BUFFER_SIZE (8192)
+typedef uint8 page_get_async2_state_buffer[PAGE_GET_ASYNC2_STATE_BUFFER_SIZE];
+typedef void (*page_get_async2_state_init_fn)(
+   page_get_async2_state_buffer buffer,
+   cache                       *cc,
+   uint64                       addr,
+   page_type                    type,
+   async_callback_fn            callback,
+   void                        *callback_arg);
+typedef async_state (*page_get_async2_fn)(page_get_async2_state_buffer buffer);
+typedef page_handle *(*page_get_async2_state_result_fn)(
+   page_get_async2_state_buffer buffer);
+
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
                              page_handle *page,
@@ -174,11 +188,16 @@ typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
  * for a caching system.
  */
 typedef struct cache_ops {
-   page_alloc_fn        page_alloc;
-   extent_discard_fn    extent_discard;
-   page_get_fn          page_get;
-   page_get_async_fn    page_get_async;
-   page_async_done_fn   page_async_done;
+   page_alloc_fn      page_alloc;
+   extent_discard_fn  extent_discard;
+   page_get_fn        page_get;
+   page_get_async_fn  page_get_async;
+   page_async_done_fn page_async_done;
+
+   page_get_async2_state_init_fn   page_get_async2_state_init;
+   page_get_async2_fn              page_get_async2;
+   page_get_async2_state_result_fn page_get_async2_result;
+
    page_generic_fn      page_unget;
    page_try_claim_fn    page_try_claim;
    page_generic_fn      page_unclaim;
