@@ -17,12 +17,10 @@ lock(volatile int *var, uint8_t flag)
       return !__sync_lock_test_and_set(var, 1);
    } else {
       while (__sync_lock_test_and_set(var, 1))
-         while (var)
-            ;
+         while (*var)
+            __builtin_ia32_pause();
       return true;
    }
-
-   return false;
 }
 
 void

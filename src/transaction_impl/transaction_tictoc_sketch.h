@@ -7,7 +7,7 @@
 #include "util.h"
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
-#include "isketch/iceberg_table.h"
+#include "FPSketch/iceberg_table.h"
 #include "poison.h"
 
 typedef struct transactional_splinterdb_config {

@@ -15,6 +15,7 @@ typedef struct kv_pair {
    slice     key;
    ValueType val;
    uint64_t  refcount;
+   uint64_t  q_refcount;
 } kv_pair;
 
 #ifdef __cplusplus

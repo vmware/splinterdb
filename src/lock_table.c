@@ -1,5 +1,5 @@
 #include "lock_table.h"
-#include "isketch/iceberg_table.h"
+#include "FPSketch/iceberg_table.h"
 #include "poison.h"
 
 #define LOCK_TABLE_DEBUG 0

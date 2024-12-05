@@ -5,7 +5,7 @@
 #include "util.h"
 #include "experimental_mode.h"
 #include "splinterdb_internal.h"
-#include "isketch/iceberg_table.h"
+#include "FPSketch/iceberg_table.h"
 #include "transaction_stats.h"
 #include "poison.h"
 

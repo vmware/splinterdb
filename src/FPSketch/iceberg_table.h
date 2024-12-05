@@ -4,7 +4,7 @@
 #include "types.h"
 #include "sketch.h"
 #include "platform.h"
-#include "circular_queue.h"
+#include "fifo.h"
 
 #ifdef __cplusplus
 #   define __restrict__
@@ -61,9 +61,7 @@ typedef struct iceberg_metadata {
    uint64_t             *lv3_sizes[MAX_RESIZES];
    uint8_t              *lv3_locks[MAX_RESIZES];
    uint64_t              nblocks_parts[MAX_RESIZES];
-
-   _Atomic uint64_t num_active_keys;
-   _Atomic uint64_t num_total_keys;
+   _Atomic uint64_t      num_inactive_keys;
 #ifdef ENABLE_RESIZE
    volatile int lock;
    uint64_t     resize_cnt;
@@ -97,13 +95,13 @@ iceberg_config_default_init(iceberg_config *config);
 typedef struct iceberg_table {
    iceberg_metadata metadata;
    /* Only things that are persisted on PMEM */
-   iceberg_lv1_block          *level1[MAX_RESIZES];
-   iceberg_lv2_block          *level2[MAX_RESIZES];
-   iceberg_lv3_list           *level3[MAX_RESIZES];
-   iceberg_config              config;
-   const data_config          *spl_data_config;
-   sketch                     *sktch;
-   partitioned_circular_queue *inactive_keys;
+   iceberg_lv1_block *level1[MAX_RESIZES];
+   iceberg_lv2_block *level2[MAX_RESIZES];
+   iceberg_lv3_list  *level3[MAX_RESIZES];
+   iceberg_config     config;
+   const data_config *spl_data_config;
+   sketch            *sktch;
+   fifo_queue        *inactive_keys;
 } iceberg_table;
 
 uint64_t
@@ -223,6 +221,11 @@ iceberg_get_and_remove(iceberg_table *table,
 
 bool
 iceberg_force_remove(iceberg_table *table, slice key, threadid thread_id);
+
+bool
+iceberg_force_remove_if_inactive(iceberg_table *table,
+                                 slice          key,
+                                 threadid       thread_id);
 
 bool
 iceberg_decrease_refcount(iceberg_table *table, slice key, threadid thread_id);
