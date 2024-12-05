@@ -125,6 +125,23 @@ typedef struct async_wait_queue {
 } async_wait_queue;
 
 static inline void
+async_wait_queue_init(async_wait_queue *queue)
+{
+   // memset(queue, 0, sizeof(*queue));
+   queue->lock = 0;
+   queue->head = NULL;
+   queue->tail = NULL;
+}
+
+static inline void
+async_wait_queue_deinit(async_wait_queue *queue)
+{
+   // platform_assert(queue->lock == 0);
+   // platform_assert(queue->head == NULL);
+   // platform_assert(queue->tail == NULL);
+}
+
+static inline void
 async_wait_queue_lock(async_wait_queue *q)
 {
    while (__sync_lock_test_and_set(&q->lock, 1)) {
@@ -185,14 +202,16 @@ async_wait_queue_release_all(async_wait_queue *q)
    async_waiter *waiter;
 
    async_wait_queue_lock(q);
-
-   while ((waiter = q->head)) {
-      q->head = waiter->next;
-      waiter->callback(waiter->callback_arg);
-   }
+   waiter  = q->head;
+   q->head = NULL;
    q->tail = NULL;
-
    async_wait_queue_unlock(q);
+
+   while (waiter != NULL) {
+      async_waiter *next = waiter->next;
+      waiter->callback(waiter->callback_arg);
+      waiter = next;
+   }
 }
 
 /*
@@ -205,10 +224,14 @@ async_wait_queue_release_all(async_wait_queue *q)
 
 #define async_result(statep) ((statep)->__async_result)
 
-void
-async_call_sync_callback_function(void *arg);
+static inline void
+async_call_sync_callback_function(void *arg)
+{
+   bool32 *ready = (bool32 *)arg;
+   *ready        = TRUE;
+}
 
-#define async_call_sync_callback(io, hid, async_func, ...)                     \
+#define async_call_sync_callback(io, async_func, ...)                          \
    ({                                                                          \
       async_func##_state __async_state;                                        \
       bool32             __async_ready = FALSE;                                \

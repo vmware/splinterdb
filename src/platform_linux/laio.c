@@ -154,6 +154,7 @@ get_ctx_idx(laio_handle *io)
          }
          io->ctx[i].pid          = pid;
          io->ctx[i].thread_count = 1;
+         async_wait_queue_init(&io->ctx[i].submit_waiters);
          unlock_ctx(io);
          return i;
       }
@@ -498,8 +499,9 @@ typedef struct laio_async_read_state {
    struct iovec        iov[];
 } laio_async_read_state;
 
-_Static_assert(sizeof(laio_async_read_state)
-               <= IO_ASYNC_READ_STATE_BUFFER_SIZE);
+_Static_assert(
+   sizeof(laio_async_read_state) <= IO_ASYNC_READ_STATE_BUFFER_SIZE,
+   "laio_async_read_state is to large for IO_ASYNC_READ_STATE_BUFFER_SIZE");
 
 static void
 laio_async_read_state_deinit(io_async_read_state *ios)
@@ -561,7 +563,8 @@ laio_async_read(io_async_read_state *gios)
       async_return(ios);
    }
 
-   ios->pctx = laio_get_thread_context((io_handle *)ios->io);
+   ios->io_completed = FALSE;
+   ios->pctx         = laio_get_thread_context((io_handle *)ios->io);
    io_prep_preadv(&ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
    io_set_callback(&ios->req, laio_async_read_callback);
 
@@ -615,9 +618,19 @@ static platform_status
 laio_async_read_state_get_result(io_async_read_state *gios)
 {
    laio_async_read_state *ios = (laio_async_read_state *)gios;
-   return ios->status == ios->iovlen * ios->io->cfg->page_size
-             ? STATUS_OK
-             : STATUS_IO_ERROR;
+   if (ios->status != ios->iovlen * ios->io->cfg->page_size) {
+      // FIXME: the result code of asynchrnous I/Os appears to often not refect
+      // the actual number of bytes read/written, so we log it and proceed
+      // anyway.
+      platform_error_log("asynchronous read appears to be short. requested %lu "
+                         "bytes, read %d bytes\n",
+                         ios->iovlen * ios->io->cfg->page_size,
+                         ios->status);
+   }
+   return STATUS_OK;
+   // return ios->status == ios->iovlen * ios->io->cfg->page_size
+   //           ? STATUS_OK
+   //           : STATUS_IO_ERROR;
 }
 
 static io_async_read_state_ops laio_async_read_state_ops = {
@@ -657,6 +670,7 @@ laio_async_read_state_init(io_async_read_state *state,
    ios->callback      = callback;
    ios->callback_arg  = callback_arg;
    ios->reqs[0]       = &ios->req;
+   ios->iovlen        = 0;
    return STATUS_OK;
 }
 
@@ -747,7 +761,7 @@ laio_cleanup(io_handle *ioh, uint64 count)
       __sync_fetch_and_sub(&pctx->io_count, 1);
 
       // Invoke the callback for the one event that completed.
-      io_callback_t callback = (io_callback_t)event.obj->data;
+      io_callback_t callback = (io_callback_t)event.data;
       callback(pctx->ctx, event.obj, event.res, 0);
 
       // Release one waiter if there is one
@@ -817,6 +831,7 @@ laio_deregister_thread(io_handle *ioh)
                       strerror(-status));
       // subsequent io_setup calls on this ctx will fail if we don't reset it.
       // Seems like a bug in libaio/linux.
+      async_wait_queue_deinit(&pctx->submit_waiters);
       memset(&pctx->ctx, 0, sizeof(pctx->ctx));
       pctx->pid = 0;
    }

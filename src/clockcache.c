@@ -1847,6 +1847,7 @@ clockcache_init(clockcache        *cc,   // OUT
          cc->data + clockcache_multiply_by_page_size(cc, i);
       cc->entry[i].page.disk_addr = CC_UNMAPPED_ADDR;
       cc->entry[i].status         = CC_FREE_STATUS;
+      async_wait_queue_init(&cc->entry[i].waiters);
    }
 
    /* Entry per-thread ref counts */
@@ -1909,6 +1910,9 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       platform_free(cc->heap_id, cc->lookup);
    }
    if (cc->entry) {
+      for (int i = 0; i < cc->cfg->page_capacity; i++) {
+         async_wait_queue_deinit(&cc->entry[i].waiters);
+      }
       platform_free(cc->heap_id, cc->entry);
    }
 
@@ -2287,9 +2291,9 @@ clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
                      state->addr);
       async_return(state, FALSE);
    }
-   if (clockcache_get_entry(state->cc, state->entry_number)->page.disk_addr
-       != state->addr)
-   {
+
+   state->entry = clockcache_get_entry(state->cc, state->entry_number);
+   if (state->entry->page.disk_addr != state->addr) {
       // this also means we raced with eviction and really lost
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
       async_return(state, FALSE);
@@ -2597,7 +2601,7 @@ clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
    //    }
    // }
    return async_call_sync_callback(
-      cc->io, NULL, clockcache_get_async2, cc, addr, type);
+      cc->io, clockcache_get_async2, cc, addr, type);
 }
 
 
