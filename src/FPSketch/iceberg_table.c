@@ -1481,6 +1481,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          if (head->kv.refcount == 0) {
             should_remove = true;
          } else {
+            head->kv.q_refcount                  = 0;
             metadata->lv3_locks[bindex][boffset] = 0;
             return ret;
          }
@@ -1553,6 +1554,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
             if (next_node->kv.refcount == 0) {
                should_remove = true;
             } else {
+               next_node->kv.q_refcount             = 0;
                metadata->lv3_locks[bindex][boffset] = 0;
                return false;
             }
@@ -1830,6 +1832,7 @@ iceberg_lv2_remove(iceberg_table *table,
                if (blocks[boffset].slots[slot].refcount == 0) {
                   should_remove = true;
                } else {
+                  blocks[boffset].slots[slot].q_refcount = 0;
                   return false;
                }
             } else {
@@ -2064,6 +2067,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             if (blocks[boffset].slots[slot].refcount == 0) {
                should_remove = true;
             } else {
+               blocks[boffset].slots[slot].q_refcount = 0;
                unlock_block(
                   (uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
                return false;
