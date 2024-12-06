@@ -2081,69 +2081,98 @@ btree_lookup_node(cache              *cc,             // IN
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_lookup_node_async,
-   param, cache *,              cc,
-   param, const btree_config *, cfg,
-   param, uint64,               root_addr,
-   param, key,                  target,
-   param, uint16,               stop_at_height,
-   param, page_type,            type,
-   param, btree_node *,         out_node,
-   param, btree_pivot_stats *,  stats,
-   local, cache_async_ctxt,     cc_async_ctxt,
-   local, btree_node,           node,
-   local, btree_node,           child_node,
-   local, uint32,               h,
-   local, int64,                child_idx,
-   local, bool32,               found,
-   local, index_entry *,        entry)
+   param, cache *,                      cc,
+   param, const btree_config *,         cfg,
+   param, uint64,                       root_addr,
+   param, key,                          target,
+   param, uint16,                       stop_at_height,
+   param, page_type,                    type,
+   param, btree_node *,                 out_node,
+   param, btree_pivot_stats *,          stats,
+   param, async_callback_fn,            callback,
+   param, void *,                       callback_arg,
+   local, cache_async_ctxt,             cc_async_ctxt,
+   local, btree_node,                   node,
+   local, btree_node,                   child_node,
+   local, uint32,                       h,
+   local, int64,                        child_idx,
+   local, bool32,                       found,
+   local, index_entry *,                entry,
+   local, page_get_async2_state_buffer, cache_get_state)
 // clang-format on
 
-// async_state
-// btree_lookup_node_async(btree_lookup_node_async_state *state)
-// {
-//    async_begin(state);
+async_state
+btree_lookup_node_async(btree_lookup_node_async_state *state)
+{
+   async_begin(state);
 
-//    if (state->stats) {
-//       memset(state->stats, 0, sizeof(*state->stats));
-//    }
+   if (state->stats) {
+      memset(state->stats, 0, sizeof(*state->stats));
+   }
 
-//    debug_assert(state->type == PAGE_TYPE_BRANCH
-//                 || state->type == PAGE_TYPE_MEMTABLE);
-//    state->node.addr = state->root_addr;
-//    btree_node_get(state->cc, state->cfg, &state->node, state->type);
+   debug_assert(state->type == PAGE_TYPE_BRANCH
+                || state->type == PAGE_TYPE_MEMTABLE);
+   state->node.addr = state->root_addr;
 
-//    for (state->h = btree_height(state->node.hdr);
-//         state->h > state->stop_at_height;
-//         state->h--)
-//    {
-//       state->child_idx =
-//          key_is_positive_infinity(state->target)
-//             ? btree_num_entries(state->node.hdr) - 1
-//             : btree_find_pivot(
-//                state->cfg, state->node.hdr, state->target, &state->found);
-//       if (state->child_idx < 0) {
-//          state->child_idx = 0;
-//       }
-//       state->entry =
-//          btree_get_index_entry(state->cfg, state->node.hdr,
-//          state->child_idx);
-//       state->child_node.addr = index_entry_child_addr(state->entry);
+   cache_get_async2_state_init(state->cache_get_state,
+                               state->cc,
+                               state->node.addr,
+                               state->type,
+                               state->callback,
+                               state->callback_arg);
+   while (cache_get_async2(state->cc, state->cache_get_state)
+          != ASYNC_STATE_DONE) {
+      async_yield(state);
+   }
+   state->node.page =
+      cache_get_async2_state_result(state->cc, state->cache_get_state);
+   state->node.hdr = (btree_hdr *)state->node.page->data;
 
-//       if (state->stats) {
-//          accumulate_node_ranks(
-//             state->cfg, state->node.hdr, 0, state->child_idx, state->stats);
-//       }
+   for (state->h = btree_height(state->node.hdr);
+        state->h > state->stop_at_height;
+        state->h--)
+   {
+      state->child_idx =
+         key_is_positive_infinity(state->target)
+            ? btree_num_entries(state->node.hdr) - 1
+            : btree_find_pivot(
+               state->cfg, state->node.hdr, state->target, &state->found);
+      if (state->child_idx < 0) {
+         state->child_idx = 0;
+      }
+      state->entry =
+         btree_get_index_entry(state->cfg, state->node.hdr, state->child_idx);
+      state->child_node.addr = index_entry_child_addr(state->entry);
 
-//       btree_node_get(state->cc, state->cfg, &state->child_node, state->type);
-//       debug_assert(state->child_node.page->disk_addr ==
-//       state->child_node.addr); btree_node_unget(state->cc, state->cfg,
-//       &state->node); state->node = state->child_node;
-//    }
+      if (state->stats) {
+         accumulate_node_ranks(
+            state->cfg, state->node.hdr, 0, state->child_idx, state->stats);
+      }
 
-//    *state->out_node = state->node;
 
-//    async_return(state);
-// }
+      cache_get_async2_state_init(state->cache_get_state,
+                                  state->cc,
+                                  state->child_node.addr,
+                                  state->type,
+                                  state->callback,
+                                  state->callback_arg);
+      while (cache_get_async2(state->cc, state->cache_get_state)
+             != ASYNC_STATE_DONE) {
+         async_yield(state);
+      }
+      state->child_node.page =
+         cache_get_async2_state_result(state->cc, state->cache_get_state);
+      state->child_node.hdr = (btree_hdr *)state->child_node.page->data;
+
+      debug_assert(state->child_node.page->disk_addr == state->child_node.addr);
+      btree_node_unget(state->cc, state->cfg, &state->node);
+      state->node = state->child_node;
+   }
+
+   *state->out_node = state->node;
+
+   async_return(state);
+}
 
 
 static inline void

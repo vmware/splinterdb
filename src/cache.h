@@ -148,7 +148,7 @@ typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
 
-#define PAGE_GET_ASYNC2_STATE_BUFFER_SIZE (8192)
+#define PAGE_GET_ASYNC2_STATE_BUFFER_SIZE (1024)
 typedef uint8 page_get_async2_state_buffer[PAGE_GET_ASYNC2_STATE_BUFFER_SIZE];
 typedef void (*page_get_async2_state_init_fn)(
    page_get_async2_state_buffer buffer,
@@ -347,6 +347,30 @@ static inline void
 cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
 {
    return cc->ops->page_async_done(cc, type, ctxt);
+}
+
+static inline void
+cache_get_async2_state_init(page_get_async2_state_buffer buffer,
+                            cache                       *cc,
+                            uint64                       addr,
+                            page_type                    type,
+                            async_callback_fn            callback,
+                            void                        *callback_arg)
+{
+   return cc->ops->page_get_async2_state_init(
+      buffer, cc, addr, type, callback, callback_arg);
+}
+
+static inline async_state
+cache_get_async2(cache *cc, page_get_async2_state_buffer buffer)
+{
+   return cc->ops->page_get_async2(buffer);
+}
+
+static inline page_handle *
+cache_get_async2_state_result(cache *cc, page_get_async2_state_buffer buffer)
+{
+   return cc->ops->page_get_async2_result(buffer);
 }
 
 /*
