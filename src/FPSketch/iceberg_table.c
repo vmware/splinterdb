@@ -1396,7 +1396,8 @@ is_inactive_keys_too_many(iceberg_table *table)
           >= table->config.max_num_inactive_keys;
 }
 
-
+// This function is used to fix quickly a bug during eviction. Could be improved
+// in the future.
 static inline bool
 iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
 {
