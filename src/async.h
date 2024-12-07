@@ -20,15 +20,20 @@ typedef void *async_state;
 #define _ASYNC_MAKE_LABEL(a)      _ASYNC_MERGE_TOKENS(_async_label_, a)
 #define _ASYNC_LABEL              _ASYNC_MAKE_LABEL(__LINE__)
 
+#define _ASYNC_STATE_FIELD_FOR(f) _ASYNC_MERGE_TOKENS(async_state_, f)
+#define _ASYNC_STATE_FIELD        _ASYNC_STATE_FIELD_FOR(__FUNCTION__)
+
 #ifdef __clang__
 #   define WARNING_STATE_PUSH _Pragma("clang diagnostic push")
 #   define WARNING_STATE_POP  _Pragma("clang diagnostic pop")
-#   define WARNING_IGNORE_DANGLING_LABEL_POINTER
+#   define WARNING_IGNORE_DANGLING_LABEL_POINTER                               \
+      _Pragma("clang diagnostic ignored \"-Wreturn-stack-address\"")
 #elif defined(__GNUC__)
 #   define WARNING_STATE_PUSH _Pragma("GCC diagnostic push")
 #   define WARNING_STATE_POP  _Pragma("GCC diagnostic pop")
 #   define WARNING_IGNORE_DANGLING_LABEL_POINTER                               \
-      _Pragma("GCC diagnostic ignored \"-Wdangling-pointer\"")
+      _Pragma("GCC diagnostic ignored \"-Wdangling-pointer\"")                 \
+         _Pragma("GCC diagnostic ignored \"-Wreturn-local-addr\"")
 #endif
 
 /*
@@ -46,7 +51,7 @@ typedef void *async_state;
 #define async_begin(statep)                                                    \
    int __async_dummy;                                                          \
    do {                                                                        \
-      async_state *_async_state_p = &(statep)->__async_state;                  \
+      async_state *_async_state_p = &(statep)->_ASYNC_STATE_FIELD;             \
       if (*_async_state_p == ASYNC_STATE_DONE) {                               \
          return ASYNC_STATE_DONE;                                              \
       } else if (*_async_state_p != ASYNC_STATE_INIT) {                        \
@@ -58,10 +63,10 @@ typedef void *async_state;
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER(statep)->__async_state =           \
-         &&_ASYNC_LABEL;                                                       \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
+      (statep)->_ASYNC_STATE_FIELD = &&_ASYNC_LABEL;                           \
       stmt;                                                                    \
-      return (statep)->__async_state;                                          \
+      return &&_ASYNC_LABEL;                                                   \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
       WARNING_STATE_POP                                                        \
@@ -72,9 +77,9 @@ typedef void *async_state;
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER(statep)->__async_state =           \
-         &&_ASYNC_LABEL;                                                       \
-      return (statep)->__async_state;                                          \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
+      (statep)->_ASYNC_STATE_FIELD = &&_ASYNC_LABEL;                           \
+      return &&_ASYNC_LABEL;                                                   \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
       WARNING_STATE_POP                                                        \
@@ -83,7 +88,7 @@ typedef void *async_state;
 #define async_return(statep, ...)                                              \
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
-      (statep)->__async_state = ASYNC_STATE_DONE;                              \
+      (statep)->_ASYNC_STATE_FIELD = ASYNC_STATE_DONE;                         \
       __VA_OPT__((statep->__async_result = (__VA_ARGS__)));                    \
       return ASYNC_STATE_DONE;                                                 \
    } while (0)
@@ -92,21 +97,27 @@ typedef void *async_state;
    ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER(statep)->__async_state =           \
-         &&_ASYNC_LABEL;                                                       \
+      WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
+      (statep)->_ASYNC_STATE_FIELD = &&_ASYNC_LABEL;                           \
    _ASYNC_LABEL:                                                               \
-      WARNING_STATE_POP                                                        \
       if (!(expr)) {                                                           \
-         return statep->__async_state;                                         \
+         return &&_ASYNC_LABEL;                                                \
       }                                                                        \
+      WARNING_STATE_POP                                                        \
    } while (0)
 
 #define async_await_call(mystatep, func, funcstatep, ...)                      \
    do {                                                                        \
       func##_state_init(funcstatep __VA_OPT__(, __VA_ARGS__));                 \
+      funcstatep->_ASYNC_STATE_FIELD_FOR(func) = ASYNC_STATE_INIT;             \
       async_await(mystatep, async_call(func, funcstatep));                     \
    } while (0)
 
+#define async_await_subroutine(mystatep, func)                                 \
+   do {                                                                        \
+      mystatep->_ASYNC_STATE_FIELD_FOR(func) = ASYNC_STATE_INIT;               \
+      async_await(mystatep, async_call(func, mystatep));                       \
+   } while (0)
 
 /* Some async functions may support a callback that can be used to notify the
  * user when it would be useful to continue executing the async function. */
@@ -234,10 +245,7 @@ async_wait_queue_release_all(async_wait_queue *q)
  */
 
 #define async_call(func, statep) (((func)(statep)) == ASYNC_STATE_DONE)
-
-#define async_done(statep) ((statep)->__async_state == ASYNC_STATE_DONE)
-
-#define async_result(statep) ((statep)->__async_result)
+#define async_result(statep)     ((statep)->__async_result)
 
 static inline void
 async_call_sync_callback_function(void *arg)
@@ -576,13 +584,11 @@ async_call_sync_callback_function(void *arg)
 
 
 #define DEFINE_ASYNC_STATE(name, ...)                                          \
-   typedef struct name##_state {                                               \
-      async_state __async_state;                                               \
+   typedef struct name {                                                       \
       DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
-   } name##_state;                                                             \
-   void name##_state_init(                                                     \
-      name##_state *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))      \
+   } name;                                                                     \
+   void name##_init(                                                           \
+      name *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))              \
    {                                                                           \
-      __state->__async_state = ASYNC_STATE_INIT;                               \
       DEFINE_STATE_STRUCT_INIT_STMTS(__VA_ARGS__)                              \
    }

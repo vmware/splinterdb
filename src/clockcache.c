@@ -1709,48 +1709,62 @@ clockcache_get_internal(clockcache   *cc,       // IN
  *      Returns with a read lock held.
  *----------------------------------------------------------------------
  */
-page_handle *
-clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
-{
-   bool32       retry;
-   page_handle *handle;
+// page_handle *
+// clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
+// {
+//    bool32       retry;
+//    page_handle *handle;
 
-   debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
-                || type == PAGE_TYPE_MEMTABLE);
-   while (1) {
-      retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
-      if (!retry) {
-         return handle;
-      }
-   }
-}
+//    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
+//                 || type == PAGE_TYPE_MEMTABLE);
+//    while (1) {
+//       retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
+//       if (!retry) {
+//          return handle;
+//       }
+//    }
+// }
 
 /*
  * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
+
 // clang-format off
-DEFINE_ASYNC_STATE(clockcache_get_in_cache_async,
+DEFINE_ASYNC_STATE(clockcache_get_async2,
    param, clockcache *, cc,
    param, uint64, addr,
    param, page_type, type,
-   param, uint32, entry_number,
-   param, page_handle **, page,
    param, async_callback_fn, callback,
    param, void *, callback_arg,
-   local, bool32, __async_result,
+   local, struct { async_state __async_state; }, istate,
+   local, struct { async_state __async_state; }, gstate,
+   local, async_state, fdstate,
+   local, page_handle *, __async_result,
+   local, bool32, succeeded,
    local, threadid, tid,
+   local, uint64, entry_number,
    local, clockcache_entry *, entry,
+   local, uint64, page_size,
+   local, uint64, base_addr,
+   local, refcount, extent_ref_count,
+   local, platform_status, rc,
+   local, io_async_read_state_buffer, iostate,
    local, async_waiter, wait_node)
 // clang-format on
+
+_Static_assert(sizeof(clockcache_get_async2_state)
+                  <= PAGE_GET_ASYNC2_STATE_BUFFER_SIZE,
+               "clockcache_get_async2_state is too large");
+
 
 /*
  * Result is FALSE if we failed to find the page in cache and hence need to
  * retry the get from the beginning, TRUE if we succeeded.
  */
 debug_only static async_state
-clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
+clockcache_get_in_cache_async(clockcache_get_async2_state *state)
 {
-   async_begin(state);
+   async_begin(&state->gstate);
 
    state->tid = platform_get_tid();
 
@@ -1763,25 +1777,25 @@ clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
                      "get (eviction race): entry %u addr %lu\n",
                      state->entry_number,
                      state->addr);
-      async_return(state, FALSE);
+      state->succeeded = FALSE;
+      async_return(&state->gstate);
    }
 
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
    if (state->entry->page.disk_addr != state->addr) {
       // this also means we raced with eviction and really lost
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
-      async_return(state, FALSE);
+      state->succeeded = FALSE;
+      async_return(&state->gstate);
    }
 
    async_wait_on_queue(
       !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING),
-      state,
+      &state->gstate,
       &state->entry->waiters,
       &state->wait_node,
       state->callback,
       state->callback_arg);
-
-   state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
    if (state->cc->cfg->use_stats) {
       state->cc->stats[state->tid].cache_hits[state->type]++;
@@ -1793,42 +1807,23 @@ clockcache_get_in_cache_async(clockcache_get_in_cache_async_state *state)
       state->entry_number,
       state->addr,
       clockcache_get_ref(state->cc, state->entry_number, state->tid));
-   *state->page = &state->entry->page;
-   async_return(state, TRUE);
+   state->__async_result = &state->entry->page;
+   state->succeeded      = TRUE;
+   async_return(&state->gstate);
 }
-
-
-// clang-format off
-DEFINE_ASYNC_STATE(clockcache_get_from_disk_async,
-   param, clockcache *, cc,
-   param, uint64, addr,
-   param, page_type, type,
-   param, page_handle **, page,
-   param, async_callback_fn, callback,
-   param, void *, callback_arg,
-   local, platform_status, rc,
-   local, platform_status, __async_result,
-   local, threadid, tid,
-   local, uint64, page_size,
-   local, uint64, entry_number,
-   local, clockcache_entry *, entry,
-   local, io_async_read_state_buffer, iostate)
-// clang-format on
 
 // Result is STATUS_BUSY if someone else beat us to perform the load, STATUS_OK
 // if we performed the load.
 debug_only static async_state
-clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
+clockcache_get_from_disk_async(clockcache_get_async2_state *state)
 {
-   async_begin(state);
-
-   state->tid       = platform_get_tid();
-   state->page_size = clockcache_page_size(state->cc);
+   async_begin(&state->gstate);
 
    state->entry_number =
       clockcache_acquire_entry_for_load(state->cc, state->addr);
    if (state->entry_number == CC_UNMAPPED_ENTRY) {
-      async_return(state, STATUS_BUSY);
+      state->succeeded = FALSE;
+      async_return(&state->gstate);
    }
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
 
@@ -1849,38 +1844,24 @@ clockcache_get_from_disk_async(clockcache_get_from_disk_async_state *state)
    platform_assert_status_ok(state->rc);
 
    while (io_async_read(state->iostate) != ASYNC_STATE_DONE) {
-      async_yield(state);
+      async_yield(&state->gstate);
    }
    platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
+   io_async_read_state_deinit(state->iostate);
 
    clockcache_finish_load(state->cc, state->addr, state->entry_number);
-   *state->page = &state->entry->page;
-   async_return(state, STATUS_OK);
+   state->__async_result = &state->entry->page;
+   state->succeeded      = TRUE;
+   async_return(&state->gstate);
 }
-
-// clang-format off
-DEFINE_ASYNC_STATE(clockcache_get_internal_async,
-   param, clockcache *, cc,
-   param, uint64, addr,
-   param, page_type, type,
-   param, page_handle **, page,
-   param, async_callback_fn, callback,
-   param, void *, callback_arg,
-   local, uint64, entry_number,
-   local, bool32, __async_result,
-   local, uint64, page_size,
-   local, uint64, base_addr,
-   local, refcount, extent_ref_count,
-   local, clockcache_get_in_cache_async_state, icstate,
-   local, clockcache_get_from_disk_async_state, fdstate
-)
-// clang-format on
 
 // Result is TRUE if successful, FALSE otherwise
 static async_state
-clockcache_get_internal_async(clockcache_get_internal_async_state *state)
+clockcache_get_internal_async(clockcache_get_async2_state *state)
 {
-   async_begin(state);
+   async_begin(&state->istate);
+
+   state->tid = platform_get_tid();
 
    state->page_size = clockcache_page_size(state->cc);
    debug_assert(((state->addr % state->page_size) == 0),
@@ -1916,47 +1897,16 @@ clockcache_get_internal_async(clockcache_get_internal_async_state *state)
    state->entry_number = clockcache_lookup(state->cc, state->addr);
 
    if (state->entry_number != CC_UNMAPPED_ENTRY) {
-      async_await_call(state,
-                       clockcache_get_in_cache_async,
-                       &state->icstate,
-                       state->cc,
-                       state->addr,
-                       state->type,
-                       state->entry_number,
-                       state->page,
-                       state->callback,
-                       state->callback_arg);
-      async_return(state, async_result(&state->icstate));
+      state->gstate.__async_state = ASYNC_STATE_INIT;
+      async_await(&state->istate,
+                  async_call(clockcache_get_in_cache_async, state));
    } else {
-      async_await_call(state,
-                       clockcache_get_from_disk_async,
-                       &state->fdstate,
-                       state->cc,
-                       state->addr,
-                       state->type,
-                       state->page,
-                       state->callback,
-                       state->callback_arg);
-      async_return(state, SUCCESS(async_result(&state->fdstate)));
+      state->gstate.__async_state = ASYNC_STATE_INIT;
+      async_await(&state->istate,
+                  async_call(clockcache_get_from_disk_async, state));
    }
+   async_return(&state->istate);
 }
-
-// clang-format off
-DEFINE_ASYNC_STATE(clockcache_get_async2,
-   param, clockcache *, cc,
-   param, uint64, addr,
-   param, page_type, type,
-   param, async_callback_fn, callback,
-   param, void *, callback_arg,
-   local, bool32, succeeded,
-   local, page_handle *, handle,
-   local, page_handle *, __async_result,
-   local, clockcache_get_internal_async_state, internal_state)
-// clang-format on
-
-_Static_assert(sizeof(clockcache_get_async2_state)
-                  <= PAGE_GET_ASYNC2_STATE_BUFFER_SIZE,
-               "clockcache_get_async2_state is too large");
 
 async_state
 clockcache_get_async2(clockcache_get_async2_state *state)
@@ -1965,21 +1915,22 @@ clockcache_get_async2(clockcache_get_async2_state *state)
 
    debug_assert(state->cc->per_thread[platform_get_tid()].enable_sync_get
                 || state->type == PAGE_TYPE_MEMTABLE);
-   while (1) {
-      async_await_call(state,
-                       clockcache_get_internal_async,
-                       &state->internal_state,
-                       state->cc,
-                       state->addr,
-                       state->type,
-                       &state->handle,
-                       state->callback,
-                       state->callback_arg);
-      state->succeeded = async_result(&state->internal_state);
-      if (state->succeeded) {
-         async_return(state, state->handle);
-      }
+
+   state->succeeded = FALSE;
+   while (!state->succeeded) {
+      state->istate.__async_state = ASYNC_STATE_INIT;
+      async_await(state, async_call(clockcache_get_internal_async, state));
    }
+   async_return(state);
+}
+
+page_handle *
+clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
+{
+   debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
+                || type == PAGE_TYPE_MEMTABLE);
+   return async_call_sync_callback(
+      cc->io, clockcache_get_async2, cc, addr, type);
 }
 
 /*
