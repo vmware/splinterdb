@@ -293,6 +293,31 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
                              bool32            *local_found, // OUT
                              btree_async_ctxt  *ctxt);        // IN
 
+
+// clang-format off
+DEFINE_ASYNC_STATE(btree_lookup_async2_state, 3,
+   param, cache *,                      cc,
+   param, const btree_config *,         cfg,
+   param, uint64,                       root_addr,
+   param, page_type,                    type,
+   param, key,                          target,
+   param, merge_accumulator *,          result,
+   param, async_callback_fn,            callback,
+   param, void *,                       callback_arg,
+   local, platform_status,              __async_result,
+   local, uint16,                       stop_at_height,
+   local, btree_pivot_stats *,          stats,
+   local, btree_node,                   node,
+   local, btree_node,                   child_node,
+   local, uint32,                       h,
+   local, bool32,                       found,
+   local, message,                      msg,
+   local, page_get_async2_state_buffer, cache_get_state)
+// clang-format on
+
+async_state
+btree_lookup_async2(btree_lookup_async2_state *state);
+
 void
 btree_iterator_init(cache              *cc,
                     const btree_config *cfg,

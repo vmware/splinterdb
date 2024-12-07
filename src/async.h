@@ -579,7 +579,7 @@ async_call_sync_callback_function(void *arg)
       async_state __async_state_stack[height];                                 \
       DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
    } name;                                                                     \
-   void name##_init(                                                           \
+   static inline void name##_init(                                             \
       name *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))              \
    {                                                                           \
       __state->__async_state_stack[0] = ASYNC_STATE_INIT;                      \

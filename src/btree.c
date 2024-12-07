@@ -2079,32 +2079,10 @@ btree_lookup_node(cache              *cc,             // IN
    return STATUS_OK;
 }
 
-// clang-format off
-DEFINE_ASYNC_STATE(btree_lookup_node_async_state, 1,
-   param, cache *,                      cc,
-   param, const btree_config *,         cfg,
-   param, uint64,                       root_addr,
-   param, key,                          target,
-   param, uint16,                       stop_at_height,
-   param, page_type,                    type,
-   param, btree_node *,                 out_node,
-   param, btree_pivot_stats *,          stats,
-   param, async_callback_fn,            callback,
-   param, void *,                       callback_arg,
-   local, cache_async_ctxt,             cc_async_ctxt,
-   local, btree_node,                   node,
-   local, btree_node,                   child_node,
-   local, uint32,                       h,
-   local, int64,                        child_idx,
-   local, bool32,                       found,
-   local, index_entry *,                entry,
-   local, page_get_async2_state_buffer, cache_get_state)
-// clang-format on
-
-async_state
-btree_lookup_node_async(btree_lookup_node_async_state *state)
+static inline async_state
+btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
 {
-   async_begin(state, 0);
+   async_begin(state, depth);
 
    if (state->stats) {
       memset(state->stats, 0, sizeof(*state->stats));
@@ -2132,21 +2110,21 @@ btree_lookup_node_async(btree_lookup_node_async_state *state)
         state->h > state->stop_at_height;
         state->h--)
    {
-      state->child_idx =
+      int64 child_idx =
          key_is_positive_infinity(state->target)
             ? btree_num_entries(state->node.hdr) - 1
             : btree_find_pivot(
                state->cfg, state->node.hdr, state->target, &state->found);
-      if (state->child_idx < 0) {
-         state->child_idx = 0;
+      if (child_idx < 0) {
+         child_idx = 0;
       }
-      state->entry =
-         btree_get_index_entry(state->cfg, state->node.hdr, state->child_idx);
-      state->child_node.addr = index_entry_child_addr(state->entry);
+      index_entry *entry =
+         btree_get_index_entry(state->cfg, state->node.hdr, child_idx);
+      state->child_node.addr = index_entry_child_addr(entry);
 
       if (state->stats) {
          accumulate_node_ranks(
-            state->cfg, state->node.hdr, 0, state->child_idx, state->stats);
+            state->cfg, state->node.hdr, 0, child_idx, state->stats);
       }
 
 
@@ -2169,8 +2147,26 @@ btree_lookup_node_async(btree_lookup_node_async_state *state)
       state->node = state->child_node;
    }
 
-   *state->out_node = state->node;
+   async_return(state);
+}
 
+static inline async_state
+btree_lookup_with_ref_async2(btree_lookup_async2_state *state, uint64 depth)
+{
+   async_begin(state, depth);
+
+   state->stop_at_height = 0;
+   state->stats          = NULL;
+   async_await_subroutine(state, btree_lookup_node_async2);
+
+   int64 idx = btree_find_tuple(
+      state->cfg, state->node.hdr, state->target, &state->found);
+   if (state->found) {
+      state->msg = leaf_entry_message(
+         btree_get_leaf_entry(state->cfg, state->node.hdr, idx));
+   } else {
+      btree_node_unget(state->cc, state->cfg, &state->node);
+   }
    async_return(state);
 }
 
@@ -2195,6 +2191,44 @@ btree_lookup_with_ref(cache              *cc,        // IN
    }
 }
 
+async_state
+btree_lookup_async2(btree_lookup_async2_state *state)
+{
+   async_begin(state, 0);
+
+   async_await_subroutine(state, btree_lookup_with_ref_async2);
+   bool32 success = TRUE;
+   if (state->found) {
+      success = merge_accumulator_copy_message(state->result, state->msg);
+      btree_node_unget(state->cc, state->cfg, &state->node);
+   }
+   async_return(state, success ? STATUS_OK : STATUS_NO_MEMORY);
+}
+
+
+// platform_status
+// btree_lookup(cache             *cc,        // IN
+//              btree_config      *cfg,       // IN
+//              uint64             root_addr, // IN
+//              page_type          type,      // IN
+//              key                target,    // IN
+//              merge_accumulator *result)    // OUT
+// {
+//    btree_node      node;
+//    message         data;
+//    platform_status rc = STATUS_OK;
+//    bool32          local_found;
+
+//    btree_lookup_with_ref(
+//       cc, cfg, root_addr, type, target, &node, &data, &local_found);
+//    if (local_found) {
+//       bool32 success = merge_accumulator_copy_message(result, data);
+//       rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
+//       btree_node_unget(cc, cfg, &node);
+//    }
+//    return rc;
+// }
+
 platform_status
 btree_lookup(cache             *cc,        // IN
              btree_config      *cfg,       // IN
@@ -2203,20 +2237,16 @@ btree_lookup(cache             *cc,        // IN
              key                target,    // IN
              merge_accumulator *result)    // OUT
 {
-   btree_node      node;
-   message         data;
-   platform_status rc = STATUS_OK;
-   bool32          local_found;
-
-   btree_lookup_with_ref(
-      cc, cfg, root_addr, type, target, &node, &data, &local_found);
-   if (local_found) {
-      bool32 success = merge_accumulator_copy_message(result, data);
-      rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
-      btree_node_unget(cc, cfg, &node);
-   }
-   return rc;
+   return async_call_sync_callback(cache_cleanup(cc),
+                                   btree_lookup_async2,
+                                   cc,
+                                   cfg,
+                                   root_addr,
+                                   type,
+                                   target,
+                                   result);
 }
+
 
 platform_status
 btree_lookup_and_merge(cache              *cc,        // IN
@@ -2290,7 +2320,8 @@ btree_async_callback(cache_async_ctxt *cache_ctxt)
 
    platform_assert(SUCCESS(cache_ctxt->status));
    platform_assert(cache_ctxt->page);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page %p
+   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page
+   //   %p
    //   (%#lx)\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt,
    //                cache_ctxt->page, ctxt->child_addr);
@@ -2308,8 +2339,8 @@ btree_async_callback(cache_async_ctxt *cache_ctxt)
  *
  *      State machine for the async btree point lookup. This uses hand over
  *      hand locking to descend the tree and every time a child node needs to
- *      be looked up from the cache, it uses the async get api. A reference to
- *      the parent node is held in btree_async_ctxt->node while a reference to
+ *      be looked up from the cache, it uses the async get api. A reference
+ *to the parent node is held in btree_async_ctxt->node while a reference to
  *      the child page is obtained by the cache_get_async() in
  *      btree_async_ctxt->cache_ctxt->page
  *
@@ -2355,8 +2386,8 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p
+                  //            is retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
                   /*
@@ -2366,8 +2397,8 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p
+                  //            is io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
                   // Invocation is done; request isn't. Callback will move
@@ -2789,10 +2820,12 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    /* if (itor->do_prefetch */
    /*     && !btree_addrs_share_extent(cc, last_addr, itor->curr.addr) */
    /*     && itor->curr.hdr->next_extent_addr != 0 */
-   /*     && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr)) */
+   /*     && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr))
+    */
    /* { */
    /*    // IO prefetch the next extent */
-   /*    cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
+   /*    cache_prefetch(cc, itor->curr.hdr->next_extent_addr,
+    * itor->page_type);
     */
    /* } */
 }
@@ -3715,7 +3748,8 @@ btree_print_memtable_tree(platform_log_handle *log_handle,
 /*
  * btree_print_tree()
  *
- * Driver routine to print a BTree of page-type 'type', starting from root_addr.
+ * Driver routine to print a BTree of page-type 'type', starting from
+ * root_addr.
  */
 void
 btree_print_tree(platform_log_handle *log_handle,
