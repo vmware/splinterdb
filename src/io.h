@@ -54,7 +54,7 @@ typedef platform_status (*io_read_async_fn)(io_handle     *io,
                                             uint64         count,
                                             uint64         addr);
 
-#define IO_ASYNC_READ_STATE_BUFFER_SIZE (200)
+#define IO_ASYNC_READ_STATE_BUFFER_SIZE (1024)
 typedef uint8 io_async_read_state_buffer[IO_ASYNC_READ_STATE_BUFFER_SIZE];
 
 typedef platform_status (*io_async_read_state_init_fn)(

@@ -148,7 +148,7 @@ typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
 
-#define PAGE_GET_ASYNC2_STATE_BUFFER_SIZE (360)
+#define PAGE_GET_ASYNC2_STATE_BUFFER_SIZE (2048)
 typedef uint8 page_get_async2_state_buffer[PAGE_GET_ASYNC2_STATE_BUFFER_SIZE];
 typedef void (*page_get_async2_state_init_fn)(
    page_get_async2_state_buffer buffer,

@@ -20,9 +20,6 @@ typedef void *async_state;
 #define _ASYNC_MAKE_LABEL(a)      _ASYNC_MERGE_TOKENS(_async_label_, a)
 #define _ASYNC_LABEL              _ASYNC_MAKE_LABEL(__LINE__)
 
-#define _ASYNC_STATE_FIELD_FOR(f) _ASYNC_MERGE_TOKENS(async_state_, f)
-#define _ASYNC_STATE_FIELD        _ASYNC_STATE_FIELD_FOR(__FUNCTION__)
-
 #ifdef __clang__
 #   define WARNING_STATE_PUSH _Pragma("clang diagnostic push")
 #   define WARNING_STATE_POP  _Pragma("clang diagnostic pop")
@@ -40,31 +37,24 @@ typedef void *async_state;
  * Macros for implementing async functions.
  */
 
-// We declare a dummy local variable in async_begin.  We then reference this
-// variable in all our other macros.  This ensures that the user cannot forget
-// to call async_begin before calling any other async macros.  It also ensures
-// that they cannot call async_begin twice.
-#define ENSURE_ASYNC_BEGIN                                                     \
-   do {                                                                        \
-   } while (0 && __async_dummy)
+#define ASYNC_STATE(statep) (statep)->__async_state_stack[__async_depth]
 
-#define async_begin(statep)                                                    \
-   int __async_dummy;                                                          \
+#define async_begin(statep, depth)                                             \
+   const uint64 __async_depth = (depth);                                       \
+   platform_assert(__async_depth < ARRAY_SIZE((statep)->__async_state_stack)); \
    do {                                                                        \
-      async_state *_async_state_p = &(statep)->_ASYNC_STATE_FIELD;             \
-      if (*_async_state_p == ASYNC_STATE_DONE) {                               \
+      if (ASYNC_STATE(statep) == ASYNC_STATE_DONE) {                           \
          return ASYNC_STATE_DONE;                                              \
-      } else if (*_async_state_p != ASYNC_STATE_INIT) {                        \
-         goto **_async_state_p;                                                \
+      } else if (ASYNC_STATE(statep) != ASYNC_STATE_INIT) {                    \
+         goto *ASYNC_STATE(statep);                                            \
       }                                                                        \
    } while (0)
 
 #define async_yield_after(statep, stmt)                                        \
-   ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
       WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
-      (statep)->_ASYNC_STATE_FIELD = &&_ASYNC_LABEL;                           \
+      ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       stmt;                                                                    \
       return &&_ASYNC_LABEL;                                                   \
    _ASYNC_LABEL:                                                               \
@@ -74,11 +64,10 @@ typedef void *async_state;
 
 
 #define async_yield(statep)                                                    \
-   ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
       WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
-      (statep)->_ASYNC_STATE_FIELD = &&_ASYNC_LABEL;                           \
+      ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       return &&_ASYNC_LABEL;                                                   \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
@@ -86,19 +75,17 @@ typedef void *async_state;
    } while (0)
 
 #define async_return(statep, ...)                                              \
-   ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
-      (statep)->_ASYNC_STATE_FIELD = ASYNC_STATE_DONE;                         \
+      ASYNC_STATE(statep) = ASYNC_STATE_DONE;                                  \
       __VA_OPT__((statep->__async_result = (__VA_ARGS__)));                    \
       return ASYNC_STATE_DONE;                                                 \
    } while (0)
 
 #define async_await(statep, expr)                                              \
-   ENSURE_ASYNC_BEGIN;                                                         \
    do {                                                                        \
       WARNING_STATE_PUSH                                                       \
       WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
-      (statep)->_ASYNC_STATE_FIELD = &&_ASYNC_LABEL;                           \
+      ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
    _ASYNC_LABEL:                                                               \
       if (!(expr)) {                                                           \
          return &&_ASYNC_LABEL;                                                \
@@ -109,14 +96,17 @@ typedef void *async_state;
 #define async_await_call(mystatep, func, funcstatep, ...)                      \
    do {                                                                        \
       func##_state_init(funcstatep __VA_OPT__(, __VA_ARGS__));                 \
-      funcstatep->_ASYNC_STATE_FIELD_FOR(func) = ASYNC_STATE_INIT;             \
       async_await(mystatep, async_call(func, funcstatep));                     \
    } while (0)
 
+#define async_call_subroutine(func, statep, depth)                             \
+   (func(statep, depth) == ASYNC_STATE_DONE)
+
 #define async_await_subroutine(mystatep, func)                                 \
    do {                                                                        \
-      mystatep->_ASYNC_STATE_FIELD_FOR(func) = ASYNC_STATE_INIT;               \
-      async_await(mystatep, async_call(func, mystatep));                       \
+      (mystatep)->__async_state_stack[__async_depth + 1] = ASYNC_STATE_INIT;   \
+      async_await(mystatep,                                                    \
+                  async_call_subroutine(func, mystatep, __async_depth + 1));   \
    } while (0)
 
 /* Some async functions may support a callback that can be used to notify the
@@ -254,7 +244,7 @@ async_call_sync_callback_function(void *arg)
    *ready     = TRUE;
 }
 
-#define async_call_sync_callback(io, async_func, ...)                          \
+#define async_call_sync_callback(wait, async_func, ...)                        \
    ({                                                                          \
       async_func##_state __async_state;                                        \
       int                __async_ready = FALSE;                                \
@@ -264,7 +254,7 @@ async_call_sync_callback_function(void *arg)
                               &__async_ready);                                 \
       while (!async_call(async_func, &__async_state)) {                        \
          while (!__async_ready) {                                              \
-            io_cleanup(io, 1);                                                 \
+            wait;                                                              \
          }                                                                     \
       }                                                                        \
       async_result(&__async_state);                                            \
@@ -583,12 +573,15 @@ async_call_sync_callback_function(void *arg)
    __VA_OPT__(DEFINE_STATE_STRUCT_INIT_STMTS32(__VA_ARGS__))
 
 
-#define DEFINE_ASYNC_STATE(name, ...)                                          \
+#define DEFINE_ASYNC_STATE(name, height, ...)                                  \
+   _Static_assert(0 < height, "height must be greater than 0");                \
    typedef struct name {                                                       \
+      async_state __async_state_stack[height];                                 \
       DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
    } name;                                                                     \
    void name##_init(                                                           \
       name *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))              \
    {                                                                           \
+      __state->__async_state_stack[0] = ASYNC_STATE_INIT;                      \
       DEFINE_STATE_STRUCT_INIT_STMTS(__VA_ARGS__)                              \
    }

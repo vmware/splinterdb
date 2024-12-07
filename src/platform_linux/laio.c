@@ -480,7 +480,7 @@ laio_read_async(io_handle     *ioh,
 
 typedef struct laio_async_read_state {
    io_async_read_state super;
-   async_state         __async_state;
+   async_state         __async_state_stack[1];
    laio_handle        *io;
    uint64              addr;
    async_callback_fn   callback;
@@ -557,7 +557,7 @@ static async_state
 laio_async_read(io_async_read_state *gios)
 {
    laio_async_read_state *ios = (laio_async_read_state *)gios;
-   async_begin(ios);
+   async_begin(ios, 0);
 
    if (ios->iovlen == 0) {
       async_return(ios);
@@ -647,14 +647,14 @@ laio_async_read_state_init(io_async_read_state *state,
       }
    }
 
-   ios->super.ops     = &laio_async_read_state_ops;
-   ios->__async_state = ASYNC_STATE_INIT;
-   ios->io            = io;
-   ios->addr          = addr;
-   ios->callback      = callback;
-   ios->callback_arg  = callback_arg;
-   ios->reqs[0]       = &ios->req;
-   ios->iovlen        = 0;
+   ios->super.ops              = &laio_async_read_state_ops;
+   ios->__async_state_stack[0] = ASYNC_STATE_INIT;
+   ios->io                     = io;
+   ios->addr                   = addr;
+   ios->callback               = callback;
+   ios->callback_arg           = callback_arg;
+   ios->reqs[0]                = &ios->req;
+   ios->iovlen                 = 0;
    return STATUS_OK;
 }
 
