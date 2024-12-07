@@ -1393,7 +1393,7 @@ static inline bool
 is_inactive_keys_too_many(iceberg_table *table)
 {
    return atomic_load(&table->metadata.num_inactive_keys)
-          > table->config.max_num_inactive_keys;
+          >= table->config.max_num_inactive_keys;
 }
 
 static inline void
@@ -2132,7 +2132,9 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
          unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
 
          if (table->config.enable_lazy_eviction) {
-            iceberg_evict_inactive_keys(table, thread_id);
+            if (!force_remove_if_inactive) {
+               iceberg_evict_inactive_keys(table, thread_id);
+            }
             if (to_enqueue) {
                fifo_enqueue(table->inactive_keys, to_enqueue);
             }
