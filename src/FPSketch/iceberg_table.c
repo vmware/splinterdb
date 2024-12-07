@@ -1396,6 +1396,56 @@ is_inactive_keys_too_many(iceberg_table *table)
           >= table->config.max_num_inactive_keys;
 }
 
+
+static inline bool
+iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
+{
+   iceberg_metadata *metadata = &table->metadata;
+   uint8_t           fprint;
+   uint64_t          index;
+
+   split_hash(lv1_hash(key), &fprint, &index, metadata);
+
+   uint64_t bindex, boffset;
+   get_index_offset(table->metadata.log_init_size, index, &bindex, &boffset);
+   iceberg_lv1_block *blocks = table->level1[bindex];
+
+   __mmask64 md_mask =
+      slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, fprint);
+   uint8_t popct = __builtin_popcountll(md_mask);
+
+   for (int i = 0; i < popct; ++i) {
+      uint8_t slot = word_select(md_mask, i);
+
+      if (iceberg_key_compare(
+             table->spl_data_config, blocks[boffset].slots[slot].key, key)
+          == 0)
+      {
+         // If it has a sketch, insert the removed value to it.
+         if (table->sktch) {
+            sketch_insert(table->sktch,
+                          blocks[boffset].slots[slot].key,
+                          blocks[boffset].slots[slot].val);
+         }
+         if (table->config.post_remove) {
+            table->config.post_remove(&blocks[boffset].slots[slot].val);
+         }
+         metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
+         void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
+         platform_free(0, ptr);
+         blocks[boffset].slots[slot].key        = NULL_SLICE;
+         blocks[boffset].slots[slot].refcount   = 0;
+         blocks[boffset].slots[slot].q_refcount = 0;
+         pc_add(&metadata->lv1_balls, -1, thread_id);
+         if (table->config.enable_lazy_eviction) {
+            atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
+         }
+         return true;
+      }
+   }
+   return false;
+}
+
 static inline void
 iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
 {
@@ -1405,9 +1455,9 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
    while (is_inactive_keys_too_many(table)) {
       fifo_node *node = fifo_dequeue(table->inactive_keys);
       platform_assert(node != NULL);
-      kv_pair      *evicted_kv      = (kv_pair *)node->data.kv;
-      iceberg_lock *lock            = &node->data.lock;
-      bool          should_reinsert = false;
+      kv_pair      *evicted_kv = (kv_pair *)node->data.kv;
+      iceberg_lock *lock       = &node->data.lock;
+      bool          is_evicted = false;
       // Iceberg uses different locks for different levels
       if (lock->level == 3) {
          while (__sync_lock_test_and_set((uint8_t *)lock->ptr, 1))
@@ -1418,23 +1468,20 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
       // evicted_kv->q_refcount > 1 : It was inactive multiple times
       // evicted_kv->refcount > 0 : It is active now
       if (evicted_kv->q_refcount > 1 || evicted_kv->refcount > 0) {
-         should_reinsert        = true;
          evicted_kv->q_refcount = 1; // = It becomes inactive key first time
+         // Reinsert the key to the queue
+         fifo_enqueue(table->inactive_keys, node);
+      } else {
+         is_evicted =
+            iceberg_lv1_remove_no_lock(table, evicted_kv->key, thread_id);
+         platform_assert(is_evicted);
       }
       if (lock->level == 3) {
          __sync_lock_release((uint8_t *)lock->ptr);
       } else {
          unlock_block((uint64_t *)lock->ptr);
       }
-      if (should_reinsert) {
-         // Reinsert the key to the queue
-         fifo_enqueue(table->inactive_keys, node);
-      } else {
-         iceberg_force_remove_if_inactive(
-            table,
-            evicted_kv->key,
-            thread_id); // It will decrement the number of inactive keys if it
-                        // is removed
+      if (is_evicted) {
          fifo_node_destroy(node);
       }
       platform_assert(atomic_load(&table->metadata.num_inactive_keys)
