@@ -5,16 +5,140 @@
  * async.h --
  *
  *     This file contains the tools for implementing and using async functions.
+ *
+ * The goal of this module is to make it easy to write async functions.  The
+ * main procedure for writing an async function is:
+ *
+ * 1. Write the synchronous version first.
+ *
+ * 2. Move all the parameters and locals into a state structure.  See the
+ * DEFINE_ASYNC_STATE macro below that will generate the structure and an
+ * initializer function for you.
+ *
+ * 3 Rewrite the function to take a single state structure pointer and replace
+ * all references to parameters and locals with references to the corresponding
+ * fields in the state structure.
+ *
+ * 4. To call one asynchronous function from another, suspending the caller's
+ * execution until the callee  completes, do
+ *    async_await_call(your_state, function_to_call,
+ *    functions_state_pointer, function_params...);
+ * The function_state_pointer will typically be a pointer to a function state
+ * structure that is a field of your state structure, e.g.
+ *    async_await_call(my_state, function,
+ *    &my_state->function_state, ...);
+ * async_await_call() will initialize the function's state using the parameters
+ * you pass.
+ *
+ * 5. To call a synchronous (i.e. normal) function from an asynchronous
+ * function, just call it as you would normally.
+ *
+ * async functions can have a result, which will be stored in the __async_result
+ * field of their state structure.  Callers can access this result via the
+ * async_result macro.
+ *
+ * Managing execution
+ * ------------------
+ *
+ * There are two general styles of asynchronous functions: polling-based and
+ * callback-based.
+ *
+ * Polling-based functions
+ * -----------------------
+ *
+ * For polling-based functions, you would generally call them from a
+ * synchronous function by doing:
+ *   function_state_init(&func_state, params...);
+ *   while (!async_call(function, &func_state))
+ *     do_something_else_or_sleep_or_whatever();
+ *
+ * Call-back-based functions
+ * -------------------------
+ *
+ * Callback-based async functions are appropriate when you have some way of
+ * receiving external notification that the awaited event has occured, and you
+ * want to notify your callers that they can now resum execution of your code.
+ * One example might be an asynchronous I/O library that calls a callback when
+ * I/O completes.
+ *
+ * Callback-based functions introduce two complications: one at the callee side
+ * and one at the caller side.  The callee needs to remember all the function
+ * executions that are waiting for an event to occur.  This library includes a
+ * simple wait queue mechanism that async function writers can use for this
+ * purpose.  You can use async_wait_on_queue to atomically test whether a
+ * condition is true and, if not, add your execution to a given wait queue and
+ * suspend execution.  See laio.c and clockcache.c for examples.
+ *
+ * On the caller side, you generally maintain a pool of the states of running
+ * function executions, and the callback you pass to your async function simply
+ * flags its corresponding execution state as ready to resume execution, either
+ * by setting some flag or moving it to a ready-to-run queue.  See the tests for
+ * examples.
+ *
+ * Finally, if you want to call an asynchronous function and simply wait for its
+ * completion synchronously, you can use async_call_sync_callback_function. Note
+ * this macro assumes that the callback and callback_arg parameters are the last
+ * parameters of the asynchronous function's state init method.  There is
+ * currently no correpsonding macro for polling-based async functions, but only
+ * because we currently have no need for one.
+ *
+ * Sub-routines
+ * ------------
+ *
+ * Sometimes it is useful to break an asynchronous function into a top-level
+ * function that calls several async subroutines.  The straightforward way to do
+ * this is to create a state structure for each subroutine and follow the
+ * methodology described above.  However, this can be tedious and wasteful.
+ * Sometimes it is preferable to simply have all the subroutines use the same
+ * state structure as the top-level function.
+ *
+ * This is fine, except that each subroutine needs its own async_state field to
+ * record where it suspended execution.  Thus, the state structure for an
+ * asychronous function (or function and collection of subroutines) must have an
+ * array of async_states, which are used as a stack.  This is why the
+ * DEFINE_ASYNC_STATE has a height parameter -- to specify the maximum height of
+ * the stack of subroutines.
+ *
+ * Thus there are two slightly different types of asynchronous functions:
+ * top-level async functions and their subroutines.  Top-level functions take a
+ * single parameter -- a pointer to their state stucture.  They should call
+ * async_begin with a depth of 0.  Subroutines take a pointer to the state and a
+ * depth parameter. To call a subroutine, you can use the async_await_subroutine
+ * macro, which will pass the correct depth parameter.
+ *
+ * The depth parameter cannot be stored in the state structure because doing so
+ * would introduce race conditions, as described below.
+ *
+ * A note on races
+ * ---------------
+ *
+ * One issue to keep in mind when extending this module is to avoid a race
+ * condition with callback-based functions.  The issue is that, when an async
+ * function suspends execution, it still has to unwind the run-time stack of all
+ * its async ancestors.  If that async function saved its state on a wait queue,
+ * then its top-level caller could get notified that the function is ready to
+ * resume execution betore the original execution finishes unwinding its stack.
+ * Then another thread could resume execution of the same async state before the
+ * original execution has finished unwinding its stack.  Thus it is imperative
+ * that, during the stack unwinding process, async functions must not read or
+ * modify their state.  They must simply return to their caller.  See, for
+ * example, async_yield_after for more details.
  */
 
 #pragma once
 
+/* Async functions return async_status.  ASYNC_STATUS_RUNNING means that the
+ * function has not yet completed.  ASYNC_STATUS_DONE means that the function
+ * has completed.  Note that completion does not mean that the function
+ * succeeded, e.g. an asynchronous IO function may return DONE after an IO
+ * error.  Success/failure is up to the individual function to define. */
 typedef enum async_status {
-   ASYNC_STATUS_INIT,
    ASYNC_STATUS_RUNNING,
    ASYNC_STATUS_DONE
 } async_status;
 
+/* async_state is used internally to store where the function should resume
+ * execution next time it is called. */
 typedef void *async_state;
 #define ASYNC_STATE_INIT NULL
 #define ASYNC_STATE_DONE ((async_state)1)
@@ -26,25 +150,21 @@ typedef void *async_state;
 #define _ASYNC_MAKE_LABEL(a)      _ASYNC_MERGE_TOKENS(_async_label_, a)
 #define _ASYNC_LABEL              _ASYNC_MAKE_LABEL(__LINE__)
 
-#ifdef __clang__
-#   define WARNING_STATE_PUSH _Pragma("clang diagnostic push")
-#   define WARNING_STATE_POP  _Pragma("clang diagnostic pop")
-#   define WARNING_IGNORE_DANGLING_LABEL_POINTER                               \
-      _Pragma("clang diagnostic ignored \"-Wreturn-stack-address\"")
-#elif defined(__GNUC__)
-#   define WARNING_STATE_PUSH _Pragma("GCC diagnostic push")
-#   define WARNING_STATE_POP  _Pragma("GCC diagnostic pop")
-#   define WARNING_IGNORE_DANGLING_LABEL_POINTER                               \
-      _Pragma("GCC diagnostic ignored \"-Wdangling-pointer\"")                 \
-         _Pragma("GCC diagnostic ignored \"-Wreturn-local-addr\"")
-#endif
-
 /*
  * Macros for implementing async functions.
  */
 
+/* Each asynchronous function has an associated structure that holds all its
+ * state -- its parameters, local variables, and async_state.  It is often
+ * useful to break an asynchronous function into several simpler async
+ * subroutines.  Rather than having to define a separate state structure for
+ * each subroutine, we allow several subroutines to share a single state
+ * structure.  However, each subroutine needs its own async_state, so we store
+ * async_states in a stack within the state structure. */
+
 #define ASYNC_STATE(statep) (statep)->__async_state_stack[__async_depth]
 
+/* You MUST call this at the beginning of an async function. */
 #define async_begin(statep, depth)                                             \
    const uint64 __async_depth = (depth);                                       \
    platform_assert(__async_depth < ARRAY_SIZE((statep)->__async_state_stack)); \
@@ -56,30 +176,27 @@ typedef void *async_state;
       }                                                                        \
    } while (0)
 
+/* Call statement and then yield without further modifying our state. This is
+ * useful for avoiding races when, e.g. stmt might cause another thread to begin
+ * execution using our state. */
 #define async_yield_after(statep, stmt)                                        \
    do {                                                                        \
-      WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       stmt;                                                                    \
       return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
-      WARNING_STATE_POP                                                        \
    } while (0)
-
 
 #define async_yield(statep)                                                    \
    do {                                                                        \
-      WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
-      WARNING_STATE_POP                                                        \
    } while (0)
 
+/* Supports an optional return value. */
 #define async_return(statep, ...)                                              \
    do {                                                                        \
       ASYNC_STATE(statep) = ASYNC_STATE_DONE;                                  \
@@ -87,18 +204,17 @@ typedef void *async_state;
       return ASYNC_STATUS_DONE;                                                \
    } while (0)
 
+/* Suspend execution until expr is true. */
 #define async_await(statep, expr)                                              \
    do {                                                                        \
-      WARNING_STATE_PUSH                                                       \
-      WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
    _ASYNC_LABEL:                                                               \
       if (!(expr)) {                                                           \
          return ASYNC_STATUS_RUNNING;                                          \
       }                                                                        \
-      WARNING_STATE_POP                                                        \
    } while (0)
 
+/* Call async function func and suspend execution until it completes. */
 #define async_await_call(mystatep, func, funcstatep, ...)                      \
    do {                                                                        \
       func##_state_init(funcstatep __VA_OPT__(, __VA_ARGS__));                 \
@@ -108,6 +224,8 @@ typedef void *async_state;
 #define async_call_subroutine(func, statep, depth)                             \
    (func(statep, depth) == ASYNC_STATUS_DONE)
 
+/* Like async_await_call, but for subroutines.  See comment on subroutines at
+ * top of file. */
 #define async_await_subroutine(mystatep, func)                                 \
    do {                                                                        \
       (mystatep)->__async_state_stack[__async_depth + 1] = ASYNC_STATE_INIT;   \
@@ -119,6 +237,9 @@ typedef void *async_state;
  * user when it would be useful to continue executing the async function. */
 typedef void (*async_callback_fn)(void *);
 
+/*
+ * Wait queues for exections awaiting some condition.
+ */
 typedef struct async_waiter {
    struct async_waiter *next;
    async_callback_fn    callback;
@@ -148,6 +269,7 @@ async_wait_queue_deinit(async_wait_queue *queue)
    // platform_assert(queue->tail == NULL);
 }
 
+/* Internal function. */
 static inline void
 async_wait_queue_lock(async_wait_queue *q)
 {
@@ -158,12 +280,14 @@ async_wait_queue_lock(async_wait_queue *q)
    }
 }
 
+/* Internal function. */
 static inline void
 async_wait_queue_unlock(async_wait_queue *q)
 {
    __sync_lock_release(&q->lock);
 }
 
+/* Internal function. */
 static inline void
 async_wait_queue_append(async_wait_queue *q,
                         async_waiter     *waiter,
@@ -182,6 +306,7 @@ async_wait_queue_append(async_wait_queue *q,
    q->tail = waiter;
 }
 
+/* Public: notify one waiter that the condition has become true. */
 static inline void
 async_wait_queue_release_one(async_wait_queue *q)
 {
@@ -203,6 +328,7 @@ async_wait_queue_release_one(async_wait_queue *q)
    }
 }
 
+/* Public: notify all waiters that the condition has become true. */
 static inline void
 async_wait_queue_release_all(async_wait_queue *q)
 {
@@ -221,6 +347,14 @@ async_wait_queue_release_all(async_wait_queue *q)
    }
 }
 
+/* Public: Wait on the queue until the predicate <ready> evaluates to true.
+ * There is a subtle race condition that this code avoids.  This code checks
+ * <ready> without holding any locks.  If <ready> is not true, then it locks the
+ * wait queue and checks again.  By checking again with lock help, this code
+ * avoids the race where <ready> becomes true and all waiters get notified
+ * between the time that we check the condition (w/o locks) and add ourselves to
+ * the queue.
+ */
 #define async_wait_on_queue(ready, state, queue, node, callback, callback_arg) \
    do {                                                                        \
       if (!(ready)) {                                                          \
@@ -250,6 +384,8 @@ async_call_sync_callback_function(void *arg)
    *ready     = TRUE;
 }
 
+/* Call an async function and wait for it to finish. <wait> is code to be
+ * executed in a loop until the async function finishes. */
 #define async_call_sync_callback(wait, async_func, ...)                        \
    ({                                                                          \
       async_func##_state __async_state;                                        \
