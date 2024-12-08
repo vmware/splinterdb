@@ -306,11 +306,10 @@ destroy_btrees:
 
 // A single async context
 typedef struct {
-   btree_async_ctxt  ctxt;
-   cache_async_ctxt  cache_ctxt;
-   bool32            ready;
-   key_buffer        keybuf;
-   merge_accumulator result;
+   btree_lookup_async2_state ctxt;
+   bool32                    ready;
+   key_buffer                keybuf;
+   merge_accumulator         result;
 } btree_test_async_ctxt;
 
 // Per-table array of async contexts
@@ -321,10 +320,9 @@ typedef struct {
 } btree_test_async_lookup;
 
 static void
-btree_test_async_callback(btree_async_ctxt *btree_ctxt)
+btree_test_async_callback(void *callback_arg)
 {
-   btree_test_async_ctxt *ctxt =
-      container_of(btree_ctxt, btree_test_async_ctxt, ctxt);
+   btree_test_async_ctxt *ctxt = (btree_test_async_ctxt *)callback_arg;
 
    //   platform_default_log("%s:%d tid %2lu: ctxt %p callback rcvd\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt);
@@ -353,8 +351,7 @@ btree_test_get_async_ctxt(btree_config            *cfg,
    idx                       = idx - 1;
    async_lookup->ctxt_bitmap = old & ~(1UL << idx);
    ctxt                      = &async_lookup->ctxt[idx];
-   btree_ctxt_init(&ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
-   ctxt->ready = FALSE;
+   ctxt->ready               = FALSE;
    key_buffer_init(&ctxt->keybuf, hid);
    merge_accumulator_init(&ctxt->result, hid);
 
@@ -415,46 +412,32 @@ btree_test_run_pending(cache                   *cc,
       if (!btree_test_async_ctxt_is_used(async_lookup, i)) {
          continue;
       }
-      cache_async_result     res;
+      async_state            res;
       btree_test_async_ctxt *ctxt = &async_lookup->ctxt[i];
       // We skip skip_ctxt, because that it just asked us to retry.
       if (ctxt == skip_ctxt || !ctxt->ready) {
          continue;
       }
       ctxt->ready = FALSE;
-      key target  = key_buffer_key(&ctxt->keybuf);
-      res         = btree_lookup_async(
-         cc, cfg, root_addr, target, &ctxt->result, &ctxt->ctxt);
-      bool32 local_found = btree_found(&ctxt->result);
-      switch (res) {
-         case async_locked:
-         case async_no_reqs:
-            ctxt->ready = TRUE;
-            break;
-         case async_io_started:
-            break;
-         case async_success:
-            if (local_found ^ expected_found) {
-               btree_print_tree(Platform_default_log_handle,
-                                cc,
-                                cfg,
-                                root_addr,
-                                PAGE_TYPE_BRANCH);
-               char key_string[128];
-               data_key_to_string(cfg->data_cfg,
-                                  key_buffer_key(&ctxt->keybuf),
-                                  key_string,
-                                  128);
-               platform_default_log("key %s expect %u found %u\n",
-                                    key_string,
-                                    expected_found,
-                                    local_found);
-               platform_assert(0);
-            }
-            btree_test_put_async_ctxt(async_lookup, ctxt);
-            break;
-         default:
+      res         = btree_lookup_async2(&ctxt->ctxt);
+      if (res == ASYNC_STATE_DONE) {
+         bool32 local_found = btree_found(&ctxt->result);
+         if (local_found ^ expected_found) {
+            btree_print_tree(Platform_default_log_handle,
+                             cc,
+                             cfg,
+                             root_addr,
+                             PAGE_TYPE_BRANCH);
+            char key_string[128];
+            data_key_to_string(
+               cfg->data_cfg, key_buffer_key(&ctxt->keybuf), key_string, 128);
+            platform_default_log("key %s expect %u found %u\n",
+                                 key_string,
+                                 expected_found,
+                                 local_found);
             platform_assert(0);
+         }
+         btree_test_put_async_ctxt(async_lookup, ctxt);
       }
    }
 
@@ -478,7 +461,7 @@ btree_test_wait_pending(cache                   *cc,
    }
 }
 
-cache_async_result
+async_state
 test_btree_async_lookup(cache                   *cc,
                         btree_config            *cfg,
                         btree_test_async_ctxt   *async_ctxt,
@@ -487,37 +470,30 @@ test_btree_async_lookup(cache                   *cc,
                         bool32                   expected_found,
                         bool32                  *correct)
 {
-   cache_async_result res;
-   btree_ctxt_init(
-      &async_ctxt->ctxt, &async_ctxt->cache_ctxt, btree_test_async_callback);
-   key target = key_buffer_key(&async_ctxt->keybuf);
+   async_state res;
+   key         target = key_buffer_key(&async_ctxt->keybuf);
 
-   res = btree_lookup_async(
-      cc, cfg, root_addr, target, &async_ctxt->result, &async_ctxt->ctxt);
+   btree_lookup_async2_state_init(&async_ctxt->ctxt,
+                                  cc,
+                                  cfg,
+                                  root_addr,
+                                  PAGE_TYPE_BRANCH,
+                                  target,
+                                  &async_ctxt->result,
+                                  btree_test_async_callback,
+                                  async_ctxt);
 
-   switch (res) {
-      case async_locked:
-      case async_no_reqs:
-         async_ctxt->ready = TRUE;
-         break;
-      case async_io_started:
-         async_ctxt = NULL;
-         break;
-      case async_success:
-         *correct = btree_found(&async_ctxt->result) == expected_found;
-         btree_test_put_async_ctxt(async_lookup, async_ctxt);
-         async_ctxt = NULL;
-         goto out;
-         break;
-      default:
-         platform_assert(0);
+   async_ctxt->ready = FALSE;
+   res               = btree_lookup_async2(&async_ctxt->ctxt);
+   if (res == ASYNC_STATE_DONE) {
+      *correct = btree_found(&async_ctxt->result) == expected_found;
+      btree_test_put_async_ctxt(async_lookup, async_ctxt);
    }
 
-out:
    return res;
 }
 
-cache_async_result
+async_state
 test_memtable_async_lookup(test_memtable_context   *ctxt,
                            btree_test_async_ctxt   *async_ctxt,
                            btree_test_async_lookup *async_lookup,
@@ -609,9 +585,9 @@ test_btree_basic(cache             *cc,
          bool32 correct;
          test_btree_tuple(
             ctxt, &async_ctxt->keybuf, &expected_data, insert_num, 0);
-         cache_async_result res = test_memtable_async_lookup(
+         async_state res = test_memtable_async_lookup(
             ctxt, async_ctxt, async_lookup, 0, TRUE, &correct);
-         if (res == async_success) {
+         if (res == ASYNC_STATE_DONE) {
             if (!correct) {
                memtable_print(Platform_default_log_handle, cc, mt);
                key target = key_buffer_key(&async_ctxt->keybuf);
@@ -721,14 +697,14 @@ test_btree_basic(cache             *cc,
          bool32 correct;
          test_btree_tuple(
             ctxt, &async_ctxt->keybuf, &expected_data, insert_num, 0);
-         cache_async_result res = test_btree_async_lookup(cc,
-                                                          btree_cfg,
-                                                          async_ctxt,
-                                                          async_lookup,
-                                                          packed_root_addr,
-                                                          TRUE,
-                                                          &correct);
-         if (res == async_success) {
+         async_state res = test_btree_async_lookup(cc,
+                                                   btree_cfg,
+                                                   async_ctxt,
+                                                   async_lookup,
+                                                   packed_root_addr,
+                                                   TRUE,
+                                                   &correct);
+         if (res == ASYNC_STATE_DONE) {
             if (!correct) {
                btree_print_tree(Platform_default_log_handle,
                                 cc,

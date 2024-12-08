@@ -2206,29 +2206,6 @@ btree_lookup_async2(btree_lookup_async2_state *state)
 }
 
 
-// platform_status
-// btree_lookup(cache             *cc,        // IN
-//              btree_config      *cfg,       // IN
-//              uint64             root_addr, // IN
-//              page_type          type,      // IN
-//              key                target,    // IN
-//              merge_accumulator *result)    // OUT
-// {
-//    btree_node      node;
-//    message         data;
-//    platform_status rc = STATUS_OK;
-//    bool32          local_found;
-
-//    btree_lookup_with_ref(
-//       cc, cfg, root_addr, type, target, &node, &data, &local_found);
-//    if (local_found) {
-//       bool32 success = merge_accumulator_copy_message(result, data);
-//       rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
-//       btree_node_unget(cc, cfg, &node);
-//    }
-//    return rc;
-// }
-
 platform_status
 btree_lookup(cache             *cc,        // IN
              btree_config      *cfg,       // IN
@@ -2237,15 +2214,38 @@ btree_lookup(cache             *cc,        // IN
              key                target,    // IN
              merge_accumulator *result)    // OUT
 {
-   return async_call_sync_callback(cache_cleanup(cc),
-                                   btree_lookup_async2,
-                                   cc,
-                                   cfg,
-                                   root_addr,
-                                   type,
-                                   target,
-                                   result);
+   btree_node      node;
+   message         data;
+   platform_status rc = STATUS_OK;
+   bool32          local_found;
+
+   btree_lookup_with_ref(
+      cc, cfg, root_addr, type, target, &node, &data, &local_found);
+   if (local_found) {
+      bool32 success = merge_accumulator_copy_message(result, data);
+      rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
+      btree_node_unget(cc, cfg, &node);
+   }
+   return rc;
 }
+
+// platform_status
+// btree_lookup(cache             *cc,        // IN
+//              btree_config      *cfg,       // IN
+//              uint64             root_addr, // IN
+//              page_type          type,      // IN
+//              key                target,    // IN
+//              merge_accumulator *result)    // OUT
+// {
+//    return async_call_sync_callback(cache_cleanup(cc),
+//                                    btree_lookup_async2,
+//                                    cc,
+//                                    cfg,
+//                                    root_addr,
+//                                    type,
+//                                    target,
+//                                    result);
+// }
 
 
 platform_status
