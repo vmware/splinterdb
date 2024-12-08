@@ -553,7 +553,7 @@ laio_async_read_callback(io_context_t ctx,
    }
 }
 
-static async_state
+static async_status
 laio_async_read(io_async_read_state *gios)
 {
    laio_async_read_state *ios = (laio_async_read_state *)gios;

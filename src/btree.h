@@ -315,7 +315,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async2_state, 3,
    local, page_get_async2_state_buffer, cache_get_state)
 // clang-format on
 
-async_state
+async_status
 btree_lookup_async2(btree_lookup_async2_state *state);
 
 void

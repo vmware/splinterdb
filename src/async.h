@@ -9,6 +9,12 @@
 
 #pragma once
 
+typedef enum async_status {
+   ASYNC_STATUS_INIT,
+   ASYNC_STATUS_RUNNING,
+   ASYNC_STATUS_DONE
+} async_status;
+
 typedef void *async_state;
 #define ASYNC_STATE_INIT NULL
 #define ASYNC_STATE_DONE ((async_state)1)
@@ -44,7 +50,7 @@ typedef void *async_state;
    platform_assert(__async_depth < ARRAY_SIZE((statep)->__async_state_stack)); \
    do {                                                                        \
       if (ASYNC_STATE(statep) == ASYNC_STATE_DONE) {                           \
-         return ASYNC_STATE_DONE;                                              \
+         return ASYNC_STATUS_DONE;                                             \
       } else if (ASYNC_STATE(statep) != ASYNC_STATE_INIT) {                    \
          goto *ASYNC_STATE(statep);                                            \
       }                                                                        \
@@ -56,7 +62,7 @@ typedef void *async_state;
       WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       stmt;                                                                    \
-      return &&_ASYNC_LABEL;                                                   \
+      return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
       WARNING_STATE_POP                                                        \
@@ -68,7 +74,7 @@ typedef void *async_state;
       WARNING_STATE_PUSH                                                       \
       WARNING_IGNORE_DANGLING_LABEL_POINTER;                                   \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
-      return &&_ASYNC_LABEL;                                                   \
+      return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
    {}                                                                          \
       WARNING_STATE_POP                                                        \
@@ -78,7 +84,7 @@ typedef void *async_state;
    do {                                                                        \
       ASYNC_STATE(statep) = ASYNC_STATE_DONE;                                  \
       __VA_OPT__((statep->__async_result = (__VA_ARGS__)));                    \
-      return ASYNC_STATE_DONE;                                                 \
+      return ASYNC_STATUS_DONE;                                                \
    } while (0)
 
 #define async_await(statep, expr)                                              \
@@ -88,7 +94,7 @@ typedef void *async_state;
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
    _ASYNC_LABEL:                                                               \
       if (!(expr)) {                                                           \
-         return &&_ASYNC_LABEL;                                                \
+         return ASYNC_STATUS_RUNNING;                                          \
       }                                                                        \
       WARNING_STATE_POP                                                        \
    } while (0)
@@ -100,7 +106,7 @@ typedef void *async_state;
    } while (0)
 
 #define async_call_subroutine(func, statep, depth)                             \
-   (func(statep, depth) == ASYNC_STATE_DONE)
+   (func(statep, depth) == ASYNC_STATUS_DONE)
 
 #define async_await_subroutine(mystatep, func)                                 \
    do {                                                                        \

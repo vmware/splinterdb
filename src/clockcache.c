@@ -1758,7 +1758,7 @@ _Static_assert(sizeof(clockcache_get_async2_state)
  * Result is FALSE if we failed to find the page in cache and hence need to
  * retry the get from the beginning, TRUE if we succeeded.
  */
-debug_only static async_state
+static async_status
 clockcache_get_in_cache_async(clockcache_get_async2_state *state, uint64 depth)
 {
    async_begin(state, depth);
@@ -1811,7 +1811,7 @@ clockcache_get_in_cache_async(clockcache_get_async2_state *state, uint64 depth)
 
 // Result is STATUS_BUSY if someone else beat us to perform the load, STATUS_OK
 // if we performed the load.
-debug_only static async_state
+static async_status
 clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
 {
    async_begin(state, depth);
@@ -1840,7 +1840,7 @@ clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
       io_async_read_state_append_page(state->iostate, state->entry->page.data);
    platform_assert_status_ok(state->rc);
 
-   while (io_async_read(state->iostate) != ASYNC_STATE_DONE) {
+   while (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
       async_yield(state);
    }
    platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
@@ -1853,7 +1853,7 @@ clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
 }
 
 // Result is TRUE if successful, FALSE otherwise
-static async_state
+static async_status
 clockcache_get_internal_async(clockcache_get_async2_state *state, uint64 depth)
 {
    async_begin(state, depth);
@@ -1901,7 +1901,7 @@ clockcache_get_internal_async(clockcache_get_async2_state *state, uint64 depth)
    async_return(state);
 }
 
-async_state
+async_status
 clockcache_get_async2(clockcache_get_async2_state *state)
 {
    async_begin(state, 0);
@@ -3047,7 +3047,7 @@ clockcache_get_async2_state_init_virtual(page_get_async2_state_buffer buffer,
                                     callback_arg);
 }
 
-static async_state
+static async_status
 clockcache_get_async2_virtual(page_get_async2_state_buffer buffer)
 {
    return clockcache_get_async2((clockcache_get_async2_state *)buffer);

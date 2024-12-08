@@ -2079,7 +2079,7 @@ btree_lookup_node(cache              *cc,             // IN
    return STATUS_OK;
 }
 
-static inline async_state
+static inline async_status
 btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
 {
    async_begin(state, depth);
@@ -2099,7 +2099,7 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
                                state->callback,
                                state->callback_arg);
    while (cache_get_async2(state->cc, state->cache_get_state)
-          != ASYNC_STATE_DONE) {
+          != ASYNC_STATUS_DONE) {
       async_yield(state);
    }
    state->node.page =
@@ -2135,7 +2135,7 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
                                   state->callback,
                                   state->callback_arg);
       while (cache_get_async2(state->cc, state->cache_get_state)
-             != ASYNC_STATE_DONE) {
+             != ASYNC_STATUS_DONE) {
          async_yield(state);
       }
       state->child_node.page =
@@ -2150,7 +2150,7 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
    async_return(state);
 }
 
-static inline async_state
+static inline async_status
 btree_lookup_with_ref_async2(btree_lookup_async2_state *state, uint64 depth)
 {
    async_begin(state, depth);
@@ -2191,7 +2191,7 @@ btree_lookup_with_ref(cache              *cc,        // IN
    }
 }
 
-async_state
+async_status
 btree_lookup_async2(btree_lookup_async2_state *state)
 {
    async_begin(state, 0);

@@ -110,7 +110,7 @@ typedef platform_status (
 typedef const struct iovec *(*io_async_read_state_get_iovec_fn)(
    io_async_read_state *state,
    uint64              *iovlen);
-typedef async_state (*io_async_read_fn)(io_async_read_state *state);
+typedef async_status (*io_async_read_fn)(io_async_read_state *state);
 
 typedef platform_status (*io_async_read_state_get_result_fn)(
    io_async_read_state *state);
@@ -207,7 +207,7 @@ io_async_read_state_get_iovec(io_async_read_state_buffer buffer, uint64 *iovlen)
    return state->ops->get_iovec(state, iovlen);
 }
 
-static inline async_state
+static inline async_status
 io_async_read(io_async_read_state_buffer buffer)
 {
    io_async_read_state *state = (io_async_read_state *)buffer;

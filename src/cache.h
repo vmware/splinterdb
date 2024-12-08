@@ -157,7 +157,7 @@ typedef void (*page_get_async2_state_init_fn)(
    page_type                    type,
    async_callback_fn            callback,
    void                        *callback_arg);
-typedef async_state (*page_get_async2_fn)(page_get_async2_state_buffer buffer);
+typedef async_status (*page_get_async2_fn)(page_get_async2_state_buffer buffer);
 typedef page_handle *(*page_get_async2_state_result_fn)(
    page_get_async2_state_buffer buffer);
 
@@ -361,7 +361,7 @@ cache_get_async2_state_init(page_get_async2_state_buffer buffer,
       buffer, cc, addr, type, callback, callback_arg);
 }
 
-static inline async_state
+static inline async_status
 cache_get_async2(cache *cc, page_get_async2_state_buffer buffer)
 {
    return cc->ops->page_get_async2(buffer);

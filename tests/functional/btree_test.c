@@ -412,7 +412,7 @@ btree_test_run_pending(cache                   *cc,
       if (!btree_test_async_ctxt_is_used(async_lookup, i)) {
          continue;
       }
-      async_state            res;
+      async_status           res;
       btree_test_async_ctxt *ctxt = &async_lookup->ctxt[i];
       // We skip skip_ctxt, because that it just asked us to retry.
       if (ctxt == skip_ctxt || !ctxt->ready) {
@@ -420,7 +420,7 @@ btree_test_run_pending(cache                   *cc,
       }
       ctxt->ready = FALSE;
       res         = btree_lookup_async2(&ctxt->ctxt);
-      if (res == ASYNC_STATE_DONE) {
+      if (res == ASYNC_STATUS_DONE) {
          bool32 local_found = btree_found(&ctxt->result);
          if (local_found ^ expected_found) {
             btree_print_tree(Platform_default_log_handle,
@@ -461,7 +461,7 @@ btree_test_wait_pending(cache                   *cc,
    }
 }
 
-async_state
+async_status
 test_btree_async_lookup(cache                   *cc,
                         btree_config            *cfg,
                         btree_test_async_ctxt   *async_ctxt,
@@ -470,8 +470,8 @@ test_btree_async_lookup(cache                   *cc,
                         bool32                   expected_found,
                         bool32                  *correct)
 {
-   async_state res;
-   key         target = key_buffer_key(&async_ctxt->keybuf);
+   async_status res;
+   key          target = key_buffer_key(&async_ctxt->keybuf);
 
    btree_lookup_async2_state_init(&async_ctxt->ctxt,
                                   cc,
@@ -485,7 +485,7 @@ test_btree_async_lookup(cache                   *cc,
 
    async_ctxt->ready = FALSE;
    res               = btree_lookup_async2(&async_ctxt->ctxt);
-   if (res == ASYNC_STATE_DONE) {
+   if (res == ASYNC_STATUS_DONE) {
       *correct = btree_found(&async_ctxt->result) == expected_found;
       btree_test_put_async_ctxt(async_lookup, async_ctxt);
    }
@@ -493,7 +493,7 @@ test_btree_async_lookup(cache                   *cc,
    return res;
 }
 
-async_state
+async_status
 test_memtable_async_lookup(test_memtable_context   *ctxt,
                            btree_test_async_ctxt   *async_ctxt,
                            btree_test_async_lookup *async_lookup,
@@ -585,9 +585,9 @@ test_btree_basic(cache             *cc,
          bool32 correct;
          test_btree_tuple(
             ctxt, &async_ctxt->keybuf, &expected_data, insert_num, 0);
-         async_state res = test_memtable_async_lookup(
+         async_status res = test_memtable_async_lookup(
             ctxt, async_ctxt, async_lookup, 0, TRUE, &correct);
-         if (res == ASYNC_STATE_DONE) {
+         if (res == ASYNC_STATUS_DONE) {
             if (!correct) {
                memtable_print(Platform_default_log_handle, cc, mt);
                key target = key_buffer_key(&async_ctxt->keybuf);
@@ -697,14 +697,14 @@ test_btree_basic(cache             *cc,
          bool32 correct;
          test_btree_tuple(
             ctxt, &async_ctxt->keybuf, &expected_data, insert_num, 0);
-         async_state res = test_btree_async_lookup(cc,
-                                                   btree_cfg,
-                                                   async_ctxt,
-                                                   async_lookup,
-                                                   packed_root_addr,
-                                                   TRUE,
-                                                   &correct);
-         if (res == ASYNC_STATE_DONE) {
+         async_status res = test_btree_async_lookup(cc,
+                                                    btree_cfg,
+                                                    async_ctxt,
+                                                    async_lookup,
+                                                    packed_root_addr,
+                                                    TRUE,
+                                                    &correct);
+         if (res == ASYNC_STATUS_DONE) {
             if (!correct) {
                btree_print_tree(Platform_default_log_handle,
                                 cc,
