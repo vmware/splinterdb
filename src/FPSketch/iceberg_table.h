@@ -43,6 +43,11 @@ typedef struct iceberg_lv3_list {
    iceberg_lv3_node *head;
 } iceberg_lv3_list;
 
+typedef struct iceberg_stats {
+   _Atomic uint64_t cache_misses;
+   _Atomic uint64_t cache_hits;
+} iceberg_stats;
+
 typedef struct iceberg_metadata {
    uint64_t              total_size_in_bytes;
    uint64_t              nblocks;
@@ -62,6 +67,7 @@ typedef struct iceberg_metadata {
    uint8_t              *lv3_locks[MAX_RESIZES];
    uint64_t              nblocks_parts[MAX_RESIZES];
    _Atomic uint64_t      num_inactive_keys;
+   iceberg_stats         stats;
 #ifdef ENABLE_RESIZE
    volatile int lock;
    uint64_t     resize_cnt;

@@ -20,6 +20,35 @@
 /* #define RESIZE_THRESHOLD 0.96 */
 #define RESIZE_THRESHOLD 0.85 // For YCSB*/
 
+// Initialize the stats struct
+static inline void
+iceberg_stats_init(iceberg_stats *stats)
+{
+   stats->cache_hits   = 0;
+   stats->cache_misses = 0;
+}
+
+// Increment the cache hits
+static inline void
+iceberg_stats_inc_hits(iceberg_stats *stats)
+{
+   atomic_fetch_add(&stats->cache_hits, 1);
+}
+
+// Increment the cache misses
+static inline void
+iceberg_stats_inc_misses(iceberg_stats *stats)
+{
+   atomic_fetch_add(&stats->cache_misses, 1);
+}
+
+// Get the cache hit ratio
+static inline double
+iceberg_stats_get_hit_ratio(iceberg_stats *stats)
+{
+   return (double)stats->cache_hits / (stats->cache_hits + stats->cache_misses);
+}
+
 uint64_t seed[5] = {12351327692179052ll,
                     23246347347385899ll,
                     35236262354132235ll,
@@ -508,6 +537,8 @@ iceberg_init(iceberg_table     *table,
    table->inactive_keys = fifo_queue_create();
 
    table->spl_data_config = spl_data_config;
+
+   iceberg_stats_init(&table->metadata.stats);
 
    return 0;
 }
@@ -1212,8 +1243,10 @@ iceberg_put_or_insert(iceberg_table *table,
 
       /*printf("Found!\n");*/
       unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
+      iceberg_stats_inc_hits(&metadata->stats);
       return true && overwrite_value;
    }
+   iceberg_stats_inc_misses(&metadata->stats);
 
    const uint64_t refcount   = 1;
    const uint64_t q_refcount = 0;
@@ -2933,4 +2966,6 @@ iceberg_print_state(iceberg_table *table)
    printf("Number level 2 inserts: %ld\n", lv2_balls(table));
    printf("Number level 3 inserts: %ld\n", lv3_balls(table));
    printf("Total inserts: %ld\n", tot_balls(table));
+   printf("Cache hit ratio: %f\n",
+          iceberg_stats_get_hit_ratio(&table->metadata.stats));
 }
