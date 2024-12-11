@@ -2966,6 +2966,9 @@ iceberg_print_state(iceberg_table *table)
    printf("Number level 2 inserts: %ld\n", lv2_balls(table));
    printf("Number level 3 inserts: %ld\n", lv3_balls(table));
    printf("Total inserts: %ld\n", tot_balls(table));
+
+   printf("Cache hits: %ld\n", table->metadata.stats.cache_hits);
+   printf("Cache misses: %ld\n", table->metadata.stats.cache_misses);
    printf("Cache hit ratio: %f\n",
           iceberg_stats_get_hit_ratio(&table->metadata.stats));
 }
