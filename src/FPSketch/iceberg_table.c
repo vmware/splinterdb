@@ -372,7 +372,7 @@ iceberg_config_default_init(iceberg_config *config)
    config->transform_sketch_value  = &transform_sketch_value_default;
    config->post_remove             = NULL;
    config->enable_lazy_eviction    = false;
-   config->max_num_inactive_keys   = 4096; // 4MB cache worth of inactive keys
+   config->max_num_inactive_keys   = 104857; // 4MB cache worth of inactive keys
 }
 
 int
