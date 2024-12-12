@@ -21,33 +21,34 @@
 #define RESIZE_THRESHOLD 0.85 // For YCSB*/
 
 // Initialize the stats struct
-static inline void
-iceberg_stats_init(iceberg_stats *stats)
-{
-   stats->cache_hits   = 0;
-   stats->cache_misses = 0;
-}
+// static inline void
+// iceberg_stats_init(iceberg_stats *stats)
+// {
+//    stats->cache_hits   = 0;
+//    stats->cache_misses = 0;
+// }
 
-// Increment the cache hits
-static inline void
-iceberg_stats_inc_hits(iceberg_stats *stats)
-{
-   atomic_fetch_add(&stats->cache_hits, 1);
-}
+// // Increment the cache hits
+// static inline void
+// iceberg_stats_inc_hits(iceberg_stats *stats)
+// {
+//    atomic_fetch_add(&stats->cache_hits, 1);
+// }
 
-// Increment the cache misses
-static inline void
-iceberg_stats_inc_misses(iceberg_stats *stats)
-{
-   atomic_fetch_add(&stats->cache_misses, 1);
-}
+// // Increment the cache misses
+// static inline void
+// iceberg_stats_inc_misses(iceberg_stats *stats)
+// {
+//    atomic_fetch_add(&stats->cache_misses, 1);
+// }
 
-// Get the cache hit ratio
-static inline double
-iceberg_stats_get_hit_ratio(iceberg_stats *stats)
-{
-   return (double)stats->cache_hits / (stats->cache_hits + stats->cache_misses);
-}
+// // Get the cache hit ratio
+// static inline double
+// iceberg_stats_get_hit_ratio(iceberg_stats *stats)
+// {
+//    return (double)stats->cache_hits / (stats->cache_hits +
+//    stats->cache_misses);
+// }
 
 uint64_t seed[5] = {12351327692179052ll,
                     23246347347385899ll,
@@ -539,7 +540,7 @@ iceberg_init(iceberg_table     *table,
 
    table->spl_data_config = spl_data_config;
 
-   iceberg_stats_init(&table->metadata.stats);
+   // iceberg_stats_init(&table->metadata.stats);
 
    return 0;
 }
@@ -1241,13 +1242,13 @@ iceberg_put_or_insert(iceberg_table *table,
       unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
       if (became_active_from_inactive_keys) {
          lock(&table->eviction_lock, WAIT_FOR_LOCK);
-         atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
+         --table->metadata.num_inactive_keys;
          unlock(&table->eviction_lock);
       }
-      iceberg_stats_inc_hits(&metadata->stats);
+      // iceberg_stats_inc_hits(&metadata->stats);
       return true && overwrite_value;
    }
-   iceberg_stats_inc_misses(&metadata->stats);
+   // iceberg_stats_inc_misses(&metadata->stats);
 
    const uint64_t refcount   = 1;
    const uint64_t q_refcount = 0;
@@ -1426,7 +1427,7 @@ iceberg_lv3_node_deinit(iceberg_lv3_node *node)
 static inline bool
 is_inactive_keys_too_many(iceberg_table *table)
 {
-   return atomic_load(&table->metadata.num_inactive_keys)
+   return table->metadata.num_inactive_keys
           >= table->config.max_num_inactive_keys;
 }
 
@@ -1481,7 +1482,7 @@ iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
 static inline void
 iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
 {
-   platform_assert(atomic_load(&table->metadata.num_inactive_keys)
+   platform_assert(table->metadata.num_inactive_keys
                    <= table->config.max_num_inactive_keys + MAX_THREADS);
    platform_assert(table->config.enable_lazy_eviction);
    bool is_evicted = false;
@@ -1501,7 +1502,7 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
          is_evicted =
             iceberg_lv1_remove_no_lock(table, evicted_kv->key, thread_id);
          platform_assert(is_evicted);
-         atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
+         --table->metadata.num_inactive_keys;
       } else {
          // evicted_kv->q_refcount > 1 : It was inactive multiple times
          // evicted_kv->refcount > 0 : It is active now
@@ -1519,7 +1520,7 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
       if (is_evicted) {
          fifo_node_destroy(node);
       }
-      platform_assert(atomic_load(&table->metadata.num_inactive_keys)
+      platform_assert(table->metadata.num_inactive_keys
                       <= fifo_queue_size(table->inactive_keys) + MAX_THREADS);
    }
 }
@@ -1593,9 +1594,6 @@ iceberg_lv3_remove_internal(iceberg_table *table,
          metadata->lv3_sizes[bindex][boffset]--;
          pc_add(&metadata->lv3_balls, -1, thread_id);
          ret = true;
-         if (table->config.enable_lazy_eviction) {
-            atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
-         }
       } else if (head->kv.refcount == 0) {
          ;
       } else {
@@ -1608,7 +1606,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
                      &head->kv, &metadata->lv3_locks[bindex][boffset], 3);
                }
                head->kv.q_refcount++;
-               atomic_fetch_add(&table->metadata.num_inactive_keys, 1);
+               ++table->metadata.num_inactive_keys;
             }
          }
       }
@@ -1668,9 +1666,6 @@ iceberg_lv3_remove_internal(iceberg_table *table,
             metadata->lv3_sizes[bindex][boffset]--;
             pc_add(&metadata->lv3_balls, -1, thread_id);
             ret = true;
-            if (table->config.enable_lazy_eviction) {
-               atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
-            }
          } else if (next_node->kv.refcount == 0) {
             ;
          } else {
@@ -1686,7 +1681,7 @@ iceberg_lv3_remove_internal(iceberg_table *table,
                                          3);
                   }
                   next_node->kv.q_refcount++;
-                  atomic_fetch_add(&table->metadata.num_inactive_keys, 1);
+                  ++table->metadata.num_inactive_keys;
                }
             }
          }
@@ -1945,9 +1940,6 @@ iceberg_lv2_remove(iceberg_table *table,
                blocks[boffset].slots[slot].q_refcount = 0;
                pc_add(&metadata->lv2_balls, -1, thread_id);
                ret = true;
-               if (table->config.enable_lazy_eviction) {
-                  atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
-               }
             } else if (blocks[boffset].slots[slot].refcount == 0) {
                return false;
             } else {
@@ -1964,7 +1956,7 @@ iceberg_lv2_remove(iceberg_table *table,
                            2);
                      }
                      blocks[boffset].slots[slot].q_refcount++;
-                     atomic_fetch_add(&table->metadata.num_inactive_keys, 1);
+                     ++table->metadata.num_inactive_keys;
                   }
                }
             }
@@ -2184,9 +2176,6 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             blocks[boffset].slots[slot].q_refcount = 0;
             pc_add(&metadata->lv1_balls, -1, thread_id);
             ret = true;
-            if (table->config.enable_lazy_eviction) {
-               atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
-            }
          } else if (blocks[boffset].slots[slot].refcount == 0) {
             unlock_block(
                (uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
@@ -2219,7 +2208,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             if (!force_remove_if_inactive) {
                if (became_inactive) {
                   lock(&table->eviction_lock, WAIT_FOR_LOCK);
-                  atomic_fetch_add(&table->metadata.num_inactive_keys, 1);
+                  ++table->metadata.num_inactive_keys;
                   iceberg_evict_inactive_keys(table, thread_id);
                   if (to_enqueue) {
                      fifo_enqueue(table->inactive_keys, to_enqueue);
@@ -2247,12 +2236,12 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
 
    unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
 
-   if (table->config.enable_lazy_eviction) {
-      iceberg_evict_inactive_keys(table, thread_id);
-      if (to_enqueue) {
-         fifo_enqueue(table->inactive_keys, to_enqueue);
-      }
-   }
+   // if (table->config.enable_lazy_eviction) {
+   //    iceberg_evict_inactive_keys(table, thread_id);
+   //    if (to_enqueue) {
+   //       fifo_enqueue(table->inactive_keys, to_enqueue);
+   //    }
+   // }
 
    return ret;
 }
@@ -2974,8 +2963,8 @@ iceberg_print_state(iceberg_table *table)
    printf("Number level 3 inserts: %ld\n", lv3_balls(table));
    printf("Total inserts: %ld\n", tot_balls(table));
 
-   printf("Cache hits: %ld\n", table->metadata.stats.cache_hits);
-   printf("Cache misses: %ld\n", table->metadata.stats.cache_misses);
-   printf("Cache hit ratio: %f\n",
-          iceberg_stats_get_hit_ratio(&table->metadata.stats));
+   // printf("Cache hits: %ld\n", table->metadata.stats.cache_hits);
+   // printf("Cache misses: %ld\n", table->metadata.stats.cache_misses);
+   // printf("Cache hit ratio: %f\n",
+   //        iceberg_stats_get_hit_ratio(&table->metadata.stats));
 }
