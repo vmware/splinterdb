@@ -533,7 +533,7 @@ iceberg_init(iceberg_table     *table,
    memset(table->metadata.lv3_locks[0], 0, total_blocks * sizeof(uint8_t));
 
    table->metadata.num_inactive_keys = 0;
-   rw_lock_init(&table->eviction_lock);
+   table->eviction_lock              = 0;
 
    table->inactive_keys = fifo_queue_create();
 
@@ -1240,9 +1240,9 @@ iceberg_put_or_insert(iceberg_table *table,
       /*printf("Found!\n");*/
       unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
       if (became_active_from_inactive_keys) {
-         write_lock(&table->eviction_lock, WAIT_FOR_LOCK);
+         lock(&table->eviction_lock, WAIT_FOR_LOCK);
          atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
-         write_unlock(&table->eviction_lock);
+         unlock(&table->eviction_lock);
       }
       iceberg_stats_inc_hits(&metadata->stats);
       return true && overwrite_value;
@@ -1472,9 +1472,6 @@ iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
          blocks[boffset].slots[slot].refcount   = 0;
          blocks[boffset].slots[slot].q_refcount = 0;
          pc_add(&metadata->lv1_balls, -1, thread_id);
-         if (table->config.enable_lazy_eviction) {
-            atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
-         }
          return true;
       }
    }
@@ -1484,7 +1481,7 @@ iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
 static inline void
 iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
 {
-   read_lock(&table->eviction_lock, WAIT_FOR_LOCK, thread_id);
+   lock(&table->eviction_lock, WAIT_FOR_LOCK);
    platform_assert(atomic_load(&table->metadata.num_inactive_keys)
                    <= table->config.max_num_inactive_keys + MAX_THREADS);
    platform_assert(table->config.enable_lazy_eviction);
@@ -1505,6 +1502,7 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
          is_evicted =
             iceberg_lv1_remove_no_lock(table, evicted_kv->key, thread_id);
          platform_assert(is_evicted);
+         atomic_fetch_sub(&table->metadata.num_inactive_keys, 1);
       } else {
          // evicted_kv->q_refcount > 1 : It was inactive multiple times
          // evicted_kv->refcount > 0 : It is active now
@@ -1525,7 +1523,7 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
       platform_assert(atomic_load(&table->metadata.num_inactive_keys)
                       <= fifo_queue_size(table->inactive_keys) + MAX_THREADS);
    }
-   read_unlock(&table->eviction_lock, thread_id);
+   unlock(&table->eviction_lock);
 }
 
 static inline bool
@@ -2222,9 +2220,9 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
          if (table->config.enable_lazy_eviction) {
             if (!force_remove_if_inactive) {
                if (became_inactive) {
-                  write_lock(&table->eviction_lock, WAIT_FOR_LOCK);
+                  lock(&table->eviction_lock, WAIT_FOR_LOCK);
                   atomic_fetch_add(&table->metadata.num_inactive_keys, 1);
-                  write_unlock(&table->eviction_lock);
+                  unlock(&table->eviction_lock);
                   iceberg_evict_inactive_keys(table, thread_id);
                   if (to_enqueue) {
                      fifo_enqueue(table->inactive_keys, to_enqueue);

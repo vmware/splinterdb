@@ -108,7 +108,7 @@ typedef struct iceberg_table {
    const data_config *spl_data_config;
    sketch            *sktch;
    fifo_queue        *inactive_keys;
-   ReaderWriterLock   eviction_lock;
+   int                eviction_lock;
 } iceberg_table;
 
 uint64_t
