@@ -1481,7 +1481,6 @@ iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
 static inline void
 iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
 {
-   lock(&table->eviction_lock, WAIT_FOR_LOCK);
    platform_assert(atomic_load(&table->metadata.num_inactive_keys)
                    <= table->config.max_num_inactive_keys + MAX_THREADS);
    platform_assert(table->config.enable_lazy_eviction);
@@ -1523,7 +1522,6 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
       platform_assert(atomic_load(&table->metadata.num_inactive_keys)
                       <= fifo_queue_size(table->inactive_keys) + MAX_THREADS);
    }
-   unlock(&table->eviction_lock);
 }
 
 static inline bool
@@ -2222,11 +2220,11 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                if (became_inactive) {
                   lock(&table->eviction_lock, WAIT_FOR_LOCK);
                   atomic_fetch_add(&table->metadata.num_inactive_keys, 1);
-                  unlock(&table->eviction_lock);
                   iceberg_evict_inactive_keys(table, thread_id);
                   if (to_enqueue) {
                      fifo_enqueue(table->inactive_keys, to_enqueue);
                   }
+                  unlock(&table->eviction_lock);
                }
             }
          }
