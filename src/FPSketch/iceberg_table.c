@@ -2224,12 +2224,12 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                if (blocks[boffset].slots[slot].refcount == 0)
                { // Becomes inactive
 
-                  // Maintain the largest timestamp of inactive keys
-                  if (table->sktch) {
-                     sketch_insert(table->sktch,
-                                   blocks[boffset].slots[slot].key,
-                                   blocks[boffset].slots[slot].val);
-                  }
+                  // Test: Maintain the largest timestamp of inactive keys
+                  // if (table->sktch) {
+                  //    sketch_insert(table->sktch,
+                  //                  blocks[boffset].slots[slot].key,
+                  //                  blocks[boffset].slots[slot].val);
+                  // }
 
                   // Insert the inactive key to the queue
                   if (blocks[boffset].slots[slot].q_refcount == 0) {
