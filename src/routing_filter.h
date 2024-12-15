@@ -91,6 +91,8 @@ typedef struct routing_async_ctxt {
    cache_async_ctxt   *cache_ctxt;  // cache ctxt for async get
 } routing_async_ctxt;
 
+typedef struct ONDISK routing_hdr routing_hdr;
+
 platform_status
 routing_filter_add(cache                *cc,
                    const routing_config *cfg,
@@ -163,6 +165,34 @@ routing_filter_lookup_async(cache              *cc,
                             key                 target,
                             uint64             *found_values,
                             routing_async_ctxt *ctxt);
+
+// clang-format off
+DEFINE_ASYNC_STATE(routing_filter_lookup_async2_state, 2,
+   param, cache *,                      cc,
+   param, const routing_config *,       cfg,
+   param, routing_filter,               filter,
+   param, key,                          target,
+   param, uint64 *,                     found_values,
+   param, async_callback_fn,            callback,
+   param, void *,                       callback_arg,
+   local, platform_status,              __async_result,
+   local, uint32,                       fp,
+   local, uint32,                       remainder_size,
+   local, uint32,                       bucket,
+   local, uint32,                       index,
+   local, routing_hdr *,                hdr,
+   local, page_handle *,                filter_page,
+   local, uint64,                       page_size,
+   local, uint64,                       addrs_per_page,
+   local, uint64,                       index_addr,
+   local, uint64,                       hdr_raw_addr,
+   local, uint64,                       header_addr,
+   local, page_handle *,                index_page,
+   local, page_get_async2_state_buffer, cache_get_state)
+// clang-format on
+
+async_status
+routing_filter_lookup_async2(routing_filter_lookup_async2_state *state);
 
 void
 routing_filter_dec_ref(cache *cc, routing_filter *filter);

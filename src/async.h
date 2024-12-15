@@ -374,7 +374,7 @@ async_wait_queue_release_all(async_wait_queue *q)
  * Macros for calling async functions.
  */
 
-#define async_call(func, statep) (((func)(statep)) == ASYNC_STATE_DONE)
+#define async_call(func, statep) (((func)(statep)) == ASYNC_STATUS_DONE)
 #define async_result(statep)     ((statep)->__async_result)
 
 static inline void
@@ -398,6 +398,7 @@ async_call_sync_callback_function(void *arg)
          while (!__async_ready) {                                              \
             wait;                                                              \
          }                                                                     \
+         __async_ready = FALSE;                                                \
       }                                                                        \
       async_result(&__async_state);                                            \
    })
