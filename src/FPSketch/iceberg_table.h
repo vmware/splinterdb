@@ -66,7 +66,6 @@ typedef struct iceberg_metadata {
    uint64_t             *lv3_sizes[MAX_RESIZES];
    uint8_t              *lv3_locks[MAX_RESIZES];
    uint64_t              nblocks_parts[MAX_RESIZES];
-   _Atomic uint64_t      num_inactive_keys;
    iceberg_stats         stats;
 #ifdef ENABLE_RESIZE
    volatile int lock;
@@ -108,7 +107,6 @@ typedef struct iceberg_table {
    const data_config *spl_data_config;
    sketch            *sktch;
    fifo_queue        *inactive_keys;
-   int                eviction_lock;
 } iceberg_table;
 
 uint64_t

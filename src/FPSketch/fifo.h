@@ -34,7 +34,8 @@ fifo_node *
 fifo_node_create(void *kv, void *lock_ptr, int level);
 void
 fifo_node_destroy(fifo_node *node);
-void
+// Return: The size of queue after enqueueing
+uint64_t
 fifo_enqueue(fifo_queue *q, fifo_node *new_node);
 fifo_node *
 fifo_dequeue(fifo_queue *q);

@@ -39,15 +39,16 @@ fifo_node_destroy(fifo_node *node)
    platform_free(0, node);
 }
 
-void
+uint64_t
 fifo_enqueue(fifo_queue *q, fifo_node *new_node)
 {
    lock(&q->tail_lock, WAIT_FOR_LOCK);
    new_node->next = NULL;
    q->tail->next  = new_node;
    q->tail        = new_node;
+   uint64_t size  = atomic_fetch_add(&q->size, 1) + 1;
    unlock(&q->tail_lock);
-   atomic_fetch_add(&q->size, 1);
+   return size;
 }
 
 fifo_node *
@@ -71,8 +72,8 @@ fifo_dequeue(fifo_queue *q)
       unlock(&q->tail_lock);
    }
 
-   unlock(&q->head_lock);
    atomic_fetch_sub(&q->size, 1);
+   unlock(&q->head_lock);
    return to_return;
 }
 
