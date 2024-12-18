@@ -545,6 +545,7 @@ iceberg_init(iceberg_table     *table,
 
 #if ENABLE_CACHE_STATS
    iceberg_stats_init(&table->metadata.stats);
+   table->metadata.max_queue_size = 0;
 #endif
    return 0;
 }
@@ -1237,14 +1238,8 @@ iceberg_put_or_insert(iceberg_table *table,
 
       /*printf("Found!\n");*/
       unlock_block((uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
-#if ENABLE_CACHE_STATS
-      iceberg_stats_inc_hits(&metadata->stats);
-#endif
       return true && overwrite_value;
    }
-#if ENABLE_CACHE_STATS
-   iceberg_stats_inc_misses(&metadata->stats);
-#endif
 
    const uint64_t refcount   = 1;
    const uint64_t q_refcount = 0;
@@ -2212,7 +2207,29 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                         fifo_enqueue(table->inactive_keys, to_enqueue);
                      should_evict = (size > table->config.max_num_inactive_keys
                                                + MAX_THREADS);
+#if ENABLE_CACHE_STATS
+                     iceberg_stats_inc_misses(&metadata->stats);
+                     uint64_t curr_max;
+                     do {
+                        curr_max = __atomic_load_n(
+                           &table->metadata.max_queue_size, __ATOMIC_RELAXED);
+                     } while (size > curr_max
+                              && !__atomic_compare_exchange_n(
+                                 &table->metadata.max_queue_size,
+                                 &curr_max,
+                                 size,
+                                 true,
+                                 __ATOMIC_RELAXED,
+                                 __ATOMIC_RELAXED));
+#endif
                   }
+
+#if ENABLE_CACHE_STATS
+                  else
+                  {
+                     iceberg_stats_inc_hits(&metadata->stats);
+                  }
+#endif
                   blocks[boffset].slots[slot].q_refcount++;
                }
             }
@@ -2981,5 +2998,6 @@ iceberg_print_state(iceberg_table *table)
    printf("Cache misses: %ld\n", table->metadata.stats.cache_misses);
    printf("Cache hit ratio: %f\n",
           iceberg_stats_get_hit_ratio(&table->metadata.stats));
+   printf("Max queue size: %lu\n", table->metadata.max_queue_size);
 #endif
 }

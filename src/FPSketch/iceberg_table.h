@@ -67,6 +67,7 @@ typedef struct iceberg_metadata {
    uint8_t              *lv3_locks[MAX_RESIZES];
    uint64_t              nblocks_parts[MAX_RESIZES];
    iceberg_stats         stats;
+   uint64_t              max_queue_size;
 #ifdef ENABLE_RESIZE
    volatile int lock;
    uint64_t     resize_cnt;
