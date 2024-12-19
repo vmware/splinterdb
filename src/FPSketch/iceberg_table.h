@@ -4,7 +4,6 @@
 #include "types.h"
 #include "sketch.h"
 #include "platform.h"
-#include "fifo.h"
 
 #ifdef __cplusplus
 #   define __restrict__
@@ -106,7 +105,7 @@ typedef struct iceberg_table {
    iceberg_config     config;
    const data_config *spl_data_config;
    sketch            *sktch;
-   fifo_queue        *inactive_keys;
+   uint64_t           clock_hand; // iterate table block by block
 } iceberg_table;
 
 uint64_t
