@@ -25,8 +25,10 @@ typedef struct fifo_data {
 typedef struct fifo_queue {
    fifo_data       *data;
    uint32_t         capacity;
-   _Atomic uint32_t head;
-   _Atomic uint32_t tail;
+   uint32_t         head;
+   uint32_t         tail;
+   int              head_lock;
+   int              tail_lock;
    _Atomic uint64_t size;
 } fifo_queue;
 
