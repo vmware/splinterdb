@@ -1418,54 +1418,6 @@ iceberg_put(iceberg_table *table,
 //    platform_free(0, ptr);
 // }
 
-// This function is used to fix quickly a bug during eviction. Could be improved
-// in the future.
-static inline bool
-iceberg_lv1_remove_no_lock(iceberg_table *table, slice key, threadid thread_id)
-{
-   iceberg_metadata *metadata = &table->metadata;
-   uint8_t           fprint;
-   uint64_t          index;
-
-   split_hash(lv1_hash(key), &fprint, &index, metadata);
-
-   uint64_t bindex, boffset;
-   get_index_offset(table->metadata.log_init_size, index, &bindex, &boffset);
-   iceberg_lv1_block *blocks = table->level1[bindex];
-
-   __mmask64 md_mask =
-      slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, fprint);
-   uint8_t popct = __builtin_popcountll(md_mask);
-
-   for (int i = 0; i < popct; ++i) {
-      uint8_t slot = word_select(md_mask, i);
-
-      if (iceberg_key_compare(
-             table->spl_data_config, blocks[boffset].slots[slot].key, key)
-          == 0)
-      {
-         // If it has a sketch, insert the removed value to it.
-         if (table->sktch) {
-            sketch_insert(table->sktch,
-                          blocks[boffset].slots[slot].key,
-                          blocks[boffset].slots[slot].val);
-         }
-         if (table->config.post_remove) {
-            table->config.post_remove(&blocks[boffset].slots[slot].val);
-         }
-         metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
-         void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
-         platform_free(0, ptr);
-         blocks[boffset].slots[slot].key        = NULL_SLICE;
-         blocks[boffset].slots[slot].refcount   = 0;
-         blocks[boffset].slots[slot].q_refcount = 0;
-         pc_add(&metadata->lv1_balls, -1, thread_id);
-         return true;
-      }
-   }
-   return false;
-}
-
 static inline void
 iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
 {
@@ -1480,8 +1432,9 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
          // the number of inactive keys yet. (Temporary inconsistency)
          continue;
       }
-      kv_pair      *evicted_kv = (kv_pair *)evicted_fifo_data.kv;
-      iceberg_lock *lock       = &evicted_fifo_data.lock;
+      kv_pair       *evicted_kv = (kv_pair *)evicted_fifo_data.kv;
+      iceberg_block *block      = &evicted_fifo_data.block;
+      iceberg_lock  *lock       = &evicted_fifo_data.lock;
       // Iceberg uses different locks for different levels
       if (lock->level == 3) {
          while (__sync_lock_test_and_set((uint8_t *)lock->ptr, 1))
@@ -1490,9 +1443,22 @@ iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
          lock_block((uint64_t *)lock->ptr);
       }
       if (evicted_kv->refcount == 0 && evicted_kv->q_refcount == 1) {
-         is_evicted =
-            iceberg_lv1_remove_no_lock(table, evicted_kv->key, thread_id);
-         platform_assert(is_evicted);
+         // If it has a sketch, insert the removed value to it.
+         if (table->sktch) {
+            sketch_insert(table->sktch, evicted_kv->key, evicted_kv->val);
+         }
+         if (table->config.post_remove) {
+            table->config.post_remove(&evicted_kv->val);
+         }
+         table->metadata.lv1_md[block->bindex][block->boffset]
+            .block_md[block->slot] = 0;
+         void *ptr                 = (void *)slice_data(evicted_kv->key);
+         platform_free(0, ptr);
+         evicted_kv->key        = NULL_SLICE;
+         evicted_kv->refcount   = 0;
+         evicted_kv->q_refcount = 0;
+         pc_add(&table->metadata.lv1_balls, -1, thread_id);
+         is_evicted = true;
       } else if (evicted_kv->refcount > 0) {
          // evicted_kv->refcount > 0 : It is active now
          evicted_kv->q_refcount = 0;
@@ -2197,10 +2163,13 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                   // Insert the inactive key to the queue
                   if (blocks[boffset].slots[slot].q_refcount == 0) {
                      fifo_data data = {
-                        .kv   = &blocks[boffset].slots[slot],
-                        .lock = {.ptr =
+                        .kv    = &blocks[boffset].slots[slot],
+                        .block = {.bindex  = bindex,
+                                  .boffset = boffset,
+                                  .slot    = slot},
+                        .lock  = {.ptr =
                                     &metadata->lv1_md[bindex][boffset].block_md,
-                                 .level = 1}};
+                                  .level = 1}};
                      uint64_t size = fifo_enqueue(table->inactive_keys, data);
                      should_evict  = (size > table->config.max_num_inactive_keys
                                                + MAX_THREADS);

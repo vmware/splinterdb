@@ -10,18 +10,23 @@ typedef struct iceberg_lock {
    int   level;
 } iceberg_lock;
 
+typedef struct iceberg_block {
+   uint64_t bindex;
+   uint64_t boffset;
+   uint8_t  slot;
+} iceberg_block;
+
 typedef struct fifo_data {
-   void        *kv;
-   iceberg_lock lock;
+   void         *kv;
+   iceberg_block block;
+   iceberg_lock  lock;
 } fifo_data;
 
 typedef struct fifo_queue {
    fifo_data       *data;
    uint32_t         capacity;
-   uint32_t         head;
-   uint32_t         tail;
-   int              head_lock;
-   int              tail_lock;
+   _Atomic uint32_t head;
+   _Atomic uint32_t tail;
    _Atomic uint64_t size;
 } fifo_queue;
 
