@@ -140,7 +140,8 @@ typedef struct trunk_node_context {
 typedef struct ondisk_node_handle {
    cache       *cc;
    page_handle *header_page;
-   page_handle *content_page;
+   page_handle *pivot_page;
+   page_handle *inflight_bundle_page;
 } ondisk_node_handle;
 
 typedef VECTOR(iterator *) iterator_vector;
@@ -233,6 +234,37 @@ trunk_collect_branches(const trunk_node_context *context,
                        uint64                   *branches,
                        key_buffer               *min_key,
                        key_buffer               *max_key);
+
+// clang-format off
+// DEFINE_ASYNC_STATE(tunk_merge_lookup_state, 3,
+//    param, trunk_node_context *,  context,
+//    param, ondisk_node_handle *,  inhandle,
+//    param, key,                   tgt,
+//    param, merge_accumulator *,   result,
+//    param, platform_log_handle *, log,
+//    local, platform_status,       __async_result,
+//    local, platform_status,       rc,
+//    local, ondisk_node_handle,    handle,
+//    local, uint64,                height,
+//    local, ondisk_pivot *,        pivot,
+//    local, ondisk_bundle *,       bndl,
+//    local, ondisk_node_handle,    child_handle)
+
+   // odn_find_pivot -> odn_get_pivot -> 
+   //                   odn_handle_setup_content_page ->
+   //                   cache_get
+   //
+   // odn_get_first_inflight_bundle -> odn_bundle_at_offset ->
+   //                                  odn_handle_setup_content_page ->
+   //                                  cache_get
+   //
+   // od_bundle_merge_lookup -> routing_filter_lookup
+   //
+   //                        -> btree_lookup_and_merge
+   //
+   // odn_handle_init -> cache_get
+
+// clang-format on
 
 /**********************************
  * Statistics

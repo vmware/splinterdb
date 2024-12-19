@@ -84,6 +84,7 @@ typedef struct ONDISK ondisk_trunk_node {
    uint16 num_pivots;
    // On disk, inflight bundles are ordered from newest to oldest.
    uint16 num_inflight_bundles;
+   uint32 inflight_bundles_offset;
    uint32 pivot_offsets[];
 } ondisk_trunk_node;
 
@@ -855,6 +856,12 @@ ondisk_pivot_key(ondisk_pivot *odp)
    return ondisk_key_to_key(&odp->key);
 }
 
+static ondisk_bundle *
+ondisk_pivot_bundle(ondisk_pivot *odp)
+{
+   return (ondisk_bundle *)((char *)odp + sizeof_ondisk_pivot(odp));
+}
+
 /********************************************************
  * Node serialization/deserialization and refcounting.
  ********************************************************/
@@ -869,22 +876,29 @@ ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
       platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
    }
-   handle->content_page = NULL;
+   handle->pivot_page           = NULL;
+   handle->inflight_bundle_page = NULL;
    return STATUS_OK;
 }
 
 void
 trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle)
 {
-   if (handle->content_page != NULL
-       && handle->content_page != handle->header_page) {
-      cache_unget(handle->cc, handle->content_page);
+   if (handle->pivot_page != NULL && handle->pivot_page != handle->header_page)
+   {
+      cache_unget(handle->cc, handle->pivot_page);
+   }
+   if (handle->inflight_bundle_page != NULL
+       && handle->inflight_bundle_page != handle->header_page)
+   {
+      cache_unget(handle->cc, handle->inflight_bundle_page);
    }
    if (handle->header_page != NULL) {
       cache_unget(handle->cc, handle->header_page);
    }
-   handle->header_page  = NULL;
-   handle->content_page = NULL;
+   handle->header_page          = NULL;
+   handle->pivot_page           = NULL;
+   handle->inflight_bundle_page = NULL;
 }
 
 static platform_status
@@ -893,8 +907,9 @@ trunk_ondisk_node_handle_clone(ondisk_node_handle       *dst,
 {
    dst->cc = src->cc;
    if (src->header_page == NULL) {
-      dst->header_page  = NULL;
-      dst->content_page = NULL;
+      dst->header_page          = NULL;
+      dst->pivot_page           = NULL;
+      dst->inflight_bundle_page = NULL;
       return STATUS_OK;
    }
 
@@ -904,46 +919,50 @@ trunk_ondisk_node_handle_clone(ondisk_node_handle       *dst,
       platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
    }
-   dst->content_page = NULL;
+   dst->pivot_page           = NULL;
+   dst->inflight_bundle_page = NULL;
    return STATUS_OK;
 }
 
 static uint64
-content_page_offset(ondisk_node_handle *handle)
+content_page_offset(const ondisk_node_handle *handle, const page_handle *page)
 {
-   return handle->content_page->disk_addr - handle->header_page->disk_addr;
+   return page->disk_addr - handle->header_page->disk_addr;
 }
 
 static bool32
-offset_is_in_content_page(ondisk_node_handle *handle, uint32 offset)
+offset_is_in_content_page(const ondisk_node_handle *handle,
+                          const page_handle        *page,
+                          uint32                    offset)
 {
    uint64 page_size = cache_page_size(handle->cc);
-   return handle->content_page != NULL && content_page_offset(handle) <= offset
-          && offset < content_page_offset(handle) + page_size;
+   return page != NULL && content_page_offset(handle, page) <= offset
+          && offset < content_page_offset(handle, page) + page_size;
 }
 
 static platform_status
-ondisk_node_handle_setup_content_page(ondisk_node_handle *handle, uint64 offset)
+ondisk_node_handle_setup_content_page(ondisk_node_handle *handle,
+                                      uint64              offset,
+                                      page_handle       **page)
 {
    uint64 page_size = cache_page_size(handle->cc);
 
-   if (offset_is_in_content_page(handle, offset)) {
+   if (offset_is_in_content_page(handle, *page, offset)) {
       return STATUS_OK;
    }
 
-   if (handle->content_page != NULL
-       && handle->content_page != handle->header_page) {
-      cache_unget(handle->cc, handle->content_page);
+   if (*page != NULL && *page != handle->header_page) {
+      cache_unget(handle->cc, *page);
    }
 
    if (offset < page_size) {
-      handle->content_page = handle->header_page;
+      *page = handle->header_page;
       return STATUS_OK;
    } else {
       uint64 addr = handle->header_page->disk_addr + offset;
       addr -= (addr % page_size);
-      handle->content_page = cache_get(handle->cc, addr, TRUE, PAGE_TYPE_TRUNK);
-      if (handle->content_page == NULL) {
+      *page = cache_get(handle->cc, addr, TRUE, PAGE_TYPE_TRUNK);
+      if (*page == NULL) {
          platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
          return STATUS_IO_ERROR;
       }
@@ -970,7 +989,8 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
 {
    ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
    uint64             offset = header->pivot_offsets[pivot_num];
-   platform_status rc = ondisk_node_handle_setup_content_page(handle, offset);
+   platform_status    rc     = ondisk_node_handle_setup_content_page(
+      handle, offset, &handle->pivot_page);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
                          "failed: %s",
@@ -979,8 +999,8 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
                          platform_status_to_string(rc));
       return NULL;
    }
-   return (ondisk_pivot *)(handle->content_page->data + offset
-                           - content_page_offset(handle));
+   return (ondisk_pivot *)(handle->pivot_page->data + offset
+                           - content_page_offset(handle, handle->pivot_page));
 }
 
 static platform_status
@@ -1019,7 +1039,8 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
       offset += page_size - (offset % page_size);
    }
 
-   platform_status rc = ondisk_node_handle_setup_content_page(handle, offset);
+   platform_status rc = ondisk_node_handle_setup_content_page(
+      handle, offset, &handle->inflight_bundle_page);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
                          "failed: %s",
@@ -1028,14 +1049,17 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
                          platform_status_to_string(rc));
       return NULL;
    }
-   ondisk_bundle *result = (ondisk_bundle *)(handle->content_page->data + offset
-                                             - content_page_offset(handle));
+   ondisk_bundle *result =
+      (ondisk_bundle *)(handle->inflight_bundle_page->data + offset
+                        - content_page_offset(handle,
+                                              handle->inflight_bundle_page));
 
    /* If there wasn't enough room for this bundle on this page, then we would
     * have zeroed the remaining bytes and put the bundle on the next page. */
    if (result->num_branches == 0) {
       offset += page_size - (offset % page_size);
-      rc = ondisk_node_handle_setup_content_page(handle, offset);
+      rc = ondisk_node_handle_setup_content_page(
+         handle, offset, &handle->inflight_bundle_page);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
                             "failed: %s",
@@ -1044,8 +1068,9 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
                             platform_status_to_string(rc));
          return NULL;
       }
-      result = (ondisk_bundle *)(handle->content_page->data + offset
-                                 - content_page_offset(handle));
+      result = (ondisk_bundle *)(handle->inflight_bundle_page->data + offset
+                                 - content_page_offset(
+                                    handle, handle->inflight_bundle_page));
    }
    return result;
 }
@@ -1057,9 +1082,7 @@ ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle)
    if (header->num_inflight_bundles == 0) {
       return NULL;
    }
-   ondisk_pivot *pivot  = ondisk_node_get_pivot(handle, header->num_pivots - 1);
-   uint64        offset = header->pivot_offsets[header->num_pivots - 1]
-                   + sizeof_ondisk_pivot(pivot);
+   uint64 offset = header->inflight_bundles_offset;
    return ondisk_node_bundle_at_offset(handle, offset);
 }
 
@@ -1067,8 +1090,9 @@ static ondisk_bundle *
 ondisk_node_get_next_inflight_bundle(ondisk_node_handle *handle,
                                      ondisk_bundle      *bundle)
 {
-   uint64 offset = ((char *)bundle) - handle->content_page->data
-                   + content_page_offset(handle) + sizeof_ondisk_bundle(bundle);
+   uint64 offset = ((char *)bundle) - handle->inflight_bundle_page->data
+                   + content_page_offset(handle, handle->inflight_bundle_page)
+                   + sizeof_ondisk_bundle(bundle);
    return ondisk_node_bundle_at_offset(handle, offset);
 }
 
@@ -1686,6 +1710,8 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       }
    }
 
+   odnode->inflight_bundles_offset = 0;
+
    for (int64 i = vector_length(&node->inflight_bundles) - 1;
         i >= min_inflight_bundle_start;
         i--)
@@ -1704,6 +1730,10 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          goto cleanup;
       }
 
+      if (i == 0) {
+         odnode->inflight_bundles_offset =
+            current_page->disk_addr - header_addr + page_offset;
+      }
       bundle_serialize(bndl,
                        (ondisk_bundle *)(current_page->data + page_offset));
       page_offset += bundle_size;
@@ -1925,10 +1955,11 @@ trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle)
    platform_status rc;
    trunk_read_begin(context);
    if (context->root == NULL) {
-      handle->cc           = context->cc;
-      handle->header_page  = NULL;
-      handle->content_page = NULL;
-      rc                   = STATUS_OK;
+      handle->cc                   = context->cc;
+      handle->header_page          = NULL;
+      handle->pivot_page           = NULL;
+      handle->inflight_bundle_page = NULL;
+      rc                           = STATUS_OK;
    } else {
       rc = ondisk_node_handle_init(handle, context->cc, context->root->addr);
    }
@@ -4339,7 +4370,7 @@ ondisk_node_find_pivot(const trunk_node_context *context,
                        ondisk_node_handle       *handle,
                        key                       tgt,
                        comparison                cmp,
-                       uint64                   *pivot)
+                       ondisk_pivot            **pivot)
 {
    platform_status rc;
    uint64          num_pivots = ondisk_node_num_pivots(handle);
@@ -4347,10 +4378,12 @@ ondisk_node_find_pivot(const trunk_node_context *context,
    uint64          max        = num_pivots - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
-   int last_cmp;
+   int           last_cmp;
+   ondisk_pivot *min_pivot = NULL;
    while (min + 1 < max) {
-      uint64 mid = (min + max) / 2;
-      key    mid_key;
+      uint64        mid       = (min + max) / 2;
+      ondisk_pivot *mid_pivot = ondisk_node_get_pivot(handle, mid);
+      key           mid_key   = ondisk_pivot_key(mid_pivot);
       rc = ondisk_node_get_pivot_key(handle, mid, &mid_key);
       if (!SUCCESS(rc)) {
          platform_error_log("ondisk_node_find_pivot: "
@@ -4362,8 +4395,9 @@ ondisk_node_find_pivot(const trunk_node_context *context,
       if (cmp < 0) {
          max = mid;
       } else {
-         min      = mid;
-         last_cmp = cmp;
+         min       = mid;
+         min_pivot = mid_pivot;
+         last_cmp  = cmp;
       }
    }
    /* 0 < min means we executed the loop at least once.
@@ -4372,8 +4406,14 @@ ondisk_node_find_pivot(const trunk_node_context *context,
    */
    if (0 < min && last_cmp == 0 && cmp == less_than) {
       min--;
+      min_pivot = ondisk_node_get_pivot(handle, min);
    }
-   *pivot = min;
+
+   if (min_pivot == NULL) {
+      min_pivot = ondisk_node_get_pivot(handle, min);
+   }
+
+   *pivot = min_pivot;
    return STATUS_OK;
 }
 
@@ -4499,9 +4539,9 @@ trunk_merge_lookup(trunk_node_context  *context,
          node_deinit(&node, context);
       }
 
-      uint64 pivot_num;
+      ondisk_pivot *pivot;
       rc = ondisk_node_find_pivot(
-         context, &handle, tgt, less_than_or_equal, &pivot_num);
+         context, &handle, tgt, less_than_or_equal, &pivot);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "trunk_merge_lookup: ondisk_node_find_pivot failed: "
@@ -4511,27 +4551,15 @@ trunk_merge_lookup(trunk_node_context  *context,
       }
 
       if (log) {
-         platform_log(log, "pivot_num: %lu\n", pivot_num);
-      }
-
-      uint64 child_addr;
-      uint64 num_inflight_bundles;
-      {
-         // Restrict the scope of odp
-         ondisk_pivot *odp = ondisk_node_get_pivot(&handle, pivot_num);
-         if (odp == NULL) {
-            platform_error_log("trunk_merge_lookup: "
-                               "ondisk_node_get_pivot failed\n");
-            rc = STATUS_IO_ERROR;
-            goto cleanup;
-         }
-         child_addr           = odp->child_addr;
-         num_inflight_bundles = odp->num_live_inflight_bundles;
+         platform_log(
+            log,
+            "pivot: %s\n",
+            key_string(context->cfg->data_cfg, ondisk_pivot_key(pivot)));
       }
 
       // Search the inflight bundles
       ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
-      for (uint64 i = 0; i < num_inflight_bundles; i++) {
+      for (uint64 i = 0; i < pivot->num_live_inflight_bundles; i++) {
          rc =
             ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
          if (!SUCCESS(rc)) {
@@ -4543,19 +4571,13 @@ trunk_merge_lookup(trunk_node_context  *context,
          if (merge_accumulator_is_definitive(result)) {
             goto cleanup;
          }
-         if (i < num_inflight_bundles - 1) {
+         if (i < pivot->num_live_inflight_bundles - 1) {
             bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
          }
       }
 
       // Search the pivot bundle
-      bndl = ondisk_node_get_pivot_bundle(&handle, pivot_num);
-      if (bndl == NULL) {
-         platform_error_log("trunk_merge_lookup: "
-                            "ondisk_node_get_pivot_bundle failed\n");
-         rc = STATUS_IO_ERROR;
-         goto cleanup;
-      }
+      bndl = ondisk_pivot_bundle(pivot);
       rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
@@ -4568,9 +4590,10 @@ trunk_merge_lookup(trunk_node_context  *context,
       }
 
       // Search the child
-      if (child_addr != 0) {
+      if (pivot->child_addr != 0) {
          ondisk_node_handle child_handle;
-         rc = ondisk_node_handle_init(&child_handle, context->cc, child_addr);
+         rc = ondisk_node_handle_init(
+            &child_handle, context->cc, pivot->child_addr);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "ondisk_node_handle_init failed: %d\n",
@@ -4651,13 +4674,12 @@ trunk_collect_branches(const trunk_node_context *context,
    }
 
    while (handle.header_page) {
-      uint64 pivot_num;
+      ondisk_pivot *pivot;
       if (start_type != less_than) {
          rc = ondisk_node_find_pivot(
-            context, &handle, tgt, less_than_or_equal, &pivot_num);
+            context, &handle, tgt, less_than_or_equal, &pivot);
       } else {
-         rc = ondisk_node_find_pivot(
-            context, &handle, tgt, less_than, &pivot_num);
+         rc = ondisk_node_find_pivot(context, &handle, tgt, less_than, &pivot);
       }
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_collect_branches: "
@@ -4668,18 +4690,8 @@ trunk_collect_branches(const trunk_node_context *context,
 
       uint64 child_addr;
       uint64 num_inflight_bundles;
-      {
-         // Restrict the scope of odp
-         ondisk_pivot *odp = ondisk_node_get_pivot(&handle, pivot_num);
-         if (odp == NULL) {
-            platform_error_log("trunk_collect_branches: "
-                               "ondisk_node_get_pivot failed\n");
-            rc = STATUS_IO_ERROR;
-            goto cleanup;
-         }
-         child_addr           = odp->child_addr;
-         num_inflight_bundles = odp->num_live_inflight_bundles;
-      }
+      child_addr           = pivot->child_addr;
+      num_inflight_bundles = pivot->num_live_inflight_bundles;
 
       // Add branches from the inflight bundles
       ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
@@ -4701,13 +4713,7 @@ trunk_collect_branches(const trunk_node_context *context,
       }
 
       // Add branches from the pivot bundle
-      bndl = ondisk_node_get_pivot_bundle(&handle, pivot_num);
-      if (bndl == NULL) {
-         platform_error_log("trunk_collect_branches: "
-                            "ondisk_node_get_pivot_bundle failed\n");
-         rc = STATUS_IO_ERROR;
-         goto cleanup;
-      }
+      bndl = ondisk_pivot_bundle(pivot);
       rc =
          trunk_collect_bundle_branches(bndl, capacity, num_branches, branches);
       if (!SUCCESS(rc)) {
