@@ -1417,7 +1417,7 @@ iceberg_put(iceberg_table *table,
 //    platform_free(0, ptr);
 // }
 
-
+// CLOCK replacement
 static inline void
 cache_insert_and_evict(iceberg_table *table,
                        threadid       thread_id,
