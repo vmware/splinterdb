@@ -547,6 +547,8 @@ iceberg_init(iceberg_table     *table,
 
    table->spl_data_config = spl_data_config;
 
+   table->clock_hand = 0;
+
 #if ENABLE_CACHE_STATS
    iceberg_stats_init(&table->metadata.stats);
 #endif
@@ -870,11 +872,9 @@ iceberg_next_clock_hand(iceberg_table *table)
    //    old_hand = __atomic_load_n(&table->clock_hand, __ATOMIC_SEQ_CST);
    //    new_hand = (old_hand + 1) % table->metadata.nblocks;
    // } while (!__atomic_compare_exchange_n(
-   //    &table->clock_hand, &old_hand, new_hand, true, __ATOMIC_SEQ_CST,
-   //    __ATOMIC_SEQ_CST));
+   //    &table->clock_hand, &old_hand, new_hand, true, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
    // return old_hand;
-   return __atomic_fetch_add(&table->clock_hand, 1, __ATOMIC_SEQ_CST)
-          % table->metadata.nblocks;
+   return __atomic_fetch_add(&table->clock_hand, 1, __ATOMIC_SEQ_CST) % table->metadata.nblocks;
 }
 
 // It assumes no resize and no multiple levels
@@ -882,11 +882,10 @@ static void
 iceberg_evict(iceberg_table *table, threadid thread_id)
 {
    iceberg_lv1_block *blocks = table->level1[0];
-   bool               done   = false;
+   bool done = false;
    do {
       uint64_t hand = iceberg_next_clock_hand(table);
-      if (trylock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md))
-      {
+      if (trylock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md)) {
          __mmask64 md_mask =
             slot_mask_64(table->metadata.lv1_md[0][hand].block_md, 0);
          md_mask = ~md_mask;
@@ -898,19 +897,18 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
                if (blocks[hand].slots[slot].refcount == 0) {
                   blocks[hand].slots[slot].refcount = -1;
                } else if (blocks[hand].slots[slot].refcount == -1) {
-                  platform_assert(table->sktch,
-                                  "Eviction requires a counter\n");
+                  platform_assert(table->sktch, "Eviction requires a counter\n");
                   sketch_insert(table->sktch,
-                                blocks[hand].slots[slot].key,
-                                blocks[hand].slots[slot].val);
+                              blocks[hand].slots[slot].key,
+                              blocks[hand].slots[slot].val);
                   if (table->config.post_remove) {
                      table->config.post_remove(&blocks[hand].slots[slot].val);
                   }
                   table->metadata.lv1_md[0][hand].block_md[slot] = 0;
                   void *ptr = (void *)slice_data(blocks[hand].slots[slot].key);
                   platform_free(0, ptr);
-                  blocks[hand].slots[slot].key      = NULL_SLICE;
-                  blocks[hand].slots[slot].refcount = 0;
+                  blocks[hand].slots[slot].key        = NULL_SLICE;
+                  blocks[hand].slots[slot].refcount   = 0;
                   pc_add(&table->metadata.lv1_balls, -1, thread_id);
                   done = true;
                }
@@ -918,7 +916,7 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          }
          unlock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md);
       }
-   } while (!done);
+   } while(!done);
 }
 
 static inline bool
@@ -1366,7 +1364,7 @@ iceberg_put_or_insert(iceberg_table *table,
 
    if (table->config.enable_lazy_eviction) {
       // temporary condition
-      if (lv1_balls_aprox(table) > table->config.max_num_inactive_keys) {
+      if(lv1_balls_aprox(table) > table->config.max_num_inactive_keys) {
          iceberg_evict(table, thread_id);
       }
    }
