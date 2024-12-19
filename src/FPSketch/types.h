@@ -14,7 +14,7 @@ typedef unsigned __int128 ValueType;
 typedef struct kv_pair {
    slice     key;
    ValueType val;
-   uint64_t  refcount;
+   int64_t   refcount;
    uint64_t  q_refcount;
 } kv_pair;
 
