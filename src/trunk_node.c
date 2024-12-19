@@ -1730,7 +1730,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          goto cleanup;
       }
 
-      if (i == 0) {
+      if (i == vector_length(&node->inflight_bundles) - 1) {
          odnode->inflight_bundles_offset =
             current_page->disk_addr - header_addr + page_offset;
       }
