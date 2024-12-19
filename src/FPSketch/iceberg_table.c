@@ -546,7 +546,6 @@ iceberg_init(iceberg_table     *table,
 
 #if ENABLE_CACHE_STATS
    iceberg_stats_init(&table->metadata.stats);
-   table->metadata.max_queue_size = 0;
 #endif
    return 0;
 }
@@ -2192,7 +2191,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             }
          }
 
-         bool         became_inactive = false;
+         bool         cache_missed = false;
          iceberg_data cache_data;
 
          if (should_remove) {
@@ -2241,21 +2240,9 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
                      cache_data.lock.ptr =
                         &metadata->lv1_md[bindex][boffset].block_md;
                      cache_data.lock.level = 1;
-                     became_inactive       = true;
+                     cache_missed          = true;
 #if ENABLE_CACHE_STATS
                      iceberg_stats_inc_misses(&metadata->stats);
-                     uint64_t curr_max;
-                     do {
-                        curr_max = __atomic_load_n(
-                           &table->metadata.max_queue_size, __ATOMIC_RELAXED);
-                     } while (size > curr_max
-                              && !__atomic_compare_exchange_n(
-                                 &table->metadata.max_queue_size,
-                                 &curr_max,
-                                 size,
-                                 true,
-                                 __ATOMIC_RELAXED,
-                                 __ATOMIC_RELAXED));
 #endif
                   }
 
@@ -2277,7 +2264,7 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
 
          if (table->config.enable_lazy_eviction) {
             if (!force_remove_if_inactive) {
-               if (became_inactive) {
+               if (cache_missed) {
                   cache_insert_and_evict(table, thread_id, &cache_data);
                }
             }
@@ -3033,6 +3020,5 @@ iceberg_print_state(iceberg_table *table)
    printf("Cache misses: %ld\n", table->metadata.stats.cache_misses);
    printf("Cache hit ratio: %f\n",
           iceberg_stats_get_hit_ratio(&table->metadata.stats));
-   printf("Max queue size: %lu\n", table->metadata.max_queue_size);
 #endif
 }
