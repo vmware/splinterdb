@@ -15,31 +15,29 @@ typedef struct fifo_data {
    iceberg_lock lock;
 } fifo_data;
 
-typedef struct fifo_node {
-   fifo_data         data;
-   struct fifo_node *next;
-} fifo_node;
-
 typedef struct fifo_queue {
-   fifo_node       *head;
-   fifo_node       *tail;
+   fifo_data       *data;
+   uint32_t         capacity;
+   uint32_t         head;
+   uint32_t         tail;
    int              head_lock;
    int              tail_lock;
    _Atomic uint64_t size;
 } fifo_queue;
 
 fifo_queue *
-fifo_queue_create();
-fifo_node *
-fifo_node_create(void *kv, void *lock_ptr, int level);
-void
-fifo_node_destroy(fifo_node *node);
-// Return: The size of queue after enqueueing
-uint64_t
-fifo_enqueue(fifo_queue *q, fifo_node *new_node);
-fifo_node *
-fifo_dequeue(fifo_queue *q);
+fifo_queue_create(uint32_t capacity);
+
 void
 fifo_queue_destroy(fifo_queue *q);
+
+// Return: The size of queue after enqueueing
+uint64_t
+fifo_enqueue(fifo_queue *q, fifo_data data);
+
+// Return 1: queue is not empty
+int
+fifo_dequeue(fifo_queue *q, fifo_data *data);
+
 uint64_t
 fifo_queue_size(fifo_queue *q);

@@ -1,90 +1,75 @@
 #include "fifo.h"
 
 fifo_queue *
-fifo_queue_create()
+fifo_queue_create(uint32_t capacity)
 {
    fifo_queue *q;
    q = TYPED_ZALLOC(0, q);
    if (q == NULL)
       return NULL;
 
-   q->head = fifo_node_create(NULL, NULL, 0);
-   if (q->head == NULL) {
+   q->data = TYPED_ARRAY_ZALLOC(0, q->data, capacity);
+   if (q->data == NULL) {
       platform_free(0, q);
       return NULL;
    }
 
-   q->tail      = q->head;
+   q->capacity = capacity;
+   q->head = q->tail = 0;
    q->head_lock = q->tail_lock = 0;
+   atomic_store(&q->size, 0);
    return q;
 }
 
-fifo_node *
-fifo_node_create(void *kv, void *lock_ptr, int level)
-{
-   fifo_node *node;
-   node = TYPED_ZALLOC(0, node);
-   if (node == NULL)
-      return NULL;
-   node->data.kv         = kv;
-   node->data.lock.ptr   = lock_ptr;
-   node->data.lock.level = level;
-   node->next            = NULL;
-   return node;
-}
-
-void
-fifo_node_destroy(fifo_node *node)
-{
-   platform_free(0, node);
-}
-
 uint64_t
-fifo_enqueue(fifo_queue *q, fifo_node *new_node)
+fifo_enqueue(fifo_queue *q, fifo_data data)
 {
    lock(&q->tail_lock, WAIT_FOR_LOCK);
-   new_node->next = NULL;
-   q->tail->next  = new_node;
-   q->tail        = new_node;
-   uint64_t size  = atomic_fetch_add(&q->size, 1) + 1;
+
+   // Check if queue is full
+   if (((q->tail + 1) % q->capacity) == q->head) {
+      platform_assert(false, "invalid path for now\n");
+      unlock(&q->tail_lock);
+      return atomic_load(&q->size); // Queue is full
+   }
+
+   // Add the element
+   q->data[q->tail] = data;
+
+   // Update tail
+   q->tail = (q->tail + 1) % q->capacity;
+
+   uint64_t size = atomic_fetch_add(&q->size, 1) + 1;
    unlock(&q->tail_lock);
    return size;
 }
 
-fifo_node *
-fifo_dequeue(fifo_queue *q)
+int
+fifo_dequeue(fifo_queue *q, fifo_data *data)
 {
-   fifo_node *to_return;
-
    lock(&q->head_lock, WAIT_FOR_LOCK);
 
-   to_return = q->head->next;
-   if (to_return == NULL) {
+   // Check if queue is empty
+   if (q->head == q->tail) {
       unlock(&q->head_lock);
-      return NULL;
+      return 0;
    }
 
-   q->head->next = to_return->next;
+   // Get the element
+   *data = q->data[q->head];
 
-   if (to_return->next == NULL) {
-      lock(&q->tail_lock, WAIT_FOR_LOCK);
-      q->tail = q->head;
-      unlock(&q->tail_lock);
-   }
+   // Update head
+   q->head = (q->head + 1) % q->capacity;
 
    atomic_fetch_sub(&q->size, 1);
    unlock(&q->head_lock);
-   return to_return;
+   return 1;
 }
 
 void
 fifo_queue_destroy(fifo_queue *q)
 {
-   fifo_node *current;
-   while ((current = fifo_dequeue(q)) != NULL) {
-      fifo_node_destroy(current);
-   }
-   fifo_node_destroy(q->head);
+   platform_free(0, q->data); // Free the data array
    platform_free(0, q);
 }
 
