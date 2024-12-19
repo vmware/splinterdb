@@ -540,7 +540,7 @@ iceberg_init(iceberg_table     *table,
    memset(table->metadata.lv3_locks[0], 0, total_blocks * sizeof(uint8_t));
 
    table->inactive_keys =
-      fifo_queue_create(table->config.max_num_inactive_keys + 2 * MAX_THREADS);
+      fifo_queue_create(table->config.max_num_inactive_keys);
 
    table->spl_data_config = spl_data_config;
 
@@ -1418,66 +1418,137 @@ iceberg_put(iceberg_table *table,
 //    platform_free(0, ptr);
 // }
 
+
 static inline void
-iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
+cache_insert_and_evict(iceberg_table *table,
+                       threadid       thread_id,
+                       iceberg_data  *data_to_be_inserted)
 {
-   platform_assert(table->config.enable_lazy_eviction);
-   bool is_evicted = false;
-   while (!is_evicted) {
-      fifo_data evicted_fifo_data;
-      int dequeue_done = fifo_dequeue(table->inactive_keys, &evicted_fifo_data);
-      if (!dequeue_done) {
-         // Even if the inactive keys are too many but the queue is empty, it is
-         // because the key just became empty but the thread does not decrease
-         // the number of inactive keys yet. (Temporary inconsistency)
-         continue;
-      }
-      kv_pair       *evicted_kv = (kv_pair *)evicted_fifo_data.kv;
-      iceberg_block *block      = &evicted_fifo_data.block;
-      iceberg_lock  *lock       = &evicted_fifo_data.lock;
-      // Iceberg uses different locks for different levels
-      if (lock->level == 3) {
-         while (__sync_lock_test_and_set((uint8_t *)lock->ptr, 1))
-            ;
-      } else {
-         lock_block((uint64_t *)lock->ptr);
-      }
-      if (evicted_kv->refcount == 0 && evicted_kv->q_refcount == 1) {
-         // If it has a sketch, insert the removed value to it.
-         if (table->sktch) {
-            sketch_insert(table->sktch, evicted_kv->key, evicted_kv->val);
+   fifo_queue *q    = table->inactive_keys;
+   bool        done = false;
+   while (!done) {
+      uint64_t hand = fifo_queue_hand(q);
+      if (lock(&q->entries[hand].lock, TRY_ONCE_LOCK)) {
+         if (q->entries[hand].filled) {
+            kv_pair             *evicted_kv = q->entries[hand].data.kv;
+            const iceberg_block *block      = &q->entries[hand].data.block;
+            const iceberg_lock  *lock       = &q->entries[hand].data.lock;
+            // Iceberg uses different locks for different levels
+            if (lock->level == 3) {
+               while (__sync_lock_test_and_set((uint8_t *)lock->ptr, 1))
+                  ;
+            } else {
+               lock_block((uint64_t *)lock->ptr);
+            }
+            if (evicted_kv->refcount == 0 && evicted_kv->q_refcount == 1) {
+               // If it has a sketch, insert the removed value to it.
+               if (table->sktch) {
+                  sketch_insert(table->sktch, evicted_kv->key, evicted_kv->val);
+               }
+               if (table->config.post_remove) {
+                  table->config.post_remove(&evicted_kv->val);
+               }
+               table->metadata.lv1_md[block->bindex][block->boffset]
+                  .block_md[block->slot] = 0;
+               void *ptr                 = (void *)slice_data(evicted_kv->key);
+               platform_free(0, ptr);
+               evicted_kv->key        = NULL_SLICE;
+               evicted_kv->refcount   = 0;
+               evicted_kv->q_refcount = 0;
+               pc_add(&table->metadata.lv1_balls, -1, thread_id);
+               done = true;
+            } else if (evicted_kv->refcount > 0) {
+               // evicted_kv->refcount > 0 : It is active now
+               evicted_kv->q_refcount = 0;
+               done                   = true;
+            } else if (evicted_kv->q_refcount > 1) {
+               // evicted_kv->q_refcount > 1 : It was inactive multiple times
+               evicted_kv->q_refcount =
+                  1; // = It becomes inactive key first time
+            } else {
+               platform_assert(false, "invalid path\n");
+            }
+            if (lock->level == 3) {
+               __sync_lock_release((uint8_t *)lock->ptr);
+            } else {
+               unlock_block((uint64_t *)lock->ptr);
+            }
+            if (done) {
+               q->entries[hand].data = *data_to_be_inserted;
+            }
+         } else {
+            q->entries[hand].data   = *data_to_be_inserted;
+            q->entries[hand].filled = true;
+            done                    = true;
          }
-         if (table->config.post_remove) {
-            table->config.post_remove(&evicted_kv->val);
-         }
-         table->metadata.lv1_md[block->bindex][block->boffset]
-            .block_md[block->slot] = 0;
-         void *ptr                 = (void *)slice_data(evicted_kv->key);
-         platform_free(0, ptr);
-         evicted_kv->key        = NULL_SLICE;
-         evicted_kv->refcount   = 0;
-         evicted_kv->q_refcount = 0;
-         pc_add(&table->metadata.lv1_balls, -1, thread_id);
-         is_evicted = true;
-      } else if (evicted_kv->refcount > 0) {
-         // evicted_kv->refcount > 0 : It is active now
-         evicted_kv->q_refcount = 0;
-         is_evicted             = true;
-      } else if (evicted_kv->q_refcount > 1) {
-         // evicted_kv->q_refcount > 1 : It was inactive multiple times
-         evicted_kv->q_refcount = 1; // = It becomes inactive key first time
-         // Reinsert the key to the queue
-         fifo_enqueue(table->inactive_keys, evicted_fifo_data);
-      } else {
-         platform_assert(false, "invalid path\n");
-      }
-      if (lock->level == 3) {
-         __sync_lock_release((uint8_t *)lock->ptr);
-      } else {
-         unlock_block((uint64_t *)lock->ptr);
+         unlock(&q->entries[hand].lock);
       }
    }
 }
+
+
+// static inline void
+// iceberg_evict_inactive_keys(iceberg_table *table, threadid thread_id)
+// {
+//    platform_assert(table->config.enable_lazy_eviction);
+//    bool is_evicted = false;
+//    while (!is_evicted) {
+//       fifo_data evicted_fifo_data;
+//       int dequeue_done = fifo_dequeue(table->inactive_keys,
+//       &evicted_fifo_data); if (!dequeue_done) {
+//          // Even if the inactive keys are too many but the queue is empty, it
+//          is
+//          // because the key just became empty but the thread does not
+//          decrease
+//          // the number of inactive keys yet. (Temporary inconsistency)
+//          continue;
+//       }
+//       kv_pair       *evicted_kv = (kv_pair *)evicted_fifo_data.kv;
+//       iceberg_block *block      = &evicted_fifo_data.block;
+//       iceberg_lock  *lock       = &evicted_fifo_data.lock;
+//       // Iceberg uses different locks for different levels
+//       if (lock->level == 3) {
+//          while (__sync_lock_test_and_set((uint8_t *)lock->ptr, 1))
+//             ;
+//       } else {
+//          lock_block((uint64_t *)lock->ptr);
+//       }
+//       if (evicted_kv->refcount == 0 && evicted_kv->q_refcount == 1) {
+//          // If it has a sketch, insert the removed value to it.
+//          if (table->sktch) {
+//             sketch_insert(table->sktch, evicted_kv->key, evicted_kv->val);
+//          }
+//          if (table->config.post_remove) {
+//             table->config.post_remove(&evicted_kv->val);
+//          }
+//          table->metadata.lv1_md[block->bindex][block->boffset]
+//             .block_md[block->slot] = 0;
+//          void *ptr                 = (void *)slice_data(evicted_kv->key);
+//          platform_free(0, ptr);
+//          evicted_kv->key        = NULL_SLICE;
+//          evicted_kv->refcount   = 0;
+//          evicted_kv->q_refcount = 0;
+//          pc_add(&table->metadata.lv1_balls, -1, thread_id);
+//          is_evicted = true;
+//       } else if (evicted_kv->refcount > 0) {
+//          // evicted_kv->refcount > 0 : It is active now
+//          evicted_kv->q_refcount = 0;
+//          is_evicted             = true;
+//       } else if (evicted_kv->q_refcount > 1) {
+//          // evicted_kv->q_refcount > 1 : It was inactive multiple times
+//          evicted_kv->q_refcount = 1; // = It becomes inactive key first time
+//          // Reinsert the key to the queue
+//          fifo_enqueue(table->inactive_keys, evicted_fifo_data);
+//       } else {
+//          platform_assert(false, "invalid path\n");
+//       }
+//       if (lock->level == 3) {
+//          __sync_lock_release((uint8_t *)lock->ptr);
+//       } else {
+//          unlock_block((uint64_t *)lock->ptr);
+//       }
+//    }
+// }
 
 // static inline bool
 // iceberg_lv3_remove_internal(iceberg_table *table,
@@ -2121,7 +2192,8 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
             }
          }
 
-         bool should_evict = false;
+         bool         became_inactive = false;
+         iceberg_data cache_data;
 
          if (should_remove) {
             platform_assert(!table->config.enable_lazy_eviction);
@@ -2162,17 +2234,14 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
 
                   // Insert the inactive key to the queue
                   if (blocks[boffset].slots[slot].q_refcount == 0) {
-                     fifo_data data = {
-                        .kv    = &blocks[boffset].slots[slot],
-                        .block = {.bindex  = bindex,
-                                  .boffset = boffset,
-                                  .slot    = slot},
-                        .lock  = {.ptr =
-                                    &metadata->lv1_md[bindex][boffset].block_md,
-                                  .level = 1}};
-                     uint64_t size = fifo_enqueue(table->inactive_keys, data);
-                     should_evict  = (size > table->config.max_num_inactive_keys
-                                               + MAX_THREADS);
+                     cache_data.kv            = &blocks[boffset].slots[slot];
+                     cache_data.block.bindex  = bindex;
+                     cache_data.block.boffset = boffset;
+                     cache_data.block.slot    = slot;
+                     cache_data.lock.ptr =
+                        &metadata->lv1_md[bindex][boffset].block_md;
+                     cache_data.lock.level = 1;
+                     became_inactive       = true;
 #if ENABLE_CACHE_STATS
                      iceberg_stats_inc_misses(&metadata->stats);
                      uint64_t curr_max;
@@ -2208,8 +2277,8 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
 
          if (table->config.enable_lazy_eviction) {
             if (!force_remove_if_inactive) {
-               if (should_evict) {
-                  iceberg_evict_inactive_keys(table, thread_id);
+               if (became_inactive) {
+                  cache_insert_and_evict(table, thread_id, &cache_data);
                }
             }
          }

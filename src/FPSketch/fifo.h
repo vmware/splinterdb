@@ -2,6 +2,7 @@
 
 #include "platform.h"
 #include "lock.h"
+#include "types.h"
 #include <stdlib.h>
 #include <stdatomic.h>
 
@@ -16,35 +17,29 @@ typedef struct iceberg_block {
    uint8_t  slot;
 } iceberg_block;
 
-typedef struct fifo_data {
-   void         *kv;
+typedef struct iceberg_data {
+   kv_pair      *kv;
    iceberg_block block;
    iceberg_lock  lock;
-} fifo_data;
+} iceberg_data;
+
+typedef struct entry {
+   iceberg_data data;
+   int          lock;
+   bool         filled;
+} entry;
 
 typedef struct fifo_queue {
-   fifo_data       *data;
-   uint32_t         capacity;
-   uint32_t         head;
-   uint32_t         tail;
-   int              head_lock;
-   int              tail_lock;
-   _Atomic uint64_t size;
+   entry   *entries;
+   uint64_t max_num_entries;
+   uint64_t hand;
 } fifo_queue;
 
 fifo_queue *
-fifo_queue_create(uint32_t capacity);
+fifo_queue_create(uint64_t max_num_entries);
 
 void
 fifo_queue_destroy(fifo_queue *q);
 
-// Return: The size of queue after enqueueing
 uint64_t
-fifo_enqueue(fifo_queue *q, fifo_data data);
-
-// Return 1: queue is not empty
-int
-fifo_dequeue(fifo_queue *q, fifo_data *data);
-
-uint64_t
-fifo_queue_size(fifo_queue *q);
+fifo_queue_hand(fifo_queue *q);
