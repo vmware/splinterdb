@@ -1426,18 +1426,18 @@ cache_insert_and_evict(iceberg_table *table,
    fifo_queue *q    = table->inactive_keys;
    bool        done = false;
    while (!done) {
-      uint64_t hand = fifo_queue_hand(q);
+      uint64_t hand = fifo_queue_next_hand(q);
       if (lock(&q->entries[hand].lock, TRY_ONCE_LOCK)) {
          if (q->entries[hand].filled) {
-            kv_pair             *evicted_kv = q->entries[hand].data.kv;
-            const iceberg_block *block      = &q->entries[hand].data.block;
-            const iceberg_lock  *lock       = &q->entries[hand].data.lock;
+            kv_pair      *evicted_kv = q->entries[hand].data.kv;
+            iceberg_block block      = q->entries[hand].data.block;
+            iceberg_lock  lock       = q->entries[hand].data.lock;
             // Iceberg uses different locks for different levels
-            if (lock->level == 3) {
-               while (__sync_lock_test_and_set((uint8_t *)lock->ptr, 1))
+            if (lock.level == 3) {
+               while (__sync_lock_test_and_set((uint8_t *)lock.ptr, 1))
                   ;
             } else {
-               lock_block((uint64_t *)lock->ptr);
+               lock_block((uint64_t *)lock.ptr);
             }
             if (evicted_kv->refcount == 0 && evicted_kv->q_refcount == 1) {
                // If it has a sketch, insert the removed value to it.
@@ -1447,9 +1447,9 @@ cache_insert_and_evict(iceberg_table *table,
                if (table->config.post_remove) {
                   table->config.post_remove(&evicted_kv->val);
                }
-               table->metadata.lv1_md[block->bindex][block->boffset]
-                  .block_md[block->slot] = 0;
-               void *ptr                 = (void *)slice_data(evicted_kv->key);
+               table->metadata.lv1_md[block.bindex][block.boffset]
+                  .block_md[block.slot] = 0;
+               void *ptr                = (void *)slice_data(evicted_kv->key);
                platform_free(0, ptr);
                evicted_kv->key        = NULL_SLICE;
                evicted_kv->refcount   = 0;
@@ -1467,10 +1467,10 @@ cache_insert_and_evict(iceberg_table *table,
             } else {
                platform_assert(false, "invalid path\n");
             }
-            if (lock->level == 3) {
-               __sync_lock_release((uint8_t *)lock->ptr);
+            if (lock.level == 3) {
+               __sync_lock_release((uint8_t *)lock.ptr);
             } else {
-               unlock_block((uint64_t *)lock->ptr);
+               unlock_block((uint64_t *)lock.ptr);
             }
             if (done) {
                q->entries[hand].data = *data_to_be_inserted;

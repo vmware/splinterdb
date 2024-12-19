@@ -42,4 +42,4 @@ void
 fifo_queue_destroy(fifo_queue *q);
 
 uint64_t
-fifo_queue_hand(fifo_queue *q);
+fifo_queue_next_hand(fifo_queue *q);
