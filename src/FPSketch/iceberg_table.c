@@ -318,7 +318,7 @@ iceberg_block_load(iceberg_table *table, uint64_t index, uint8_t level)
       __mmask32 mask32 =
          slot_mask_32(table->metadata.lv2_md[bindex][boffset].block_md, 0)
          & ((1 << (C_LV2 + MAX_LG_LG_N / D_CHOICES)) - 1);
-      return (C_LV2 + MAX_LG_LG_N / D_CHOICES) - __builtin_popcountll(mask32);
+      return (C_LV2 + MAX_LG_LG_N / D_CHOICES) - __builtin_popcount(mask32);
    } else
       return table->metadata.lv3_sizes[bindex][boffset];
 }
@@ -931,7 +931,7 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
              slot_mask_32(table->metadata.lv2_md[0][hand].block_md, 0)
              & ((1 << (C_LV2 + MAX_LG_LG_N / D_CHOICES)) - 1);
            md_mask = ~md_mask;
-           uint8_t popct = __builtin_popcountll(md_mask);
+           uint8_t popct = __builtin_popcount(md_mask);
            for (int i = 0; i < popct; ++i) {
              uint8_t slot = word_select(md_mask, i);
              if (table->metadata.lv2_md[0][hand].block_md[slot] > 0) {
@@ -1057,7 +1057,7 @@ start:;
    __mmask32 md_mask =
       slot_mask_32(metadata->lv2_md[bindex][boffset].block_md, 0)
       & ((1 << (C_LV2 + MAX_LG_LG_N / D_CHOICES)) - 1);
-   uint8_t popct = __builtin_popcountll(md_mask);
+   uint8_t popct = __builtin_popcount(md_mask);
 
    if (unlikely(!popct))
       return false;
@@ -1129,8 +1129,8 @@ iceberg_lv2_insert(iceberg_table *table,
       slot_mask_32(metadata->lv2_md[bindex2][boffset2].block_md, 0)
       & ((1 << (C_LV2 + MAX_LG_LG_N / D_CHOICES)) - 1);
 
-   uint8_t popct1 = __builtin_popcountll(md_mask1);
-   uint8_t popct2 = __builtin_popcountll(md_mask2);
+   uint8_t popct1 = __builtin_popcount(md_mask1);
+   uint8_t popct2 = __builtin_popcount(md_mask2);
 
    if (popct2 > popct1) {
       fprint1  = fprint2;
