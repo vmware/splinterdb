@@ -55,14 +55,18 @@ pc_destructor(pc_t *pc)
 void
 pc_add(pc_t *pc, int64_t count, threadid counter_id)
 {
-   // uint32_t counter_id = thread_id;
-   int64_t cur_count = __atomic_add_fetch(
-      &pc->local_counters[counter_id].counter, count, __ATOMIC_SEQ_CST);
+   if (pc->threshold == 0) {
+      __atomic_fetch_add(pc->global_counter, count, __ATOMIC_SEQ_CST);
+   } else {
+      // uint32_t counter_id = thread_id;
+      int64_t cur_count = __atomic_add_fetch(
+         &pc->local_counters[counter_id].counter, count, __ATOMIC_SEQ_CST);
 
-   if (cur_count > pc->threshold || cur_count < -pc->threshold) {
-      int64_t new_count = __atomic_exchange_n(
-         &pc->local_counters[counter_id].counter, 0, __ATOMIC_SEQ_CST);
-      __atomic_fetch_add(pc->global_counter, new_count, __ATOMIC_SEQ_CST);
+      if (cur_count > pc->threshold || cur_count < -pc->threshold) {
+         int64_t new_count = __atomic_exchange_n(
+            &pc->local_counters[counter_id].counter, 0, __ATOMIC_SEQ_CST);
+         __atomic_fetch_add(pc->global_counter, new_count, __ATOMIC_SEQ_CST);
+      }
    }
 }
 
