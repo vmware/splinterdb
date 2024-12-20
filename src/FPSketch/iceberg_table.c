@@ -1068,7 +1068,7 @@ start:;
    uint8_t slot = word_select(md_mask, start);
 
    if (__sync_bool_compare_and_swap(
-          metadata->lv2_md[bindex][boffset].block_md + slot, 0, 1))
+          metadata->lv2_md[bindex][boffset].block_md + slot, 0, fprint))
    {
       pc_add(&metadata->lv2_balls, 1, thread_id);
       blocks[boffset].slots[slot].key        = key;
@@ -1087,7 +1087,7 @@ start:;
       // printf("tid %d %p %s %s after update refcount: %d\n", thread_id, (void
       // *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
 
-      metadata->lv2_md[bindex][boffset].block_md[slot] = fprint;
+      // metadata->lv2_md[bindex][boffset].block_md[slot] = fprint;
       return true;
    }
    goto start;
@@ -1180,7 +1180,6 @@ iceberg_lv2_insert(iceberg_table *table,
       return true;
 
 
-   platform_assert(false, "block going to lv3\n");
    return iceberg_lv3_insert(
       table, key, value, refcount, q_refcount, lv3_index, thread_id);
 }
