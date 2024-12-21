@@ -633,7 +633,7 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->sktch_config.cols = 1;
 #elif EXPERIMENTAL_MODE_MVCC_HASHTABLE
    txn_splinterdb_cfg->iceberght_config.log_slots = (int)ceil(
-      log2(4 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
+      log2(5 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
    txn_splinterdb_cfg->sktch_config.rows                     = 1;
    txn_splinterdb_cfg->sktch_config.cols                     = 1;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
