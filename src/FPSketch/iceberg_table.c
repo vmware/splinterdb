@@ -892,14 +892,10 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          iceberg_lv1_block *blocks = table->level1[0];
          __mmask64          md_mask =
             slot_mask_64(table->metadata.lv1_md[0][hand].block_md, 0);
-         md_mask       = ~md_mask;
-         uint8_t popct = __builtin_popcountll(md_mask);
-         for (int i = 0; i < popct; ++i) {
-            uint8_t slot = word_select(md_mask, i);
-
-            /* while (md_mask != 0) { */
-            /*    int slot = __builtin_ctzll(md_mask); */
-            /*    md_mask  = md_mask & ~(1ULL << slot); */
+         md_mask = ~md_mask;
+         while (md_mask != 0) {
+            int slot = __builtin_ctzll(md_mask);
+            md_mask  = md_mask & ~(1ULL << slot);
             if (table->metadata.lv1_md[0][hand].block_md[slot] > 0) {
                if (blocks[hand].slots[slot].refcount == 0) {
                   blocks[hand].slots[slot].refcount = -1;
@@ -1369,13 +1365,17 @@ iceberg_put_or_insert(iceberg_table *table,
                                       boffset,
                                       thread_id);
    if (!ret) {
+      platform_assert(false, "block going to lv2\n");
       ret = iceberg_lv2_insert(
          table, *key, **value, refcount, q_refcount, index, thread_id);
    }
 
    if (ret) {
       platform_assert(
-         iceberg_get_value_internal(table, *key, &kv, thread_id, false, false));
+         iceberg_get_value_internal(table, *key, &kv, thread_id, false, false),
+         "Key: %s (fprint: %d)\n",
+         (char *)slice_data(*key),
+         fprint);
       // If the sketch is enabled, get the value from the sketch to
       // the new item and set the max.
       if (table->sktch && !overwrite_value) {
@@ -2577,6 +2577,19 @@ iceberg_get_value_internal(iceberg_table                   *table,
          return true;
       }
    }
+
+   /* platform_default_log("Key: %s(fprint: %d)\n", (char *)slice_data(key),
+    * fprint); */
+   /* md_mask = */
+   /*    slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, fprint); */
+   /* while(md_mask != 0) { */
+   /*    int slot = __builtin_ctzll(md_mask); */
+   /*    md_mask  = md_mask & ~(1ULL << slot); */
+   /*    platform_default_log("key[%d]: %s\n", slot, (char
+    * *)slice_data(blocks[boffset].slots[slot].key)); */
+   /* } */
+
+   /* platform_assert(false); */
 
    bool ret = iceberg_lv2_get_value(table, key, kv, index);
 
