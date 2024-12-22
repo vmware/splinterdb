@@ -639,7 +639,7 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
-   txn_splinterdb_cfg->sktch_config.cols = 131072;
+   txn_splinterdb_cfg->sktch_config.cols = 1024; //131072;
 #else
 #   error "Invalid experimental mode"
 #endif
