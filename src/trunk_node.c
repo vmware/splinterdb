@@ -1289,15 +1289,18 @@ ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
    async_return(state);
 }
 
-static ondisk_bundle *
-ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle)
+static platform_status
+ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle,
+                                      ondisk_bundle     **bndl)
 {
    ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
    if (header->num_inflight_bundles == 0) {
-      return NULL;
+      *bndl = NULL;
+      return STATUS_OK;
    }
    uint64 offset = header->inflight_bundles_offset;
-   return ondisk_node_bundle_at_offset(handle, offset);
+   *bndl         = ondisk_node_bundle_at_offset(handle, offset);
+   return *bndl == NULL ? STATUS_IO_ERROR : STATUS_OK;
 }
 
 /*
@@ -1512,7 +1515,10 @@ node_deserialize(const trunk_node_context *context,
    }
 
    if (0 < header->num_inflight_bundles) {
-      ondisk_bundle *odb = ondisk_node_get_first_inflight_bundle(&handle);
+      ondisk_bundle *odb = NULL;
+      // We can ignore the return code here since we will notice any error once
+      // we go inside the fore loop.
+      ondisk_node_get_first_inflight_bundle(&handle, &odb);
       for (uint64 i = 0; i < header->num_inflight_bundles; i++) {
          if (odb == NULL) {
             platform_error_log(
@@ -4870,8 +4876,8 @@ ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
                     state->callback_arg);
    state->rc = async_result(&state->filter_state);
    if (!SUCCESS(state->rc)) {
-      platform_error_log("ondisk_bundle_merge_lookup: "
-                         "routing_filter_lookup failed: %d\n",
+      platform_error_log("ondisk_bundle_merge_lookup_async: "
+                         "routing_filter_lookup_async failed: %d\n",
                          state->rc.r);
       async_return(state);
    }
@@ -4905,8 +4911,8 @@ ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
                        state->callback_arg);
       state->rc = async_result(&state->btree_state);
       if (!SUCCESS(state->rc)) {
-         platform_error_log("ondisk_bundle_merge_lookup: "
-                            "btree_lookup_and_merge failed: %d\n",
+         platform_error_log("ondisk_bundle_merge_lookup_async: "
+                            "btree_lookup_and_merge_async failed: %d\n",
                             state->rc.r);
          async_return(state);
       }
@@ -4960,7 +4966,7 @@ trunk_merge_lookup(trunk_node_context  *context,
                    merge_accumulator   *result,
                    platform_log_handle *log)
 {
-   if (1) {
+   if (0) {
       return async_call_sync_callback(cache_cleanup(context->cc),
                                       trunk_merge_lookup_async,
                                       context,
@@ -5017,11 +5023,11 @@ trunk_merge_lookup(trunk_node_context  *context,
       }
 
       // Search the inflight bundles
-      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
-      if (bndl == NULL) {
+      ondisk_bundle *bndl;
+      rc = ondisk_node_get_first_inflight_bundle(&handle, &bndl);
+      if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_node_get_first_inflight_bundle failed\n");
-         rc = STATUS_IO_ERROR;
          goto cleanup;
       }
       for (uint64 i = 0; i < pivot->num_live_inflight_bundles; i++) {
@@ -5088,7 +5094,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
    // is guaranteed to be in memory.
    state->rc = trunk_ondisk_node_handle_clone(&state->handle, state->inhandle);
    if (!SUCCESS(state->rc)) {
-      platform_error_log("trunk_merge_lookup: "
+      platform_error_log("trunk_merge_lookup_async: "
                          "trunk_ondisk_node_handle_clone failed: %d\n",
                          state->rc.r);
       async_return(state, state->rc);
@@ -5103,7 +5109,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          state->rc = node_deserialize(
             state->context, state->handle.header_page->disk_addr, &node);
          if (!SUCCESS(state->rc)) {
-            platform_error_log("trunk_merge_lookup: "
+            platform_error_log("trunk_merge_lookup_async: "
                                "node_deserialize failed: %d\n",
                                state->rc.r);
             goto cleanup;
@@ -5117,7 +5123,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       async_await_subroutine(state, ondisk_node_find_pivot_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log(
-            "trunk_merge_lookup: ondisk_node_find_pivot failed: "
+            "trunk_merge_lookup_async: ondisk_node_find_pivot_async failed: "
             "%d\n",
             state->rc.r);
          goto cleanup;
@@ -5133,10 +5139,10 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       // Search the inflight bundles
       async_await_subroutine(state,
                              ondisk_node_get_first_inflight_bundle_async);
-      if (state->bndl == NULL) {
-         platform_error_log("trunk_merge_lookup: "
-                            "ondisk_node_get_first_inflight_bundle failed\n");
-         state->rc = STATUS_IO_ERROR;
+      if (!SUCCESS(state->rc)) {
+         platform_error_log(
+            "trunk_merge_lookup_async: "
+            "ondisk_node_get_first_inflight_bundle_async failed\n");
          goto cleanup;
       }
 
@@ -5146,8 +5152,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       {
          async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
          if (!SUCCESS(state->rc)) {
-            platform_error_log("trunk_merge_lookup: "
-                               "ondisk_bundle_merge_lookup failed: %d\n",
+            platform_error_log("trunk_merge_lookup_async: "
+                               "ondisk_bundle_merge_lookup_async failed: %d\n",
                                state->rc.r);
             goto cleanup;
          }
@@ -5160,8 +5166,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
                                    ondisk_node_get_next_inflight_bundle_async);
             if (state->bndl == NULL) {
                platform_error_log(
-                  "trunk_merge_lookup: "
-                  "ondisk_node_get_next_inflight_bundle failed\n");
+                  "trunk_merge_lookup_async: "
+                  "ondisk_node_get_next_inflight_bundle_async failed\n");
                state->rc = STATUS_IO_ERROR;
                goto cleanup;
             }
@@ -5172,8 +5178,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       state->bndl = ondisk_pivot_bundle(state->pivot);
       async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
       if (!SUCCESS(state->rc)) {
-         platform_error_log("trunk_merge_lookup: "
-                            "ondisk_bundle_merge_lookup failed: %d\n",
+         platform_error_log("trunk_merge_lookup_async: "
+                            "ondisk_bundle_merge_lookup_async failed: %d\n",
                             state->rc.r);
          goto cleanup;
       }
@@ -5185,8 +5191,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       if (state->pivot->child_addr != 0) {
          async_await_subroutine(state, ondisk_node_handle_init_async);
          if (!SUCCESS(state->rc)) {
-            platform_error_log("trunk_merge_lookup: "
-                               "ondisk_node_handle_init failed: %d\n",
+            platform_error_log("trunk_merge_lookup_async: "
+                               "ondisk_node_handle_init_async failed: %d\n",
                                state->rc.r);
             goto cleanup;
          }
@@ -5285,7 +5291,13 @@ trunk_collect_branches(const trunk_node_context *context,
       num_inflight_bundles = pivot->num_live_inflight_bundles;
 
       // Add branches from the inflight bundles
-      ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
+      ondisk_bundle *bndl;
+      rc = ondisk_node_get_first_inflight_bundle(&handle, &bndl);
+      if (!SUCCESS(rc)) {
+         platform_error_log("trunk_collect_branches: "
+                            "ondisk_node_get_first_inflight_bundle failed\n");
+         goto cleanup;
+      }
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
          rc = trunk_collect_bundle_branches(
             bndl, capacity, num_branches, branches);
