@@ -309,8 +309,9 @@ transactional_splinterdb_config_init(
 #if EXPERIMENTAL_MODE_TICTOC_COUNTER
    txn_splinterdb_cfg->sktch_config.rows = 1;
    txn_splinterdb_cfg->sktch_config.cols = 1;
-#elif EXPERIMENTAL_MODE_TICTOC_HASHTABLE
-   txn_splinterdb_cfg->iceberght_config.log_slots = (int)ceil(
+#elif EXPERIMENTAL_MODE_TICTOC_COUNTER_LAZY
+   txn_splinterdb_cfg->iceberght_config.max_num_keys = 1820;
+   txn_splinterdb_cfg->iceberght_config.log_slots    = (int)ceil(
       log2(5 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
    txn_splinterdb_cfg->sktch_config.rows                     = 1;
    txn_splinterdb_cfg->sktch_config.cols                     = 1;
@@ -318,6 +319,13 @@ transactional_splinterdb_config_init(
 #elif EXPERIMENTAL_MODE_TICTOC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols = 1024; // 131072;
+#elif EXPERIMENTAL_MODE_TICTOC_SKETCH_LAZY
+   txn_splinterdb_cfg->iceberght_config.max_num_keys = 1410;
+   txn_splinterdb_cfg->iceberght_config.log_slots    = (int)ceil(
+      log2(5 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
+   txn_splinterdb_cfg->sktch_config.rows                     = 2;
+   txn_splinterdb_cfg->sktch_config.cols                     = 1024; // 131072;
+   txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
 #else
 #   error "Invalid experimental mode"
 #endif
