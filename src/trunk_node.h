@@ -235,36 +235,52 @@ trunk_collect_branches(const trunk_node_context *context,
                        key_buffer               *min_key,
                        key_buffer               *max_key);
 
+typedef struct ondisk_pivot  ondisk_pivot;
+typedef struct ondisk_bundle ondisk_bundle;
+
 // clang-format off
-// DEFINE_ASYNC_STATE(tunk_merge_lookup_state, 3,
-//    param, trunk_node_context *,  context,
-//    param, ondisk_node_handle *,  inhandle,
-//    param, key,                   tgt,
-//    param, merge_accumulator *,   result,
-//    param, platform_log_handle *, log,
-//    local, platform_status,       __async_result,
-//    local, platform_status,       rc,
-//    local, ondisk_node_handle,    handle,
-//    local, uint64,                height,
-//    local, ondisk_pivot *,        pivot,
-//    local, ondisk_bundle *,       bndl,
-//    local, ondisk_node_handle,    child_handle)
-
-   // odn_find_pivot -> odn_get_pivot -> 
-   //                   odn_handle_setup_content_page ->
-   //                   cache_get
-   //
-   // odn_get_first_inflight_bundle -> odn_bundle_at_offset ->
-   //                                  odn_handle_setup_content_page ->
-   //                                  cache_get
-   //
-   // od_bundle_merge_lookup -> routing_filter_lookup
-   //
-   //                        -> btree_lookup_and_merge
-   //
-   // odn_handle_init -> cache_get
-
+DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
+   param, trunk_node_context *,  context,
+   param, ondisk_node_handle *,  inhandle,
+   param, key,                   tgt,
+   param, merge_accumulator *,   result,
+   param, platform_log_handle *, log,
+   param, async_callback_fn,     callback,
+   param, void *,                callback_arg,
+   local, platform_status,       __async_result,
+   local, platform_status,       rc,
+   local, ondisk_node_handle,    handle,
+   local, uint64,                height,
+   local, ondisk_pivot *,        pivot,
+   local, uint64,                inflight_bundle_num,
+   local, ondisk_bundle *,       bndl,
+   local, ondisk_node_handle,    child_handle,
+   // ondisk_node_handle_setup_content_page
+   // ondisk_node_get_pivot
+   // ondisk_node_bundle_at_offset
+   // ondisk_node_get_first_inflight_bundle
+   local, uint64,                       offset,
+   local, page_handle **,               page,
+   local, uint64,                       pivot_num,
+   local, page_get_async2_state_buffer, cache_get_state,   
+   // ondisk_node_find_pivot
+   local, comparison,                         cmp,
+   local, uint64,                             min,
+   local, uint64,                             max,
+   local, uint64,                             mid,
+   local, int,                                last_cmp,
+   local, ondisk_pivot *,                     mid_pivot,
+   local, ondisk_pivot *,                     min_pivot,
+   // ondisk_bundle_merge_lookup
+   local, uint64,                             found_values,
+   local, uint64,                             idx,
+   local, routing_filter_lookup_async2_state, filter_state,
+   local, btree_lookup_async2_state,          btree_state,
+ )
 // clang-format on
+
+async_status
+trunk_merge_lookup_async(trunk_merge_lookup_async_state *state);
 
 /**********************************
  * Statistics

@@ -36,12 +36,12 @@ typedef struct bundle {
 
 typedef VECTOR(bundle) bundle_vector;
 
-typedef struct ONDISK ondisk_bundle {
+struct ONDISK ondisk_bundle {
    routing_filter maplet;
    uint16         num_branches;
    // branches[0] is the oldest branch
    branch_ref branches[];
-} ondisk_bundle;
+};
 
 typedef struct ONDISK trunk_pivot_stats {
    int64 num_kv_bytes;
@@ -61,12 +61,12 @@ typedef VECTOR(pivot *) pivot_vector;
 
 typedef VECTOR(ondisk_node_ref *) ondisk_node_ref_vector;
 
-typedef struct ONDISK ondisk_pivot {
+struct ONDISK ondisk_pivot {
    trunk_pivot_stats stats;
    uint64            child_addr;
    uint64            num_live_inflight_bundles;
    ondisk_key        key;
-} ondisk_pivot;
+};
 
 typedef struct trunk_node {
    uint16        height;
@@ -881,6 +881,48 @@ ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
    return STATUS_OK;
 }
 
+/*
+ * IN Parameters:
+ * - state->context: the trunk_node_context
+ * - state->pivot->child_addr: the address of the node
+ *
+ * OUT Parameters:
+ * - state->child_handle: the ondisk_node_handle
+ * - state->rc: the return code
+ */
+static async_status
+ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
+                              uint64                          depth)
+{
+   async_begin(state, depth);
+
+   platform_assert(state->pivot->child_addr != 0);
+   state->child_handle.cc = state->context->cc;
+   cache_get_async2_state_init(state->cache_get_state,
+                               state->context->cc,
+                               state->pivot->child_addr,
+                               PAGE_TYPE_TRUNK,
+                               state->callback,
+                               state->callback_arg);
+   while (cache_get_async2(state->context->cc, state->cache_get_state)
+          != ASYNC_STATUS_DONE)
+   {
+      async_yield(state);
+   }
+   state->child_handle.header_page =
+      cache_get_async2_state_result(state->context->cc, state->cache_get_state);
+   if (state->child_handle.header_page == NULL) {
+      platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
+      state->rc = STATUS_IO_ERROR;
+      async_return(state);
+   }
+   state->child_handle.pivot_page           = NULL;
+   state->child_handle.inflight_bundle_page = NULL;
+   state->rc                                = STATUS_OK;
+   async_return(state);
+}
+
+
 void
 trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle)
 {
@@ -970,6 +1012,68 @@ ondisk_node_handle_setup_content_page(ondisk_node_handle *handle,
    }
 }
 
+/*
+ * IN Parameters:
+ * - state->handle: the ondisk_node_handle
+ * - state->offset: the offset of the page to get
+ *
+ * IN/OUT Parameters:
+ * - state->page: Pointer to the page pointer in the handle to set up.
+ *
+ * OUT Parameters:
+ * - state->rc: the return code
+ *
+ * LOCAL Variables:
+ * - state->cache_get_state: the state of the cache_get() operation
+ */
+static async_status
+ondisk_node_handle_setup_content_page_async(
+   trunk_merge_lookup_async_state *state,
+   uint64                          depth)
+{
+   async_begin(state, depth);
+
+   uint64 page_size = cache_page_size(state->handle.cc);
+
+   if (offset_is_in_content_page(&state->handle, *state->page, state->offset)) {
+      state->rc = STATUS_OK;
+      async_return(state);
+   }
+
+   if (*state->page != NULL && *state->page != state->handle.header_page) {
+      cache_unget(state->handle.cc, *state->page);
+   }
+
+   if (state->offset < page_size) {
+      *state->page = state->handle.header_page;
+      state->rc    = STATUS_OK;
+      async_return(state);
+   } else {
+      uint64 addr = state->handle.header_page->disk_addr + state->offset;
+      addr -= (addr % page_size);
+      cache_get_async2_state_init(state->cache_get_state,
+                                  state->handle.cc,
+                                  addr,
+                                  PAGE_TYPE_TRUNK,
+                                  state->callback,
+                                  state->callback_arg);
+      while (cache_get_async2(state->handle.cc, state->cache_get_state)
+             != ASYNC_STATUS_DONE)
+      {
+         async_yield(state);
+      }
+      *state->page = cache_get_async2_state_result(state->handle.cc,
+                                                   state->cache_get_state);
+      if (*state->page == NULL) {
+         platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
+         state->rc = STATUS_IO_ERROR;
+         async_return(state);
+      }
+      state->rc = STATUS_OK;
+      async_return(state);
+   }
+}
+
 static uint64
 ondisk_node_height(ondisk_node_handle *handle)
 {
@@ -1002,6 +1106,48 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
    return (ondisk_pivot *)(handle->pivot_page->data + offset
                            - content_page_offset(handle, handle->pivot_page));
 }
+
+/*
+ * IN Parameters:
+ * - state->handle: the ondisk_node_handle
+ * - state->pivot_num: the pivot number to get
+ *
+ * OUT Parameters:
+ * - state->pivot: the pivot
+ * - state->rc: the return code
+ *
+ * LOCAL Variables:
+ * - state->offset: the offset of the pivot
+ * - state->page: Pointer to the page pointer in the handle to set up.
+ * - state->cache_get_state: the state of the cache_get() operation
+ */
+static async_status
+ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state, uint64 depth)
+{
+   async_begin(state, depth);
+
+   ondisk_trunk_node *header =
+      (ondisk_trunk_node *)state->handle.header_page->data;
+   state->offset = header->pivot_offsets[state->pivot_num];
+   state->page   = &state->handle.pivot_page;
+   async_await_subroutine(state, ondisk_node_handle_setup_content_page_async);
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
+                         "failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(state->rc));
+      state->pivot = NULL;
+      async_return(state);
+   }
+   state->pivot =
+      (ondisk_pivot *)(state->handle.pivot_page->data + state->offset
+                       - content_page_offset(&state->handle,
+                                             state->handle.pivot_page));
+   state->rc = STATUS_OK;
+   async_return(state);
+}
+
 
 static platform_status
 ondisk_node_get_pivot_key(ondisk_node_handle *handle, uint64 pivot_num, key *k)
@@ -1075,6 +1221,74 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
    return result;
 }
 
+/*
+ * IN Parameters:
+ * - state->handle: the ondisk_node_handle
+ * - state->offset: the offset of the bundle
+ *
+ * OUT Parameters:
+ * - state->bndl: the bundle
+ * - state->rc: the return code
+ *
+ * LOCAL Variables:
+ * - state->page: Pointer to the page pointer in the handle to set up.
+ * - state->cache_get_state: the state of the cache_get() operation
+ */
+static async_status
+ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
+                                   uint64                          depth)
+{
+   uint64 page_size = cache_page_size(state->handle.cc);
+
+   async_begin(state, depth);
+
+   /* If there's not enough room for a bundle header, skip to the next
+    * page. */
+   if (page_size - (state->offset % page_size) < sizeof(ondisk_bundle)) {
+      state->offset += page_size - (state->offset % page_size);
+   }
+
+   state->page = &state->handle.inflight_bundle_page;
+   async_await_subroutine(state, ondisk_node_handle_setup_content_page_async);
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
+                         "failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(state->rc));
+      state->bndl = NULL;
+      async_return(state);
+   }
+   state->bndl =
+      (ondisk_bundle *)(state->handle.inflight_bundle_page->data + state->offset
+                        - content_page_offset(
+                           &state->handle, state->handle.inflight_bundle_page));
+
+   /* If there wasn't enough room for this bundle on this page, then we would
+    * have zeroed the remaining bytes and put the bundle on the next page. */
+   if (state->bndl->num_branches == 0) {
+      state->offset += page_size - (state->offset % page_size);
+      state->page = &state->handle.inflight_bundle_page;
+      async_await_subroutine(state,
+                             ondisk_node_handle_setup_content_page_async);
+      if (!SUCCESS(state->rc)) {
+         platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
+                            "failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_to_string(state->rc));
+         state->bndl = NULL;
+         async_return(state);
+      }
+      state->bndl = (ondisk_bundle *)(state->handle.inflight_bundle_page->data
+                                      + state->offset
+                                      - content_page_offset(
+                                         &state->handle,
+                                         state->handle.inflight_bundle_page));
+   }
+   async_return(state);
+}
+
 static ondisk_bundle *
 ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle)
 {
@@ -1086,6 +1300,39 @@ ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle)
    return ondisk_node_bundle_at_offset(handle, offset);
 }
 
+/*
+ * IN Parameters:
+ * - state->handle: the ondisk_node_handle
+ *
+ * OUT Parameters:
+ * - state->bndl: the bundle
+ * - state->rc: the return code
+ *
+ * LOCAL Variables:
+ * - state->offset: the offset of the bundle
+ * - state->page: Pointer to the page pointer in the handle to set up.
+ * - state->cache_get_state: the state of the cache_get() operation
+ */
+static async_status
+ondisk_node_get_first_inflight_bundle_async(
+   trunk_merge_lookup_async_state *state,
+   uint64                          depth)
+{
+   async_begin(state, depth);
+
+   ondisk_trunk_node *header =
+      (ondisk_trunk_node *)state->handle.header_page->data;
+   if (header->num_inflight_bundles == 0) {
+      state->bndl = NULL;
+      state->rc   = STATUS_OK;
+      async_return(state);
+   }
+   state->offset = header->inflight_bundles_offset;
+   async_await_subroutine(state, ondisk_node_bundle_at_offset_async);
+   async_return(state);
+}
+
+
 static ondisk_bundle *
 ondisk_node_get_next_inflight_bundle(ondisk_node_handle *handle,
                                      ondisk_bundle      *bundle)
@@ -1094,6 +1341,35 @@ ondisk_node_get_next_inflight_bundle(ondisk_node_handle *handle,
                    + content_page_offset(handle, handle->inflight_bundle_page)
                    + sizeof_ondisk_bundle(bundle);
    return ondisk_node_bundle_at_offset(handle, offset);
+}
+
+/*
+ * IN Parameters:
+ * - state->handle: the ondisk_node_handle
+ *
+ * IN/OUT Parameters:
+ * - state->bndl: the bundle
+ *
+ * OUT Parameters:
+ * - state->rc: the return code
+ *
+ * LOCAL Variables:
+ * - state->offset: the offset of the bundle
+ * - state->page: Pointer to the page pointer in the handle to set up.
+ * - state->cache_get_state: the state of the cache_get() operation
+ */
+static async_status
+ondisk_node_get_next_inflight_bundle_async(
+   trunk_merge_lookup_async_state *state,
+   uint64                          depth)
+{
+   async_begin(state, depth);
+   state->offset =
+      ((char *)state->bndl) - state->handle.inflight_bundle_page->data
+      + content_page_offset(&state->handle, state->handle.inflight_bundle_page)
+      + sizeof_ondisk_bundle(state->bndl);
+   async_await_subroutine(state, ondisk_node_bundle_at_offset_async);
+   async_return(state);
 }
 
 static pivot *
@@ -4372,10 +4648,9 @@ ondisk_node_find_pivot(const trunk_node_context *context,
                        comparison                cmp,
                        ondisk_pivot            **pivot)
 {
-   platform_status rc;
-   uint64          num_pivots = ondisk_node_num_pivots(handle);
-   uint64          min        = 0;
-   uint64          max        = num_pivots - 1;
+   uint64 num_pivots = ondisk_node_num_pivots(handle);
+   uint64 min        = 0;
+   uint64 max        = num_pivots - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
    int           last_cmp;
@@ -4383,15 +4658,13 @@ ondisk_node_find_pivot(const trunk_node_context *context,
    while (min + 1 < max) {
       uint64        mid       = (min + max) / 2;
       ondisk_pivot *mid_pivot = ondisk_node_get_pivot(handle, mid);
-      key           mid_key   = ondisk_pivot_key(mid_pivot);
-      rc = ondisk_node_get_pivot_key(handle, mid, &mid_key);
-      if (!SUCCESS(rc)) {
+      if (mid_pivot == NULL) {
          platform_error_log("ondisk_node_find_pivot: "
-                            "ondisk_node_get_pivot_key failed: %d\n",
-                            rc.r);
-         return rc;
+                            "ondisk_node_get_pivot failed\n");
+         return STATUS_IO_ERROR;
       }
-      int cmp = data_key_compare(context->cfg->data_cfg, tgt, mid_key);
+      key mid_key = ondisk_pivot_key(mid_pivot);
+      int cmp     = data_key_compare(context->cfg->data_cfg, tgt, mid_key);
       if (cmp < 0) {
          max = mid;
       } else {
@@ -4415,6 +4688,78 @@ ondisk_node_find_pivot(const trunk_node_context *context,
 
    *pivot = min_pivot;
    return STATUS_OK;
+}
+
+/*
+ * IN Parameters:
+ * state->context: the trunk node context
+ * state->handle: the ondisk node handle
+ * state->tgt: the target key
+ * state->cmp: the comparison to use
+ *
+ * OUT Parameters:
+ * state->pivot: the pivot found
+ * state->rc: the return code
+ *
+ * LOCAL Variables:
+ * state->min: the minimum pivot index
+ * state->max: the maximum pivot index
+ * state->min_pivot: the minimum pivot found
+ * state->last_cmp: the last comparison result
+ * state->mid: the mid pivot index
+ * state->pivot_num: the pivot number
+ * state->offset: the offset
+ * state->page: the page
+ * state->cache_get_state: the cache get state
+ */
+static async_status
+ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
+                             uint64                          depth)
+{
+   async_begin(state, depth);
+
+   state->min = 0;
+   state->max = ondisk_node_num_pivots(&state->handle) - 1;
+
+   // invariant: pivot[min] <= tgt < pivot[max]
+   state->min_pivot = NULL;
+   while (state->min + 1 < state->max) {
+      state->mid       = (state->min + state->max) / 2;
+      state->pivot_num = state->mid;
+      async_await_subroutine(state, ondisk_node_get_pivot_async);
+      if (!SUCCESS(state->rc)) {
+         platform_error_log("ondisk_node_find_pivot_async: "
+                            "ondisk_node_get_pivot_async failed: %d\n",
+                            state->rc.r);
+         async_return(state);
+      }
+      key mid_key = ondisk_pivot_key(state->pivot);
+      int cmp =
+         data_key_compare(state->context->cfg->data_cfg, state->tgt, mid_key);
+      if (cmp < 0) {
+         state->max = state->mid;
+      } else {
+         state->min       = state->mid;
+         state->min_pivot = state->mid_pivot;
+         state->last_cmp  = cmp;
+      }
+   }
+   /* 0 < min means we executed the loop at least once.
+      last_cmp == 0 means we found an exact match at pivot[mid], and we then
+      assigned mid to min, which means that pivot[min] == tgt.
+   */
+   if (0 < state->min && state->last_cmp == 0 && state->cmp == less_than) {
+      state->min--;
+      state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
+   }
+
+   if (state->min_pivot == NULL) {
+      state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
+   }
+
+   state->pivot = state->min_pivot;
+   state->rc    = STATUS_OK;
+   async_return(state);
 }
 
 static platform_status
@@ -4504,6 +4849,110 @@ ondisk_bundle_merge_lookup(trunk_node_context  *context,
    return STATUS_OK;
 }
 
+static async_status
+ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
+                                 uint64                          depth)
+{
+   // Get the current thread id after every yield.
+   threadid tid = platform_get_tid();
+
+   async_begin(state, depth);
+
+   async_await_call(state,
+                    routing_filter_lookup_async2,
+                    &state->filter_state,
+                    state->context->cc,
+                    state->context->cfg->filter_cfg,
+                    state->bndl->maplet,
+                    state->tgt,
+                    &state->found_values,
+                    state->callback,
+                    state->callback_arg);
+   state->rc = async_result(&state->filter_state);
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("ondisk_bundle_merge_lookup: "
+                         "routing_filter_lookup failed: %d\n",
+                         state->rc.r);
+      async_return(state);
+   }
+
+   if (state->context->stats) {
+      state->context->stats[tid].maplet_lookups[state->height]++;
+   }
+
+   if (state->log) {
+      platform_log(state->log, "maplet: %lu\n", state->bndl->maplet.addr);
+      platform_log(state->log, "found_values: %lu\n", state->found_values);
+      state->found_values = (1ULL << state->bndl->num_branches) - 1;
+   }
+
+   for (state->idx = routing_filter_get_next_value(state->found_values,
+                                                   ROUTING_NOT_FOUND);
+        state->idx != ROUTING_NOT_FOUND;
+        state->idx =
+           routing_filter_get_next_value(state->found_values, state->idx))
+   {
+      async_await_call(state,
+                       btree_lookup_and_merge_async2,
+                       &state->btree_state,
+                       state->context->cc,
+                       state->context->cfg->btree_cfg,
+                       branch_ref_addr(state->bndl->branches[state->idx]),
+                       PAGE_TYPE_BRANCH,
+                       state->tgt,
+                       state->result,
+                       state->callback,
+                       state->callback_arg);
+      state->rc = async_result(&state->btree_state);
+      if (!SUCCESS(state->rc)) {
+         platform_error_log("ondisk_bundle_merge_lookup: "
+                            "btree_lookup_and_merge failed: %d\n",
+                            state->rc.r);
+         async_return(state);
+      }
+
+      if (state->context->stats) {
+         state->context->stats[tid].branch_lookups[state->height]++;
+         if (!state->btree_state.found) {
+            state->context->stats[tid].maplet_false_positives[state->height]++;
+         }
+      }
+
+
+      if (!state->log && merge_accumulator_is_definitive(state->result)) {
+         async_return(state);
+      }
+
+      if (state->log) {
+         merge_accumulator ma;
+         merge_accumulator_init(&ma, state->context->hid);
+         // Not bothering to make the logging paths async
+         platform_status rc = btree_lookup_and_merge(
+            state->context->cc,
+            state->context->cfg->btree_cfg,
+            branch_ref_addr(state->bndl->branches[state->idx]),
+            PAGE_TYPE_BRANCH,
+            state->tgt,
+            &ma,
+            &state->btree_state.found);
+         platform_assert_status_ok(rc);
+         platform_log(state->log,
+                      "branch: %lu found: %u\n",
+                      branch_ref_addr(state->bndl->branches[state->idx]),
+                      state->btree_state.found);
+         if (state->btree_state.found) {
+            message msg = merge_accumulator_to_message(&ma);
+            platform_log(state->log,
+                         "msg: %s\n",
+                         message_string(state->context->cfg->data_cfg, msg));
+         }
+         merge_accumulator_deinit(&ma);
+      }
+   }
+
+   async_return(state);
+}
+
 platform_status
 trunk_merge_lookup(trunk_node_context  *context,
                    ondisk_node_handle  *inhandle,
@@ -4511,6 +4960,16 @@ trunk_merge_lookup(trunk_node_context  *context,
                    merge_accumulator   *result,
                    platform_log_handle *log)
 {
+   if (1) {
+      return async_call_sync_callback(cache_cleanup(context->cc),
+                                      trunk_merge_lookup_async,
+                                      context,
+                                      inhandle,
+                                      tgt,
+                                      result,
+                                      log);
+   }
+
    platform_status rc = STATUS_OK;
 
    ondisk_node_handle handle;
@@ -4559,6 +5018,12 @@ trunk_merge_lookup(trunk_node_context  *context,
 
       // Search the inflight bundles
       ondisk_bundle *bndl = ondisk_node_get_first_inflight_bundle(&handle);
+      if (bndl == NULL) {
+         platform_error_log("trunk_merge_lookup: "
+                            "ondisk_node_get_first_inflight_bundle failed\n");
+         rc = STATUS_IO_ERROR;
+         goto cleanup;
+      }
       for (uint64 i = 0; i < pivot->num_live_inflight_bundles; i++) {
          rc =
             ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
@@ -4613,6 +5078,132 @@ cleanup:
    }
    return rc;
 }
+
+async_status
+trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
+{
+   async_begin(state, 0);
+
+   // We don't need to perform the clone asynchronously because the header page
+   // is guaranteed to be in memory.
+   state->rc = trunk_ondisk_node_handle_clone(&state->handle, state->inhandle);
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("trunk_merge_lookup: "
+                         "trunk_ondisk_node_handle_clone failed: %d\n",
+                         state->rc.r);
+      async_return(state, state->rc);
+   }
+
+   while (state->handle.header_page) {
+      state->height = ondisk_node_height(&state->handle);
+
+      if (state->log) {
+         // Sorry, but we're not going to perform the logging asynchronously.
+         trunk_node node;
+         state->rc = node_deserialize(
+            state->context, state->handle.header_page->disk_addr, &node);
+         if (!SUCCESS(state->rc)) {
+            platform_error_log("trunk_merge_lookup: "
+                               "node_deserialize failed: %d\n",
+                               state->rc.r);
+            goto cleanup;
+         }
+         platform_log(
+            state->log, "addr: %lu\n", state->handle.header_page->disk_addr);
+         node_print(&node, state->log, state->context->cfg->data_cfg, 0);
+         node_deinit(&node, state->context);
+      }
+
+      async_await_subroutine(state, ondisk_node_find_pivot_async);
+      if (!SUCCESS(state->rc)) {
+         platform_error_log(
+            "trunk_merge_lookup: ondisk_node_find_pivot failed: "
+            "%d\n",
+            state->rc.r);
+         goto cleanup;
+      }
+
+      if (state->log) {
+         platform_log(state->log,
+                      "pivot: %s\n",
+                      key_string(state->context->cfg->data_cfg,
+                                 ondisk_pivot_key(state->pivot)));
+      }
+
+      // Search the inflight bundles
+      async_await_subroutine(state,
+                             ondisk_node_get_first_inflight_bundle_async);
+      if (state->bndl == NULL) {
+         platform_error_log("trunk_merge_lookup: "
+                            "ondisk_node_get_first_inflight_bundle failed\n");
+         state->rc = STATUS_IO_ERROR;
+         goto cleanup;
+      }
+
+      for (state->inflight_bundle_num = 0;
+           state->inflight_bundle_num < state->pivot->num_live_inflight_bundles;
+           state->inflight_bundle_num++)
+      {
+         async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
+         if (!SUCCESS(state->rc)) {
+            platform_error_log("trunk_merge_lookup: "
+                               "ondisk_bundle_merge_lookup failed: %d\n",
+                               state->rc.r);
+            goto cleanup;
+         }
+         if (merge_accumulator_is_definitive(state->result)) {
+            goto cleanup;
+         }
+         if (state->inflight_bundle_num
+             < state->pivot->num_live_inflight_bundles - 1) {
+            async_await_subroutine(state,
+                                   ondisk_node_get_next_inflight_bundle_async);
+            if (state->bndl == NULL) {
+               platform_error_log(
+                  "trunk_merge_lookup: "
+                  "ondisk_node_get_next_inflight_bundle failed\n");
+               state->rc = STATUS_IO_ERROR;
+               goto cleanup;
+            }
+         }
+      }
+
+      // Search the pivot bundle
+      state->bndl = ondisk_pivot_bundle(state->pivot);
+      async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
+      if (!SUCCESS(state->rc)) {
+         platform_error_log("trunk_merge_lookup: "
+                            "ondisk_bundle_merge_lookup failed: %d\n",
+                            state->rc.r);
+         goto cleanup;
+      }
+      if (!state->log && merge_accumulator_is_definitive(state->result)) {
+         goto cleanup;
+      }
+
+      // Search the child
+      if (state->pivot->child_addr != 0) {
+         async_await_subroutine(state, ondisk_node_handle_init_async);
+         if (!SUCCESS(state->rc)) {
+            platform_error_log("trunk_merge_lookup: "
+                               "ondisk_node_handle_init failed: %d\n",
+                               state->rc.r);
+            goto cleanup;
+         }
+         trunk_ondisk_node_handle_deinit(&state->handle);
+         state->handle = state->child_handle;
+      } else {
+         trunk_ondisk_node_handle_deinit(&state->handle);
+      }
+   }
+
+cleanup:
+   if (state->handle.header_page) {
+      trunk_ondisk_node_handle_deinit(&state->handle);
+   }
+   async_return(state, state->rc);
+}
+
 
 static platform_status
 trunk_collect_bundle_branches(ondisk_bundle *bndl,

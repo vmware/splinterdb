@@ -2079,6 +2079,24 @@ btree_lookup_node(cache              *cc,             // IN
    return STATUS_OK;
 }
 
+/*
+ * IN Parameters:
+ * - state->cc: the cache
+ * - state->cfg: the btree config
+ * - state->root_addr: the root address of the btree
+ * - state->type: the type of the root node
+ * - state->target: the key to look up
+ * - state->stop_at_height: the height to stop at
+ *
+ * OUT Parameters:
+ * - state->node: the node found
+ * - state->stats: the stats of the node found
+ *
+ * LOCAL Variables:
+ * - state->h: the height of the current node
+ * - state->found: whether the target was found
+ * - state->child_node: the child node
+ */
 static inline async_status
 btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
 {
@@ -2150,6 +2168,25 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
    async_return(state);
 }
 
+/*
+ * IN Parameters:
+ * - state->cc: the cache
+ * - state->cfg: the btree config
+ * - state->root_addr: the root address of the btree
+ * - state->type: the type of the root node
+ * - state->target: the key to look up
+ *
+ * OUT Parameters:
+ * - state->node: the node found
+ * - state->found: whether the target was found in the leaf
+ * - state->msg: the message of the target
+ *
+ * LOCAL Variables:
+ * - state->stats: the stats of the node found
+ * - state->stop_at_height: the height to stop at
+ * - state->h: the height of the current node
+ * - state->child_node: the child node
+ */
 static inline async_status
 btree_lookup_with_ref_async2(btree_lookup_async2_state *state, uint64 depth)
 {
@@ -2275,6 +2312,51 @@ btree_lookup_and_merge(cache              *cc,        // IN
       btree_node_unget(cc, cfg, &node);
    }
    return rc;
+}
+
+/*
+ * IN Parameters:
+ * - state->cc: the cache
+ * - state->cfg: the btree config
+ * - state->root_addr: the root address of the btree
+ * - state->type: the type of the root node
+ * - state->target: the key to look up
+ *
+ * IN/OUT Parameters:
+ * - state->result: the result of the lookup
+ *
+ * OUT Parameters:
+ * - state->found: whether the target was found in the leaf
+ *
+ * LOCAL Variables:
+ * - state->node: the node found
+ * - state->stats: the stats of the node found
+ * - state->stop_at_height: the height to stop at
+ * - state->h: the height of the current node
+ * - state->child_node: the child node
+ * - state->msg: the message of the target
+ */
+async_status
+btree_lookup_and_merge_async2(btree_lookup_async2_state *state)
+{
+   async_begin(state, 0);
+
+   async_await_subroutine(state, btree_lookup_with_ref_async2);
+
+   platform_status rc = STATUS_OK;
+   if (state->found) {
+      if (merge_accumulator_is_null(state->result)) {
+         bool32 success =
+            merge_accumulator_copy_message(state->result, state->msg);
+         rc = success ? STATUS_OK : STATUS_NO_MEMORY;
+      } else if (btree_merge_tuples(
+                    state->cfg, state->target, state->msg, state->result))
+      {
+         rc = STATUS_NO_MEMORY;
+      }
+      btree_node_unget(state->cc, state->cfg, &state->node);
+   }
+   async_return(state, rc);
 }
 
 /*
