@@ -361,7 +361,7 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->iceberght_config.log_slots    = (int)ceil(
       log2(5 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
    txn_splinterdb_cfg->sktch_config.rows                     = 2;
-   txn_splinterdb_cfg->sktch_config.cols                     = 1024; // 131072;
+   txn_splinterdb_cfg->sktch_config.cols                     = 512; // 131072;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
 #else
 #   error "Invalid experimental mode"
