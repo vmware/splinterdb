@@ -4701,7 +4701,7 @@ ondisk_node_find_pivot(const trunk_node_context *context,
  * state->context: the trunk node context
  * state->handle: the ondisk node handle
  * state->tgt: the target key
- * state->cmp: the comparison to use
+ * //state->cmp: the comparison to use
  *
  * OUT Parameters:
  * state->pivot: the pivot found
@@ -4746,7 +4746,7 @@ ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
          state->max = state->mid;
       } else {
          state->min       = state->mid;
-         state->min_pivot = state->mid_pivot;
+         state->min_pivot = state->pivot;
          state->last_cmp  = cmp;
       }
    }
@@ -4754,10 +4754,10 @@ ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
       last_cmp == 0 means we found an exact match at pivot[mid], and we then
       assigned mid to min, which means that pivot[min] == tgt.
    */
-   if (0 < state->min && state->last_cmp == 0 && state->cmp == less_than) {
-      state->min--;
-      state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
-   }
+   // if (0 < state->min && state->last_cmp == 0 && state->cmp == less_than) {
+   //    state->min--;
+   //    state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
+   // }
 
    if (state->min_pivot == NULL) {
       state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
@@ -4966,7 +4966,7 @@ trunk_merge_lookup(trunk_node_context  *context,
                    merge_accumulator   *result,
                    platform_log_handle *log)
 {
-   if (0) {
+   if (1) {
       return async_call_sync_callback(cache_cleanup(context->cc),
                                       trunk_merge_lookup_async,
                                       context,
@@ -5131,7 +5131,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
 
       if (state->log) {
          platform_log(state->log,
-                      "pivot: %s\n",
+                      "pivot_num: %lu pivot: %s\n",
+                      state->min,
                       key_string(state->context->cfg->data_cfg,
                                  ondisk_pivot_key(state->pivot)));
       }
