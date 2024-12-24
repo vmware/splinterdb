@@ -884,10 +884,8 @@ iceberg_next_clock_hand(iceberg_table *table)
 static void
 iceberg_evict(iceberg_table *table, threadid thread_id)
 {
-   int  cnt  = 0;
    bool done = false;
    do {
-      ++cnt;
       uint64_t hand = iceberg_next_clock_hand(table);
       if (trylock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md))
       {
@@ -958,7 +956,7 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          */
          unlock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md);
       }
-   } while (!done && cnt < table->metadata.nblocks);
+   } while (!done);
 }
 
 static inline bool
