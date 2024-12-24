@@ -884,7 +884,7 @@ iceberg_next_clock_hand(iceberg_table *table)
 static void
 iceberg_evict(iceberg_table *table, threadid thread_id)
 {
-   int cnt = 0;
+   int  cnt  = 0;
    bool done = false;
    do {
       ++cnt;
