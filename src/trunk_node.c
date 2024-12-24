@@ -4966,16 +4966,6 @@ trunk_merge_lookup(trunk_node_context  *context,
                    merge_accumulator   *result,
                    platform_log_handle *log)
 {
-   if (1) {
-      return async_call_sync_callback(cache_cleanup(context->cc),
-                                      trunk_merge_lookup_async,
-                                      context,
-                                      inhandle,
-                                      tgt,
-                                      result,
-                                      log);
-   }
-
    platform_status rc = STATUS_OK;
 
    ondisk_node_handle handle;
