@@ -627,21 +627,21 @@ transactional_splinterdb_config_init(
    sketch_config_default_init(&txn_splinterdb_cfg->sktch_config);
    txn_splinterdb_cfg->sktch_config.insert_value_fn = &sketch_insert_timestamps;
    txn_splinterdb_cfg->sktch_config.get_value_fn    = &sketch_get_timestamps;
-#if EXPERIMENTAL_MODE_MVCC_COUNTER
+
    txn_splinterdb_cfg->iceberght_config.max_num_keys = 1000;
-   txn_splinterdb_cfg->sktch_config.rows             = 1;
-   txn_splinterdb_cfg->sktch_config.cols             = 1;
+#if EXPERIMENTAL_MODE_MVCC_COUNTER
+   txn_splinterdb_cfg->sktch_config.rows = 1;
+   txn_splinterdb_cfg->sktch_config.cols = 1;
 #elif EXPERIMENTAL_MODE_MVCC_COUNTER_LAZY
-   txn_splinterdb_cfg->iceberght_config.max_num_keys         = 1820;
+   txn_splinterdb_cfg->iceberght_config.max_num_keys += 820;
    txn_splinterdb_cfg->sktch_config.rows                     = 1;
    txn_splinterdb_cfg->sktch_config.cols                     = 1;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH
-   txn_splinterdb_cfg->iceberght_config.max_num_keys = 1000;
-   txn_splinterdb_cfg->sktch_config.rows             = 2;
-   txn_splinterdb_cfg->sktch_config.cols             = 1024; // 131072;
+   txn_splinterdb_cfg->sktch_config.rows = 2;
+   txn_splinterdb_cfg->sktch_config.cols = 1024; // 131072;
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH_LAZY
-   txn_splinterdb_cfg->iceberght_config.max_num_keys         = 1410;
+   txn_splinterdb_cfg->iceberght_config.max_num_keys += 410;
    txn_splinterdb_cfg->sktch_config.rows                     = 2;
    txn_splinterdb_cfg->sktch_config.cols                     = 512; // 131072;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
