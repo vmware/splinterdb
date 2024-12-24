@@ -884,8 +884,10 @@ iceberg_next_clock_hand(iceberg_table *table)
 static void
 iceberg_evict(iceberg_table *table, threadid thread_id)
 {
+   int cnt = 0;
    bool done = false;
    do {
+      ++cnt;
       uint64_t hand = iceberg_next_clock_hand(table);
       if (trylock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md))
       {
@@ -956,7 +958,7 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          */
          unlock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md);
       }
-   } while (!done);
+   } while (!done && cnt < table->metadata.nblocks);
 }
 
 static inline bool
@@ -2075,15 +2077,6 @@ iceberg_get_and_remove_with_force(iceberg_table *table,
          bool should_remove = false;
          if (force_remove) {
             should_remove = true;
-         } else if (force_remove_if_inactive) {
-            if (blocks[boffset].slots[slot].refcount == 0) {
-               should_remove = true;
-            } else {
-               blocks[boffset].slots[slot].q_refcount = 0;
-               unlock_block(
-                  (uint64_t *)&metadata->lv1_md[bindex][boffset].block_md);
-               return false;
-            }
          } else {
             if (delete_item) {
                if (blocks[boffset].slots[slot].refcount == 1) {
