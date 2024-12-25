@@ -56,7 +56,7 @@ task_allocate_threadid(task_system *ts)
    uint64   old_bitmask;
    uint64   new_bitmask;
 
-   while (!__sync_lock_test_and_set(&ts->tid_bitmask_lock, 1)) {
+   while (__sync_lock_test_and_set(&ts->tid_bitmask_lock, 1)) {
       // spin
    }
 

@@ -250,41 +250,6 @@ typedef struct trunk_node {
    trunk_hdr   *hdr;
 } trunk_node;
 
-typedef struct trunk_async_ctxt {
-   trunk_async_cb cb; // IN: callback (requeues ctxt
-                      // for dispatch)
-   // These fields are internal
-   trunk_async_state prev_state; // state machine's previous state
-   trunk_async_state state;      // state machine's current state
-   trunk_node        trunk_node; // Current trunk node
-   uint16            height;     // height of trunk_node
-
-   uint16 sb_no;     // subbundle number (newest)
-   uint16 end_sb_no; // subbundle number (oldest,
-                     // exclusive
-   uint16 filter_no; // sb filter no
-
-   trunk_async_lookup_state lookup_state; // Can be pivot or
-                                          // [compacted] subbundle
-   struct trunk_subbundle  *sb;           // Subbundle
-   struct trunk_pivot_data *pdata;        // Pivot data for next trunk node
-   routing_filter          *filter;       // Filter for subbundle or pivot
-   uint64                   found_values; // values found in filter
-   uint16                   value;        // Current value found in filter
-
-   uint16 branch_no;        // branch number (newest)
-   uint16 branch_no_end;    // branch number end (oldest,
-                            // exclusive)
-   bool32        was_async; // Did an async IO for trunk ?
-   trunk_branch *branch;    // Current branch
-   union {
-      routing_async_ctxt filter_ctxt; // Filter async context
-      btree_async_ctxt   btree_ctxt;  // Btree async context
-   };
-   cache_async_ctxt cache_ctxt; // Async cache context
-} trunk_async_ctxt;
-
-
 /*
  *----------------------------------------------------------------------
  *
@@ -305,11 +270,21 @@ trunk_lookup_found(merge_accumulator *result)
    return !merge_accumulator_is_null(result);
 }
 
-cache_async_result
-trunk_lookup_async(trunk_handle      *spl,
-                   key                target,
-                   merge_accumulator *data,
-                   trunk_async_ctxt  *ctxt);
+// clang-format off
+DEFINE_ASYNC_STATE(trunk_lookup_async2_state, 1,
+   param, trunk_handle *,        spl,
+   param, key,                   target,
+   param, merge_accumulator *,   result,
+   param, async_callback_fn,     callback,
+   param, void *,                callback_arg,
+   local, platform_status,       __async_result,
+   local, ondisk_node_handle,    root_handle,
+   local, trunk_merge_lookup_async_state, trunk_node_state)
+// clang-format on
+
+async_status
+trunk_lookup_async2(trunk_lookup_async2_state *state);
+
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
@@ -399,14 +374,6 @@ static inline void
 trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
 {
    btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
-}
-
-static inline void
-trunk_async_ctxt_init(trunk_async_ctxt *ctxt, trunk_async_cb cb)
-{
-   ZERO_CONTENTS(ctxt);
-   ctxt->state = async_state_start;
-   ctxt->cb    = cb;
 }
 
 uint64

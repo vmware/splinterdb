@@ -314,13 +314,12 @@ test_trunk_lookup_thread(void *arg)
                         trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = lookup_num;
-               async_ctxt_process_one(
-                  spl,
-                  async_lookup,
-                  ctxt,
-                  &params->lookup_stats[ASYNC_LU].latency_max,
-                  verify_tuple_callback,
-                  &vtarg);
+               async_ctxt_submit(spl,
+                                 async_lookup,
+                                 ctxt,
+                                 &params->lookup_stats[ASYNC_LU].latency_max,
+                                 verify_tuple_callback,
+                                 &vtarg);
             }
          }
       }
@@ -643,13 +642,12 @@ do_operation(test_splinter_thread_params *params,
                         trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = op_num;
-               async_ctxt_process_one(
-                  spl,
-                  async_lookup,
-                  ctxt,
-                  &params->lookup_stats[ASYNC_LU].latency_max,
-                  verify_tuple_callback,
-                  &vtarg);
+               async_ctxt_submit(spl,
+                                 async_lookup,
+                                 ctxt,
+                                 &params->lookup_stats[ASYNC_LU].latency_max,
+                                 verify_tuple_callback,
+                                 &vtarg);
             }
          }
       }

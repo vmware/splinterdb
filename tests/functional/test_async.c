@@ -23,11 +23,9 @@
  * context.
  */
 static void
-test_async_callback(trunk_async_ctxt *spl_ctxt)
+test_async_callback(void *tac)
 {
-   test_async_ctxt *ctxt = container_of(spl_ctxt, test_async_ctxt, ctxt);
-
-   platform_assert(spl_ctxt->cache_ctxt.page);
+   test_async_ctxt *ctxt = (test_async_ctxt *)tac;
    pcq_enqueue(ctxt->ready_q, ctxt);
 }
 
@@ -45,7 +43,6 @@ async_ctxt_get(test_async_lookup *async_lookup)
    if (!SUCCESS(rc)) {
       return NULL;
    }
-   trunk_async_ctxt_init(&ctxt->ctxt, test_async_callback);
 
    return ctxt;
 }
@@ -107,12 +104,11 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
    platform_free(hid, async_lookup);
 }
 
-
 /*
  * Process a single async ctxt by first doing an async lookup
  * and if successful, run process_cb on it.
  */
-void
+static void
 async_ctxt_process_one(trunk_handle         *spl,
                        test_async_lookup    *async_lookup,
                        test_async_ctxt      *ctxt,
@@ -120,31 +116,44 @@ async_ctxt_process_one(trunk_handle         *spl,
                        async_ctxt_process_cb process_cb,
                        void                 *process_arg)
 {
-   cache_async_result res;
-   timestamp          ts;
+   async_status res;
+   timestamp    ts;
 
    ts  = platform_get_timestamp();
-   res = trunk_lookup_async(
-      spl, key_buffer_key(&ctxt->key), &ctxt->data, &ctxt->ctxt);
-   ts = platform_timestamp_elapsed(ts);
+   res = trunk_lookup_async2(&ctxt->state);
+   ts  = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;
    }
 
    switch (res) {
-      case async_locked:
-      case async_no_reqs:
-         pcq_enqueue(async_lookup->ready_q, ctxt);
+      case ASYNC_STATUS_RUNNING:
          break;
-      case async_io_started:
-         break;
-      case async_success:
+      case ASYNC_STATUS_DONE:
          process_cb(spl, ctxt, process_arg);
          async_ctxt_unget(async_lookup, ctxt);
          break;
       default:
          platform_assert(0);
    }
+}
+
+void
+async_ctxt_submit(trunk_handle         *spl,
+                  test_async_lookup    *async_lookup,
+                  test_async_ctxt      *ctxt,
+                  timestamp            *latency_max,
+                  async_ctxt_process_cb process_cb,
+                  void                 *process_arg)
+{
+   trunk_lookup_async2_state_init(&ctxt->state,
+                                  spl,
+                                  key_buffer_key(&ctxt->key),
+                                  &ctxt->data,
+                                  test_async_callback,
+                                  ctxt);
+   async_ctxt_process_one(
+      spl, async_lookup, ctxt, latency_max, process_cb, process_arg);
 }
 
 /*

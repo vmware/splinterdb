@@ -190,7 +190,7 @@ verify_against_shadow(trunk_handle               *spl,
       } else {
          test_int_to_key(&ctxt->key, keynum, key_size);
          ctxt->refcount = refcount;
-         async_ctxt_process_one(
+         async_ctxt_submit(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
       merge_accumulator_set_to_null(&merge_acc);

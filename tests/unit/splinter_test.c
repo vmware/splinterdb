@@ -576,7 +576,7 @@ CTEST2(splinter, test_lookups)
 
       test_key(&ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       ctxt->lookup_num = insert_num;
-      async_ctxt_process_one(
+      async_ctxt_submit(
          spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_true);
    }
    test_wait_for_inflight(spl, async_lookup, &vtarg_true);
@@ -607,7 +607,7 @@ CTEST2(splinter, test_lookups)
       ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_false);
       test_key(&ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       ctxt->lookup_num = insert_num;
-      async_ctxt_process_one(
+      async_ctxt_submit(
          spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_false);
    }
    test_wait_for_inflight(spl, async_lookup, &vtarg_false);

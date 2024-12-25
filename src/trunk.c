@@ -600,18 +600,6 @@ trunk_alloc(cache *cc, mini_allocator *mini, uint64 height, trunk_node *node)
    node->hdr  = (trunk_hdr *)(node->page->data);
 }
 
-static inline cache_async_result
-trunk_node_get_async(cache *cc, uint64 addr, trunk_async_ctxt *ctxt)
-{
-   return cache_get_async(cc, addr, PAGE_TYPE_TRUNK, &ctxt->cache_ctxt);
-}
-
-static inline void
-trunk_node_async_done(trunk_handle *spl, trunk_async_ctxt *ctxt)
-{
-   cache_async_done(spl->cc, PAGE_TYPE_TRUNK, &ctxt->cache_ctxt);
-}
-
 /*
  *-----------------------------------------------------------------------------
  * Basic Header Access/Manipulation Functions
@@ -897,18 +885,6 @@ trunk_subtract_branch_number(trunk_handle *spl, uint16 branch_no, uint16 offset)
           % spl->cfg.hard_max_branches_per_node;
 }
 
-static inline uint16
-trunk_subtract_subbundle_number(trunk_handle *spl, uint16 start, uint16 end)
-{
-   return (start + TRUNK_MAX_SUBBUNDLES - end) % TRUNK_MAX_SUBBUNDLES;
-}
-
-static inline uint16
-trunk_add_subbundle_filter_number(trunk_handle *spl, uint16 start, uint16 end)
-{
-   return (start + end) % TRUNK_MAX_SUBBUNDLE_FILTERS;
-}
-
 /*
  *-----------------------------------------------------------------------------
  * Bundle functions
@@ -919,18 +895,6 @@ static inline uint16
 trunk_end_bundle(trunk_handle *spl, trunk_node *node)
 {
    return node->hdr->end_bundle;
-}
-
-static inline trunk_bundle *
-trunk_get_bundle(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
-{
-   return &node->hdr->bundle[bundle_no];
-}
-
-static inline trunk_subbundle *
-trunk_get_subbundle(trunk_handle *spl, trunk_node *node, uint16 subbundle_no)
-{
-   return &node->hdr->subbundle[subbundle_no];
 }
 
 static inline routing_filter *
@@ -953,49 +917,6 @@ static inline uint16
 trunk_end_sb_filter(trunk_handle *spl, trunk_node *node)
 {
    return node->hdr->end_sb_filter;
-}
-
-static inline uint16
-trunk_subbundle_filter_count(trunk_handle    *spl,
-                             trunk_node      *node,
-                             trunk_subbundle *sb)
-{
-   return trunk_subtract_subbundle_number(
-      spl, sb->end_filter, sb->start_filter);
-}
-
-static inline routing_filter *
-trunk_subbundle_filter(trunk_handle    *spl,
-                       trunk_node      *node,
-                       trunk_subbundle *sb,
-                       uint16           filter_off)
-{
-   uint16 start_filter = sb->start_filter;
-   uint16 filter_no =
-      trunk_add_subbundle_filter_number(spl, start_filter, filter_off);
-   debug_assert(filter_off < trunk_subbundle_filter_count(spl, node, sb));
-   return trunk_get_sb_filter(spl, node, filter_no);
-}
-
-debug_only static inline uint16
-trunk_subbundle_branch_count(trunk_handle    *spl,
-                             trunk_node      *node,
-                             trunk_subbundle *sb)
-{
-   return trunk_subtract_branch_number(spl, sb->end_branch, sb->start_branch);
-}
-
-static inline uint16
-trunk_end_subbundle(trunk_handle *spl, trunk_node *node)
-{
-   return node->hdr->end_subbundle;
-}
-
-static inline uint16
-trunk_start_subbundle_for_lookup(trunk_handle *spl, trunk_node *node)
-{
-   return trunk_subtract_subbundle_number(
-      spl, trunk_end_subbundle(spl, node), 1);
 }
 
 /*
@@ -1082,107 +1003,6 @@ trunk_set_pivot_data_new_root(trunk_handle *spl,
 }
 
 /*
- * Used by find_pivot
- */
-static inline uint32
-lowerbound(uint32 size)
-{
-   if (size <= 1)
-      return 0;
-   return (8 * sizeof(uint32)) - __builtin_clz(size - 1);
-}
-
-/*
- * Used by find_pivot
- */
-static inline void
-trunk_update_lowerbound(uint16 *lo, uint16 *mid, int cmp, comparison comp)
-{
-   switch (comp) {
-      case less_than:
-      case greater_than_or_equal:
-         if (cmp < 0)
-            *lo = *mid;
-         break;
-      case less_than_or_equal:
-      case greater_than:
-         if (cmp <= 0)
-            *lo = *mid;
-         break;
-      default:
-         platform_assert(0);
-   }
-}
-
-/*
- * find_pivot performs a binary search for the extremal pivot that satisfies
- * comp, e.g. if comp == greater_than, find_pivot finds the smallest pivot
- * which is greater than key. It returns the found pivot's index.
- */
-static inline uint16
-trunk_find_pivot(trunk_handle *spl,
-                 trunk_node   *node,
-                 key           target,
-                 comparison    comp)
-{
-   debug_assert(node != NULL);
-   uint16 lo_idx = 0, mid_idx;
-   uint32 i;
-   int    cmp;
-   uint32 size = trunk_num_children(spl, node);
-
-   if (size == 0) {
-      return 0;
-   }
-
-   if (size == 1) {
-      cmp = trunk_key_compare(spl, trunk_get_pivot(spl, node, 0), target);
-      switch (comp) {
-         case less_than:
-            debug_assert(cmp < 0);
-            return 0;
-         case less_than_or_equal:
-            debug_assert(cmp <= 0,
-                         "cmp=%d, key=%s",
-                         cmp,
-                         key_string(spl->cfg.data_cfg, target));
-            return 0;
-         case greater_than:
-            return cmp > 0 ? 0 : 1;
-         case greater_than_or_equal:
-            return cmp >= 0 ? 0 : 1;
-         default:
-            platform_assert(0);
-      }
-   }
-
-   // binary search for the pivot
-   mid_idx = size - (1u << (lowerbound(size) - 1));
-   size    = 1u << (lowerbound(size) - 1);
-   cmp = trunk_key_compare(spl, trunk_get_pivot(spl, node, mid_idx), target);
-   trunk_update_lowerbound(&lo_idx, &mid_idx, cmp, comp);
-
-   for (i = lowerbound(size); i != 0; i--) {
-      size /= 2;
-      mid_idx = lo_idx + size;
-      cmp = trunk_key_compare(spl, trunk_get_pivot(spl, node, mid_idx), target);
-      trunk_update_lowerbound(&lo_idx, &mid_idx, cmp, comp);
-   }
-
-   switch (comp) {
-      case less_than:
-      case less_than_or_equal:
-         return lo_idx;
-      case greater_than:
-      case greater_than_or_equal:
-         return lo_idx + 1;
-      default:
-         platform_assert(0);
-         return (0);
-   }
-}
-
-/*
  * branch_live_for_pivot returns TRUE if the branch is live for the pivot and
  * FALSE otherwise.
  */
@@ -1206,27 +1026,6 @@ trunk_add_pivot_new_root(trunk_handle *spl,
    trunk_set_initial_pivots(spl, parent);
    uint64 child_addr = child->addr;
    trunk_set_pivot_data_new_root(spl, parent, child_addr);
-}
-
-static inline uint16
-trunk_pivot_start_subbundle(trunk_handle     *spl,
-                            trunk_node       *node,
-                            trunk_pivot_data *pdata)
-{
-   if (pdata->start_bundle == trunk_end_bundle(spl, node)) {
-      return trunk_end_subbundle(spl, node);
-   }
-   trunk_bundle *bundle = trunk_get_bundle(spl, node, pdata->start_bundle);
-   return bundle->start_subbundle;
-}
-
-static inline uint16
-trunk_pivot_end_subbundle_for_lookup(trunk_handle     *spl,
-                                     trunk_node       *node,
-                                     trunk_pivot_data *pdata)
-{
-   return trunk_subtract_subbundle_number(
-      spl, trunk_pivot_start_subbundle(spl, node, pdata), 1);
 }
 
 /*
@@ -1312,48 +1111,6 @@ trunk_zap_branch_range(trunk_handle *spl,
    btree_dec_ref(
       spl->cc, &spl->cfg.btree_cfg, branch->root_addr, PAGE_TYPE_BRANCH);
 }
-
-/*
- *-----------------------------------------------------------------------------
- * trunk_btree_lookup_async
- *
- * Pre-conditions:
- *    The ctxt should've been initialized using
- *    btree_ctxt_init(). If *found `data` has the most
- *    recent answer. the current memtable is older than the most
- *    recent answer
- *
- *    The return value can be either of:
- *      async_locked: A page needed by lookup is locked. User should retry
- *      request.
- *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *      subsystem is out of requests. User should throttle.
- *      async_io_started: Async IO was started to read a page needed by the
- *      lookup into the cache. When the read is done, caller will be notified
- *      using ctxt->cb, that won't run on the thread context. It can be used
- *      to requeue the async lookup request for dispatch in thread context.
- *      When it's requeued, it must use the same function params except found.
- *      success: *found is TRUE if found, FALSE otherwise, data is stored in
- *      *data_out
- *-----------------------------------------------------------------------------
- */
-static cache_async_result
-trunk_btree_lookup_and_merge_async(trunk_handle      *spl,    // IN
-                                   trunk_branch      *branch, // IN
-                                   key                target, // IN
-                                   merge_accumulator *data,   // OUT
-                                   btree_async_ctxt  *ctxt)    // IN
-{
-   cache             *cc  = spl->cc;
-   btree_config      *cfg = &spl->cfg.btree_cfg;
-   cache_async_result res;
-   bool32             local_found;
-
-   res = btree_lookup_and_merge_async(
-      cc, cfg, branch->root_addr, target, data, &local_found, ctxt);
-   return res;
-}
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -1903,12 +1660,6 @@ trunk_memtable_lookup(trunk_handle      *spl,
  *-----------------------------------------------------------------------------
  */
 
-static inline routing_config *
-trunk_routing_cfg(trunk_handle *spl)
-{
-   return &spl->cfg.filter_cfg;
-}
-
 static inline void
 trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
 {
@@ -1917,18 +1668,6 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
    }
    cache *cc = spl->cc;
    routing_filter_dec_ref(cc, filter);
-}
-
-static cache_async_result
-trunk_filter_lookup_async(trunk_handle       *spl,
-                          routing_config     *cfg,
-                          routing_filter     *filter,
-                          key                 target,
-                          uint64             *found_values,
-                          routing_async_ctxt *ctxt)
-{
-   return routing_filter_lookup_async(
-      spl->cc, cfg, filter, target, found_values, ctxt);
 }
 
 /*
@@ -2442,7 +2181,7 @@ out:
 }
 
 // If any change is made in here, please make similar change in
-// trunk_lookup_async
+// trunk_lookup_async2
 platform_status
 trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 {
@@ -2515,572 +2254,88 @@ found_final_answer_early:
    return STATUS_OK;
 }
 
-/*
- * trunk_async_set_state sets the state of the async splinter
- * lookup state machine.
- */
-static inline void
-trunk_async_set_state(trunk_async_ctxt *ctxt, trunk_async_state new_state)
+async_status
+trunk_lookup_async2(trunk_lookup_async2_state *state)
 {
-   ctxt->prev_state = ctxt->state;
-   ctxt->state      = new_state;
-}
+   async_begin(state, 0);
+   // look in memtables
 
+   // 1. get read lock on lookup lock
+   //     --- 2. for [mt_no = mt->generation..mt->gen_to_incorp]
+   // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
+   //                also handles switch to READY ^^^^^
 
-/*
- * trunk_async_callback
- *
- *      Callback that's called when the async cache get for a trunk
- *      node loads a page for the child into the cache. This function
- *      moves the async splinter lookup state machine's state ahead,
- *      and calls the upper layer callback that'll re-enqueue the
- *      spinter lookup for dispatch.
- */
-static void
-trunk_async_callback(cache_async_ctxt *cache_ctxt)
-{
-   trunk_async_ctxt *ctxt =
-      container_of(cache_ctxt, trunk_async_ctxt, cache_ctxt);
-   platform_assert(SUCCESS(cache_ctxt->status));
-   platform_assert(cache_ctxt->page);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page
-   //   %p\n",
-   //                __FILE__, __LINE__, platform_get_tid(), ctxt,
-   //                cache_ctxt->page);
-   ctxt->was_async = TRUE;
-   // Move state machine ahead and requeue for dispatch
-   if (UNLIKELY(ctxt->state == async_state_get_root_reentrant)) {
-      trunk_async_set_state(ctxt, async_state_trunk_node_lookup);
-   } else {
-      debug_assert((ctxt->state == async_state_get_child_trunk_node_reentrant),
-                   "ctxt->state=%d != expected state=%d",
-                   ctxt->state,
-                   async_state_get_child_trunk_node_reentrant);
-      trunk_async_set_state(ctxt, async_state_unget_parent_trunk_node);
-   }
-   ctxt->cb(ctxt);
-}
+   merge_accumulator_set_to_null(state->result);
 
+   memtable_begin_lookup(state->spl->mt_ctxt);
+   uint64 mt_gen_start = memtable_generation(state->spl->mt_ctxt);
+   uint64 mt_gen_end   = memtable_generation_retired(state->spl->mt_ctxt);
+   platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
 
-/*
- * trunk_filter_async_callback
- *
- *      Callback that's called when the async filter get api has loaded
- *      a page into cache. This just requeues the splinter lookup for
- *      dispatch at the same state, so that async filter get can be
- *      called again.
- */
-static void
-trunk_filter_async_callback(routing_async_ctxt *filter_ctxt)
-{
-   trunk_async_ctxt *ctxt =
-      container_of(filter_ctxt, trunk_async_ctxt, filter_ctxt);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback\n",
-   //                __FILE__, __LINE__, platform_get_tid(), ctxt);
-   // Requeue for dispatch
-   ctxt->cb(ctxt);
-}
-
-/*
- * trunk_btree_async_callback
- *
- *      Callback that's called when the async btree
- *      lookup api has loaded a page into cache. This just requeues
- *      the splinter lookup for dispatch at the same state, so that
- *      async btree lookup can be called again.
- */
-static void
-trunk_btree_async_callback(btree_async_ctxt *btree_ctxt)
-{
-   trunk_async_ctxt *ctxt =
-      container_of(btree_ctxt, trunk_async_ctxt, btree_ctxt);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback\n",
-   //                __FILE__, __LINE__, platform_get_tid(), ctxt);
-   // Requeue for dispatch
-   ctxt->cb(ctxt);
-}
-
-
-/*
- * Async splinter lookup. Caller must have called trunk_async_ctxt_init()
- * on the context before the first invocation.
- *
- * This uses hand over hand locking to descend the trunk tree and
- * every time a child node needs to be looked up from the cache, it
- * uses the async get api. A reference to the parent node is held in
- * trunk_async_ctxt->trunk_node while a reference to the child page
- * is obtained by the cache_get_async() into
- * trunk_async_ctxt->cache_ctxt->page
- *
- * Returns:
- *    async_success: results are available in *found and *result
- *    async_locked: caller needs to retry
- *    async_no_reqs: caller needs to retry but may want to throttle
- *    async_io_started: async IO was started; the caller will be informed
- *      via callback when it's done. After callback is called, the caller
- *      must call this again from thread context with the same key and result
- *      as the first invocation.
- *
- * Side-effects:
- *    Maintains state in *result. This helps avoid copying data between
- *    invocations. Caller must use the same pointers to key, result and
- *    found in different invocations of a lookup until it returns
- *    async_success. Caller must not modify the contents of those
- *    pointers.
- */
-cache_async_result
-trunk_lookup_async(trunk_handle      *spl,    // IN
-                   key                target, // IN
-                   merge_accumulator *result, // OUT
-                   trunk_async_ctxt  *ctxt)    // IN/OUT
-{
-   cache_async_result res = 0;
-   threadid           tid;
-
-#if TRUNK_DEBUG
-   cache_enable_sync_get(spl->cc, FALSE);
-#endif
-   if (spl->cfg.use_stats) {
-      tid = platform_get_tid();
-   }
-   trunk_node *node = &ctxt->trunk_node;
-   bool32      done = FALSE;
-
-   do {
-      switch (ctxt->state) {
-         case async_state_start:
-         {
-            merge_accumulator_set_to_null(result);
-            trunk_async_set_state(ctxt, async_state_lookup_memtable);
-            // fallthrough
-         }
-         case async_state_lookup_memtable:
-         {
-            memtable_begin_lookup(spl->mt_ctxt);
-            uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-            uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
-            for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-               platform_status rc;
-               rc = trunk_memtable_lookup(spl, mt_gen, target, result);
-               platform_assert_status_ok(rc);
-               if (merge_accumulator_is_definitive(result)) {
-                  trunk_async_set_state(ctxt,
-                                        async_state_found_final_answer_early);
-                  memtable_end_lookup(spl->mt_ctxt);
-                  break;
-               }
-            }
-            if (ctxt->state == async_state_found_final_answer_early) {
-               break;
-            }
-            // fallthrough
-         }
-         case async_state_get_root_reentrant:
-         {
-            cache_ctxt_init(
-               spl->cc, trunk_async_callback, NULL, &ctxt->cache_ctxt);
-            res = trunk_node_get_async(spl->cc, spl->root_addr, ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  ctxt->was_async = FALSE;
-                  trunk_async_set_state(ctxt, async_state_trunk_node_lookup);
-                  ctxt->trunk_node.page = ctxt->cache_ctxt.page;
-                  ctxt->trunk_node.hdr =
-                     (trunk_hdr *)(ctxt->cache_ctxt.page->data);
-                  memtable_end_lookup(spl->mt_ctxt);
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case async_state_trunk_node_lookup:
-         {
-            ctxt->height = trunk_node_height(node);
-            uint16 pivot_no =
-               trunk_find_pivot(spl, node, target, less_than_or_equal);
-            debug_assert(pivot_no < trunk_num_children(spl, node));
-            ctxt->pdata = trunk_get_pivot_data(spl, node, pivot_no);
-            ctxt->sb_no = trunk_start_subbundle_for_lookup(spl, node);
-            ctxt->end_sb_no =
-               trunk_pivot_end_subbundle_for_lookup(spl, node, ctxt->pdata);
-            ctxt->filter_no = 0;
-            char key_str[128];
-            trunk_key_to_string(spl, target, key_str);
-            trunk_async_set_state(ctxt, async_state_subbundle_lookup);
-            // fallthrough
-         }
-         case async_state_subbundle_lookup:
-         {
-            if (ctxt->sb_no == ctxt->end_sb_no) {
-               debug_assert(ctxt->filter_no == 0);
-               ctxt->lookup_state = async_lookup_state_pivot;
-               trunk_async_set_state(ctxt, async_state_pivot_lookup);
-               break;
-            }
-            ctxt->sb = trunk_get_subbundle(spl, node, ctxt->sb_no);
-            if (ctxt->sb->state == SB_STATE_COMPACTED) {
-               ctxt->lookup_state = async_lookup_state_compacted_subbundle;
-            } else {
-               ctxt->lookup_state = async_lookup_state_subbundle;
-            }
-            debug_assert(ctxt->filter_no
-                         < trunk_subbundle_filter_count(spl, node, ctxt->sb));
-            ctxt->filter =
-               trunk_subbundle_filter(spl, node, ctxt->sb, ctxt->filter_no);
-            trunk_async_set_state(ctxt, async_state_filter_lookup_start);
-            break;
-         }
-         case async_state_pivot_lookup:
-         {
-            ctxt->sb     = NULL;
-            ctxt->filter = &ctxt->pdata->filter;
-            trunk_async_set_state(ctxt, async_state_filter_lookup_start);
-            // fall through
-         }
-         case async_state_filter_lookup_start:
-         {
-            ctxt->value = ROUTING_NOT_FOUND;
-            if (ctxt->filter->addr == 0) {
-               platform_assert(ctxt->lookup_state == async_lookup_state_pivot);
-               trunk_async_set_state(ctxt, async_state_next_in_node);
-               break;
-            }
-            if (spl->cfg.use_stats) {
-               spl->stats[tid].filter_lookups[ctxt->height]++;
-            }
-            routing_filter_ctxt_init(&ctxt->filter_ctxt,
-                                     &ctxt->cache_ctxt,
-                                     trunk_filter_async_callback);
-            trunk_async_set_state(ctxt, async_state_filter_lookup_reentrant);
-            break;
-         }
-         case async_state_filter_lookup_reentrant:
-         {
-            // bool32 is_leaf;
-            // switch (ctxt->lookup_state) {
-            //    case async_lookup_state_pivot:
-            //       is_leaf = ctxt->height == 0;
-            //       break;
-            //    case async_lookup_state_subbundle:
-            //       debug_assert(ctxt->sb != NULL);
-            //       is_leaf = ctxt->sb->state == SB_STATE_UNCOMPACTED_LEAF;
-            //       break;
-            //    case async_lookup_state_compacted_subbundle:
-            //       is_leaf = FALSE;
-            //       break;
-            // }
-
-            routing_config *filter_cfg = trunk_routing_cfg(spl);
-
-            res = trunk_filter_lookup_async(spl,
-                                            filter_cfg,
-                                            ctxt->filter,
-                                            target,
-                                            &ctxt->found_values,
-                                            &ctxt->filter_ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  // I don't own the cache context, filter does
-                  trunk_async_set_state(ctxt, async_state_btree_lookup_start);
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case async_state_btree_lookup_start:
-         {
-            uint16 branch_no;
-            switch (ctxt->lookup_state) {
-               case async_lookup_state_pivot:
-                  debug_assert(ctxt->pdata != NULL);
-                  ctxt->value = routing_filter_get_next_value(
-                     ctxt->found_values, ctxt->value);
-                  if (ctxt->value == ROUTING_NOT_FOUND) {
-                     trunk_async_set_state(ctxt, async_state_next_in_node);
-                     continue;
-                  }
-                  branch_no = trunk_add_branch_number(
-                     spl, ctxt->pdata->start_branch, ctxt->value);
-                  break;
-               case async_lookup_state_subbundle:
-                  debug_assert(ctxt->sb != NULL);
-                  ctxt->value = routing_filter_get_next_value(
-                     ctxt->found_values, ctxt->value);
-                  if (ctxt->value == ROUTING_NOT_FOUND) {
-                     trunk_async_set_state(ctxt, async_state_next_in_node);
-                     continue;
-                  }
-                  branch_no = trunk_add_branch_number(
-                     spl, ctxt->sb->start_branch, ctxt->value);
-                  branch_no = ctxt->sb->start_branch + ctxt->value;
-                  break;
-               case async_lookup_state_compacted_subbundle:
-                  debug_assert(ctxt->sb != NULL);
-                  if (ctxt->found_values == 0) {
-                     ctxt->value = ROUTING_NOT_FOUND;
-                     trunk_async_set_state(ctxt, async_state_next_in_node);
-                     continue;
-                  }
-                  branch_no = ctxt->sb->start_branch;
-                  break;
-               default:
-                  platform_error_log("Invalid async_lookup_state=%d\n",
-                                     ctxt->lookup_state);
-                  platform_assert(0);
-            }
-            ctxt->branch = trunk_get_branch(spl, node, branch_no);
-            btree_ctxt_init(&ctxt->btree_ctxt,
-                            &ctxt->cache_ctxt,
-                            trunk_btree_async_callback);
-            trunk_async_set_state(ctxt, async_state_btree_lookup_reentrant);
-            break;
-         }
-         case async_state_btree_lookup_reentrant:
-         {
-            res = trunk_btree_lookup_and_merge_async(
-               spl, ctxt->branch, target, result, &ctxt->btree_ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  // I don't own the cache context, btree does
-                  if (merge_accumulator_is_definitive(result)) {
-                     trunk_async_set_state(
-                        ctxt, async_state_found_final_answer_early);
-                     trunk_node_unget(spl->cc, &ctxt->trunk_node);
-                     ZERO_CONTENTS(&ctxt->trunk_node);
-                     break;
-                  } else if (spl->cfg.use_stats) {
-                     const uint16 height = trunk_node_height(node);
-                     spl->stats[tid].filter_false_positives[height]++;
-                  }
-                  trunk_async_set_state(ctxt, async_state_next_in_node);
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case async_state_next_in_node:
-         {
-            switch (ctxt->lookup_state) {
-               case async_lookup_state_pivot:
-                  debug_assert(ctxt->filter_no == 0);
-                  if (ctxt->value == ROUTING_NOT_FOUND) {
-                     trunk_async_set_state(ctxt, async_state_trunk_node_done);
-                  } else {
-                     trunk_async_set_state(ctxt,
-                                           async_state_btree_lookup_start);
-                  }
-                  continue;
-               case async_lookup_state_subbundle:
-                  debug_assert(ctxt->filter_no == 0);
-                  if (ctxt->value == ROUTING_NOT_FOUND) {
-                     ctxt->sb_no =
-                        trunk_subtract_subbundle_number(spl, ctxt->sb_no, 1);
-                     trunk_async_set_state(ctxt, async_state_subbundle_lookup);
-                     break;
-                  } else {
-                     trunk_async_set_state(ctxt,
-                                           async_state_btree_lookup_start);
-                  }
-                  continue;
-               case async_lookup_state_compacted_subbundle:
-                  if (ctxt->found_values != 0) {
-                     ctxt->sb_no =
-                        trunk_subtract_subbundle_number(spl, ctxt->sb_no, 1);
-                     ctxt->filter_no = 0;
-                  } else {
-                     ctxt->filter_no++;
-                     uint16 sb_filter_count =
-                        trunk_subbundle_filter_count(spl, node, ctxt->sb);
-                     if (ctxt->filter_no >= sb_filter_count) {
-                        debug_assert(ctxt->filter_no == sb_filter_count);
-                        ctxt->sb_no =
-                           trunk_subtract_subbundle_number(spl, ctxt->sb_no, 1);
-                        ctxt->filter_no = 0;
-                     }
-                  }
-                  trunk_async_set_state(ctxt, async_state_subbundle_lookup);
-                  continue;
-               default:
-                  platform_error_log("Invalid async_lookup_state=%d\n",
-                                     ctxt->lookup_state);
-                  platform_assert(0);
-            }
-            break;
-         }
-         case async_state_trunk_node_done:
-         {
-            if (ctxt->height == 0) {
-               if (!merge_accumulator_is_null(result)
-                   && merge_accumulator_message_class(result)
-                         != MESSAGE_TYPE_INSERT)
-               {
-                  data_merge_tuples_final(spl->cfg.data_cfg, target, result);
-               }
-               trunk_async_set_state(ctxt, async_state_end);
-               trunk_node_unget(spl->cc, &ctxt->trunk_node);
-               ZERO_CONTENTS(&ctxt->trunk_node);
-               break;
-            } else {
-               trunk_async_set_state(
-                  ctxt, async_state_get_child_trunk_node_reentrant);
-               break;
-            }
-         }
-         case async_state_get_child_trunk_node_reentrant:
-         {
-            cache_ctxt_init(
-               spl->cc, trunk_async_callback, NULL, &ctxt->cache_ctxt);
-            debug_assert(ctxt->pdata != NULL);
-            res = trunk_node_get_async(spl->cc, ctxt->pdata->addr, ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  ctxt->was_async = FALSE;
-                  trunk_async_set_state(ctxt,
-                                        async_state_unget_parent_trunk_node);
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case async_state_unget_parent_trunk_node:
-         {
-            if (ctxt->was_async) {
-               trunk_node_async_done(spl, ctxt);
-            }
-            trunk_node_unget(spl->cc, node);
-            ctxt->pdata           = NULL;
-            ctxt->trunk_node.page = ctxt->cache_ctxt.page;
-            ctxt->trunk_node.hdr  = (trunk_hdr *)(ctxt->cache_ctxt.page->data);
-            trunk_async_set_state(ctxt, async_state_trunk_node_lookup);
-            break;
-         }
-         case async_state_found_final_answer_early:
-         {
-            trunk_async_set_state(ctxt, async_state_end);
-            break;
-         }
-         case async_state_end:
-         {
-            if (spl->cfg.use_stats) {
-               if (!merge_accumulator_is_null(result)) {
-                  spl->stats[tid].lookups_found++;
-               } else {
-                  spl->stats[tid].lookups_not_found++;
-               }
-            }
-
-            if (!merge_accumulator_is_null(result)) {
-               message_type type = merge_accumulator_message_class(result);
-               debug_assert(type == MESSAGE_TYPE_DELETE
-                            || type == MESSAGE_TYPE_INSERT);
-               if (type == MESSAGE_TYPE_DELETE) {
-                  merge_accumulator_set_to_null(result);
-               }
-            }
-
-            res  = async_success;
-            done = TRUE;
-            break;
-         }
-         default:
-            platform_assert(0);
+   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
+      platform_status rc;
+      rc = trunk_memtable_lookup(
+         state->spl, mt_gen, state->target, state->result);
+      platform_assert_status_ok(rc);
+      if (merge_accumulator_is_definitive(state->result)) {
+         memtable_end_lookup(state->spl->mt_ctxt);
+         goto found_final_answer_early;
       }
-   } while (!done);
-#if TRUNK_DEBUG
-   cache_enable_sync_get(spl->cc, TRUE);
-#endif
+   }
 
-   return res;
+   platform_status rc;
+   rc = trunk_init_root_handle(&state->spl->trunk_context, &state->root_handle);
+   // release memtable lookup lock before we handle any errors
+   memtable_end_lookup(state->spl->mt_ctxt);
+   if (!SUCCESS(rc)) {
+      async_return(state, rc);
+   }
+
+   async_await_call(state,
+                    trunk_merge_lookup_async,
+                    &state->trunk_node_state,
+                    &state->spl->trunk_context,
+                    &state->root_handle,
+                    state->target,
+                    state->result,
+                    NULL,
+                    state->callback,
+                    state->callback_arg);
+   rc = async_result(&state->trunk_node_state);
+
+   // Release the node handle before handling any errors
+   trunk_ondisk_node_handle_deinit(&state->root_handle);
+   if (!SUCCESS(rc)) {
+      async_return(state, rc);
+   }
+
+   if (!merge_accumulator_is_null(state->result)
+       && !merge_accumulator_is_definitive(state->result))
+   {
+      data_merge_tuples_final(
+         state->spl->cfg.data_cfg, state->target, state->result);
+   }
+
+found_final_answer_early:
+
+   if (state->spl->cfg.use_stats) {
+      threadid tid = platform_get_tid();
+      if (!merge_accumulator_is_null(state->result)) {
+         state->spl->stats[tid].lookups_found++;
+      } else {
+         state->spl->stats[tid].lookups_not_found++;
+      }
+   }
+
+   /* Normalize DELETE messages to return a null merge_accumulator */
+   if (!merge_accumulator_is_null(state->result)
+       && merge_accumulator_message_class(state->result) == MESSAGE_TYPE_DELETE)
+   {
+      merge_accumulator_set_to_null(state->result);
+   }
+
+   async_return(state, STATUS_OK);
 }
-
 
 platform_status
 trunk_range(trunk_handle  *spl,
