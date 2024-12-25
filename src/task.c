@@ -666,7 +666,8 @@ task_enqueue(task_system *ts,
       new_task->enqueue_time = platform_get_timestamp();
       const threadid tid     = platform_get_tid();
       if (group->current_waiting_tasks
-          > group->stats[tid].max_outstanding_tasks) {
+          > group->stats[tid].max_outstanding_tasks)
+      {
          group->stats[tid].max_outstanding_tasks = group->current_waiting_tasks;
       }
       group->stats[tid].total_tasks_enqueued += 1;
@@ -992,7 +993,8 @@ task_group_print_stats(task_group *group, task_type type)
          global.max_runtime_func = group->stats[i].max_runtime_func;
       }
       if (group->stats[i].max_queue_wait_time_ns
-          > global.max_queue_wait_time_ns) {
+          > global.max_queue_wait_time_ns)
+      {
          global.max_queue_wait_time_ns = group->stats[i].max_queue_wait_time_ns;
       }
       global.max_outstanding_tasks = MAX(global.max_outstanding_tasks,

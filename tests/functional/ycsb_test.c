@@ -307,7 +307,8 @@ typedef struct ycsb_phase {
 
 static void
 nop_tuple_func(key tuple_key, message value, void *arg)
-{}
+{
+}
 
 static void
 ycsb_thread(void *arg)

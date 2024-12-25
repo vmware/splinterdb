@@ -341,7 +341,8 @@ out:
 
 static void
 nop_tuple_func(key tuple_key, message value, void *arg)
-{}
+{
+}
 
 /*
  * test_trunk_range_thread() -- Per-thread function to drive range queries.
@@ -722,7 +723,8 @@ test_trunk_insert_lookup_thread(void *arg)
          }
 
          if (num_ops < granularities[op_type]
-             || offsets[op_type] >= op_granularity) {
+             || offsets[op_type] >= op_granularity)
+         {
             num_ops = granularities[op_type] - num_ops;
             if (advance_base(params,
                              params->curr_op,
@@ -1706,12 +1708,14 @@ test_splinter_periodic(trunk_config    *cfg,
          num_async_lookups += params[i].lookup_stats[ASYNC_LU].num_found
                               + params[i].lookup_stats[ASYNC_LU].num_not_found;
          if (params[i].lookup_stats[SYNC_LU].latency_max
-             > sync_lookup_latency_max) {
+             > sync_lookup_latency_max)
+         {
             sync_lookup_latency_max =
                params[i].lookup_stats[SYNC_LU].latency_max;
          }
          if (params[i].lookup_stats[ASYNC_LU].latency_max
-             > async_lookup_latency_max) {
+             > async_lookup_latency_max)
+         {
             async_lookup_latency_max =
                params[i].lookup_stats[ASYNC_LU].latency_max;
          }
