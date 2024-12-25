@@ -945,14 +945,14 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
    if (tid != INVALID_TID) {
       task_deregister_this_thread(ts);
    }
-   if (ts->tid_bitmask[0] != ((uint64)-1) || ts->tid_bitmask[1] != ((uint64)-1))
-   {
-      platform_error_log(
+   for (int i = 0; i < ARRAY_SIZE(ts->tid_bitmask); i++) {
+      platform_assert(
+         ts->tid_bitmask[i] == ((uint64)-1),
          "Destroying task system that still has some registered threads."
-         ", tid=%lu, tid_bitmask=0x%lx %lx\n",
+         ", tid=%lu, tid_bitmask[%d] = %lx\n",
          tid,
-         ts->tid_bitmask[0],
-         ts->tid_bitmask[1]);
+         i,
+         ts->tid_bitmask[i]);
    }
    platform_free(hid, ts);
    *ts_in = (task_system *)NULL;
