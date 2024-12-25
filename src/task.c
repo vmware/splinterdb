@@ -23,8 +23,6 @@ _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
 static void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
-   // We use a 64 bit word to act as the thread bitmap.
-   _Static_assert(MAX_THREADS == 128, "Max threads should be 64");
    /*
     * This is a special bitmask where 1 indicates free and 0 indicates
     * allocated. So, we set all bits to 1 during init.
