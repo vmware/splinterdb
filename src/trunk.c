@@ -3551,7 +3551,6 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "\n");
 }
 
-
 /*
  * trunk_print_memtable() --
  *

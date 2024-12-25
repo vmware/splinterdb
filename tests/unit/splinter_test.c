@@ -750,7 +750,8 @@ splinter_do_inserts(void         *datap,
       SHOW_PCT_PROGRESS(insert_num, num_inserts, "inserting %3lu%% complete");
 
       if (verify && (insert_num != 0)
-          && (insert_num % TEST_VERIFY_GRANULARITY) == 0) {
+          && (insert_num % TEST_VERIFY_GRANULARITY) == 0)
+      {
          bool32 result = trunk_verify_tree(spl);
          ASSERT_TRUE(result,
                      "trunk_verify_tree() failed after %d inserts. ",

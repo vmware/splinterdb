@@ -426,7 +426,8 @@ leaf_split_tests(btree_config    *cfg,
       uint8 keybuf[1];
       keybuf[0] = 2 * realnkvs + 1;
       if (!btree_set_leaf_entry(
-             cfg, hdr, realnkvs, key_create(1, &keybuf), msg)) {
+             cfg, hdr, realnkvs, key_create(1, &keybuf), msg))
+      {
          break;
       }
       realnkvs++;
