@@ -630,7 +630,8 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool32 forwards)
          iterator_next(merge_itor->ordered_iterators[i]->itor);
       }
       if (!forwards
-          && iterator_can_prev(merge_itor->ordered_iterators[i]->itor)) {
+          && iterator_can_prev(merge_itor->ordered_iterators[i]->itor))
+      {
          iterator_prev(merge_itor->ordered_iterators[i]->itor);
       }
    }
