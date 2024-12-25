@@ -112,12 +112,13 @@ struct task_system {
    platform_io_handle *ioh;
    platform_heap_id    heap_id;
    /*
-    * bitmask used for generating and clearing thread id's.
+    * bitmask used for allocating thread id's.
     * If a bit is set to 0, it means we have an in use thread id for that
     * particular position, 1 means it is unset and that thread id is available
     * for use.
     */
-   uint64 tid_bitmask;
+   uint64 tid_bitmask_lock;
+   uint64 tid_bitmask[(MAX_THREADS + 63) / 64];
    // max thread id so far.
    threadid max_tid;
    void    *thread_scratch[MAX_THREADS];
@@ -269,9 +270,6 @@ task_wait_for_completion(task_system *ts);
 
 threadid
 task_get_max_tid(task_system *ts);
-
-uint64
-task_active_tasks_mask(task_system *ts);
 
 void
 task_print_stats(task_system *ts);
