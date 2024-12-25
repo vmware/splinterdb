@@ -32,7 +32,7 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
    }
 }
 
-uint64 *
+static inline uint64 *
 task_system_get_tid_bitmask(task_system *ts)
 {
    return ts->tid_bitmask;
