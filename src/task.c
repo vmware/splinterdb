@@ -75,7 +75,8 @@ task_allocate_threadid(task_system *ts)
       // set bit at that position to 0, indicating in use.
       new_bitmask = (old_bitmask & ~(1ULL << (pos - 1)));
       if (__sync_bool_compare_and_swap(
-             &tid_bitmask[i], old_bitmask, new_bitmask)) {
+             &tid_bitmask[i], old_bitmask, new_bitmask))
+      {
          break;
       }
    }
