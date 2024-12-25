@@ -171,36 +171,6 @@ typedef struct btree_pack_req {
    uint64 message_bytes; // total size of msgs in tuples of the output tree
 } btree_pack_req;
 
-struct btree_async_ctxt;
-typedef void (*btree_async_cb)(struct btree_async_ctxt *ctxt);
-
-// States for the btree async lookup.
-typedef enum {
-   btree_async_state_invalid = 0,
-   btree_async_state_start,
-   btree_async_state_get_node, // re-entrant state
-   btree_async_state_get_index_complete,
-   btree_async_state_get_leaf_complete
-} btree_async_state;
-
-// Context of a bree async lookup request
-typedef struct btree_async_ctxt {
-   /*
-    * When async lookup returns async_io_started, it uses this callback to
-    * inform the upper layer that the page needed by async btree lookup
-    * has been loaded into the cache, and the upper layer should re-enqueue
-    * the async btree lookup for dispatch.
-    */
-   btree_async_cb cb;
-   // Internal fields
-   cache_async_ctxt *cache_ctxt; // cache ctxt for async get
-   btree_async_state prev_state; // Previous state
-   btree_async_state state;      // Current state
-   bool32            was_async;  // Was the last cache_get async ?
-   btree_node        node;       // Current node
-   uint64            child_addr; // Child disk address
-} btree_async_ctxt;
-
 platform_status
 btree_insert(cache              *cc,         // IN
              const btree_config *cfg,        // IN
@@ -212,29 +182,6 @@ btree_insert(cache              *cc,         // IN
              message             data,       // IN
              uint64             *generation, // OUT
              bool32             *was_unique);            // OUT
-
-/*
- *-----------------------------------------------------------------------------
- * btree_ctxt_init --
- *
- *      Initialize the async context used by an async btree lookup request.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static inline void
-btree_ctxt_init(btree_async_ctxt *ctxt,       // OUT
-                cache_async_ctxt *cache_ctxt, // IN
-                btree_async_cb    cb)            // IN
-{
-   ctxt->state      = btree_async_state_start;
-   ctxt->cb         = cb;
-   ctxt->cache_ctxt = cache_ctxt;
-}
 
 uint64
 btree_create(cache              *cc,
@@ -275,24 +222,6 @@ btree_lookup_and_merge(cache              *cc,
                        key                 target,
                        merge_accumulator  *data,
                        bool32             *local_found);
-
-cache_async_result
-btree_lookup_async(cache             *cc,
-                   btree_config      *cfg,
-                   uint64             root_addr,
-                   key                target,
-                   merge_accumulator *result,
-                   btree_async_ctxt  *ctxt);
-
-cache_async_result
-btree_lookup_and_merge_async(cache             *cc,          // IN
-                             btree_config      *cfg,         // IN
-                             uint64             root_addr,   // IN
-                             key                target,      // IN
-                             merge_accumulator *data,        // OUT
-                             bool32            *local_found, // OUT
-                             btree_async_ctxt  *ctxt);        // IN
-
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_lookup_async2_state, 3,

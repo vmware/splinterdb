@@ -56,41 +56,6 @@ typedef struct ONDISK routing_filter {
 
 #define NULL_ROUTING_FILTER ((routing_filter){0})
 
-struct routing_async_ctxt;
-typedef void (*routing_async_cb)(struct routing_async_ctxt *ctxt);
-
-// States for the filter async lookup.
-typedef enum {
-   routing_async_state_invalid = 0,
-   routing_async_state_start,
-   routing_async_state_get_index,  // re-entrant state
-   routing_async_state_get_filter, // re-entrant state
-   routing_async_state_got_index,
-   routing_async_state_got_filter,
-} routing_async_state;
-
-// Context of a filter async lookup request
-typedef struct routing_async_ctxt {
-   /*
-    * When async lookup returns async_io_started, it uses this callback to
-    * inform the upper layer that the page needed by async filter lookup
-    * has been loaded into the cache, and the upper layer should re-enqueue
-    * the async filter lookup for dispatch.
-    */
-   routing_async_cb cb;
-   // Internal fields
-   routing_async_state prev_state; // Previous state
-   routing_async_state state;      // Current state
-   bool32              was_async;  // Was the last cache_get async ?
-   uint32              remainder_size;
-   uint32              remainder;   // remainder
-   uint32              bucket;      // hash bucket
-   uint32              index;       // hash index
-   uint64              page_addr;   // Can be index or filter
-   uint64              header_addr; // header address in filter page
-   cache_async_ctxt   *cache_ctxt;  // cache ctxt for async get
-} routing_async_ctxt;
-
 typedef struct ONDISK routing_hdr routing_hdr;
 
 platform_status
@@ -134,37 +99,6 @@ routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
 {
    return (f1->addr == f2->addr);
 }
-
-/*
- *-----------------------------------------------------------------------------
- * routing_filter_ctxt_init --
- *
- *      Initialized the async context used by an async filter request.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static inline void
-routing_filter_ctxt_init(routing_async_ctxt *ctxt,       // OUT
-                         cache_async_ctxt   *cache_ctxt, // IN
-                         routing_async_cb    cb)            // IN
-{
-   ctxt->state      = routing_async_state_start;
-   ctxt->cb         = cb;
-   ctxt->cache_ctxt = cache_ctxt;
-}
-
-cache_async_result
-routing_filter_lookup_async(cache              *cc,
-                            routing_config     *cfg,
-                            routing_filter     *filter,
-                            key                 target,
-                            uint64             *found_values,
-                            routing_async_ctxt *ctxt);
 
 // clang-format off
 DEFINE_ASYNC_STATE(routing_filter_lookup_async2_state, 2,

@@ -208,38 +208,8 @@ typedef struct trunk_range_iterator {
 } trunk_range_iterator;
 
 
-typedef enum {
-   async_state_invalid = 0,
-   async_state_start,
-   async_state_lookup_memtable,
-   async_state_get_root_reentrant,
-   async_state_trunk_node_lookup,
-   async_state_subbundle_lookup,
-   async_state_pivot_lookup,
-   async_state_filter_lookup_start,
-   async_state_filter_lookup_reentrant,
-   async_state_btree_lookup_start,
-   async_state_btree_lookup_reentrant,
-   async_state_next_in_node,
-   async_state_trunk_node_done,
-   async_state_get_child_trunk_node_reentrant,
-   async_state_unget_parent_trunk_node,
-   async_state_found_final_answer_early,
-   async_state_end
-} trunk_async_state;
-
-typedef enum {
-   async_lookup_state_invalid = 0,
-   async_lookup_state_pivot,
-   async_lookup_state_subbundle,
-   async_lookup_state_compacted_subbundle
-} trunk_async_lookup_state;
-
-struct trunk_async_ctxt;
 struct trunk_pivot_data;
 struct trunk_subbundle;
-
-typedef void (*trunk_async_cb)(struct trunk_async_ctxt *ctxt);
 
 struct trunk_hdr;
 typedef struct trunk_hdr trunk_hdr;

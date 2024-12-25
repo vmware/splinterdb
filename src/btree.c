@@ -1153,17 +1153,6 @@ btree_node_full_unlock(cache              *cc,  // IN
    btree_node_unget(cc, cfg, node);
 }
 
-static inline void
-btree_node_get_from_cache_ctxt(const btree_config *cfg,  // IN
-                               cache_async_ctxt   *ctxt, // IN
-                               btree_node         *node)         // OUT
-{
-   node->addr = ctxt->page->disk_addr;
-   node->page = ctxt->page;
-   node->hdr  = (btree_hdr *)node->page->data;
-}
-
-
 static inline bool32
 btree_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
 {
@@ -2118,7 +2107,8 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
                                state->callback,
                                state->callback_arg);
    while (cache_get_async2(state->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE) {
+          != ASYNC_STATUS_DONE)
+   {
       async_yield(state);
    }
    state->node.page =
@@ -2154,7 +2144,8 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
                                   state->callback,
                                   state->callback_arg);
       while (cache_get_async2(state->cc, state->cache_get_state)
-             != ASYNC_STATUS_DONE) {
+             != ASYNC_STATUS_DONE)
+      {
          async_yield(state);
       }
       state->child_node.page =
@@ -2358,271 +2349,6 @@ btree_lookup_and_merge_async2(btree_lookup_async2_state *state)
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
    async_return(state, rc);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * btree_async_set_state --
- *      Set the state of the async btree lookup state machine.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static inline void
-btree_async_set_state(btree_async_ctxt *ctxt, btree_async_state new_state)
-{
-   ctxt->prev_state = ctxt->state;
-   ctxt->state      = new_state;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- * btree_async_callback --
- *
- *      Callback that's called when the async cache get loads a page into
- *      the cache. This function moves the async btree lookup
- *      state machine's state ahead, and calls the upper layer callback
- *      that will re-enqueue the btree lookup for dispatch.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static void
-btree_async_callback(cache_async_ctxt *cache_ctxt)
-{
-   btree_async_ctxt *ctxt = cache_ctxt->cbdata;
-
-   platform_assert(SUCCESS(cache_ctxt->status));
-   platform_assert(cache_ctxt->page);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page
-   //   %p
-   //   (%#lx)\n",
-   //                __FILE__, __LINE__, platform_get_tid(), ctxt,
-   //                cache_ctxt->page, ctxt->child_addr);
-   ctxt->was_async = TRUE;
-   platform_assert(ctxt->state == btree_async_state_get_node);
-   // Move state machine ahead and requeue for dispatch
-   btree_async_set_state(ctxt, btree_async_state_get_index_complete);
-   ctxt->cb(ctxt);
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- * btree_lookup_async_with_ref --
- *
- *      State machine for the async btree point lookup. This uses hand over
- *      hand locking to descend the tree and every time a child node needs to
- *      be looked up from the cache, it uses the async get api. A reference
- *to the parent node is held in btree_async_ctxt->node while a reference to
- *      the child page is obtained by the cache_get_async() in
- *      btree_async_ctxt->cache_ctxt->page
- *
- * Results:
- *      See btree_lookup_async(). if returning async_success and
- *      found = TRUE, this returns with ref on the btree leaf. Caller
- *      must do unget() on node_out.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static cache_async_result
-btree_lookup_async_with_ref(cache            *cc,        // IN
-                            btree_config     *cfg,       // IN
-                            uint64            root_addr, // IN
-                            key               target,    // IN
-                            btree_node       *node_out,  // OUT
-                            message          *data,      // OUT
-                            bool32           *found,     // OUT
-                            btree_async_ctxt *ctxt)      // IN
-{
-   cache_async_result res  = 0;
-   bool32             done = FALSE;
-   btree_node        *node = &ctxt->node;
-
-   do {
-      switch (ctxt->state) {
-         case btree_async_state_start:
-         {
-            ctxt->child_addr = root_addr;
-            node->page       = NULL;
-            btree_async_set_state(ctxt, btree_async_state_get_node);
-            // fallthrough
-         }
-         case btree_async_state_get_node:
-         {
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            cache_ctxt_init(cc, btree_async_callback, ctxt, cache_ctxt);
-            res = cache_get_async(
-               cc, ctxt->child_addr, PAGE_TYPE_BRANCH, cache_ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p
-                  //            is retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p
-                  //            is io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  ctxt->was_async = FALSE;
-                  btree_async_set_state(ctxt,
-                                        btree_async_state_get_index_complete);
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case btree_async_state_get_index_complete:
-         {
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            if (node->page) {
-               // Unlock parent
-               btree_node_unget(cc, cfg, node);
-            }
-            btree_node_get_from_cache_ctxt(cfg, cache_ctxt, node);
-            debug_assert(node->addr == ctxt->child_addr);
-            if (ctxt->was_async) {
-               cache_async_done(cc, PAGE_TYPE_BRANCH, cache_ctxt);
-            }
-            if (btree_height(node->hdr) == 0) {
-               btree_async_set_state(ctxt, btree_async_state_get_leaf_complete);
-               break;
-            }
-            bool32 found_pivot;
-            int64  child_idx =
-               btree_find_pivot(cfg, node->hdr, target, &found_pivot);
-            if (child_idx < 0) {
-               child_idx = 0;
-            }
-            ctxt->child_addr = btree_get_child_addr(cfg, node->hdr, child_idx);
-            btree_async_set_state(ctxt, btree_async_state_get_node);
-            break;
-         }
-         case btree_async_state_get_leaf_complete:
-         {
-            int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
-            if (*found) {
-               *data     = btree_get_tuple_message(cfg, node->hdr, idx);
-               *node_out = *node;
-            } else {
-               btree_node_unget(cc, cfg, node);
-            }
-            res  = async_success;
-            done = TRUE;
-            break;
-         }
-         default:
-            platform_assert(0);
-      }
-   } while (!done);
-
-   return res;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * btree_lookup_async --
- *
- *      Async btree point lookup. The ctxt should've been
- *      initialized using btree_ctxt_init().
- *
- * The return value can be one of:
- *
- *   - async_locked: A page needed by lookup is locked. User should retry
- *     request.
- *   - async_no_reqs: A page needed by lookup is not in cache and the IO
- *     subsystem is out of requests. User should throttle.
- *   - async_io_started: Async IO was started to read a page needed by the
- *     lookup into the cache. When the read is done, caller will be notified
- *     using ctxt->cb, that won't run on the thread context. It can be used
- *     to requeue the async lookup request for dispatch in thread context.
- *     When it's requeued, it must use the same function params except found.
- *     success: *found is TRUE if found, FALSE otherwise, data is stored in
- *     *data_out
- *
- * Results:
- *      Async result.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-cache_async_result
-btree_lookup_async(cache             *cc,        // IN
-                   btree_config      *cfg,       // IN
-                   uint64             root_addr, // IN
-                   key                target,    // IN
-                   merge_accumulator *result,    // OUT
-                   btree_async_ctxt  *ctxt)       // IN
-{
-   cache_async_result res;
-   btree_node         node;
-   message            data;
-   bool32             local_found;
-   res = btree_lookup_async_with_ref(
-      cc, cfg, root_addr, target, &node, &data, &local_found, ctxt);
-   if (res == async_success && local_found) {
-      bool32 success = merge_accumulator_copy_message(result, data);
-      platform_assert(success); // FIXME
-      btree_node_unget(cc, cfg, &node);
-   }
-
-   return res;
-}
-
-cache_async_result
-btree_lookup_and_merge_async(cache             *cc,          // IN
-                             btree_config      *cfg,         // IN
-                             uint64             root_addr,   // IN
-                             key                target,      // IN
-                             merge_accumulator *data,        // OUT
-                             bool32            *local_found, // OUT
-                             btree_async_ctxt  *ctxt)         // IN
-{
-   cache_async_result res;
-   btree_node         node;
-   message            local_data;
-
-   res = btree_lookup_async_with_ref(
-      cc, cfg, root_addr, target, &node, &local_data, local_found, ctxt);
-   if (res == async_success && *local_found) {
-      if (merge_accumulator_is_null(data)) {
-         bool32 success = merge_accumulator_copy_message(data, local_data);
-         platform_assert(success);
-      } else {
-         int rc = btree_merge_tuples(cfg, target, local_data, data);
-         platform_assert(rc == 0);
-      }
-      btree_node_unget(cc, cfg, &node);
-   }
-   return res;
 }
 
 /*
