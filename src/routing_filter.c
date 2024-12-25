@@ -472,7 +472,8 @@ routing_filter_add(cache          *cc,
              && routing_get_index(fp_arr[fp_no], index_remainder_and_value_size)
                    == index_no;
            fp_no++)
-      {}
+      {
+      }
       index_count[index_no] = fp_no - index_start;
    }
 
@@ -527,7 +528,8 @@ routing_filter_add(cache          *cc,
       }
       uint32 old_fps_added = 0;
       for (uint32 index_off = 0; index_off < new_indices_per_old_index;
-           index_off++) {
+           index_off++)
+      {
          uint32 *new_src_fp = &fp_arr[fp_no];
          uint32 index_no = old_index_no * new_indices_per_old_index + index_off;
          uint32 last_bucket = index_no * index_size;
@@ -539,7 +541,8 @@ routing_filter_add(cache          *cc,
          // last_bucket, end_bucket);
          uint32 last_fp_added = UINT32_MAX;
          while (new_fps_added < new_index_count
-                || old_fps_added < old_index_count) {
+                || old_fps_added < old_index_count)
+         {
             uint32 fp;
             bool32 is_old = ((new_fps_added == new_index_count)
                              || ((old_fps_added != old_index_count)
@@ -649,7 +652,8 @@ routing_filter_prefetch(cache          *cc,
    uint64 index_no         = 0;
 
    for (uint64 index_page_no = 0; index_page_no < num_index_pages;
-        index_page_no++) {
+        index_page_no++)
+   {
       uint64       index_addr = filter->addr + (page_size * index_page_no);
       page_handle *index_page =
          cache_get(cc, index_addr, TRUE, PAGE_TYPE_FILTER);
@@ -752,7 +756,8 @@ routing_filter_estimate_unique_fp(cache           *cc,
                                   remainder_and_value_size);
                uint32 last_fp = UINT32_MAX;
                for (uint32 bucket_off = 0; bucket_off < index_size;
-                    bucket_off++) {
+                    bucket_off++)
+               {
                   uint32 bucket = index_bucket_start + bucket_off;
                   for (uint32 i = 0; i < count[bucket_off]; i++) {
                      fp_arr[src_fp_no] |= bucket << remainder_and_value_size;

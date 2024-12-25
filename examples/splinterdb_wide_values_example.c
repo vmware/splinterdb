@@ -55,7 +55,8 @@ main()
    int nrows = 0;
    // Insert few values doubling value-size for each new key inserted
    for (int val_len = 16; val_len <= USER_MAX_VALUE_SIZE;
-        val_len <<= 1, nrows++) {
+        val_len <<= 1, nrows++)
+   {
       snprintf(key_buf, sizeof(key_buf), "Key with val_len=%d", val_len);
       memset(val_buf, 'z', val_len);
 
@@ -83,7 +84,8 @@ main()
    // Lookup keys which have increasingly wider-values, using a small fixed size
    // output buffer. When necessary, memory will be allocated for wider values.
    for (int val_len = 16; val_len <= USER_MAX_VALUE_SIZE;
-        val_len <<= 1, nrows++) {
+        val_len <<= 1, nrows++)
+   {
 
       char key_buf[USER_MAX_KEY_SIZE];
       snprintf(key_buf, sizeof(key_buf), "Key with val_len=%d", val_len);
