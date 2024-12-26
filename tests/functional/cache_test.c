@@ -572,8 +572,8 @@ exit:
 #define READER_BATCH_SIZE 32
 
 typedef struct {
-   cache_async_ctxt    ctxt;
-   platform_semaphore *sema;
+   page_get_async2_state_buffer buffer;
+   enum { waiting_on_io, ready_to_continue, done } status;
 } test_async_ctxt;
 
 typedef struct {
@@ -590,17 +590,13 @@ typedef struct {
    uint32             sync_probability;        // IN probability of sync get
    page_handle      **handle_arr;              // page handles
    test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
-   platform_semaphore batch_sema;              // batch semaphore
 } test_params;
 
 void
-test_async_callback(cache_async_ctxt *ctxt)
+test_async_callback(void *ctxt)
 {
-   platform_semaphore *batch_sema = ((test_async_ctxt *)ctxt)->sema;
-
-   platform_assert_status_ok(ctxt->status);
-   platform_assert(ctxt->page != NULL);
-   platform_semaphore_post(batch_sema);
+   test_async_ctxt *test_ctxt = (test_async_ctxt *)ctxt;
+   test_ctxt->status          = ready_to_continue;
 }
 
 // Wait for in flight async lookups
@@ -611,43 +607,47 @@ test_wait_inflight(test_params *params,
    uint64 j;
 
    for (j = 0; j < batch_end; j++) {
-      platform_status rc;
+      test_async_ctxt *ctxt = &params->ctxt[j];
 
-      do {
-         rc = platform_semaphore_try_wait(&params->batch_sema);
-         cache_cleanup(params->cc);
-      } while (STATUS_IS_EQ(rc, STATUS_BUSY));
-      platform_assert(SUCCESS(rc));
+      while (ctxt->status == waiting_on_io) {
+         platform_yield();
+      }
+
+      if (ctxt->status == ready_to_continue) {
+         async_status res = cache_get_async2(params->cc, ctxt->buffer);
+         platform_assert(res == ASYNC_STATUS_DONE);
+         params->handle_arr[j] =
+            cache_get_async2_state_result(params->cc, ctxt->buffer);
+         ctxt->status = done;
+      }
    }
 }
 
 // Abandon a batch of async lookups we issued
-static void
-test_abandon_read_batch(test_params *params,
-                        uint64       batch_start,
-                        uint64       batch_end, // exclusive
-                        bool32       was_async[])
-{
-   page_handle **handle_arr = params->handle_arr;
-   const uint64 *addr_arr   = params->addr_arr;
-   cache        *cc         = params->cc;
-   uint64        j;
+// static void
+// test_abandon_read_batch(test_params *params,
+//                         uint64       batch_start,
+//                         uint64       batch_end, // exclusive
+//                         bool32       was_async[])
+// {
+//    page_handle **handle_arr = params->handle_arr;
+//    const uint64 *addr_arr   = params->addr_arr;
+//    cache        *cc         = params->cc;
+//    uint64        j;
 
-   test_wait_inflight(params, batch_end);
-   // Unget all pages we have in the batch
-   for (j = 0; j < batch_end; j++) {
-      cache_async_ctxt *ctxt = &params->ctxt[j].ctxt;
+//    test_wait_inflight(params, batch_end);
 
-      platform_assert(ctxt->page);
-      handle_arr[batch_start + j] = ctxt->page;
-      if (was_async[j]) {
-         cache_async_done(cc, PAGE_TYPE_MISC, ctxt);
-      }
-      cache_unget(cc, handle_arr[batch_start + j]);
-      handle_arr[batch_start + j] = NULL;
-      cache_assert_ungot(cc, addr_arr[batch_start + j]);
-   }
-}
+//    // Unget all pages we have in the batch
+//    for (j = 0; j < batch_end; j++) {
+//       test_async_ctxt *ctxt = &params->ctxt[j];
+//       handle_arr[batch_start + j] =
+//          cache_get_async2_state_result(params->cc, ctxt->buffer);
+//       platform_assert(handle_arr[batch_start + j]);
+//       cache_unget(cc, handle_arr[batch_start + j]);
+//       handle_arr[batch_start + j] = NULL;
+//       cache_assert_ungot(cc, addr_arr[batch_start + j]);
+//    }
+// }
 
 // Do async reads for a batch of addresses, and wait for them to complete
 static bool32
@@ -657,72 +657,75 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
    const uint64 *addr_arr   = &params->addr_arr[batch_start];
    const bool32  mt_reader  = params->mt_reader;
    cache        *cc         = params->cc;
-   bool32        was_async[READER_BATCH_SIZE] = {FALSE};
    uint64        j;
 
-   // Prepare to do async gets on current batch
    for (j = 0; j < READER_BATCH_SIZE; j++) {
+      async_status     res;
       test_async_ctxt *ctxt = &params->ctxt[j];
-      cache_ctxt_init(cc, test_async_callback, NULL, &ctxt->ctxt);
-      ctxt->sema = &params->batch_sema;
-   }
-   for (j = 0; j < READER_BATCH_SIZE; j++) {
-      cache_async_result res;
-      cache_async_ctxt  *ctxt = &params->ctxt[j].ctxt;
 
       cache_assert_ungot(cc, addr_arr[j]);
       // MT test probabilistically mixes sync and async api to test races
       if (mt_reader && params->sync_probability != 0
           && (tid + batch_start + j) % params->sync_probability == 0)
       {
-         ctxt->page = cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
-         res        = async_success;
+         params->handle_arr[j] =
+            cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
+         ctxt->status = done;
       } else {
-         res = cache_get_async(cc, addr_arr[j], PAGE_TYPE_MISC, ctxt);
-      }
-      // platform_log_stream("batch %lu, %lu: res %u\n", batch_start, j, res);
-      if (mt_reader) {
+         cache_get_async2_state_init(ctxt->buffer,
+                                     cc,
+                                     addr_arr[j],
+                                     PAGE_TYPE_MISC,
+                                     test_async_callback,
+                                     &params->ctxt[j]);
+         ctxt->status = waiting_on_io;
+         res          = cache_get_async2(cc, ctxt->buffer);
          switch (res) {
-            case async_locked:
-            case async_no_reqs:
-               cache_assert_ungot(cc, addr_arr[j]);
-               /*
-                * Need to keep lock order. Lock order is lower disk
-                * address to higher disk address. If a writer thread has
-                * the page locked, we cannot take read refs on blocks
-                * with higher addresses, then come back to take read refs
-                * on blocks with lower addresses. This'll be a lock order
-                * violation and cause deadlock. So abandon this batch,
-                * and ask caller to retry.
-                */
-               test_abandon_read_batch(params, batch_start, j, was_async);
-               return TRUE;
-            case async_success:
-               platform_assert(ctxt->page);
-               platform_semaphore_post(&params->batch_sema);
-               continue;
-            case async_io_started:
-               was_async[j] = TRUE;
+            case ASYNC_STATUS_DONE:
+               handle_arr[j] = cache_get_async2_state_result(cc, ctxt->buffer);
+               ctxt->status  = done;
+               break;
+            case ASYNC_STATUS_RUNNING:
                break;
             default:
                platform_assert(0);
          }
-      } else {
-         platform_assert(res == async_io_started);
       }
+      // // platform_log_stream("batch %lu, %lu: res %u\n", batch_start, j,
+      // res); if (mt_reader) {
+      //    switch (res) {
+      //       case async_locked:
+      //       case async_no_reqs:
+      //          cache_assert_ungot(cc, addr_arr[j]);
+      //          /*
+      //           * Need to keep lock order. Lock order is lower disk
+      //           * address to higher disk address. If a writer thread has
+      //           * the page locked, we cannot take read refs on blocks
+      //           * with higher addresses, then come back to take read refs
+      //           * on blocks with lower addresses. This'll be a lock order
+      //           * violation and cause deadlock. So abandon this batch,
+      //           * and ask caller to retry.
+      //           */
+      //          test_abandon_read_batch(params, batch_start, j, was_async);
+      //          return TRUE;
+      //       case ASYNC_STATUS_DONE:
+      //          handle_arr[j] = cache_get_async2_state_result(cc,
+      //          ctxt->buffer); platform_assert(ctxt->page);
+      //          platform_semaphore_post(&params->batch_sema);
+      //          continue;
+      //       case ASYNC_STATUS_RUNNING:
+      //          was_async[j] = TRUE;
+      //          break;
+      //       default:
+      //          platform_assert(0);
+      //    }
+      // } else {
+      //    platform_assert(res == ASYNC_STATUS_RUNNING);
+      // }
    }
+
    // Wait for the batch of async gets to complete
    test_wait_inflight(params, READER_BATCH_SIZE);
-   // Remember the handles we got for unget later, and call done()
-   for (j = 0; j < READER_BATCH_SIZE; j++) {
-      cache_async_ctxt *ctxt = &params->ctxt[j].ctxt;
-
-      platform_assert(ctxt->page);
-      handle_arr[j] = ctxt->page;
-      if (was_async[j]) {
-         cache_async_done(cc, PAGE_TYPE_MISC, ctxt);
-      }
-   }
 
    return FALSE;
 }
@@ -738,7 +741,6 @@ test_reader_thread(void *arg)
    const uint64   num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
    const threadid tid       = platform_get_tid();
 
-   platform_semaphore_init(&params->batch_sema, 0, params->hid);
    for (i = k = 0; i < num_pages; i += READER_BATCH_SIZE) {
       if (params->logger) {
          platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
@@ -762,7 +764,7 @@ test_reader_thread(void *arg)
          }
       } while (need_retry);
    }
-   platform_semaphore_destroy(&params->batch_sema);
+
    for (; k < num_pages; k += j) {
       for (j = 0; j < READER_BATCH_SIZE; j++) {
          platform_assert(handle_arr[k + j] != NULL);
