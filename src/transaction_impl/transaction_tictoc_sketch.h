@@ -11,7 +11,23 @@
 #include <math.h>
 #include "poison.h"
 
-#define ENABLE_ERROR_STATS 0
+#define ENABLE_ERROR_STATS 1
+
+#if ENABLE_ERROR_STATS
+
+#   define MAX_ERROR_DATA_SIZE 64
+
+typedef struct {
+   txn_timestamp wts : 44;
+   txn_timestamp rts : 44;
+   txn_timestamp wallclock : 40;
+} error_data __attribute__((aligned(sizeof(txn_timestamp))));
+
+typedef struct {
+   uint64 wts;
+   uint64 rts;
+} error_array_entry;
+#endif
 
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
@@ -27,10 +43,10 @@ typedef struct transactional_splinterdb {
    iceberg_table                   *tscache;
 
 #if ENABLE_ERROR_STATS
-   iceberg_table *last_accessed_key_ts_maps;
-   uint64         sum_of_squared_error_wts;
-   uint64         sum_of_squared_error_rts;
-   uint64         num_of_error;
+   iceberg_table    *key_last_updated_ts_map;
+   uint64            begin_wallclock;
+   error_array_entry all_error_data[MAX_ERROR_DATA_SIZE];
+   uint64            all_error_data_size[MAX_ERROR_DATA_SIZE];
 #endif
 } transactional_splinterdb;
 
@@ -153,42 +169,39 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
 
 #if ENABLE_ERROR_STATS
-   bool          ret = iceberg_insert_and_get(txn_kvsb->tscache,
+   bool        ret   = iceberg_insert_and_get(txn_kvsb->tscache,
                                      &entry->key,
                                      (ValueType **)&entry->tuple_ts,
                                      platform_get_tid());
-   timestamp_set current_ts;
-   timestamp_set_load(entry->tuple_ts, &current_ts);
-
-   timestamp_set  last_accessed_ts = {0};
-   timestamp_set *value            = &last_accessed_ts;
-   bool           exist = iceberg_get_value(txn_kvsb->last_accessed_key_ts_maps,
+   error_data  ed    = {0};
+   error_data *value = &ed;
+   bool        exist = iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
                                   entry->key,
                                   (ValueType **)&value,
                                   platform_get_tid());
    if (exist) {
-      timestamp_set_load(value, &last_accessed_ts);
-   } else {
-      return ret;
+      timestamp_set current_ts;
+      timestamp_set_load(entry->tuple_ts, &current_ts);
+      timestamp_set_load((timestamp_set *)value, (timestamp_set *)&ed);
+
+      int64 error_wts = current_ts.wts - ed.wts;
+      int64 error_rts = timestamp_set_get_rts(&current_ts) - ed.rts;
+      if (error_wts >= 0 && error_rts >= 0) {
+         double time_since_last_access =
+            (platform_get_timestamp() - txn_kvsb->begin_wallclock)
+            - ed.wallclock;
+         uint64 idx_to_be_inserted = floor(log(time_since_last_access));
+         error_array_entry *all_error_data_entry =
+            &txn_kvsb->all_error_data[idx_to_be_inserted];
+         __atomic_add_fetch(
+            &all_error_data_entry->wts, error_wts, __ATOMIC_SEQ_CST);
+         __atomic_add_fetch(
+            &all_error_data_entry->rts, error_rts, __ATOMIC_SEQ_CST);
+         __atomic_add_fetch(&txn_kvsb->all_error_data_size[idx_to_be_inserted],
+                            1,
+                            __ATOMIC_SEQ_CST);
+      }
    }
-   // print current_ts and last_accessed_ts with key
-   // platform_default_log("[key] %.*s, current_ts: (%lu, %lu), last_accessed:
-   // (%lu, %lu)\n", (int)slice_length(entry->key), (char
-   // *)slice_data(entry->key),
-   //                      (uint64)current_ts.wts,
-   //                      (uint64)timestamp_set_get_rts(&current_ts),
-   //                      (uint64)last_accessed_ts.wts,
-   //                      (uint64)timestamp_set_get_rts(&last_accessed_ts));
-   int64 error_wts = current_ts.wts - last_accessed_ts.wts;
-   int64 error_rts = timestamp_set_get_rts(&current_ts)
-                     - timestamp_set_get_rts(&last_accessed_ts);
-   __atomic_fetch_add(&txn_kvsb->sum_of_squared_error_wts,
-                      error_wts * error_wts,
-                      __ATOMIC_SEQ_CST);
-   __atomic_fetch_add(&txn_kvsb->sum_of_squared_error_rts,
-                      error_rts * error_rts,
-                      __ATOMIC_SEQ_CST);
-   __atomic_fetch_add(&txn_kvsb->num_of_error, 1, __ATOMIC_SEQ_CST);
    return ret;
 #else
    // if there is no item in the cache, it inserts a new item, read a
@@ -421,12 +434,19 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 #if ENABLE_ERROR_STATS
    iceberg_config cfg;
    iceberg_config_default_init(&cfg);
-   cfg.log_slots = 29;
-   iceberg_table *last_accessed_key_ts_maps;
-   last_accessed_key_ts_maps = TYPED_ZALLOC(0, last_accessed_key_ts_maps);
+   cfg.log_slots = 26;
+   iceberg_table *key_last_updated_ts_map;
+   key_last_updated_ts_map = TYPED_ZALLOC(0, key_last_updated_ts_map);
    platform_assert(
-      iceberg_init(last_accessed_key_ts_maps, &cfg, kvsb_cfg->data_cfg) == 0);
-   _txn_kvsb->last_accessed_key_ts_maps = last_accessed_key_ts_maps;
+      iceberg_init(key_last_updated_ts_map, &cfg, kvsb_cfg->data_cfg) == 0);
+   _txn_kvsb->key_last_updated_ts_map = key_last_updated_ts_map;
+
+   _txn_kvsb->begin_wallclock = platform_get_timestamp();
+   memset(
+      _txn_kvsb->all_error_data, 0, sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
+   memset(_txn_kvsb->all_error_data_size,
+          0,
+          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
 #endif
 
    *txn_kvsb = _txn_kvsb;
@@ -459,13 +479,32 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    splinterdb_close(&_txn_kvsb->kvsb);
 
 #if ENABLE_ERROR_STATS
-   platform_free(0, _txn_kvsb->last_accessed_key_ts_maps);
-   platform_default_log("RMSE WTS: %f\n",
-                        sqrt((double)_txn_kvsb->sum_of_squared_error_wts
-                             / _txn_kvsb->num_of_error));
-   platform_default_log("RMSE RTS: %f\n",
-                        sqrt((double)_txn_kvsb->sum_of_squared_error_rts
-                             / _txn_kvsb->num_of_error));
+   platform_free(0, _txn_kvsb->key_last_updated_ts_map);
+   // print all_error_data
+
+   char logfile[128] = {0};
+#   if EXPERIMENTAL_MODE_TICTOC_COUNTER
+   sprintf(logfile, "tictoc-counter-errors.csv");
+#   elif EXPERIMENTAL_MODE_TICTOC_COUNTER_LAZY
+   sprintf(logfile, "tictoc-counter-lazy-errors.csv");
+#   elif EXPERIMENTAL_MODE_TICTOC_SKETCH
+   sprintf(logfile, "tictoc-sketch-errors.csv");
+#   elif EXPERIMENTAL_MODE_TICTOC_SKETCH_LAZY
+   sprintf(logfile, "tictoc-sketch-lazy-errors.csv");
+#   else
+#      error "Invalid experimental mode"
+#   endif
+   platform_log_handle *lh = platform_open_log_file(logfile, "w");
+   platform_log(lh, "time_since_last_access,mean_error_wts,mean_error_rts\n");
+   for (uint64 i = 0; i < MAX_ERROR_DATA_SIZE; ++i) {
+      error_array_entry *ed = &_txn_kvsb->all_error_data[i];
+      platform_log(lh,
+                   "%lu,%f,%f\n",
+                   i,
+                   (double)ed->wts / _txn_kvsb->all_error_data_size[i],
+                   (double)ed->rts / _txn_kvsb->all_error_data_size[i]);
+   }
+   platform_close_log_file(lh);
 #endif
 
    platform_free(0, _txn_kvsb->tscache);
@@ -617,9 +656,16 @@ RETRY_LOCK_WRITE_SET:
          } while (!is_success);
 
 #if ENABLE_ERROR_STATS
-         slice      key   = r->key;
-         ValueType *value = (ValueType *)&v2;
-         iceberg_put(txn_kvsb->last_accessed_key_ts_maps,
+         slice      key = r->key;
+         error_data ed  = {
+             .wts       = v2.wts,
+             .rts       = timestamp_set_get_rts(&v2),
+             .wallclock = platform_get_timestamp() - txn_kvsb->begin_wallclock,
+         };
+         platform_assert(v2.wts <= 17592186044416);
+         platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+         ValueType *value = (ValueType *)&ed;
+         iceberg_put(txn_kvsb->key_last_updated_ts_map,
                      &key,
                      *value,
                      platform_get_tid());
@@ -667,9 +713,16 @@ RETRY_LOCK_WRITE_SET:
          } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
 
 #if ENABLE_ERROR_STATS
-         slice      key   = w->key;
-         ValueType *value = (ValueType *)&v2;
-         iceberg_put(txn_kvsb->last_accessed_key_ts_maps,
+         slice      key = w->key;
+         error_data ed  = {
+             .wts       = v2.wts,
+             .rts       = timestamp_set_get_rts(&v2),
+             .wallclock = platform_get_timestamp() - txn_kvsb->begin_wallclock,
+         };
+         platform_assert(v2.wts <= 17592186044416);
+         platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+         ValueType *value = (ValueType *)&ed;
+         iceberg_put(txn_kvsb->key_last_updated_ts_map,
                      &key,
                      *value,
                      platform_get_tid());
