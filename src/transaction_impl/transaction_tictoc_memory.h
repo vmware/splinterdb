@@ -426,14 +426,16 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 
    char                 logfile[128] = "tictoc-memory-errors.csv";
    platform_log_handle *lh           = platform_open_log_file(logfile, "w");
-   platform_log(lh, "time_since_last_access,mean_error_wts,mean_error_rts\n");
+   platform_log(
+      lh, "time_since_last_access,mean_error_wts,mean_error_rts,counts\n");
    for (uint64 i = 0; i < MAX_ERROR_DATA_SIZE; ++i) {
       error_array_entry *ed = &_txn_kvsb->all_error_data[i];
       platform_log(lh,
-                   "%lu,%f,%f\n",
+                   "%lu,%f,%f,%lu\n",
                    i,
                    (double)ed->wts / _txn_kvsb->all_error_data_size[i],
-                   (double)ed->rts / _txn_kvsb->all_error_data_size[i]);
+                   (double)ed->rts / _txn_kvsb->all_error_data_size[i],
+                   all_error_data_size[i]);
    }
    platform_close_log_file(lh);
 #endif
