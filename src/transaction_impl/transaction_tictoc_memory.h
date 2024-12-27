@@ -601,99 +601,105 @@ RETRY_LOCK_WRITE_SET:
                v2.delta = delta - shift;
                is_success =
                   timestamp_set_compare_and_swap(r->tuple_ts, &v1, &v2);
+
+#if ENABLE_ERROR_STATS
+               if (is_success) {
+                  slice      key = r->key;
+                  error_data ed  = {
+                      .wts       = v2.wts,
+                      .rts       = timestamp_set_get_rts(&v2),
+                      .wallclock = platform_timestamp_diff(
+                        txn_kvsb->begin_wallclock, platform_get_timestamp())};
+                  platform_assert(v2.wts <= 17592186044416);
+                  platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+                  ValueType *value = (ValueType *)&ed;
+                  iceberg_put(txn_kvsb->key_last_updated_ts_map,
+                              &key,
+                              *value,
+                              platform_get_tid());
+               }
+#endif
             }
          } while (!is_success);
-
-#if ENABLE_ERROR_STATS
-         slice      key = r->key;
-         error_data ed  = {
-             .wts       = v2.wts,
-             .rts       = timestamp_set_get_rts(&v2),
-             .wallclock = platform_timestamp_diff(txn_kvsb->begin_wallclock,
-                                                 platform_get_timestamp());
-      };
-      platform_assert(v2.wts <= 17592186044416);
-      platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
-      ValueType *value = (ValueType *)&ed;
-      iceberg_put(
-         txn_kvsb->key_last_updated_ts_map, &key, *value, platform_get_tid());
-#endif
-   }
-}
-
-if (!is_abort) {
-#if USE_TRANSACTION_STATS
-   transaction_stats_write_start(&txn_kvsb->txn_stats, platform_get_tid());
-#endif
-
-   int rc = 0;
-
-   for (uint64 i = 0; i < num_writes; ++i) {
-      rw_entry *w = write_set[i];
-      platform_assert(rw_entry_is_write(w));
-
-#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
-      if (0) {
-#endif
-         switch (message_class(w->msg)) {
-            case MESSAGE_TYPE_INSERT:
-               rc = splinterdb_insert(
-                  txn_kvsb->kvsb, w->key, message_slice(w->msg));
-               break;
-            case MESSAGE_TYPE_UPDATE:
-               rc = splinterdb_update(
-                  txn_kvsb->kvsb, w->key, message_slice(w->msg));
-               break;
-            case MESSAGE_TYPE_DELETE:
-               rc = splinterdb_delete(txn_kvsb->kvsb, w->key);
-               break;
-            default:
-               break;
-         }
-
-         platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       }
+   }
+
+   if (!is_abort) {
+#if USE_TRANSACTION_STATS
+      transaction_stats_write_start(&txn_kvsb->txn_stats, platform_get_tid());
 #endif
-      timestamp_set v1, v2;
-      do {
-         timestamp_set_load(w->tuple_ts, &v1);
-         v2          = v1;
-         v2.wts      = commit_ts;
-         v2.delta    = 0;
-         v2.lock_bit = 0;
-      } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
+
+      int rc = 0;
+
+      for (uint64 i = 0; i < num_writes; ++i) {
+         rw_entry *w = write_set[i];
+         platform_assert(rw_entry_is_write(w));
+
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+         if (0) {
+#endif
+            switch (message_class(w->msg)) {
+               case MESSAGE_TYPE_INSERT:
+                  rc = splinterdb_insert(
+                     txn_kvsb->kvsb, w->key, message_slice(w->msg));
+                  break;
+               case MESSAGE_TYPE_UPDATE:
+                  rc = splinterdb_update(
+                     txn_kvsb->kvsb, w->key, message_slice(w->msg));
+                  break;
+               case MESSAGE_TYPE_DELETE:
+                  rc = splinterdb_delete(txn_kvsb->kvsb, w->key);
+                  break;
+               default:
+                  break;
+            }
+
+            platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+         }
+#endif
+         timestamp_set v1, v2;
+         do {
+            timestamp_set_load(w->tuple_ts, &v1);
+            v2          = v1;
+            v2.wts      = commit_ts;
+            v2.delta    = 0;
+            v2.lock_bit = 0;
+         } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
 
 #if ENABLE_ERROR_STATS
-      slice      key = w->key;
-      error_data ed  = {.wts       = v2.wts,
-                        .rts       = timestamp_set_get_rts(&v2),
-                        .wallclock = platform_timestamp_diff(
-                          txn_kvsb->begin_wallclock, platform_get_timestamp())};
-      platform_assert(v2.wts <= 17592186044416);
-      platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
-      ValueType *value = (ValueType *)&ed;
-      iceberg_put(
-         txn_kvsb->key_last_updated_ts_map, &key, *value, platform_get_tid());
+         slice      key = w->key;
+         error_data ed  = {.wts = v2.wts,
+                           .rts = timestamp_set_get_rts(&v2),
+                           .wallclock =
+                             platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                     platform_get_timestamp())};
+         platform_assert(v2.wts <= 17592186044416);
+         platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+         ValueType *value = (ValueType *)&ed;
+         iceberg_put(txn_kvsb->key_last_updated_ts_map,
+                     &key,
+                     *value,
+                     platform_get_tid());
 #endif
+      }
+   } else {
+      for (uint64 i = 0; i < num_writes; ++i) {
+         rw_entry_unlock(write_set[i]);
+      }
    }
-} else {
-   for (uint64 i = 0; i < num_writes; ++i) {
-      rw_entry_unlock(write_set[i]);
-   }
-}
 
-transaction_deinit(txn_kvsb, txn);
+   transaction_deinit(txn_kvsb, txn);
 
 #if USE_TRANSACTION_STATS
-if (is_abort) {
-   transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid());
-} else {
-   transaction_stats_commit_end(&txn_kvsb->txn_stats, platform_get_tid());
-}
+   if (is_abort) {
+      transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid());
+   } else {
+      transaction_stats_commit_end(&txn_kvsb->txn_stats, platform_get_tid());
+   }
 #endif
 
-return (-1 * is_abort);
+   return (-1 * is_abort);
 }
 
 int

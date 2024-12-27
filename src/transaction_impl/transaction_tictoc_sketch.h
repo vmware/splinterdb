@@ -653,24 +653,25 @@ RETRY_LOCK_WRITE_SET:
                v2.delta = delta - shift;
                is_success =
                   timestamp_set_compare_and_swap(r->tuple_ts, &v1, &v2);
+#if ENABLE_ERROR_STATS
+               if (is_success) {
+                  slice      key = r->key;
+                  error_data ed  = {
+                      .wts       = v2.wts,
+                      .rts       = timestamp_set_get_rts(&v2),
+                      .wallclock = platform_timestamp_diff(
+                        txn_kvsb->begin_wallclock, platform_get_timestamp())};
+                  platform_assert(v2.wts <= 17592186044416);
+                  platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+                  ValueType *value = (ValueType *)&ed;
+                  iceberg_put(txn_kvsb->key_last_updated_ts_map,
+                              &key,
+                              *value,
+                              platform_get_tid());
+               }
+#endif
             }
          } while (!is_success);
-
-#if ENABLE_ERROR_STATS
-         slice      key = r->key;
-         error_data ed  = {.wts = v2.wts,
-                           .rts = timestamp_set_get_rts(&v2),
-                           .wallclock =
-                             platform_timestamp_diff(txn_kvsb->begin_wallclock,
-                                                     platform_get_timestamp())};
-         platform_assert(v2.wts <= 17592186044416);
-         platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
-         ValueType *value = (ValueType *)&ed;
-         iceberg_put(txn_kvsb->key_last_updated_ts_map,
-                     &key,
-                     *value,
-                     platform_get_tid());
-#endif
       }
    }
 
@@ -715,11 +716,11 @@ RETRY_LOCK_WRITE_SET:
 
 #if ENABLE_ERROR_STATS
          slice      key = w->key;
-         error_data ed  = {
-             .wts       = v2.wts,
-             .rts       = timestamp_set_get_rts(&v2),
-             .wallclock = platform_get_timestamp() - txn_kvsb->begin_wallclock,
-         };
+         error_data ed  = {.wts = v2.wts,
+                           .rts = timestamp_set_get_rts(&v2),
+                           .wallclock =
+                             platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                     platform_get_timestamp())};
          platform_assert(v2.wts <= 17592186044416);
          platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
          ValueType *value = (ValueType *)&ed;
