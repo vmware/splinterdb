@@ -9,7 +9,10 @@
 #include "splinterdb_internal.h"
 #include "FPSketch/iceberg_table.h"
 #include "transaction_stats.h"
+#include <math.h>
 #include "poison.h"
+
+#define ENABLE_ERROR_STATS 0
 
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
@@ -26,6 +29,13 @@ typedef struct transactional_splinterdb {
 #if USE_TRANSACTION_STATS
    // For experimental purpose
    transaction_stats txn_stats;
+#endif
+
+#if ENABLE_ERROR_STATS
+   iceberg_table *last_accessed_key_ts_maps;
+   uint64         sum_of_squared_error_wts;
+   uint64         sum_of_squared_error_rts;
+   uint64         num_of_error;
 #endif
 } transactional_splinterdb;
 
@@ -106,11 +116,53 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    timestamp_set ts = {0};
    entry->tuple_ts  = &ts;
+
+#if ENABLE_ERROR_STATS
+   bool ret = iceberg_insert_and_get_without_increasing_refcount(
+      txn_kvsb->tscache,
+      &entry->key,
+      (ValueType **)&entry->tuple_ts,
+      platform_get_tid());
+   timestamp_set current_ts;
+   timestamp_set_load(entry->tuple_ts, &current_ts);
+
+   timestamp_set  last_accessed_ts = {0};
+   timestamp_set *value            = &last_accessed_ts;
+   bool           exist = iceberg_get_value(txn_kvsb->last_accessed_key_ts_maps,
+                                  entry->key,
+                                  (ValueType **)&value,
+                                  platform_get_tid());
+   if (exist) {
+      timestamp_set_load(value, &last_accessed_ts);
+   } else {
+      return ret;
+   }
+   // print current_ts and last_accessed_ts with key
+   // platform_default_log("[key] %.*s, current_ts: (%lu, %lu), last_accessed:
+   // (%lu, %lu)\n", (int)slice_length(entry->key), (char
+   // *)slice_data(entry->key),
+   //                      (uint64)current_ts.wts,
+   //                      (uint64)timestamp_set_get_rts(&current_ts),
+   //                      (uint64)last_accessed_ts.wts,
+   //                      (uint64)timestamp_set_get_rts(&last_accessed_ts));
+   int64 error_wts = current_ts.wts - last_accessed_ts.wts;
+   int64 error_rts = timestamp_set_get_rts(&current_ts)
+                     - timestamp_set_get_rts(&last_accessed_ts);
+   __atomic_fetch_add(&txn_kvsb->sum_of_squared_error_wts,
+                      error_wts * error_wts,
+                      __ATOMIC_SEQ_CST);
+   __atomic_fetch_add(&txn_kvsb->sum_of_squared_error_rts,
+                      error_rts * error_rts,
+                      __ATOMIC_SEQ_CST);
+   __atomic_fetch_add(&txn_kvsb->num_of_error, 1, __ATOMIC_SEQ_CST);
+   return ret;
+#else
    return iceberg_insert_and_get_without_increasing_refcount(
       txn_kvsb->tscache,
       &entry->key,
       (ValueType **)&entry->tuple_ts,
       platform_get_tid());
+#endif
 }
 
 static inline void
@@ -304,6 +356,18 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
                    == 0);
    _txn_kvsb->tscache = tscache;
 
+
+#if ENABLE_ERROR_STATS
+   iceberg_config cfg;
+   iceberg_config_default_init(&cfg);
+   cfg.log_slots = 29;
+   iceberg_table *last_accessed_key_ts_maps;
+   last_accessed_key_ts_maps = TYPED_ZALLOC(0, last_accessed_key_ts_maps);
+   platform_assert(
+      iceberg_init(last_accessed_key_ts_maps, &cfg, kvsb_cfg->data_cfg) == 0);
+   _txn_kvsb->last_accessed_key_ts_maps = last_accessed_key_ts_maps;
+#endif
+
    *txn_kvsb = _txn_kvsb;
 
    return 0;
@@ -332,6 +396,17 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    iceberg_print_state(_txn_kvsb->tscache);
 
    splinterdb_close(&_txn_kvsb->kvsb);
+
+
+#if ENABLE_ERROR_STATS
+   platform_free(0, _txn_kvsb->last_accessed_key_ts_maps);
+   platform_default_log("RMSE WTS: %f\n",
+                        sqrt((double)_txn_kvsb->sum_of_squared_error_wts
+                             / _txn_kvsb->num_of_error));
+   platform_default_log("RMSE RTS: %f\n",
+                        sqrt((double)_txn_kvsb->sum_of_squared_error_rts
+                             / _txn_kvsb->num_of_error));
+#endif
 
    platform_free(0, _txn_kvsb->tscache);
    platform_free(0, _txn_kvsb->tcfg);
@@ -498,6 +573,15 @@ RETRY_LOCK_WRITE_SET:
                   timestamp_set_compare_and_swap(r->tuple_ts, &v1, &v2);
             }
          } while (!is_success);
+
+#if ENABLE_ERROR_STATS
+         slice      key   = r->key;
+         ValueType *value = (ValueType *)&v2;
+         iceberg_put(txn_kvsb->last_accessed_key_ts_maps,
+                     &key,
+                     *value,
+                     platform_get_tid());
+#endif
       }
    }
 
@@ -543,6 +627,15 @@ RETRY_LOCK_WRITE_SET:
             v2.delta    = 0;
             v2.lock_bit = 0;
          } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
+
+#if ENABLE_ERROR_STATS
+         slice      key   = w->key;
+         ValueType *value = (ValueType *)&v2;
+         iceberg_put(txn_kvsb->last_accessed_key_ts_maps,
+                     &key,
+                     *value,
+                     platform_get_tid());
+#endif
       }
    } else {
       for (uint64 i = 0; i < num_writes; ++i) {
