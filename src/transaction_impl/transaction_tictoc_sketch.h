@@ -46,7 +46,8 @@ typedef struct transactional_splinterdb {
    iceberg_table    *key_last_updated_ts_map;
    uint64            begin_wallclock;
    error_array_entry all_error_data[MAX_ERROR_DATA_SIZE];
-   uint64            all_error_data_size[MAX_ERROR_DATA_SIZE];
+   uint64            all_error_data_wts_size[MAX_ERROR_DATA_SIZE];
+   uint64            all_error_data_rts_size[MAX_ERROR_DATA_SIZE];
 #endif
 } transactional_splinterdb;
 
@@ -166,46 +167,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    // increase refcount for key
    timestamp_set ts = {0};
    entry->tuple_ts  = &ts;
-
-
-#if ENABLE_ERROR_STATS
-   bool        ret   = iceberg_insert_and_get(txn_kvsb->tscache,
-                                     &entry->key,
-                                     (ValueType **)&entry->tuple_ts,
-                                     platform_get_tid());
-   error_data  ed    = {0};
-   error_data *value = &ed;
-   bool        exist = iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
-                                  entry->key,
-                                  (ValueType **)&value,
-                                  platform_get_tid());
-   if (exist) {
-      timestamp_set current_ts;
-      timestamp_set_load(entry->tuple_ts, &current_ts);
-      timestamp_set_load((timestamp_set *)value, (timestamp_set *)&ed);
-
-      int64 error_wts = current_ts.wts - ed.wts;
-      int64 error_rts = timestamp_set_get_rts(&current_ts) - ed.rts;
-      if (error_wts >= 0 && error_rts >= 0) {
-         double time_since_last_access = platform_timestamp_diff(
-            ed.wallclock,
-            platform_timestamp_diff(txn_kvsb->begin_wallclock,
-                                    platform_get_timestamp()));
-         uint64 idx_to_be_inserted = floor(log(time_since_last_access));
-         platform_assert(idx_to_be_inserted < MAX_ERROR_DATA_SIZE);
-         error_array_entry *all_error_data_entry =
-            &txn_kvsb->all_error_data[idx_to_be_inserted];
-         __atomic_add_fetch(
-            &all_error_data_entry->wts, error_wts, __ATOMIC_SEQ_CST);
-         __atomic_add_fetch(
-            &all_error_data_entry->rts, error_rts, __ATOMIC_SEQ_CST);
-         __atomic_add_fetch(&txn_kvsb->all_error_data_size[idx_to_be_inserted],
-                            1,
-                            __ATOMIC_SEQ_CST);
-      }
-   }
-   return ret;
-#else
    // if there is no item in the cache, it inserts a new item, read a
    // value from the sketch, and set the bigger one between that and
    // the given value. As a result, it gets the timestamp greater than
@@ -214,7 +175,6 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
                                  &entry->key,
                                  (ValueType **)&entry->tuple_ts,
                                  platform_get_tid());
-#endif
 }
 
 static inline void
@@ -447,8 +407,12 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    memset(_txn_kvsb->all_error_data,
           0,
           sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
-   memset(
-      _txn_kvsb->all_error_data_size, 0, sizeof(uint64) * MAX_ERROR_DATA_SIZE);
+   memset(_txn_kvsb->all_error_data_wts_size,
+          0,
+          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
+   memset(_txn_kvsb->all_error_data_rts_size,
+          0,
+          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
 #endif
 
    *txn_kvsb = _txn_kvsb;
@@ -497,16 +461,18 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 #      error "Invalid experimental mode"
 #   endif
    platform_log_handle *lh = platform_open_log_file(logfile, "w");
-   platform_log(
-      lh, "time_since_last_access,mean_error_wts,mean_error_rts,counts\n");
+   platform_log(lh,
+                "time_since_last_access,mean_error_wts,wts_counts,mean_error_"
+                "rts,rts_counts\n");
    for (uint64 i = 0; i < MAX_ERROR_DATA_SIZE; ++i) {
       error_array_entry *ed = &_txn_kvsb->all_error_data[i];
       platform_log(lh,
-                   "%lu,%f,%f,%lu\n",
+                   "%lu,%f,%lu,%f,%lu\n",
                    i,
-                   (double)ed->wts / _txn_kvsb->all_error_data_size[i],
-                   (double)ed->rts / _txn_kvsb->all_error_data_size[i],
-                   _txn_kvsb->all_error_data_size[i]);
+                   (double)ed->wts / _txn_kvsb->all_error_data_wts_size[i],
+                   _txn_kvsb->all_error_data_wts_size[i],
+                   (double)ed->rts / _txn_kvsb->all_error_data_rts_size[i],
+                   _txn_kvsb->all_error_data_rts_size[i]);
    }
    platform_close_log_file(lh);
 #endif
@@ -645,6 +611,54 @@ RETRY_LOCK_WRITE_SET:
                                         && !rw_entry_is_write(r);
             if (is_wts_different || is_locked_by_another) {
                is_abort = TRUE;
+
+#if ENABLE_ERROR_STATS
+               error_data  ed    = {0};
+               error_data *value = &ed;
+               bool exist = iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
+                                              r->key,
+                                              (ValueType **)&value,
+                                              platform_get_tid());
+               if (exist) {
+                  timestamp_set_load((timestamp_set *)value,
+                                     (timestamp_set *)&ed);
+
+                  int64 error_wts = v1.wts - ed.wts;
+                  int64 error_rts = rts - ed.rts;
+                  if (error_wts >= 0 && error_rts >= 0) {
+                     double time_since_last_access = platform_timestamp_diff(
+                        ed.wallclock,
+                        platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                platform_get_timestamp()));
+                     uint64 idx_to_be_inserted =
+                        floor(log(time_since_last_access));
+                     platform_assert(idx_to_be_inserted < MAX_ERROR_DATA_SIZE);
+                     error_array_entry *all_error_data_entry =
+                        &txn_kvsb->all_error_data[idx_to_be_inserted];
+                     if (is_wts_different) {
+                        __atomic_add_fetch(&all_error_data_entry->wts,
+                                           error_wts,
+                                           __ATOMIC_SEQ_CST);
+                        __atomic_add_fetch(
+                           &txn_kvsb
+                               ->all_error_data_wts_size[idx_to_be_inserted],
+                           1,
+                           __ATOMIC_SEQ_CST);
+                     } else {
+                        __atomic_add_fetch(&all_error_data_entry->rts,
+                                           error_rts,
+                                           __ATOMIC_SEQ_CST);
+
+                        __atomic_add_fetch(
+                           &txn_kvsb
+                               ->all_error_data_rts_size[idx_to_be_inserted],
+                           1,
+                           __ATOMIC_SEQ_CST);
+                     }
+                  }
+               }
+#endif
+
                break;
             }
             if (rts <= commit_ts) {

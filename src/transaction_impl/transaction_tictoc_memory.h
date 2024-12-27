@@ -133,52 +133,11 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 
    timestamp_set ts = {0};
    entry->tuple_ts  = &ts;
-
-#if ENABLE_ERROR_STATS
-   bool ret = iceberg_insert_and_get_without_increasing_refcount(
-      txn_kvsb->tscache,
-      &entry->key,
-      (ValueType **)&entry->tuple_ts,
-      platform_get_tid());
-   error_data  ed    = {0};
-   error_data *value = &ed;
-   bool        exist = iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
-                                  entry->key,
-                                  (ValueType **)&value,
-                                  platform_get_tid());
-   if (exist) {
-      timestamp_set current_ts;
-      timestamp_set_load(entry->tuple_ts, &current_ts);
-      timestamp_set_load((timestamp_set *)value, (timestamp_set *)&ed);
-
-      int64 error_wts = current_ts.wts - ed.wts;
-      int64 error_rts = timestamp_set_get_rts(&current_ts) - ed.rts;
-      if (error_wts >= 0 && error_rts >= 0) {
-         double time_since_last_access = platform_timestamp_diff(
-            ed.wallclock,
-            platform_timestamp_diff(txn_kvsb->begin_wallclock,
-                                    platform_get_timestamp()));
-         uint64 idx_to_be_inserted = floor(log(time_since_last_access));
-         platform_assert(idx_to_be_inserted < MAX_ERROR_DATA_SIZE);
-         error_array_entry *all_error_data_entry =
-            &txn_kvsb->all_error_data[idx_to_be_inserted];
-         __atomic_add_fetch(
-            &all_error_data_entry->wts, error_wts, __ATOMIC_SEQ_CST);
-         __atomic_add_fetch(
-            &all_error_data_entry->rts, error_rts, __ATOMIC_SEQ_CST);
-         __atomic_add_fetch(&txn_kvsb->all_error_data_size[idx_to_be_inserted],
-                            1,
-                            __ATOMIC_SEQ_CST);
-      }
-   }
-   return ret;
-#else
    return iceberg_insert_and_get_without_increasing_refcount(
       txn_kvsb->tscache,
       &entry->key,
       (ValueType **)&entry->tuple_ts,
       platform_get_tid());
-#endif
 }
 
 static inline void
@@ -592,6 +551,43 @@ RETRY_LOCK_WRITE_SET:
                                         && r->tuple_ts->lock_bit
                                         && !rw_entry_is_write(r);
             if (is_wts_different || is_locked_by_another) {
+
+#if ENABLE_ERROR_STATS
+               error_data  ed    = {0};
+               error_data *value = &ed;
+               bool exist = iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
+                                              r->key,
+                                              (ValueType **)&value,
+                                              platform_get_tid());
+               if (exist) {
+                  timestamp_set_load((timestamp_set *)value,
+                                     (timestamp_set *)&ed);
+
+                  int64 error_wts = v1.wts - ed.wts;
+                  int64 error_rts = rts - ed.rts;
+                  if (error_wts >= 0 && error_rts >= 0) {
+                     double time_since_last_access = platform_timestamp_diff(
+                        ed.wallclock,
+                        platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                platform_get_timestamp()));
+                     uint64 idx_to_be_inserted =
+                        floor(log(time_since_last_access));
+                     platform_assert(idx_to_be_inserted < MAX_ERROR_DATA_SIZE);
+                     error_array_entry *all_error_data_entry =
+                        &txn_kvsb->all_error_data[idx_to_be_inserted];
+                     __atomic_add_fetch(&all_error_data_entry->wts,
+                                        error_wts,
+                                        __ATOMIC_SEQ_CST);
+                     __atomic_add_fetch(&all_error_data_entry->rts,
+                                        error_rts,
+                                        __ATOMIC_SEQ_CST);
+                     __atomic_add_fetch(
+                        &txn_kvsb->all_error_data_size[idx_to_be_inserted],
+                        1,
+                        __ATOMIC_SEQ_CST);
+                  }
+               }
+#endif
                is_abort = TRUE;
                break;
             }
