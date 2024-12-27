@@ -46,8 +46,7 @@ typedef struct transactional_splinterdb {
    iceberg_table    *key_last_updated_ts_map;
    uint64            begin_wallclock;
    error_array_entry all_error_data[MAX_ERROR_DATA_SIZE];
-   uint64            all_error_data_wts_size[MAX_ERROR_DATA_SIZE];
-   uint64            all_error_data_rts_size[MAX_ERROR_DATA_SIZE];
+   error_array_entry all_error_data_size[MAX_ERROR_DATA_SIZE];
 #endif
 } transactional_splinterdb;
 
@@ -407,12 +406,9 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    memset(_txn_kvsb->all_error_data,
           0,
           sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
-   memset(_txn_kvsb->all_error_data_wts_size,
+   memset(_txn_kvsb->all_error_data_size,
           0,
-          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
-   memset(_txn_kvsb->all_error_data_rts_size,
-          0,
-          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
+          sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
 #endif
 
    *txn_kvsb = _txn_kvsb;
@@ -469,10 +465,10 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
       platform_log(lh,
                    "%lu,%f,%lu,%f,%lu\n",
                    i,
-                   (double)ed->wts / _txn_kvsb->all_error_data_wts_size[i],
-                   _txn_kvsb->all_error_data_wts_size[i],
-                   (double)ed->rts / _txn_kvsb->all_error_data_rts_size[i],
-                   _txn_kvsb->all_error_data_rts_size[i]);
+                   (double)ed->wts / _txn_kvsb->all_error_data_size[i].wts,
+                   _txn_kvsb->all_error_data_size[i].wts,
+                   (double)ed->rts / _txn_kvsb->all_error_data_size[i].rts,
+                   _txn_kvsb->all_error_data_size[i].rts);
    }
    platform_close_log_file(lh);
 #endif
@@ -640,8 +636,8 @@ RETRY_LOCK_WRITE_SET:
                                            error_wts,
                                            __ATOMIC_SEQ_CST);
                         __atomic_add_fetch(
-                           &txn_kvsb
-                               ->all_error_data_wts_size[idx_to_be_inserted],
+                           &txn_kvsb->all_error_data_size[idx_to_be_inserted]
+                               .wts,
                            1,
                            __ATOMIC_SEQ_CST);
                      } else {
@@ -650,8 +646,8 @@ RETRY_LOCK_WRITE_SET:
                                            __ATOMIC_SEQ_CST);
 
                         __atomic_add_fetch(
-                           &txn_kvsb
-                               ->all_error_data_rts_size[idx_to_be_inserted],
+                           &txn_kvsb->all_error_data_size[idx_to_be_inserted]
+                               .rts,
                            1,
                            __ATOMIC_SEQ_CST);
                      }
