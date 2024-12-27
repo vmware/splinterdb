@@ -187,9 +187,10 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       int64 error_wts = current_ts.wts - ed.wts;
       int64 error_rts = timestamp_set_get_rts(&current_ts) - ed.rts;
       if (error_wts >= 0 && error_rts >= 0) {
-         double time_since_last_access =
-            (platform_get_timestamp() - txn_kvsb->begin_wallclock)
-            - ed.wallclock;
+         double time_since_last_access = platform_timestamp_diff(
+            ed.wallclock,
+            platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                    platform_get_timestamp()));
          uint64 idx_to_be_inserted = floor(log(time_since_last_access));
          error_array_entry *all_error_data_entry =
             &txn_kvsb->all_error_data[idx_to_be_inserted];
@@ -442,11 +443,11 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    _txn_kvsb->key_last_updated_ts_map = key_last_updated_ts_map;
 
    _txn_kvsb->begin_wallclock = platform_get_timestamp();
-   memset(
-      _txn_kvsb->all_error_data, 0, sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
-   memset(_txn_kvsb->all_error_data_size,
+   memset(_txn_kvsb->all_error_data,
           0,
-          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
+          sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
+   memset(
+      _txn_kvsb->all_error_data_size, 0, sizeof(uint64) * MAX_ERROR_DATA_SIZE);
 #endif
 
    *txn_kvsb = _txn_kvsb;
@@ -657,11 +658,11 @@ RETRY_LOCK_WRITE_SET:
 
 #if ENABLE_ERROR_STATS
          slice      key = r->key;
-         error_data ed  = {
-             .wts       = v2.wts,
-             .rts       = timestamp_set_get_rts(&v2),
-             .wallclock = platform_get_timestamp() - txn_kvsb->begin_wallclock,
-         };
+         error_data ed  = {.wts = v2.wts,
+                           .rts = timestamp_set_get_rts(&v2),
+                           .wallclock =
+                             platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                     platform_get_timestamp())};
          platform_assert(v2.wts <= 17592186044416);
          platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
          ValueType *value = (ValueType *)&ed;

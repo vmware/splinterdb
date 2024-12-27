@@ -154,9 +154,10 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       int64 error_wts = current_ts.wts - ed.wts;
       int64 error_rts = timestamp_set_get_rts(&current_ts) - ed.rts;
       if (error_wts >= 0 && error_rts >= 0) {
-         double time_since_last_access =
-            (platform_get_timestamp() - txn_kvsb->begin_wallclock)
-            - ed.wallclock;
+         double time_since_last_access = platform_timestamp_diff(
+            ed.wallclock,
+            platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                    platform_get_timestamp()));
          uint64 idx_to_be_inserted = floor(log(time_since_last_access));
          error_array_entry *all_error_data_entry =
             &txn_kvsb->all_error_data[idx_to_be_inserted];
@@ -382,11 +383,11 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    _txn_kvsb->key_last_updated_ts_map = key_last_updated_ts_map;
 
    _txn_kvsb->begin_wallclock = platform_get_timestamp();
-   memset(
-      _txn_kvsb->all_error_data, 0, sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
-   memset(_txn_kvsb->all_error_data_size,
+   memset(_txn_kvsb->all_error_data,
           0,
-          sizeof(uint64) * MAX_ERROR_DATA_SIZE);
+          sizeof(error_array_entry) * MAX_ERROR_DATA_SIZE);
+   memset(
+      _txn_kvsb->all_error_data_size, 0, sizeof(uint64) * MAX_ERROR_DATA_SIZE);
 #endif
 
    *txn_kvsb = _txn_kvsb;
@@ -608,95 +609,91 @@ RETRY_LOCK_WRITE_SET:
          error_data ed  = {
              .wts       = v2.wts,
              .rts       = timestamp_set_get_rts(&v2),
-             .wallclock = platform_get_timestamp() - txn_kvsb->begin_wallclock,
-         };
-         platform_assert(v2.wts <= 17592186044416);
-         platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
-         ValueType *value = (ValueType *)&ed;
-         iceberg_put(txn_kvsb->key_last_updated_ts_map,
-                     &key,
-                     *value,
-                     platform_get_tid());
+             .wallclock = platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                 platform_get_timestamp());
+      };
+      platform_assert(v2.wts <= 17592186044416);
+      platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+      ValueType *value = (ValueType *)&ed;
+      iceberg_put(
+         txn_kvsb->key_last_updated_ts_map, &key, *value, platform_get_tid());
 #endif
-      }
    }
+}
 
-   if (!is_abort) {
+if (!is_abort) {
 #if USE_TRANSACTION_STATS
-      transaction_stats_write_start(&txn_kvsb->txn_stats, platform_get_tid());
+   transaction_stats_write_start(&txn_kvsb->txn_stats, platform_get_tid());
 #endif
 
-      int rc = 0;
+   int rc = 0;
 
-      for (uint64 i = 0; i < num_writes; ++i) {
-         rw_entry *w = write_set[i];
-         platform_assert(rw_entry_is_write(w));
+   for (uint64 i = 0; i < num_writes; ++i) {
+      rw_entry *w = write_set[i];
+      platform_assert(rw_entry_is_write(w));
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
-         if (0) {
+      if (0) {
 #endif
-            switch (message_class(w->msg)) {
-               case MESSAGE_TYPE_INSERT:
-                  rc = splinterdb_insert(
-                     txn_kvsb->kvsb, w->key, message_slice(w->msg));
-                  break;
-               case MESSAGE_TYPE_UPDATE:
-                  rc = splinterdb_update(
-                     txn_kvsb->kvsb, w->key, message_slice(w->msg));
-                  break;
-               case MESSAGE_TYPE_DELETE:
-                  rc = splinterdb_delete(txn_kvsb->kvsb, w->key);
-                  break;
-               default:
-                  break;
-            }
-
-            platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+         switch (message_class(w->msg)) {
+            case MESSAGE_TYPE_INSERT:
+               rc = splinterdb_insert(
+                  txn_kvsb->kvsb, w->key, message_slice(w->msg));
+               break;
+            case MESSAGE_TYPE_UPDATE:
+               rc = splinterdb_update(
+                  txn_kvsb->kvsb, w->key, message_slice(w->msg));
+               break;
+            case MESSAGE_TYPE_DELETE:
+               rc = splinterdb_delete(txn_kvsb->kvsb, w->key);
+               break;
+            default:
+               break;
          }
+
+         platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+      }
 #endif
-         timestamp_set v1, v2;
-         do {
-            timestamp_set_load(w->tuple_ts, &v1);
-            v2          = v1;
-            v2.wts      = commit_ts;
-            v2.delta    = 0;
-            v2.lock_bit = 0;
-         } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
+      timestamp_set v1, v2;
+      do {
+         timestamp_set_load(w->tuple_ts, &v1);
+         v2          = v1;
+         v2.wts      = commit_ts;
+         v2.delta    = 0;
+         v2.lock_bit = 0;
+      } while (!timestamp_set_compare_and_swap(w->tuple_ts, &v1, &v2));
 
 #if ENABLE_ERROR_STATS
-         slice      key = w->key;
-         error_data ed  = {
-             .wts       = v2.wts,
-             .rts       = timestamp_set_get_rts(&v2),
-             .wallclock = platform_get_timestamp() - txn_kvsb->begin_wallclock,
-         };
-         platform_assert(v2.wts <= 17592186044416);
-         platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
-         ValueType *value = (ValueType *)&ed;
-         iceberg_put(txn_kvsb->key_last_updated_ts_map,
-                     &key,
-                     *value,
-                     platform_get_tid());
+      slice      key = w->key;
+      error_data ed  = {.wts       = v2.wts,
+                        .rts       = timestamp_set_get_rts(&v2),
+                        .wallclock = platform_timestamp_diff(
+                          txn_kvsb->begin_wallclock, platform_get_timestamp())};
+      platform_assert(v2.wts <= 17592186044416);
+      platform_assert(timestamp_set_get_rts(&v2) <= 17592186044416);
+      ValueType *value = (ValueType *)&ed;
+      iceberg_put(
+         txn_kvsb->key_last_updated_ts_map, &key, *value, platform_get_tid());
 #endif
-      }
-   } else {
-      for (uint64 i = 0; i < num_writes; ++i) {
-         rw_entry_unlock(write_set[i]);
-      }
    }
+} else {
+   for (uint64 i = 0; i < num_writes; ++i) {
+      rw_entry_unlock(write_set[i]);
+   }
+}
 
-   transaction_deinit(txn_kvsb, txn);
+transaction_deinit(txn_kvsb, txn);
 
 #if USE_TRANSACTION_STATS
-   if (is_abort) {
-      transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid());
-   } else {
-      transaction_stats_commit_end(&txn_kvsb->txn_stats, platform_get_tid());
-   }
+if (is_abort) {
+   transaction_stats_abort_end(&txn_kvsb->txn_stats, platform_get_tid());
+} else {
+   transaction_stats_commit_end(&txn_kvsb->txn_stats, platform_get_tid());
+}
 #endif
 
-   return (-1 * is_abort);
+return (-1 * is_abort);
 }
 
 int
