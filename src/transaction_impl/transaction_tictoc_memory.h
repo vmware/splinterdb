@@ -12,7 +12,7 @@
 #include <math.h>
 #include "poison.h"
 
-#define ENABLE_ERROR_STATS 1
+#define ENABLE_ERROR_STATS 0
 
 
 #if ENABLE_ERROR_STATS
