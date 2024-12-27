@@ -54,20 +54,20 @@ RadixSort(uint32 *pData,
           uint32 *pTemp,
           uint32  count,
           uint32  fp_size,
-          uint32  value_size)
+          uint32  orig_value_size)
 {
    uint32 *mIndex[MATRIX_ROWS]; // index matrix
    uint32 *pDst, *pSrc, *pTmp;
    uint32  i, j, m, n;
    uint32  u;
-   uint32  fpover = value_size % 8;
+   uint32  fpover = orig_value_size % 8;
    if (fp_size == 0) {
       fp_size = 1;
    }
    uint32 rounds = (fp_size + fpover - 1) / 8 + 1;
    uint8  c;
-   uint32 fpshift = value_size / 8;
-   value_size     = value_size / 8 * 8;
+   uint32 fpshift    = orig_value_size / 8;
+   uint32 value_size = orig_value_size / 8 * 8;
 
    for (i = 0; i < MATRIX_ROWS; i++) {
       mIndex[i] = &mBuf[i * MATRIX_COLS];
@@ -77,6 +77,15 @@ RadixSort(uint32 *pData,
    }
    for (i = 0; i < count; i++) { // generate histograms
       u = pData[i] >> value_size;
+      platform_assert(u < (1ULL << (8 * rounds)),
+                      "pData[i]=0x%x u=0x%x, fp_size=%u orig_value_size=%u "
+                      "value_size=%u rounds=%u\n",
+                      pData[i],
+                      u,
+                      fp_size,
+                      orig_value_size,
+                      value_size,
+                      rounds);
       for (j = 0; j < rounds; j++) {
          c = ((uint8 *)&u)[j];
          mIndex[j][c]++;
@@ -102,14 +111,15 @@ RadixSort(uint32 *pData,
          c = ((uint8 *)&u)[j + fpshift];
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
-                         ", mIndex[j][c]=%d, count=%u\n",
+                         ", mIndex[j][c]=%d, count=%u fpshift=%u\n",
                          platform_getpid(),
                          platform_get_tid(),
                          i,
                          j,
                          c,
                          mIndex[j][c],
-                         count);
+                         count,
+                         fpshift);
          pDst[mIndex[j][c]++] = u;
       }
       pTmp = pSrc;

@@ -609,17 +609,18 @@ test_wait_inflight(test_params *params,
    for (j = 0; j < batch_end; j++) {
       test_async_ctxt *ctxt = &params->ctxt[j];
 
-      while (ctxt->status == waiting_on_io) {
-         platform_yield();
+      while (ctxt->status != done) {
+         if (ctxt->status == waiting_on_io) {
+            cache_cleanup(params->cc);
+         } else if (ctxt->status == ready_to_continue) {
+            async_status res = cache_get_async2(params->cc, ctxt->buffer);
+            if (res == ASYNC_STATUS_DONE) {
+               ctxt->status = done;
+            }
+         }
       }
-
-      if (ctxt->status == ready_to_continue) {
-         async_status res = cache_get_async2(params->cc, ctxt->buffer);
-         platform_assert(res == ASYNC_STATUS_DONE);
-         params->handle_arr[j] =
-            cache_get_async2_state_result(params->cc, ctxt->buffer);
-         ctxt->status = done;
-      }
+      params->handle_arr[j] =
+         cache_get_async2_state_result(params->cc, ctxt->buffer);
    }
 }
 

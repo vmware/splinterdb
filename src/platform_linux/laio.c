@@ -547,7 +547,7 @@ laio_async_read_callback(io_context_t ctx,
       (laio_async_read_state *)((char *)iocb
                                 - offsetof(laio_async_read_state, req));
    ios->status       = res;
-   ios->io_completed = true;
+   ios->io_completed = 1;
    if (ios->callback) {
       ios->callback(ios->callback_arg);
    }
@@ -563,7 +563,7 @@ laio_async_read(io_async_read_state *gios)
       async_return(ios);
    }
 
-   ios->io_completed = FALSE;
+   ios->io_completed = 1;
    ios->pctx         = laio_get_thread_context((io_handle *)ios->io);
    io_prep_preadv(&ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
    io_set_callback(&ios->req, laio_async_read_callback);
@@ -592,7 +592,7 @@ laio_async_read(io_async_read_state *gios)
                          -ios->submit_status,
                          strerror(-ios->submit_status));
    } else {
-      async_await(ios, ios->io_completed);
+      async_await(ios, __sync_bool_compare_and_swap(&ios->io_completed, 1, 2));
    }
 
    async_return(ios);
@@ -602,14 +602,20 @@ static platform_status
 laio_async_read_state_get_result(io_async_read_state *gios)
 {
    laio_async_read_state *ios = (laio_async_read_state *)gios;
+   if (ios->submit_status <= 0) {
+      return STATUS_IO_ERROR;
+   }
+
    if (ios->status != ios->iovlen * ios->io->cfg->page_size) {
       // FIXME: the result code of asynchrnous I/Os appears to often not refect
       // the actual number of bytes read/written, so we log it and proceed
       // anyway.
-      platform_error_log("asynchronous read appears to be short. requested %lu "
-                         "bytes, read %d bytes\n",
-                         ios->iovlen * ios->io->cfg->page_size,
-                         ios->status);
+      platform_error_log(
+         "asynchronous read %p appears to be short. requested %lu "
+         "bytes, read %d bytes\n",
+         ios,
+         ios->iovlen * ios->io->cfg->page_size,
+         ios->status);
    }
    return STATUS_OK;
    // return ios->status == ios->iovlen * ios->io->cfg->page_size

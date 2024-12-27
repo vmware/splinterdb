@@ -185,7 +185,8 @@ typedef void *async_state;
       stmt;                                                                    \
       return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
-   {}                                                                          \
+   {                                                                           \
+   }                                                                           \
    } while (0)
 
 #define async_yield(statep)                                                    \
@@ -193,7 +194,8 @@ typedef void *async_state;
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
-   {}                                                                          \
+   {                                                                           \
+   }                                                                           \
    } while (0)
 
 /* Supports an optional return value. */
@@ -350,7 +352,7 @@ async_wait_queue_release_all(async_wait_queue *q)
 /* Public: Wait on the queue until the predicate <ready> evaluates to true.
  * There is a subtle race condition that this code avoids.  This code checks
  * <ready> without holding any locks.  If <ready> is not true, then it locks the
- * wait queue and checks again.  By checking again with lock help, this code
+ * wait queue and checks again.  By checking again with lock held, this code
  * avoids the race where <ready> becomes true and all waiters get notified
  * between the time that we check the condition (w/o locks) and add ourselves to
  * the queue.

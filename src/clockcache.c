@@ -2248,6 +2248,13 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
    }
 }
 
+typedef struct prefetch_state {
+   uint64                     refcount;
+   clockcache                *cc;
+   io_async_read_state_buffer iostate;
+   uint64                     completions;
+} prefetch_state;
+
 /*
  *----------------------------------------------------------------------
  * clockcache_prefetch_callback --
@@ -2256,22 +2263,36 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
  *      of pages from the device.
  *----------------------------------------------------------------------
  */
-#if defined(__has_feature)
-#   if __has_feature(memory_sanitizer)
-__attribute__((no_sanitize("memory")))
-#   endif
-#endif
+// #if defined(__has_feature)
+// #   if __has_feature(memory_sanitizer)
+// __attribute__((no_sanitize("memory")))
+// #   endif
+// #endif
 void
-clockcache_prefetch_callback(void           *metadata,
-                             struct iovec   *iovec,
-                             uint64          count,
-                             platform_status status)
+clockcache_prefetch_callback(void *pfs)
 {
-   clockcache       *cc        = *(clockcache **)metadata;
+   prefetch_state *state = (prefetch_state *)pfs;
+
+   // Check whether we are done.  If not, this will enqueue us for a future
+   // callback so we can check again.
+   if (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
+      return;
+   }
+
+   if (__sync_fetch_and_add(&state->completions, 1)) {
+      platform_default_log("prefetch_callback: multiple completions\n");
+   }
+
+   platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
+
+   const struct iovec *iovec;
+   uint64              count;
+   iovec = io_async_read_state_get_iovec(state->iostate, &count);
+
+   clockcache       *cc        = state->cc;
    page_type         type      = PAGE_TYPE_INVALID;
    debug_only uint64 last_addr = CC_UNMAPPED_ADDR;
 
-   platform_assert_status_ok(status);
    platform_assert(count > 0);
    platform_assert(count <= cc->cfg->pages_per_extent);
 
@@ -2301,6 +2322,9 @@ clockcache_prefetch_callback(void           *metadata,
       cc->stats[tid].page_reads[type] += count;
       cc->stats[tid].prefetches_issued[type]++;
    }
+
+   io_async_read_state_deinit(state->iostate);
+   // platform_free(cc->heap_id, state);
 }
 
 /*
@@ -2313,12 +2337,9 @@ clockcache_prefetch_callback(void           *metadata,
 void
 clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 {
-   io_async_req *req;
-   struct iovec *iovec;
-   uint64        pages_per_extent = cc->cfg->pages_per_extent;
-   uint64        pages_in_req     = 0;
-   uint64        req_start_addr   = CC_UNMAPPED_ADDR;
-   threadid      tid              = platform_get_tid();
+   prefetch_state *state            = NULL;
+   uint64          pages_per_extent = cc->cfg->pages_per_extent;
+   threadid        tid              = platform_get_tid();
 
    debug_assert(base_addr % clockcache_extent_size(cc) == 0);
 
@@ -2339,16 +2360,11 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             // fallthrough
          case GET_RC_CONFLICT:
             // in cache, issue IO req if started
-            if (pages_in_req != 0) {
-               req->bytes = clockcache_multiply_by_page_size(cc, pages_in_req);
-               platform_status rc = io_read_async(cc->io,
-                                                  req,
-                                                  clockcache_prefetch_callback,
-                                                  pages_in_req,
-                                                  req_start_addr);
-               platform_assert_status_ok(rc);
-               pages_in_req   = 0;
-               req_start_addr = CC_UNMAPPED_ADDR;
+            if (state != NULL) {
+               __sync_fetch_and_add(&state->refcount, 1);
+               io_async_read(state->iostate);
+               __sync_fetch_and_add(&state->refcount, -1);
+               state = NULL;
             }
             clockcache_log(addr,
                            entry_no,
@@ -2368,16 +2384,20 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             if (__sync_bool_compare_and_swap(
                    &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
             {
-               if (pages_in_req == 0) {
-                  debug_assert(req_start_addr == CC_UNMAPPED_ADDR);
+               if (state == NULL) {
                   // start a new IO req
-                  req                          = io_get_async_req(cc->io, TRUE);
-                  void *req_metadata           = io_get_metadata(cc->io, req);
-                  *(clockcache **)req_metadata = cc;
-                  iovec                        = io_get_iovec(cc->io, req);
-                  req_start_addr               = addr;
+                  state = TYPED_MALLOC(cc->heap_id, state);
+                  platform_assert(state);
+                  state->cc          = cc;
+                  state->completions = 0;
+                  io_async_read_state_init(state->iostate,
+                                           cc->io,
+                                           addr,
+                                           clockcache_prefetch_callback,
+                                           state);
                }
-               iovec[pages_in_req++].iov_base = entry->page.data;
+               io_async_read_state_append_page(state->iostate,
+                                               entry->page.data);
                clockcache_log(addr,
                               entry_no,
                               "prefetch (load): entry %u addr %lu\n",
@@ -2399,16 +2419,11 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
       }
    }
    // issue IO req if started
-   if (pages_in_req != 0) {
-      req->bytes         = clockcache_multiply_by_page_size(cc, pages_in_req);
-      platform_status rc = io_read_async(cc->io,
-                                         req,
-                                         clockcache_prefetch_callback,
-                                         pages_in_req,
-                                         req_start_addr);
-      pages_in_req       = 0;
-      req_start_addr     = CC_UNMAPPED_ADDR;
-      platform_assert_status_ok(rc);
+   if (state != NULL) {
+      __sync_fetch_and_add(&state->refcount, 1);
+      io_async_read(state->iostate);
+      __sync_fetch_and_add(&state->refcount, -1);
+      state = NULL;
    }
 }
 
