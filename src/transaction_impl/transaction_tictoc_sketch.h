@@ -11,7 +11,7 @@
 #include <math.h>
 #include "poison.h"
 
-#define ENABLE_ERROR_STATS 0
+#define ENABLE_ERROR_STATS 1
 
 #if ENABLE_ERROR_STATS
 
@@ -505,7 +505,7 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
                    i,
                    (double)ed->wts / _txn_kvsb->all_error_data_size[i],
                    (double)ed->rts / _txn_kvsb->all_error_data_size[i],
-                   all_error_data_size[i]);
+                   _txn_kvsb->all_error_data_size[i]);
    }
    platform_close_log_file(lh);
 #endif
