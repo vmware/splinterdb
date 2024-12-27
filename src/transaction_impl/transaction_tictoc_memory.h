@@ -159,6 +159,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
             platform_timestamp_diff(txn_kvsb->begin_wallclock,
                                     platform_get_timestamp()));
          uint64 idx_to_be_inserted = floor(log(time_since_last_access));
+         platform_assert(idx_to_be_inserted < MAX_ERROR_DATA_SIZE);
          error_array_entry *all_error_data_entry =
             &txn_kvsb->all_error_data[idx_to_be_inserted];
          __atomic_add_fetch(
