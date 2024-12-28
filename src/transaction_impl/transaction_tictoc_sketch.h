@@ -464,7 +464,7 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
       platform_log(lh,
                    "%lu,%f,%lu\n",
                    i,
-                   (double)ed->wts / _txn_kvsb->all_error_data_size[i].rts,
+                   (double)ed->rts / _txn_kvsb->all_error_data_size[i].rts,
                    _txn_kvsb->all_error_data_size[i].rts);
    }
    platform_close_log_file(lh);
