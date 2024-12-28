@@ -2248,10 +2248,30 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
    }
 }
 
+/*
+ * Clockcache prefetching
+ *
+ * The main trickiness here is that we call io_async_read() from the callback we
+ * get from io_async_read().  The callback will actually come from io_cleanup,
+ * but Sometimes the callback will occur before the first invocation of
+ * io_async_read has even finished, so we need to avoid running two instances of
+ * io_async_read() at the same time on the same state structure.  We accomplish
+ * this by using a lock in the state structure.
+ *
+ * The other trickiness is that we need to free the state structure in the
+ * callback, but only once we are done, and we need to ensure that there is not
+ * another callback in progress when we free the state structure.  Because of
+ * the lock, we get to execute only once our parent (and hence all ancestors)
+ * has finished, so we don't have to worry about our parents.  And we spawn a
+ * child callback only if our call to io_async_read() returns that the read is
+ * not done, and we only free the state structure if the read is done.
+ *
+ * Hence we free the state structure only when we are the only callback in
+ * progress.
+ */
+
 typedef struct prefetch_state {
    uint64                     lock;
-   uint64                     refcount;
-   uint64                     completions;
    clockcache                *cc;
    io_async_read_state_buffer iostate;
 } prefetch_state;
@@ -2259,17 +2279,15 @@ typedef struct prefetch_state {
 static void
 prefetch_state_lock(prefetch_state *state)
 {
-   __sync_fetch_and_add(&state->refcount, 1);
    while (__sync_lock_test_and_set(&state->lock, 1)) {
       platform_yield();
    }
 }
 
-static uint64
+static void
 prefetch_state_unlock(prefetch_state *state)
 {
    __sync_lock_release(&state->lock);
-   return __sync_add_and_fetch(&state->refcount, -1);
 }
 
 /*
@@ -2289,12 +2307,6 @@ clockcache_prefetch_callback(void *pfs)
    // callback so we can check again.
    prefetch_state_lock(state);
    if (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
-      prefetch_state_unlock(state);
-      return;
-   }
-
-   if (__sync_fetch_and_add(&state->completions, 1)) {
-      platform_default_log("prefetch_callback: multiple completions\n");
       prefetch_state_unlock(state);
       return;
    }
@@ -2339,11 +2351,9 @@ clockcache_prefetch_callback(void *pfs)
       cc->stats[tid].prefetches_issued[type]++;
    }
 
-   uint64 refcount = prefetch_state_unlock(state);
-   if (refcount == 0) {
-      io_async_read_state_deinit(state->iostate);
-      platform_free(cc->heap_id, state);
-   }
+   prefetch_state_unlock(state);
+   io_async_read_state_deinit(state->iostate);
+   platform_free(cc->heap_id, state);
 }
 
 /*
@@ -2407,10 +2417,8 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   // start a new IO req
                   state = TYPED_MALLOC(cc->heap_id, state);
                   platform_assert(state);
-                  state->cc          = cc;
-                  state->completions = 0;
-                  state->refcount    = 0;
-                  state->lock        = 0;
+                  state->cc   = cc;
+                  state->lock = 0;
                   io_async_read_state_init(state->iostate,
                                            cc->io,
                                            addr,
