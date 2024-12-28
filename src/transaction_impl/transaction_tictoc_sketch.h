@@ -621,7 +621,7 @@ RETRY_LOCK_WRITE_SET:
                is_abort = TRUE;
 
 #if ENABLE_ERROR_STATS
-               if (is_locked_by_another && write_set_idx_commit != -1) {
+               if (is_locked_by_another) {
                   for (int idx = 0; idx < write_set_idx_commit_size; ++idx) {
                      int write_set_idx_commit = write_set_idx_commit[idx];
                      error_data  ed           = {0};
