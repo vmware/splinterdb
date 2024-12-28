@@ -169,10 +169,11 @@ typedef void *async_state;
    const uint64 __async_depth = (depth);                                       \
    platform_assert(__async_depth < ARRAY_SIZE((statep)->__async_state_stack)); \
    do {                                                                        \
-      if (ASYNC_STATE(statep) == ASYNC_STATE_DONE) {                           \
+      async_state __tmp = ASYNC_STATE(statep);                                 \
+      if (__tmp == ASYNC_STATE_DONE) {                                         \
          return ASYNC_STATUS_DONE;                                             \
-      } else if (ASYNC_STATE(statep) != ASYNC_STATE_INIT) {                    \
-         goto *ASYNC_STATE(statep);                                            \
+      } else if (__tmp != ASYNC_STATE_INIT) {                                  \
+         goto *__tmp;                                                          \
       }                                                                        \
    } while (0)
 

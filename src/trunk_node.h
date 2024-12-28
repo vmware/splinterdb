@@ -181,6 +181,22 @@ trunk_node_context_init(trunk_node_context      *context,
                         uint64                   root_addr);
 
 
+platform_status
+trunk_node_inc_ref(const trunk_node_config *cfg,
+                   platform_heap_id         hid,
+                   cache                   *cc,
+                   allocator               *al,
+                   task_system             *ts,
+                   uint64                   root_addr);
+
+platform_status
+trunk_node_dec_ref(const trunk_node_config *cfg,
+                   platform_heap_id         hid,
+                   cache                   *cc,
+                   allocator               *al,
+                   task_system             *ts,
+                   uint64                   root_addr);
+
 void
 trunk_node_context_deinit(trunk_node_context *context);
 

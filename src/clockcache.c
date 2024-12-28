@@ -2268,19 +2268,23 @@ typedef struct prefetch_state {
 // __attribute__((no_sanitize("memory")))
 // #   endif
 // #endif
-void
+static void
 clockcache_prefetch_callback(void *pfs)
 {
    prefetch_state *state = (prefetch_state *)pfs;
 
    // Check whether we are done.  If not, this will enqueue us for a future
    // callback so we can check again.
+   __sync_fetch_and_add(&state->refcount, 1);
    if (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
+      __sync_fetch_and_add(&state->refcount, -1);
       return;
    }
 
    if (__sync_fetch_and_add(&state->completions, 1)) {
       platform_default_log("prefetch_callback: multiple completions\n");
+      __sync_fetch_and_add(&state->refcount, -1);
+      return;
    }
 
    platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
@@ -2323,8 +2327,9 @@ clockcache_prefetch_callback(void *pfs)
       cc->stats[tid].prefetches_issued[type]++;
    }
 
-   io_async_read_state_deinit(state->iostate);
-   // platform_free(cc->heap_id, state);
+   __sync_fetch_and_add(&state->refcount, -1);
+   // io_async_read_state_deinit(state->iostate);
+   //  platform_free(cc->heap_id, state);
 }
 
 /*
@@ -2390,14 +2395,16 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   platform_assert(state);
                   state->cc          = cc;
                   state->completions = 0;
+                  state->refcount    = 0;
                   io_async_read_state_init(state->iostate,
                                            cc->io,
                                            addr,
                                            clockcache_prefetch_callback,
                                            state);
                }
-               io_async_read_state_append_page(state->iostate,
-                                               entry->page.data);
+               platform_status rc = io_async_read_state_append_page(
+                  state->iostate, entry->page.data);
+               platform_assert_status_ok(rc);
                clockcache_log(addr,
                               entry_no,
                               "prefetch (load): entry %u addr %lu\n",
