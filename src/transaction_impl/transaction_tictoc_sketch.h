@@ -623,12 +623,12 @@ RETRY_LOCK_WRITE_SET:
 #if ENABLE_ERROR_STATS
                if (is_locked_by_another) {
                   for (int idx = 0; idx < write_set_idx_commit_size; ++idx) {
-                     int write_set_idx_commit = write_set_idx_commit[idx];
+                     int j = write_set_idx_commit[idx];
                      error_data  ed           = {0};
                      error_data *value        = &ed;
                      bool        exist =
                         iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
-                                          write_set[write_set_idx_commit]->key,
+                                          write_set[j]->key,
                                           (ValueType **)&value,
                                           platform_get_tid());
                      if (exist) {
@@ -637,7 +637,7 @@ RETRY_LOCK_WRITE_SET:
 
                         int64 error_rts =
                            timestamp_set_get_rts(
-                              write_set[write_set_idx_commit]->tuple_ts)
+                              write_set[j]->tuple_ts)
                            - ed.rts;
                         if (error_rts >= 0) {
                            double time_since_last_access =
