@@ -2249,11 +2249,28 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
 }
 
 typedef struct prefetch_state {
+   uint64                     lock;
    uint64                     refcount;
+   uint64                     completions;
    clockcache                *cc;
    io_async_read_state_buffer iostate;
-   uint64                     completions;
 } prefetch_state;
+
+static void
+prefetch_state_lock(prefetch_state *state)
+{
+   __sync_fetch_and_add(&state->refcount, 1);
+   while (__sync_lock_test_and_set(&state->lock, 1)) {
+      platform_yield();
+   }
+}
+
+static uint64
+prefetch_state_unlock(prefetch_state *state)
+{
+   __sync_lock_release(&state->lock);
+   return __sync_add_and_fetch(&state->refcount, -1);
+}
 
 /*
  *----------------------------------------------------------------------
@@ -2263,11 +2280,6 @@ typedef struct prefetch_state {
  *      of pages from the device.
  *----------------------------------------------------------------------
  */
-// #if defined(__has_feature)
-// #   if __has_feature(memory_sanitizer)
-// __attribute__((no_sanitize("memory")))
-// #   endif
-// #endif
 static void
 clockcache_prefetch_callback(void *pfs)
 {
@@ -2275,15 +2287,15 @@ clockcache_prefetch_callback(void *pfs)
 
    // Check whether we are done.  If not, this will enqueue us for a future
    // callback so we can check again.
-   __sync_fetch_and_add(&state->refcount, 1);
+   prefetch_state_lock(state);
    if (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
-      __sync_fetch_and_add(&state->refcount, -1);
+      prefetch_state_unlock(state);
       return;
    }
 
    if (__sync_fetch_and_add(&state->completions, 1)) {
       platform_default_log("prefetch_callback: multiple completions\n");
-      __sync_fetch_and_add(&state->refcount, -1);
+      prefetch_state_unlock(state);
       return;
    }
 
@@ -2327,9 +2339,11 @@ clockcache_prefetch_callback(void *pfs)
       cc->stats[tid].prefetches_issued[type]++;
    }
 
-   __sync_fetch_and_add(&state->refcount, -1);
-   // io_async_read_state_deinit(state->iostate);
-   //  platform_free(cc->heap_id, state);
+   uint64 refcount = prefetch_state_unlock(state);
+   if (refcount == 0) {
+      io_async_read_state_deinit(state->iostate);
+      platform_free(cc->heap_id, state);
+   }
 }
 
 /*
@@ -2366,9 +2380,9 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
          case GET_RC_CONFLICT:
             // in cache, issue IO req if started
             if (state != NULL) {
-               __sync_fetch_and_add(&state->refcount, 1);
+               prefetch_state_lock(state);
                io_async_read(state->iostate);
-               __sync_fetch_and_add(&state->refcount, -1);
+               prefetch_state_unlock(state);
                state = NULL;
             }
             clockcache_log(addr,
@@ -2396,6 +2410,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   state->cc          = cc;
                   state->completions = 0;
                   state->refcount    = 0;
+                  state->lock        = 0;
                   io_async_read_state_init(state->iostate,
                                            cc->io,
                                            addr,
@@ -2427,9 +2442,9 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
    }
    // issue IO req if started
    if (state != NULL) {
-      __sync_fetch_and_add(&state->refcount, 1);
+      prefetch_state_lock(state);
       io_async_read(state->iostate);
-      __sync_fetch_and_add(&state->refcount, -1);
+      prefetch_state_unlock(state);
       state = NULL;
    }
 }
