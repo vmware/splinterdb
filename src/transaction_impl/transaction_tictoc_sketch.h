@@ -457,8 +457,7 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 #      error "Invalid experimental mode"
 #   endif
    platform_log_handle *lh = platform_open_log_file(logfile, "w");
-   platform_log(lh,
-                "time_since_last_access,mean_error_rts,rts_counts\n");
+   platform_log(lh, "time_since_last_access,mean_error_rts,rts_counts\n");
    for (uint64 i = 0; i < MAX_ERROR_DATA_SIZE; ++i) {
       error_array_entry *ed = &_txn_kvsb->all_error_data[i];
       platform_log(lh,
@@ -580,11 +579,18 @@ RETRY_LOCK_WRITE_SET:
    }
 }
 #if ENABLE_ERROR_STATS
-   int write_set_idx_commit = -1;
+   int write_set_idx_commit[16]  = {-1};
+   int write_set_idx_commit_size = 0;
    for (uint64 i = 0; i < num_writes; ++i) {
       if (commit_ts < timestamp_set_get_rts(write_set[i]->tuple_ts) + 1) {
          commit_ts = timestamp_set_get_rts(write_set[i]->tuple_ts) + 1;
-         write_set_idx_commit = i;
+         write_set_idx_commit_size                         = 0;
+         write_set_idx_commit[write_set_idx_commit_size++] = i;
+      } else if (write_set_idx_commit_size > 0
+                 && commit_ts
+                       == timestamp_set_get_rts(write_set[i]->tuple_ts) + 1)
+      {
+         write_set_idx_commit[write_set_idx_commit_size++] = i;
       }
    }
 #else
@@ -616,48 +622,57 @@ RETRY_LOCK_WRITE_SET:
 
 #if ENABLE_ERROR_STATS
                if (is_locked_by_another && write_set_idx_commit != -1) {
+                  for (int idx = 0; idx < write_set_idx_commit_size; ++idx) {
+                     int write_set_idx_commit = write_set_idx_commit[idx];
+                     error_data  ed           = {0};
+                     error_data *value        = &ed;
+                     bool        exist =
+                        iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
+                                          write_set[write_set_idx_commit]->key,
+                                          (ValueType **)&value,
+                                          platform_get_tid());
+                     if (exist) {
+                        timestamp_set_load((timestamp_set *)value,
+                                           (timestamp_set *)&ed);
 
-                  error_data  ed    = {0};
-                  error_data *value = &ed;
-                  bool exist = iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
-                                                write_set[write_set_idx_commit]->key,
-                                                (ValueType **)&value,
-                                                platform_get_tid());
-                  if (exist) {
-                     timestamp_set_load((timestamp_set *)value,
-                                       (timestamp_set *)&ed);
+                        int64 error_rts =
+                           timestamp_set_get_rts(
+                              write_set[write_set_idx_commit]->tuple_ts)
+                           - ed.rts;
+                        if (error_rts >= 0) {
+                           double time_since_last_access =
+                              platform_timestamp_diff(
+                                 ed.wallclock,
+                                 platform_timestamp_diff(
+                                    txn_kvsb->begin_wallclock,
+                                    platform_get_timestamp()));
+                           uint64 idx_to_be_inserted =
+                              floor(log(time_since_last_access));
+                           platform_assert(idx_to_be_inserted
+                                           < MAX_ERROR_DATA_SIZE);
+                           error_array_entry *all_error_data_entry =
+                              &txn_kvsb->all_error_data[idx_to_be_inserted];
+                           __atomic_add_fetch(&all_error_data_entry->rts,
+                                              error_rts,
+                                              __ATOMIC_SEQ_CST);
+                           __atomic_add_fetch(
+                              &txn_kvsb->all_error_data_size[idx_to_be_inserted]
+                                  .rts,
+                              1,
+                              __ATOMIC_SEQ_CST);
+                           // __atomic_add_fetch(&all_error_data_entry->rts,
+                           //                    error_rts,
+                           //                    __ATOMIC_SEQ_CST);
 
-                     int64 error_rts = timestamp_set_get_rts(write_set[write_set_idx_commit]->tuple_ts) - ed.rts;
-                     if (error_rts >= 0) {
-                        double time_since_last_access = platform_timestamp_diff(
-                           ed.wallclock,
-                           platform_timestamp_diff(txn_kvsb->begin_wallclock,
-                                                   platform_get_timestamp()));
-                        uint64 idx_to_be_inserted =
-                           floor(log(time_since_last_access));
-                        platform_assert(idx_to_be_inserted < MAX_ERROR_DATA_SIZE);
-                        error_array_entry *all_error_data_entry =
-                           &txn_kvsb->all_error_data[idx_to_be_inserted];
-                        __atomic_add_fetch(&all_error_data_entry->rts,
-                                          error_rts,
-                                          __ATOMIC_SEQ_CST);
-                        __atomic_add_fetch(
-                           &txn_kvsb->all_error_data_size[idx_to_be_inserted]
-                              .rts,
-                           1,
-                           __ATOMIC_SEQ_CST);
-                        // __atomic_add_fetch(&all_error_data_entry->rts,
-                        //                    error_rts,
-                        //                    __ATOMIC_SEQ_CST);
-
-                        // __atomic_add_fetch(
-                        //    &txn_kvsb->all_error_data_size[idx_to_be_inserted]
-                        //        .rts,
-                        //    1,
-                        //    __ATOMIC_SEQ_CST);
+                           // __atomic_add_fetch(
+                           //    &txn_kvsb->all_error_data_size[idx_to_be_inserted]
+                           //        .rts,
+                           //    1,
+                           //    __ATOMIC_SEQ_CST);
+                        }
                      }
                   }
-               }  
+               }
 #endif
 
                break;
