@@ -91,13 +91,14 @@ laio_get_kth_req(laio_handle *io, uint64 k);
  * Define an implementation of the abstract IO Ops interface methods.
  */
 static io_ops laio_ops = {
-   .read              = laio_read,
-   .write             = laio_write,
-   .get_iovec         = laio_get_iovec,
+   .read             = laio_read,
+   .write            = laio_write,
+   .async_state_init = laio_async_state_init,
+
    .get_async_req     = laio_get_async_req,
+   .get_iovec         = laio_get_iovec,
    .get_metadata      = laio_get_metadata,
    .read_async        = laio_read_async,
-   .async_state_init  = laio_async_state_init,
    .write_async       = laio_write_async,
    .cleanup           = laio_cleanup,
    .wait_all          = laio_wait_all,
@@ -660,6 +661,7 @@ laio_async_state_init(io_async_state   *state,
    ios->super.ops              = &laio_async_state_ops;
    ios->__async_state_stack[0] = ASYNC_STATE_INIT;
    ios->io                     = io;
+   ios->cmd                    = cmd;
    ios->addr                   = addr;
    ios->callback               = callback;
    ios->callback_arg           = callback_arg;
