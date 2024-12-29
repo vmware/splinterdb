@@ -58,11 +58,12 @@ laio_read_async(io_handle     *ioh,
                 uint64         addr);
 
 static platform_status
-laio_async_read_state_init(io_async_read_state *state,
-                           io_handle           *ioh,
-                           uint64               addr,
-                           async_callback_fn    callback,
-                           void                *callback_arg);
+laio_async_state_init(io_async_state   *state,
+                      io_handle        *ioh,
+                      io_async_cmd      cmd,
+                      uint64            addr,
+                      async_callback_fn callback,
+                      void             *callback_arg);
 
 static platform_status
 laio_write_async(io_handle     *ioh,
@@ -90,18 +91,18 @@ laio_get_kth_req(laio_handle *io, uint64 k);
  * Define an implementation of the abstract IO Ops interface methods.
  */
 static io_ops laio_ops = {
-   .read                  = laio_read,
-   .write                 = laio_write,
-   .get_iovec             = laio_get_iovec,
-   .get_async_req         = laio_get_async_req,
-   .get_metadata          = laio_get_metadata,
-   .read_async            = laio_read_async,
-   .async_read_state_init = laio_async_read_state_init,
-   .write_async           = laio_write_async,
-   .cleanup               = laio_cleanup,
-   .wait_all              = laio_wait_all,
-   .register_thread       = laio_register_thread,
-   .deregister_thread     = laio_deregister_thread,
+   .read              = laio_read,
+   .write             = laio_write,
+   .get_iovec         = laio_get_iovec,
+   .get_async_req     = laio_get_async_req,
+   .get_metadata      = laio_get_metadata,
+   .read_async        = laio_read_async,
+   .async_state_init  = laio_async_state_init,
+   .write_async       = laio_write_async,
+   .cleanup           = laio_cleanup,
+   .wait_all          = laio_wait_all,
+   .register_thread   = laio_register_thread,
+   .deregister_thread = laio_deregister_thread,
 };
 
 static void
@@ -478,10 +479,11 @@ laio_read_async(io_handle     *ioh,
    return STATUS_OK;
 }
 
-typedef struct laio_async_read_state {
-   io_async_read_state super;
+typedef struct laio_async_state {
+   io_async_state      super;
    async_state         __async_state_stack[1];
    laio_handle        *io;
+   io_async_cmd        cmd;
    uint64              addr;
    async_callback_fn   callback;
    void               *callback_arg;
@@ -497,26 +499,26 @@ typedef struct laio_async_read_state {
    uint64              iovlen;
    struct iovec       *iovs;
    struct iovec        iov[];
-} laio_async_read_state;
+} laio_async_state;
 
 _Static_assert(
-   sizeof(laio_async_read_state) <= IO_ASYNC_READ_STATE_BUFFER_SIZE,
-   "laio_async_read_state is to large for IO_ASYNC_READ_STATE_BUFFER_SIZE");
+   sizeof(laio_async_state) <= IO_ASYNC_STATE_BUFFER_SIZE,
+   "laio_async_read_state is to large for IO_ASYNC_STATE_BUFFER_SIZE");
 
 static void
-laio_async_read_state_deinit(io_async_read_state *ios)
+laio_async_state_deinit(io_async_state *ios)
 {
-   laio_async_read_state *lios = (laio_async_read_state *)ios;
+   laio_async_state *lios = (laio_async_state *)ios;
    if (lios->iovs != lios->iov) {
       platform_free(lios->io->heap_id, lios->iovs);
    }
 }
 
 static platform_status
-laio_async_read_state_append_page(io_async_read_state *ios, void *buf)
+laio_async_state_append_page(io_async_state *ios, void *buf)
 {
-   laio_async_read_state *lios = (laio_async_read_state *)ios;
-   uint64                 pages_per_extent =
+   laio_async_state *lios = (laio_async_state *)ios;
+   uint64            pages_per_extent =
       lios->io->cfg->extent_size / lios->io->cfg->page_size;
 
    if (lios->iovlen == pages_per_extent) {
@@ -530,22 +532,18 @@ laio_async_read_state_append_page(io_async_read_state *ios, void *buf)
 }
 
 static const struct iovec *
-laio_async_read_state_get_iovec(io_async_read_state *ios, uint64 *iovlen)
+laio_async_state_get_iovec(io_async_state *ios, uint64 *iovlen)
 {
-   laio_async_read_state *lios = (laio_async_read_state *)ios;
-   *iovlen                     = lios->iovlen;
+   laio_async_state *lios = (laio_async_state *)ios;
+   *iovlen                = lios->iovlen;
    return lios->iovs;
 }
 
 static void
-laio_async_read_callback(io_context_t ctx,
-                         struct iocb *iocb,
-                         long         res,
-                         long         res2)
+laio_async_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 {
-   laio_async_read_state *ios =
-      (laio_async_read_state *)((char *)iocb
-                                - offsetof(laio_async_read_state, req));
+   laio_async_state *ios =
+      (laio_async_state *)((char *)iocb - offsetof(laio_async_state, req));
    ios->status       = res;
    ios->io_completed = 1;
    if (ios->callback) {
@@ -554,19 +552,24 @@ laio_async_read_callback(io_context_t ctx,
 }
 
 static async_status
-laio_async_read(io_async_read_state *gios)
+laio_async_run(io_async_state *gios)
 {
-   laio_async_read_state *ios = (laio_async_read_state *)gios;
+   laio_async_state *ios = (laio_async_state *)gios;
    async_begin(ios, 0);
 
    if (ios->iovlen == 0) {
       async_return(ios);
    }
 
-   ios->io_completed = 1;
+   ios->io_completed = 0;
    ios->pctx         = laio_get_thread_context((io_handle *)ios->io);
-   io_prep_preadv(&ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
-   io_set_callback(&ios->req, laio_async_read_callback);
+   if (ios->cmd == io_async_preadv) {
+      io_prep_preadv(&ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
+   } else {
+      io_prep_pwritev(
+         &ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
+   }
+   io_set_callback(&ios->req, laio_async_callback);
 
    // We increment the io_count before submitting the request to avoid
    // having the io_count go negative if another thread calls io_cleanup.
@@ -599,9 +602,9 @@ laio_async_read(io_async_read_state *gios)
 }
 
 static platform_status
-laio_async_read_state_get_result(io_async_read_state *gios)
+laio_async_state_get_result(io_async_state *gios)
 {
-   laio_async_read_state *ios = (laio_async_read_state *)gios;
+   laio_async_state *ios = (laio_async_state *)gios;
    if (ios->submit_status <= 0) {
       return STATUS_IO_ERROR;
    }
@@ -623,27 +626,28 @@ laio_async_read_state_get_result(io_async_read_state *gios)
    //           : STATUS_IO_ERROR;
 }
 
-static io_async_read_state_ops laio_async_read_state_ops = {
-   .deinit      = laio_async_read_state_deinit,
-   .append_page = laio_async_read_state_append_page,
-   .get_iovec   = laio_async_read_state_get_iovec,
-   .read        = laio_async_read,
-   .get_result  = laio_async_read_state_get_result,
+static io_async_state_ops laio_async_state_ops = {
+   .deinit      = laio_async_state_deinit,
+   .append_page = laio_async_state_append_page,
+   .get_iovec   = laio_async_state_get_iovec,
+   .run         = laio_async_run,
+   .get_result  = laio_async_state_get_result,
 };
 
 static platform_status
-laio_async_read_state_init(io_async_read_state *state,
-                           io_handle           *gio,
-                           uint64               addr,
-                           async_callback_fn    callback,
-                           void                *callback_arg)
+laio_async_state_init(io_async_state   *state,
+                      io_handle        *gio,
+                      io_async_cmd      cmd,
+                      uint64            addr,
+                      async_callback_fn callback,
+                      void             *callback_arg)
 {
-   laio_async_read_state *ios = (laio_async_read_state *)state;
-   laio_handle           *io  = (laio_handle *)gio;
-   uint64 pages_per_extent    = io->cfg->extent_size / io->cfg->page_size;
+   laio_async_state *ios   = (laio_async_state *)state;
+   laio_handle      *io    = (laio_handle *)gio;
+   uint64 pages_per_extent = io->cfg->extent_size / io->cfg->page_size;
 
    if (sizeof(*ios) + pages_per_extent * sizeof(struct iovec)
-       <= IO_ASYNC_READ_STATE_BUFFER_SIZE)
+       <= IO_ASYNC_STATE_BUFFER_SIZE)
    {
       ios->iovs = ios->iov;
    } else {
@@ -653,7 +657,7 @@ laio_async_read_state_init(io_async_read_state *state,
       }
    }
 
-   ios->super.ops              = &laio_async_read_state_ops;
+   ios->super.ops              = &laio_async_state_ops;
    ios->__async_state_stack[0] = ASYNC_STATE_INIT;
    ios->io                     = io;
    ios->addr                   = addr;

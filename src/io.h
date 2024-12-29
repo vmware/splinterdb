@@ -12,9 +12,9 @@
 #include "async.h"
 #include "platform.h"
 
-typedef struct io_handle           io_handle;
-typedef struct io_async_req        io_async_req;
-typedef struct io_async_read_state io_async_read_state;
+typedef struct io_handle      io_handle;
+typedef struct io_async_req   io_async_req;
+typedef struct io_async_state io_async_state;
 
 /*
  * IO Configuration structure - used to setup the run-time IO system.
@@ -54,15 +54,15 @@ typedef platform_status (*io_read_async_fn)(io_handle     *io,
                                             uint64         count,
                                             uint64         addr);
 
-#define IO_ASYNC_READ_STATE_BUFFER_SIZE (1024)
-typedef uint8 io_async_read_state_buffer[IO_ASYNC_READ_STATE_BUFFER_SIZE];
-
-typedef platform_status (*io_async_read_state_init_fn)(
-   io_async_read_state *state,
-   io_handle           *io,
-   uint64               addr,
-   async_callback_fn    callback,
-   void                *callback_arg);
+#define IO_ASYNC_STATE_BUFFER_SIZE (1024)
+typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE];
+typedef enum { io_async_preadv, io_async_pwritev } io_async_cmd;
+typedef platform_status (*io_async_state_init_fn)(io_async_state   *state,
+                                                  io_handle        *io,
+                                                  io_async_cmd      cmd,
+                                                  uint64            addr,
+                                                  async_callback_fn callback,
+                                                  void *callback_arg);
 
 typedef platform_status (*io_write_async_fn)(io_handle     *io,
                                              io_async_req  *req,
@@ -81,20 +81,23 @@ typedef void *(*io_get_context_fn)(io_handle *io);
  * An abstract IO interface, holding different IO Ops function pointers.
  */
 typedef struct io_ops {
-   io_read_fn                  read;
-   io_write_fn                 write;
-   io_get_async_req_fn         get_async_req;
-   io_get_iovec_fn             get_iovec;
-   io_get_metadata_fn          get_metadata;
-   io_read_async_fn            read_async;
-   io_async_read_state_init_fn async_read_state_init;
-   io_write_async_fn           write_async;
-   io_cleanup_fn               cleanup;
-   io_wait_all_fn              wait_all;
-   io_register_thread_fn       register_thread;
-   io_deregister_thread_fn     deregister_thread;
-   io_max_latency_elapsed_fn   max_latency_elapsed;
-   io_get_context_fn           get_context;
+   io_read_fn             read;
+   io_write_fn            write;
+   io_async_state_init_fn async_state_init;
+
+   // old async interface.  Will be deprecated.
+   io_get_async_req_fn get_async_req;
+   io_get_iovec_fn     get_iovec;
+   io_get_metadata_fn  get_metadata;
+   io_read_async_fn    read_async;
+   io_write_async_fn   write_async;
+
+   io_cleanup_fn             cleanup;
+   io_wait_all_fn            wait_all;
+   io_register_thread_fn     register_thread;
+   io_deregister_thread_fn   deregister_thread;
+   io_max_latency_elapsed_fn max_latency_elapsed;
+   io_get_context_fn         get_context;
 } io_ops;
 
 /*
@@ -104,27 +107,25 @@ struct io_handle {
    const io_ops *ops;
 };
 
-typedef void (*io_async_read_state_deinit_fn)(io_async_read_state *state);
-typedef platform_status (
-   *io_async_read_state_append_page_fn)(io_async_read_state *state, void *buf);
-typedef const struct iovec *(*io_async_read_state_get_iovec_fn)(
-   io_async_read_state *state,
-   uint64              *iovlen);
-typedef async_status (*io_async_read_fn)(io_async_read_state *state);
+typedef void (*io_async_state_deinit_fn)(io_async_state *state);
+typedef platform_status (*io_async_state_append_page_fn)(io_async_state *state,
+                                                         void           *buf);
+typedef const struct iovec *(
+   *io_async_state_get_iovec_fn)(io_async_state *state, uint64 *iovlen);
+typedef async_status (*io_async_io_fn)(io_async_state *state);
 
-typedef platform_status (*io_async_read_state_get_result_fn)(
-   io_async_read_state *state);
+typedef platform_status (*io_async_state_get_result_fn)(io_async_state *state);
 
-typedef struct io_async_read_state_ops {
-   io_async_read_state_deinit_fn      deinit;
-   io_async_read_state_append_page_fn append_page;
-   io_async_read_state_get_iovec_fn   get_iovec;
-   io_async_read_fn                   read;
-   io_async_read_state_get_result_fn  get_result;
-} io_async_read_state_ops;
+typedef struct io_async_state_ops {
+   io_async_state_deinit_fn      deinit;
+   io_async_state_append_page_fn append_page;
+   io_async_state_get_iovec_fn   get_iovec;
+   io_async_io_fn                run;
+   io_async_state_get_result_fn  get_result;
+} io_async_state_ops;
 
-struct io_async_read_state {
-   const io_async_read_state_ops *ops;
+struct io_async_state {
+   const io_async_state_ops *ops;
 };
 
 platform_status
@@ -175,49 +176,50 @@ io_read_async(io_handle     *io,
 
 
 static inline platform_status
-io_async_read_state_init(io_async_read_state_buffer buffer,
-                         io_handle                 *io,
-                         uint64                     addr,
-                         async_callback_fn          callback,
-                         void                      *callback_arg)
+io_async_state_init(io_async_state_buffer buffer,
+                    io_handle            *io,
+                    io_async_cmd          cmd,
+                    uint64                addr,
+                    async_callback_fn     callback,
+                    void                 *callback_arg)
 {
-   io_async_read_state *state = (io_async_read_state *)buffer;
-   return io->ops->async_read_state_init(
-      state, io, addr, callback, callback_arg);
+   io_async_state *state = (io_async_state *)buffer;
+   return io->ops->async_state_init(
+      state, io, cmd, addr, callback, callback_arg);
 }
 
 static inline void
-io_async_read_state_deinit(io_async_read_state_buffer buffer)
+io_async_state_deinit(io_async_state_buffer buffer)
 {
-   io_async_read_state *state = (io_async_read_state *)buffer;
+   io_async_state *state = (io_async_state *)buffer;
    return state->ops->deinit(state);
 }
 
 static inline platform_status
-io_async_read_state_append_page(io_async_read_state_buffer buffer, void *buf)
+io_async_state_append_page(io_async_state_buffer buffer, void *buf)
 {
-   io_async_read_state *state = (io_async_read_state *)buffer;
+   io_async_state *state = (io_async_state *)buffer;
    return state->ops->append_page(state, buf);
 }
 
 static inline const struct iovec *
-io_async_read_state_get_iovec(io_async_read_state_buffer buffer, uint64 *iovlen)
+io_async_state_get_iovec(io_async_state_buffer buffer, uint64 *iovlen)
 {
-   io_async_read_state *state = (io_async_read_state *)buffer;
+   io_async_state *state = (io_async_state *)buffer;
    return state->ops->get_iovec(state, iovlen);
 }
 
 static inline async_status
-io_async_read(io_async_read_state_buffer buffer)
+io_async_run(io_async_state_buffer buffer)
 {
-   io_async_read_state *state = (io_async_read_state *)buffer;
-   return state->ops->read(state);
+   io_async_state *state = (io_async_state *)buffer;
+   return state->ops->run(state);
 }
 
 static inline platform_status
-io_async_read_state_get_result(io_async_read_state_buffer buffer)
+io_async_state_get_result(io_async_state_buffer buffer)
 {
-   io_async_read_state *state = (io_async_read_state *)buffer;
+   io_async_state *state = (io_async_state *)buffer;
    return state->ops->get_result(state);
 }
 

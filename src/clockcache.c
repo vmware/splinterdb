@@ -1745,7 +1745,7 @@ DEFINE_ASYNC_STATE(clockcache_get_async2_state, 3,
    local, uint64, base_addr,
    local, refcount, extent_ref_count,
    local, platform_status, rc,
-   local, io_async_read_state_buffer, iostate,
+   local, io_async_state_buffer, iostate,
    local, async_waiter, wait_node)
 // clang-format on
 
@@ -1833,11 +1833,12 @@ clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
    // The normal idiom for async functions is to just pass the callback to the
    // async child, but we pass a wrapper function so that we can always clear
    // the CC_LOADING flag, even if our caller abandoned us.
-   state->rc = io_async_read_state_init(state->iostate,
-                                        state->cc->io,
-                                        state->addr,
-                                        clockcache_get_from_disk_async_callback,
-                                        state);
+   state->rc = io_async_state_init(state->iostate,
+                                   state->cc->io,
+                                   io_async_preadv,
+                                   state->addr,
+                                   clockcache_get_from_disk_async_callback,
+                                   state);
    // FIXME: I'm not sure if the cache state machine allows us to bail out once
    // we've acquired an entry, because other threads could now be waiting on the
    // load to finish, and there is no way for them to handle our failure to load
@@ -1845,14 +1846,14 @@ clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
    platform_assert_status_ok(state->rc);
 
    state->rc =
-      io_async_read_state_append_page(state->iostate, state->entry->page.data);
+      io_async_state_append_page(state->iostate, state->entry->page.data);
    platform_assert_status_ok(state->rc);
 
-   while (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
+   while (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
       async_yield(state);
    }
-   platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
-   io_async_read_state_deinit(state->iostate);
+   platform_assert_status_ok(io_async_state_get_result(state->iostate));
+   io_async_state_deinit(state->iostate);
 
    state->__async_result = &state->entry->page;
    state->succeeded      = TRUE;
@@ -2271,9 +2272,9 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
  */
 
 typedef struct prefetch_state {
-   uint64                     lock;
-   clockcache                *cc;
-   io_async_read_state_buffer iostate;
+   uint64                lock;
+   clockcache           *cc;
+   io_async_state_buffer iostate;
 } prefetch_state;
 
 static void
@@ -2306,16 +2307,16 @@ clockcache_prefetch_callback(void *pfs)
    // Check whether we are done.  If not, this will enqueue us for a future
    // callback so we can check again.
    prefetch_state_lock(state);
-   if (io_async_read(state->iostate) != ASYNC_STATUS_DONE) {
+   if (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
       prefetch_state_unlock(state);
       return;
    }
 
-   platform_assert_status_ok(io_async_read_state_get_result(state->iostate));
+   platform_assert_status_ok(io_async_state_get_result(state->iostate));
 
    const struct iovec *iovec;
    uint64              count;
-   iovec = io_async_read_state_get_iovec(state->iostate, &count);
+   iovec = io_async_state_get_iovec(state->iostate, &count);
 
    clockcache       *cc        = state->cc;
    page_type         type      = PAGE_TYPE_INVALID;
@@ -2352,7 +2353,7 @@ clockcache_prefetch_callback(void *pfs)
    }
 
    prefetch_state_unlock(state);
-   io_async_read_state_deinit(state->iostate);
+   io_async_state_deinit(state->iostate);
    platform_free(cc->heap_id, state);
 }
 
@@ -2391,7 +2392,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             // in cache, issue IO req if started
             if (state != NULL) {
                prefetch_state_lock(state);
-               io_async_read(state->iostate);
+               io_async_run(state->iostate);
                prefetch_state_unlock(state);
                state = NULL;
             }
@@ -2419,14 +2420,15 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   platform_assert(state);
                   state->cc   = cc;
                   state->lock = 0;
-                  io_async_read_state_init(state->iostate,
-                                           cc->io,
-                                           addr,
-                                           clockcache_prefetch_callback,
-                                           state);
+                  io_async_state_init(state->iostate,
+                                      cc->io,
+                                      io_async_preadv,
+                                      addr,
+                                      clockcache_prefetch_callback,
+                                      state);
                }
-               platform_status rc = io_async_read_state_append_page(
-                  state->iostate, entry->page.data);
+               platform_status rc =
+                  io_async_state_append_page(state->iostate, entry->page.data);
                platform_assert_status_ok(rc);
                clockcache_log(addr,
                               entry_no,
@@ -2451,7 +2453,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
    // issue IO req if started
    if (state != NULL) {
       prefetch_state_lock(state);
-      io_async_read(state->iostate);
+      io_async_run(state->iostate);
       prefetch_state_unlock(state);
       state = NULL;
    }
