@@ -627,11 +627,11 @@ laio_async_state_get_result(io_async_state *gios)
 }
 
 static io_async_state_ops laio_async_state_ops = {
-   .deinit      = laio_async_state_deinit,
    .append_page = laio_async_state_append_page,
-   .get_iovec   = laio_async_state_get_iovec,
    .run         = laio_async_run,
    .get_result  = laio_async_state_get_result,
+   .get_iovec   = laio_async_state_get_iovec,
+   .deinit      = laio_async_state_deinit,
 };
 
 static platform_status

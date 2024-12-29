@@ -117,11 +117,11 @@ typedef async_status (*io_async_io_fn)(io_async_state *state);
 typedef platform_status (*io_async_state_get_result_fn)(io_async_state *state);
 
 typedef struct io_async_state_ops {
-   io_async_state_deinit_fn      deinit;
    io_async_state_append_page_fn append_page;
-   io_async_state_get_iovec_fn   get_iovec;
    io_async_io_fn                run;
    io_async_state_get_result_fn  get_result;
+   io_async_state_get_iovec_fn   get_iovec;
+   io_async_state_deinit_fn      deinit;
 } io_async_state_ops;
 
 struct io_async_state {
