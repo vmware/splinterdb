@@ -336,8 +336,6 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->sktch_config.cols = 1;
 #elif EXPERIMENTAL_MODE_TICTOC_COUNTER_LAZY
    txn_splinterdb_cfg->iceberght_config.max_num_keys += 820;
-   txn_splinterdb_cfg->iceberght_config.log_slots = (int)ceil(
-      log2(5 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
    txn_splinterdb_cfg->sktch_config.rows                     = 1;
    txn_splinterdb_cfg->sktch_config.cols                     = 1;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
@@ -457,14 +455,16 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 #      error "Invalid experimental mode"
 #   endif
    platform_log_handle *lh = platform_open_log_file(logfile, "w");
-   platform_log(lh, "time_since_last_access,mean_error_rts,rts_counts\n");
+   platform_log(lh, "time_since_last_access,mean_error_rts,rts_counts,mean_error_wts,wts_counts\n");
    for (uint64 i = 0; i < MAX_ERROR_DATA_SIZE; ++i) {
       error_array_entry *ed = &_txn_kvsb->all_error_data[i];
       platform_log(lh,
-                   "%lu,%f,%lu\n",
+                   "%lu,%f,%lu,%f,%lu\n",
                    i,
                    (double)ed->rts / _txn_kvsb->all_error_data_size[i].rts,
-                   _txn_kvsb->all_error_data_size[i].rts);
+                   _txn_kvsb->all_error_data_size[i].rts,
+                   (double)ed->wts / _txn_kvsb->all_error_data_size[i].wts,
+                   _txn_kvsb->all_error_data_size[i].wts);
    }
    platform_close_log_file(lh);
 #endif
@@ -624,19 +624,16 @@ RETRY_LOCK_WRITE_SET:
                if (is_locked_by_another) {
                   for (int idx = 0; idx < write_set_idx_commit_size; ++idx) {
                      int         j     = write_set_idx_commit[idx];
-                     error_data  ed    = {0};
-                     error_data *value = &ed;
+                     error_data *value = NULL;
                      bool        exist =
                         iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
                                           write_set[j]->key,
                                           (ValueType **)&value,
                                           platform_get_tid());
+                     error_data  ed    = {0};
                      if (exist) {
                         timestamp_set_load((timestamp_set *)value,
                                            (timestamp_set *)&ed);
-                     } else {
-                        ed.wts = 0;
-                        ed.rts = 0;
                      }
 
                      int64 error_rts =
@@ -648,6 +645,9 @@ RETRY_LOCK_WRITE_SET:
                                                    platform_get_timestamp()));
                         uint64 idx_to_be_inserted =
                            floor(log(time_since_last_access));
+                        // if (!exist) {
+                        //    idx_to_be_inserted = MAX_ERROR_DATA_SIZE - 1;
+                        // }
                         platform_assert(idx_to_be_inserted
                                         < MAX_ERROR_DATA_SIZE);
                         error_array_entry *all_error_data_entry =
@@ -658,6 +658,46 @@ RETRY_LOCK_WRITE_SET:
                         __atomic_add_fetch(
                            &txn_kvsb->all_error_data_size[idx_to_be_inserted]
                                .rts,
+                           1,
+                           __ATOMIC_SEQ_CST);
+                     }
+                  }
+
+
+                  if (r->wts == commit_ts) {
+                     error_data *value = NULL;
+                     bool        exist =
+                        iceberg_get_value(txn_kvsb->key_last_updated_ts_map,
+                                          r->key,
+                                          (ValueType **)&value,
+                                          platform_get_tid());
+                     error_data  ed    = {0};
+                     if (exist) {
+                        timestamp_set_load((timestamp_set *)value,
+                                           (timestamp_set *)&ed);
+                     }
+
+                     int64 error_wts = r->wts - ed.wts;
+                     if (error_wts >= 0) {
+                        double time_since_last_access = platform_timestamp_diff(
+                           ed.wallclock,
+                           platform_timestamp_diff(txn_kvsb->begin_wallclock,
+                                                   platform_get_timestamp()));
+                        uint64 idx_to_be_inserted =
+                           floor(log(time_since_last_access));
+                        // if (!exist) {
+                        //    idx_to_be_inserted = MAX_ERROR_DATA_SIZE - 1;
+                        // }
+                        platform_assert(idx_to_be_inserted
+                                        < MAX_ERROR_DATA_SIZE);
+                        error_array_entry *all_error_data_entry =
+                           &txn_kvsb->all_error_data[idx_to_be_inserted];
+                        __atomic_add_fetch(&all_error_data_entry->wts,
+                                           error_wts,
+                                           __ATOMIC_SEQ_CST);
+                        __atomic_add_fetch(
+                           &txn_kvsb->all_error_data_size[idx_to_be_inserted]
+                               .wts,
                            1,
                            __ATOMIC_SEQ_CST);
                      }
