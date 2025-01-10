@@ -47,8 +47,10 @@ struct io_async_req {
 typedef struct io_process_context {
    pid_t            pid;
    uint64           thread_count;
+   bool32           shutting_down;
    uint64           io_count; // inflight ios
    io_context_t     ctx;
+   pthread_t        io_cleaner;
    async_wait_queue submit_waiters;
 } io_process_context;
 

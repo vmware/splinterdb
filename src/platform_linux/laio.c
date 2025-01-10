@@ -122,6 +122,51 @@ unlock_ctx(laio_handle *io)
    __sync_lock_release(&io->ctx_lock);
 }
 
+static int
+laio_cleanup_one(io_process_context *pctx)
+{
+   struct io_event event = {0};
+   uint64          i;
+   int             status;
+
+   status = io_getevents(pctx->ctx, 0, 1, &event, NULL);
+   if (status < 0 && !pctx->shutting_down) {
+      platform_error_log("%s(): OS-pid=%d, io_getevents[%lu], "
+                         "io_count=%lu,"
+                         "failed with errorno=%d: %s\n",
+                         __func__,
+                         platform_getpid(),
+                         i,
+                         pctx->io_count,
+                         -status,
+                         strerror(-status));
+   }
+   if (status <= 0) {
+      return 0;
+   }
+
+   __sync_fetch_and_sub(&pctx->io_count, 1);
+
+   // Invoke the callback for the one event that completed.
+   io_callback_t callback = (io_callback_t)event.data;
+   callback(pctx->ctx, event.obj, event.res, 0);
+
+   // Release one waiter if there is one
+   async_wait_queue_release_one(&pctx->submit_waiters);
+
+   return 1;
+}
+
+static void *
+laio_cleaner(void *arg)
+{
+   io_process_context *pctx = (io_process_context *)arg;
+   while (!pctx->shutting_down) {
+      laio_cleanup_one(pctx);
+   }
+   return NULL;
+}
+
 /*
  * Find the index of the IO context for this thread. If it doesn't exist,
  * create it.
@@ -154,9 +199,12 @@ get_ctx_idx(laio_handle *io)
             unlock_ctx(io);
             return INVALID_TID;
          }
-         io->ctx[i].pid          = pid;
-         io->ctx[i].thread_count = 1;
+         io->ctx[i].pid           = pid;
+         io->ctx[i].thread_count  = 1;
+         io->ctx[i].shutting_down = 0;
          async_wait_queue_init(&io->ctx[i].submit_waiters);
+         pthread_create(
+            &io->ctx[i].io_cleaner, NULL, laio_cleaner, &io->ctx[i]);
          unlock_ctx(io);
          return i;
       }
@@ -721,10 +769,7 @@ laio_write_async(io_handle     *ioh,
 static void
 laio_cleanup(io_handle *ioh, uint64 count)
 {
-   laio_handle    *io    = (laio_handle *)ioh;
-   struct io_event event = {0};
-   uint64          i;
-   int             status;
+   laio_handle *io = (laio_handle *)ioh;
 
    threadid tid = platform_get_tid();
    platform_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
@@ -734,34 +779,9 @@ laio_cleanup(io_handle *ioh, uint64 count)
 
    // Check for completion of up to 'count' events, one event at a time.
    // Or, check for all outstanding events (count == 0)
-   for (i = 0; (count == 0 || i < count) && 0 < pctx->io_count; i++) {
-      status = io_getevents(pctx->ctx, 0, 1, &event, NULL);
-      if (status < 0) {
-         platform_error_log("%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], "
-                            "count=%lu, io_count=%lu,"
-                            "failed with errorno=%d: %s\n",
-                            __func__,
-                            platform_getpid(),
-                            tid,
-                            i,
-                            count,
-                            pctx->io_count,
-                            -status,
-                            strerror(-status));
-      }
-      if (status <= 0) {
-         i--;
-         continue;
-      }
-
-      __sync_fetch_and_sub(&pctx->io_count, 1);
-
-      // Invoke the callback for the one event that completed.
-      io_callback_t callback = (io_callback_t)event.data;
-      callback(pctx->ctx, event.obj, event.res, 0);
-
-      // Release one waiter if there is one
-      async_wait_queue_release_one(&pctx->submit_waiters);
+   int i = 0;
+   while ((count == 0 || i < count) && 0 < pctx->io_count) {
+      i += laio_cleanup_one(pctx);
    }
 }
 
@@ -819,12 +839,14 @@ laio_deregister_thread(io_handle *ioh)
    lock_ctx(io);
    pctx->thread_count--;
    if (pctx->thread_count == 0) {
+      pctx->shutting_down = TRUE;
       debug_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
       int status = io_destroy(pctx->ctx);
       platform_assert(status == 0,
                       "io_destroy() failed with error=%d: %s\n",
                       -status,
                       strerror(-status));
+      pthread_join(pctx->io_cleaner, NULL);
       // subsequent io_setup calls on this ctx will fail if we don't reset it.
       // Seems like a bug in libaio/linux.
       async_wait_queue_deinit(&pctx->submit_waiters);

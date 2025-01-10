@@ -2318,9 +2318,9 @@ clockcache_prefetch_callback(void *pfs)
    uint64              count;
    iovec = io_async_state_get_iovec(state->iostate, &count);
 
-   clockcache       *cc        = state->cc;
-   page_type         type      = PAGE_TYPE_INVALID;
-   debug_only uint64 last_addr = CC_UNMAPPED_ADDR;
+   clockcache          *cc        = state->cc;
+   debug_only page_type type      = PAGE_TYPE_INVALID;
+   debug_only uint64    last_addr = CC_UNMAPPED_ADDR;
 
    platform_assert(count > 0);
    platform_assert(count <= cc->cfg->pages_per_extent);
@@ -2344,12 +2344,6 @@ clockcache_prefetch_callback(void *pfs)
       debug_assert(entry_no == clockcache_lookup(cc, addr));
 
       clockcache_finish_load(cc, addr, entry_no);
-   }
-
-   if (cc->cfg->use_stats) {
-      threadid tid = platform_get_tid();
-      cc->stats[tid].page_reads[type] += count;
-      cc->stats[tid].prefetches_issued[type]++;
    }
 
    prefetch_state_unlock(state);
@@ -2393,6 +2387,13 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             if (state != NULL) {
                prefetch_state_lock(state);
                io_async_run(state->iostate);
+               if (cc->cfg->use_stats) {
+                  threadid tid = platform_get_tid();
+                  uint64   count;
+                  io_async_state_get_iovec(state->iostate, &count);
+                  cc->stats[tid].page_reads[type] += count;
+                  cc->stats[tid].prefetches_issued[type]++;
+               }
                prefetch_state_unlock(state);
                state = NULL;
             }
@@ -2454,6 +2455,13 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
    if (state != NULL) {
       prefetch_state_lock(state);
       io_async_run(state->iostate);
+      if (cc->cfg->use_stats) {
+         threadid tid = platform_get_tid();
+         uint64   count;
+         io_async_state_get_iovec(state->iostate, &count);
+         cc->stats[tid].page_reads[type] += count;
+         cc->stats[tid].prefetches_issued[type]++;
+      }
       prefetch_state_unlock(state);
       state = NULL;
    }
