@@ -127,17 +127,15 @@ static int
 laio_cleanup_one(io_process_context *pctx, int mincnt)
 {
    struct io_event event = {0};
-   uint64          i;
    int             status;
 
    status = io_getevents(pctx->ctx, mincnt, 1, &event, NULL);
    if (status < 0 && !pctx->shutting_down) {
-      platform_error_log("%s(): OS-pid=%d, io_getevents[%lu], "
+      platform_error_log("%s(): OS-pid=%d, "
                          "io_count=%lu,"
                          "failed with errorno=%d: %s\n",
                          __func__,
                          platform_getpid(),
-                         i,
                          pctx->io_count,
                          -status,
                          strerror(-status));
