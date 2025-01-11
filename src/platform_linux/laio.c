@@ -22,6 +22,7 @@
 
 #include "async.h"
 #include "laio.h"
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -123,13 +124,13 @@ unlock_ctx(laio_handle *io)
 }
 
 static int
-laio_cleanup_one(io_process_context *pctx)
+laio_cleanup_one(io_process_context *pctx, int mincnt)
 {
    struct io_event event = {0};
    uint64          i;
    int             status;
 
-   status = io_getevents(pctx->ctx, 0, 1, &event, NULL);
+   status = io_getevents(pctx->ctx, mincnt, 1, &event, NULL);
    if (status < 0 && !pctx->shutting_down) {
       platform_error_log("%s(): OS-pid=%d, io_getevents[%lu], "
                          "io_count=%lu,"
@@ -161,8 +162,9 @@ static void *
 laio_cleaner(void *arg)
 {
    io_process_context *pctx = (io_process_context *)arg;
+   prctl(PR_SET_NAME, "laio_cleaner", 0, 0, 0);
    while (!pctx->shutting_down) {
-      laio_cleanup_one(pctx);
+      laio_cleanup_one(pctx, 1);
    }
    return NULL;
 }
@@ -781,7 +783,7 @@ laio_cleanup(io_handle *ioh, uint64 count)
    // Or, check for all outstanding events (count == 0)
    int i = 0;
    while ((count == 0 || i < count) && 0 < pctx->io_count) {
-      i += laio_cleanup_one(pctx);
+      i += laio_cleanup_one(pctx, 0);
    }
 }
 
