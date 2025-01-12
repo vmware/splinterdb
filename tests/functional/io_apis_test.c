@@ -125,12 +125,6 @@ test_async_reads(platform_heap_id    hid,
                  char                stamp_char,
                  const char         *whoami);
 
-static void
-read_async_callback(void           *metadata,
-                    struct iovec   *iovec,
-                    uint64          count,
-                    platform_status status);
-
 static platform_status
 test_async_reads_by_threads(io_test_fn_args *io_test_param,
                             int              nthreads,
@@ -760,6 +754,69 @@ load_thread_params(io_test_fn_args *io_test_param,
  * completion of the IO, the data is read as expected.
  * -----------------------------------------------------------------------------
  */
+
+typedef struct async_read_state {
+   platform_heap_id      hid;
+   uint64                lock;
+   char                 *expected;
+   io_async_state_buffer iostate;
+} async_read_state;
+
+static void
+async_read_state_lock(async_read_state *state)
+{
+   while (__sync_lock_test_and_set(&state->lock, 1)) {
+      platform_yield();
+   }
+}
+
+static void
+async_read_state_unlock(async_read_state *state)
+{
+   __sync_lock_release(&state->lock);
+}
+
+/*
+ *----------------------------------------------------------------------
+ * read_async_callback --
+ *
+ *    Async callback called after async read IO completes.
+ *----------------------------------------------------------------------
+ */
+static void
+read_async_callback(void *arg)
+{
+   async_read_state *state = (async_read_state *)arg;
+   async_read_state_lock(state);
+   if (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
+      async_read_state_unlock(state);
+      return;
+   }
+
+   uint64              count;
+   const struct iovec *iov = io_async_state_get_iovec(state->iostate, &count);
+
+   debug_assert((count == 1), "count=%lu\n", count);
+   if (Verbose_progress) {
+      platform_default_log("Aysnc-callback for read of page=%p completed.\n",
+                           iov->iov_base);
+   }
+
+   // Buffer that IO-read would have completed reading into
+   char *buf_addr = iov->iov_base;
+
+   // Expected contents passed-in via metadata when async-read was issued.
+   int page_size = (4 * KiB);
+
+   int rv = memcmp(state->expected, buf_addr, page_size);
+   if (rv != 0) {
+      platform_error_log("Page IO read at address=%p is incorrect.\n",
+                         buf_addr);
+   }
+
+   platform_free(state->hid, state);
+}
+
 static platform_status
 test_async_reads(platform_heap_id    hid,
                  io_config          *io_cfgp,
@@ -769,7 +826,7 @@ test_async_reads(platform_heap_id    hid,
                  const char         *whoami)
 {
    platform_thread this_thread = platform_get_tid();
-   platform_status rc          = STATUS_NO_MEMORY;
+   platform_status rc          = STATUS_OK;
 
    int page_size = (int)io_cfgp->page_size;
 
@@ -777,11 +834,13 @@ test_async_reads(platform_heap_id    hid,
    uint64 nbytes = (page_size * NUM_PAGES_RW_ASYNC_PER_THREAD);
    char  *buf    = TYPED_ARRAY_ZALLOC(hid, buf, nbytes);
    if (!buf) {
+      rc = STATUS_NO_MEMORY;
       goto out;
    }
 
    char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
    if (!exp) {
+      rc = STATUS_NO_MEMORY;
       goto free_buf;
    }
    memset(exp, stamp_char, page_size);
@@ -801,18 +860,22 @@ test_async_reads(platform_heap_id    hid,
    for (int i = 0; i < NUM_PAGES_RW_ASYNC_PER_THREAD;
         i++, this_addr += page_size, buf_addr += page_size)
    {
-      io_async_req *req = io_get_async_req(ioh, FALSE);
+      async_read_state *state = TYPED_MALLOC(hid, state);
+      platform_assert(state != NULL);
+      state->lock     = 0;
+      state->expected = exp;
+      state->hid      = hid;
+      io_async_state_init(state->iostate,
+                          ioh,
+                          io_async_preadv,
+                          this_addr,
+                          read_async_callback,
+                          state);
+      io_async_state_append_page(state->iostate, buf_addr);
 
-      // Setup async IO request for each page being read
-      req->bytes          = page_size;
-      struct iovec *iovec = io_get_iovec(ioh, req);
-      iovec[0].iov_base   = buf_addr;
-
-      void *req_metadata     = io_get_metadata(ioh, req);
-      *(char **)req_metadata = exp;
-
-      rc = io_read_async(ioh, req, read_async_callback, 1, this_addr);
-      platform_assert_status_ok(rc);
+      async_read_state_lock(state);
+      io_async_run(state->iostate);
+      async_read_state_unlock(state);
 
       if (Verbose_progress) {
          platform_default_log(
@@ -830,44 +893,6 @@ free_buf:
    platform_free(hid, buf);
 out:
    return rc;
-}
-
-/*
- *----------------------------------------------------------------------
- * read_async_callback --
- *
- *    Async callback called after async read IO completes.
- *----------------------------------------------------------------------
- */
-static void
-read_async_callback(void           *metadata,
-                    struct iovec   *iovec,
-                    uint64          count,
-                    platform_status status)
-{
-   platform_thread this_thread = platform_get_tid();
-
-   if (Verbose_progress) {
-      platform_default_log(
-         "  Thread=%lu: Aysnc-callback for read of page=%p completed.\n",
-         this_thread,
-         iovec->iov_base);
-   }
-   platform_assert_status_ok(status);
-   debug_assert((count == 1), "count=%lu\n", count);
-
-   // Buffer that IO-read would have completed reading into
-   char *buf_addr = iovec->iov_base;
-
-   // Expected contents passed-in via metadata when async-read was issued.
-   char *exp       = *(char **)metadata;
-   int   page_size = (4 * KiB);
-
-   int rv = memcmp(exp, buf_addr, page_size);
-   if (rv != 0) {
-      platform_error_log("Page IO read at address=%p is incorrect.\n",
-                         buf_addr);
-   }
 }
 
 /*
