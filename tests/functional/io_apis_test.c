@@ -225,15 +225,13 @@ splinter_io_apis_test(int argc, char *argv[])
    int pid = platform_getpid();
    platform_default_log("Parent OS-pid=%d, Exercise IO sub-system test on"
                         " device '%s'"
-                        ", page_size=%lu, extent_size=%lu, async_queue_size=%lu"
-                        ", kernel_queue_size=%lu, async_max_pages=%lu ...\n",
+                        ", page_size=%lu, extent_size=%lu"
+                        ", kernel_queue_size=%lu ...\n",
                         pid,
                         io_cfg.filename,
                         io_cfg.page_size,
                         io_cfg.extent_size,
-                        io_cfg.async_queue_size,
-                        io_cfg.kernel_queue_size,
-                        io_cfg.async_max_pages);
+                        io_cfg.kernel_queue_size);
 
    // For this test, we allocate this structure. In a running Splinter
    // instance, this struct is nested inside the splinterdb{} handle.

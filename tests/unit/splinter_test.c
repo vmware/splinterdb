@@ -166,10 +166,6 @@ CTEST_SETUP(splinter)
 
    // Check if IO subsystem has enough reqs for max async IOs inflight
    io_config * io_cfgp = &data->io_cfg;
-   if (io_cfgp->async_queue_size < total_threads * data->max_async_inflight) {
-      io_cfgp->async_queue_size = ROUNDUP(total_threads * data->max_async_inflight, 32);
-      CTEST_LOG_INFO("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
-   }
    if (io_cfgp->kernel_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->kernel_queue_size =
          ROUNDUP(total_threads * data->max_async_inflight, 32);

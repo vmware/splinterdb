@@ -2754,11 +2754,6 @@ splinter_test(int argc, char *argv[])
       total_threads += task_cfg.num_background_threads[type];
    }
    // Check if IO subsystem has enough reqs for max async IOs inflight
-   if (io_cfg.async_queue_size < total_threads * max_async_inflight) {
-      io_cfg.async_queue_size = ROUNDUP(total_threads * max_async_inflight, 32);
-      platform_default_log("Bumped up IO queue size to %lu\n",
-                           io_cfg.async_queue_size);
-   }
    if (io_cfg.kernel_queue_size < total_threads * max_async_inflight) {
       io_cfg.kernel_queue_size =
          ROUNDUP(total_threads * max_async_inflight, 32);

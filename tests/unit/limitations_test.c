@@ -150,8 +150,7 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
-   platform_free(data->hid, data->io->req);
-   platform_free(data->hid, data->io);
+   io_handle_deinit(data->io);
 
    if (data->cache_cfg) {
       platform_free(data->hid, data->cache_cfg);
