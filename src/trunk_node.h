@@ -278,7 +278,7 @@ DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    local, uint64,                       offset,
    local, page_handle **,               page,
    local, uint64,                       pivot_num,
-   local, page_get_async2_state_buffer, cache_get_state,   
+   local, page_get_async_state_buffer, cache_get_state,   
    // ondisk_node_find_pivot
    //local, comparison,                         cmp,
    local, uint64,                             min,
@@ -290,8 +290,8 @@ DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    // ondisk_bundle_merge_lookup
    local, uint64,                             found_values,
    local, uint64,                             idx,
-   local, routing_filter_lookup_async2_state, filter_state,
-   local, btree_lookup_async2_state,          btree_state,
+   local, routing_filter_lookup_async_state,  filter_state,
+   local, btree_lookup_async_state,          btree_state,
  )
 // clang-format on
 

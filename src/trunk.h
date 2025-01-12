@@ -238,7 +238,7 @@ trunk_lookup_found(merge_accumulator *result)
 }
 
 // clang-format off
-DEFINE_ASYNC_STATE(trunk_lookup_async2_state, 1,
+DEFINE_ASYNC_STATE(trunk_lookup_async_state, 1,
    param, trunk_handle *,        spl,
    param, key,                   target,
    param, merge_accumulator *,   result,
@@ -250,7 +250,7 @@ DEFINE_ASYNC_STATE(trunk_lookup_async2_state, 1,
 // clang-format on
 
 async_status
-trunk_lookup_async2(trunk_lookup_async2_state *state);
+trunk_lookup_async(trunk_lookup_async_state *state);
 
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,

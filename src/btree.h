@@ -224,7 +224,7 @@ btree_lookup_and_merge(cache              *cc,
                        bool32             *local_found);
 
 // clang-format off
-DEFINE_ASYNC_STATE(btree_lookup_async2_state, 3,
+DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, cache *,                      cc,
    param, const btree_config *,         cfg,
    param, uint64,                       root_addr,
@@ -241,29 +241,29 @@ DEFINE_ASYNC_STATE(btree_lookup_async2_state, 3,
    local, uint32,                       h,
    local, bool32,                       found,
    local, message,                      msg,
-   local, page_get_async2_state_buffer, cache_get_state)
+   local, page_get_async_state_buffer, cache_get_state)
 // clang-format on
 
 static inline void
-btree_lookup_and_merge_async2_state_init(btree_lookup_async2_state *state,
-                                         cache                     *cc,
-                                         const btree_config        *cfg,
-                                         uint64                     root_addr,
-                                         page_type                  type,
-                                         key                        target,
-                                         merge_accumulator         *result,
-                                         async_callback_fn          callback,
-                                         void *callback_arg)
+btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
+                                        cache                    *cc,
+                                        const btree_config       *cfg,
+                                        uint64                    root_addr,
+                                        page_type                 type,
+                                        key                       target,
+                                        merge_accumulator        *result,
+                                        async_callback_fn         callback,
+                                        void                     *callback_arg)
 {
-   btree_lookup_async2_state_init(
+   btree_lookup_async_state_init(
       state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
 }
 
 async_status
-btree_lookup_async2(btree_lookup_async2_state *state);
+btree_lookup_async(btree_lookup_async_state *state);
 
 async_status
-btree_lookup_and_merge_async2(btree_lookup_async2_state *state);
+btree_lookup_and_merge_async(btree_lookup_async_state *state);
 
 void
 btree_iterator_init(cache              *cc,

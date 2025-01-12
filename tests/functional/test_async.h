@@ -20,7 +20,7 @@
 
 // A single async context
 typedef struct {
-   trunk_lookup_async2_state state;
+   trunk_lookup_async_state state;
    pcq                      *ready_q;
    union {
       int8   refcount;   // Used by functionality test

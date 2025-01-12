@@ -120,7 +120,7 @@ async_ctxt_process_one(trunk_handle         *spl,
    timestamp    ts;
 
    ts  = platform_get_timestamp();
-   res = trunk_lookup_async2(&ctxt->state);
+   res = trunk_lookup_async(&ctxt->state);
    ts  = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;
@@ -146,12 +146,12 @@ async_ctxt_submit(trunk_handle         *spl,
                   async_ctxt_process_cb process_cb,
                   void                 *process_arg)
 {
-   trunk_lookup_async2_state_init(&ctxt->state,
-                                  spl,
-                                  key_buffer_key(&ctxt->key),
-                                  &ctxt->data,
-                                  test_async_callback,
-                                  ctxt);
+   trunk_lookup_async_state_init(&ctxt->state,
+                                 spl,
+                                 key_buffer_key(&ctxt->key),
+                                 &ctxt->data,
+                                 test_async_callback,
+                                 ctxt);
    async_ctxt_process_one(
       spl, async_lookup, ctxt, latency_max, process_cb, process_arg);
 }

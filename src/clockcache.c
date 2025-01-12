@@ -1764,7 +1764,7 @@ clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
  */
 
 // clang-format off
-DEFINE_ASYNC_STATE(clockcache_get_async2_state, 3,
+DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    param, clockcache *, cc,
    param, uint64, addr,
    param, page_type, type,
@@ -1783,9 +1783,9 @@ DEFINE_ASYNC_STATE(clockcache_get_async2_state, 3,
    local, async_waiter, wait_node)
 // clang-format on
 
-_Static_assert(sizeof(clockcache_get_async2_state)
-                  <= PAGE_GET_ASYNC2_STATE_BUFFER_SIZE,
-               "clockcache_get_async2_state is too large");
+_Static_assert(sizeof(clockcache_get_async_state)
+                  <= PAGE_GET_ASYNC_STATE_BUFFER_SIZE,
+               "clockcache_get_async_state is too large");
 
 
 /*
@@ -1793,7 +1793,7 @@ _Static_assert(sizeof(clockcache_get_async2_state)
  * retry the get from the beginning, TRUE if we succeeded.
  */
 static async_status
-clockcache_get_in_cache_async(clockcache_get_async2_state *state, uint64 depth)
+clockcache_get_in_cache_async(clockcache_get_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
@@ -1846,13 +1846,13 @@ clockcache_get_in_cache_async(clockcache_get_async2_state *state, uint64 depth)
 void
 clockcache_get_from_disk_async_callback(void *arg)
 {
-   clockcache_get_async2_state *state = (clockcache_get_async2_state *)arg;
+   clockcache_get_async_state *state = (clockcache_get_async_state *)arg;
    clockcache_finish_load(state->cc, state->addr, state->entry_number);
    state->callback(state->callback_arg);
 }
 
 static async_status
-clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
+clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
@@ -1896,7 +1896,7 @@ clockcache_get_from_disk_async(clockcache_get_async2_state *state, uint64 depth)
 
 // Result is TRUE if successful, FALSE otherwise
 static async_status
-clockcache_get_internal_async(clockcache_get_async2_state *state, uint64 depth)
+clockcache_get_internal_async(clockcache_get_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
@@ -1944,7 +1944,7 @@ clockcache_get_internal_async(clockcache_get_async2_state *state, uint64 depth)
 }
 
 async_status
-clockcache_get_async2(clockcache_get_async2_state *state)
+clockcache_get_async(clockcache_get_async_state *state)
 {
    async_begin(state, 0);
 
@@ -2836,31 +2836,31 @@ clockcache_unpin_virtual(cache *c, page_handle *page)
 }
 
 static void
-clockcache_get_async2_state_init_virtual(page_get_async2_state_buffer buffer,
-                                         cache                       *cc,
-                                         uint64                       addr,
-                                         page_type                    type,
-                                         async_callback_fn            callback,
-                                         void *callback_arg)
+clockcache_get_async_state_init_virtual(page_get_async_state_buffer buffer,
+                                        cache                      *cc,
+                                        uint64                      addr,
+                                        page_type                   type,
+                                        async_callback_fn           callback,
+                                        void *callback_arg)
 {
-   clockcache_get_async2_state_init((clockcache_get_async2_state *)buffer,
-                                    (clockcache *)cc,
-                                    addr,
-                                    type,
-                                    callback,
-                                    callback_arg);
+   clockcache_get_async_state_init((clockcache_get_async_state *)buffer,
+                                   (clockcache *)cc,
+                                   addr,
+                                   type,
+                                   callback,
+                                   callback_arg);
 }
 
 static async_status
-clockcache_get_async2_virtual(page_get_async2_state_buffer buffer)
+clockcache_get_async_virtual(page_get_async_state_buffer buffer)
 {
-   return clockcache_get_async2((clockcache_get_async2_state *)buffer);
+   return clockcache_get_async((clockcache_get_async_state *)buffer);
 }
 
 static page_handle *
-clockcache_get_async2_state_result_virtual(page_get_async2_state_buffer buffer)
+clockcache_get_async_state_result_virtual(page_get_async_state_buffer buffer)
 {
-   clockcache_get_async2_state *state = (clockcache_get_async2_state *)buffer;
+   clockcache_get_async_state *state = (clockcache_get_async_state *)buffer;
    return state->__async_result;
 }
 
@@ -2998,9 +2998,9 @@ static cache_ops clockcache_ops = {
    .extent_discard = clockcache_extent_discard_virtual,
    .page_get       = clockcache_get_virtual,
 
-   .page_get_async2_state_init = clockcache_get_async2_state_init_virtual,
-   .page_get_async2            = clockcache_get_async2_virtual,
-   .page_get_async2_result     = clockcache_get_async2_state_result_virtual,
+   .page_get_async_state_init = clockcache_get_async_state_init_virtual,
+   .page_get_async            = clockcache_get_async_virtual,
+   .page_get_async_result     = clockcache_get_async_state_result_virtual,
 
    .page_unget        = clockcache_unget_virtual,
    .page_try_claim    = clockcache_try_claim_virtual,

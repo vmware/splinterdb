@@ -306,10 +306,10 @@ destroy_btrees:
 
 // A single async context
 typedef struct {
-   btree_lookup_async2_state ctxt;
-   bool32                    ready;
-   key_buffer                keybuf;
-   merge_accumulator         result;
+   btree_lookup_async_state ctxt;
+   bool32                   ready;
+   key_buffer               keybuf;
+   merge_accumulator        result;
 } btree_test_async_ctxt;
 
 // Per-table array of async contexts
@@ -419,7 +419,7 @@ btree_test_run_pending(cache                   *cc,
          continue;
       }
       ctxt->ready = FALSE;
-      res         = btree_lookup_async2(&ctxt->ctxt);
+      res         = btree_lookup_async(&ctxt->ctxt);
       if (res == ASYNC_STATUS_DONE) {
          bool32 local_found = btree_found(&ctxt->result);
          if (local_found ^ expected_found) {
@@ -473,18 +473,18 @@ test_btree_async_lookup(cache                   *cc,
    async_status res;
    key          target = key_buffer_key(&async_ctxt->keybuf);
 
-   btree_lookup_async2_state_init(&async_ctxt->ctxt,
-                                  cc,
-                                  cfg,
-                                  root_addr,
-                                  PAGE_TYPE_BRANCH,
-                                  target,
-                                  &async_ctxt->result,
-                                  btree_test_async_callback,
-                                  async_ctxt);
+   btree_lookup_async_state_init(&async_ctxt->ctxt,
+                                 cc,
+                                 cfg,
+                                 root_addr,
+                                 PAGE_TYPE_BRANCH,
+                                 target,
+                                 &async_ctxt->result,
+                                 btree_test_async_callback,
+                                 async_ctxt);
 
    async_ctxt->ready = FALSE;
-   res               = btree_lookup_async2(&async_ctxt->ctxt);
+   res               = btree_lookup_async(&async_ctxt->ctxt);
    if (res == ASYNC_STATUS_DONE) {
       *correct = btree_found(&async_ctxt->result) == expected_found;
       btree_test_put_async_ctxt(async_lookup, async_ctxt);

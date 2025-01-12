@@ -572,7 +572,7 @@ exit:
 #define READER_BATCH_SIZE 32
 
 typedef struct {
-   page_get_async2_state_buffer buffer;
+   page_get_async_state_buffer buffer;
    enum { waiting_on_io, ready_to_continue, done } status;
 } test_async_ctxt;
 
@@ -613,42 +613,16 @@ test_wait_inflight(test_params *params,
          if (ctxt->status == waiting_on_io) {
             cache_cleanup(params->cc);
          } else if (ctxt->status == ready_to_continue) {
-            async_status res = cache_get_async2(params->cc, ctxt->buffer);
+            async_status res = cache_get_async(params->cc, ctxt->buffer);
             if (res == ASYNC_STATUS_DONE) {
                ctxt->status = done;
             }
          }
       }
       params->handle_arr[j] =
-         cache_get_async2_state_result(params->cc, ctxt->buffer);
+         cache_get_async_state_result(params->cc, ctxt->buffer);
    }
 }
-
-// Abandon a batch of async lookups we issued
-// static void
-// test_abandon_read_batch(test_params *params,
-//                         uint64       batch_start,
-//                         uint64       batch_end, // exclusive
-//                         bool32       was_async[])
-// {
-//    page_handle **handle_arr = params->handle_arr;
-//    const uint64 *addr_arr   = params->addr_arr;
-//    cache        *cc         = params->cc;
-//    uint64        j;
-
-//    test_wait_inflight(params, batch_end);
-
-//    // Unget all pages we have in the batch
-//    for (j = 0; j < batch_end; j++) {
-//       test_async_ctxt *ctxt = &params->ctxt[j];
-//       handle_arr[batch_start + j] =
-//          cache_get_async2_state_result(params->cc, ctxt->buffer);
-//       platform_assert(handle_arr[batch_start + j]);
-//       cache_unget(cc, handle_arr[batch_start + j]);
-//       handle_arr[batch_start + j] = NULL;
-//       cache_assert_ungot(cc, addr_arr[batch_start + j]);
-//    }
-// }
 
 // Do async reads for a batch of addresses, and wait for them to complete
 static bool32
@@ -673,17 +647,17 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
             cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
          ctxt->status = done;
       } else {
-         cache_get_async2_state_init(ctxt->buffer,
-                                     cc,
-                                     addr_arr[j],
-                                     PAGE_TYPE_MISC,
-                                     test_async_callback,
-                                     &params->ctxt[j]);
+         cache_get_async_state_init(ctxt->buffer,
+                                    cc,
+                                    addr_arr[j],
+                                    PAGE_TYPE_MISC,
+                                    test_async_callback,
+                                    &params->ctxt[j]);
          ctxt->status = waiting_on_io;
-         res          = cache_get_async2(cc, ctxt->buffer);
+         res          = cache_get_async(cc, ctxt->buffer);
          switch (res) {
             case ASYNC_STATUS_DONE:
-               handle_arr[j] = cache_get_async2_state_result(cc, ctxt->buffer);
+               handle_arr[j] = cache_get_async_state_result(cc, ctxt->buffer);
                ctxt->status  = done;
                break;
             case ASYNC_STATUS_RUNNING:
@@ -692,37 +666,6 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
                platform_assert(0);
          }
       }
-      // // platform_log_stream("batch %lu, %lu: res %u\n", batch_start, j,
-      // res); if (mt_reader) {
-      //    switch (res) {
-      //       case async_locked:
-      //       case async_no_reqs:
-      //          cache_assert_ungot(cc, addr_arr[j]);
-      //          /*
-      //           * Need to keep lock order. Lock order is lower disk
-      //           * address to higher disk address. If a writer thread has
-      //           * the page locked, we cannot take read refs on blocks
-      //           * with higher addresses, then come back to take read refs
-      //           * on blocks with lower addresses. This'll be a lock order
-      //           * violation and cause deadlock. So abandon this batch,
-      //           * and ask caller to retry.
-      //           */
-      //          test_abandon_read_batch(params, batch_start, j, was_async);
-      //          return TRUE;
-      //       case ASYNC_STATUS_DONE:
-      //          handle_arr[j] = cache_get_async2_state_result(cc,
-      //          ctxt->buffer); platform_assert(ctxt->page);
-      //          platform_semaphore_post(&params->batch_sema);
-      //          continue;
-      //       case ASYNC_STATUS_RUNNING:
-      //          was_async[j] = TRUE;
-      //          break;
-      //       default:
-      //          platform_assert(0);
-      //    }
-      // } else {
-      //    platform_assert(res == ASYNC_STATUS_RUNNING);
-      // }
    }
 
    // Wait for the batch of async gets to complete

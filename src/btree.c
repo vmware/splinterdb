@@ -2088,7 +2088,7 @@ btree_lookup_node(cache              *cc,             // IN
  * - state->child_node: the child node
  */
 static inline async_status
-btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
+btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
@@ -2100,19 +2100,19 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
                 || state->type == PAGE_TYPE_MEMTABLE);
    state->node.addr = state->root_addr;
 
-   cache_get_async2_state_init(state->cache_get_state,
-                               state->cc,
-                               state->node.addr,
-                               state->type,
-                               state->callback,
-                               state->callback_arg);
-   while (cache_get_async2(state->cc, state->cache_get_state)
+   cache_get_async_state_init(state->cache_get_state,
+                              state->cc,
+                              state->node.addr,
+                              state->type,
+                              state->callback,
+                              state->callback_arg);
+   while (cache_get_async(state->cc, state->cache_get_state)
           != ASYNC_STATUS_DONE)
    {
       async_yield(state);
    }
    state->node.page =
-      cache_get_async2_state_result(state->cc, state->cache_get_state);
+      cache_get_async_state_result(state->cc, state->cache_get_state);
    state->node.hdr = (btree_hdr *)state->node.page->data;
 
    for (state->h = btree_height(state->node.hdr);
@@ -2137,19 +2137,19 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
       }
 
 
-      cache_get_async2_state_init(state->cache_get_state,
-                                  state->cc,
-                                  state->child_node.addr,
-                                  state->type,
-                                  state->callback,
-                                  state->callback_arg);
-      while (cache_get_async2(state->cc, state->cache_get_state)
+      cache_get_async_state_init(state->cache_get_state,
+                                 state->cc,
+                                 state->child_node.addr,
+                                 state->type,
+                                 state->callback,
+                                 state->callback_arg);
+      while (cache_get_async(state->cc, state->cache_get_state)
              != ASYNC_STATUS_DONE)
       {
          async_yield(state);
       }
       state->child_node.page =
-         cache_get_async2_state_result(state->cc, state->cache_get_state);
+         cache_get_async_state_result(state->cc, state->cache_get_state);
       state->child_node.hdr = (btree_hdr *)state->child_node.page->data;
 
       debug_assert(state->child_node.page->disk_addr == state->child_node.addr);
@@ -2180,13 +2180,13 @@ btree_lookup_node_async2(btree_lookup_async2_state *state, uint64 depth)
  * - state->child_node: the child node
  */
 static inline async_status
-btree_lookup_with_ref_async2(btree_lookup_async2_state *state, uint64 depth)
+btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
    state->stop_at_height = 0;
    state->stats          = NULL;
-   async_await_subroutine(state, btree_lookup_node_async2);
+   async_await_subroutine(state, btree_lookup_node_async);
 
    int64 idx = btree_find_tuple(
       state->cfg, state->node.hdr, state->target, &state->found);
@@ -2221,11 +2221,11 @@ btree_lookup_with_ref(cache              *cc,        // IN
 }
 
 async_status
-btree_lookup_async2(btree_lookup_async2_state *state)
+btree_lookup_async(btree_lookup_async_state *state)
 {
    async_begin(state, 0);
 
-   async_await_subroutine(state, btree_lookup_with_ref_async2);
+   async_await_subroutine(state, btree_lookup_with_ref_async);
    bool32 success = TRUE;
    if (state->found) {
       success = merge_accumulator_copy_message(state->result, state->msg);
@@ -2267,7 +2267,7 @@ btree_lookup(cache             *cc,        // IN
 //              merge_accumulator *result)    // OUT
 // {
 //    return async_call_sync_callback(cache_cleanup(cc),
-//                                    btree_lookup_async2,
+//                                    btree_lookup_async,
 //                                    cc,
 //                                    cfg,
 //                                    root_addr,
@@ -2329,11 +2329,11 @@ btree_lookup_and_merge(cache              *cc,        // IN
  * - state->msg: the message of the target
  */
 async_status
-btree_lookup_and_merge_async2(btree_lookup_async2_state *state)
+btree_lookup_and_merge_async(btree_lookup_async_state *state)
 {
    async_begin(state, 0);
 
-   async_await_subroutine(state, btree_lookup_with_ref_async2);
+   async_await_subroutine(state, btree_lookup_with_ref_async);
 
    platform_status rc = STATUS_OK;
    if (state->found) {

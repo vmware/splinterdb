@@ -101,7 +101,7 @@ routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
 }
 
 // clang-format off
-DEFINE_ASYNC_STATE(routing_filter_lookup_async2_state, 2,
+DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,
    param, cache *,                      cc,
    param, const routing_config *,       cfg,
    param, routing_filter,               filter,
@@ -122,11 +122,11 @@ DEFINE_ASYNC_STATE(routing_filter_lookup_async2_state, 2,
    local, uint64,                       hdr_raw_addr,
    local, uint64,                       header_addr,
    local, page_handle *,                index_page,
-   local, page_get_async2_state_buffer, cache_get_state)
+   local, page_get_async_state_buffer, cache_get_state)
 // clang-format on
 
 async_status
-routing_filter_lookup_async2(routing_filter_lookup_async2_state *state);
+routing_filter_lookup_async(routing_filter_lookup_async_state *state);
 
 void
 routing_filter_dec_ref(cache *cc, routing_filter *filter);

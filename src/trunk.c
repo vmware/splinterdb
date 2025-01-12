@@ -1729,7 +1729,7 @@ out:
 }
 
 // If any change is made in here, please make similar change in
-// trunk_lookup_async2
+// trunk_lookup_async
 platform_status
 trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 {
@@ -1803,7 +1803,7 @@ found_final_answer_early:
 }
 
 async_status
-trunk_lookup_async2(trunk_lookup_async2_state *state)
+trunk_lookup_async(trunk_lookup_async_state *state)
 {
    async_begin(state, 0);
    // look in memtables

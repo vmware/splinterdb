@@ -107,18 +107,17 @@ typedef page_handle *(*page_get_fn)(cache    *cc,
                                     bool32    blocking,
                                     page_type type);
 
-#define PAGE_GET_ASYNC2_STATE_BUFFER_SIZE (2048)
-typedef uint8 page_get_async2_state_buffer[PAGE_GET_ASYNC2_STATE_BUFFER_SIZE];
-typedef void (*page_get_async2_state_init_fn)(
-   page_get_async2_state_buffer buffer,
-   cache                       *cc,
-   uint64                       addr,
-   page_type                    type,
-   async_callback_fn            callback,
-   void                        *callback_arg);
-typedef async_status (*page_get_async2_fn)(page_get_async2_state_buffer buffer);
-typedef page_handle *(*page_get_async2_state_result_fn)(
-   page_get_async2_state_buffer buffer);
+#define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (2048)
+typedef uint8 page_get_async_state_buffer[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
+typedef void (*page_get_async_state_init_fn)(page_get_async_state_buffer buffer,
+                                             cache                      *cc,
+                                             uint64                      addr,
+                                             page_type                   type,
+                                             async_callback_fn callback,
+                                             void             *callback_arg);
+typedef async_status (*page_get_async_fn)(page_get_async_state_buffer buffer);
+typedef page_handle *(*page_get_async_state_result_fn)(
+   page_get_async_state_buffer buffer);
 
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
@@ -151,9 +150,9 @@ typedef struct cache_ops {
    extent_discard_fn extent_discard;
    page_get_fn       page_get;
 
-   page_get_async2_state_init_fn   page_get_async2_state_init;
-   page_get_async2_fn              page_get_async2;
-   page_get_async2_state_result_fn page_get_async2_result;
+   page_get_async_state_init_fn   page_get_async_state_init;
+   page_get_async_fn              page_get_async;
+   page_get_async_state_result_fn page_get_async_result;
 
    page_generic_fn      page_unget;
    page_try_claim_fn    page_try_claim;
@@ -261,27 +260,27 @@ cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
 }
 
 static inline void
-cache_get_async2_state_init(page_get_async2_state_buffer buffer,
-                            cache                       *cc,
-                            uint64                       addr,
-                            page_type                    type,
-                            async_callback_fn            callback,
-                            void                        *callback_arg)
+cache_get_async_state_init(page_get_async_state_buffer buffer,
+                           cache                      *cc,
+                           uint64                      addr,
+                           page_type                   type,
+                           async_callback_fn           callback,
+                           void                       *callback_arg)
 {
-   return cc->ops->page_get_async2_state_init(
+   return cc->ops->page_get_async_state_init(
       buffer, cc, addr, type, callback, callback_arg);
 }
 
 static inline async_status
-cache_get_async2(cache *cc, page_get_async2_state_buffer buffer)
+cache_get_async(cache *cc, page_get_async_state_buffer buffer)
 {
-   return cc->ops->page_get_async2(buffer);
+   return cc->ops->page_get_async(buffer);
 }
 
 static inline page_handle *
-cache_get_async2_state_result(cache *cc, page_get_async2_state_buffer buffer)
+cache_get_async_state_result(cache *cc, page_get_async_state_buffer buffer)
 {
-   return cc->ops->page_get_async2_result(buffer);
+   return cc->ops->page_get_async_result(buffer);
 }
 
 /*
