@@ -140,268 +140,6 @@ trunk_close_log_stream_if_enabled(trunk_handle           *spl,
 
 /*
  *-----------------------------------------------------------------------------
- * SplinterDB Structure:
- *
- *       SplinterDB is a size-tiered Be-tree. It has a superstructure called
- *       the trunk tree, which consists of trunk nodes. Each trunk node
- *       contains pointers to a collection of branches. Each branch is a B-tree
- *       which stores key-value pairs (tuples). All the actual data is stored
- *       in the branches, and the trunk indexes and organizes the data.
- *-----------------------------------------------------------------------------
- */
-
-/*
- *-----------------------------------------------------------------------------
- * Substructures:
- *
- *       B-trees:
- *          SplinterDB makes use of B-trees, which come in two flavors, dynamic
- *          and static.
- *
- *          dynamic: Dynamic B-trees are used in the memtable (see
- *             below) and are mutable B-trees, supporting
- *             insertions. The mutable operations on B-trees must use
- *             a btree_dynamic_handle.
- *
- *          static: Static B-trees are used as branches and are
- *             immutable. Static btrees are accessed
- *             using their root_addr, which is thinly wrapped using
- *             their root_addr, which is thinly wrapped using
- *             btree_static_handle.
- *-----------------------------------------------------------------------------
- */
-
-
-/*
- *-----------------------------------------------------------------------------
- * Insertion Path:
- *
- *       Memtable Insertions are first inserted into a memtable, which
- *          is a dynamic btree. SplinterDB uses
- *          multiple memtables so that when one memtable fills,
- *          insertions can continue into another memtable while the
- *          first is incorporated.
- *
- *          As part of this process, the generation number of the leaf into
- *          which the new tuple is placed is returned and stored in the log (if
- *          used) in order to establish a per-key temporal ordering.  The
- *          memtable also keeps a list of fingerprints, fp_arr, which are used
- *          to build the filter when the memtable becomes a branch.
- *
- *       Incorporation When the memtable fills, it is incorporated
- *          into the root node. The memtable locks itself to inserts
- *          (but not lookups), Splinter switches the active memtable,
- *          then the filter is built from the fp_arr, and the
- *          btree in the memtable is inserted into the
- *          root as a new (distinct) branch.  Then the memtable is
- *          reinitialized with a new (empty) btree and unlocked.
- *
- *       Flushing
- *          A node is considered full when it has max_tuples_per_node tuples
- *          (set to be fanout * memtable_capacity) or when it has
- *          max_branches_per_node branches. The first condition ensures that
- *          data moves down the tree and the second limits the number of
- *          branches on a root-to-leaf path and therefore the worst-case lookup
- *          cost.
- *
- *          When a node fills, a flush is initiated to each pivot (child) of
- *          the node which has at least max_branches_per_node live branches. If
- *          the node is still full, it picks the pivot which has the most
- *          tuples and flushes to that child and repeats this process until the
- *          node is no longer full.
- *
- *          A flush consists of flushing all the branches which are live for
- *          the pivot into a bundle in the child. A bundle is a contiguous
- *          range of branches in a trunk node, see trunk node documentation
- *          below. A flush to a given pivot makes all branches and bundles in
- *          the parent no longer "live" for that pivot.
- *
- *       Compaction (after flush)
- *          After a flush completes, a compact_bundle job is issued for the
- *          bundle which was created. This job first checks if the node is full
- *          and if so flushes until it is no longer full. Then it compacts all
- *          the tuples in the bundle which are live for the node (are within
- *          the node's key range and have not been flushed), and replaces the
- *          bundle with the resulting compacted branch.
- *
- *       Split (internal)
- *          During a flush, if the child has more pivots than the configured
- *          fanout, it is split. Note that pivots are added at other times (to
- *          the parent of an internal or leaf split), so nodes may
- *          temporarily exceed the fanout. Splits are not initiated then,
- *          because the hand-over-hand locking protocol means that the lock of
- *          the grandparent is not held and it is awkward for try to acquire
- *          locks going up the tree.
- *
- *          An internal node split is a logical split: the trunk node is
- *          copied, except the first (fanout/2) pivots become the pivots of
- *          the left node and the remaining pivots become the right node. No
- *          compaction is initiated, and the branches and bundles of the node
- *          pre-split are shared between the new left and right nodes.
- *
- *       Split (leaf)
- *          When a leaf has more than cfg->max_tuples_per_node (fanout *
- *          memtable_capacity), it is considered full.
- *
- *          When a leaf is full, it is split logically: new pivots are
- *          calculated, new leaves are created with those pivots as min/max
- *          keys, and all the branches in the leaf at the time of the split are
- *          shared between them temporarily as a single bundle in each.  This
- *          split happens synchronously with the flush.
- *
- *          A compact_bundle job is issued for each new leaf, which
- *          asynchronously compacts the shared branches into a single unshared
- *          branch with the tuples from each new leaf's range.
- *-----------------------------------------------------------------------------
- */
-
-/*
- *-----------------------------------------------------------------------------
- * Interactions between Concurrent Processes
- *
- *       The design of SplinterDB allows flushes, compactions, internal node
- *       split and leaf splits to happen concurrently, even within the same
- *       node. The ways in which these processes can interact are detailed
- *       here.
- *
- *  o Flushes and compactions:
- *
- *       1. While a compaction has been scheduled or is in process, a flush may
- *          occur. This will flush the bundle being compacted to the child and
- *          the in-progress compaction will continue as usual. Note that the
- *          tuples which are flushed will still be compacted if the compaction
- *          is in progress, which results in some wasted work.
- *       2. As a result of 1., while a compaction has been scheduled, its
- *          bundle may be flushed to all children, so that it is no longer
- *          live. In this case, when the compact_bundle job initiates, it
- *          detects that the bundle is not live and aborts before compaction.
- *       3. Similarly, if the bundle for an in-progress compaction is flushed
- *          to all children, when it completes, it will detect that the bundle
- *          is no longer live and it will discard the output.
- *
- *  o Flushes and internal/leaf splits:
- *
- *          Flushes and internal/leaf splits are synchronous and do not
- *          interact.
- *
- *  o Internal splits and compaction:
- *
- *       4. If an internal split occurs in a node which has a scheduled
- *          compaction, when the compact_bundle job initiates it will detect
- *          the node split using the node's generation number
- *          (hdr->generation). It then creates a separate compact_bundle job on
- *          the new sibling.
- *       5. If an internal split occurs in a node with an in-progress
- *          compaction, the bundle being compacted is copied to the new
- *          sibling.  When the compact_bundle job finishes compaction and
- *          fetches the node to replace the bundle, the node split is detected
- *          using the generation number, and the bundle is replaced in the new
- *          sibling as well. Note that the output of the compaction will
- *          contain tuples for both the node and its new sibling.
- *
- *  o Leaf splits and compaction:
- *
- *       6. If a compaction is scheduled or in progress when a leaf split
- *          triggers, the leaf split will start its own compaction job on the
- *          bundle being compacted. When the compaction job initiates or
- *          finishes, it will detect the leaf split using the generation number
- *          of the leaf, and abort.
- *-----------------------------------------------------------------------------
- */
-
-/*
- *-----------------------------------------------------------------------------
- * Trunk Nodes: splinter trunk_hdr{}: Disk-resident structure
- *
- *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the following:
- *
- *       Header
- *          meta data
- *       ---------
- *       Array of bundles
- *          When a collection of branches are flushed into a node, they are
- *          organized into a bundle. This bundle will be compacted into a
- *          single branch by a call to trunk_compact_bundle. Bundles are
- *          implemented as a collection of subbundles, each of which covers a
- *          range of branches.
- *       ----------
- *       Array of subbundles
- *          A subbundle consists of the branches from a single ancestor (really
- *          that ancestor's pivot). During a flush, all the whole branches in
- *          the parent are collected into a subbundle in the child and any
- *          subbundles in the parent are copied to the child.
- *
- *          Subbundles function properly in the current design, but are not
- *          used for anything. They are going to be used for routing filters.
- *       ----------
- *       Array of pivots: Each node has a pivot corresponding to each
- *          child as well as an additional last pivot which contains
- *          an exclusive upper bound key for the node. Each pivot has
- *          a key which is an inclusive lower bound for the keys in
- *          its child node (as well as the btree
- *          rooted there). This means that the key for the 0th pivot
- *          is an inclusive lower bound for all keys in the node.
- *          Each pivot also has its own start_branch, which is used to
- *          determine which branches have tuples for that pivot (the
- *          range start_branch to end_branch).
- *
- *          Each pivot's key is accessible via a call to trunk_get_pivot() and
- *          the remaining data is accessible via a call to
- *          trunk_get_pivot_data().
- *
- *          The number of pivots on a trunk page has two different limits:
- *           - A user-configurable static soft limit (fanout)
- *           - An internally determined hard limit (max_pivot_keys), based on
- *             the specified 'fanout' setting.
- *
- *          When the soft limit is reached, it will cause the node to split the
- *          next time it is flushed into (see internal node splits above).
- *          Note that multiple pivots can be added to the parent of a leaf
- *          during a split and multiple splits could theoretically occur before
- *          the node is flushed into again, so the fanout limit may temporarily
- *          be exceeded by multiple pivots.
- *
- *          The hard limit is the amount of physical space in the node which can
- *          be used for pivots and cannot be exceeded.
- *
- *  Limits: The default fanout is 8 and the hard limit is 3x the fanout. Note
- *          that the additional last pivot (containing the exclusive upper
- *          bound to the node) counts towards the hard limit (because it uses
- *          physical space), but not the soft limit.
- *       ----------
- *       Array of branches
- *          Whole branches: The branches from hdr->start_branch to
- *             hdr->start_frac_branch are "whole" branches, each of which is
- *             the output of a compaction or incorporation.
- *          Fractional branches: From hdr->start_frac_branch to hdr->end_branch
- *             are "fractional" branches that are part of bundles and are in
- *             the process of being compacted into whole branches.
- *
- *          Logically, each whole branch and each bundle counts toward the
- *          number of branches in the node (or pivot), since each bundle
- *          represents a single branch after compaction.
- *
- *          There are two limits on the number of branches in a node. The soft
- *          limit (max_branches_per_node) refers to logical branches (each
- *          whole branch and each bundle counts as a logical branch), and when
- *          there are more logical branches than the soft limit, the node is
- *          considered full and flushed until there are fewer branches than the
- *          soft limit. The hard limit (hard_max_branches_per_node) is the
- *          number of branches (whole and fractional) for which there is
- *          physical room in the node, and as a result cannot be exceeded. An
- *          attempt to flush _into_ a node which is at the hard limit will fail.
- *-----------------------------------------------------------------------------
- */
-
-
-/*
- *-----------------------------------------------------------------------------
- * structs
- *-----------------------------------------------------------------------------
- */
-
-/*
- *-----------------------------------------------------------------------------
  * Splinter Super Block: Disk-resident structure.
  * Super block lives on page of page type == PAGE_TYPE_SUPERBLOCK.
  *-----------------------------------------------------------------------------
@@ -419,146 +157,6 @@ typedef struct ONDISK trunk_super_block {
 } trunk_super_block;
 
 /*
- * A subbundle is a collection of branches which originated in the same node.
- * It is used to organize branches with their routing filters when they are
- * flushed or otherwise moved or reorganized. A query to the node uses the
- * routing filter to filter the branches in the subbundle.
- * Disk-resident artifact.
- */
-typedef uint16 trunk_subbundle_state_t;
-typedef enum trunk_subbundle_state {
-   SB_STATE_INVALID = 0,
-   SB_STATE_UNCOMPACTED_INDEX,
-   SB_STATE_UNCOMPACTED_LEAF,
-   SB_STATE_COMPACTED, // compacted subbundles are always index
-} trunk_subbundle_state;
-
-/*
- *-----------------------------------------------------------------------------
- * Splinter Sub-bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK trunk_subbundle {
-   trunk_subbundle_state_t state;
-   uint16                  start_branch;
-   uint16                  end_branch;
-   uint16                  start_filter;
-   uint16                  end_filter;
-} trunk_subbundle;
-
-/*
- *-----------------------------------------------------------------------------
- * Splinter Bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
- *
- * A flush moves branches from the parent to a bundle in the child. The bundle
- * is then compacted with a compact_bundle job.
- *
- * Branches are organized into subbundles.
- *
- * When a compact_bundle job completes, the branches in the bundle are replaced
- * with the outputted branch of the compaction and the bundle is marked
- * compacted. If there is not an earlier uncompacted bundle, the bundle can be
- * released and the compacted branch can become a whole branch. This is to
- * maintain the invariant that the outstanding bundles form a contiguous range.
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK trunk_bundle {
-   uint16 start_subbundle;
-   uint16 end_subbundle;
-   uint64 num_tuples;
-   uint64 num_kv_bytes;
-} trunk_bundle;
-
-/*
- *-----------------------------------------------------------------------------
- * Trunk headers: Disk-resident structure
- *
- * Contains metadata for trunk nodes. See below for comments on fields.
- * Found on pages of page type == PAGE_TYPE_TRUNK
- *
- * Generation numbers are used by asynchronous processes to detect node splits.
- *    internal nodes: Splits increment the generation number of the left node.
- *       If a process visits a node with generation number g, then returns at a
- *       later point, it can find all the nodes which it splits into by search
- *       right until it reaches a node with generation number g (inclusive).
- *    leaves: Splits increment the generation numbers of all the resulting
- *       leaves. This is because there are no processes which need to revisit
- *       all the created leaves.
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK trunk_hdr {
-   uint64 node_id;
-   uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
-   uint16 height;           // height of the node
-   uint64 pivot_generation; // counter incremented when new pivots are added
-
-   uint16 start_branch;      // first live branch
-   uint16 start_frac_branch; // first fractional branch (branch in a bundle)
-   uint16 end_branch;        // successor to the last live branch
-   uint16 start_bundle;      // first live bundle
-   uint16 end_bundle;        // successor to the last live bundle
-   uint16 start_subbundle;   // first live subbundle
-   uint16 end_subbundle;     // successor to the last live subbundle
-   uint16 start_sb_filter;   // first subbundle filter
-   uint16 end_sb_filter;     // successor to the last sb filter
-
-   trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
-   trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
-   routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
-} trunk_hdr;
-
-/*
- *-----------------------------------------------------------------------------
- * Splinter Pivot Data: Disk-resident structure on Trunk pages
- *
- * A trunk_pivot_data struct consists of the trunk_pivot_data header
- * followed by cfg.max_key_size bytes of space for the pivot key.  An
- * array of trunk_pivot_datas appears on trunk pages, following the
- * end of struct trunk_hdr{}. This array is sized by configured
- * max_pivot_keys hard-limit.
- *
- * The generation is used by asynchronous processes to determine when a pivot
- * has split
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK trunk_pivot_data {
-   uint64 addr;                // PBN of the child
-   uint64 num_kv_bytes_whole;  // # kv bytes for this pivot in whole branches
-   uint64 num_kv_bytes_bundle; // # kv bytes for this pivot in bundles
-   uint64 num_tuples_whole;    // # tuples for this pivot in whole branches
-   uint64 num_tuples_bundle;   // # tuples for this pivot in bundles
-   uint64 generation;          // receives new higher number when pivot splits
-   uint16 start_branch;        // first branch live (not used in leaves)
-   uint16 start_bundle;        // first bundle live (not used in leaves)
-   routing_filter filter;      // routing filter for keys in this pivot
-   int64          srq_idx;     // index in the space rec queue
-   ondisk_key     pivot;
-} trunk_pivot_data;
-
-/*
- *-----------------------------------------------------------------------------
- * Compaction Requests
- *-----------------------------------------------------------------------------
- */
-
-// Used by trunk_compact_bundle()
-typedef struct {
-   iterator  *itor_arr[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-   uint64     num_saved_pivot_keys;
-   key_buffer saved_pivot_keys[TRUNK_MAX_PIVOTS];
-   key_buffer req_original_start_key;
-} compact_bundle_scratch;
-
-/*
- * Union of various data structures that can live on the per-thread
- * scratch memory provided by the task subsystem and are needed by
- * splinter's task dispatcher routines.
- */
-typedef union {
-   compact_bundle_scratch compact_bundle;
-} trunk_task_scratch;
-
-/*
  *-----------------------------------------------------------------------------
  * Trunk Handle
  *-----------------------------------------------------------------------------
@@ -574,12 +172,6 @@ static inline uint64
 trunk_pages_per_extent(const trunk_config *cfg)
 {
    return cache_config_pages_per_extent(cfg->cache_cfg);
-}
-
-static uint64
-trunk_hdr_size()
-{
-   return sizeof(trunk_hdr);
 }
 
 /*
@@ -2668,9 +2260,6 @@ trunk_config_init(trunk_config        *trunk_cfg,
 {
    trunk_validate_data_config(data_cfg);
 
-   platform_status rc = STATUS_BAD_PARAM;
-   uint64          trunk_pivot_size;
-   uint64          bytes_for_branches;
    routing_config *filter_cfg = &trunk_cfg->filter_cfg;
 
    ZERO_CONTENTS(trunk_cfg);
@@ -2680,69 +2269,11 @@ trunk_config_init(trunk_config        *trunk_cfg,
 
    trunk_cfg->fanout                  = fanout;
    trunk_cfg->max_branches_per_node   = max_branches_per_node;
-   trunk_cfg->reclaim_threshold       = reclaim_threshold;
    trunk_cfg->queue_scale_percent     = queue_scale_percent;
    trunk_cfg->use_log                 = use_log;
    trunk_cfg->use_stats               = use_stats;
    trunk_cfg->verbose_logging_enabled = verbose_logging;
    trunk_cfg->log_handle              = log_handle;
-
-   // Inline what we would get from trunk_pivot_size(trunk_handle *).
-   trunk_pivot_size = data_cfg->max_key_size + sizeof(trunk_pivot_data);
-
-   // Setting hard limit and check configuration for over-provisioning
-   trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
-   uint64 header_bytes       = sizeof(trunk_hdr);
-
-   uint64 pivot_bytes = (trunk_cfg->max_pivot_keys
-                         * (data_cfg->max_key_size + sizeof(trunk_pivot_data)));
-   uint64 branch_bytes =
-      trunk_cfg->max_branches_per_node * sizeof(trunk_branch);
-   uint64 trunk_node_min_size   = header_bytes + pivot_bytes + branch_bytes;
-   uint64 page_size             = cache_config_page_size(cache_cfg);
-   uint64 available_pivot_bytes = page_size - header_bytes - branch_bytes;
-   uint64 available_bytes_per_pivot =
-      available_pivot_bytes / trunk_cfg->max_pivot_keys;
-
-   // Deal with mis-configurations where we don't have available bytes per
-   // pivot key
-   uint64 available_bytes_per_pivot_key = 0;
-   if (available_bytes_per_pivot > sizeof(trunk_pivot_data)) {
-      available_bytes_per_pivot_key =
-         available_bytes_per_pivot - sizeof(trunk_pivot_data);
-   }
-
-   if (trunk_node_min_size >= page_size) {
-      platform_error_log("Trunk node min size=%lu bytes "
-                         "does not fit in page size=%lu bytes as configured.\n"
-                         "node->hdr: %lu bytes, "
-                         "pivots: %lu bytes (max_pivot=%lu x %lu bytes),\n"
-                         "branches %lu bytes (max_branches=%lu x %lu bytes).\n"
-                         "Maximum key size supported with current "
-                         "configuration: %lu bytes.\n",
-                         trunk_node_min_size,
-                         page_size,
-                         header_bytes,
-                         pivot_bytes,
-                         trunk_cfg->max_pivot_keys,
-                         trunk_pivot_size,
-                         branch_bytes,
-                         max_branches_per_node,
-                         sizeof(trunk_branch),
-                         available_bytes_per_pivot_key);
-      return rc;
-   }
-
-   // Space left for branches past end of pivot array of [max_pivot_keys]
-   bytes_for_branches = (page_size - trunk_hdr_size()
-                         - (trunk_cfg->max_pivot_keys * trunk_pivot_size));
-
-   // Internally determined hard-limit, which effectively depends on the
-   // - configured page size and trunk header size
-   // - user-specified configured key size
-   // - user-specified fanout
-   trunk_cfg->hard_max_branches_per_node =
-      bytes_for_branches / sizeof(trunk_branch) - 1;
 
    // Initialize point message btree
    btree_config_init(&trunk_cfg->btree_cfg, cache_cfg, trunk_cfg->data_cfg);
@@ -2756,8 +2287,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    trunk_cfg->max_kv_bytes_per_node =
       trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
       * cache_config_extent_size(cache_cfg) / MEMTABLE_SPACE_OVERHEAD_FACTOR;
-   trunk_cfg->target_leaf_kv_bytes = trunk_cfg->max_kv_bytes_per_node / 2;
-   trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 32;
+   trunk_cfg->max_tuples_per_node = trunk_cfg->max_kv_bytes_per_node / 32;
 
    // filter config settings
    filter_cfg->cache_cfg = cache_cfg;
@@ -2840,5 +2370,5 @@ trunk_config_init(trunk_config        *trunk_cfg,
 size_t
 trunk_get_scratch_size()
 {
-   return sizeof(trunk_task_scratch);
+   return 0;
 }

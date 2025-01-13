@@ -55,14 +55,9 @@ typedef struct trunk_config {
 
    // parameters
    uint64 fanout;              // children to trigger split
-   uint64 max_pivot_keys;      // hard limit on number of pivot keys
    uint64 max_tuples_per_node; // deprecated
    uint64 max_kv_bytes_per_node;
    uint64 max_branches_per_node;
-   uint64 hard_max_branches_per_node;
-   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
-   uint64 reclaim_threshold;    // start reclaming space when
-                                // free space < threshold
    uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
                                 // task.h
    bool32            use_stats; // stats
