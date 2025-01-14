@@ -506,8 +506,9 @@ exec_one_thread_use_lower_apis(void *arg)
 
    // Registration should have allocated some scratch space memory.
    ASSERT_TRUE(
-      task_system_get_thread_scratch(thread_cfg->tasks, platform_get_tid())
-      != NULL);
+      trunk_get_scratch_size() == 0
+      || task_system_get_thread_scratch(thread_cfg->tasks, platform_get_tid())
+            != NULL);
 
    // Brain-dead cross-check, to understand what's going on with thread-IDs.
    platform_thread thread_id = platform_thread_id_self();
@@ -518,8 +519,9 @@ exec_one_thread_use_lower_apis(void *arg)
 
    // Deregistration releases scratch space memory.
    ASSERT_TRUE(
-      task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
-      == NULL);
+      trunk_get_scratch_size() == 0
+      || task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
+            == NULL);
 
    // Register / de-register of thread with SplinterDB's task system is
    // SplinterDB's jugglery to keep track of resources. get_tid() should
@@ -559,8 +561,9 @@ exec_one_thread_use_extern_apis(void *arg)
 
    // Registration should have allocated some scratch space memory.
    ASSERT_TRUE(
-      task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
-      != NULL);
+      trunk_get_scratch_size() == 0
+      || task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
+            != NULL);
 
    /*
     * Dead Code Warning!

@@ -300,7 +300,9 @@ task_create_thread_with_hooks(platform_thread       *thread,
 free_thread:
    platform_free(hid, thread_to_create);
 free_scratch:
-   platform_free(ts->heap_id, ts->thread_scratch[newtid]);
+   if (ts->thread_scratch[newtid] != NULL) {
+      platform_free(ts->heap_id, ts->thread_scratch[newtid]);
+   }
 dealloc_tid:
    task_deallocate_threadid(ts, newtid);
    return ret;
