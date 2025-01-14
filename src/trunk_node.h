@@ -216,9 +216,7 @@ void
 trunk_modification_begin(trunk_node_context *context);
 
 platform_status
-trunk_incorporate(trunk_node_context *context,
-                  routing_filter      filter,
-                  uint64              branch);
+trunk_incorporate(trunk_node_context *context, uint64 branch);
 
 void
 trunk_modification_end(trunk_node_context *context);
@@ -240,6 +238,12 @@ trunk_merge_lookup(trunk_node_context  *context,
                    merge_accumulator   *result,
                    platform_log_handle *log);
 
+typedef struct branch_info {
+   uint64    addr;
+   page_type type;
+} branch_info;
+
+
 platform_status
 trunk_collect_branches(const trunk_node_context *context,
                        const ondisk_node_handle *handle,
@@ -247,7 +251,7 @@ trunk_collect_branches(const trunk_node_context *context,
                        comparison                start_type,
                        uint64                    capacity,
                        uint64                   *num_branches,
-                       uint64                   *branches,
+                       branch_info              *branches,
                        key_buffer               *min_key,
                        key_buffer               *max_key);
 

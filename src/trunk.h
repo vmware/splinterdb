@@ -193,7 +193,7 @@ typedef struct trunk_range_iterator {
    key_buffer      local_min_key;
    key_buffer      local_max_key;
    btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-   uint64          branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   branch_info     branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 
    // used for merge iterator construction
    iterator *itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];

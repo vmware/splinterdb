@@ -641,8 +641,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
-   rc = trunk_incorporate(
-      &spl->trunk_context, cmt->filter, cmt->branch.root_addr);
+   rc = trunk_incorporate(&spl->trunk_context, cmt->branch.root_addr);
    platform_assert_status_ok(rc);
    btree_dec_ref(
       spl->cc, &spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
@@ -956,8 +955,9 @@ trunk_range_iterator_init(trunk_handle         *spl,
          trunk_memtable_inc_ref(spl, mt_gen);
       }
 
-      range_itor->branch[range_itor->num_branches] = root_addr;
-
+      range_itor->branch[range_itor->num_branches].addr = root_addr;
+      range_itor->branch[range_itor->num_branches].type =
+         compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
       range_itor->num_branches++;
    }
 
@@ -1006,7 +1006,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
       uint64          branch_no   = range_itor->num_branches - i - 1;
       btree_iterator *btree_itor  = &range_itor->btree_itor[branch_no];
-      uint64          branch_addr = range_itor->branch[branch_no];
+      uint64          branch_addr = range_itor->branch[branch_no].addr;
       if (range_itor->compacted[branch_no]) {
          bool32 do_prefetch =
             range_itor->compacted[branch_no] && num_tuples > TRUNK_PREFETCH_MIN
