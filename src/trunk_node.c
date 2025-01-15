@@ -1622,8 +1622,9 @@ bundle_dec_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 static void
 bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
 {
-   if (!routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
-      platform_assert(vector_length(&bndl->branches) == 1);
+   if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
+      platform_assert(vector_length(&bndl->branches) <= 1);
+   } else {
       routing_filter_inc_ref(context->cc, &bndl->maplet);
    }
    bundle_inc_all_branch_refs(context, bndl);
@@ -1632,8 +1633,9 @@ bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
 static void
 bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
 {
-   if (!routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
-      platform_assert(vector_length(&bndl->branches) == 1);
+   if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
+      platform_assert(vector_length(&bndl->branches) <= 1);
+   } else {
       routing_filter_dec_ref(context->cc, &bndl->maplet);
    }
    bundle_dec_all_branch_refs(context, bndl);
@@ -3720,50 +3722,85 @@ leaf_estimate_unique_keys(trunk_node_context *context,
 
    routing_filter_vector maplets;
    vector_init(&maplets, context->hid);
-
-   rc = VECTOR_MAP_PTRS(&maplets, bundle_maplet, &leaf->inflight_bundles);
+   rc = vector_ensure_capacity(&maplets,
+                               vector_length(&leaf->inflight_bundles) + 1);
    if (!SUCCESS(rc)) {
-      platform_error_log("leaf_estimate_unique_keys: VECTOR_MAP_PTRS failed: "
-                         "%d\n",
+      platform_error_log("leaf_estimate_unique_keys: vector_ensure_capacity "
+                         "failed: %d\n",
                          rc.r);
       goto cleanup;
    }
 
-   bundle pivot_bundle = vector_get(&leaf->pivot_bundles, 0);
-   rc                  = vector_append(&maplets, bundle_maplet(&pivot_bundle));
-   if (!SUCCESS(rc)) {
-      platform_error_log(
-         "leaf_estimate_unique_keys: vector_append failed: %d\n", rc.r);
-      goto cleanup;
-   }
+   // rc = VECTOR_MAP_PTRS(&maplets, bundle_maplet, &leaf->inflight_bundles);
+   // if (!SUCCESS(rc)) {
+   //    platform_error_log("leaf_estimate_unique_keys: VECTOR_MAP_PTRS failed:
+   //    "
+   //                       "%d\n",
+   //                       rc.r);
+   //    goto cleanup;
+   // }
 
-   uint64 num_sb_fp     = 0;
-   uint64 num_sb_unique = 0;
+   // bundle pivot_bundle = vector_get(&leaf->pivot_bundles, 0);
+   // rc                  = vector_append(&maplets,
+   // bundle_maplet(&pivot_bundle)); if (!SUCCESS(rc)) {
+   //    platform_error_log(
+   //       "leaf_estimate_unique_keys: vector_append failed: %d\n", rc.r);
+   //    goto cleanup;
+   // }
+
+   uint64 unfiltered_tuples = 0;
+   uint64 num_fp            = 0;
+   uint64 num_unique_fp     = 0;
    for (uint16 inflight_maplet_num = 0;
-        inflight_maplet_num < vector_length(&maplets) - 1;
+        inflight_maplet_num < vector_length(&leaf->inflight_bundles);
         inflight_maplet_num++)
    {
-      routing_filter maplet = vector_get(&maplets, inflight_maplet_num);
-      num_sb_fp += maplet.num_fingerprints;
-      num_sb_unique += maplet.num_unique;
+      bundle *bndl =
+         vector_get_ptr(&leaf->inflight_bundles, inflight_maplet_num);
+      routing_filter maplet = bundle_maplet(bndl);
+      if (routing_filters_equal(&maplet, &NULL_ROUTING_FILTER)) {
+         btree_pivot_stats stats;
+         platform_assert(bundle_num_branches(bndl) <= 1);
+         btree_count_in_range(context->cc,
+                              context->cfg->btree_cfg,
+                              bundle_branch(bndl, 0).addr,
+                              node_pivot_min_key(leaf),
+                              node_pivot_max_key(leaf),
+                              &stats);
+         unfiltered_tuples += stats.num_kvs;
+      } else {
+         rc = vector_append(&maplets, maplet);
+         platform_assert_status_ok(rc);
+         num_fp += maplet.num_fingerprints;
+         num_unique_fp += maplet.num_unique;
+      }
    }
 
-   uint32 num_unique =
-      routing_filter_estimate_unique_fp(context->cc,
-                                        context->cfg->filter_cfg,
-                                        context->hid,
-                                        vector_data(&maplets),
-                                        vector_length(&maplets));
+   bundle pivot_bundle = vector_get(&leaf->pivot_bundles, 0);
+   rc                  = vector_append(&maplets, bundle_maplet(&pivot_bundle));
+   platform_assert_status_ok(rc);
 
-   num_unique = routing_filter_estimate_unique_keys_from_count(
-      context->cfg->filter_cfg, num_unique);
+   *estimate = unfiltered_tuples;
 
-   uint64 num_leaf_sb_fp         = leaf_num_tuples(leaf);
-   uint64 est_num_leaf_sb_unique = num_sb_unique * num_leaf_sb_fp / num_sb_fp;
-   uint64 est_num_non_leaf_sb_unique = num_sb_fp - est_num_leaf_sb_unique;
+   if (0 < num_fp) {
+      uint32 num_globally_unique_fp =
+         routing_filter_estimate_unique_fp(context->cc,
+                                           context->cfg->filter_cfg,
+                                           context->hid,
+                                           vector_data(&maplets),
+                                           vector_length(&maplets));
 
-   uint64 est_leaf_unique = num_unique - est_num_non_leaf_sb_unique;
-   *estimate              = est_leaf_unique;
+      num_globally_unique_fp = routing_filter_estimate_unique_keys_from_count(
+         context->cfg->filter_cfg, num_globally_unique_fp);
+
+      uint64 num_tuples                 = leaf_num_tuples(leaf);
+      uint64 est_num_leaf_sb_unique     = num_unique_fp * num_tuples / num_fp;
+      uint64 est_num_non_leaf_sb_unique = num_fp - est_num_leaf_sb_unique;
+
+      uint64 est_leaf_unique =
+         num_globally_unique_fp - est_num_non_leaf_sb_unique;
+      *estimate += est_leaf_unique;
+   }
 
 cleanup:
    vector_deinit(&maplets);
