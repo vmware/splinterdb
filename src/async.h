@@ -140,8 +140,9 @@ typedef enum async_status {
 /* async_state is used internally to store where the function should resume
  * execution next time it is called. */
 typedef void *async_state;
-#define ASYNC_STATE_INIT NULL
-#define ASYNC_STATE_DONE ((async_state)1)
+#define ASYNC_STATE_INIT   NULL
+#define ASYNC_STATE_DONE   ((async_state)1)
+#define ASYNC_STATE_LOCKED ((async_state)2)
 
 /*
  * A few macros we need internally.
@@ -169,7 +170,13 @@ typedef void *async_state;
    const uint64 __async_depth = (depth);                                       \
    platform_assert(__async_depth < ARRAY_SIZE((statep)->__async_state_stack)); \
    do {                                                                        \
-      async_state __tmp = ASYNC_STATE(statep);                                 \
+      async_state __tmp;                                                       \
+      while ((__tmp = __sync_lock_test_and_set(&ASYNC_STATE(statep),           \
+                                               ASYNC_STATE_LOCKED))            \
+             == ASYNC_STATE_LOCKED)                                            \
+      {                                                                        \
+         platform_pause();                                                     \
+      }                                                                        \
       if (__tmp == ASYNC_STATE_DONE) {                                         \
          return ASYNC_STATUS_DONE;                                             \
       } else if (__tmp != ASYNC_STATE_INIT) {                                  \

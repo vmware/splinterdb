@@ -836,15 +836,15 @@ typedef struct async_io_state {
 static void
 async_io_state_lock(async_io_state *state)
 {
-   while (__sync_lock_test_and_set(&state->lock, 1)) {
-      platform_yield();
-   }
+   // while (__sync_lock_test_and_set(&state->lock, 1)) {
+   //    platform_yield();
+   // }
 }
 
 static void
 async_io_state_unlock(async_io_state *state)
 {
-   __sync_lock_release(&state->lock);
+   // __sync_lock_release(&state->lock);
 }
 
 static void
