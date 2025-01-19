@@ -140,9 +140,8 @@ typedef enum async_status {
 /* async_state is used internally to store where the function should resume
  * execution next time it is called. */
 typedef void *async_state;
-#define ASYNC_STATE_INIT   NULL
-#define ASYNC_STATE_DONE   ((async_state)1)
-#define ASYNC_STATE_LOCKED ((async_state)2)
+#define ASYNC_STATE_INIT NULL
+#define ASYNC_STATE_DONE ((async_state)1)
 
 /*
  * A few macros we need internally.
@@ -165,19 +164,33 @@ typedef void *async_state;
 
 #define ASYNC_STATE(statep) (statep)->__async_state_stack[__async_depth]
 
+static inline void
+async_state_lock(uint64 depth, int *lock)
+{
+   while (depth == 0 && __sync_lock_test_and_set(lock, 1)) {
+      // FIXME: Should be platform_pause() but cannot include platform_inline.h
+      __builtin_ia32_pause();
+   }
+}
+
+static inline void
+async_state_unlock(uint64 depth, int *lock)
+{
+   if (depth == 0) {
+      __sync_lock_release(lock);
+   }
+}
+
 /* You MUST call this at the beginning of an async function. */
 #define async_begin(statep, depth)                                             \
    const uint64 __async_depth = (depth);                                       \
-   platform_assert(__async_depth < ARRAY_SIZE((statep)->__async_state_stack)); \
    do {                                                                        \
-      async_state __tmp;                                                       \
-      while ((__tmp = __sync_lock_test_and_set(&ASYNC_STATE(statep),           \
-                                               ASYNC_STATE_LOCKED))            \
-             == ASYNC_STATE_LOCKED)                                            \
-      {                                                                        \
-         platform_pause();                                                     \
-      }                                                                        \
+      platform_assert(__async_depth                                            \
+                      < ARRAY_SIZE((statep)->__async_state_stack));            \
+      async_state_lock(__async_depth, &(statep)->__async_state_lock);          \
+      async_state __tmp = ASYNC_STATE(statep);                                 \
       if (__tmp == ASYNC_STATE_DONE) {                                         \
+         async_state_unlock(__async_depth, &(statep)->__async_state_lock);     \
          return ASYNC_STATUS_DONE;                                             \
       } else if (__tmp != ASYNC_STATE_INIT) {                                  \
          goto *__tmp;                                                          \
@@ -191,6 +204,7 @@ typedef void *async_state;
    do {                                                                        \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
       stmt;                                                                    \
+      async_state_unlock(__async_depth, &(statep)->__async_state_lock);        \
       return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
    {                                                                           \
@@ -200,6 +214,7 @@ typedef void *async_state;
 #define async_yield(statep)                                                    \
    do {                                                                        \
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
+      async_state_unlock(__async_depth, &(statep)->__async_state_lock);        \
       return ASYNC_STATUS_RUNNING;                                             \
    _ASYNC_LABEL:                                                               \
    {                                                                           \
@@ -211,6 +226,7 @@ typedef void *async_state;
    do {                                                                        \
       ASYNC_STATE(statep) = ASYNC_STATE_DONE;                                  \
       __VA_OPT__((statep->__async_result = (__VA_ARGS__)));                    \
+      async_state_unlock(__async_depth, &(statep)->__async_state_lock);        \
       return ASYNC_STATUS_DONE;                                                \
    } while (0)
 
@@ -220,6 +236,7 @@ typedef void *async_state;
       ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
    _ASYNC_LABEL:                                                               \
       if (!(expr)) {                                                           \
+         async_state_unlock(__async_depth, &(statep)->__async_state_lock);     \
          return ASYNC_STATUS_RUNNING;                                          \
       }                                                                        \
    } while (0)
@@ -729,12 +746,14 @@ async_call_sync_callback_function(void *arg)
 #define DEFINE_ASYNC_STATE(name, height, ...)                                  \
    _Static_assert(0 < height, "height must be greater than 0");                \
    typedef struct name {                                                       \
+      int         __async_state_lock;                                          \
       async_state __async_state_stack[height];                                 \
       DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
    } name;                                                                     \
    static inline void name##_init(                                             \
       name *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))              \
    {                                                                           \
+      __state->__async_state_lock     = 0;                                     \
       __state->__async_state_stack[0] = ASYNC_STATE_INIT;                      \
       DEFINE_STATE_STRUCT_INIT_STMTS(__VA_ARGS__)                              \
    }

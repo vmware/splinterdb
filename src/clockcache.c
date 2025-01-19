@@ -827,25 +827,10 @@ clockcache_try_set_writeback(clockcache *cc,
 }
 
 typedef struct async_io_state {
-   uint64                lock;
    clockcache           *cc;
    uint64               *outstanding_pages;
    io_async_state_buffer iostate;
 } async_io_state;
-
-static void
-async_io_state_lock(async_io_state *state)
-{
-   // while (__sync_lock_test_and_set(&state->lock, 1)) {
-   //    platform_yield();
-   // }
-}
-
-static void
-async_io_state_unlock(async_io_state *state)
-{
-   // __sync_lock_release(&state->lock);
-}
 
 static void
 clockcache_write_callback(void *wbs)
@@ -853,9 +838,7 @@ clockcache_write_callback(void *wbs)
    async_io_state *state = (async_io_state *)wbs;
    clockcache     *cc    = state->cc;
 
-   async_io_state_lock(state);
    if (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
-      async_io_state_unlock(state);
       return;
    }
 
@@ -898,7 +881,6 @@ clockcache_write_callback(void *wbs)
       __sync_fetch_and_sub(state->outstanding_pages, count);
    }
 
-   async_io_state_unlock(state);
    io_async_state_deinit(state->iostate);
    platform_free(cc->heap_id, state);
 }
@@ -983,7 +965,6 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
          async_io_state *state = TYPED_MALLOC(cc->heap_id, state);
          platform_assert(state != NULL);
          state->cc                = cc;
-         state->lock              = 0;
          state->outstanding_pages = NULL;
          io_async_state_init(state->iostate,
                              cc->io,
@@ -1013,9 +994,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             io_async_state_append_page(state->iostate, next_entry->page.data);
          }
 
-         async_io_state_lock(state);
          io_async_run(state->iostate);
-         async_io_state_unlock(state);
       }
    }
    clockcache_close_log_stream();
@@ -2164,7 +2143,6 @@ clockcache_page_sync(clockcache  *cc,
       state = TYPED_MALLOC(cc->heap_id, state);
       platform_assert(state);
       state->cc                = cc;
-      state->lock              = 0;
       state->outstanding_pages = NULL;
       io_async_state_init(state->iostate,
                           cc->io,
@@ -2173,9 +2151,7 @@ clockcache_page_sync(clockcache  *cc,
                           clockcache_write_callback,
                           state);
       io_async_state_append_page(state->iostate, page->data);
-      async_io_state_lock(state);
       io_async_run(state->iostate);
-      async_io_state_unlock(state);
    } else {
       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
       platform_assert_status_ok(status);
@@ -2227,7 +2203,6 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
             state    = TYPED_MALLOC(cc->heap_id, state);
             platform_assert(state);
             state->cc                = cc;
-            state->lock              = 0;
             state->outstanding_pages = pages_outstanding;
             io_async_state_init(state->iostate,
                                 cc->io,
@@ -2245,9 +2220,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
                       || clockcache_test_flag(cc, entry_number, CC_CLEAN));
          if (state != NULL) {
             __sync_fetch_and_add(pages_outstanding, req_count);
-            async_io_state_lock(state);
             io_async_run(state->iostate);
-            async_io_state_unlock(state);
             state     = NULL;
             req_count = 0;
          }
@@ -2255,9 +2228,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
    }
    if (state != NULL) {
       __sync_fetch_and_add(pages_outstanding, req_count);
-      async_io_state_lock(state);
       io_async_run(state->iostate);
-      async_io_state_unlock(state);
    }
 }
 
@@ -2298,9 +2269,7 @@ clockcache_prefetch_callback(void *pfs)
 
    // Check whether we are done.  If not, this will enqueue us for a future
    // callback so we can check again.
-   async_io_state_lock(state);
    if (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
-      async_io_state_unlock(state);
       return;
    }
 
@@ -2338,7 +2307,6 @@ clockcache_prefetch_callback(void *pfs)
       clockcache_finish_load(cc, addr, entry_no);
    }
 
-   async_io_state_unlock(state);
    io_async_state_deinit(state->iostate);
    platform_free(cc->heap_id, state);
 }
@@ -2384,9 +2352,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   cc->stats[tid].page_reads[type] += count;
                   cc->stats[tid].prefetches_issued[type]++;
                }
-               async_io_state_lock(state);
                io_async_run(state->iostate);
-               async_io_state_unlock(state);
                state = NULL;
             }
             clockcache_log(addr,
@@ -2411,8 +2377,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   // start a new IO req
                   state = TYPED_MALLOC(cc->heap_id, state);
                   platform_assert(state);
-                  state->cc   = cc;
-                  state->lock = 0;
+                  state->cc = cc;
                   io_async_state_init(state->iostate,
                                       cc->io,
                                       io_async_preadv,
@@ -2452,9 +2417,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
          cc->stats[tid].page_reads[type] += count;
          cc->stats[tid].prefetches_issued[type]++;
       }
-      async_io_state_lock(state);
       io_async_run(state->iostate);
-      async_io_state_unlock(state);
       state = NULL;
    }
 }

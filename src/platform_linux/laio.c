@@ -200,6 +200,7 @@ laio_get_thread_context(io_handle *ioh)
 
 typedef struct laio_async_state {
    io_async_state      super;
+   int                 __async_state_lock;
    async_state         __async_state_stack[1];
    laio_handle        *io;
    io_async_cmd        cmd;
@@ -377,6 +378,7 @@ laio_async_state_init(io_async_state   *state,
    }
 
    ios->super.ops              = &laio_async_state_ops;
+   ios->__async_state_lock     = 0;
    ios->__async_state_stack[0] = ASYNC_STATE_INIT;
    ios->io                     = io;
    ios->cmd                    = cmd;
