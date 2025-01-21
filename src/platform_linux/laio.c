@@ -344,17 +344,18 @@ laio_async_state_get_result(io_async_state *gios)
       return STATUS_IO_ERROR;
    }
 
-   if (ios->status != ios->iovlen * ios->io->cfg->page_size) {
-      // FIXME: the result code of asynchrnous I/Os appears to often not refect
-      // the actual number of bytes read/written, so we log it and proceed
-      // anyway.
-      platform_error_log(
-         "asynchronous read %p appears to be short. requested %lu "
-         "bytes, read %d bytes\n",
-         ios,
-         ios->iovlen * ios->io->cfg->page_size,
-         ios->status);
-   }
+   // if (ios->status != ios->iovlen * ios->io->cfg->page_size) {
+   //    // FIXME: the result code of asynchrnous I/Os appears to often not
+   //    refect
+   //    // the actual number of bytes read/written, so we log it and proceed
+   //    // anyway.
+   //    platform_error_log(
+   //       "asynchronous read %p appears to be short. requested %lu "
+   //       "bytes, read %d bytes\n",
+   //       ios,
+   //       ios->iovlen * ios->io->cfg->page_size,
+   //       ios->status);
+   // }
    return STATUS_OK;
    // return ios->status == ios->iovlen * ios->io->cfg->page_size
    //           ? STATUS_OK
