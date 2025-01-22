@@ -21,7 +21,7 @@
 // A single async context
 typedef struct {
    trunk_lookup_async_state state;
-   pcq                      *ready_q;
+   pcq                     *ready_q;
    union {
       int8   refcount;   // Used by functionality test
       uint64 lookup_num; // Used by rest
@@ -53,8 +53,6 @@ void
 async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup);
 test_async_ctxt *
 async_ctxt_get(test_async_lookup *async_lookup);
-void
-async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt);
 
 void
 async_ctxt_submit(trunk_handle         *spl,

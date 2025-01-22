@@ -51,7 +51,7 @@ async_ctxt_get(test_async_lookup *async_lookup)
  * Ungets a context after trunk_lookup_async() returns success. The
  * context should not be in-flight. It's returned back to avail_q.
  */
-void
+static void
 async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt)
 {
    pcq_enqueue(async_lookup->avail_q, ctxt);
@@ -184,6 +184,7 @@ async_ctxt_process_ready(trunk_handle         *spl,
          // Something is ready, just can't be dequeued yet.
          break;
       }
+
       async_ctxt_process_one(
          spl, async_lookup, ctxt, latency_max, process_cb, process_arg);
    }

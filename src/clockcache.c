@@ -3103,7 +3103,8 @@ clockcache_init(clockcache        *cc,   // OUT
    }
 
    /* Entry per-thread ref counts */
-   size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
+   size_t refcount_size =
+      cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(cc->refcount[0]);
 
    rc = platform_buffer_init(&cc->rc_bh, refcount_size);
    if (!SUCCESS(rc)) {
