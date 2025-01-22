@@ -142,6 +142,9 @@ struct clockcache {
    cache_stats stats[MAX_THREADS];
 };
 
+_Static_assert(MAX_READ_REFCOUNT
+                  < 1ULL << (8 * sizeof(((clockcache *)NULL)->refcount[0])),
+               "MAX_READ_REFCOUNT too large");
 
 /*
  *-----------------------------------------------------------------------------
