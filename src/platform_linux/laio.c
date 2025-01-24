@@ -200,7 +200,6 @@ laio_get_thread_context(io_handle *ioh)
 
 typedef struct laio_async_state {
    io_async_state      super;
-   int                 __async_state_lock;
    async_state         __async_state_stack[1];
    laio_handle        *io;
    io_async_cmd        cmd;
@@ -213,8 +212,6 @@ typedef struct laio_async_state {
    struct iocb         req;
    struct iocb        *reqs[1];
    uint64              ctx_idx;
-   int                 submit_status;
-   bool32              io_completed;
    int                 status;
    uint64              iovlen;
    struct iovec       *iovs;
@@ -264,8 +261,7 @@ laio_async_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 {
    laio_async_state *ios =
       (laio_async_state *)((char *)iocb - offsetof(laio_async_state, req));
-   ios->status       = res;
-   ios->io_completed = 1;
+   ios->status = res;
    if (ios->callback) {
       ios->callback(ios->callback_arg);
    }
@@ -274,6 +270,14 @@ laio_async_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 static async_status
 laio_async_run(io_async_state *gios)
 {
+   // Reset submit_status to 1 every time we enter the function (1 is the return
+   // value from a successful call to io_submit).  This interoperates with the
+   // async_yield_if below, so that we will exit the wait_on_queue loop after
+   // yielding if submit_status is 1.  This enables us to avoid mutating the
+   // state (e.g. by storing the submit_status in the state) and still exit the
+   // loop after yielding when the io_submit is successful..
+   int submit_status = 1;
+
    laio_async_state *ios = (laio_async_state *)gios;
    async_begin(ios, 0);
 
@@ -281,8 +285,7 @@ laio_async_run(io_async_state *gios)
       async_return(ios);
    }
 
-   ios->io_completed = 0;
-   ios->pctx         = laio_get_thread_context((io_handle *)ios->io);
+   ios->pctx = laio_get_thread_context((io_handle *)ios->io);
    if (ios->cmd == io_async_preadv) {
       io_prep_preadv(&ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
    } else {
@@ -295,27 +298,39 @@ laio_async_run(io_async_state *gios)
    // having the io_count go negative if another thread calls io_cleanup.
    __sync_fetch_and_add(&ios->pctx->io_count, 1);
 
+   // Submit the request to the kernel and, if it succeeds, yield without making
+   // any further accesses to ios.  This is necessary to avoid racing with
+   // calls from io_cleanup to our callback function.  Furthermore, wait on the
+   // submit_waiters queue until the request succeeds or fails hard (i.e. not
+   // EAGAIN).  This also means that we can't save the result of io_submit in
+   // the state, so we save it in a local variable, submit_status.  This is safe
+   // because the only times we yield between writing and reading submit_status
+   // is on success, which is why we reset submit_status to 1 at the beginning
+   // of the function.
    async_wait_on_queue(
-      (ios->submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) != EAGAIN,
+      ({
+         async_yield_if(
+            ios,
+            (submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) == 1);
+         submit_status != EAGAIN;
+      }),
       ios,
       &ios->pctx->submit_waiters,
       &ios->waiter_node,
       ios->callback,
       ios->callback_arg);
 
-   if (ios->submit_status <= 0) {
+   if (submit_status <= 0) {
       __sync_fetch_and_sub(&ios->pctx->io_count, 1);
-      ios->status = ios->submit_status;
+      ios->status = submit_status - 1; // Don't set status to 0
 
       platform_error_log("%s(): OS-pid=%d, tid=%lu"
                          ", io_submit errorno=%d: %s\n",
                          __func__,
                          platform_getpid(),
                          platform_get_tid(),
-                         -ios->submit_status,
-                         strerror(-ios->submit_status));
-   } else {
-      async_await(ios, __sync_bool_compare_and_swap(&ios->io_completed, 1, 2));
+                         -submit_status,
+                         strerror(-submit_status));
    }
 
    async_return(ios);
@@ -325,7 +340,7 @@ static platform_status
 laio_async_state_get_result(io_async_state *gios)
 {
    laio_async_state *ios = (laio_async_state *)gios;
-   if (ios->submit_status <= 0) {
+   if (ios->status < 0) {
       return STATUS_IO_ERROR;
    }
 
@@ -378,7 +393,6 @@ laio_async_state_init(io_async_state   *state,
    }
 
    ios->super.ops              = &laio_async_state_ops;
-   ios->__async_state_lock     = 0;
    ios->__async_state_stack[0] = ASYNC_STATE_INIT;
    ios->io                     = io;
    ios->cmd                    = cmd;
@@ -387,6 +401,7 @@ laio_async_state_init(io_async_state   *state,
    ios->callback_arg           = callback_arg;
    ios->reqs[0]                = &ios->req;
    ios->iovlen                 = 0;
+   ios->status                 = 0;
    return STATUS_OK;
 }
 

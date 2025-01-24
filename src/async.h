@@ -146,9 +146,9 @@ typedef void *async_state;
 /*
  * A few macros we need internally.
  */
-#define _ASYNC_MERGE_TOKENS(a, b) a##b
-#define _ASYNC_MAKE_LABEL(a)      _ASYNC_MERGE_TOKENS(_async_label_, a)
-#define _ASYNC_LABEL              _ASYNC_MAKE_LABEL(__LINE__)
+#define _ASYNC_MERGE_TOKENS(a, b)    a##b
+#define _ASYNC_MAKE_LABEL(prefix, a) _ASYNC_MERGE_TOKENS(prefix, a)
+#define _ASYNC_LABEL(prefix)         _ASYNC_MAKE_LABEL(prefix, __LINE__)
 
 /*
  * Macros for implementing async functions.
@@ -164,37 +164,27 @@ typedef void *async_state;
 
 #define ASYNC_STATE(statep) (statep)->__async_state_stack[__async_depth]
 
-static inline void
-async_state_lock(uint64 depth, int *lock)
-{
-   while (depth == 0 && __sync_lock_test_and_set(lock, 1)) {
-      // FIXME: Should be platform_pause() but cannot include platform_inline.h
-      __builtin_ia32_pause();
-   }
-}
-
-static inline void
-async_state_unlock(uint64 depth, int *lock)
-{
-   if (depth == 0) {
-      __sync_lock_release(lock);
-   }
-}
-
 /* You MUST call this at the beginning of an async function. */
 #define async_begin(statep, depth)                                             \
    const uint64 __async_depth = (depth);                                       \
    do {                                                                        \
       platform_assert(__async_depth                                            \
                       < ARRAY_SIZE((statep)->__async_state_stack));            \
-      async_state_lock(__async_depth, &(statep)->__async_state_lock);          \
       async_state __tmp = ASYNC_STATE(statep);                                 \
       if (__tmp == ASYNC_STATE_DONE) {                                         \
-         async_state_unlock(__async_depth, &(statep)->__async_state_lock);     \
          return ASYNC_STATUS_DONE;                                             \
       } else if (__tmp != ASYNC_STATE_INIT) {                                  \
          goto *__tmp;                                                          \
       }                                                                        \
+   } while (0)
+
+#define async_yield_if(statep, expr)                                           \
+   do {                                                                        \
+      ASYNC_STATE(statep) = &&_ASYNC_LABEL(_async_yield_if);                   \
+      if (expr) {                                                              \
+         return ASYNC_STATUS_RUNNING;                                          \
+      }                                                                        \
+      _ASYNC_LABEL(_async_yield_if) : {}                                       \
    } while (0)
 
 /* Call statement and then yield without further modifying our state. This is
@@ -202,41 +192,28 @@ async_state_unlock(uint64 depth, int *lock)
  * execution using our state. */
 #define async_yield_after(statep, stmt)                                        \
    do {                                                                        \
-      ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
+      ASYNC_STATE(statep) = &&_ASYNC_LABEL(_async_yield_after);                \
       stmt;                                                                    \
-      async_state_unlock(__async_depth, &(statep)->__async_state_lock);        \
       return ASYNC_STATUS_RUNNING;                                             \
-   _ASYNC_LABEL:                                                               \
-   {                                                                           \
-   }                                                                           \
+      _ASYNC_LABEL(_async_yield_after) : {}                                    \
    } while (0)
 
-#define async_yield(statep)                                                    \
-   do {                                                                        \
-      ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
-      async_state_unlock(__async_depth, &(statep)->__async_state_lock);        \
-      return ASYNC_STATUS_RUNNING;                                             \
-   _ASYNC_LABEL:                                                               \
-   {                                                                           \
-   }                                                                           \
-   } while (0)
+#define async_yield(statep) async_yield_if(statep, 1)
 
 /* Supports an optional return value. */
 #define async_return(statep, ...)                                              \
    do {                                                                        \
       ASYNC_STATE(statep) = ASYNC_STATE_DONE;                                  \
       __VA_OPT__((statep->__async_result = (__VA_ARGS__)));                    \
-      async_state_unlock(__async_depth, &(statep)->__async_state_lock);        \
       return ASYNC_STATUS_DONE;                                                \
    } while (0)
 
 /* Suspend execution until expr is true. */
 #define async_await(statep, expr)                                              \
    do {                                                                        \
-      ASYNC_STATE(statep) = &&_ASYNC_LABEL;                                    \
-   _ASYNC_LABEL:                                                               \
-      if (!(expr)) {                                                           \
-         async_state_unlock(__async_depth, &(statep)->__async_state_lock);     \
+      ASYNC_STATE(statep) = &&_ASYNC_LABEL(_async_await);                      \
+      _ASYNC_LABEL(_async_await) : if (!(expr))                                \
+      {                                                                        \
          return ASYNC_STATUS_RUNNING;                                          \
       }                                                                        \
    } while (0)
@@ -381,21 +358,28 @@ async_wait_queue_release_all(async_wait_queue *q)
  * avoids the race where <ready> becomes true and all waiters get notified
  * between the time that we check the condition (w/o locks) and add ourselves to
  * the queue.
+ *
+ * The macro is also written so that <ready> gets used only once, which can be
+ * important if <ready> includes another async macro invocation.
  */
 #define async_wait_on_queue(ready, state, queue, node, callback, callback_arg) \
    do {                                                                        \
-      if (!(ready)) {                                                          \
-         do {                                                                  \
+      int async_wait_queue_locked = 0;                                         \
+      while (!(ready)) {                                                       \
+         if (async_wait_queue_locked) {                                        \
+            async_wait_queue_append(queue, node, callback, callback_arg);      \
+            async_yield_after(state, async_wait_queue_unlock(queue));          \
+            async_wait_queue_locked = 0;                                       \
+         } else {                                                              \
             async_wait_queue_lock(queue);                                      \
-            if (!(ready)) {                                                    \
-               async_wait_queue_append(queue, node, callback, callback_arg);   \
-               async_yield_after(state, async_wait_queue_unlock(queue));       \
-            } else {                                                           \
-               async_wait_queue_unlock(queue);                                 \
-            }                                                                  \
-         } while (!(ready));                                                   \
+            async_wait_queue_locked = 1;                                       \
+         }                                                                     \
+      }                                                                        \
+      if (async_wait_queue_locked) {                                           \
+         async_wait_queue_unlock(queue);                                       \
       }                                                                        \
    } while (0)
+
 
 /*
  * Macros for calling async functions.
@@ -753,7 +737,6 @@ async_call_sync_callback_function(void *arg)
    static inline void name##_init(                                             \
       name *__state DEFINE_STATE_STRUCT_INIT_PARAMS(__VA_ARGS__))              \
    {                                                                           \
-      __state->__async_state_lock     = 0;                                     \
       __state->__async_state_stack[0] = ASYNC_STATE_INIT;                      \
       DEFINE_STATE_STRUCT_INIT_STMTS(__VA_ARGS__)                              \
    }
