@@ -484,8 +484,9 @@ splinterdb_register_thread(splinterdb *kvs) // IN
 {
    platform_assert(kvs != NULL);
 
-   size_t scratch_size = trunk_get_scratch_size();
-   task_register_this_thread(kvs->task_sys, scratch_size);
+   size_t          scratch_size = trunk_get_scratch_size();
+   platform_status rc = task_register_this_thread(kvs->task_sys, scratch_size);
+   platform_assert_status_ok(rc);
 }
 
 /*
