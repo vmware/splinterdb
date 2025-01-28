@@ -1927,6 +1927,10 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    ondisk_node_ref *result       = NULL;
    threadid         tid          = platform_get_tid();
 
+   // if (node_height(node) == 0) {
+   //    node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
+   // }
+
    // node_record_and_report_maxes(context, node);
 
    if (context->stats) {
@@ -4050,7 +4054,8 @@ node_pivot_eventual_num_branches(trunk_node_context *context,
 static platform_status
 leaf_split(trunk_node_context *context,
            trunk_node         *leaf,
-           trunk_node_vector  *new_leaves)
+           trunk_node_vector  *new_leaves,
+           bool32             *abandon_compactions)
 {
    platform_status rc;
    uint64          target_num_leaves;
@@ -4071,6 +4076,7 @@ leaf_split(trunk_node_context *context,
       if (context->stats) {
          context->stats[tid].single_leaf_splits++;
       }
+      *abandon_compactions = FALSE;
       return VECTOR_EMPLACE_APPEND(
          new_leaves, node_copy_init, leaf, context->hid);
    }
@@ -4109,6 +4115,8 @@ leaf_split(trunk_node_context *context,
       debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg,
                                             vector_get_ptr(new_leaves, i)));
    }
+
+   *abandon_compactions = TRUE;
 
    if (context->stats) {
       uint64 elapsed_time = platform_timestamp_elapsed(start_time);
@@ -4275,13 +4283,15 @@ restore_balance_leaf(trunk_node_context     *context,
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, context->hid);
 
-   platform_status rc = leaf_split(context, leaf, &new_nodes);
+   bool32          abandon_compactions = FALSE;
+   platform_status rc =
+      leaf_split(context, leaf, &new_nodes, &abandon_compactions);
    if (!SUCCESS(rc)) {
       platform_error_log("restore_balance_leaf: leaf_split failed: %d\n", rc.r);
       goto cleanup_new_nodes;
    }
 
-   if (1 < vector_length(&new_nodes)) {
+   if (abandon_compactions) {
       pivot_state_map_abandon_entry(
          context, node_pivot_min_key(leaf), node_height(leaf));
       abandoned_leaf_compactions++;
