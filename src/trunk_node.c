@@ -4516,10 +4516,10 @@ restore_balance_index(trunk_node_context     *context,
    uint64 fullest_child    = 0;
    uint64 fullest_kv_bytes = 0;
    for (uint64 i = 0; i < node_num_children(index); i++) {
-      pivot  *pvt  = node_pivot(index, i);
-      bundle *bndl = node_pivot_bundle(index, i);
+      pivot *pvt = node_pivot(index, i);
 
-      if (2 * context->cfg->target_fanout < bundle_num_branches(bndl)
+      if (context->cfg->target_fanout
+             < node_pivot_eventual_num_branches(context, index, i)
           || rflimit < pvt->stats.num_tuples)
       {
          rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
