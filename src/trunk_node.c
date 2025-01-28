@@ -1927,9 +1927,6 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    ondisk_node_ref *result       = NULL;
    threadid         tid          = platform_get_tid();
 
-   if (node_height(node) == 0) {
-      node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
-   }
    // node_record_and_report_maxes(context, node);
 
    if (context->stats) {
@@ -4009,6 +4006,47 @@ leaf_split_init(trunk_node         *new_leaf,
                                pivot_inflight_bundle_start(pvt));
 }
 
+static uint64
+node_pivot_eventual_num_branches(trunk_node_context *context,
+                                 trunk_node         *node,
+                                 uint64              pivot_num)
+{
+   uint64 num_branches = 0;
+
+   bundle *bndl = node_pivot_bundle(node, pivot_num);
+   num_branches += bundle_num_branches(bndl);
+
+   /* Count the branches that will be added by inflight compactions. */
+   pivot_state_map_lock lock;
+   pivot_state_map_aquire_lock(&lock,
+                               context,
+                               &context->pivot_states,
+                               node_pivot_key(node, pivot_num),
+                               node_height(node));
+   pivot_compaction_state *state =
+      pivot_state_map_get_entry(context,
+                                &context->pivot_states,
+                                &lock,
+                                node_pivot_key(node, pivot_num),
+                                node_height(node));
+   if (state != NULL) {
+      pivot_state_lock_compactions(state);
+      bundle_compaction *bc = state->bundle_compactions;
+      while (bc != NULL) {
+         num_branches++;
+         bc = bc->next;
+      }
+      pivot_state_unlock_compactions(state);
+   }
+   pivot_state_map_release_lock(&lock, &context->pivot_states);
+
+   if (node_pivot_has_received_bundles(node, pivot_num)) {
+      num_branches++;
+   }
+
+   return num_branches;
+}
+
 static platform_status
 leaf_split(trunk_node_context *context,
            trunk_node         *leaf,
@@ -4026,7 +4064,10 @@ leaf_split(trunk_node_context *context,
       return rc;
    }
 
-   if (target_num_leaves == 1) {
+   if (target_num_leaves == 1
+       && node_pivot_eventual_num_branches(context, leaf, 0)
+             <= context->cfg->target_fanout)
+   {
       if (context->stats) {
          context->stats[tid].single_leaf_splits++;
       }
@@ -4454,6 +4495,8 @@ restore_balance_index(trunk_node_context     *context,
 {
    platform_status rc;
    threadid        tid = platform_get_tid();
+   uint64          rflimit =
+      routing_filter_max_fingerprints(context->cc, context->cfg->filter_cfg);
 
    debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
 
@@ -4466,7 +4509,9 @@ restore_balance_index(trunk_node_context     *context,
       pivot  *pvt  = node_pivot(index, i);
       bundle *bndl = node_pivot_bundle(index, i);
 
-      if (2 * context->cfg->target_fanout < bundle_num_branches(bndl)) {
+      if (2 * context->cfg->target_fanout < bundle_num_branches(bndl)
+          || rflimit < pvt->stats.num_tuples)
+      {
          rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
          if (!SUCCESS(rc)) {
             platform_error_log("%s():%d: flush_to_one_child() failed: %s",
