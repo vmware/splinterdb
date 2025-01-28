@@ -100,6 +100,14 @@ routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
    return (f1->addr == f2->addr);
 }
 
+static inline uint64
+routing_filter_max_fingerprints(cache *cc, const routing_config *cfg)
+{
+   uint64 extent_size      = cache_config_extent_size(cfg->cache_cfg);
+   uint64 addrs_per_extent = extent_size / sizeof(uint64);
+   return 2ULL * addrs_per_extent * (1ULL << cfg->log_index_size);
+}
+
 // clang-format off
 DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,
    param, cache *,                      cc,

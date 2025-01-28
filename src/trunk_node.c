@@ -1927,7 +1927,9 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    ondisk_node_ref *result       = NULL;
    threadid         tid          = platform_get_tid();
 
-
+   if (node_height(node) == 0) {
+      node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
+   }
    // node_record_and_report_maxes(context, node);
 
    if (context->stats) {
@@ -3706,9 +3708,12 @@ node_receive_bundles(trunk_node_context *context,
  ************************/
 
 static bool
-leaf_might_need_to_split(const trunk_node_config *cfg, trunk_node *leaf)
+leaf_might_need_to_split(const trunk_node_config *cfg,
+                         uint64                   routing_filter_tuple_limit,
+                         trunk_node              *leaf)
 {
-   return cfg->leaf_split_threshold_kv_bytes < leaf_num_kv_bytes(leaf);
+   return routing_filter_tuple_limit < leaf_num_tuples(leaf)
+          || cfg->leaf_split_threshold_kv_bytes < leaf_num_kv_bytes(leaf);
 }
 
 static platform_status
@@ -3814,7 +3819,10 @@ leaf_split_target_num_leaves(trunk_node_context *context,
 {
    debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
-   if (!leaf_might_need_to_split(context->cfg, leaf)) {
+   uint64 rflimit =
+      routing_filter_max_fingerprints(context->cc, context->cfg->filter_cfg);
+
+   if (!leaf_might_need_to_split(context->cfg, rflimit, leaf)) {
       *target = 1;
       return STATUS_OK;
    }
@@ -3839,6 +3847,11 @@ leaf_split_target_num_leaves(trunk_node_context *context,
    uint64 target_num_leaves =
       (estimated_unique_kv_bytes + context->cfg->target_leaf_kv_bytes / 2)
       / context->cfg->target_leaf_kv_bytes;
+
+   if (target_num_leaves < (num_tuples + rflimit - 1) / rflimit) {
+      target_num_leaves = (num_tuples + rflimit - 1) / rflimit;
+   }
+
    if (target_num_leaves < 1) {
       target_num_leaves = 1;
    }
@@ -3909,8 +3922,11 @@ leaf_split_select_pivots(trunk_node_context *context,
       goto cleanup;
    }
 
+   uint64 rflimit =
+      routing_filter_max_fingerprints(context->cc, context->cfg->filter_cfg);
    uint64 leaf_num            = 1;
    uint64 cumulative_kv_bytes = 0;
+   uint64 current_tuples      = 0;
    while (iterator_can_next(&merger.merge_itor->super)
           && leaf_num < target_num_leaves)
    {
@@ -3921,10 +3937,12 @@ leaf_split_select_pivots(trunk_node_context *context,
       uint64                  new_cumulative_kv_bytes = cumulative_kv_bytes
                                        + pivot_data->stats.key_bytes
                                        + pivot_data->stats.message_bytes;
+      uint64 new_tuples = current_tuples + pivot_data->stats.num_kvs;
       uint64 next_boundary =
          leaf_num * leaf_num_kv_bytes(leaf) / target_num_leaves;
-      if (cumulative_kv_bytes < next_boundary
-          && next_boundary <= new_cumulative_kv_bytes)
+      if ((cumulative_kv_bytes < next_boundary
+           && next_boundary <= new_cumulative_kv_bytes)
+          || rflimit < new_tuples)
       {
          rc = VECTOR_EMPLACE_APPEND(
             pivots, key_buffer_init_from_key, context->hid, curr_key);
@@ -3935,9 +3953,11 @@ leaf_split_select_pivots(trunk_node_context *context,
             goto cleanup;
          }
          leaf_num++;
+         current_tuples = 0;
       }
 
       cumulative_kv_bytes = new_cumulative_kv_bytes;
+      current_tuples += pivot_data->stats.num_kvs;
       iterator_next(&merger.merge_itor->super);
    }
 

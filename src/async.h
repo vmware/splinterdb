@@ -232,6 +232,8 @@ typedef void *async_state;
  * top of file. */
 #define async_await_subroutine(mystatep, func)                                 \
    do {                                                                        \
+      platform_assert(__async_depth + 1                                        \
+                      < ARRAY_SIZE((mystatep)->__async_state_stack));          \
       (mystatep)->__async_state_stack[__async_depth + 1] = ASYNC_STATE_INIT;   \
       async_await(mystatep,                                                    \
                   async_call_subroutine(func, mystatep, __async_depth + 1));   \
