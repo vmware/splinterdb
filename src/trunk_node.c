@@ -4975,8 +4975,8 @@ ondisk_bundle_merge_lookup(trunk_node_context  *context,
    platform_status rc;
 
    if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
-      platform_assert(bndl->num_branches == 1);
-      found_values = 1;
+      platform_assert(bndl->num_branches <= 1);
+      found_values = bndl->num_branches == 1 ? 1 : 0;
    } else {
       rc = routing_filter_lookup(context->cc,
                                  context->cfg->filter_cfg,
@@ -5069,8 +5069,8 @@ ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
    async_begin(state, depth);
 
    if (routing_filters_equal(&state->bndl->maplet, &NULL_ROUTING_FILTER)) {
-      platform_assert(state->bndl->num_branches == 1);
-      state->found_values = 1;
+      platform_assert(state->bndl->num_branches <= 1);
+      state->found_values = state->bndl->num_branches == 1 ? 1 : 0;
    } else {
       async_await_call(state,
                        routing_filter_lookup_async,
