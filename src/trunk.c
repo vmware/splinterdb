@@ -50,19 +50,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 #define TRUNK_NUM_MEMTABLES (4)
 
 /*
- * These are hard-coded to values so that statically allocated
- * structures sized by these limits can fit within 4K byte pages.
- *
- * NOTE: The bundle and sub-bundle related limits below are used to size arrays
- * of structures in splinter_trunk_hdr{}; i.e. Splinter pages of type
- * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
- */
-#define TRUNK_MAX_PIVOTS            (20)
-#define TRUNK_MAX_BUNDLES           (12)
-#define TRUNK_MAX_SUBBUNDLES        (24)
-#define TRUNK_MAX_SUBBUNDLE_FILTERS (24U)
-
-/*
  * For a "small" range query, you don't want to prefetch pages.
  * This is the minimal # of items requested before we turn ON prefetching.
  * (Empirically established through past experiments, for small key-value
@@ -72,15 +59,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 
 /* Some randomly chosen Splinter super-block checksum seed. */
 #define TRUNK_SUPER_CSUM_SEED (42)
-
-/*
- * During Splinter configuration, the fanout parameter is provided by the user.
- * SplinterDB defers internal node splitting in order to use hand-over-hand
- * locking. As a result, index nodes may temporarily have more pivots than the
- * fanout. Therefore, the number of pivot keys is over-provisioned by this
- * value.
- */
-#define TRUNK_EXTRA_PIVOT_KEYS (6)
 
 /*
  * Trunk logging functions.
@@ -512,28 +490,6 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    new_branch->root_addr = req.root_addr;
 
    platform_assert(req.num_tuples > 0);
-   uint64 filter_build_start;
-   if (spl->cfg.use_stats) {
-      filter_build_start = platform_get_timestamp();
-   }
-
-   routing_filter empty_filter = {0};
-
-   platform_status rc = routing_filter_add(spl->cc,
-                                           &spl->cfg.filter_cfg,
-                                           &empty_filter,
-                                           &cmt->filter,
-                                           req.fingerprint_arr,
-                                           req.num_tuples,
-                                           0);
-
-   platform_assert(SUCCESS(rc));
-   if (spl->cfg.use_stats) {
-      spl->stats[tid].root_filter_time_ns +=
-         platform_timestamp_elapsed(filter_build_start);
-      spl->stats[tid].root_filters_built++;
-      spl->stats[tid].root_filter_tuples += req.num_tuples;
-   }
 
    btree_pack_req_deinit(&req, spl->heap_id);
    if (spl->cfg.use_stats) {
@@ -645,7 +601,6 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    platform_assert_status_ok(rc);
    btree_dec_ref(
       spl->cc, &spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
-   routing_filter_dec_ref(spl->cc, &cmt->filter);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -1544,8 +1499,6 @@ trunk_create(trunk_config     *cfg,
 
    platform_batch_rwlock_init(&spl->trunk_root_lock);
 
-   srq_init(&spl->srq, platform_get_module_id(), hid);
-
    // get a free node for the root
    //    we don't use the mini allocator for this, since the root doesn't
    //    maintain constant height
@@ -1613,8 +1566,6 @@ trunk_mount(trunk_config     *cfg,
    spl->id      = id;
    spl->heap_id = hid;
    spl->ts      = ts;
-
-   srq_init(&spl->srq, platform_get_module_id(), hid);
 
    platform_batch_rwlock_init(&spl->trunk_root_lock);
 
@@ -1717,7 +1668,6 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
 void
 trunk_destroy(trunk_handle *spl)
 {
-   srq_deinit(&spl->srq);
    trunk_prepare_for_shutdown(spl);
    trunk_node_context_deinit(&spl->trunk_context);
    // clear out this splinter table from the meta page.
@@ -1745,7 +1695,6 @@ void
 trunk_unmount(trunk_handle **spl_in)
 {
    trunk_handle *spl = *spl_in;
-   srq_deinit(&spl->srq);
    trunk_prepare_for_shutdown(spl);
    trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    trunk_node_context_deinit(&spl->trunk_context);

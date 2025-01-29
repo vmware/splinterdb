@@ -126,7 +126,6 @@ typedef struct trunk_memtable_args {
 
 typedef struct trunk_compacted_memtable {
    trunk_branch        branch;
-   routing_filter      filter;
    timestamp           wait_start;
    trunk_memtable_args mt_args;
 } trunk_compacted_memtable;
@@ -169,9 +168,6 @@ struct trunk_handle {
    struct {
       uint64 counter;
    } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
-
-   // space rec queue
-   srq srq;
 
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
