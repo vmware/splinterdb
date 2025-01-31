@@ -23,9 +23,9 @@
 #define TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB        2
 
 // Setup reasonable BTree and branch tree configurations
-#define TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE     256
-#define TEST_CONFIG_DEFAULT_FANOUT                8
-#define TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE 24
+#define TEST_CONFIG_DEFAULT_FILTER_HASH_SIZE  26
+#define TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE 256
+#define TEST_CONFIG_DEFAULT_FANOUT            8
 
 // Deal with reasonable key / message sizes for tests
 // There are open issues in some tests for smaller key-sizes.
@@ -77,14 +77,13 @@ config_set_defaults(master_config *cfg)
       .allocator_capacity       = GiB_TO_B(TEST_CONFIG_DEFAULT_DISK_SIZE_GB),
       .cache_capacity           = GiB_TO_B(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB),
       .btree_rough_count_height = 1,
-      .filter_remainder_size    = 4,
+      .filter_hash_size    = TEST_CONFIG_DEFAULT_FILTER_HASH_SIZE,
       .filter_index_size        = TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE,
       .use_log                  = FALSE,
       .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
       .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,
       .memtable_capacity        = MiB_TO_B(TEST_CONFIG_DEFAULT_MEMTABLE_CAPACITY_MB),
       .fanout                   = TEST_CONFIG_DEFAULT_FANOUT,
-      .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
       .queue_scale_percent      = TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT,
@@ -140,8 +139,6 @@ config_usage()
    platform_error_log("\t--rough-count-height\n");
    platform_error_log("\t--filter-remainder-size\n");
    platform_error_log("\t--fanout (%d)\n", TEST_CONFIG_DEFAULT_FANOUT);
-   platform_error_log("\t--max-branches-per-node (%d)\n",
-                      TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE);
 
    platform_error_log("\t--num-normal-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS);
@@ -288,13 +285,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_uint64("rough-count-height", cfg, btree_rough_count_height)
          {
          }
-         config_set_uint64("filter-remainder-size", cfg, filter_remainder_size)
-         {
-         }
+         config_set_uint64("filter-hash-size", cfg, filter_hash_size) {}
          config_set_uint64("fanout", cfg, fanout) {}
-         config_set_uint64("max-branches-per-node", cfg, max_branches_per_node)
-         {
-         }
          config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {}
          config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
 

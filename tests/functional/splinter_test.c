@@ -766,7 +766,7 @@ out:
 
 static platform_status
 test_trunk_create_tables(trunk_handle  ***spl_handles,
-                         trunk_config    *cfg,
+                         system_config   *cfg,
                          allocator       *al,
                          cache           *cc[],
                          task_system     *ts,
@@ -781,7 +781,7 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       cache *cache_to_use = num_caches > 1 ? cc[spl_idx] : *cc;
-      spl_tables[spl_idx] = trunk_create(&cfg[spl_idx],
+      spl_tables[spl_idx] = trunk_create(&cfg[spl_idx].splinter_cfg,
                                          al,
                                          cache_to_use,
                                          ts,
@@ -819,10 +819,10 @@ test_trunk_destroy_tables(trunk_handle   **spl_tables,
  * Returns: Total # of inserts to-be-done in the workload
  */
 static uint64
-compute_per_table_inserts(uint64       *per_table_inserts, // OUT
-                          trunk_config *cfg,               // IN
-                          test_config  *test_cfg,          // IN
-                          uint8         num_tables)
+compute_per_table_inserts(uint64        *per_table_inserts, // OUT
+                          system_config *cfg,               // IN
+                          test_config   *test_cfg,          // IN
+                          uint8          num_tables)
 {
    uint64 tuple_size;
    uint64 num_inserts;
@@ -922,7 +922,7 @@ do_n_async_ctxt_inits(platform_heap_id             hid,
                       uint64                       num_threads,
                       uint8                        num_tables,
                       uint64                       max_async_inflight,
-                      trunk_config                *cfg,
+                      system_config               *cfg,
                       test_splinter_thread_params *params)
 {
    for (uint64 i = 0; i < num_threads; i++) {
@@ -960,7 +960,7 @@ do_n_async_ctxt_deinits(platform_heap_id             hid,
  */
 static platform_status
 splinter_perf_inserts(platform_heap_id             hid,
-                      trunk_config                *cfg,
+                      system_config               *cfg,
                       test_config                 *test_cfg,
                       trunk_handle               **spl_tables,
                       cache                       *cc[],
@@ -1083,7 +1083,7 @@ splinter_perf_inserts(platform_heap_id             hid,
  */
 static platform_status
 splinter_perf_lookups(platform_heap_id             hid,
-                      trunk_config                *cfg,
+                      system_config               *cfg,
                       test_config                 *test_cfg,
                       trunk_handle               **spl_tables,
                       task_system                 *ts,
@@ -1330,7 +1330,7 @@ splinter_perf_range_lookups(platform_heap_id             hid,
  * -----------------------------------------------------------------------------
  */
 static platform_status
-test_splinter_perf(trunk_config    *cfg,
+test_splinter_perf(system_config   *cfg,
                    test_config     *test_cfg,
                    allocator       *al,
                    cache           *cc[],
@@ -1454,7 +1454,7 @@ destroy_splinter:
 }
 
 platform_status
-test_splinter_periodic(trunk_config    *cfg,
+test_splinter_periodic(system_config   *cfg,
                        test_config     *test_cfg,
                        allocator       *al,
                        cache           *cc[],
@@ -1943,7 +1943,7 @@ destroy_splinter:
  * -----------------------------------------------------------------------------
  */
 platform_status
-test_splinter_parallel_perf(trunk_config    *cfg,
+test_splinter_parallel_perf(system_config   *cfg,
                             test_config     *test_cfg,
                             allocator       *al,
                             cache           *cc[],
@@ -2140,7 +2140,7 @@ destroy_splinter:
 }
 
 platform_status
-test_splinter_delete(trunk_config    *cfg,
+test_splinter_delete(system_config   *cfg,
                      test_config     *test_cfg,
                      allocator       *al,
                      cache           *cc[],
@@ -2483,17 +2483,13 @@ splinter_test_parse_perf_args(char ***argv,
 int
 splinter_test(int argc, char *argv[])
 {
-   io_config          io_cfg;
-   allocator_config   al_cfg;
-   shard_log_config   log_cfg;
-   task_system_config task_cfg;
-   int                config_argc;
-   char             **config_argv;
-   test_type          test;
-   platform_status    rc;
-   uint64             seed = 0;
-   uint64             test_ops;
-   uint64             correctness_check_frequency;
+   int             config_argc;
+   char          **config_argv;
+   test_type       test;
+   platform_status rc;
+   uint64          seed = 0;
+   uint64          test_ops;
+   uint64          correctness_check_frequency;
    // Max async IOs inflight per-thread
    uint32                 num_insert_threads, num_lookup_threads;
    uint32                 num_range_lookup_threads, max_async_inflight;
@@ -2704,29 +2700,16 @@ splinter_test(int argc, char *argv[])
    /*
     * 3. Parse trunk_config options, see config_usage()
     */
-   trunk_config *splinter_cfg =
-      TYPED_ARRAY_MALLOC(hid, splinter_cfg, num_tables);
-   data_config       *data_cfg;
-   clockcache_config *cache_cfg =
-      TYPED_ARRAY_MALLOC(hid, cache_cfg, num_tables);
+   system_config *system_cfg = TYPED_ARRAY_MALLOC(hid, system_cfg, num_tables);
 
-   rc = test_parse_args_n(splinter_cfg,
-                          &data_cfg,
-                          &io_cfg,
-                          &al_cfg,
-                          cache_cfg,
-                          &log_cfg,
-                          &task_cfg,
-                          &test_exec_cfg,
-                          &gen,
-                          num_tables,
-                          config_argc,
-                          config_argv);
+   rc = test_parse_args_n(
+      system_cfg, &test_exec_cfg, &gen, num_tables, config_argc, config_argv);
 
    // if there are multiple cache capacity, cache_per_table needs to be TRUE
    bool32 multi_cap = FALSE;
    for (uint8 i = 0; i < num_tables; i++) {
-      if (cache_cfg[i].capacity != cache_cfg[0].capacity) {
+      if (system_cfg[i].cache_cfg.capacity != system_cfg[0].cache_cfg.capacity)
+      {
          multi_cap = TRUE;
          break;
       }
@@ -2751,24 +2734,26 @@ splinter_test(int argc, char *argv[])
       MAX(num_lookup_threads, MAX(num_insert_threads, num_pthreads));
 
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
-      total_threads += task_cfg.num_background_threads[type];
+      total_threads += system_cfg[0].task_cfg.num_background_threads[type];
    }
    // Check if IO subsystem has enough reqs for max async IOs inflight
-   if (io_cfg.kernel_queue_size < total_threads * max_async_inflight) {
-      io_cfg.kernel_queue_size =
+   if (system_cfg[0].io_cfg.kernel_queue_size
+       < total_threads * max_async_inflight)
+   {
+      system_cfg[0].io_cfg.kernel_queue_size =
          ROUNDUP(total_threads * max_async_inflight, 32);
       platform_default_log("Bumped up IO queue size to %lu\n",
-                           io_cfg.kernel_queue_size);
+                           system_cfg[0].io_cfg.kernel_queue_size);
    }
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hid);
+   rc = io_handle_init(io, &system_cfg[0].io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto io_free;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &task_cfg);
+   rc = test_init_task_system(hid, io, &ts, &system_cfg[0].task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -2776,15 +2761,18 @@ splinter_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
+   rc_allocator_init(&al,
+                     &system_cfg[0].allocator_cfg,
+                     (io_handle *)io,
+                     hid,
+                     platform_get_module_id());
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
    platform_assert(cc != NULL);
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&cc[idx],
-                           &cache_cfg[idx],
+                           &system_cfg[idx].cache_cfg,
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
@@ -2803,7 +2791,7 @@ splinter_test(int argc, char *argv[])
 
    switch (test) {
       case perf:
-         rc = test_splinter_perf(splinter_cfg,
+         rc = test_splinter_perf(system_cfg,
                                  test_cfg,
                                  alp,
                                  caches,
@@ -2819,7 +2807,7 @@ splinter_test(int argc, char *argv[])
          platform_assert(SUCCESS(rc));
          break;
       case delete:
-         rc = test_splinter_delete(splinter_cfg,
+         rc = test_splinter_delete(system_cfg,
                                    test_cfg,
                                    alp,
                                    caches,
@@ -2834,7 +2822,7 @@ splinter_test(int argc, char *argv[])
          platform_assert(SUCCESS(rc));
          break;
       case seq_perf:
-         rc = test_splinter_perf(splinter_cfg,
+         rc = test_splinter_perf(system_cfg,
                                  test_cfg,
                                  alp,
                                  caches,
@@ -2850,7 +2838,7 @@ splinter_test(int argc, char *argv[])
          platform_assert(SUCCESS(rc));
          break;
       case semiseq_perf:
-         rc = test_splinter_perf(splinter_cfg,
+         rc = test_splinter_perf(system_cfg,
                                  test_cfg,
                                  alp,
                                  caches,
@@ -2868,9 +2856,11 @@ splinter_test(int argc, char *argv[])
       case parallel_perf:
          platform_assert(
             max_async_inflight == 0
-            || (0 < task_cfg.num_background_threads[TASK_TYPE_MEMTABLE]
-                && 0 < task_cfg.num_background_threads[TASK_TYPE_NORMAL]));
-         rc = test_splinter_parallel_perf(splinter_cfg,
+            || (0 < system_cfg[0]
+                       .task_cfg.num_background_threads[TASK_TYPE_MEMTABLE]
+                && 0 < system_cfg[0]
+                          .task_cfg.num_background_threads[TASK_TYPE_NORMAL]));
+         rc = test_splinter_parallel_perf(system_cfg,
                                           test_cfg,
                                           alp,
                                           caches,
@@ -2887,7 +2877,7 @@ splinter_test(int argc, char *argv[])
          platform_assert_status_ok(rc);
          break;
       case periodic:
-         rc = test_splinter_periodic(splinter_cfg,
+         rc = test_splinter_periodic(system_cfg,
                                      test_cfg,
                                      alp,
                                      caches,
@@ -2904,13 +2894,13 @@ splinter_test(int argc, char *argv[])
          break;
       case functionality:
          for (uint8 i = 0; i < num_tables; i++) {
-            splinter_cfg[i].data_cfg->key_to_string =
+            system_cfg[i].splinter_cfg.data_cfg->key_to_string =
                test_data_config->key_to_string;
          }
          rc = test_functionality(alp,
                                  (io_handle *)io,
                                  caches,
-                                 splinter_cfg,
+                                 system_cfg,
                                  seed,
                                  test_ops,
                                  correctness_check_frequency,
@@ -2947,8 +2937,7 @@ handle_deinit:
 io_free:
    platform_free(hid, io);
 cfg_free:
-   platform_free(hid, cache_cfg);
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, system_cfg);
    platform_free(hid, test_cfg);
 heap_destroy:
    platform_heap_destroy(&hid);

@@ -1147,10 +1147,6 @@ write_all_reports(ycsb_phase *phases, int num_phases)
 int
 ycsb_test(int argc, char *argv[])
 {
-   io_config          io_cfg;
-   allocator_config   allocator_cfg;
-   clockcache_config  cache_cfg;
-   shard_log_config   log_cfg;
    int                config_argc;
    char             **config_argv;
    platform_status    rc;
@@ -1187,17 +1183,10 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hid);
    platform_assert_status_ok(rc);
 
-   data_config  *data_cfg;
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   system_config *system_cfg = TYPED_MALLOC(hid, system_cfg);
+   uint64         num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
-   rc = test_parse_args(splinter_cfg,
-                        &data_cfg,
-                        &io_cfg,
-                        &allocator_cfg,
-                        &cache_cfg,
-                        &log_cfg,
-                        &task_cfg,
+   rc = test_parse_args(system_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1210,17 +1199,18 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (data_cfg->max_key_size != YCSB_KEY_SIZE) {
+   if (system_cfg->data_cfg->max_key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
       goto cleanup;
    }
 
-   uint64 overhead_bytes = memory_bytes
-                              / cache_config_page_size(splinter_cfg->cache_cfg)
-                              * (sizeof(clockcache_entry) + 64)
-                           + allocator_cfg.extent_capacity * sizeof(uint8)
-                           + allocator_cfg.page_capacity * sizeof(uint32);
+   uint64 overhead_bytes =
+      memory_bytes
+         / cache_config_page_size((cache_config *)&system_cfg->cache_cfg)
+         * (sizeof(clockcache_entry) + 64)
+      + system_cfg->allocator_cfg.extent_capacity * sizeof(uint8)
+      + system_cfg->allocator_cfg.page_capacity * sizeof(uint32);
    uint64 buffer_bytes = MiB_TO_B(1024);
    // if (memory_bytes > GiB_TO_B(40)) {
    //   buffer_bytes = use_existing ? MiB_TO_B(2048) : MiB_TO_B(1280);
@@ -1233,13 +1223,14 @@ ycsb_test(int argc, char *argv[])
    platform_default_log("overhead %lu MiB buffer %lu MiB\n",
                         B_TO_MiB(overhead_bytes),
                         B_TO_MiB(buffer_bytes));
-   cache_cfg.capacity      = memory_bytes - buffer_bytes;
-   cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.io_cfg->page_size;
+   system_cfg->cache_cfg.capacity = memory_bytes - buffer_bytes;
+   system_cfg->cache_cfg.page_capacity =
+      system_cfg->cache_cfg.capacity / system_cfg->cache_cfg.io_cfg->page_size;
 
-   uint64 al_size = allocator_cfg.extent_capacity * sizeof(uint8);
+   uint64 al_size = system_cfg->allocator_cfg.extent_capacity * sizeof(uint8);
    al_size        = ROUNDUP(al_size, 2 * MiB);
-   platform_assert(cache_cfg.capacity % (2 * MiB) == 0);
-   uint64 huge_tlb_memory_bytes = cache_cfg.capacity + al_size;
+   platform_assert(system_cfg->cache_cfg.capacity % (2 * MiB) == 0);
+   uint64 huge_tlb_memory_bytes = system_cfg->cache_cfg.capacity + al_size;
    platform_assert(huge_tlb_memory_bytes % (2 * MiB) == 0);
    // uint64 huge_tlb_pages = huge_tlb_memory_bytes / (2 * MiB);
    // uint64 remaining_memory_bytes =
@@ -1247,7 +1238,7 @@ ycsb_test(int argc, char *argv[])
    platform_default_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
                         B_TO_MiB(memory_bytes),
                         B_TO_MiB(huge_tlb_memory_bytes),
-                        B_TO_MiB(cache_cfg.capacity));
+                        B_TO_MiB(system_cfg->cache_cfg.capacity));
 
    // char *resize_cgroup_command =
    //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
@@ -1274,7 +1265,7 @@ ycsb_test(int argc, char *argv[])
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
-   rc = io_handle_init(io, &io_cfg, hid);
+   rc = io_handle_init(io, &system_cfg->io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
@@ -1291,17 +1282,20 @@ ycsb_test(int argc, char *argv[])
    trunk_handle *spl;
 
    if (use_existing) {
-      rc_allocator_mount(
-         &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
+      rc_allocator_mount(&al,
+                         &system_cfg->allocator_cfg,
+                         (io_handle *)io,
+                         hid,
+                         platform_get_module_id());
       rc = clockcache_init(cc,
-                           &cache_cfg,
+                           &system_cfg->cache_cfg,
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = trunk_mount(splinter_cfg,
+      spl = trunk_mount(&system_cfg->splinter_cfg,
                         (allocator *)&al,
                         (cache *)cc,
                         ts,
@@ -1309,17 +1303,20 @@ ycsb_test(int argc, char *argv[])
                         hid);
       platform_assert(spl);
    } else {
-      rc_allocator_init(
-         &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
+      rc_allocator_init(&al,
+                        &system_cfg->allocator_cfg,
+                        (io_handle *)io,
+                        hid,
+                        platform_get_module_id());
       rc = clockcache_init(cc,
-                           &cache_cfg,
+                           &system_cfg->cache_cfg,
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = trunk_create(splinter_cfg,
+      spl = trunk_create(&system_cfg->splinter_cfg,
                          (allocator *)&al,
                          (cache *)cc,
                          ts,
@@ -1360,7 +1357,7 @@ deinit_iohandle:
 free_iohandle:
    platform_free(hid, io);
 cleanup:
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, system_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

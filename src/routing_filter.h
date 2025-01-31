@@ -40,6 +40,25 @@ typedef struct routing_config {
    unsigned int seed;
 } routing_config;
 
+static inline platform_status
+routing_config_init(routing_config *cfg,
+                    cache_config   *cache_cfg,
+                    data_config    *data_cfg,
+                    uint32          fingerprint_size,
+                    uint32          log_index_size,
+                    hash_fn         hash,
+                    unsigned int    seed)
+{
+   cfg->cache_cfg        = cache_cfg;
+   cfg->data_cfg         = data_cfg;
+   cfg->fingerprint_size = fingerprint_size;
+   cfg->index_size       = 1UL << log_index_size;
+   cfg->log_index_size   = log_index_size;
+   cfg->hash             = hash;
+   cfg->seed             = seed;
+   return STATUS_OK;
+}
+
 /*
  * -----------------------------------------------------------------------------
  * Routing Filter: Disk-resident structure, on pages of type PAGE_TYPE_TRUNK.
@@ -101,9 +120,10 @@ routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
 }
 
 static inline uint64
-routing_filter_max_fingerprints(cache *cc, const routing_config *cfg)
+routing_filter_max_fingerprints(cache_config         *cache_cfg,
+                                const routing_config *cfg)
 {
-   uint64 extent_size      = cache_config_extent_size(cfg->cache_cfg);
+   uint64 extent_size      = cache_config_extent_size(cache_cfg);
    uint64 addrs_per_extent = extent_size / sizeof(uint64);
    return 2ULL * addrs_per_extent * (1ULL << cfg->log_index_size);
 }

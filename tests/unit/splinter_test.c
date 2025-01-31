@@ -85,18 +85,10 @@ CTEST_DATA(splinter)
    uint32 max_async_inflight;
    int    spl_num_tables;
 
-   // Config structs required, as per splinter_test() setup work.
-   io_config          io_cfg;
-   task_system_config task_cfg;
-   allocator_config   al_cfg;
-   shard_log_config   log_cfg;
-
    rc_allocator al;
 
    // Following get setup pointing to allocated memory
-   trunk_config          *splinter_cfg;
-   data_config           *data_cfg;
-   clockcache_config     *cache_cfg;
+   system_config         *system_cfg;
    platform_io_handle    *io;
    clockcache            *clock_cache;
    task_system           *tasks;
@@ -137,20 +129,12 @@ CTEST_SETUP(splinter)
    platform_assert_status_ok(rc);
 
    // Allocate memory for global config structures
-   data->splinter_cfg = TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg,
+   data->system_cfg = TYPED_ARRAY_MALLOC(data->hid, data->system_cfg,
                                           num_tables);
-
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
-   rc = test_parse_args_n(data->splinter_cfg,
-                          &data->data_cfg,
-                          &data->io_cfg,
-                          &data->al_cfg,
-                          data->cache_cfg,
-                          &data->log_cfg,
-                          &data->task_cfg,
+   rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
                           num_tables,
@@ -165,7 +149,7 @@ CTEST_SETUP(splinter)
    }
 
    // Check if IO subsystem has enough reqs for max async IOs inflight
-   io_config * io_cfgp = &data->io_cfg;
+   io_config * io_cfgp = &data->system_cfg->io_cfg;
    if (io_cfgp->kernel_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->kernel_queue_size =
          ROUNDUP(total_threads * data->max_async_inflight, 32);
@@ -176,15 +160,15 @@ CTEST_SETUP(splinter)
    // Allocate and initialize the IO sub-system.
    data->io = TYPED_MALLOC(data->hid, data->io);
    ASSERT_TRUE((data->io != NULL));
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
 
    data->tasks = NULL;
-   rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->task_cfg);
+   rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->system_cfg->task_cfg);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));
 
-   rc_allocator_init(&data->al, &data->al_cfg, (io_handle *)data->io, data->hid,
+   rc_allocator_init(&data->al, &data->system_cfg->allocator_cfg, (io_handle *)data->io, data->hid,
                      platform_get_module_id());
 
    data->clock_cache = TYPED_ARRAY_MALLOC(data->hid, data->clock_cache, num_caches);
@@ -192,7 +176,7 @@ CTEST_SETUP(splinter)
 
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&data->clock_cache[idx],
-                           &data->cache_cfg[idx],
+                           &data->system_cfg[idx].cache_cfg,
                            (io_handle *)data->io,
                            (allocator *)&data->al,
                            "test",
@@ -222,12 +206,8 @@ CTEST_TEARDOWN(splinter)
    io_handle_deinit(data->io);
    platform_free(data->hid, data->io);
 
-   if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
-   }
-
-   if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+   if (data->system_cfg) {
+      platform_free(data->hid, data->system_cfg);
    }
 
    platform_heap_destroy(&data->hid);
@@ -245,7 +225,7 @@ CTEST2(splinter, test_inserts)
 {
    allocator *alp = (allocator *)&data->al;
 
-   trunk_handle *spl = trunk_create(data->splinter_cfg,
+   trunk_handle *spl = trunk_create(&data->system_cfg->splinter_cfg,
                                     alp,
                                     (cache *)data->clock_cache,
                                     data->tasks,
@@ -416,7 +396,7 @@ CTEST2(splinter, test_lookups)
 {
    allocator *alp = (allocator *)&data->al;
 
-   trunk_handle *spl = trunk_create(data->splinter_cfg,
+   trunk_handle *spl = trunk_create(&data->system_cfg->splinter_cfg,
                                     alp,
                                     (cache *)data->clock_cache,
                                     data->tasks,
@@ -425,7 +405,7 @@ CTEST2(splinter, test_lookups)
    ASSERT_TRUE(spl != NULL);
 
    trunk_shadow shadow;
-   trunk_shadow_init(&shadow, data->data_cfg, data->hid);
+   trunk_shadow_init(&shadow, data->system_cfg->data_cfg, data->hid);
 
    // FALSE : No need to do verification-after-inserts, as that functionality
    // has been tested earlier in test_inserts() case.
@@ -638,7 +618,7 @@ CTEST2(splinter, test_splinter_print_diags)
 
    allocator *alp = (allocator *)&data->al;
 
-   trunk_handle *spl = trunk_create(data->splinter_cfg,
+   trunk_handle *spl = trunk_create(&data->system_cfg->splinter_cfg,
                                     alp,
                                     (cache *)data->clock_cache,
                                     data->tasks,
@@ -708,19 +688,20 @@ splinter_do_inserts(void         *datap,
 
    // If not, derive total # of rows to be inserted
    if (!num_inserts) {
-      trunk_config *splinter_cfg = data->splinter_cfg;
-      num_inserts                = splinter_cfg[0].max_kv_bytes_per_node
-                    * splinter_cfg[0].fanout / 2
+      trunk_config *system_cfg = &data->system_cfg->splinter_cfg;
+      num_inserts = system_cfg[0].trunk_node_cfg->incorporation_size_kv_bytes
+                    * system_cfg[0].trunk_node_cfg->target_fanout / 2
                     / generator_average_message_size(&data->gen);
    }
 
-   CTEST_LOG_INFO("Splinter_cfg max_kv_bytes_per_node=%lu"
-                  ", fanout=%lu"
-                  ", max_extents_per_memtable=%lu, num_inserts=%d. ",
-                  data->splinter_cfg[0].max_kv_bytes_per_node,
-                  data->splinter_cfg[0].fanout,
-                  data->splinter_cfg[0].mt_cfg.max_extents_per_memtable,
-                  num_inserts);
+   CTEST_LOG_INFO(
+      "system_cfg max_kv_bytes_per_node=%lu"
+      ", fanout=%lu"
+      ", max_extents_per_memtable=%lu, num_inserts=%d. ",
+      data->system_cfg[0].trunk_node_cfg.incorporation_size_kv_bytes,
+      data->system_cfg[0].trunk_node_cfg.target_fanout,
+      data->system_cfg[0].splinter_cfg.mt_cfg.max_extents_per_memtable,
+      num_inserts);
 
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;

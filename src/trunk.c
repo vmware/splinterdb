@@ -188,7 +188,7 @@ trunk_set_super_block(trunk_handle *spl,
 
    if (spl->trunk_context.root != NULL) {
       super->root_addr = spl->trunk_context.root->addr;
-      rc               = trunk_node_inc_ref(&spl->cfg.trunk_node_cfg,
+      rc               = trunk_node_inc_ref(spl->cfg.trunk_node_cfg,
                               spl->heap_id,
                               spl->cc,
                               spl->al,
@@ -223,7 +223,7 @@ trunk_set_super_block(trunk_handle *spl,
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
 
    if (old_root_addr != 0 && !is_create) {
-      rc = trunk_node_dec_ref(&spl->cfg.trunk_node_cfg,
+      rc = trunk_node_dec_ref(spl->cfg.trunk_node_cfg,
                               spl->heap_id,
                               spl->cc,
                               spl->al,
@@ -350,7 +350,7 @@ trunk_memtable_iterator_init(trunk_handle   *spl,
       allocator_inc_ref(spl->al, root_addr);
    }
    btree_iterator_init(spl->cc,
-                       &spl->cfg.btree_cfg,
+                       spl->cfg.btree_cfg,
                        itor,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
@@ -456,14 +456,16 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                                 greater_than_or_equal,
                                 FALSE,
                                 FALSE);
+   const routing_config *rfcfg = spl->cfg.trunk_node_cfg->filter_cfg;
+   uint64 rflimit = routing_filter_max_fingerprints(spl->cfg.cache_cfg, rfcfg);
    btree_pack_req req;
    btree_pack_req_init(&req,
                        spl->cc,
-                       &spl->cfg.btree_cfg,
+                       spl->cfg.btree_cfg,
                        itor,
-                       spl->cfg.max_tuples_per_node,
-                       spl->cfg.filter_cfg.hash,
-                       spl->cfg.filter_cfg.seed,
+                       rflimit,
+                       rfcfg->hash,
+                       rfcfg->seed,
                        spl->heap_id);
    uint64 pack_start;
    if (spl->cfg.use_stats) {
@@ -476,7 +478,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                    "platform_status of btree_pack: %d\n",
                    pack_status.r);
 
-   platform_assert(req.num_tuples <= spl->cfg.max_tuples_per_node);
+   platform_assert(req.num_tuples <= rflimit);
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_compaction_pack_time_ns +=
          platform_timestamp_elapsed(pack_start);
@@ -600,7 +602,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    rc = trunk_incorporate(&spl->trunk_context, cmt->branch.root_addr);
    platform_assert_status_ok(rc);
    btree_dec_ref(
-      spl->cc, &spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
+      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -750,7 +752,7 @@ trunk_memtable_lookup(trunk_handle      *spl,
                       merge_accumulator *data)
 {
    cache *const        cc  = spl->cc;
-   btree_config *const cfg = &spl->cfg.btree_cfg;
+   btree_config *const cfg = spl->cfg.btree_cfg;
    bool32              memtable_is_compacted;
    uint64              root_addr = trunk_memtable_root_addr_for_lookup(
       spl, generation, &memtable_is_compacted);
@@ -780,7 +782,7 @@ trunk_branch_iterator_init(trunk_handle   *spl,
                            bool32          should_inc_ref)
 {
    cache        *cc        = spl->cc;
-   btree_config *btree_cfg = &spl->cfg.btree_cfg;
+   btree_config *btree_cfg = spl->cfg.btree_cfg;
    if (branch_addr != 0 && should_inc_ref) {
       btree_inc_ref(cc, btree_cfg, branch_addr);
    }
@@ -806,7 +808,7 @@ trunk_branch_iterator_deinit(trunk_handle   *spl,
       return;
    }
    cache        *cc        = spl->cc;
-   btree_config *btree_cfg = &spl->cfg.btree_cfg;
+   btree_config *btree_cfg = spl->cfg.btree_cfg;
    btree_iterator_deinit(itor);
    if (should_dec_ref) {
       btree_dec_ref(cc, btree_cfg, itor->root_addr, PAGE_TYPE_BRANCH);
@@ -905,7 +907,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
          trunk_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
       range_itor->compacted[range_itor->num_branches] = compacted;
       if (compacted) {
-         btree_inc_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
+         btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
          trunk_memtable_inc_ref(spl, mt_gen);
       }
@@ -1201,7 +1203,7 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
             uint64 root_addr = btree_itor->root_addr;
             trunk_branch_iterator_deinit(spl, btree_itor, FALSE);
             btree_dec_ref(
-               spl->cc, &spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
+               spl->cc, spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
          } else {
             uint64 mt_gen = range_itor->memtable_start_gen - i;
             trunk_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
@@ -1517,7 +1519,7 @@ trunk_create(trunk_config     *cfg,
    trunk_set_super_block(spl, FALSE, FALSE, TRUE);
 
    trunk_node_context_init(
-      &spl->trunk_context, &spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
+      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -1591,13 +1593,8 @@ trunk_mount(trunk_config     *cfg,
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }
 
-   trunk_node_context_init(&spl->trunk_context,
-                           &spl->cfg.trunk_node_cfg,
-                           hid,
-                           cc,
-                           al,
-                           ts,
-                           root_addr);
+   trunk_node_context_init(
+      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
 
    trunk_set_super_block(spl, FALSE, FALSE, FALSE);
 
@@ -2105,7 +2102,7 @@ trunk_print_lookup(trunk_handle        *spl,
       platform_status rc;
 
       rc = btree_lookup(spl->cc,
-                        &spl->cfg.btree_cfg,
+                        spl->cfg.btree_cfg,
                         root_addr,
                         PAGE_TYPE_MEMTABLE,
                         target,
@@ -2125,11 +2122,8 @@ trunk_print_lookup(trunk_handle        *spl,
             mt_gen,
             memtable_is_compacted,
             message_str);
-         btree_print_lookup(spl->cc,
-                            &spl->cfg.btree_cfg,
-                            root_addr,
-                            PAGE_TYPE_MEMTABLE,
-                            target);
+         btree_print_lookup(
+            spl->cc, spl->cfg.btree_cfg, root_addr, PAGE_TYPE_MEMTABLE, target);
       }
    }
 
@@ -2192,14 +2186,9 @@ platform_status
 trunk_config_init(trunk_config        *trunk_cfg,
                   cache_config        *cache_cfg,
                   data_config         *data_cfg,
+                  btree_config        *btree_cfg,
                   log_config          *log_cfg,
-                  uint64               memtable_capacity,
-                  uint64               fanout,
-                  uint64               max_branches_per_node,
-                  uint64               btree_rough_count_height,
-                  uint64               filter_remainder_size,
-                  uint64               filter_index_size,
-                  uint64               reclaim_threshold,
+                  trunk_node_config   *trunk_node_cfg,
                   uint64               queue_scale_percent,
                   bool32               use_log,
                   bool32               use_stats,
@@ -2209,108 +2198,23 @@ trunk_config_init(trunk_config        *trunk_cfg,
 {
    trunk_validate_data_config(data_cfg);
 
-   routing_config *filter_cfg = &trunk_cfg->filter_cfg;
-
    ZERO_CONTENTS(trunk_cfg);
-   trunk_cfg->cache_cfg = cache_cfg;
-   trunk_cfg->data_cfg  = data_cfg;
-   trunk_cfg->log_cfg   = log_cfg;
+   trunk_cfg->cache_cfg      = cache_cfg;
+   trunk_cfg->data_cfg       = data_cfg;
+   trunk_cfg->btree_cfg      = btree_cfg;
+   trunk_cfg->trunk_node_cfg = trunk_node_cfg;
+   trunk_cfg->log_cfg        = log_cfg;
 
-   trunk_cfg->fanout                  = fanout;
-   trunk_cfg->max_branches_per_node   = max_branches_per_node;
    trunk_cfg->queue_scale_percent     = queue_scale_percent;
    trunk_cfg->use_log                 = use_log;
    trunk_cfg->use_stats               = use_stats;
    trunk_cfg->verbose_logging_enabled = verbose_logging;
    trunk_cfg->log_handle              = log_handle;
 
-   // Initialize point message btree
-   btree_config_init(&trunk_cfg->btree_cfg, cache_cfg, trunk_cfg->data_cfg);
-
    memtable_config_init(&trunk_cfg->mt_cfg,
-                        &trunk_cfg->btree_cfg,
+                        trunk_cfg->btree_cfg,
                         TRUNK_NUM_MEMTABLES,
-                        memtable_capacity);
-
-   // Has to be set after btree_config_init is called
-   trunk_cfg->max_kv_bytes_per_node =
-      trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
-      * cache_config_extent_size(cache_cfg) / MEMTABLE_SPACE_OVERHEAD_FACTOR;
-   trunk_cfg->max_tuples_per_node = trunk_cfg->max_kv_bytes_per_node / 32;
-
-   // filter config settings
-   filter_cfg->cache_cfg = cache_cfg;
-
-   filter_cfg->index_size     = filter_index_size;
-   filter_cfg->seed           = 42;
-   filter_cfg->hash           = trunk_cfg->data_cfg->key_hash;
-   filter_cfg->data_cfg       = trunk_cfg->data_cfg;
-   filter_cfg->log_index_size = 31 - __builtin_clz(filter_cfg->index_size);
-
-   uint64 filter_max_fingerprints = trunk_cfg->max_tuples_per_node;
-   uint64 filter_quotient_size = 64 - __builtin_clzll(filter_max_fingerprints);
-   uint64 filter_fingerprint_size =
-      filter_remainder_size + filter_quotient_size;
-   filter_cfg->fingerprint_size = filter_fingerprint_size;
-   uint64 max_value             = trunk_cfg->max_branches_per_node;
-   size_t max_value_size        = 64 - __builtin_clzll(max_value);
-
-   if (filter_fingerprint_size > 32 - max_value_size) {
-      platform_default_log(
-         "Fingerprint size %lu too large, max value size is %lu, "
-         "setting to %lu\n",
-         filter_fingerprint_size,
-         max_value_size,
-         32 - max_value_size);
-      filter_cfg->fingerprint_size = 32 - max_value_size;
-   }
-
-   /*
-    * Set filter index size
-    *
-    * In quick_filter_init() we have this assert:
-    *   index / addrs_per_page < cfg->extent_size / cfg->page_size
-    * where
-    *   - cfg is of type quick_filter_config
-    *   - index is less than num_indices, which equals to params.num_buckets /
-    *     cfg->index_size. params.num_buckets should be less than
-    *     trunk_cfg.max_tuples_per_node
-    *   - addrs_per_page = cfg->page_size / sizeof(uint64)
-    *   - pages_per_extent = cfg->extent_size / cfg->page_size
-    *
-    * Therefore we have the following constraints on filter-index-size:
-    *   (max_tuples_per_node / filter_cfg.index_size) / addrs_per_page <
-    *   pages_per_extent
-    * ->
-    *   max_tuples_per_node / filter_cfg.index_size < addrs_per_page *
-    *   pages_per_extent
-    * ->
-    *   filter_cfg.index_size > (max_tuples_per_node / (addrs_per_page *
-    *   pages_per_extent))
-    */
-   uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
-   uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
-   while (filter_cfg->index_size <= (trunk_cfg->max_tuples_per_node
-                                     / (addrs_per_page * pages_per_extent)))
-   {
-      platform_default_log("filter-index-size: %u is too small, "
-                           "setting to %u\n",
-                           filter_cfg->index_size,
-                           filter_cfg->index_size * 2);
-      filter_cfg->index_size *= 2;
-      filter_cfg->log_index_size++;
-   }
-
-   trunk_node_config_init(&trunk_cfg->trunk_node_cfg,
-                          data_cfg,
-                          &trunk_cfg->btree_cfg,
-                          filter_cfg,
-                          memtable_capacity * fanout,
-                          memtable_capacity,
-                          fanout,
-                          memtable_capacity,
-                          use_stats);
-
+                        trunk_node_cfg->incorporation_size_kv_bytes);
 
    // When everything succeeds, return success.
    return STATUS_OK;

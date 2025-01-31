@@ -39,17 +39,11 @@ CTEST_DATA(limitations)
    platform_heap_id hid;
 
    // Config structs required, as per splinter_test() setup work.
-   io_config          io_cfg;
-   allocator_config   al_cfg;
-   shard_log_config   log_cfg;
-   task_system_config task_cfg;
+   system_config *system_cfg;
 
    rc_allocator al;
 
    // Following get setup pointing to allocated memory
-   trunk_config          *splinter_cfg;
-   data_config           *data_cfg;
-   clockcache_config     *cache_cfg;
    platform_io_handle    *io;
    clockcache            *clock_cache;
    task_system           *tasks;
@@ -99,20 +93,12 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    uint64          num_tables = 1;
 
    // Allocate memory for global config structures
-   data->splinter_cfg =
-      TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
-
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+   data->system_cfg =
+      TYPED_ARRAY_MALLOC(data->hid, data->system_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
-   rc = test_parse_args_n(data->splinter_cfg,
-                          &data->data_cfg,
-                          &data->io_cfg,
-                          &data->al_cfg,
-                          data->cache_cfg,
-                          &data->log_cfg,
-                          &data->task_cfg,
+   rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
                           num_tables,
@@ -125,36 +111,32 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    ASSERT_TRUE((data->io != NULL));
 
    // Hard-fix the configured default page-size to an illegal value
-   uint64 page_size_configured = data->io_cfg.page_size;
+   uint64 page_size_configured = data->system_cfg->io_cfg.page_size;
    ASSERT_EQUAL(page_size_configured, 4096);
 
-   data->io_cfg.page_size = 2048;
+   data->system_cfg->io_cfg.page_size = 2048;
 
    // This should fail.
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // This should fail.
-   data->io_cfg.page_size = (page_size_configured * 2);
-   rc                     = io_handle_init(data->io, &data->io_cfg, data->hid);
+   data->system_cfg->io_cfg.page_size = (page_size_configured * 2);
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // Restore, and now set extent-size to invalid value
-   data->io_cfg.page_size = page_size_configured;
+   data->system_cfg->io_cfg.page_size = page_size_configured;
 
    // This should succeed, finally!.
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
    io_handle_deinit(data->io);
 
-   if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
-   }
-
-   if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+   if (data->system_cfg) {
+      platform_free(data->hid, data->system_cfg);
    }
 }
 
@@ -169,20 +151,12 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    uint64          num_tables = 1;
 
    // Allocate memory for global config structures
-   data->splinter_cfg =
-      TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
-
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+   data->system_cfg =
+      TYPED_ARRAY_MALLOC(data->hid, data->system_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
-   rc = test_parse_args_n(data->splinter_cfg,
-                          &data->data_cfg,
-                          &data->io_cfg,
-                          &data->al_cfg,
-                          data->cache_cfg,
-                          &data->log_cfg,
-                          &data->task_cfg,
+   rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
                           num_tables,
@@ -194,44 +168,41 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    data->io = TYPED_MALLOC(data->hid, data->io);
    ASSERT_TRUE((data->io != NULL));
 
-   uint64 pages_per_extent =
-      (data->io_cfg.extent_size / data->io_cfg.page_size);
+   uint64 pages_per_extent = (data->system_cfg->io_cfg.extent_size
+                              / data->system_cfg->io_cfg.page_size);
    ASSERT_EQUAL(MAX_PAGES_PER_EXTENT,
                 pages_per_extent,
                 "pages_per_extent=%lu != MAX_PAGES_PER_EXTENT=%lu ",
                 pages_per_extent,
                 MAX_PAGES_PER_EXTENT);
 
-   uint64 extent_size_configured = data->io_cfg.extent_size;
+   uint64 extent_size_configured = data->system_cfg->io_cfg.extent_size;
 
    // This should fail.
-   data->io_cfg.extent_size = data->io_cfg.page_size;
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   data->system_cfg->io_cfg.extent_size = data->system_cfg->io_cfg.page_size;
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // Halving the # of pages/extent. This should fail.
-   data->io_cfg.extent_size = (data->io_cfg.page_size * pages_per_extent) / 2;
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   data->system_cfg->io_cfg.extent_size =
+      (data->system_cfg->io_cfg.page_size * pages_per_extent) / 2;
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // Doubling the # of pages/extent. This should fail.
-   data->io_cfg.extent_size = (data->io_cfg.page_size * pages_per_extent * 2);
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   data->system_cfg->io_cfg.extent_size =
+      (data->system_cfg->io_cfg.page_size * pages_per_extent * 2);
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
-   data->io_cfg.extent_size = extent_size_configured;
+   data->system_cfg->io_cfg.extent_size = extent_size_configured;
 
    // This should succeed, finally!.
-   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
+   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
-   // Release resources acquired in this test case.
-   if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
-   }
-
-   if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+   if (data->system_cfg) {
+      platform_free(data->hid, data->system_cfg);
    }
 }
 

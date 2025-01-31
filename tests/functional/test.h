@@ -200,6 +200,19 @@ generator_average_message_size(test_message_generator *gen)
           + (gen->min_payload_size + gen->max_payload_size) / 2;
 }
 
+typedef struct system_config {
+   trunk_config       splinter_cfg;
+   trunk_node_config  trunk_node_cfg;
+   btree_config       btree_cfg;
+   routing_config     filter_cfg;
+   shard_log_config   log_cfg;
+   data_config       *data_cfg;
+   task_system_config task_cfg;
+   clockcache_config  cache_cfg;
+   allocator_config   allocator_cfg;
+   io_config          io_cfg;
+} system_config;
+
 /*
  * test_config_init() --
  *
@@ -208,21 +221,15 @@ generator_average_message_size(test_message_generator *gen)
  * may have been used to setup master_cfg beyond its initial defaults.
  */
 static inline platform_status
-test_config_init(trunk_config           *splinter_cfg,  // OUT
-                 data_config           **data_cfg,      // OUT
-                 shard_log_config       *log_cfg,       // OUT
-                 task_system_config     *task_cfg,      // OUT
-                 clockcache_config      *cache_cfg,     // OUT
-                 allocator_config       *allocator_cfg, // OUT
-                 io_config              *io_cfg,        // OUT
+test_config_init(system_config          *system_cfg, // OUT
                  test_message_generator *gen,
                  master_config          *master_cfg // IN
 )
 {
-   *data_cfg                 = test_data_config;
-   (*data_cfg)->max_key_size = master_cfg->max_key_size;
+   system_cfg->data_cfg               = test_data_config;
+   system_cfg->data_cfg->max_key_size = master_cfg->max_key_size;
 
-   io_config_init(io_cfg,
+   io_config_init(&system_cfg->io_cfg,
                   master_cfg->page_size,
                   master_cfg->extent_size,
                   master_cfg->io_flags,
@@ -230,36 +237,55 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                   master_cfg->io_async_queue_depth,
                   master_cfg->io_filename);
 
-   allocator_config_init(allocator_cfg, io_cfg, master_cfg->allocator_capacity);
+   allocator_config_init(&system_cfg->allocator_cfg,
+                         &system_cfg->io_cfg,
+                         master_cfg->allocator_capacity);
 
-   clockcache_config_init(cache_cfg,
-                          io_cfg,
+   clockcache_config_init(&system_cfg->cache_cfg,
+                          &system_cfg->io_cfg,
                           master_cfg->cache_capacity,
                           master_cfg->cache_logfile,
                           master_cfg->use_stats);
 
-   shard_log_config_init(log_cfg, &cache_cfg->super, *data_cfg);
+   shard_log_config_init(
+      &system_cfg->log_cfg, &system_cfg->cache_cfg.super, system_cfg->data_cfg);
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
    num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
-   platform_status rc                    = task_system_config_init(task_cfg,
+   platform_status rc = task_system_config_init(&system_cfg->task_cfg,
                                                 master_cfg->use_stats,
                                                 num_bg_threads,
                                                 trunk_get_scratch_size());
    platform_assert_status_ok(rc);
 
-   rc = trunk_config_init(splinter_cfg,
-                          &cache_cfg->super,
-                          *data_cfg,
-                          (log_config *)log_cfg,
+   rc = routing_config_init(&system_cfg->filter_cfg,
+                            &system_cfg->cache_cfg.super,
+                            system_cfg->data_cfg,
+                            master_cfg->filter_hash_size,
+                            master_cfg->filter_index_size,
+                            system_cfg->data_cfg->key_hash,
+                            42);
+
+   btree_config_init(&system_cfg->btree_cfg,
+                     &system_cfg->cache_cfg.super,
+                     system_cfg->data_cfg);
+
+   trunk_node_config_init(&system_cfg->trunk_node_cfg,
+                          system_cfg->data_cfg,
+                          &system_cfg->btree_cfg,
+                          &system_cfg->filter_cfg,
                           master_cfg->memtable_capacity,
                           master_cfg->fanout,
-                          master_cfg->max_branches_per_node,
                           master_cfg->btree_rough_count_height,
-                          master_cfg->filter_remainder_size,
-                          master_cfg->filter_index_size,
-                          master_cfg->reclaim_threshold,
+                          master_cfg->use_stats);
+
+   rc = trunk_config_init(&system_cfg->splinter_cfg,
+                          &system_cfg->cache_cfg.super,
+                          system_cfg->data_cfg,
+                          &system_cfg->btree_cfg,
+                          (log_config *)&system_cfg->log_cfg,
+                          &system_cfg->trunk_node_cfg,
                           master_cfg->queue_scale_percent,
                           master_cfg->use_log,
                           master_cfg->use_stats,
@@ -297,13 +323,7 @@ typedef struct test_exec_config {
  * Not all tests may need these, so this arg is optional, and can be NULL.
  */
 static inline platform_status
-test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
-                  data_config           **data_cfg,      // OUT
-                  io_config              *io_cfg,        // OUT
-                  allocator_config       *allocator_cfg, // OUT
-                  clockcache_config      *cache_cfg,     // OUT
-                  shard_log_config       *log_cfg,       // OUT
-                  task_system_config     *task_cfg,      // OUT
+test_parse_args_n(system_config           system_cfg[],  // OUT
                   test_exec_config       *test_exec_cfg, // OUT
                   test_message_generator *gen,           // OUT
                   uint8                   num_config,    // IN
@@ -328,15 +348,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    }
 
    for (i = 0; i < num_config; i++) {
-      rc = test_config_init(&splinter_cfg[i],
-                            &data_cfg[i],
-                            log_cfg,
-                            task_cfg,
-                            &cache_cfg[i],
-                            allocator_cfg,
-                            io_cfg,
-                            gen,
-                            &master_cfg[i]);
+      rc = test_config_init(&system_cfg[i], gen, &master_cfg[i]);
       if (!SUCCESS(rc)) {
          goto out;
       }
@@ -363,13 +375,7 @@ out:
  * sub-structures for individual SplinterDB sub-systems.
  */
 static inline platform_status
-test_parse_args(trunk_config           *splinter_cfg,
-                data_config           **data_cfg,
-                io_config              *io_cfg,
-                allocator_config       *allocator_cfg,
-                clockcache_config      *cache_cfg,
-                shard_log_config       *log_cfg,
-                task_system_config     *task_cfg,
+test_parse_args(system_config          *system_cfg,
                 uint64                 *seed,
                 test_message_generator *gen,
                 uint64                 *num_memtable_bg_threads,
@@ -381,18 +387,7 @@ test_parse_args(trunk_config           *splinter_cfg,
    ZERO_STRUCT(test_exec_cfg);
 
    platform_status rc;
-   rc = test_parse_args_n(splinter_cfg,
-                          data_cfg,
-                          io_cfg,
-                          allocator_cfg,
-                          cache_cfg,
-                          log_cfg,
-                          task_cfg,
-                          &test_exec_cfg,
-                          gen,
-                          1,
-                          argc,
-                          argv);
+   rc = test_parse_args_n(system_cfg, &test_exec_cfg, gen, 1, argc, argv);
    if (!SUCCESS(rc)) {
       return rc;
    }

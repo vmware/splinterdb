@@ -1501,11 +1501,7 @@ usage(const char *argv0)
 int
 btree_test(int argc, char *argv[])
 {
-   io_config              io_cfg;
-   allocator_config       al_cfg;
-   clockcache_config      cache_cfg;
-   shard_log_config       log_cfg;
-   task_system_config     task_cfg;
+   system_config          system_cfg;
    int                    config_argc;
    char                 **config_argv;
    bool32                 run_perf_test;
@@ -1547,16 +1543,7 @@ btree_test(int argc, char *argv[])
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
-   data_config  *data_cfg;
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
-
-   rc = test_parse_args(cfg,
-                        &data_cfg,
-                        &io_cfg,
-                        &al_cfg,
-                        &cache_cfg,
-                        &log_cfg,
-                        &task_cfg,
+   rc = test_parse_args(&system_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1564,7 +1551,7 @@ btree_test(int argc, char *argv[])
                         config_argc,
                         config_argv);
 
-   memtable_config *mt_cfg    = &cfg->mt_cfg;
+   memtable_config *mt_cfg    = &system_cfg.splinter_cfg.mt_cfg;
    mt_cfg->max_memtables      = 128;
    test_btree_config test_cfg = {
       .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0, .msggen = &gen};
@@ -1583,7 +1570,7 @@ btree_test(int argc, char *argv[])
       // For default test execution parameters, we need a reasonably big
       // enough cache to handle the Memtable being pinned.
       int reqd_cache_GiB = 4;
-      if (cache_cfg.capacity < (reqd_cache_GiB * GiB)) {
+      if (system_cfg.cache_cfg.capacity < (reqd_cache_GiB * GiB)) {
          platform_error_log(
             "Warning! Your configured cache size, %lu GiB, may be "
             "insufficient to run the 'btree_test --perf' test. "
@@ -1591,19 +1578,19 @@ btree_test(int argc, char *argv[])
             "If you change the key / message size, or the number "
             "of inserts, you may also need to increase the cache "
             "size appropriately.\n",
-            B_TO_GiB(cache_cfg.capacity),
+            B_TO_GiB(system_cfg.cache_cfg.capacity),
             reqd_cache_GiB);
       }
    }
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hid);
+   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &task_cfg);
+   rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -1611,12 +1598,15 @@ btree_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
+   rc_allocator_init(&al,
+                     &system_cfg.allocator_cfg,
+                     (io_handle *)io,
+                     hid,
+                     platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
-                        &cache_cfg,
+                        &system_cfg.cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,
                         "test",
@@ -1627,8 +1617,9 @@ btree_test(int argc, char *argv[])
 
    uint64 max_tuples_per_memtable =
       test_cfg.mt_cfg->max_extents_per_memtable
-      * cache_config_extent_size((cache_config *)&cache_cfg) / 3
-      / (data_cfg->max_key_size + generator_average_message_size(&gen));
+      * cache_config_extent_size((cache_config *)&system_cfg.cache_cfg) / 3
+      / (system_cfg.data_cfg->max_key_size
+         + generator_average_message_size(&gen));
    if (run_perf_test) {
       uint64 total_inserts = 64 * max_tuples_per_memtable;
 
@@ -1647,7 +1638,7 @@ btree_test(int argc, char *argv[])
        * Iterators can hold on to a large no. of pages, and would cause
        * cache lockup for low cache sizes.
        */
-      if (cache_cfg.capacity > 4 * MiB) {
+      if (system_cfg.cache_cfg.capacity > 4 * MiB) {
          rc = test_btree_rough_iterator(ccp, &test_cfg, hid, 8);
          platform_assert_status_ok(rc);
 
@@ -1669,7 +1660,6 @@ deinit_iohandle:
 free_iohandle:
    platform_free(hid, io);
 cleanup:
-   platform_free(hid, cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

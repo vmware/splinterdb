@@ -635,7 +635,7 @@ platform_status
 test_functionality(allocator       *al,
                    io_handle       *io,
                    cache           *cc[],
-                   trunk_config    *cfg,
+                   system_config   *cfg,
                    uint64           seed,
                    uint64           num_inserts,
                    uint64           correctness_check_frequency,
@@ -683,8 +683,8 @@ test_functionality(allocator       *al,
       }
       splinters[idx] = test_generate_allocator_root_id();
 
-      spl_tables[idx] =
-         trunk_create(&cfg[idx], al, cache_to_use, state, splinters[idx], hid);
+      spl_tables[idx] = trunk_create(
+         &cfg[idx].splinter_cfg, al, cache_to_use, state, splinters[idx], hid);
       if (spl_tables[idx] == NULL) {
          status = STATUS_NO_MEMORY;
          platform_error_log("splinter_create() failed for index=%d.\n", idx);

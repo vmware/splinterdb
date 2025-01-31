@@ -3714,7 +3714,8 @@ leaf_might_need_to_split(const trunk_node_config *cfg,
                          trunk_node              *leaf)
 {
    return routing_filter_tuple_limit < leaf_num_tuples(leaf)
-          || cfg->leaf_split_threshold_kv_bytes < leaf_num_kv_bytes(leaf);
+          || cfg->incorporation_size_kv_bytes * cfg->target_fanout
+                < leaf_num_kv_bytes(leaf);
 }
 
 static platform_status
@@ -3820,8 +3821,8 @@ leaf_split_target_num_leaves(trunk_node_context *context,
 {
    debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
-   uint64 rflimit =
-      routing_filter_max_fingerprints(context->cc, context->cfg->filter_cfg);
+   uint64 rflimit = routing_filter_max_fingerprints(
+      cache_get_config(context->cc), context->cfg->filter_cfg);
 
    if (!leaf_might_need_to_split(context->cfg, rflimit, leaf)) {
       *target = 1;
@@ -3845,9 +3846,9 @@ leaf_split_target_num_leaves(trunk_node_context *context,
    uint64 kv_bytes = leaf_num_kv_bytes(leaf);
    uint64 estimated_unique_kv_bytes =
       estimated_unique_keys * kv_bytes / num_tuples;
-   uint64 target_num_leaves =
-      (estimated_unique_kv_bytes + context->cfg->target_leaf_kv_bytes / 2)
-      / context->cfg->target_leaf_kv_bytes;
+   uint64 target_num_leaves = (estimated_unique_kv_bytes
+                               + context->cfg->incorporation_size_kv_bytes / 2)
+                              / context->cfg->incorporation_size_kv_bytes;
 
    if (target_num_leaves < (num_tuples + rflimit - 1) / rflimit) {
       target_num_leaves = (num_tuples + rflimit - 1) / rflimit;
@@ -3886,8 +3887,12 @@ leaf_split_select_pivots(trunk_node_context *context,
    }
 
    branch_merger merger;
-   branch_merger_init(
-      &merger, context->hid, context->cfg->data_cfg, min_key, max_key, 1);
+   branch_merger_init(&merger,
+                      context->hid,
+                      context->cfg->data_cfg,
+                      min_key,
+                      max_key,
+                      context->cfg->branch_rough_count_height);
 
    rc = branch_merger_add_bundle(&merger,
                                  context->cc,
@@ -3923,8 +3928,8 @@ leaf_split_select_pivots(trunk_node_context *context,
       goto cleanup;
    }
 
-   uint64 rflimit =
-      routing_filter_max_fingerprints(context->cc, context->cfg->filter_cfg);
+   uint64 rflimit = routing_filter_max_fingerprints(
+      cache_get_config(context->cc), context->cfg->filter_cfg);
    uint64 leaf_num            = 1;
    uint64 cumulative_kv_bytes = 0;
    uint64 current_tuples      = 0;
@@ -4504,9 +4509,9 @@ restore_balance_index(trunk_node_context     *context,
                       incorporation_tasks    *itasks)
 {
    platform_status rc;
-   threadid        tid = platform_get_tid();
-   uint64          rflimit =
-      routing_filter_max_fingerprints(context->cc, context->cfg->filter_cfg);
+   threadid        tid     = platform_get_tid();
+   uint64          rflimit = routing_filter_max_fingerprints(
+      cache_get_config(context->cc), context->cfg->filter_cfg);
 
    debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
 
@@ -4541,7 +4546,7 @@ restore_balance_index(trunk_node_context     *context,
       }
    }
 
-   if (context->cfg->per_child_flush_threshold_kv_bytes < fullest_kv_bytes) {
+   if (context->cfg->incorporation_size_kv_bytes < fullest_kv_bytes) {
       rc = flush_to_one_child(
          context, index, fullest_child, &all_new_childrefs, itasks);
       if (!SUCCESS(rc)) {
@@ -5604,21 +5609,18 @@ trunk_node_config_init(trunk_node_config    *config,
                        const data_config    *data_cfg,
                        const btree_config   *btree_cfg,
                        const routing_config *filter_cfg,
-                       uint64                leaf_split_threshold_kv_bytes,
-                       uint64                target_leaf_kv_bytes,
+                       uint64                incorporation_size_kv_bytes,
                        uint64                target_fanout,
-                       uint64                per_child_flush_threshold_kv_bytes,
+                       uint64                branch_rough_count_height,
                        bool32                use_stats)
 {
-   config->data_cfg                      = data_cfg;
-   config->btree_cfg                     = btree_cfg;
-   config->filter_cfg                    = filter_cfg;
-   config->leaf_split_threshold_kv_bytes = leaf_split_threshold_kv_bytes;
-   config->target_leaf_kv_bytes          = target_leaf_kv_bytes;
-   config->target_fanout                 = target_fanout;
-   config->per_child_flush_threshold_kv_bytes =
-      per_child_flush_threshold_kv_bytes;
-   config->use_stats = use_stats;
+   config->data_cfg                    = data_cfg;
+   config->btree_cfg                   = btree_cfg;
+   config->filter_cfg                  = filter_cfg;
+   config->incorporation_size_kv_bytes = incorporation_size_kv_bytes;
+   config->target_fanout               = target_fanout;
+   config->branch_rough_count_height   = branch_rough_count_height;
+   config->use_stats                   = use_stats;
 }
 
 

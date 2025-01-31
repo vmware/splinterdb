@@ -68,7 +68,7 @@ typedef struct master_config {
    uint64 btree_rough_count_height;
 
    // routing filter
-   uint64 filter_remainder_size;
+   uint64 filter_hash_size;
    uint64 filter_index_size;
 
    // log
@@ -81,7 +81,6 @@ typedef struct master_config {
    // splinter
    uint64 memtable_capacity;
    uint64 fanout;
-   uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
    uint64 queue_scale_percent;

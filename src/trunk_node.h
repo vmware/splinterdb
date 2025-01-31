@@ -22,10 +22,9 @@ typedef struct trunk_node_config {
    const data_config    *data_cfg;
    const btree_config   *btree_cfg;
    const routing_config *filter_cfg;
-   uint64                leaf_split_threshold_kv_bytes;
-   uint64                target_leaf_kv_bytes;
+   uint64                incorporation_size_kv_bytes;
    uint64                target_fanout;
-   uint64                per_child_flush_threshold_kv_bytes;
+   uint64                branch_rough_count_height;
    bool32                use_stats;
 } trunk_node_config;
 
@@ -165,10 +164,9 @@ trunk_node_config_init(trunk_node_config    *config,
                        const data_config    *data_cfg,
                        const btree_config   *btree_cfg,
                        const routing_config *filter_cfg,
-                       uint64                leaf_split_threshold_kv_bytes,
-                       uint64                target_leaf_kv_bytes,
+                       uint64                incorporation_size_kv_bytes,
                        uint64                target_fanout,
-                       uint64                per_child_flush_threshold_kv_bytes,
+                       uint64                branch_rough_count_height,
                        bool32                use_stats);
 
 platform_status

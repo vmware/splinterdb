@@ -48,6 +48,9 @@ typedef struct splinterdb {
    shard_log_config   log_cfg;
    task_system_config task_cfg;
    allocator_root_id  trunk_id;
+   routing_config     filter_cfg;
+   btree_config       btree_cfg;
+   trunk_node_config  trunk_node_cfg;
    trunk_config       trunk_cfg;
    trunk_handle      *spl;
    platform_heap_id   heap_id;
@@ -95,8 +98,8 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    if (!cfg->filter_index_size) {
       cfg->filter_index_size = 512;
    }
-   if (!cfg->filter_remainder_size) {
-      cfg->filter_remainder_size = 4;
+   if (!cfg->filter_hash_size) {
+      cfg->filter_hash_size = 26;
    }
 
    if (!cfg->memtable_capacity) {
@@ -104,9 +107,6 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    }
    if (!cfg->fanout) {
       cfg->fanout = 8;
-   }
-   if (!cfg->max_branches_per_node) {
-      cfg->max_branches_per_node = 24;
    }
    if (!cfg->reclaim_threshold) {
       cfg->reclaim_threshold = UINT64_MAX;
@@ -201,17 +201,31 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
+   rc = routing_config_init(&kvs->filter_cfg,
+                            &kvs->cache_cfg.super,
+                            kvs->data_cfg,
+                            cfg.filter_hash_size,
+                            cfg.filter_index_size,
+                            kvs->data_cfg->key_hash,
+                            42);
+
+   btree_config_init(&kvs->btree_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
+
+   trunk_node_config_init(&kvs->trunk_node_cfg,
+                          kvs->data_cfg,
+                          &kvs->btree_cfg,
+                          &kvs->filter_cfg,
+                          cfg.memtable_capacity,
+                          cfg.fanout,
+                          cfg.btree_rough_count_height,
+                          cfg.use_stats);
+
    rc = trunk_config_init(&kvs->trunk_cfg,
                           &kvs->cache_cfg.super,
                           kvs->data_cfg,
+                          &kvs->btree_cfg,
                           (log_config *)&kvs->log_cfg,
-                          cfg.memtable_capacity,
-                          cfg.fanout,
-                          cfg.max_branches_per_node,
-                          cfg.btree_rough_count_height,
-                          cfg.filter_remainder_size,
-                          cfg.filter_index_size,
-                          cfg.reclaim_threshold,
+                          &kvs->trunk_node_cfg,
                           cfg.queue_scale_percent,
                           cfg.use_log,
                           cfg.use_stats,

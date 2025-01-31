@@ -54,20 +54,16 @@ typedef struct trunk_config {
    cache_config *cache_cfg;
 
    // parameters
-   uint64 fanout;              // children to trigger split
-   uint64 max_tuples_per_node; // deprecated
-   uint64 max_kv_bytes_per_node;
-   uint64 max_branches_per_node;
-   uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
-                                // task.h
-   bool32            use_stats; // stats
-   memtable_config   mt_cfg;
-   btree_config      btree_cfg;
-   routing_config    filter_cfg;
-   data_config      *data_cfg;
-   bool32            use_log;
-   log_config       *log_cfg;
-   trunk_node_config trunk_node_cfg;
+   uint64 queue_scale_percent; // Governs when inserters perform bg tasks.  See
+                               // task.h
+
+   bool32             use_stats; // stats
+   memtable_config    mt_cfg;
+   btree_config      *btree_cfg;
+   data_config       *data_cfg;
+   bool32             use_log;
+   log_config        *log_cfg;
+   trunk_node_config *trunk_node_cfg;
 
    // verbose logging
    bool32               verbose_logging_enabled;
@@ -319,19 +315,19 @@ trunk_max_key_size(trunk_handle *spl)
 static inline int
 trunk_key_compare(trunk_handle *spl, key key1, key key2)
 {
-   return btree_key_compare(&spl->cfg.btree_cfg, key1, key2);
+   return btree_key_compare(spl->cfg.btree_cfg, key1, key2);
 }
 
 static inline void
 trunk_key_to_string(trunk_handle *spl, key key_to_print, char str[static 128])
 {
-   btree_key_to_string(&spl->cfg.btree_cfg, key_to_print, str);
+   btree_key_to_string(spl->cfg.btree_cfg, key_to_print, str);
 }
 
 static inline void
 trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
 {
-   btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
+   btree_message_to_string(spl->cfg.btree_cfg, msg, str);
 }
 
 uint64
@@ -341,14 +337,9 @@ platform_status
 trunk_config_init(trunk_config        *trunk_cfg,
                   cache_config        *cache_cfg,
                   data_config         *data_cfg,
+                  btree_config        *btree_cfg,
                   log_config          *log_cfg,
-                  uint64               memtable_capacity,
-                  uint64               fanout,
-                  uint64               max_branches_per_node,
-                  uint64               btree_rough_count_height,
-                  uint64               filter_remainder_size,
-                  uint64               filter_index_size,
-                  uint64               reclaim_threshold,
+                  trunk_node_config   *trunk_node_cfg,
                   uint64               queue_scale_percent,
                   bool32               use_log,
                   bool32               use_stats,
