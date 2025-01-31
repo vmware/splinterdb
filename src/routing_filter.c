@@ -53,21 +53,17 @@ RadixSort(uint32 *pData,
           uint32  mBuf[static MATRIX_ROWS * MATRIX_COLS],
           uint32 *pTemp,
           uint32  count,
-          uint32  fp_size,
-          uint32  orig_value_size)
+          uint32  fp_size)
 {
    uint32 *mIndex[MATRIX_ROWS]; // index matrix
    uint32 *pDst, *pSrc, *pTmp;
    uint32  i, j, m, n;
    uint32  u;
-   uint32  fpover = orig_value_size % 8;
    if (fp_size == 0) {
       fp_size = 1;
    }
-   uint32 rounds = (fp_size + fpover - 1) / 8 + 1;
+   uint32 rounds = (fp_size + 7) / 8;
    uint8  c;
-   uint32 fpshift    = orig_value_size / 8;
-   uint32 value_size = orig_value_size / 8 * 8;
 
    for (i = 0; i < MATRIX_ROWS; i++) {
       mIndex[i] = &mBuf[i * MATRIX_COLS];
@@ -76,15 +72,12 @@ RadixSort(uint32 *pData,
       }
    }
    for (i = 0; i < count; i++) { // generate histograms
-      u = pData[i] >> value_size;
+      u = pData[i];
       platform_assert(u < (1ULL << (8 * rounds)),
-                      "pData[i]=0x%x u=0x%x, fp_size=%u orig_value_size=%u "
-                      "value_size=%u rounds=%u\n",
+                      "pData[i]=0x%x u=0x%x, fp_size=%u rounds=%u\n",
                       pData[i],
                       u,
                       fp_size,
-                      orig_value_size,
-                      value_size,
                       rounds);
       for (j = 0; j < rounds; j++) {
          c = ((uint8 *)&u)[j];
@@ -108,18 +101,17 @@ RadixSort(uint32 *pData,
    for (j = 0; j < rounds; j++) {
       for (i = 0; i < count; i++) {
          u = pSrc[i];
-         c = ((uint8 *)&u)[j + fpshift];
+         c = ((uint8 *)&u)[j];
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
-                         ", mIndex[j][c]=%d, count=%u fpshift=%u\n",
+                         ", mIndex[j][c]=%d, count=%u\n",
                          platform_getpid(),
                          platform_get_tid(),
                          i,
                          j,
                          c,
                          mIndex[j][c],
-                         count,
-                         fpshift);
+                         count);
          pDst[mIndex[j][c]++] = u;
       }
       pTmp = pSrc;
@@ -457,12 +449,16 @@ routing_filter_add(cache                *cc,
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
       new_fp_arr[new_fp_no] >>= 32 - cfg->fingerprint_size;
-      new_fp_arr[new_fp_no] <<= value_size;
-      new_fp_arr[new_fp_no] |= value;
    }
 
-   uint32 *fp_arr = RadixSort(
-      new_fp_arr, matrix, temp, num_new_fp, cfg->fingerprint_size, value_size);
+   uint32 *fp_arr =
+      RadixSort(new_fp_arr, matrix, temp, num_new_fp, cfg->fingerprint_size);
+
+   for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
+      fp_arr[new_fp_no] <<= value_size;
+      fp_arr[new_fp_no] |= value;
+   }
+
 
    uint32 dst_fp_no         = 0;
    uint64 num_new_unique_fp = num_new_fp;
