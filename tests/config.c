@@ -23,9 +23,9 @@
 #define TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB        2
 
 // Setup reasonable BTree and branch tree configurations
-#define TEST_CONFIG_DEFAULT_FILTER_HASH_SIZE  26
-#define TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE 256
-#define TEST_CONFIG_DEFAULT_FANOUT            8
+#define TEST_CONFIG_DEFAULT_FILTER_HASH_SIZE      26
+#define TEST_CONFIG_DEFAULT_FILTER_LOG_INDEX_SIZE 8
+#define TEST_CONFIG_DEFAULT_FANOUT                8
 
 // Deal with reasonable key / message sizes for tests
 // There are open issues in some tests for smaller key-sizes.
@@ -78,7 +78,7 @@ config_set_defaults(master_config *cfg)
       .cache_capacity           = GiB_TO_B(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB),
       .btree_rough_count_height = 1,
       .filter_hash_size    = TEST_CONFIG_DEFAULT_FILTER_HASH_SIZE,
-      .filter_index_size        = TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE,
+      .filter_log_index_size        = TEST_CONFIG_DEFAULT_FILTER_LOG_INDEX_SIZE,
       .use_log                  = FALSE,
       .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
       .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,

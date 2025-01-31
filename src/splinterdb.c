@@ -95,8 +95,8 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->btree_rough_count_height = 1;
    }
 
-   if (!cfg->filter_index_size) {
-      cfg->filter_index_size = 512;
+   if (!cfg->filter_log_index_size) {
+      cfg->filter_log_index_size = 9;
    }
    if (!cfg->filter_hash_size) {
       cfg->filter_hash_size = 26;
@@ -205,7 +205,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                             &kvs->cache_cfg.super,
                             kvs->data_cfg,
                             cfg.filter_hash_size,
-                            cfg.filter_index_size,
+                            cfg.filter_log_index_size,
                             kvs->data_cfg->key_hash,
                             42);
 

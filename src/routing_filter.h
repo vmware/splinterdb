@@ -125,7 +125,7 @@ routing_filter_max_fingerprints(cache_config         *cache_cfg,
 {
    uint64 extent_size      = cache_config_extent_size(cache_cfg);
    uint64 addrs_per_extent = extent_size / sizeof(uint64);
-   return 2ULL * addrs_per_extent * (1ULL << cfg->log_index_size);
+   return 2ULL * addrs_per_extent * (1ULL << cfg->log_index_size) - 1;
 }
 
 // clang-format off

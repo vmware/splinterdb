@@ -263,7 +263,7 @@ test_config_init(system_config          *system_cfg, // OUT
                             &system_cfg->cache_cfg.super,
                             system_cfg->data_cfg,
                             master_cfg->filter_hash_size,
-                            master_cfg->filter_index_size,
+                            master_cfg->filter_log_index_size,
                             system_cfg->data_cfg->key_hash,
                             42);
 

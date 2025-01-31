@@ -366,7 +366,7 @@ filter_test(int argc, char *argv[])
       rc = test_filter_perf((cache *)cc,
                             &system_cfg.filter_cfg,
                             hid,
-                            rflimit,
+                            rflimit / system_cfg.trunk_node_cfg.target_fanout,
                             system_cfg.trunk_node_cfg.target_fanout,
                             100);
       platform_assert(SUCCESS(rc));
@@ -374,7 +374,7 @@ filter_test(int argc, char *argv[])
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
-                             rflimit,
+                             rflimit / system_cfg.trunk_node_cfg.target_fanout,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,

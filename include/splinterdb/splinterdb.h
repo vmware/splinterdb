@@ -94,7 +94,7 @@ typedef struct splinterdb_config {
 
    // filter
    uint64 filter_hash_size;
-   uint64 filter_index_size;
+   uint64 filter_log_index_size;
 
    // log
    _Bool use_log;

@@ -69,7 +69,7 @@ typedef struct master_config {
 
    // routing filter
    uint64 filter_hash_size;
-   uint64 filter_index_size;
+   uint64 filter_log_index_size;
 
    // log
    bool32 use_log;
