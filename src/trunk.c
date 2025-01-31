@@ -125,7 +125,6 @@ trunk_close_log_stream_if_enabled(trunk_handle           *spl,
 typedef struct ONDISK trunk_super_block {
    uint64 root_addr; // Address of the root of the trunk for the instance
                      // referenced by this superblock.
-   uint64      next_node_id;
    uint64      log_addr;
    uint64      log_meta_addr;
    uint64      timestamp;
@@ -133,24 +132,6 @@ typedef struct ONDISK trunk_super_block {
    bool32      unmounted;
    checksum128 checksum;
 } trunk_super_block;
-
-/*
- *-----------------------------------------------------------------------------
- * Trunk Handle
- *-----------------------------------------------------------------------------
- */
-
-static inline uint64
-trunk_page_size(const trunk_config *cfg)
-{
-   return cache_config_page_size(cfg->cache_cfg);
-}
-
-static inline uint64
-trunk_pages_per_extent(const trunk_config *cfg)
-{
-   return cache_config_pages_per_extent(cfg->cache_cfg);
-}
 
 /*
  *-----------------------------------------------------------------------------
@@ -427,9 +408,7 @@ out:
  * Returns a pointer to the memtable.
  */
 static memtable *
-trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
-                                        uint64         generation,
-                                        const threadid tid)
+trunk_memtable_compact(trunk_handle *spl, uint64 generation, const threadid tid)
 {
    timestamp comp_start = platform_get_timestamp();
 
@@ -663,7 +642,7 @@ trunk_memtable_flush_internal(trunk_handle *spl, uint64 generation)
 {
    const threadid tid = platform_get_tid();
    // pack and build filter.
-   trunk_memtable_compact_and_build_filter(spl, generation, tid);
+   trunk_memtable_compact(spl, generation, tid);
 
    // If we are assigned to do so, incorporate the memtable onto the root node.
    if (!trunk_try_start_incorporate(spl, generation)) {
@@ -1578,9 +1557,8 @@ trunk_mount(trunk_config     *cfg,
    trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
    if (super != NULL) {
       if (super->unmounted && super->timestamp > latest_timestamp) {
-         root_addr         = super->root_addr;
-         spl->next_node_id = super->next_node_id;
-         latest_timestamp  = super->timestamp;
+         root_addr        = super->root_addr;
+         latest_timestamp = super->timestamp;
       }
       trunk_release_super_block(spl, super_page);
    }

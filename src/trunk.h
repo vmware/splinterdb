@@ -127,43 +127,22 @@ typedef struct trunk_compacted_memtable {
 } trunk_compacted_memtable;
 
 struct trunk_handle {
-   uint64                super_block_idx;
-   uint64                next_node_id;
-   trunk_config          cfg;
-   platform_heap_id      heap_id;
+   trunk_config     cfg;
+   platform_heap_id heap_id;
+
+   uint64            super_block_idx;
+   allocator_root_id id;
+
    platform_batch_rwlock trunk_root_lock;
 
+   allocator         *al;
+   cache             *cc;
+   task_system       *ts;
+   log_handle        *log;
    trunk_node_context trunk_context;
+   memtable_context  *mt_ctxt;
 
-   // space reclamation
-   uint64 est_tuples_in_compaction;
-
-   // allocator/cache/log
-   allocator  *al;
-   cache      *cc;
-   log_handle *log;
-
-   // memtables
-   allocator_root_id id;
-   memtable_context *mt_ctxt;
-
-   // task system
-   task_system *ts; // ALEX: currently not durable
-
-   // stats
    trunk_stats *stats;
-
-   // Link inside the splinter list
-   List_Links links;
-
-   /*
-    * Per thread task and per splinter table task counter. Used to decide when
-    * to run tasks.
-    */
-
-   struct {
-      uint64 counter;
-   } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
 
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };

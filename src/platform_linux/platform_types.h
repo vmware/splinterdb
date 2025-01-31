@@ -64,8 +64,6 @@ typedef struct {
 
 typedef sem_t platform_semaphore;
 
-typedef void *List_Links;
-
 #define STRINGIFY(x)       #x
 #define STRINGIFY_VALUE(s) STRINGIFY(s)
 #define FRACTION_FMT(w, s) "%" STRINGIFY_VALUE(w) "." STRINGIFY_VALUE(s) "f"
