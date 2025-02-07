@@ -1799,7 +1799,7 @@ clockcache_get_in_cache_async(clockcache_get_async_state *state, uint64 depth)
       async_return(state);
    }
 
-   async_wait_on_queue(
+   async_wait_on_queue_until(
       !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING),
       state,
       &state->entry->waiters,

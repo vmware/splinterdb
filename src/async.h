@@ -364,7 +364,8 @@ async_wait_queue_release_all(async_wait_queue *q)
  * The macro is also written so that <ready> gets used only once, which can be
  * important if <ready> includes another async macro invocation.
  */
-#define async_wait_on_queue(ready, state, queue, node, callback, callback_arg) \
+#define async_wait_on_queue_until(                                             \
+   ready, state, queue, node, callback, callback_arg)                          \
    do {                                                                        \
       int async_wait_queue_locked = 0;                                         \
       while (!(ready)) {                                                       \
