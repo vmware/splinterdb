@@ -326,32 +326,6 @@ laio_async_run(io_async_state *gios)
    //    ios->callback,
    //    ios->callback_arg);
 
-   // do {
-   //    async_yield_if(
-   //       ios, (submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) ==
-   //       1);
-   //    while (submit_status == EAGAIN) {
-   //       if (async_wait_queue_locked) {
-   //          async_wait_queue_append(&ios->pctx->submit_waiters,
-   //                                  &ios->waiter_node,
-   //                                  ios->callback,
-   //                                  ios->callback_arg);
-   //          async_yield_after(
-   //             ios, async_wait_queue_unlock(&ios->pctx->submit_waiters));
-   //          async_wait_queue_locked = 0;
-   //       } else {
-   //          async_wait_queue_lock(&ios->pctx->submit_waiters);
-   //          async_wait_queue_locked = 1;
-   //       }
-   //       async_yield_if(
-   //          ios,
-   //          (submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) == 1);
-   //    }
-   //    if (async_wait_queue_locked) {
-   //       async_wait_queue_unlock(&ios->pctx->submit_waiters);
-   //    }
-   // } while (0);
-
    while (1) {
       // Save a local pointer to the queue because we lose access to ios after
       // a successful io_submit.
@@ -373,7 +347,7 @@ laio_async_run(io_async_state *gios)
          // The IO has completed, so we can safely access the state again.
          async_return(ios);
 
-      } else if (submit_status != EAGAIN) {
+      } else if (submit_status != -EAGAIN) {
          // Hard failure, which means we still own our state.  Bail out.
          async_wait_queue_unlock(&ios->pctx->submit_waiters);
          __sync_fetch_and_sub(&ios->pctx->io_count, 1);
@@ -400,55 +374,6 @@ laio_async_run(io_async_state *gios)
    }
 
    platform_assert(0, "Should not reach here");
-
-   // while (1) {
-   //    async_wait_queue_lock(&ios->pctx->submit_waiters);
-   //    async_yield_if(ios, ({
-   //                      async_wait_queue *queue =
-   //                      &ios->pctx->submit_waiters; submit_status =
-   //                      io_submit(ios->pctx->ctx, 1, ios->reqs); if
-   //                      (submit_status == 1) {
-   //                         async_wait_queue_unlock(queue);
-   //                      }
-   //                      submit_status == 1;
-   //                   }));
-   //    if (submit_status == 1) {
-   //       break;
-   //    }
-   //    if (submit_status != EAGAIN) {
-   //       async_wait_queue_unlock(&ios->pctx->submit_waiters);
-   //       break;
-   //    }
-   //    async_wait_queue_append(&ios->pctx->submit_waiters,
-   //                            &ios->waiter_node,
-   //                            ios->callback,
-   //                            ios->callback_arg);
-   //    async_yield_after(ios,
-   //                      async_wait_queue_unlock(&ios->pctx->submit_waiters));
-   // };
-
-   //    while (submit_status == EAGAIN) {
-   //       if (async_wait_queue_locked) {
-   //          async_wait_queue_append(&ios->pctx->submit_waiters,
-   //                                  &ios->waiter_node,
-   //                                  ios->callback,
-   //                                  ios->callback_arg);
-   //          async_yield_after(
-   //             ios, async_wait_queue_unlock(&ios->pctx->submit_waiters));
-   //          async_wait_queue_locked = 0;
-   //       } else {
-   //          async_wait_queue_lock(&ios->pctx->submit_waiters);
-   //          async_wait_queue_locked = 1;
-   //       }
-   //       async_yield_if(
-   //          ios,
-   //          (submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) ==
-   //          1);
-   //    }
-   //    if (async_wait_queue_locked) {
-   //       async_wait_queue_unlock(&ios->pctx->submit_waiters);
-   //    }
-   // } while (0);
 }
 
 static platform_status
