@@ -1966,83 +1966,21 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
       return;
    }
 
-   threadid thr_i;
-   uint32 h, rev_h;
-   uint64 lookups;
-   fraction avg_filter_lookups, avg_filter_false_positives, avg_branch_lookups;
-   // trunk_node node;
-   // trunk_node_get(spl->cc, spl->root_addr, &node);
-   uint32 height = 0; // trunk_node_height(&node);
-   // trunk_node_unget(spl->cc, &node);
-
-   trunk_stats *global;
-
-   global = TYPED_ZALLOC(spl->heap_id, global);
-   if (global == NULL) {
-      platform_error_log("Out of memory for stats\n");
-      return;
+   uint64 lookups_found = 0;
+   uint64 lookups_not_found = 0;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      lookups_found     += spl->stats[thr_i].lookups_found;
+      lookups_not_found += spl->stats[thr_i].lookups_not_found;
    }
-
-   for (thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      for (h = 0; h <= height; h++) {
-         global->filter_lookups[h]         += spl->stats[thr_i].filter_lookups[h];
-         global->branch_lookups[h]         += spl->stats[thr_i].branch_lookups[h];
-         global->filter_false_positives[h] += spl->stats[thr_i].filter_false_positives[h];
-         global->filter_negatives[h]       += spl->stats[thr_i].filter_negatives[h];
-      }
-      global->lookups_found     += spl->stats[thr_i].lookups_found;
-      global->lookups_not_found += spl->stats[thr_i].lookups_not_found;
-   }
-   lookups = global->lookups_found + global->lookups_not_found;
+   uint64 lookups = lookups_found + lookups_not_found;
 
    platform_log(log_handle, "Overall Statistics\n");
    platform_log(log_handle, "-----------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "| height:            %u\n", height);
    platform_log(log_handle, "| lookups:           %lu\n", lookups);
-   platform_log(log_handle, "| lookups found:     %lu\n", global->lookups_found);
-   platform_log(log_handle, "| lookups not found: %lu\n", global->lookups_not_found);
+   platform_log(log_handle, "| lookups found:     %lu\n", lookups_found);
+   platform_log(log_handle, "| lookups not found: %lu\n", lookups_not_found);
    platform_log(log_handle, "-----------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
-
-   platform_log(log_handle, "Filter/Branch Statistics\n");
-   platform_log(log_handle, "-------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "height   | avg filter lookups | avg false pos | false pos rate | avg branch lookups |\n");
-   platform_log(log_handle, "---------|--------------------|---------------|----------------|--------------------|\n");
-
-   for (h = 0; h <= height; h++) {
-      rev_h = height - h;
-      if (lookups == 0) {
-         avg_filter_lookups = zero_fraction;
-         avg_filter_false_positives = zero_fraction;
-         avg_branch_lookups = zero_fraction;
-      } else {
-         avg_filter_lookups =
-            init_fraction(global->filter_lookups[rev_h], lookups);
-         avg_filter_false_positives =
-            init_fraction(global->filter_false_positives[rev_h], lookups);
-         avg_branch_lookups = init_fraction(global->branch_lookups[rev_h],
-                                            lookups);
-      }
-
-      uint64 filter_negatives = global->filter_lookups[rev_h];
-      fraction false_positives_in_revision;
-      if (filter_negatives == 0) {
-         false_positives_in_revision = zero_fraction;
-      } else {
-         false_positives_in_revision =
-         init_fraction(global->filter_false_positives[rev_h],
-                       filter_negatives);
-      }
-      platform_log(log_handle, "%8u | "FRACTION_FMT(18, 2)" | "FRACTION_FMT(13, 4)" | "
-                   FRACTION_FMT(14, 4)" | "FRACTION_FMT(18, 4)"\n",
-                   rev_h, FRACTION_ARGS(avg_filter_lookups),
-                   FRACTION_ARGS(avg_filter_false_positives),
-                   FRACTION_ARGS(false_positives_in_revision),
-                   FRACTION_ARGS(avg_branch_lookups));
-   }
-   platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");

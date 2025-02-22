@@ -15,22 +15,6 @@
 #include "trunk_node.h"
 
 /*
- * Max height of the Trunk Tree; Limited for convenience to allow for static
- * allocation of various nested arrays. (Should be possible to increase this, if
- * ever needed, in future w/o perf impacts.) This limit is quite large enough
- * for most expected installations.
- */
-#define TRUNK_MAX_HEIGHT 8
-
-/*
- * Mini-allocator uses separate batches for each height of the Trunk tree.
- * Therefore, the max # of mini-batches that the mini-allocator can track
- * is limited by the max height of the SplinterDB trunk.
- */
-_Static_assert(TRUNK_MAX_HEIGHT == MINI_MAX_BATCHES,
-               "TRUNK_MAX_HEIGHT should be == MINI_MAX_BATCHES");
-
-/*
  * Upper-bound on most number of branches that we can find our lookup-key in.
  * (Used in the range iterator context.) A convenience limit, used mostly to
  * size statically defined arrays.
@@ -94,10 +78,6 @@ typedef struct trunk_stats {
 
    uint64 lookups_found;
    uint64 lookups_not_found;
-   uint64 filter_lookups[TRUNK_MAX_HEIGHT];
-   uint64 branch_lookups[TRUNK_MAX_HEIGHT];
-   uint64 filter_false_positives[TRUNK_MAX_HEIGHT];
-   uint64 filter_negatives[TRUNK_MAX_HEIGHT];
 } PLATFORM_CACHELINE_ALIGNED trunk_stats;
 
 // splinter refers to btrees as branches
