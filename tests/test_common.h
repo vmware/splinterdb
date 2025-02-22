@@ -11,7 +11,7 @@
  */
 #pragma once
 
-#include "trunk.h"
+#include "core.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
 

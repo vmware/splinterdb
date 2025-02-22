@@ -15,7 +15,7 @@
 #include "task.h"
 #include "allocator.h"
 #include "cache.h"
-#include "trunk.h"
+#include "core.h"
 
 // External APIs provided -ONLY- for use as a testing hook.
 void

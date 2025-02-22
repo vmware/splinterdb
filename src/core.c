@@ -7,7 +7,7 @@
  *     This file contains the implementation for SplinterDB.
  */
 
-#include "trunk.h"
+#include "core.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15

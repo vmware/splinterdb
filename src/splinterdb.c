@@ -18,7 +18,7 @@
 #include "clockcache.h"
 #include "platform_linux/platform.h"
 #include "rc_allocator.h"
-#include "trunk.h"
+#include "core.h"
 #include "btree_private.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"

@@ -37,7 +37,7 @@
 #include "platform.h"
 #include "config.h"
 #include "io.h"
-#include "trunk.h" // Needed for trunk_get_scratch_size()
+#include "core.h" // Needed for trunk_get_scratch_size()
 #include "task.h"
 
 /*

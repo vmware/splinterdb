@@ -3,7 +3,7 @@
 
 #include "platform.h"
 
-#include "trunk.h"
+#include "core.h"
 #include "task.h"
 #include "rc_allocator.h"
 #include "clockcache.h"

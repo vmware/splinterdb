@@ -3,7 +3,7 @@
 
 #include "allocator.h"
 #include "cache.h"
-#include "trunk.h"
+#include "core.h"
 #include "test.h"
 #include "platform.h"
 

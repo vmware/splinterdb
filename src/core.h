@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * trunk.h --
+ * core.h --
  *
  *     This file contains the interface for SplinterDB.
  */

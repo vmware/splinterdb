@@ -9,7 +9,7 @@
 
 #include "platform.h"
 
-#include "trunk.h"
+#include "core.h"
 #include "merge.h"
 #include "test.h"
 #include "allocator.h"

@@ -15,7 +15,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
-#include "trunk.h"
+#include "core.h"
 #include "test.h"
 
 #include "poison.h"

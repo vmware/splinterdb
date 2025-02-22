@@ -11,7 +11,7 @@
 
 #include "platform.h"
 
-#include "trunk.h"
+#include "core.h"
 #include "cache.h"
 #include "pcq.h"
 

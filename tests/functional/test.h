@@ -15,7 +15,7 @@
 #include "splinterdb/data.h"
 #include "rc_allocator.h"
 #include "shard_log.h"
-#include "trunk.h"
+#include "core.h"
 #include "../test_data.h"
 
 typedef enum test_key_type {

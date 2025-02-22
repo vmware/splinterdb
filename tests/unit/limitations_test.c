@@ -12,7 +12,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/public_platform.h"
-#include "trunk.h"
+#include "core.h"
 #include "clockcache.h"
 #include "allocator.h"
 #include "task.h"

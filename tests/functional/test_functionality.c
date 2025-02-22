@@ -4,7 +4,7 @@
 #include "platform.h"
 
 #include "test_functionality.h"
-#include "trunk.h"
+#include "core.h"
 #include "clockcache.h"
 #include "rc_allocator.h"
 #include "log.h"

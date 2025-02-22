@@ -9,7 +9,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/public_platform.h"
-#include "trunk.h"
+#include "core.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"

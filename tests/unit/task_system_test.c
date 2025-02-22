@@ -28,7 +28,7 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
 #include "config.h" // Reqd for definition of master_config{}
-#include "trunk.h"  // Needed for trunk_get_scratch_size()
+#include "core.h"  // Needed for trunk_get_scratch_size()
 #include "task.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
