@@ -10,15 +10,8 @@
 #pragma once
 
 #include "splinterdb/data.h"
-#include "btree.h"
 #include "memtable.h"
-#include "routing_filter.h"
-#include "cache.h"
-#include "iterator.h"
-#include "merge.h"
-#include "allocator.h"
 #include "log.h"
-#include "srq.h"
 #include "trunk_node.h"
 
 /*

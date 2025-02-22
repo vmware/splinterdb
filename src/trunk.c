@@ -7,18 +7,7 @@
  *     This file contains the implementation for SplinterDB.
  */
 
-#include "platform.h"
-
 #include "trunk.h"
-#include "btree.h"
-#include "memtable.h"
-#include "routing_filter.h"
-#include "shard_log.h"
-#include "merge.h"
-#include "task.h"
-#include "util.h"
-#include "srq.h"
-
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
