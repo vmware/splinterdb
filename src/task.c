@@ -26,9 +26,13 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
    /*
     * This is a special bitmask where 1 indicates free and 0 indicates
     * allocated. So, we set all bits to 1 during init.
+    * We set all bits to 1 even in the unused portion of the last bitmask
+    * to maintain compatibility with the cleanup assertion.
     */
-   for (int i = 0; i < MAX_THREADS; i++) {
-      tid_bitmask[i / 64] |= (1ULL << (i % 64));
+   int num_bitmasks = (MAX_THREADS + 63) / 64;
+   
+   for (int i = 0; i < num_bitmasks; i++) {
+      tid_bitmask[i] = (uint64)-1;
    }
 }
 
