@@ -233,7 +233,8 @@ platform_getpid()
 
 static inline void
 platform_yield()
-{}
+{
+}
 
 // platform predicates
 static inline bool32

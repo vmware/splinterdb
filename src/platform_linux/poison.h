@@ -51,7 +51,7 @@
 #pragma GCC poison fputs
 
 #pragma GCC poison printf
-//#pragma GCC poison FILE
+// #pragma GCC poison FILE
 
 #pragma GCC poison pthread_t
 

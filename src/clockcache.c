@@ -2172,7 +2172,8 @@ clockcache_get_internal(clockcache   *cc,       // IN
                return TRUE;
             case GET_RC_SUCCESS:
                if (clockcache_get_entry(cc, entry_number)->page.disk_addr
-                   != addr) {
+                   != addr)
+               {
                   // this also means we raced with eviction and really lost
                   clockcache_dec_ref(cc, entry_number, tid);
                   return TRUE;

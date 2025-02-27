@@ -171,7 +171,7 @@ typedef struct {
    long          min, max, total;
    unsigned long num; // no. of elements
    unsigned long count[];
-} * platform_histo_handle;
+} *platform_histo_handle;
 
 #define UNUSED_PARAM(_parm) _parm __attribute__((__unused__))
 #define UNUSED_TYPE(_parm)  UNUSED_PARAM(_parm)

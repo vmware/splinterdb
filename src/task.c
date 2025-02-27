@@ -23,36 +23,25 @@ _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
 static void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
-   // We use a 64 bit word to act as the thread bitmap.
-   _Static_assert(MAX_THREADS == 64, "Max threads should be 64");
    /*
     * This is a special bitmask where 1 indicates free and 0 indicates
     * allocated. So, we set all bits to 1 during init.
     */
    for (int i = 0; i < MAX_THREADS; i++) {
-      *tid_bitmask |= (1ULL << i);
+      tid_bitmask[i / 64] |= (1ULL << (i % 64));
    }
 }
 
 static inline uint64 *
 task_system_get_tid_bitmask(task_system *ts)
 {
-   return &ts->tid_bitmask;
+   return ts->tid_bitmask;
 }
 
 static threadid *
 task_system_get_max_tid(task_system *ts)
 {
    return &ts->max_tid;
-}
-
-/*
- * Return the bitmasks of tasks active. Mainly intended as a testing hook.
- */
-uint64
-task_active_tasks_mask(task_system *ts)
-{
-   return *task_system_get_tid_bitmask(ts);
 }
 
 /*
@@ -66,22 +55,42 @@ task_allocate_threadid(task_system *ts)
    uint64   old_bitmask;
    uint64   new_bitmask;
 
-   do {
-      old_bitmask = *tid_bitmask;
+   while (!__sync_lock_test_and_set(&ts->tid_bitmask_lock, 1)) {
+      // spin
+   }
+
+   int i;
+   for (i = 0; i < (MAX_THREADS + 63) / 64; i++) {
+      old_bitmask = tid_bitmask[i];
       // first bit set to 1 starting from LSB.
       uint64 pos = __builtin_ffsl(old_bitmask);
 
       // If all threads are in-use, bitmask will be all 0s.
       if (pos == 0) {
-         return INVALID_TID;
+         continue;
       }
 
       // builtin_ffsl returns the position plus 1.
       tid = pos - 1;
       // set bit at that position to 0, indicating in use.
       new_bitmask = (old_bitmask & ~(1ULL << (pos - 1)));
-   } while (
-      !__sync_bool_compare_and_swap(tid_bitmask, old_bitmask, new_bitmask));
+      if (__sync_bool_compare_and_swap(
+             &tid_bitmask[i], old_bitmask, new_bitmask))
+      {
+         break;
+      }
+   }
+
+   __sync_lock_release(&ts->tid_bitmask_lock);
+
+   if (i == 2) {
+      return INVALID_TID;
+   }
+
+   tid += i * 64;
+   if (tid >= MAX_THREADS) {
+      return INVALID_TID;
+   }
 
    // Invariant: we have successfully allocated tid
 
@@ -103,20 +112,22 @@ task_deallocate_threadid(task_system *ts, threadid tid)
 {
    uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
 
-   uint64 bitmask_val = *tid_bitmask;
+   uint64 bitmask_val = tid_bitmask[tid / 64];
 
    // Ensure that caller is only clearing for a thread that's in-use.
-   platform_assert(!(bitmask_val & (1ULL << tid)),
+   platform_assert(!(bitmask_val & (1ULL << (tid % 64))),
                    "Thread [%lu] is expected to be in-use. Bitmap: 0x%lx",
                    tid,
                    bitmask_val);
 
    // set bit back to 1 to indicate a free slot.
-   uint64 tmp_bitmask = *tid_bitmask;
-   uint64 new_value   = tmp_bitmask | (1ULL << tid);
-   while (!__sync_bool_compare_and_swap(tid_bitmask, tmp_bitmask, new_value)) {
-      tmp_bitmask = *tid_bitmask;
-      new_value   = tmp_bitmask | (1ULL << tid);
+   uint64 tmp_bitmask = tid_bitmask[tid / 64];
+   uint64 new_value   = tmp_bitmask | (1ULL << (tid % 64));
+   while (!__sync_bool_compare_and_swap(
+      tid_bitmask + tid / 64, tmp_bitmask, new_value))
+   {
+      tmp_bitmask = tid_bitmask[tid / 64];
+      new_value   = tmp_bitmask | (1ULL << (tid % 64));
    }
 }
 
@@ -666,7 +677,8 @@ task_enqueue(task_system *ts,
       new_task->enqueue_time = platform_get_timestamp();
       const threadid tid     = platform_get_tid();
       if (group->current_waiting_tasks
-          > group->stats[tid].max_outstanding_tasks) {
+          > group->stats[tid].max_outstanding_tasks)
+      {
          group->stats[tid].max_outstanding_tasks = group->current_waiting_tasks;
       }
       group->stats[tid].total_tasks_enqueued += 1;
@@ -876,10 +888,11 @@ task_system_create(platform_heap_id          hid,
       *system = NULL;
       return STATUS_NO_MEMORY;
    }
-   ts->cfg     = cfg;
-   ts->ioh     = ioh;
-   ts->heap_id = hid;
-   task_init_tid_bitmask(&ts->tid_bitmask);
+   ts->cfg              = cfg;
+   ts->ioh              = ioh;
+   ts->heap_id          = hid;
+   ts->tid_bitmask_lock = 0;
+   task_init_tid_bitmask(ts->tid_bitmask);
 
    // task initialization
    register_standard_hooks(ts);
@@ -934,12 +947,14 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
    if (tid != INVALID_TID) {
       task_deregister_this_thread(ts);
    }
-   if (ts->tid_bitmask != ((uint64)-1)) {
-      platform_error_log(
+   for (int i = 0; i < ARRAY_SIZE(ts->tid_bitmask); i++) {
+      platform_assert(
+         ts->tid_bitmask[i] == ((uint64)-1),
          "Destroying task system that still has some registered threads."
-         ", tid=%lu, tid_bitmask=0x%lx\n",
+         ", tid=%lu, tid_bitmask[%d] = %lx\n",
          tid,
-         ts->tid_bitmask);
+         i,
+         ts->tid_bitmask[i]);
    }
    platform_free(hid, ts);
    *ts_in = (task_system *)NULL;
@@ -992,7 +1007,8 @@ task_group_print_stats(task_group *group, task_type type)
          global.max_runtime_func = group->stats[i].max_runtime_func;
       }
       if (group->stats[i].max_queue_wait_time_ns
-          > global.max_queue_wait_time_ns) {
+          > global.max_queue_wait_time_ns)
+      {
          global.max_queue_wait_time_ns = group->stats[i].max_queue_wait_time_ns;
       }
       global.max_outstanding_tasks = MAX(global.max_outstanding_tasks,

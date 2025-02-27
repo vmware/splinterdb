@@ -291,12 +291,15 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_gib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_uint64("rough-count-height", cfg, btree_rough_count_height)
-         {}
+         {
+         }
          config_set_uint64("filter-remainder-size", cfg, filter_remainder_size)
-         {}
+         {
+         }
          config_set_uint64("fanout", cfg, fanout) {}
          config_set_uint64("max-branches-per-node", cfg, max_branches_per_node)
-         {}
+         {
+         }
          config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {}
          config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
 
@@ -418,7 +421,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].extent_size / cfg[cfg_idx].page_size
-             != MAX_PAGES_PER_EXTENT) {
+             != MAX_PAGES_PER_EXTENT)
+         {
             int npages = (cfg[cfg_idx].extent_size / cfg[cfg_idx].page_size);
             platform_error_log("For the configured page-size, %lu bytes, "
                                "the '%s' argument, %lu, results in %d "
