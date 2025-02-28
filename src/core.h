@@ -19,7 +19,7 @@
  * (Used in the range iterator context.) A convenience limit, used mostly to
  * size statically defined arrays.
  */
-#define TRUNK_RANGE_ITOR_MAX_BRANCHES 256
+#define CORE_RANGE_ITOR_MAX_BRANCHES 256
 
 
 /*
@@ -27,7 +27,7 @@
  * Splinter Configuration structure
  *----------------------------------------------------------------------
  */
-typedef struct trunk_config {
+typedef struct core_config {
    cache_config *cache_cfg;
 
    // parameters
@@ -45,9 +45,9 @@ typedef struct trunk_config {
    // verbose logging
    bool32               verbose_logging_enabled;
    platform_log_handle *log_handle;
-} trunk_config;
+} core_config;
 
-typedef struct trunk_stats {
+typedef struct core_stats {
    uint64 insertions;
    uint64 updates;
    uint64 deletions;
@@ -72,41 +72,34 @@ typedef struct trunk_stats {
 
    uint64 discarded_deletes;
 
-   uint64 root_filters_built;
-   uint64 root_filter_tuples;
-   uint64 root_filter_time_ns;
-
    uint64 lookups_found;
    uint64 lookups_not_found;
-} PLATFORM_CACHELINE_ALIGNED trunk_stats;
+} PLATFORM_CACHELINE_ALIGNED core_stats;
 
 // splinter refers to btrees as branches
-typedef struct trunk_branch {
+typedef struct core_branch {
    uint64 root_addr; // root address of point btree
-} trunk_branch;
+} core_branch;
 
-typedef struct trunk_handle             trunk_handle;
-typedef struct trunk_compact_bundle_req trunk_compact_bundle_req;
+typedef struct core_handle core_handle;
 
-typedef struct trunk_memtable_args {
-   trunk_handle *spl;
-   uint64        generation;
-} trunk_memtable_args;
+typedef struct core_memtable_args {
+   core_handle *spl;
+   uint64       generation;
+} core_memtable_args;
 
-typedef struct trunk_compacted_memtable {
-   trunk_branch        branch;
-   timestamp           wait_start;
-   trunk_memtable_args mt_args;
-} trunk_compacted_memtable;
+typedef struct core_compacted_memtable {
+   core_branch        branch;
+   timestamp          wait_start;
+   core_memtable_args mt_args;
+} core_compacted_memtable;
 
-struct trunk_handle {
-   trunk_config     cfg;
+struct core_handle {
+   core_config      cfg;
    platform_heap_id heap_id;
 
    uint64            super_block_idx;
    allocator_root_id id;
-
-   platform_batch_rwlock trunk_root_lock;
 
    allocator         *al;
    cache             *cc;
@@ -115,20 +108,20 @@ struct trunk_handle {
    trunk_node_context trunk_context;
    memtable_context  *mt_ctxt;
 
-   trunk_stats *stats;
+   core_stats *stats;
 
-   trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
+   core_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 
-typedef struct trunk_range_iterator {
+typedef struct core_range_iterator {
    iterator        super;
-   trunk_handle   *spl;
+   core_handle    *spl;
    uint64          num_tuples;
    uint64          num_branches;
    uint64          num_memtable_branches;
    uint64          memtable_start_gen;
    uint64          memtable_end_gen;
-   bool32          compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   bool32          compacted[CORE_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator *merge_itor;
    bool32          can_prev;
    bool32          can_next;
@@ -136,25 +129,12 @@ typedef struct trunk_range_iterator {
    key_buffer      max_key;
    key_buffer      local_min_key;
    key_buffer      local_max_key;
-   btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-   branch_info     branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   btree_iterator  btree_itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+   branch_info     branch[CORE_RANGE_ITOR_MAX_BRANCHES];
 
    // used for merge iterator construction
-   iterator *itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-} trunk_range_iterator;
-
-
-struct trunk_pivot_data;
-struct trunk_subbundle;
-
-struct trunk_hdr;
-typedef struct trunk_hdr trunk_hdr;
-
-typedef struct trunk_node {
-   uint64       addr;
-   page_handle *page;
-   trunk_hdr   *hdr;
-} trunk_node;
+   iterator *itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+} core_range_iterator;
 
 /*
  *----------------------------------------------------------------------
@@ -165,20 +145,20 @@ typedef struct trunk_node {
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, key tuple_key, message data);
+core_insert(core_handle *spl, key tuple_key, message data);
 
 platform_status
-trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result);
+core_lookup(core_handle *spl, key target, merge_accumulator *result);
 
 static inline bool32
-trunk_lookup_found(merge_accumulator *result)
+core_lookup_found(merge_accumulator *result)
 {
    return !merge_accumulator_is_null(result);
 }
 
 // clang-format off
-DEFINE_ASYNC_STATE(trunk_lookup_async_state, 1,
-   param, trunk_handle *,        spl,
+DEFINE_ASYNC_STATE(core_lookup_async_state, 1,
+   param, core_handle *,        spl,
    param, key,                   target,
    param, merge_accumulator *,   result,
    param, async_callback_fn,     callback,
@@ -189,95 +169,97 @@ DEFINE_ASYNC_STATE(trunk_lookup_async_state, 1,
 // clang-format on
 
 async_status
-trunk_lookup_async(trunk_lookup_async_state *state);
+core_lookup_async(core_lookup_async_state *state);
 
 platform_status
-trunk_range_iterator_init(trunk_handle         *spl,
-                          trunk_range_iterator *range_itor,
-                          key                   min_key,
-                          key                   max_key,
-                          key                   start_key,
-                          comparison            start_type,
-                          uint64                num_tuples);
+core_range_iterator_init(core_handle         *spl,
+                         core_range_iterator *range_itor,
+                         key                  min_key,
+                         key                  max_key,
+                         key                  start_key,
+                         comparison           start_type,
+                         uint64               num_tuples);
 void
-trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
+core_range_iterator_deinit(core_range_iterator *range_itor);
 
 typedef void (*tuple_function)(key tuple_key, message value, void *arg);
 platform_status
-trunk_range(trunk_handle  *spl,
-            key            start_key,
-            uint64         num_tuples,
-            tuple_function func,
-            void          *arg);
+core_apply_to_range(core_handle   *spl,
+                    key            start_key,
+                    uint64         num_tuples,
+                    tuple_function func,
+                    void          *arg);
 
-trunk_handle *
-trunk_create(trunk_config     *cfg,
-             allocator        *al,
-             cache            *cc,
-             task_system      *ts,
-             allocator_root_id id,
-             platform_heap_id  hid);
-void
-trunk_destroy(trunk_handle *spl);
-trunk_handle *
-trunk_mount(trunk_config     *cfg,
+core_handle *
+core_create(core_config      *cfg,
             allocator        *al,
             cache            *cc,
             task_system      *ts,
             allocator_root_id id,
             platform_heap_id  hid);
 void
-trunk_unmount(trunk_handle **spl);
+core_destroy(core_handle *spl);
+core_handle *
+core_mount(core_config      *cfg,
+           allocator        *al,
+           cache            *cc,
+           task_system      *ts,
+           allocator_root_id id,
+           platform_heap_id  hid);
+void
+core_unmount(core_handle **spl);
 
 void
-trunk_perform_tasks(trunk_handle *spl);
+core_perform_tasks(core_handle *spl);
 
 void
-trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl);
-void
-trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl);
-void
-trunk_reset_stats(trunk_handle *spl);
+core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl);
 
 void
-trunk_print(platform_log_handle *log_handle, trunk_handle *spl);
+core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl);
 
 void
-trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
+core_reset_stats(core_handle *spl);
 
 void
-trunk_print_lookup(trunk_handle        *spl,
-                   key                  target,
-                   platform_log_handle *log_handle);
+core_print(platform_log_handle *log_handle, core_handle *spl);
+
 void
-trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
+core_print_super_block(platform_log_handle *log_handle, core_handle *spl);
+
 void
-trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
+core_print_lookup(core_handle         *spl,
+                  key                  target,
+                  platform_log_handle *log_handle);
 void
-trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
+core_print_extent_counts(platform_log_handle *log_handle, core_handle *spl);
+
+void
+core_print_space_use(platform_log_handle *log_handle, core_handle *spl);
+
 bool32
-trunk_verify_tree(trunk_handle *spl);
+core_verify_tree(core_handle *spl);
 
 static inline uint64
-trunk_max_key_size(trunk_handle *spl)
+core_max_key_size(core_handle *spl)
 {
    return spl->cfg.data_cfg->max_key_size;
 }
 
 static inline int
-trunk_key_compare(trunk_handle *spl, key key1, key key2)
+core_key_compare(core_handle *spl, key key1, key key2)
 {
    return btree_key_compare(spl->cfg.btree_cfg, key1, key2);
 }
 
 static inline void
-trunk_key_to_string(trunk_handle *spl, key key_to_print, char str[static 128])
+core_key_to_string(core_handle *spl, key key_to_print, char str[static 128])
 {
    btree_key_to_string(spl->cfg.btree_cfg, key_to_print, str);
 }
 
 static inline void
-trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
+core_message_to_string(core_handle *spl, message msg, char str[static 128])
 {
    btree_message_to_string(spl->cfg.btree_cfg, msg, str);
 }
@@ -286,16 +268,16 @@ uint64
 trunk_pivot_message_size();
 
 platform_status
-trunk_config_init(trunk_config        *trunk_cfg,
-                  cache_config        *cache_cfg,
-                  data_config         *data_cfg,
-                  btree_config        *btree_cfg,
-                  log_config          *log_cfg,
-                  trunk_node_config   *trunk_node_cfg,
-                  uint64               queue_scale_percent,
-                  bool32               use_log,
-                  bool32               use_stats,
-                  bool32               verbose_logging,
-                  platform_log_handle *log_handle);
+core_config_init(core_config         *trunk_cfg,
+                 cache_config        *cache_cfg,
+                 data_config         *data_cfg,
+                 btree_config        *btree_cfg,
+                 log_config          *log_cfg,
+                 trunk_node_config   *trunk_node_cfg,
+                 uint64               queue_scale_percent,
+                 bool32               use_log,
+                 bool32               use_stats,
+                 bool32               verbose_logging,
+                 platform_log_handle *log_handle);
 size_t
-trunk_get_scratch_size();
+core_get_scratch_size();

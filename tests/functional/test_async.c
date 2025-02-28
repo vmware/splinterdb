@@ -109,7 +109,7 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
  * and if successful, run process_cb on it.
  */
 static void
-async_ctxt_process_one(trunk_handle         *spl,
+async_ctxt_process_one(core_handle          *spl,
                        test_async_lookup    *async_lookup,
                        test_async_ctxt      *ctxt,
                        timestamp            *latency_max,
@@ -120,7 +120,7 @@ async_ctxt_process_one(trunk_handle         *spl,
    timestamp    ts;
 
    ts  = platform_get_timestamp();
-   res = trunk_lookup_async(&ctxt->state);
+   res = core_lookup_async(&ctxt->state);
    ts  = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;
@@ -139,19 +139,19 @@ async_ctxt_process_one(trunk_handle         *spl,
 }
 
 void
-async_ctxt_submit(trunk_handle         *spl,
+async_ctxt_submit(core_handle          *spl,
                   test_async_lookup    *async_lookup,
                   test_async_ctxt      *ctxt,
                   timestamp            *latency_max,
                   async_ctxt_process_cb process_cb,
                   void                 *process_arg)
 {
-   trunk_lookup_async_state_init(&ctxt->state,
-                                 spl,
-                                 key_buffer_key(&ctxt->key),
-                                 &ctxt->data,
-                                 test_async_callback,
-                                 ctxt);
+   core_lookup_async_state_init(&ctxt->state,
+                                spl,
+                                key_buffer_key(&ctxt->key),
+                                &ctxt->data,
+                                test_async_callback,
+                                ctxt);
    async_ctxt_process_one(
       spl, async_lookup, ctxt, latency_max, process_cb, process_arg);
 }
@@ -163,7 +163,7 @@ async_ctxt_submit(trunk_handle         *spl,
  * Returns: TRUE if no context at all are used.
  */
 bool32
-async_ctxt_process_ready(trunk_handle         *spl,
+async_ctxt_process_ready(core_handle          *spl,
                          test_async_lookup    *async_lookup,
                          timestamp            *latency_max,
                          async_ctxt_process_cb process_cb,

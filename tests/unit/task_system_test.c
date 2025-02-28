@@ -28,7 +28,7 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
 #include "config.h" // Reqd for definition of master_config{}
-#include "core.h"  // Needed for trunk_get_scratch_size()
+#include "core.h"   // Needed for trunk_get_scratch_size()
 #include "task.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
@@ -254,7 +254,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
    rc = task_thread_create("test_one_thread",
                            exec_one_thread_use_extern_apis,
                            &thread_cfg,
-                           trunk_get_scratch_size(),
+                           core_get_scratch_size(),
                            data->tasks,
                            data->hid,
                            &new_thread);
@@ -379,7 +379,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    rc = task_thread_create("test_one_thread",
                            exec_user_thread_loop_for_stop,
                            &thread_cfg[0],
-                           trunk_get_scratch_size(),
+                           core_get_scratch_size(),
                            data->tasks,
                            data->hid,
                            &new_thread[0]);
@@ -396,7 +396,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    rc = task_thread_create("test_one_thread",
                            exec_user_thread_loop_for_stop,
                            &thread_cfg[1],
-                           trunk_get_scratch_size(),
+                           core_get_scratch_size(),
                            data->tasks,
                            data->hid,
                            &new_thread[1]);
@@ -433,7 +433,7 @@ create_task_system_without_bg_threads(void *datap)
    rc = task_system_config_init(&data->task_cfg,
                                 TRUE, // use stats
                                 num_bg_threads,
-                                trunk_get_scratch_size());
+                                core_get_scratch_size());
    ASSERT_TRUE(SUCCESS(rc));
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
    return rc;
@@ -460,7 +460,7 @@ create_task_system_with_bg_threads(void  *datap,
    rc = task_system_config_init(&data->task_cfg,
                                 TRUE, // use stats
                                 num_bg_threads,
-                                trunk_get_scratch_size());
+                                core_get_scratch_size());
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
@@ -495,7 +495,7 @@ exec_one_thread_use_lower_apis(void *arg)
    // This is the important call to initialize thread-specific stuff in
    // Splinter's task-system, which sets up the thread-id (index) and records
    // this thread as active with the task system.
-   task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
+   task_register_this_thread(thread_cfg->tasks, core_get_scratch_size());
 
    threadid this_threads_idx = platform_get_tid();
    ASSERT_EQUAL(thread_cfg->exp_thread_idx,
@@ -506,7 +506,7 @@ exec_one_thread_use_lower_apis(void *arg)
 
    // Registration should have allocated some scratch space memory.
    ASSERT_TRUE(
-      trunk_get_scratch_size() == 0
+      core_get_scratch_size() == 0
       || task_system_get_thread_scratch(thread_cfg->tasks, platform_get_tid())
             != NULL);
 
@@ -519,7 +519,7 @@ exec_one_thread_use_lower_apis(void *arg)
 
    // Deregistration releases scratch space memory.
    ASSERT_TRUE(
-      trunk_get_scratch_size() == 0
+      core_get_scratch_size() == 0
       || task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
             == NULL);
 
@@ -561,7 +561,7 @@ exec_one_thread_use_extern_apis(void *arg)
 
    // Registration should have allocated some scratch space memory.
    ASSERT_TRUE(
-      trunk_get_scratch_size() == 0
+      core_get_scratch_size() == 0
       || task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
             != NULL);
 
@@ -592,7 +592,7 @@ exec_one_of_n_threads(void *arg)
    // Before registration, thread ID should be in an uninit'ed state
    ASSERT_EQUAL(INVALID_TID, platform_get_tid());
 
-   task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
+   task_register_this_thread(thread_cfg->tasks, core_get_scratch_size());
 
    threadid this_threads_index = platform_get_tid();
 

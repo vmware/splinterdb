@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * trunk.c --
+ * core.c --
  *
  *     This file contains the implementation for SplinterDB.
  */
@@ -36,7 +36,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * states, such as, compaction, incorporation, reclamation, is given by this
  * limit.
  */
-#define TRUNK_NUM_MEMTABLES (4)
+#define CORE_NUM_MEMTABLES (4)
 
 /*
  * For a "small" range query, you don't want to prefetch pages.
@@ -44,63 +44,63 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * (Empirically established through past experiments, for small key-value
  * pairs. So, _may_ be less efficient in general cases. Needs a revisit.)
  */
-#define TRUNK_PREFETCH_MIN (16384)
+#define CORE_PREFETCH_MIN (16384)
 
 /* Some randomly chosen Splinter super-block checksum seed. */
-#define TRUNK_SUPER_CSUM_SEED (42)
+#define CORE_SUPER_CSUM_SEED (42)
 
 /*
- * Trunk logging functions.
+ * core logging functions.
  *
- * If verbose_logging_enabled is enabled in trunk_config, these functions print
+ * If verbose_logging_enabled is enabled in core_config, these functions print
  * to cfg->log_handle.
  */
 
 static inline bool32
-trunk_verbose_logging_enabled(trunk_handle *spl)
+core_verbose_logging_enabled(core_handle *spl)
 {
    return spl->cfg.verbose_logging_enabled;
 }
 
 static inline platform_log_handle *
-trunk_log_handle(trunk_handle *spl)
+core_log_handle(core_handle *spl)
 {
-   platform_assert(trunk_verbose_logging_enabled(spl));
+   platform_assert(core_verbose_logging_enabled(spl));
    platform_assert(spl->cfg.log_handle != NULL);
    return spl->cfg.log_handle;
 }
 
 static inline platform_status
-trunk_open_log_stream_if_enabled(trunk_handle           *spl,
-                                 platform_stream_handle *stream)
+core_open_log_stream_if_enabled(core_handle            *spl,
+                                platform_stream_handle *stream)
 {
-   if (trunk_verbose_logging_enabled(spl)) {
+   if (core_verbose_logging_enabled(spl)) {
       return platform_open_log_stream(stream);
    }
    return STATUS_OK;
 }
 
 static inline void
-trunk_close_log_stream_if_enabled(trunk_handle           *spl,
-                                  platform_stream_handle *stream)
+core_close_log_stream_if_enabled(core_handle            *spl,
+                                 platform_stream_handle *stream)
 {
-   if (trunk_verbose_logging_enabled(spl)) {
+   if (core_verbose_logging_enabled(spl)) {
       platform_assert(stream != NULL);
-      platform_close_log_stream(stream, trunk_log_handle(spl));
+      platform_close_log_stream(stream, core_log_handle(spl));
    }
 }
 
-#define trunk_log_stream_if_enabled(spl, _stream, message, ...)                \
+#define core_log_stream_if_enabled(spl, _stream, message, ...)                 \
    do {                                                                        \
-      if (trunk_verbose_logging_enabled(spl)) {                                \
+      if (core_verbose_logging_enabled(spl)) {                                 \
          platform_log_stream(                                                  \
             (_stream), "[%3lu] " message, platform_get_tid(), ##__VA_ARGS__);  \
       }                                                                        \
    } while (0)
 
-#define trunk_default_log_if_enabled(spl, message, ...)                        \
+#define core_default_log_if_enabled(spl, message, ...)                         \
    do {                                                                        \
-      if (trunk_verbose_logging_enabled(spl)) {                                \
+      if (core_verbose_logging_enabled(spl)) {                                 \
          platform_default_log(message, __VA_ARGS__);                           \
       }                                                                        \
    } while (0)
@@ -111,7 +111,7 @@ trunk_close_log_stream_if_enabled(trunk_handle           *spl,
  * Super block lives on page of page type == PAGE_TYPE_SUPERBLOCK.
  *-----------------------------------------------------------------------------
  */
-typedef struct ONDISK trunk_super_block {
+typedef struct ONDISK core_super_block {
    uint64 root_addr; // Address of the root of the trunk for the instance
                      // referenced by this superblock.
    uint64      log_addr;
@@ -120,7 +120,7 @@ typedef struct ONDISK trunk_super_block {
    bool32      checkpointed;
    bool32      unmounted;
    checksum128 checksum;
-} trunk_super_block;
+} core_super_block;
 
 /*
  *-----------------------------------------------------------------------------
@@ -128,16 +128,16 @@ typedef struct ONDISK trunk_super_block {
  *-----------------------------------------------------------------------------
  */
 static void
-trunk_set_super_block(trunk_handle *spl,
-                      bool32        is_checkpoint,
-                      bool32        is_unmount,
-                      bool32        is_create)
+core_set_super_block(core_handle *spl,
+                     bool32       is_checkpoint,
+                     bool32       is_unmount,
+                     bool32       is_create)
 {
-   uint64             super_addr;
-   page_handle       *super_page;
-   trunk_super_block *super;
-   uint64             wait = 1;
-   platform_status    rc;
+   uint64            super_addr;
+   page_handle      *super_page;
+   core_super_block *super;
+   uint64            wait = 1;
+   platform_status   rc;
 
    if (is_create) {
       rc = allocator_alloc_super_addr(spl->al, spl->id, &super_addr);
@@ -153,7 +153,7 @@ trunk_set_super_block(trunk_handle *spl,
    wait = 1;
    cache_lock(spl->cc, super_page);
 
-   super                = (trunk_super_block *)super_page->data;
+   super                = (core_super_block *)super_page->data;
    uint64 old_root_addr = super->root_addr;
 
    if (spl->trunk_context.root != NULL) {
@@ -183,8 +183,8 @@ trunk_set_super_block(trunk_handle *spl,
    super->unmounted    = is_unmount;
    super->checksum =
       platform_checksum128(super,
-                           sizeof(trunk_super_block) - sizeof(checksum128),
-                           TRUNK_SUPER_CSUM_SEED);
+                           sizeof(core_super_block) - sizeof(checksum128),
+                           CORE_SUPER_CSUM_SEED);
 
    cache_mark_dirty(spl->cc, super_page);
    cache_unlock(spl->cc, super_page);
@@ -203,22 +203,22 @@ trunk_set_super_block(trunk_handle *spl,
    }
 }
 
-static trunk_super_block *
-trunk_get_super_block_if_valid(trunk_handle *spl, page_handle **super_page)
+static core_super_block *
+core_get_super_block_if_valid(core_handle *spl, page_handle **super_page)
 {
-   uint64             super_addr;
-   trunk_super_block *super;
+   uint64            super_addr;
+   core_super_block *super;
 
    platform_status rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    platform_assert_status_ok(rc);
    *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   super       = (trunk_super_block *)(*super_page)->data;
+   super       = (core_super_block *)(*super_page)->data;
 
    if (!platform_checksum_is_equal(
           super->checksum,
           platform_checksum128(super,
-                               sizeof(trunk_super_block) - sizeof(checksum128),
-                               TRUNK_SUPER_CSUM_SEED)))
+                               sizeof(core_super_block) - sizeof(checksum128),
+                               CORE_SUPER_CSUM_SEED)))
    {
       cache_unget(spl->cc, *super_page);
       *super_page = NULL;
@@ -229,7 +229,7 @@ trunk_get_super_block_if_valid(trunk_handle *spl, page_handle **super_page)
 }
 
 static void
-trunk_release_super_block(trunk_handle *spl, page_handle *super_page)
+core_release_super_block(core_handle *spl, page_handle *super_page)
 {
    cache_unget(spl->cc, super_page);
 }
@@ -241,9 +241,9 @@ trunk_release_super_block(trunk_handle *spl, page_handle *super_page)
  */
 
 static memtable *
-trunk_try_get_memtable(trunk_handle *spl, uint64 generation)
+core_try_get_memtable(core_handle *spl, uint64 generation)
 {
-   uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
+   uint64    memtable_idx = generation % CORE_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
    if (mt->generation != generation) {
       mt = NULL;
@@ -256,9 +256,9 @@ trunk_try_get_memtable(trunk_handle *spl, uint64 generation)
  * that there exists a memtable with the appropriate generation.
  */
 static memtable *
-trunk_get_memtable(trunk_handle *spl, uint64 generation)
+core_get_memtable(core_handle *spl, uint64 generation)
 {
-   uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
+   uint64    memtable_idx = generation % CORE_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
    platform_assert(mt->generation == generation,
                    "mt->generation=%lu, mt_ctxt->generation=%lu, "
@@ -270,30 +270,30 @@ trunk_get_memtable(trunk_handle *spl, uint64 generation)
    return mt;
 }
 
-static trunk_compacted_memtable *
-trunk_get_compacted_memtable(trunk_handle *spl, uint64 generation)
+static core_compacted_memtable *
+core_get_compacted_memtable(core_handle *spl, uint64 generation)
 {
-   uint64 memtable_idx = generation % TRUNK_NUM_MEMTABLES;
+   uint64 memtable_idx = generation % CORE_NUM_MEMTABLES;
 
    // this call asserts the generation is correct
-   memtable *mt = trunk_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, generation);
    platform_assert(mt->state != MEMTABLE_STATE_READY);
 
    return &spl->compacted_memtable[memtable_idx];
 }
 
 static inline void
-trunk_memtable_inc_ref(trunk_handle *spl, uint64 mt_gen)
+core_memtable_inc_ref(core_handle *spl, uint64 mt_gen)
 {
-   memtable *mt = trunk_get_memtable(spl, mt_gen);
+   memtable *mt = core_get_memtable(spl, mt_gen);
    allocator_inc_ref(spl->al, mt->root_addr);
 }
 
 
 static void
-trunk_memtable_dec_ref(trunk_handle *spl, uint64 generation)
+core_memtable_dec_ref(core_handle *spl, uint64 generation)
 {
-   memtable *mt = trunk_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, generation);
    memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
 
    // the branch in the compacted memtable is now in the tree, so don't zap it,
@@ -306,15 +306,15 @@ trunk_memtable_dec_ref(trunk_handle *spl, uint64 generation)
  * the memtable ref count and cleans up if ref count == 0
  */
 static void
-trunk_memtable_iterator_init(trunk_handle   *spl,
-                             btree_iterator *itor,
-                             uint64          root_addr,
-                             key             min_key,
-                             key             max_key,
-                             key             start_key,
-                             comparison      start_type,
-                             bool32          is_live,
-                             bool32          inc_ref)
+core_memtable_iterator_init(core_handle    *spl,
+                            btree_iterator *itor,
+                            uint64          root_addr,
+                            key             min_key,
+                            key             max_key,
+                            key             start_key,
+                            comparison      start_type,
+                            bool32          is_live,
+                            bool32          inc_ref)
 {
    if (inc_ref) {
       allocator_inc_ref(spl->al, root_addr);
@@ -333,14 +333,14 @@ trunk_memtable_iterator_init(trunk_handle   *spl,
 }
 
 static void
-trunk_memtable_iterator_deinit(trunk_handle   *spl,
-                               btree_iterator *itor,
-                               uint64          mt_gen,
-                               bool32          dec_ref)
+core_memtable_iterator_deinit(core_handle    *spl,
+                              btree_iterator *itor,
+                              uint64          mt_gen,
+                              bool32          dec_ref)
 {
    btree_iterator_deinit(itor);
    if (dec_ref) {
-      trunk_memtable_dec_ref(spl, mt_gen);
+      core_memtable_dec_ref(spl, mt_gen);
    }
 }
 
@@ -354,7 +354,7 @@ trunk_memtable_iterator_deinit(trunk_handle   *spl,
  *       responsible for flushing it.
  */
 static platform_status
-trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
+core_memtable_insert(core_handle *spl, key tuple_key, message msg)
 {
    uint64 generation;
 
@@ -371,7 +371,7 @@ trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
    }
 
    // this call is safe because we hold the insert lock
-   memtable *mt = trunk_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, generation);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(
       spl->mt_ctxt, mt, spl->heap_id, tuple_key, msg, &leaf_generation);
@@ -397,33 +397,32 @@ out:
  * Returns a pointer to the memtable.
  */
 static memtable *
-trunk_memtable_compact(trunk_handle *spl, uint64 generation, const threadid tid)
+core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
 {
    timestamp comp_start = platform_get_timestamp();
 
-   memtable *mt = trunk_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
    mini_release(&mt->mini);
 
-   trunk_compacted_memtable *cmt =
-      trunk_get_compacted_memtable(spl, generation);
-   trunk_branch *new_branch = &cmt->branch;
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   core_branch             *new_branch = &cmt->branch;
    ZERO_CONTENTS(new_branch);
 
    uint64         memtable_root_addr = mt->root_addr;
    btree_iterator btree_itor;
    iterator      *itor = &btree_itor.super;
 
-   trunk_memtable_iterator_init(spl,
-                                &btree_itor,
-                                memtable_root_addr,
-                                NEGATIVE_INFINITY_KEY,
-                                POSITIVE_INFINITY_KEY,
-                                NEGATIVE_INFINITY_KEY,
-                                greater_than_or_equal,
-                                FALSE,
-                                FALSE);
+   core_memtable_iterator_init(spl,
+                               &btree_itor,
+                               memtable_root_addr,
+                               NEGATIVE_INFINITY_KEY,
+                               POSITIVE_INFINITY_KEY,
+                               NEGATIVE_INFINITY_KEY,
+                               greater_than_or_equal,
+                               FALSE,
+                               FALSE);
    const routing_config *rfcfg = spl->cfg.trunk_node_cfg->filter_cfg;
    uint64 rflimit = routing_filter_max_fingerprints(spl->cfg.cache_cfg, rfcfg);
    btree_pack_req req;
@@ -455,7 +454,7 @@ trunk_memtable_compact(trunk_handle *spl, uint64 generation, const threadid tid)
          spl->stats[tid].root_compaction_max_tuples = req.num_tuples;
       }
    }
-   trunk_memtable_iterator_deinit(spl, &btree_itor, FALSE, FALSE);
+   core_memtable_iterator_deinit(spl, &btree_itor, FALSE, FALSE);
 
    new_branch->root_addr = req.root_addr;
 
@@ -483,12 +482,12 @@ trunk_memtable_compact(trunk_handle *spl, uint64 generation, const threadid tid)
  *       should_wait will be set to generation, so try_start will incorp
  */
 static inline bool32
-trunk_try_start_incorporate(trunk_handle *spl, uint64 generation)
+core_try_start_incorporate(core_handle *spl, uint64 generation)
 {
    bool32 should_start = FALSE;
 
    memtable_lock_incorporation_lock(spl->mt_ctxt);
-   memtable *mt = trunk_try_get_memtable(spl, generation);
+   memtable *mt = core_try_get_memtable(spl, generation);
    if ((mt == NULL)
        || (generation != memtable_generation_to_incorporate(spl->mt_ctxt)))
    {
@@ -504,12 +503,12 @@ unlock_incorp_lock:
 }
 
 static inline bool32
-trunk_try_continue_incorporate(trunk_handle *spl, uint64 next_generation)
+core_try_continue_incorporate(core_handle *spl, uint64 next_generation)
 {
    bool32 should_continue = FALSE;
 
    memtable_lock_incorporation_lock(spl->mt_ctxt);
-   memtable *mt = trunk_try_get_memtable(spl, next_generation);
+   memtable *mt = core_try_get_memtable(spl, next_generation);
    if (mt == NULL) {
       should_continue = FALSE;
       goto unlock_incorp_lock;
@@ -546,24 +545,23 @@ unlock_incorp_lock:
  *  --> The memtable should have inserts blocked (can_insert == FALSE)
  */
 static void
-trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
-                                     uint64         generation,
-                                     const threadid tid)
+core_memtable_incorporate_and_flush(core_handle   *spl,
+                                    uint64         generation,
+                                    const threadid tid)
 {
    trunk_modification_begin(&spl->trunk_context);
 
    platform_stream_handle stream;
-   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_status        rc = core_open_log_stream_if_enabled(spl, &stream);
    platform_assert_status_ok(rc);
-   trunk_log_stream_if_enabled(
+   core_log_stream_if_enabled(
       spl, &stream, "incorporate memtable gen %lu\n", generation);
-   trunk_log_stream_if_enabled(
+   core_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
 
    // Add the memtable to the new root as a new compacted bundle
-   trunk_compacted_memtable *cmt =
-      trunk_get_compacted_memtable(spl, generation);
-   uint64 flush_start;
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   uint64                   flush_start;
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
@@ -576,9 +574,9 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
          platform_timestamp_elapsed(cmt->wait_start);
    }
 
-   trunk_log_stream_if_enabled(
+   core_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
-   trunk_log_stream_if_enabled(spl, &stream, "\n");
+   core_log_stream_if_enabled(spl, &stream, "\n");
 
    /*
     * Lock the lookup lock, blocking lookups.
@@ -586,7 +584,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
     * lookups from accessing the memtable that's being incorporated).
     */
    memtable_block_lookups(spl->mt_ctxt);
-   memtable *mt = trunk_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, generation);
    // Normally need to hold incorp_mutex, but debug code and also guaranteed no
    // one is changing gen_to_incorp (we are the only thread that would try)
    debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
@@ -600,7 +598,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_modification_end(&spl->trunk_context);
    memtable_unblock_lookups(spl->mt_ctxt);
 
-   trunk_close_log_stream_if_enabled(spl, &stream);
+   core_close_log_stream_if_enabled(spl, &stream);
 
    /*
     * Decrement the now-incorporated memtable ref count and recycle if no
@@ -627,29 +625,29 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
  * function is called in the context of the memtable worker thread.
  */
 static void
-trunk_memtable_flush_internal(trunk_handle *spl, uint64 generation)
+core_memtable_flush_internal(core_handle *spl, uint64 generation)
 {
    const threadid tid = platform_get_tid();
    // pack and build filter.
-   trunk_memtable_compact(spl, generation, tid);
+   core_memtable_compact(spl, generation, tid);
 
    // If we are assigned to do so, incorporate the memtable onto the root node.
-   if (!trunk_try_start_incorporate(spl, generation)) {
+   if (!core_try_start_incorporate(spl, generation)) {
       goto out;
    }
    do {
-      trunk_memtable_incorporate_and_flush(spl, generation, tid);
+      core_memtable_incorporate_and_flush(spl, generation, tid);
       generation++;
-   } while (trunk_try_continue_incorporate(spl, generation));
+   } while (core_try_continue_incorporate(spl, generation));
 out:
    return;
 }
 
 static void
-trunk_memtable_flush_internal_virtual(void *arg, void *scratch)
+core_memtable_flush_internal_virtual(void *arg, void *scratch)
 {
-   trunk_memtable_args *mt_args = arg;
-   trunk_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   core_memtable_args *mt_args = arg;
+   core_memtable_flush_internal(mt_args->spl, mt_args->generation);
 }
 
 /*
@@ -662,39 +660,38 @@ trunk_memtable_flush_internal_virtual(void *arg, void *scratch)
  * root and returns.
  */
 static void
-trunk_memtable_flush(trunk_handle *spl, uint64 generation)
+core_memtable_flush(core_handle *spl, uint64 generation)
 {
-   trunk_compacted_memtable *cmt =
-      trunk_get_compacted_memtable(spl, generation);
-   cmt->mt_args.spl        = spl;
-   cmt->mt_args.generation = generation;
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   cmt->mt_args.spl             = spl;
+   cmt->mt_args.generation      = generation;
    task_enqueue(spl->ts,
                 TASK_TYPE_MEMTABLE,
-                trunk_memtable_flush_internal_virtual,
+                core_memtable_flush_internal_virtual,
                 &cmt->mt_args,
                 FALSE);
 }
 
 static void
-trunk_memtable_flush_virtual(void *arg, uint64 generation)
+core_memtable_flush_virtual(void *arg, uint64 generation)
 {
-   trunk_handle *spl = arg;
-   trunk_memtable_flush(spl, generation);
+   core_handle *spl = arg;
+   core_memtable_flush(spl, generation);
 }
 
 static inline uint64
-trunk_memtable_root_addr_for_lookup(trunk_handle *spl,
-                                    uint64        generation,
-                                    bool32       *is_compacted)
+core_memtable_root_addr_for_lookup(core_handle *spl,
+                                   uint64       generation,
+                                   bool32      *is_compacted)
 {
-   memtable *mt = trunk_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, generation);
    platform_assert(memtable_ok_to_lookup(mt));
 
    if (memtable_ok_to_lookup_compacted(mt)) {
       // lookup in packed tree
       *is_compacted = TRUE;
-      trunk_compacted_memtable *cmt =
-         trunk_get_compacted_memtable(spl, generation);
+      core_compacted_memtable *cmt =
+         core_get_compacted_memtable(spl, generation);
       return cmt->branch.root_addr;
    } else {
       *is_compacted = FALSE;
@@ -703,7 +700,7 @@ trunk_memtable_root_addr_for_lookup(trunk_handle *spl,
 }
 
 /*
- * trunk_memtable_lookup
+ * core_memtable_lookup
  *
  * Pre-conditions:
  *    If *found
@@ -714,15 +711,15 @@ trunk_memtable_root_addr_for_lookup(trunk_handle *spl,
  *    if *found, the data can be found in `data`.
  */
 static platform_status
-trunk_memtable_lookup(trunk_handle      *spl,
-                      uint64             generation,
-                      key                target,
-                      merge_accumulator *data)
+core_memtable_lookup(core_handle       *spl,
+                     uint64             generation,
+                     key                target,
+                     merge_accumulator *data)
 {
    cache *const        cc  = spl->cc;
    btree_config *const cfg = spl->cfg.btree_cfg;
    bool32              memtable_is_compacted;
-   uint64              root_addr = trunk_memtable_root_addr_for_lookup(
+   uint64              root_addr = core_memtable_root_addr_for_lookup(
       spl, generation, &memtable_is_compacted);
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
@@ -739,15 +736,15 @@ trunk_memtable_lookup(trunk_handle      *spl,
  */
 
 static void
-trunk_branch_iterator_init(trunk_handle   *spl,
-                           btree_iterator *itor,
-                           uint64          branch_addr,
-                           key             min_key,
-                           key             max_key,
-                           key             start_key,
-                           comparison      start_type,
-                           bool32          do_prefetch,
-                           bool32          should_inc_ref)
+core_branch_iterator_init(core_handle    *spl,
+                          btree_iterator *itor,
+                          uint64          branch_addr,
+                          key             min_key,
+                          key             max_key,
+                          key             start_key,
+                          comparison      start_type,
+                          bool32          do_prefetch,
+                          bool32          should_inc_ref)
 {
    cache        *cc        = spl->cc;
    btree_config *btree_cfg = spl->cfg.btree_cfg;
@@ -768,9 +765,9 @@ trunk_branch_iterator_init(trunk_handle   *spl,
 }
 
 static void
-trunk_branch_iterator_deinit(trunk_handle   *spl,
-                             btree_iterator *itor,
-                             bool32          should_dec_ref)
+core_branch_iterator_deinit(core_handle    *spl,
+                            btree_iterator *itor,
+                            bool32          should_dec_ref)
 {
    if (itor->root_addr == 0) {
       return;
@@ -787,57 +784,57 @@ trunk_branch_iterator_deinit(trunk_handle   *spl,
  *-----------------------------------------------------------------------------
  * Range functions and iterators
  *
- *      trunk_node_iterator
- *      trunk_iterator
+ *      core_node_iterator
+ *      core_iterator
  *-----------------------------------------------------------------------------
  */
 static void
-trunk_range_iterator_curr(iterator *itor, key *curr_key, message *data);
+core_range_iterator_curr(iterator *itor, key *curr_key, message *data);
 static bool32
-trunk_range_iterator_can_prev(iterator *itor);
+core_range_iterator_can_prev(iterator *itor);
 static bool32
-trunk_range_iterator_can_next(iterator *itor);
+core_range_iterator_can_next(iterator *itor);
 static platform_status
-trunk_range_iterator_next(iterator *itor);
+core_range_iterator_next(iterator *itor);
 static platform_status
-trunk_range_iterator_prev(iterator *itor);
+core_range_iterator_prev(iterator *itor);
 void
-trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
+core_range_iterator_deinit(core_range_iterator *range_itor);
 
-const static iterator_ops trunk_range_iterator_ops = {
-   .curr     = trunk_range_iterator_curr,
-   .can_prev = trunk_range_iterator_can_prev,
-   .can_next = trunk_range_iterator_can_next,
-   .next     = trunk_range_iterator_next,
-   .prev     = trunk_range_iterator_prev,
+const static iterator_ops core_range_iterator_ops = {
+   .curr     = core_range_iterator_curr,
+   .can_prev = core_range_iterator_can_prev,
+   .can_next = core_range_iterator_can_next,
+   .next     = core_range_iterator_next,
+   .prev     = core_range_iterator_prev,
 };
 
 platform_status
-trunk_range_iterator_init(trunk_handle         *spl,
-                          trunk_range_iterator *range_itor,
-                          key                   min_key,
-                          key                   max_key,
-                          key                   start_key,
-                          comparison            start_type,
-                          uint64                num_tuples)
+core_range_iterator_init(core_handle         *spl,
+                         core_range_iterator *range_itor,
+                         key                  min_key,
+                         key                  max_key,
+                         key                  start_key,
+                         comparison           start_type,
+                         uint64               num_tuples)
 {
    debug_assert(!key_is_null(min_key));
    debug_assert(!key_is_null(max_key));
    debug_assert(!key_is_null(start_key));
 
    range_itor->spl          = spl;
-   range_itor->super.ops    = &trunk_range_iterator_ops;
+   range_itor->super.ops    = &core_range_iterator_ops;
    range_itor->num_branches = 0;
    range_itor->num_tuples   = num_tuples;
    range_itor->merge_itor   = NULL;
    range_itor->can_prev     = TRUE;
    range_itor->can_next     = TRUE;
 
-   if (trunk_key_compare(spl, min_key, start_key) > 0) {
+   if (core_key_compare(spl, min_key, start_key) > 0) {
       // in bounds, start at min
       start_key = min_key;
    }
-   if (trunk_key_compare(spl, max_key, start_key) <= 0) {
+   if (core_key_compare(spl, max_key, start_key) <= 0) {
       // out of bounds, start at max
       start_key = max_key;
    }
@@ -862,22 +859,21 @@ trunk_range_iterator_init(trunk_handle         *spl,
         mt_gen != range_itor->memtable_end_gen;
         mt_gen--)
    {
-      platform_assert(
-         (range_itor->num_branches < TRUNK_RANGE_ITOR_MAX_BRANCHES),
-         "range_itor->num_branches=%lu should be < "
-         " TRUNK_RANGE_ITOR_MAX_BRANCHES (%d).",
-         range_itor->num_branches,
-         TRUNK_RANGE_ITOR_MAX_BRANCHES);
+      platform_assert((range_itor->num_branches < CORE_RANGE_ITOR_MAX_BRANCHES),
+                      "range_itor->num_branches=%lu should be < "
+                      " CORE_RANGE_ITOR_MAX_BRANCHES (%d).",
+                      range_itor->num_branches,
+                      CORE_RANGE_ITOR_MAX_BRANCHES);
       debug_assert(range_itor->num_branches < ARRAY_SIZE(range_itor->branch));
 
       bool32 compacted;
       uint64 root_addr =
-         trunk_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
+         core_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
       range_itor->compacted[range_itor->num_branches] = compacted;
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
-         trunk_memtable_inc_ref(spl, mt_gen);
+         core_memtable_inc_ref(spl, mt_gen);
       }
 
       range_itor->branch[range_itor->num_branches].addr = root_addr;
@@ -900,7 +896,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
                                &root_handle,
                                start_key,
                                start_type,
-                               TRUNK_RANGE_ITOR_MAX_BRANCHES,
+                               CORE_RANGE_ITOR_MAX_BRANCHES,
                                &range_itor->num_branches,
                                range_itor->branch,
                                &range_itor->local_min_key,
@@ -913,14 +909,14 @@ trunk_range_iterator_init(trunk_handle         *spl,
    }
 
    // have a leaf, use to establish local bounds
-   if (trunk_key_compare(
+   if (core_key_compare(
           spl, key_buffer_key(&range_itor->local_min_key), min_key)
        <= 0)
    {
       rc = key_buffer_copy_key(&range_itor->local_min_key, min_key);
       platform_assert_status_ok(rc);
    }
-   if (trunk_key_compare(
+   if (core_key_compare(
           spl, key_buffer_key(&range_itor->local_max_key), max_key)
        >= 0)
    {
@@ -934,30 +930,29 @@ trunk_range_iterator_init(trunk_handle         *spl,
       uint64          branch_addr = range_itor->branch[branch_no].addr;
       if (range_itor->compacted[branch_no]) {
          bool32 do_prefetch =
-            range_itor->compacted[branch_no] && num_tuples > TRUNK_PREFETCH_MIN
+            range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN
                ? TRUE
                : FALSE;
-         trunk_branch_iterator_init(spl,
-                                    btree_itor,
-                                    branch_addr,
-                                    key_buffer_key(&range_itor->local_min_key),
-                                    key_buffer_key(&range_itor->local_max_key),
-                                    start_key,
-                                    start_type,
-                                    do_prefetch,
-                                    FALSE);
+         core_branch_iterator_init(spl,
+                                   btree_itor,
+                                   branch_addr,
+                                   key_buffer_key(&range_itor->local_min_key),
+                                   key_buffer_key(&range_itor->local_max_key),
+                                   start_key,
+                                   start_type,
+                                   do_prefetch,
+                                   FALSE);
       } else {
          bool32 is_live = branch_no == 0;
-         trunk_memtable_iterator_init(
-            spl,
-            btree_itor,
-            branch_addr,
-            key_buffer_key(&range_itor->local_min_key),
-            key_buffer_key(&range_itor->local_max_key),
-            start_key,
-            start_type,
-            is_live,
-            FALSE);
+         core_memtable_iterator_init(spl,
+                                     btree_itor,
+                                     branch_addr,
+                                     key_buffer_key(&range_itor->local_min_key),
+                                     key_buffer_key(&range_itor->local_max_key),
+                                     start_key,
+                                     start_type,
+                                     is_live,
+                                     FALSE);
       }
       range_itor->itor[i] = &btree_itor->super;
    }
@@ -979,15 +974,15 @@ trunk_range_iterator_init(trunk_handle         *spl,
     */
    if (!in_range && start_type >= greater_than) {
       key local_max = key_buffer_key(&range_itor->local_max_key);
-      if (trunk_key_compare(spl, local_max, max_key) < 0) {
-         trunk_range_iterator_deinit(range_itor);
-         rc = trunk_range_iterator_init(spl,
-                                        range_itor,
-                                        min_key,
-                                        max_key,
-                                        local_max,
-                                        start_type,
-                                        range_itor->num_tuples);
+      if (core_key_compare(spl, local_max, max_key) < 0) {
+         core_range_iterator_deinit(range_itor);
+         rc = core_range_iterator_init(spl,
+                                       range_itor,
+                                       min_key,
+                                       max_key,
+                                       local_max,
+                                       start_type,
+                                       range_itor->num_tuples);
          platform_assert_status_ok(rc);
       } else {
          range_itor->can_next = FALSE;
@@ -997,15 +992,15 @@ trunk_range_iterator_init(trunk_handle         *spl,
    }
    if (!in_range && start_type <= less_than_or_equal) {
       key local_min = key_buffer_key(&range_itor->local_min_key);
-      if (trunk_key_compare(spl, local_min, min_key) > 0) {
-         trunk_range_iterator_deinit(range_itor);
-         rc = trunk_range_iterator_init(spl,
-                                        range_itor,
-                                        min_key,
-                                        max_key,
-                                        local_min,
-                                        start_type,
-                                        range_itor->num_tuples);
+      if (core_key_compare(spl, local_min, min_key) > 0) {
+         core_range_iterator_deinit(range_itor);
+         rc = core_range_iterator_init(spl,
+                                       range_itor,
+                                       min_key,
+                                       max_key,
+                                       local_min,
+                                       start_type,
+                                       range_itor->num_tuples);
          platform_assert_status_ok(rc);
       } else {
          range_itor->can_prev = FALSE;
@@ -1017,17 +1012,17 @@ trunk_range_iterator_init(trunk_handle         *spl,
 }
 
 static void
-trunk_range_iterator_curr(iterator *itor, key *curr_key, message *data)
+core_range_iterator_curr(iterator *itor, key *curr_key, message *data)
 {
    debug_assert(itor != NULL);
-   trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
+   core_range_iterator *range_itor = (core_range_iterator *)itor;
    iterator_curr(&range_itor->merge_itor->super, curr_key, data);
 }
 
 static platform_status
-trunk_range_iterator_next(iterator *itor)
+core_range_iterator_next(iterator *itor)
 {
-   trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
+   core_range_iterator *range_itor = (core_range_iterator *)itor;
    debug_assert(range_itor != NULL);
    platform_assert(range_itor->can_next);
 
@@ -1062,16 +1057,16 @@ trunk_range_iterator_next(iterator *itor)
       }
 
       // if there is more data to get, rebuild the iterator for next leaf
-      if (trunk_key_compare(range_itor->spl, local_max_key, max_key) < 0) {
+      if (core_key_compare(range_itor->spl, local_max_key, max_key) < 0) {
          uint64 temp_tuples = range_itor->num_tuples;
-         trunk_range_iterator_deinit(range_itor);
-         rc = trunk_range_iterator_init(range_itor->spl,
-                                        range_itor,
-                                        min_key,
-                                        max_key,
-                                        local_max_key,
-                                        greater_than_or_equal,
-                                        temp_tuples);
+         core_range_iterator_deinit(range_itor);
+         rc = core_range_iterator_init(range_itor->spl,
+                                       range_itor,
+                                       min_key,
+                                       max_key,
+                                       local_max_key,
+                                       greater_than_or_equal,
+                                       temp_tuples);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1084,9 +1079,9 @@ trunk_range_iterator_next(iterator *itor)
 }
 
 static platform_status
-trunk_range_iterator_prev(iterator *itor)
+core_range_iterator_prev(iterator *itor)
 {
-   trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
+   core_range_iterator *range_itor = (core_range_iterator *)itor;
    debug_assert(itor != NULL);
    platform_assert(range_itor->can_prev);
 
@@ -1121,15 +1116,15 @@ trunk_range_iterator_prev(iterator *itor)
       }
 
       // if there is more data to get, rebuild the iterator for prev leaf
-      if (trunk_key_compare(range_itor->spl, local_min_key, min_key) > 0) {
-         trunk_range_iterator_deinit(range_itor);
-         rc = trunk_range_iterator_init(range_itor->spl,
-                                        range_itor,
-                                        min_key,
-                                        max_key,
-                                        local_min_key,
-                                        less_than,
-                                        range_itor->num_tuples);
+      if (core_key_compare(range_itor->spl, local_min_key, min_key) > 0) {
+         core_range_iterator_deinit(range_itor);
+         rc = core_range_iterator_init(range_itor->spl,
+                                       range_itor,
+                                       min_key,
+                                       max_key,
+                                       local_min_key,
+                                       less_than,
+                                       range_itor->num_tuples);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1142,40 +1137,40 @@ trunk_range_iterator_prev(iterator *itor)
 }
 
 static bool32
-trunk_range_iterator_can_prev(iterator *itor)
+core_range_iterator_can_prev(iterator *itor)
 {
    debug_assert(itor != NULL);
-   trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
+   core_range_iterator *range_itor = (core_range_iterator *)itor;
 
    return range_itor->can_prev;
 }
 
 static bool32
-trunk_range_iterator_can_next(iterator *itor)
+core_range_iterator_can_next(iterator *itor)
 {
    debug_assert(itor != NULL);
-   trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
+   core_range_iterator *range_itor = (core_range_iterator *)itor;
 
    return range_itor->can_next;
 }
 
 void
-trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
+core_range_iterator_deinit(core_range_iterator *range_itor)
 {
-   trunk_handle *spl = range_itor->spl;
+   core_handle *spl = range_itor->spl;
    if (range_itor->merge_itor != NULL) {
       merge_iterator_destroy(range_itor->spl->heap_id, &range_itor->merge_itor);
       for (uint64 i = 0; i < range_itor->num_branches; i++) {
          btree_iterator *btree_itor = &range_itor->btree_itor[i];
          if (range_itor->compacted[i]) {
             uint64 root_addr = btree_itor->root_addr;
-            trunk_branch_iterator_deinit(spl, btree_itor, FALSE);
+            core_branch_iterator_deinit(spl, btree_itor, FALSE);
             btree_dec_ref(
                spl->cc, spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
          } else {
             uint64 mt_gen = range_itor->memtable_start_gen - i;
-            trunk_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
-            trunk_memtable_dec_ref(spl, mt_gen);
+            core_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
+            core_memtable_dec_ref(spl, mt_gen);
          }
       }
       key_buffer_deinit(&range_itor->min_key);
@@ -1196,7 +1191,7 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, key tuple_key, message data)
+core_insert(core_handle *spl, key tuple_key, message data)
 {
    timestamp      ts;
    const threadid tid = platform_get_tid();
@@ -1204,7 +1199,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data)
       ts = platform_get_timestamp();
    }
 
-   if (trunk_max_key_size(spl) < key_length(tuple_key)) {
+   if (core_max_key_size(spl) < key_length(tuple_key)) {
       return STATUS_BAD_PARAM;
    }
 
@@ -1212,7 +1207,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data)
       data = DELETE_MESSAGE;
    }
 
-   platform_status rc = trunk_memtable_insert(spl, tuple_key, data);
+   platform_status rc = core_memtable_insert(spl, tuple_key, data);
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -1246,9 +1241,9 @@ out:
 }
 
 // If any change is made in here, please make similar change in
-// trunk_lookup_async
+// core_lookup_async
 platform_status
-trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
+core_lookup(core_handle *spl, key target, merge_accumulator *result)
 {
    // look in memtables
 
@@ -1262,11 +1257,11 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
    memtable_begin_lookup(spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
-   platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
+   platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
-      rc = trunk_memtable_lookup(spl, mt_gen, target, result);
+      rc = core_memtable_lookup(spl, mt_gen, target, result);
       platform_assert_status_ok(rc);
       if (merge_accumulator_is_definitive(result)) {
          memtable_end_lookup(spl->mt_ctxt);
@@ -1320,7 +1315,7 @@ found_final_answer_early:
 }
 
 async_status
-trunk_lookup_async(trunk_lookup_async_state *state)
+core_lookup_async(core_lookup_async_state *state)
 {
    async_begin(state, 0);
    // look in memtables
@@ -1335,12 +1330,12 @@ trunk_lookup_async(trunk_lookup_async_state *state)
    memtable_begin_lookup(state->spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(state->spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(state->spl->mt_ctxt);
-   platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
+   platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
-      rc = trunk_memtable_lookup(
-         state->spl, mt_gen, state->target, state->result);
+      rc =
+         core_memtable_lookup(state->spl, mt_gen, state->target, state->result);
       platform_assert_status_ok(rc);
       if (merge_accumulator_is_definitive(state->result)) {
          memtable_end_lookup(state->spl->mt_ctxt);
@@ -1403,21 +1398,21 @@ found_final_answer_early:
 }
 
 platform_status
-trunk_range(trunk_handle  *spl,
-            key            start_key,
-            uint64         num_tuples,
-            tuple_function func,
-            void          *arg)
+core_apply_to_range(core_handle   *spl,
+                    key            start_key,
+                    uint64         num_tuples,
+                    tuple_function func,
+                    void          *arg)
 {
-   trunk_range_iterator *range_itor =
+   core_range_iterator *range_itor =
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
-   platform_status rc = trunk_range_iterator_init(spl,
-                                                  range_itor,
-                                                  start_key,
-                                                  POSITIVE_INFINITY_KEY,
-                                                  start_key,
-                                                  greater_than_or_equal,
-                                                  num_tuples);
+   platform_status rc = core_range_iterator_init(spl,
+                                                 range_itor,
+                                                 start_key,
+                                                 POSITIVE_INFINITY_KEY,
+                                                 start_key,
+                                                 greater_than_or_equal,
+                                                 num_tuples);
    if (!SUCCESS(rc)) {
       goto destroy_range_itor;
    }
@@ -1435,7 +1430,7 @@ trunk_range(trunk_handle  *spl,
    }
 
 destroy_range_itor:
-   trunk_range_iterator_deinit(range_itor);
+   core_range_iterator_deinit(range_itor);
    platform_free(PROCESS_PRIVATE_HEAP_ID, range_itor);
    return rc;
 }
@@ -1447,16 +1442,16 @@ destroy_range_itor:
  * XXX Fix this api to return platform_status
  *-----------------------------------------------------------------------------
  */
-trunk_handle *
-trunk_create(trunk_config     *cfg,
-             allocator        *al,
-             cache            *cc,
-             task_system      *ts,
-             allocator_root_id id,
-             platform_heap_id  hid)
+core_handle *
+core_create(core_config      *cfg,
+            allocator        *al,
+            cache            *cc,
+            task_system      *ts,
+            allocator_root_id id,
+            platform_heap_id  hid)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
+   core_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    // Validate configured key-size is within limits.
@@ -1467,8 +1462,6 @@ trunk_create(trunk_config     *cfg,
    spl->heap_id = hid;
    spl->ts      = ts;
 
-   platform_batch_rwlock_init(&spl->trunk_root_lock);
-
    // get a free node for the root
    //    we don't use the mini allocator for this, since the root doesn't
    //    maintain constant height
@@ -1476,7 +1469,7 @@ trunk_create(trunk_config     *cfg,
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    spl->mt_ctxt            = memtable_context_create(
-      spl->heap_id, cc, mt_cfg, trunk_memtable_flush_virtual, spl);
+      spl->heap_id, cc, mt_cfg, core_memtable_flush_virtual, spl);
 
    // set up the log
    if (spl->cfg.use_log) {
@@ -1484,7 +1477,7 @@ trunk_create(trunk_config     *cfg,
    }
 
    // ALEX: For now we assume an init means destroying any present super blocks
-   trunk_set_super_block(spl, FALSE, FALSE, TRUE);
+   core_set_super_block(spl, FALSE, FALSE, TRUE);
 
    trunk_node_context_init(
       &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
@@ -1518,16 +1511,16 @@ trunk_create(trunk_config     *cfg,
 /*
  * Open (mount) an existing splinter database
  */
-trunk_handle *
-trunk_mount(trunk_config     *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid)
+core_handle *
+core_mount(core_config      *cfg,
+           allocator        *al,
+           cache            *cc,
+           task_system      *ts,
+           allocator_root_id id,
+           platform_heap_id  hid)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
+   core_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    spl->al = al;
@@ -1537,24 +1530,22 @@ trunk_mount(trunk_config     *cfg,
    spl->heap_id = hid;
    spl->ts      = ts;
 
-   platform_batch_rwlock_init(&spl->trunk_root_lock);
-
    // find the unmounted super block
-   uint64             root_addr        = 0;
-   uint64             latest_timestamp = 0;
-   page_handle       *super_page;
-   trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
+   uint64            root_addr        = 0;
+   uint64            latest_timestamp = 0;
+   page_handle      *super_page;
+   core_super_block *super = core_get_super_block_if_valid(spl, &super_page);
    if (super != NULL) {
       if (super->unmounted && super->timestamp > latest_timestamp) {
          root_addr        = super->root_addr;
          latest_timestamp = super->timestamp;
       }
-      trunk_release_super_block(spl, super_page);
+      core_release_super_block(spl, super_page);
    }
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    spl->mt_ctxt            = memtable_context_create(
-      spl->heap_id, cc, mt_cfg, trunk_memtable_flush_virtual, spl);
+      spl->heap_id, cc, mt_cfg, core_memtable_flush_virtual, spl);
 
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -1563,7 +1554,7 @@ trunk_mount(trunk_config     *cfg,
    trunk_node_context_init(
       &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
 
-   trunk_set_super_block(spl, FALSE, FALSE, FALSE);
+   core_set_super_block(spl, FALSE, FALSE, FALSE);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -1595,7 +1586,7 @@ trunk_mount(trunk_config     *cfg,
  * and all tasks have been complete.
  */
 void
-trunk_prepare_for_shutdown(trunk_handle *spl)
+core_prepare_for_shutdown(core_handle *spl)
 {
    // write current memtable to disk
    // (any others must already be flushing/flushed)
@@ -1607,7 +1598,7 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
        */
 
       uint64 generation = memtable_force_finalize(spl->mt_ctxt);
-      trunk_memtable_flush(spl, generation);
+      core_memtable_flush(spl, generation);
    }
 
    // finish any outstanding tasks and destroy task system for this table.
@@ -1630,9 +1621,9 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
  * Destroy a database such that it cannot be re-opened later
  */
 void
-trunk_destroy(trunk_handle *spl)
+core_destroy(core_handle *spl)
 {
-   trunk_prepare_for_shutdown(spl);
+   core_prepare_for_shutdown(spl);
    trunk_node_context_deinit(&spl->trunk_context);
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
@@ -1653,14 +1644,14 @@ trunk_destroy(trunk_handle *spl)
 
 /*
  * Close (unmount) a database without destroying it.
- * It can be re-opened later with trunk_mount().
+ * It can be re-opened later with core_mount().
  */
 void
-trunk_unmount(trunk_handle **spl_in)
+core_unmount(core_handle **spl_in)
 {
-   trunk_handle *spl = *spl_in;
-   trunk_prepare_for_shutdown(spl);
-   trunk_set_super_block(spl, FALSE, TRUE, FALSE);
+   core_handle *spl = *spl_in;
+   core_prepare_for_shutdown(spl);
+   core_set_super_block(spl, FALSE, TRUE, FALSE);
    trunk_node_context_deinit(&spl->trunk_context);
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
@@ -1674,18 +1665,18 @@ trunk_unmount(trunk_handle **spl_in)
       platform_free(spl->heap_id, spl->stats);
    }
    platform_free(spl->heap_id, spl);
-   *spl_in = (trunk_handle *)NULL;
+   *spl_in = (core_handle *)NULL;
 }
 
 /*
  *-----------------------------------------------------------------------------
- * trunk_perform_task
+ * core_perform_task
  *
  *      do a batch of tasks
  *-----------------------------------------------------------------------------
  */
 void
-trunk_perform_tasks(trunk_handle *spl)
+core_perform_tasks(core_handle *spl)
 {
    task_perform_all(spl->ts);
    cache_cleanup(spl->cc);
@@ -1701,14 +1692,14 @@ trunk_perform_tasks(trunk_handle *spl)
  * verify_tree verifies each node with itself and its neighbors
  */
 bool32
-trunk_verify_tree(trunk_handle *spl)
+core_verify_tree(core_handle *spl)
 {
-   platform_default_log("trunk_verify_tree not implemented");
+   platform_default_log("core_verify_tree not implemented");
    return TRUE;
 }
 
 void
-trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
+core_print_space_use(platform_log_handle *log_handle, core_handle *spl)
 {
    platform_log(log_handle, "Space usage: unimplemented\n");
    // uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
@@ -1728,17 +1719,17 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
 }
 
 /*
- * trunk_print_memtable() --
+ * core_print_memtable() --
  *
  * Print the currently active Memtable, and the other Memtables being processed.
  * Memtable printing will drill-down to BTree printing which will keep
  * recursing.
  */
 static void
-trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
+core_print_memtable(platform_log_handle *log_handle, core_handle *spl)
 {
    uint64 curr_memtable =
-      memtable_generation(spl->mt_ctxt) % TRUNK_NUM_MEMTABLES;
+      memtable_generation(spl->mt_ctxt) % CORE_NUM_MEMTABLES;
    platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
    platform_log(log_handle, "&&  MEMTABLES \n");
    platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
@@ -1747,7 +1738,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      memtable *mt = trunk_get_memtable(spl, mt_gen);
+      memtable *mt = core_get_memtable(spl, mt_gen);
       platform_log(log_handle,
                    "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
                    mt->root_addr,
@@ -1761,28 +1752,28 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
 }
 
 /*
- * trunk_print()
+ * core_print()
  *
- * Driver routine to print a SplinterDB trunk, and all its sub-pages.
+ * Driver routine to print a SplinterDB core, and all its sub-pages.
  */
 void
-trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
+core_print(platform_log_handle *log_handle, core_handle *spl)
 {
-   trunk_print_memtable(log_handle, spl);
-   platform_default_log("trunk_print not implemented");
+   core_print_memtable(log_handle, spl);
+   platform_default_log("core_print not implemented");
 }
 
 /*
- * trunk_print_super_block()
+ * core_print_super_block()
  *
  * Fetch a super-block for a running Splinter instance, and print its
  * contents.
  */
 void
-trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl)
+core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 {
-   page_handle       *super_page;
-   trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
+   page_handle      *super_page;
+   core_super_block *super = core_get_super_block_if_valid(spl, &super_page);
    if (super == NULL) {
       return;
    }
@@ -1795,12 +1786,12 @@ trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl)
                 super->checkpointed,
                 super->unmounted);
    platform_log(log_handle, "}\n\n");
-   trunk_release_super_block(spl, super_page);
+   core_release_super_block(spl, super_page);
 }
 
 // clang-format off
 void
-trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
+core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
 {
    if (!spl->cfg.use_stats) {
       platform_log(log_handle, "Statistics are not enabled\n");
@@ -1809,10 +1800,9 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
    uint64 avg_flush_wait_time, avg_flush_time, num_flushes;
    uint64 avg_compaction_tuples, pack_time_per_tuple, avg_setup_time;
-   uint64 avg_filter_tuples, avg_filter_time, filter_time_per_tuple;
    threadid thr_i;
 
-   trunk_stats *global;
+   core_stats *global;
 
    global = TYPED_ZALLOC(spl->heap_id, global);
    if (global == NULL) {
@@ -1871,10 +1861,6 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
             spl->stats[thr_i].memtable_flush_time_max_ns;
       }
       global->memtable_flush_root_full    += spl->stats[thr_i].memtable_flush_root_full;
-
-      global->root_filters_built          += spl->stats[thr_i].root_filters_built;
-      global->root_filter_tuples          += spl->stats[thr_i].root_filter_tuples;
-      global->root_filter_time_ns         += spl->stats[thr_i].root_filter_time_ns;
    }
 
    platform_log(log_handle, "Overall Statistics\n");
@@ -1937,17 +1923,6 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "| height |   built | avg tuples | avg build time (ns) | build_time / tuple (ns) |\n");
    platform_log(log_handle, "---------|---------|------------|---------------------|-------------------------|\n");
 
-   avg_filter_tuples = global->root_filters_built == 0 ? 0 :
-      global->root_filter_tuples / global->root_filters_built;
-   avg_filter_time = global->root_filters_built == 0 ? 0 :
-      global->root_filter_time_ns / global->root_filters_built;
-   filter_time_per_tuple = global->root_filter_tuples == 0 ? 0 :
-      global->root_filter_time_ns / global->root_filter_tuples;
-
-   platform_log(log_handle, "|   root | %7lu | %10lu | %19lu | %23lu |\n",
-         global->root_filters_built, avg_filter_tuples,
-         avg_filter_time, filter_time_per_tuple);
-
    trunk_node_print_insertion_stats(log_handle, &spl->trunk_context);
 
    task_print_stats(spl->ts);
@@ -1959,7 +1934,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 }
 
 void
-trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
+core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl)
 {
    if (!spl->cfg.use_stats) {
       platform_log(log_handle, "Statistics are not enabled\n");
@@ -1989,9 +1964,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
 
 void
-trunk_print_lookup(trunk_handle        *spl,
-                   key                  target,
-                   platform_log_handle *log_handle)
+core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
 {
    merge_accumulator data;
    merge_accumulator_init(&data, spl->heap_id);
@@ -2002,7 +1975,7 @@ trunk_print_lookup(trunk_handle        *spl,
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       bool32 memtable_is_compacted;
-      uint64 root_addr = trunk_memtable_root_addr_for_lookup(
+      uint64 root_addr = core_memtable_root_addr_for_lookup(
          spl, mt_gen, &memtable_is_compacted);
       platform_status rc;
 
@@ -2017,8 +1990,8 @@ trunk_print_lookup(trunk_handle        *spl,
          char    key_str[128];
          char    message_str[128];
          message msg = merge_accumulator_to_message(&data);
-         trunk_key_to_string(spl, target, key_str);
-         trunk_message_to_string(spl, msg, message_str);
+         core_key_to_string(spl, target, key_str);
+         core_message_to_string(spl, msg, message_str);
          platform_log_stream(
             &stream,
             "Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
@@ -2039,7 +2012,7 @@ trunk_print_lookup(trunk_handle        *spl,
 }
 
 void
-trunk_reset_stats(trunk_handle *spl)
+core_reset_stats(core_handle *spl)
 {
    if (spl->cfg.use_stats) {
       for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
@@ -2074,51 +2047,51 @@ trunk_reset_stats(trunk_handle *spl)
 
 // basic validation of data_config
 static void
-trunk_validate_data_config(const data_config *cfg)
+core_validate_data_config(const data_config *cfg)
 {
    platform_assert(cfg->key_compare != NULL);
 }
 
 /*
  *-----------------------------------------------------------------------------
- * trunk_config_init --
+ * core_config_init --
  *
  *       Initialize splinter config
  *       This function calls btree_config_init
  *-----------------------------------------------------------------------------
  */
 platform_status
-trunk_config_init(trunk_config        *trunk_cfg,
-                  cache_config        *cache_cfg,
-                  data_config         *data_cfg,
-                  btree_config        *btree_cfg,
-                  log_config          *log_cfg,
-                  trunk_node_config   *trunk_node_cfg,
-                  uint64               queue_scale_percent,
-                  bool32               use_log,
-                  bool32               use_stats,
-                  bool32               verbose_logging,
-                  platform_log_handle *log_handle)
+core_config_init(core_config         *core_cfg,
+                 cache_config        *cache_cfg,
+                 data_config         *data_cfg,
+                 btree_config        *btree_cfg,
+                 log_config          *log_cfg,
+                 trunk_node_config   *trunk_node_cfg,
+                 uint64               queue_scale_percent,
+                 bool32               use_log,
+                 bool32               use_stats,
+                 bool32               verbose_logging,
+                 platform_log_handle *log_handle)
 
 {
-   trunk_validate_data_config(data_cfg);
+   core_validate_data_config(data_cfg);
 
-   ZERO_CONTENTS(trunk_cfg);
-   trunk_cfg->cache_cfg      = cache_cfg;
-   trunk_cfg->data_cfg       = data_cfg;
-   trunk_cfg->btree_cfg      = btree_cfg;
-   trunk_cfg->trunk_node_cfg = trunk_node_cfg;
-   trunk_cfg->log_cfg        = log_cfg;
+   ZERO_CONTENTS(core_cfg);
+   core_cfg->cache_cfg      = cache_cfg;
+   core_cfg->data_cfg       = data_cfg;
+   core_cfg->btree_cfg      = btree_cfg;
+   core_cfg->trunk_node_cfg = trunk_node_cfg;
+   core_cfg->log_cfg        = log_cfg;
 
-   trunk_cfg->queue_scale_percent     = queue_scale_percent;
-   trunk_cfg->use_log                 = use_log;
-   trunk_cfg->use_stats               = use_stats;
-   trunk_cfg->verbose_logging_enabled = verbose_logging;
-   trunk_cfg->log_handle              = log_handle;
+   core_cfg->queue_scale_percent     = queue_scale_percent;
+   core_cfg->use_log                 = use_log;
+   core_cfg->use_stats               = use_stats;
+   core_cfg->verbose_logging_enabled = verbose_logging;
+   core_cfg->log_handle              = log_handle;
 
-   memtable_config_init(&trunk_cfg->mt_cfg,
-                        trunk_cfg->btree_cfg,
-                        TRUNK_NUM_MEMTABLES,
+   memtable_config_init(&core_cfg->mt_cfg,
+                        core_cfg->btree_cfg,
+                        CORE_NUM_MEMTABLES,
                         trunk_node_cfg->incorporation_size_kv_bytes);
 
    // When everything succeeds, return success.
@@ -2126,7 +2099,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
 }
 
 size_t
-trunk_get_scratch_size()
+core_get_scratch_size()
 {
    return 0;
 }

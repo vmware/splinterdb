@@ -21,7 +21,7 @@
  * Tuple verification routine.
  */
 void
-verify_tuple(trunk_handle           *spl,
+verify_tuple(core_handle            *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
              key                     tuple_key,
@@ -30,14 +30,14 @@ verify_tuple(trunk_handle           *spl,
 {
    if (message_is_null(data) != !expected_found) {
       char key_str[128];
-      trunk_key_to_string(spl, tuple_key, key_str);
+      core_key_to_string(spl, tuple_key, key_str);
       platform_error_log("(%2lu) key %lu (%s): found %d (expected:%d)\n",
                          platform_get_tid(),
                          lookup_num,
                          key_str,
                          !message_is_null(data),
                          expected_found);
-      trunk_print_lookup(spl, tuple_key, Platform_error_log_handle);
+      core_print_lookup(spl, tuple_key, Platform_error_log_handle);
       platform_assert(FALSE);
    }
 
@@ -49,9 +49,9 @@ verify_tuple(trunk_handle           *spl,
       if (message_lex_cmp(merge_accumulator_to_message(&expected_msg), data)
           != 0)
       {
-         trunk_message_to_string(spl, data, data_str);
+         core_message_to_string(spl, data, data_str);
          platform_error_log("key found with data: %s\n", data_str);
-         trunk_message_to_string(
+         core_message_to_string(
             spl, merge_accumulator_to_message(&expected_msg), data_str);
          platform_error_log("expected data: %s\n", data_str);
          platform_assert(FALSE);
@@ -64,7 +64,7 @@ verify_tuple(trunk_handle           *spl,
  * Wait-for in-flight lookup to complete
  */
 void
-test_wait_for_inflight(trunk_handle      *spl,
+test_wait_for_inflight(core_handle       *spl,
                        test_async_lookup *async_lookup,
                        verify_tuple_arg  *vtarg)
 {
@@ -87,10 +87,10 @@ test_wait_for_inflight(trunk_handle      *spl,
  * Callback function for async tuple verification.
  */
 void
-verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
+verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    verify_tuple_arg *vta   = arg;
-   bool32            found = trunk_lookup_found(&ctxt->data);
+   bool32            found = core_lookup_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {
@@ -105,7 +105,7 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 }
 
 test_async_ctxt *
-test_async_ctxt_get(trunk_handle      *spl,
+test_async_ctxt_get(core_handle       *spl,
                     test_async_lookup *async_lookup,
                     verify_tuple_arg  *vtarg)
 {

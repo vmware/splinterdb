@@ -201,7 +201,7 @@ generator_average_message_size(test_message_generator *gen)
 }
 
 typedef struct system_config {
-   trunk_config       splinter_cfg;
+   core_config        splinter_cfg;
    trunk_node_config  trunk_node_cfg;
    btree_config       btree_cfg;
    routing_config     filter_cfg;
@@ -256,7 +256,7 @@ test_config_init(system_config          *system_cfg, // OUT
    platform_status rc = task_system_config_init(&system_cfg->task_cfg,
                                                 master_cfg->use_stats,
                                                 num_bg_threads,
-                                                trunk_get_scratch_size());
+                                                core_get_scratch_size());
    platform_assert_status_ok(rc);
 
    rc = routing_config_init(&system_cfg->filter_cfg,
@@ -280,17 +280,17 @@ test_config_init(system_config          *system_cfg, // OUT
                           master_cfg->btree_rough_count_height,
                           master_cfg->use_stats);
 
-   rc = trunk_config_init(&system_cfg->splinter_cfg,
-                          &system_cfg->cache_cfg.super,
-                          system_cfg->data_cfg,
-                          &system_cfg->btree_cfg,
-                          (log_config *)&system_cfg->log_cfg,
-                          &system_cfg->trunk_node_cfg,
-                          master_cfg->queue_scale_percent,
-                          master_cfg->use_log,
-                          master_cfg->use_stats,
-                          master_cfg->verbose_logging_enabled,
-                          master_cfg->log_handle);
+   rc = core_config_init(&system_cfg->splinter_cfg,
+                         &system_cfg->cache_cfg.super,
+                         system_cfg->data_cfg,
+                         &system_cfg->btree_cfg,
+                         (log_config *)&system_cfg->log_cfg,
+                         &system_cfg->trunk_node_cfg,
+                         master_cfg->queue_scale_percent,
+                         master_cfg->use_log,
+                         master_cfg->use_stats,
+                         master_cfg->verbose_logging_enabled,
+                         master_cfg->log_handle);
    if (!SUCCESS(rc)) {
       return rc;
    }

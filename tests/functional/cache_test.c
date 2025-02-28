@@ -938,8 +938,8 @@ cache_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64       num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   core_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(&system_cfg,
                         &seed,

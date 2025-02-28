@@ -36,7 +36,7 @@ splinterdb_get_allocator_handle(const splinterdb *kvs);
 const cache *
 splinterdb_get_cache_handle(const splinterdb *kvs);
 
-const trunk_handle *
+const core_handle *
 splinterdb_get_trunk_handle(const splinterdb *kvs);
 
 const memtable_context *
