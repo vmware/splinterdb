@@ -317,11 +317,12 @@ transactional_splinterdb_config_init(
    const int num_keys_for_cache =
       (int)ceil((double)cache_or_sketch_size_bytes / key_timestamp_size);
    txn_splinterdb_cfg->iceberght_config.max_num_keys += num_keys_for_cache;
-   txn_splinterdb_cfg->iceberght_config.log_slots = (int)ceil(
-      log2(5 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
    txn_splinterdb_cfg->sktch_config.rows                     = 1;
    txn_splinterdb_cfg->sktch_config.cols                     = 1;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
+   platform_default_log(
+      "txn_splinterdb_cfg->iceberght_config.max_num_keys: %lu\n",
+      txn_splinterdb_cfg->iceberght_config.max_num_keys)
 #elif EXPERIMENTAL_MODE_TICTOC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols =
