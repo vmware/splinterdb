@@ -30,7 +30,7 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
     * to maintain compatibility with the cleanup assertion.
     */
    int num_bitmasks = (MAX_THREADS + 63) / 64;
-   
+
    for (int i = 0; i < num_bitmasks; i++) {
       tid_bitmask[i] = (uint64)-1;
    }
