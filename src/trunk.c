@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * trunk_node.c --
+ * trunk.c --
  *
- *     This file contains the implementation SplinterDB trunk nodes.
+ *     This file contains the implementation of the SplinterDB trunk.
  */
 
-#include "trunk_node.h"
+#include "trunk.h"
 #include "platform.h"
 #include "platform_types.h"
 #include "data_internal.h"
@@ -36,7 +36,7 @@ typedef struct bundle {
 
 typedef VECTOR(bundle) bundle_vector;
 
-struct ONDISK ondisk_bundle {
+struct ONDISK trunk_ondisk_bundle {
    routing_filter maplet;
    uint16         num_branches;
    // branches[0] is the oldest branch
@@ -48,20 +48,20 @@ typedef struct ONDISK trunk_pivot_stats {
    int64 num_tuples;
 } trunk_pivot_stats;
 
-typedef struct pivot {
+typedef struct trunk_pivot {
    trunk_pivot_stats prereceive_stats;
    trunk_pivot_stats stats;
    uint64            child_addr;
    // Index of the oldest bundle that is live for this pivot
    uint64     inflight_bundle_start;
    ondisk_key key;
-} pivot;
+} trunk_pivot;
 
-typedef VECTOR(pivot *) pivot_vector;
+typedef VECTOR(trunk_pivot *) trunk_pivot_vector;
 
-typedef VECTOR(ondisk_node_ref *) ondisk_node_ref_vector;
+typedef VECTOR(trunk_ondisk_node_ref *) ondisk_node_ref_vector;
 
-struct ONDISK ondisk_pivot {
+struct ONDISK trunk_ondisk_pivot {
    trunk_pivot_stats stats;
    uint64            child_addr;
    uint64            num_live_inflight_bundles;
@@ -69,24 +69,24 @@ struct ONDISK ondisk_pivot {
 };
 
 typedef struct trunk_node {
-   uint16        height;
-   pivot_vector  pivots;
-   bundle_vector pivot_bundles; // indexed by child
-   uint64        num_old_bundles;
+   uint16             height;
+   trunk_pivot_vector pivots;
+   bundle_vector      pivot_bundles; // indexed by child
+   uint64             num_old_bundles;
    // inflight_bundles[0] is the oldest bundle
    bundle_vector inflight_bundles;
 } trunk_node;
 
 typedef VECTOR(trunk_node) trunk_node_vector;
 
-typedef struct ONDISK ondisk_trunk_node {
+typedef struct ONDISK trunk_ondisk_node {
    uint16 height;
    uint16 num_pivots;
    // On disk, inflight bundles are ordered from newest to oldest.
    uint16 num_inflight_bundles;
    uint32 inflight_bundles_offset;
    uint32 pivot_offsets[];
-} ondisk_trunk_node;
+} trunk_ondisk_node;
 
 typedef enum bundle_compaction_state {
    BUNDLE_COMPACTION_NOT_STARTED = 0,
@@ -96,14 +96,14 @@ typedef enum bundle_compaction_state {
    BUNDLE_COMPACTION_SUCCEEDED   = 3
 } bundle_compaction_state;
 
-typedef VECTOR(branch_info) branch_info_vector;
+typedef VECTOR(trunk_branch_info) trunk_branch_info_vector;
 
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
    uint64                    num_bundles;
    trunk_pivot_stats         input_stats;
    bundle_compaction_state   state;
-   branch_info_vector        input_branches;
+   trunk_branch_info_vector  input_branches;
    merge_behavior            merge_mode;
    branch_ref                output_branch;
    trunk_pivot_stats         output_stats;
@@ -111,22 +111,22 @@ typedef struct bundle_compaction {
    uint64                    compaction_time_ns;
 } bundle_compaction;
 
-typedef struct trunk_node_context trunk_node_context;
+typedef struct trunk_context trunk_context;
 
-struct pivot_compaction_state {
-   struct pivot_compaction_state *next;
-   uint64                         refcount;
-   bool32                         abandoned;
-   trunk_node_context            *context;
-   key_buffer                     key;
-   key_buffer                     ubkey;
-   uint64                         height;
-   routing_filter                 maplet;
-   uint64                         num_branches;
-   bool32                         maplet_compaction_failed;
-   uint64                         total_bundles;
-   platform_spinlock              compactions_lock;
-   bundle_compaction             *bundle_compactions;
+struct trunk_pivot_compaction_state {
+   struct trunk_pivot_compaction_state *next;
+   uint64                               refcount;
+   bool32                               abandoned;
+   trunk_context                       *context;
+   key_buffer                           key;
+   key_buffer                           ubkey;
+   uint64                               height;
+   routing_filter                       maplet;
+   uint64                               num_branches;
+   bool32                               maplet_compaction_failed;
+   uint64                               total_bundles;
+   platform_spinlock                    compactions_lock;
+   bundle_compaction                   *bundle_compactions;
 };
 
 /***************************************************
@@ -333,15 +333,15 @@ trunk_pivot_stats_are_nonnegative(trunk_pivot_stats stats)
 #define TRUNK_STATS_ZERO                                                       \
    ((trunk_pivot_stats){.num_kv_bytes = 0, .num_tuples = 0})
 
-static pivot *
-pivot_create(platform_heap_id  hid,
-             key               k,
-             uint64            child_addr,
-             uint64            inflight_bundle_start,
-             trunk_pivot_stats prereceive_stats,
-             trunk_pivot_stats stats)
+static trunk_pivot *
+trunk_pivot_create(platform_heap_id  hid,
+                   key               k,
+                   uint64            child_addr,
+                   uint64            inflight_bundle_start,
+                   trunk_pivot_stats prereceive_stats,
+                   trunk_pivot_stats stats)
 {
-   pivot *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+   trunk_pivot *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, result, key.bytes, ondisk_key_required_data_capacity(k));
    if (result == NULL) {
       platform_error_log(
@@ -358,62 +358,61 @@ pivot_create(platform_heap_id  hid,
    return result;
 }
 
-static pivot *
-pivot_copy(const pivot *src, platform_heap_id hid)
+static trunk_pivot *
+trunk_pivot_copy(const trunk_pivot *src, platform_heap_id hid)
 {
-   return pivot_create(hid,
-                       ondisk_key_to_key(&src->key),
-                       src->child_addr,
-                       src->inflight_bundle_start,
-                       src->prereceive_stats,
-                       src->stats);
+   return trunk_pivot_create(hid,
+                             ondisk_key_to_key(&src->key),
+                             src->child_addr,
+                             src->inflight_bundle_start,
+                             src->prereceive_stats,
+                             src->stats);
 }
 
 static void
-pivot_destroy(pivot *pvt, platform_heap_id hid)
+trunk_pivot_destroy(trunk_pivot *pvt, platform_heap_id hid)
 {
    platform_free(hid, pvt);
 }
 
 static key
-pivot_key(const pivot *pvt)
+trunk_pivot_key(const trunk_pivot *pvt)
 {
    return ondisk_key_to_key(&pvt->key);
 }
 
 static uint64
-pivot_child_addr(const pivot *pvt)
+trunk_pivot_child_addr(const trunk_pivot *pvt)
 {
    return pvt->child_addr;
 }
 
 static void
-pivot_set_child_addr(pivot *pvt, uint64 new_child_addr)
+trunk_pivot_set_child_addr(trunk_pivot *pvt, uint64 new_child_addr)
 {
    pvt->child_addr = new_child_addr;
 }
 
-
 static trunk_pivot_stats
-pivot_stats(const pivot *pvt)
+trunk_pivot_get_stats(const trunk_pivot *pvt)
 {
    return pvt->stats;
 }
 
 static uint64
-pivot_inflight_bundle_start(const pivot *pvt)
+trunk_pivot_inflight_bundle_start(const trunk_pivot *pvt)
 {
    return pvt->inflight_bundle_start;
 }
 
 static void
-pivot_set_inflight_bundle_start(pivot *pvt, uint64 start)
+trunk_pivot_set_inflight_bundle_start(trunk_pivot *pvt, uint64 start)
 {
    pvt->inflight_bundle_start = start;
 }
 
 static trunk_pivot_stats
-pivot_received_bundles_stats(const pivot *pvt)
+trunk_pivot_received_bundles_stats(const trunk_pivot *pvt)
 {
    trunk_pivot_stats result =
       trunk_pivot_stats_subtract(pvt->stats, pvt->prereceive_stats);
@@ -422,7 +421,7 @@ pivot_received_bundles_stats(const pivot *pvt)
 }
 
 static uint64
-pivot_num_kv_bytes(const pivot *pvt)
+trunk_pivot_num_kv_bytes(const trunk_pivot *pvt)
 {
    return pvt->stats.num_kv_bytes;
 }
@@ -432,7 +431,9 @@ pivot_num_kv_bytes(const pivot *pvt)
  * inform the pivot of the tuple counts of the new bundles.
  */
 static void
-pivot_add_tuple_counts(pivot *pvt, int coefficient, trunk_pivot_stats stats)
+trunk_pivot_add_tuple_counts(trunk_pivot      *pvt,
+                             int               coefficient,
+                             trunk_pivot_stats stats)
 {
    if (coefficient == 1) {
       pvt->stats.num_tuples += stats.num_tuples;
@@ -449,10 +450,10 @@ pivot_add_tuple_counts(pivot *pvt, int coefficient, trunk_pivot_stats stats)
 }
 
 debug_only static void
-pivot_print(const pivot         *pvt,
-            platform_log_handle *log,
-            const data_config   *data_cfg,
-            int                  indent)
+trunk_pivot_print(const trunk_pivot   *pvt,
+                  platform_log_handle *log,
+                  const data_config   *data_cfg,
+                  int                  indent)
 {
    platform_log(
       log,
@@ -466,14 +467,14 @@ pivot_print(const pivot         *pvt,
       pvt->stats.num_tuples,
       pvt->child_addr,
       pvt->inflight_bundle_start,
-      key_string(data_cfg, pivot_key(pvt)));
+      key_string(data_cfg, trunk_pivot_key(pvt)));
 }
 
 debug_only static void
-pivot_vector_print(const pivot_vector  *pivots,
-                   platform_log_handle *log,
-                   const data_config   *data_cfg,
-                   int                  indent)
+trunk_pivot_vector_print(const trunk_pivot_vector *pivots,
+                         platform_log_handle      *log,
+                         const data_config        *data_cfg,
+                         int                       indent)
 {
    platform_log(log,
                 "%*s%3s %12s %12s %12s %12s %12s %12s %-24s\n",
@@ -488,7 +489,7 @@ pivot_vector_print(const pivot_vector  *pivots,
                 "if_start",
                 "key");
    for (uint64 i = 0; i < vector_length(pivots); i++) {
-      pivot *pvt = vector_get(pivots, i);
+      trunk_pivot *pvt = vector_get(pivots, i);
       platform_log(log,
                    "%*s%3lu %12lu %12lu %12lu %12lu %12lu %12lu %-24s\n",
                    indent,
@@ -500,7 +501,7 @@ pivot_vector_print(const pivot_vector  *pivots,
                    pvt->stats.num_tuples,
                    pvt->child_addr,
                    pvt->inflight_bundle_start,
-                   key_string(data_cfg, pivot_key(pvt)));
+                   key_string(data_cfg, trunk_pivot_key(pvt)));
    }
 }
 
@@ -510,12 +511,12 @@ pivot_vector_print(const pivot_vector  *pivots,
 
 /* Steals pivots, pivot_bundles, and inflight_bundles. */
 static void
-node_init(trunk_node   *node,
-          uint16        height,
-          pivot_vector  pivots,
-          bundle_vector pivot_bundles,
-          uint64        num_old_bundles,
-          bundle_vector inflight_bundles)
+trunk_node_init(trunk_node        *node,
+                uint16             height,
+                trunk_pivot_vector pivots,
+                bundle_vector      pivot_bundles,
+                uint64             num_old_bundles,
+                bundle_vector      inflight_bundles)
 {
    node->height           = height;
    node->pivots           = pivots;
@@ -525,18 +526,20 @@ node_init(trunk_node   *node,
 }
 
 static platform_status
-node_copy_init(trunk_node *dst, const trunk_node *src, platform_heap_id hid)
+trunk_node_copy_init(trunk_node       *dst,
+                     const trunk_node *src,
+                     platform_heap_id  hid)
 {
-   pivot_vector    pivots;
-   bundle_vector   pivot_bundles;
-   bundle_vector   inflight_bundles;
-   platform_status rc;
+   trunk_pivot_vector pivots;
+   bundle_vector      pivot_bundles;
+   bundle_vector      inflight_bundles;
+   platform_status    rc;
 
    vector_init(&pivots, hid);
    vector_init(&pivot_bundles, hid);
    vector_init(&inflight_bundles, hid);
 
-   rc = VECTOR_MAP_ELTS(&pivots, pivot_copy, &src->pivots, hid);
+   rc = VECTOR_MAP_ELTS(&pivots, trunk_pivot_copy, &src->pivots, hid);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: VECTOR_MAP_ELTS() failed: %s",
                          __func__,
@@ -563,16 +566,16 @@ node_copy_init(trunk_node *dst, const trunk_node *src, platform_heap_id hid)
       goto cleanup_vectors;
    }
 
-   node_init(dst,
-             src->height,
-             pivots,
-             pivot_bundles,
-             src->num_old_bundles,
-             inflight_bundles);
+   trunk_node_init(dst,
+                   src->height,
+                   pivots,
+                   pivot_bundles,
+                   src->num_old_bundles,
+                   inflight_bundles);
    return STATUS_OK;
 
 cleanup_vectors:
-   VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, hid);
    vector_deinit(&pivots);
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
    vector_deinit(&pivot_bundles);
@@ -582,12 +585,15 @@ cleanup_vectors:
 }
 
 static platform_status
-node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
+trunk_node_init_empty_leaf(trunk_node      *node,
+                           platform_heap_id hid,
+                           key              lb,
+                           key              ub)
 {
-   pivot_vector    pivots;
-   bundle_vector   pivot_bundles;
-   bundle_vector   inflight_bundles;
-   platform_status rc;
+   trunk_pivot_vector pivots;
+   bundle_vector      pivot_bundles;
+   bundle_vector      inflight_bundles;
+   platform_status    rc;
 
    vector_init(&pivots, hid);
    vector_init(&pivot_bundles, hid);
@@ -611,10 +617,10 @@ node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
       goto cleanup_vectors;
    }
 
-   pivot *lb_pivot =
-      pivot_create(hid, lb, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
-   pivot *ub_pivot =
-      pivot_create(hid, ub, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
+   trunk_pivot *lb_pivot =
+      trunk_pivot_create(hid, lb, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
+   trunk_pivot *ub_pivot =
+      trunk_pivot_create(hid, ub, 0, 0, TRUNK_STATS_ZERO, TRUNK_STATS_ZERO);
    if (lb_pivot == NULL || ub_pivot == NULL) {
       platform_error_log(
          "%s():%d: pivot_create() failed. lb_pivot=%p ub_pivot=%p",
@@ -633,18 +639,18 @@ node_init_empty_leaf(trunk_node *node, platform_heap_id hid, key lb, key ub)
    rc = VECTOR_EMPLACE_APPEND(&pivot_bundles, bundle_init, hid);
    platform_assert_status_ok(rc);
 
-   node_init(node, 0, pivots, pivot_bundles, 0, inflight_bundles);
+   trunk_node_init(node, 0, pivots, pivot_bundles, 0, inflight_bundles);
    return STATUS_OK;
 
 cleanup_pivots:
    if (lb_pivot != NULL) {
-      pivot_destroy(lb_pivot, hid);
+      trunk_pivot_destroy(lb_pivot, hid);
    }
    if (ub_pivot != NULL) {
-      pivot_destroy(ub_pivot, hid);
+      trunk_pivot_destroy(ub_pivot, hid);
    }
 cleanup_vectors:
-   VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, hid);
    vector_deinit(&pivots);
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
    vector_deinit(&pivot_bundles);
@@ -653,105 +659,108 @@ cleanup_vectors:
 }
 
 static uint64
-node_num_children(const trunk_node *node)
+trunk_node_num_children(const trunk_node *node)
 {
    return vector_length(&node->pivots) - 1;
 }
 
-static pivot *
-node_pivot(const trunk_node *node, uint64 i)
+static trunk_pivot *
+trunk_node_pivot(const trunk_node *node, uint64 i)
 {
    return vector_get(&node->pivots, i);
 }
 
 static key
-node_pivot_key(const trunk_node *node, uint64 i)
+trunk_node_pivot_key(const trunk_node *node, uint64 i)
 {
-   return pivot_key(vector_get(&node->pivots, i));
+   return trunk_pivot_key(vector_get(&node->pivots, i));
 }
 
 static key
-node_pivot_min_key(const trunk_node *node)
+trunk_node_pivot_min_key(const trunk_node *node)
 {
-   return pivot_key(vector_get(&node->pivots, 0));
+   return trunk_pivot_key(vector_get(&node->pivots, 0));
 }
 
 debug_only static key
-node_pivot_max_key(const trunk_node *node)
+trunk_node_pivot_max_key(const trunk_node *node)
 {
-   return pivot_key(
+   return trunk_pivot_key(
       vector_get(&node->pivots, vector_length(&node->pivots) - 1));
 }
 
 static bundle *
-node_pivot_bundle(trunk_node *node, uint64 i)
+trunk_node_pivot_bundle(trunk_node *node, uint64 i)
 {
    return vector_get_ptr(&node->pivot_bundles, i);
 }
 
 static uint64
-node_height(const trunk_node *node)
+trunk_node_height(const trunk_node *node)
 {
    return node->height;
 }
 
 static bool32
-node_is_leaf(const trunk_node *node)
+trunk_node_is_leaf(const trunk_node *node)
 {
    return node->height == 0;
 }
 
 static uint64
-node_first_live_inflight_bundle(const trunk_node *node)
+trunk_node_first_live_inflight_bundle(const trunk_node *node)
 {
    uint64 result = UINT64_MAX;
    for (uint64 i = 0; i < vector_length(&node->pivots) - 1; i++) {
-      pivot *pvt = vector_get(&node->pivots, i);
-      result     = MIN(result, pvt->inflight_bundle_start);
+      trunk_pivot *pvt = vector_get(&node->pivots, i);
+      result           = MIN(result, pvt->inflight_bundle_start);
    }
    return result;
 }
 
 static uint64
-leaf_num_tuples(const trunk_node *node)
+trunk_leaf_num_tuples(const trunk_node *node)
 {
-   trunk_pivot_stats stats = pivot_stats(vector_get(&node->pivots, 0));
+   trunk_pivot_stats stats =
+      trunk_pivot_get_stats(vector_get(&node->pivots, 0));
    return stats.num_tuples;
 }
 
 static uint64
-leaf_num_kv_bytes(const trunk_node *node)
+trunk_leaf_num_kv_bytes(const trunk_node *node)
 {
-   trunk_pivot_stats stats = pivot_stats(vector_get(&node->pivots, 0));
+   trunk_pivot_stats stats =
+      trunk_pivot_get_stats(vector_get(&node->pivots, 0));
    return stats.num_kv_bytes;
 }
 
 static uint64
-node_num_old_bundles(const trunk_node *node)
+trunk_node_num_old_bundles(const trunk_node *node)
 {
    return node->num_old_bundles;
 }
 
 static bool32
-node_pivot_has_received_bundles(const trunk_node *node, uint64 i)
+trunk_node_pivot_has_received_bundles(const trunk_node *node, uint64 i)
 {
-   pivot *pvt = vector_get(&node->pivots, i);
-   return pivot_inflight_bundle_start(pvt) <= node->num_old_bundles
+   trunk_pivot *pvt = vector_get(&node->pivots, i);
+   return trunk_pivot_inflight_bundle_start(pvt) <= node->num_old_bundles
           && node->num_old_bundles < vector_length(&node->inflight_bundles);
 }
 
 void
-node_print(const trunk_node    *node,
-           platform_log_handle *log,
-           const data_config   *data_cfg,
-           int                  indent)
+trunk_node_print(const trunk_node    *node,
+                 platform_log_handle *log,
+                 const data_config   *data_cfg,
+                 int                  indent)
 {
-   platform_log(log, "%*sNode height: %lu\n", indent, "", node_height(node));
+   platform_log(
+      log, "%*sNode height: %lu\n", indent, "", trunk_node_height(node));
    platform_log(
       log, "%*sNum old bundles: %lu\n", indent, "", node->num_old_bundles);
 
    platform_log(log, "%*s--------------Pivots-----------\n", indent, "");
-   pivot_vector_print(&node->pivots, log, data_cfg, indent + 4);
+   trunk_pivot_vector_print(&node->pivots, log, data_cfg, indent + 4);
 
    platform_log(log, "%*s--------------Pivot Bundles-----------\n", indent, "");
    bundle_vector_print(&node->pivot_bundles, log, indent + 4);
@@ -762,7 +771,8 @@ node_print(const trunk_node    *node,
 }
 
 debug_only static bool
-node_is_well_formed_leaf(const data_config *data_cfg, const trunk_node *node)
+trunk_node_is_well_formed_leaf(const data_config *data_cfg,
+                               const trunk_node  *node)
 {
    bool basics =
       node->height == 0 && vector_length(&node->pivots) == 2
@@ -770,25 +780,26 @@ node_is_well_formed_leaf(const data_config *data_cfg, const trunk_node *node)
       && node->num_old_bundles <= vector_length(&node->inflight_bundles);
    if (!basics) {
       platform_error_log("ILL-FORMED LEAF: basics failed\n");
-      node_print(node, Platform_error_log_handle, data_cfg, 4);
+      trunk_node_print(node, Platform_error_log_handle, data_cfg, 4);
       return FALSE;
    }
 
-   pivot *lb    = vector_get(&node->pivots, 0);
-   pivot *ub    = vector_get(&node->pivots, 1);
-   key    lbkey = pivot_key(lb);
-   key    ubkey = pivot_key(ub);
-   bool32 ret =
+   trunk_pivot *lb    = vector_get(&node->pivots, 0);
+   trunk_pivot *ub    = vector_get(&node->pivots, 1);
+   key          lbkey = trunk_pivot_key(lb);
+   key          ubkey = trunk_pivot_key(ub);
+   bool32       ret =
       lb->child_addr == 0 && data_key_compare(data_cfg, lbkey, ubkey) < 0;
    if (!ret) {
       platform_error_log("ILL-FORMED LEAF:\n");
-      node_print(node, Platform_error_log_handle, data_cfg, 4);
+      trunk_node_print(node, Platform_error_log_handle, data_cfg, 4);
    }
    return ret;
 }
 
 debug_only static bool
-node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
+trunk_node_is_well_formed_index(const data_config *data_cfg,
+                                const trunk_node  *node)
 {
    bool basics =
       0 < node->height && 1 < vector_length(&node->pivots)
@@ -796,16 +807,16 @@ node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
       && node->num_old_bundles <= vector_length(&node->inflight_bundles);
    if (!basics) {
       platform_error_log("ILL-FORMED INDEX: basics failed\n");
-      node_print(node, Platform_error_log_handle, data_cfg, 4);
+      trunk_node_print(node, Platform_error_log_handle, data_cfg, 4);
       return FALSE;
    }
 
-   for (uint64 i = 0; i < node_num_children(node); i++) {
-      pivot *lb    = vector_get(&node->pivots, i);
-      pivot *ub    = vector_get(&node->pivots, i + 1);
-      key    lbkey = pivot_key(lb);
-      key    ubkey = pivot_key(ub);
-      bool   valid_pivots =
+   for (uint64 i = 0; i < trunk_node_num_children(node); i++) {
+      trunk_pivot *lb    = vector_get(&node->pivots, i);
+      trunk_pivot *ub    = vector_get(&node->pivots, i + 1);
+      key          lbkey = trunk_pivot_key(lb);
+      key          ubkey = trunk_pivot_key(ub);
+      bool         valid_pivots =
          lb->child_addr != 0
          && lb->inflight_bundle_start <= vector_length(&node->inflight_bundles)
          && data_key_compare(data_cfg, lbkey, ubkey) < 0
@@ -813,7 +824,7 @@ node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
          && trunk_pivot_stats_are_nonnegative(lb->stats);
       if (!valid_pivots) {
          platform_error_log("ILL-FORMED INDEX: invalid pivots\n");
-         node_print(node, Platform_error_log_handle, data_cfg, 4);
+         trunk_node_print(node, Platform_error_log_handle, data_cfg, 4);
          return FALSE;
       }
    }
@@ -822,7 +833,7 @@ node_is_well_formed_index(const data_config *data_cfg, const trunk_node *node)
 }
 
 static void
-node_deinit(trunk_node *node, const trunk_node_context *context)
+trunk_node_deinit(trunk_node *node, const trunk_context *context)
 {
    VECTOR_APPLY_TO_ELTS(
       &node->pivots, vector_apply_platform_free, context->hid);
@@ -839,19 +850,19 @@ node_deinit(trunk_node *node, const trunk_node_context *context)
  **************************************************/
 
 static uint64
-sizeof_ondisk_bundle(ondisk_bundle *odb)
+sizeof_trunk_ondisk_bundle(trunk_ondisk_bundle *odb)
 {
    return sizeof(*odb) + sizeof(odb->branches[0]) * odb->num_branches;
 }
 
 static uint64
-ondisk_bundle_size(uint64 num_branches)
+trunk_ondisk_bundle_size(uint64 num_branches)
 {
-   return sizeof(ondisk_bundle) + sizeof(branch_ref) * num_branches;
+   return sizeof(trunk_ondisk_bundle) + sizeof(branch_ref) * num_branches;
 }
 
 static page_type
-ondisk_bundle_branch_type(const ondisk_bundle *odb)
+trunk_ondisk_bundle_branch_type(const trunk_ondisk_bundle *odb)
 {
    return routing_filters_equal(&odb->maplet, &NULL_ROUTING_FILTER)
                 && odb->num_branches == 1
@@ -864,27 +875,27 @@ ondisk_bundle_branch_type(const ondisk_bundle *odb)
  ****************************************************/
 
 static uint64
-sizeof_ondisk_pivot(ondisk_pivot *odp)
+sizeof_trunk_ondisk_pivot(trunk_ondisk_pivot *odp)
 {
    return sizeof(*odp) + sizeof_ondisk_key_data(&odp->key);
 }
 
 static uint64
-ondisk_pivot_size(key k)
+trunk_ondisk_pivot_size(key k)
 {
-   return sizeof(ondisk_pivot) + ondisk_key_required_data_capacity(k);
+   return sizeof(trunk_ondisk_pivot) + ondisk_key_required_data_capacity(k);
 }
 
 static key
-ondisk_pivot_key(ondisk_pivot *odp)
+trunk_ondisk_pivot_key(trunk_ondisk_pivot *odp)
 {
    return ondisk_key_to_key(&odp->key);
 }
 
-static ondisk_bundle *
-ondisk_pivot_bundle(ondisk_pivot *odp)
+static trunk_ondisk_bundle *
+trunk_ondisk_pivot_bundle(trunk_ondisk_pivot *odp)
 {
-   return (ondisk_bundle *)((char *)odp + sizeof_ondisk_pivot(odp));
+   return (trunk_ondisk_bundle *)((char *)odp + sizeof_trunk_ondisk_pivot(odp));
 }
 
 /********************************************************
@@ -892,7 +903,9 @@ ondisk_pivot_bundle(ondisk_pivot *odp)
  ********************************************************/
 
 static platform_status
-ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
+trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
+                              cache                    *cc,
+                              uint64                    addr)
 {
    platform_assert(addr != 0);
    handle->cc          = cc;
@@ -916,8 +929,8 @@ ondisk_node_handle_init(ondisk_node_handle *handle, cache *cc, uint64 addr)
  * - state->rc: the return code
  */
 static async_status
-ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
-                              uint64                          depth)
+trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
+                                    uint64                          depth)
 {
    async_begin(state, depth);
 
@@ -949,7 +962,7 @@ ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
 
 
 void
-trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle)
+trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle)
 {
    if (handle->pivot_page != NULL && handle->pivot_page != handle->header_page)
    {
@@ -969,8 +982,8 @@ trunk_ondisk_node_handle_deinit(ondisk_node_handle *handle)
 }
 
 static platform_status
-trunk_ondisk_node_handle_clone(ondisk_node_handle       *dst,
-                               const ondisk_node_handle *src)
+trunk_ondisk_node_handle_clone(trunk_ondisk_node_handle       *dst,
+                               const trunk_ondisk_node_handle *src)
 {
    dst->cc = src->cc;
    if (src->header_page == NULL) {
@@ -992,15 +1005,16 @@ trunk_ondisk_node_handle_clone(ondisk_node_handle       *dst,
 }
 
 static uint64
-content_page_offset(const ondisk_node_handle *handle, const page_handle *page)
+content_page_offset(const trunk_ondisk_node_handle *handle,
+                    const page_handle              *page)
 {
    return page->disk_addr - handle->header_page->disk_addr;
 }
 
 static bool32
-offset_is_in_content_page(const ondisk_node_handle *handle,
-                          const page_handle        *page,
-                          uint32                    offset)
+offset_is_in_content_page(const trunk_ondisk_node_handle *handle,
+                          const page_handle              *page,
+                          uint32                          offset)
 {
    uint64 page_size = cache_page_size(handle->cc);
    return page != NULL && content_page_offset(handle, page) <= offset
@@ -1008,9 +1022,9 @@ offset_is_in_content_page(const ondisk_node_handle *handle,
 }
 
 static platform_status
-ondisk_node_handle_setup_content_page(ondisk_node_handle *handle,
-                                      uint64              offset,
-                                      page_handle       **page)
+trunk_ondisk_node_handle_setup_content_page(trunk_ondisk_node_handle *handle,
+                                            uint64                    offset,
+                                            page_handle             **page)
 {
    uint64 page_size = cache_page_size(handle->cc);
 
@@ -1052,7 +1066,7 @@ ondisk_node_handle_setup_content_page(ondisk_node_handle *handle,
  * - state->cache_get_state: the state of the cache_get() operation
  */
 static async_status
-ondisk_node_handle_setup_content_page_async(
+trunk_ondisk_node_handle_setup_content_page_async(
    trunk_merge_lookup_async_state *state,
    uint64                          depth)
 {
@@ -1100,25 +1114,25 @@ ondisk_node_handle_setup_content_page_async(
 }
 
 static uint64
-ondisk_node_height(ondisk_node_handle *handle)
+trunk_ondisk_node_height(trunk_ondisk_node_handle *handle)
 {
-   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
    return header->height;
 }
 
 static uint64
-ondisk_node_num_pivots(ondisk_node_handle *handle)
+trunk_ondisk_node_num_pivots(trunk_ondisk_node_handle *handle)
 {
-   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
    return header->num_pivots;
 }
 
-static ondisk_pivot *
-ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
+static trunk_ondisk_pivot *
+trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
 {
-   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
    uint64             offset = header->pivot_offsets[pivot_num];
-   platform_status    rc     = ondisk_node_handle_setup_content_page(
+   platform_status    rc     = trunk_ondisk_node_handle_setup_content_page(
       handle, offset, &handle->pivot_page);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
@@ -1128,8 +1142,9 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
                          platform_status_to_string(rc));
       return NULL;
    }
-   return (ondisk_pivot *)(handle->pivot_page->data + offset
-                           - content_page_offset(handle, handle->pivot_page));
+   return (
+      trunk_ondisk_pivot *)(handle->pivot_page->data + offset
+                            - content_page_offset(handle, handle->pivot_page));
 }
 
 /*
@@ -1147,15 +1162,17 @@ ondisk_node_get_pivot(ondisk_node_handle *handle, uint64 pivot_num)
  * - state->cache_get_state: the state of the cache_get() operation
  */
 static async_status
-ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state, uint64 depth)
+trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
+                                  uint64                          depth)
 {
    async_begin(state, depth);
 
-   ondisk_trunk_node *header =
-      (ondisk_trunk_node *)state->handle.header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)state->handle.header_page->data;
    state->offset = header->pivot_offsets[state->pivot_num];
    state->page   = &state->handle.pivot_page;
-   async_await_subroutine(state, ondisk_node_handle_setup_content_page_async);
+   async_await_subroutine(state,
+                          trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
                          "failed: %s",
@@ -1166,18 +1183,20 @@ ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state, uint64 depth)
       async_return(state);
    }
    state->pivot =
-      (ondisk_pivot *)(state->handle.pivot_page->data + state->offset
-                       - content_page_offset(&state->handle,
-                                             state->handle.pivot_page));
+      (trunk_ondisk_pivot *)(state->handle.pivot_page->data + state->offset
+                             - content_page_offset(&state->handle,
+                                                   state->handle.pivot_page));
    state->rc = STATUS_OK;
    async_return(state);
 }
 
 
 static platform_status
-ondisk_node_get_pivot_key(ondisk_node_handle *handle, uint64 pivot_num, key *k)
+trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
+                                uint64                    pivot_num,
+                                key                      *k)
 {
-   ondisk_pivot *odp = ondisk_node_get_pivot(handle, pivot_num);
+   trunk_ondisk_pivot *odp = trunk_ondisk_node_get_pivot(handle, pivot_num);
    if (odp == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
@@ -1187,30 +1206,33 @@ ondisk_node_get_pivot_key(ondisk_node_handle *handle, uint64 pivot_num, key *k)
    return STATUS_OK;
 }
 
-static ondisk_bundle *
-ondisk_node_get_pivot_bundle(ondisk_node_handle *handle, uint64 pivot_num)
+static trunk_ondisk_bundle *
+trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
+                                   uint64                    pivot_num)
 {
-   ondisk_pivot *pivot = ondisk_node_get_pivot(handle, pivot_num);
+   trunk_ondisk_pivot *pivot = trunk_ondisk_node_get_pivot(handle, pivot_num);
    if (pivot == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return NULL;
    }
-   return (ondisk_bundle *)(((char *)pivot) + sizeof_ondisk_pivot(pivot));
+   return (trunk_ondisk_bundle *)(((char *)pivot)
+                                  + sizeof_trunk_ondisk_pivot(pivot));
 }
 
-static ondisk_bundle *
-ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
+static trunk_ondisk_bundle *
+trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
+                                   uint64                    offset)
 {
    uint64 page_size = cache_page_size(handle->cc);
 
    /* If there's not enough room for a bundle header, skip to the next
     * page. */
-   if (page_size - (offset % page_size) < sizeof(ondisk_bundle)) {
+   if (page_size - (offset % page_size) < sizeof(trunk_ondisk_bundle)) {
       offset += page_size - (offset % page_size);
    }
 
-   platform_status rc = ondisk_node_handle_setup_content_page(
+   platform_status rc = trunk_ondisk_node_handle_setup_content_page(
       handle, offset, &handle->inflight_bundle_page);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
@@ -1220,16 +1242,16 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
                          platform_status_to_string(rc));
       return NULL;
    }
-   ondisk_bundle *result =
-      (ondisk_bundle *)(handle->inflight_bundle_page->data + offset
-                        - content_page_offset(handle,
-                                              handle->inflight_bundle_page));
+   trunk_ondisk_bundle *result =
+      (trunk_ondisk_bundle *)(handle->inflight_bundle_page->data + offset
+                              - content_page_offset(
+                                 handle, handle->inflight_bundle_page));
 
    /* If there wasn't enough room for this bundle on this page, then we would
     * have zeroed the remaining bytes and put the bundle on the next page. */
    if (result->num_branches == 0) {
       offset += page_size - (offset % page_size);
-      rc = ondisk_node_handle_setup_content_page(
+      rc = trunk_ondisk_node_handle_setup_content_page(
          handle, offset, &handle->inflight_bundle_page);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
@@ -1239,7 +1261,8 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
                             platform_status_to_string(rc));
          return NULL;
       }
-      result = (ondisk_bundle *)(handle->inflight_bundle_page->data + offset
+      result =
+         (trunk_ondisk_bundle *)(handle->inflight_bundle_page->data + offset
                                  - content_page_offset(
                                     handle, handle->inflight_bundle_page));
    }
@@ -1260,8 +1283,8 @@ ondisk_node_bundle_at_offset(ondisk_node_handle *handle, uint64 offset)
  * - state->cache_get_state: the state of the cache_get() operation
  */
 static async_status
-ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
-                                   uint64                          depth)
+trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
+                                         uint64                          depth)
 {
    uint64 page_size = cache_page_size(state->handle.cc);
 
@@ -1269,12 +1292,13 @@ ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
 
    /* If there's not enough room for a bundle header, skip to the next
     * page. */
-   if (page_size - (state->offset % page_size) < sizeof(ondisk_bundle)) {
+   if (page_size - (state->offset % page_size) < sizeof(trunk_ondisk_bundle)) {
       state->offset += page_size - (state->offset % page_size);
    }
 
    state->page = &state->handle.inflight_bundle_page;
-   async_await_subroutine(state, ondisk_node_handle_setup_content_page_async);
+   async_await_subroutine(state,
+                          trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
                          "failed: %s",
@@ -1285,9 +1309,11 @@ ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->bndl =
-      (ondisk_bundle *)(state->handle.inflight_bundle_page->data + state->offset
-                        - content_page_offset(
-                           &state->handle, state->handle.inflight_bundle_page));
+      (trunk_ondisk_bundle *)(state->handle.inflight_bundle_page->data
+                              + state->offset
+                              - content_page_offset(
+                                 &state->handle,
+                                 state->handle.inflight_bundle_page));
 
    /* If there wasn't enough room for this bundle on this page, then we would
     * have zeroed the remaining bytes and put the bundle on the next page. */
@@ -1295,7 +1321,7 @@ ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
       state->offset += page_size - (state->offset % page_size);
       state->page = &state->handle.inflight_bundle_page;
       async_await_subroutine(state,
-                             ondisk_node_handle_setup_content_page_async);
+                             trunk_ondisk_node_handle_setup_content_page_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
                             "failed: %s",
@@ -1305,26 +1331,27 @@ ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
          state->bndl = NULL;
          async_return(state);
       }
-      state->bndl = (ondisk_bundle *)(state->handle.inflight_bundle_page->data
-                                      + state->offset
-                                      - content_page_offset(
-                                         &state->handle,
-                                         state->handle.inflight_bundle_page));
+      state->bndl =
+         (trunk_ondisk_bundle *)(state->handle.inflight_bundle_page->data
+                                 + state->offset
+                                 - content_page_offset(
+                                    &state->handle,
+                                    state->handle.inflight_bundle_page));
    }
    async_return(state);
 }
 
 static platform_status
-ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle,
-                                      ondisk_bundle     **bndl)
+trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
+                                            trunk_ondisk_bundle     **bndl)
 {
-   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
+   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
    if (header->num_inflight_bundles == 0) {
       *bndl = NULL;
       return STATUS_OK;
    }
    uint64 offset = header->inflight_bundles_offset;
-   *bndl         = ondisk_node_bundle_at_offset(handle, offset);
+   *bndl         = trunk_ondisk_node_bundle_at_offset(handle, offset);
    return *bndl == NULL ? STATUS_IO_ERROR : STATUS_OK;
 }
 
@@ -1342,33 +1369,33 @@ ondisk_node_get_first_inflight_bundle(ondisk_node_handle *handle,
  * - state->cache_get_state: the state of the cache_get() operation
  */
 static async_status
-ondisk_node_get_first_inflight_bundle_async(
+trunk_ondisk_node_get_first_inflight_bundle_async(
    trunk_merge_lookup_async_state *state,
    uint64                          depth)
 {
    async_begin(state, depth);
 
-   ondisk_trunk_node *header =
-      (ondisk_trunk_node *)state->handle.header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)state->handle.header_page->data;
    if (header->num_inflight_bundles == 0) {
       state->bndl = NULL;
       state->rc   = STATUS_OK;
       async_return(state);
    }
    state->offset = header->inflight_bundles_offset;
-   async_await_subroutine(state, ondisk_node_bundle_at_offset_async);
+   async_await_subroutine(state, trunk_ondisk_node_bundle_at_offset_async);
    async_return(state);
 }
 
 
-static ondisk_bundle *
-ondisk_node_get_next_inflight_bundle(ondisk_node_handle *handle,
-                                     ondisk_bundle      *bundle)
+static trunk_ondisk_bundle *
+trunk_ondisk_node_get_next_inflight_bundle(trunk_ondisk_node_handle *handle,
+                                           trunk_ondisk_bundle      *bundle)
 {
    uint64 offset = ((char *)bundle) - handle->inflight_bundle_page->data
                    + content_page_offset(handle, handle->inflight_bundle_page)
-                   + sizeof_ondisk_bundle(bundle);
-   return ondisk_node_bundle_at_offset(handle, offset);
+                   + sizeof_trunk_ondisk_bundle(bundle);
+   return trunk_ondisk_node_bundle_at_offset(handle, offset);
 }
 
 /*
@@ -1387,7 +1414,7 @@ ondisk_node_get_next_inflight_bundle(ondisk_node_handle *handle,
  * - state->cache_get_state: the state of the cache_get() operation
  */
 static async_status
-ondisk_node_get_next_inflight_bundle_async(
+trunk_ondisk_node_get_next_inflight_bundle_async(
    trunk_merge_lookup_async_state *state,
    uint64                          depth)
 {
@@ -1395,16 +1422,18 @@ ondisk_node_get_next_inflight_bundle_async(
    state->offset =
       ((char *)state->bndl) - state->handle.inflight_bundle_page->data
       + content_page_offset(&state->handle, state->handle.inflight_bundle_page)
-      + sizeof_ondisk_bundle(state->bndl);
-   async_await_subroutine(state, ondisk_node_bundle_at_offset_async);
+      + sizeof_trunk_ondisk_bundle(state->bndl);
+   async_await_subroutine(state, trunk_ondisk_node_bundle_at_offset_async);
    async_return(state);
 }
 
-static pivot *
-pivot_deserialize(platform_heap_id hid, ondisk_node_handle *handle, uint64 i)
+static trunk_pivot *
+trunk_pivot_deserialize(platform_heap_id          hid,
+                        trunk_ondisk_node_handle *handle,
+                        uint64                    i)
 {
-   ondisk_trunk_node *header = (ondisk_trunk_node *)handle->header_page->data;
-   ondisk_pivot      *odp    = ondisk_node_get_pivot(handle, i);
+   trunk_ondisk_node  *header = (trunk_ondisk_node *)handle->header_page->data;
+   trunk_ondisk_pivot *odp    = trunk_ondisk_node_get_pivot(handle, i);
    if (odp == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
@@ -1417,16 +1446,16 @@ pivot_deserialize(platform_heap_id hid, ondisk_node_handle *handle, uint64 i)
    } else {
       inflight_bundle_start = 0;
    }
-   return pivot_create(hid,
-                       ondisk_pivot_key(odp),
-                       odp->child_addr,
-                       inflight_bundle_start,
-                       odp->stats,
-                       odp->stats);
+   return trunk_pivot_create(hid,
+                             trunk_ondisk_pivot_key(odp),
+                             odp->child_addr,
+                             inflight_bundle_start,
+                             odp->stats,
+                             odp->stats);
 }
 
 static platform_status
-bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
+bundle_deserialize(bundle *bndl, platform_heap_id hid, trunk_ondisk_bundle *odb)
 {
    bundle_init(bndl, hid);
    platform_status rc =
@@ -1451,14 +1480,14 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, ondisk_bundle *odb)
 }
 
 static platform_status
-node_deserialize(const trunk_node_context *context,
-                 uint64                    addr,
-                 trunk_node               *result)
+trunk_node_deserialize(const trunk_context *context,
+                       uint64               addr,
+                       trunk_node          *result)
 {
-   platform_status    rc;
-   ondisk_node_handle handle;
+   platform_status          rc;
+   trunk_ondisk_node_handle handle;
 
-   rc = ondisk_node_handle_init(&handle, context->cc, addr);
+   rc = trunk_ondisk_node_handle_init(&handle, context->cc, addr);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_init() failed: %s",
                          __func__,
@@ -1466,11 +1495,11 @@ node_deserialize(const trunk_node_context *context,
                          platform_status_to_string(rc));
       return rc;
    }
-   ondisk_trunk_node *header = (ondisk_trunk_node *)handle.header_page->data;
+   trunk_ondisk_node *header = (trunk_ondisk_node *)handle.header_page->data;
 
-   pivot_vector  pivots;
-   bundle_vector inflight_bundles;
-   bundle_vector pivot_bundles;
+   trunk_pivot_vector pivots;
+   bundle_vector      inflight_bundles;
+   bundle_vector      pivot_bundles;
    vector_init(&pivots, context->hid);
    vector_init(&inflight_bundles, context->hid);
    vector_init(&pivot_bundles, context->hid);
@@ -1501,7 +1530,7 @@ node_deserialize(const trunk_node_context *context,
    }
 
    for (uint64 i = 0; i < header->num_pivots; i++) {
-      pivot *imp = pivot_deserialize(context->hid, &handle, i);
+      trunk_pivot *imp = trunk_pivot_deserialize(context->hid, &handle, i);
       if (imp == NULL) {
          platform_error_log(
             "%s():%d: pivot_deserialize() failed", __func__, __LINE__);
@@ -1514,13 +1543,13 @@ node_deserialize(const trunk_node_context *context,
                             __func__,
                             __LINE__,
                             platform_status_to_string(rc));
-         pivot_destroy(imp, context->hid);
+         trunk_pivot_destroy(imp, context->hid);
          goto cleanup;
       }
    }
 
    for (uint64 i = 0; i < header->num_pivots - 1; i++) {
-      ondisk_bundle *odb = ondisk_node_get_pivot_bundle(&handle, i);
+      trunk_ondisk_bundle *odb = trunk_ondisk_node_get_pivot_bundle(&handle, i);
       if (odb == NULL) {
          platform_error_log("%s():%d: ondisk_node_get_pivot_bundle() failed",
                             __func__,
@@ -1540,10 +1569,10 @@ node_deserialize(const trunk_node_context *context,
    }
 
    if (0 < header->num_inflight_bundles) {
-      ondisk_bundle *odb = NULL;
+      trunk_ondisk_bundle *odb = NULL;
       // We can ignore the return code here since we will notice any error once
       // we go inside the fore loop.
-      ondisk_node_get_first_inflight_bundle(&handle, &odb);
+      trunk_ondisk_node_get_first_inflight_bundle(&handle, &odb);
       for (uint64 i = 0; i < header->num_inflight_bundles; i++) {
          if (odb == NULL) {
             platform_error_log(
@@ -1563,7 +1592,7 @@ node_deserialize(const trunk_node_context *context,
             goto cleanup;
          }
          if (i + 1 < header->num_inflight_bundles) {
-            odb = ondisk_node_get_next_inflight_bundle(&handle, odb);
+            odb = trunk_ondisk_node_get_next_inflight_bundle(&handle, odb);
          }
       }
    }
@@ -1572,23 +1601,25 @@ node_deserialize(const trunk_node_context *context,
 
    vector_reverse(&inflight_bundles);
 
-   node_init(result,
-             header->height,
-             pivots,
-             pivot_bundles,
-             header->num_inflight_bundles,
-             inflight_bundles);
+   trunk_node_init(result,
+                   header->height,
+                   pivots,
+                   pivot_bundles,
+                   header->num_inflight_bundles,
+                   inflight_bundles);
 
-   if (node_is_leaf(result)) {
-      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, result));
+   if (trunk_node_is_leaf(result)) {
+      debug_assert(
+         trunk_node_is_well_formed_leaf(context->cfg->data_cfg, result));
    } else {
-      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, result));
+      debug_assert(
+         trunk_node_is_well_formed_index(context->cfg->data_cfg, result));
    }
 
    return STATUS_OK;
 
 cleanup:
-   VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, context->hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, context->hid);
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
    VECTOR_APPLY_TO_PTRS(&inflight_bundles, bundle_deinit);
    vector_deinit(&pivots);
@@ -1599,7 +1630,7 @@ cleanup:
 }
 
 static void
-bundle_inc_all_branch_refs(const trunk_node_context *context, bundle *bndl)
+bundle_inc_all_branch_refs(const trunk_context *context, bundle *bndl)
 {
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
       branch_ref bref = vector_get(&bndl->branches, i);
@@ -1609,7 +1640,7 @@ bundle_inc_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 }
 
 static void
-bundle_dec_all_branch_refs(const trunk_node_context *context, bundle *bndl)
+bundle_dec_all_branch_refs(const trunk_context *context, bundle *bndl)
 {
    page_type type = bundle_branch_type(bndl);
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
@@ -1620,7 +1651,7 @@ bundle_dec_all_branch_refs(const trunk_node_context *context, bundle *bndl)
 }
 
 static void
-bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
+bundle_inc_all_refs(trunk_context *context, bundle *bndl)
 {
    if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
       platform_assert(vector_length(&bndl->branches) <= 1);
@@ -1631,7 +1662,7 @@ bundle_inc_all_refs(trunk_node_context *context, bundle *bndl)
 }
 
 static void
-bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
+bundle_dec_all_refs(trunk_context *context, bundle *bndl)
 {
    if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
       platform_assert(vector_length(&bndl->branches) <= 1);
@@ -1641,8 +1672,8 @@ bundle_dec_all_refs(trunk_node_context *context, bundle *bndl)
    bundle_dec_all_branch_refs(context, bndl);
 }
 
-void
-ondisk_node_wait_for_readers(trunk_node_context *context, uint64 addr)
+static void
+trunk_ondisk_node_wait_for_readers(trunk_context *context, uint64 addr)
 {
    page_handle *page    = cache_get(context->cc, addr, TRUE, PAGE_TYPE_TRUNK);
    bool32       success = cache_try_claim(context->cc, page);
@@ -1654,7 +1685,7 @@ ondisk_node_wait_for_readers(trunk_node_context *context, uint64 addr)
 }
 
 static void
-ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
+trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
 {
    // FIXME: the cache needs to allow accessing pages in the AL_NO_REFS state.
    // Otherwise there is a crazy race here.  This is an attempt to handle it.
@@ -1675,17 +1706,17 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
    // problem: we need to deserialize the node to perform recursive dec_refs. So
    // we have to temporarilty inc_ref the node, do our work, and then dec_ref it
    // again.  Sigh.
-   ondisk_node_wait_for_readers(context, addr);
+   trunk_ondisk_node_wait_for_readers(context, addr);
    refcount rfc = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    if (rfc == AL_NO_REFS) {
       trunk_node node;
       allocator_inc_ref(context->al, addr);
-      platform_status rc = node_deserialize(context, addr, &node);
+      platform_status rc = trunk_node_deserialize(context, addr, &node);
       if (SUCCESS(rc)) {
-         if (!node_is_leaf(&node)) {
+         if (!trunk_node_is_leaf(&node)) {
             for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
-               pivot *pvt = vector_get(&node.pivots, i);
-               ondisk_node_dec_ref(context, pvt->child_addr);
+               trunk_pivot *pvt = vector_get(&node.pivots, i);
+               trunk_ondisk_node_dec_ref(context, pvt->child_addr);
             }
          }
          for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
@@ -1696,7 +1727,7 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
             bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
             bundle_dec_all_refs(context, bndl);
          }
-         node_deinit(&node, context);
+         trunk_node_deinit(&node, context);
       } else {
          platform_error_log("%s():%d: node_deserialize() failed: %s",
                             __func__,
@@ -1710,25 +1741,25 @@ ondisk_node_dec_ref(trunk_node_context *context, uint64 addr)
 }
 
 static void
-ondisk_node_inc_ref(trunk_node_context *context, uint64 addr)
+trunk_ondisk_node_inc_ref(trunk_context *context, uint64 addr)
 {
    allocator_inc_ref(context->al, addr);
 }
 
 static void
-node_inc_all_refs(trunk_node_context *context, trunk_node *node)
+trunk_node_inc_all_refs(trunk_context *context, trunk_node *node)
 {
-   if (!node_is_leaf(node)) {
+   if (!trunk_node_is_leaf(node)) {
       for (uint64 i = 0; i < vector_length(&node->pivots) - 1; i++) {
-         pivot *pvt = vector_get(&node->pivots, i);
-         ondisk_node_inc_ref(context, pvt->child_addr);
+         trunk_pivot *pvt = vector_get(&node->pivots, i);
+         trunk_ondisk_node_inc_ref(context, pvt->child_addr);
       }
    }
    for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
       bundle *bndl = vector_get_ptr(&node->pivot_bundles, i);
       bundle_inc_all_refs(context, bndl);
    }
-   uint64 inflight_start = node_first_live_inflight_bundle(node);
+   uint64 inflight_start = trunk_node_first_live_inflight_bundle(node);
    for (uint64 i = inflight_start; i < vector_length(&node->inflight_bundles);
         i++)
    {
@@ -1737,10 +1768,10 @@ node_inc_all_refs(trunk_node_context *context, trunk_node *node)
    }
 }
 
-static ondisk_node_ref *
-ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
+static trunk_ondisk_node_ref *
+trunk_ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
 {
-   ondisk_node_ref *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+   trunk_ondisk_node_ref *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, result, key.bytes, ondisk_key_required_data_capacity(k));
    if (result == NULL) {
       platform_error_log(
@@ -1753,46 +1784,47 @@ ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
 }
 
 static void
-ondisk_node_ref_destroy(ondisk_node_ref    *odnref,
-                        trunk_node_context *context,
-                        platform_heap_id    hid)
+trunk_ondisk_node_ref_destroy(trunk_ondisk_node_ref *odnref,
+                              trunk_context         *context,
+                              platform_heap_id       hid)
 {
    if (odnref->addr != 0) {
-      ondisk_node_dec_ref(context, odnref->addr);
+      trunk_ondisk_node_dec_ref(context, odnref->addr);
    }
    platform_free(hid, odnref);
 }
 
-static pivot *
-pivot_create_from_ondisk_node_ref(ondisk_node_ref *odnref, platform_heap_id hid)
+static trunk_pivot *
+trunk_pivot_create_from_ondisk_node_ref(trunk_ondisk_node_ref *odnref,
+                                        platform_heap_id       hid)
 {
-   return pivot_create(hid,
-                       ondisk_key_to_key(&odnref->key),
-                       odnref->addr,
-                       0,
-                       TRUNK_STATS_ZERO,
-                       TRUNK_STATS_ZERO);
+   return trunk_pivot_create(hid,
+                             ondisk_key_to_key(&odnref->key),
+                             odnref->addr,
+                             0,
+                             TRUNK_STATS_ZERO,
+                             TRUNK_STATS_ZERO);
 }
 
 static uint64
-pivot_ondisk_size(pivot *pvt)
+trunk_pivot_ondisk_size(trunk_pivot *pvt)
 {
-   return ondisk_pivot_size(pivot_key(pvt));
+   return trunk_ondisk_pivot_size(trunk_pivot_key(pvt));
 }
 
 static uint64
 bundle_ondisk_size(bundle *bndl)
 {
-   return ondisk_bundle_size(vector_length(&bndl->branches));
+   return trunk_ondisk_bundle_size(vector_length(&bndl->branches));
 }
 
 static void
-pivot_serialize(trunk_node_context *context,
+pivot_serialize(trunk_context      *context,
                 trunk_node         *node,
                 uint64              pivot_num,
-                ondisk_pivot       *dest)
+                trunk_ondisk_pivot *dest)
 {
-   pivot *pvt = vector_get(&node->pivots, pivot_num);
+   trunk_pivot *pvt = vector_get(&node->pivots, pivot_num);
    platform_assert(trunk_pivot_stats_are_nonnegative(pvt->stats));
    dest->stats      = pvt->stats;
    dest->child_addr = pvt->child_addr;
@@ -1802,11 +1834,11 @@ pivot_serialize(trunk_node_context *context,
    } else {
       dest->num_live_inflight_bundles = 0;
    }
-   copy_key_to_ondisk_key(&dest->key, pivot_key(pvt));
+   copy_key_to_ondisk_key(&dest->key, trunk_pivot_key(pvt));
 }
 
 static void
-bundle_serialize(bundle *bndl, ondisk_bundle *dest)
+bundle_serialize(bundle *bndl, trunk_ondisk_bundle *dest)
 {
    dest->maplet       = bndl->maplet;
    dest->num_branches = vector_length(&bndl->branches);
@@ -1816,11 +1848,11 @@ bundle_serialize(bundle *bndl, ondisk_bundle *dest)
 }
 
 static platform_status
-node_serialize_maybe_setup_next_page(cache        *cc,
-                                     uint64        required_space,
-                                     page_handle  *header_page,
-                                     page_handle **current_page,
-                                     uint64       *page_offset)
+trunk_node_serialize_maybe_setup_next_page(cache        *cc,
+                                           uint64        required_space,
+                                           page_handle  *header_page,
+                                           page_handle **current_page,
+                                           uint64       *page_offset)
 {
    uint64 page_size   = cache_page_size(cc);
    uint64 extent_size = cache_extent_size(cc);
@@ -1858,11 +1890,11 @@ node_serialize_maybe_setup_next_page(cache        *cc,
 }
 
 // For debugging
-uint64 max_pivots                   = 0;
-uint64 max_inflight_bundles         = 0;
-uint64 max_inflight_bundle_branches = 0;
-uint64 max_inflight_branches        = 0;
-uint64 max_pivot_bundle_branches    = 0;
+static uint64 max_pivots                   = 0;
+static uint64 max_inflight_bundles         = 0;
+static uint64 max_inflight_bundle_branches = 0;
+static uint64 max_inflight_branches        = 0;
+static uint64 max_pivot_bundle_branches    = 0;
 
 debug_only static bool32
 record_and_report_max(const char *name, uint64 value, uint64 *max)
@@ -1876,17 +1908,17 @@ record_and_report_max(const char *name, uint64 value, uint64 *max)
 }
 
 debug_only static void
-print_pivot_states_for_node(trunk_node_context *context, trunk_node *node);
+print_pivot_states_for_node(trunk_context *context, trunk_node *node);
 
 debug_only static void
-node_record_and_report_maxes(trunk_node_context *context, trunk_node *node)
+trunk_node_record_and_report_maxes(trunk_context *context, trunk_node *node)
 {
    bool32 big = FALSE;
 
    big |= record_and_report_max(
       "max_pivots", vector_length(&node->pivots), &max_pivots);
 
-   uint64 inflight_start = node_first_live_inflight_bundle(node);
+   uint64 inflight_start = trunk_node_first_live_inflight_bundle(node);
    big |= record_and_report_max("max_inflight_bundles",
                                 vector_length(&node->inflight_bundles)
                                    - inflight_start,
@@ -1912,20 +1944,21 @@ node_record_and_report_maxes(trunk_node_context *context, trunk_node *node)
    }
 
    if (big) {
-      node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
+      trunk_node_print(
+         node, Platform_error_log_handle, context->cfg->data_cfg, 4);
       print_pivot_states_for_node(context, node);
    }
 }
 
-static ondisk_node_ref *
-node_serialize(trunk_node_context *context, trunk_node *node)
+static trunk_ondisk_node_ref *
+trunk_node_serialize(trunk_context *context, trunk_node *node)
 {
-   platform_status  rc;
-   uint64           header_addr  = 0;
-   page_handle     *header_page  = NULL;
-   page_handle     *current_page = NULL;
-   ondisk_node_ref *result       = NULL;
-   threadid         tid          = platform_get_tid();
+   platform_status        rc;
+   uint64                 header_addr  = 0;
+   page_handle           *header_page  = NULL;
+   page_handle           *current_page = NULL;
+   trunk_ondisk_node_ref *result       = NULL;
+   threadid               tid          = platform_get_tid();
 
    // if (node_height(node) == 0) {
    //    node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
@@ -1935,24 +1968,26 @@ node_serialize(trunk_node_context *context, trunk_node *node)
 
    if (context->stats) {
       uint64 fanout = vector_length(&node->pivots) - 2;
-      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= fanout) {
-         fanout = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      if (TRUNK_MAX_DISTRIBUTION_VALUE <= fanout) {
+         fanout = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid].fanout_distribution[fanout][node->height]++;
 
       uint64 ifbundles = vector_length(&node->inflight_bundles)
-                         - node_first_live_inflight_bundle(node);
-      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= ifbundles) {
-         ifbundles = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+                         - trunk_node_first_live_inflight_bundle(node);
+      if (TRUNK_MAX_DISTRIBUTION_VALUE <= ifbundles) {
+         ifbundles = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid]
          .num_inflight_bundles_distribution[ifbundles][node->height]++;
    }
 
-   if (node_is_leaf(node)) {
-      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
+   if (trunk_node_is_leaf(node)) {
+      debug_assert(
+         trunk_node_is_well_formed_leaf(context->cfg->data_cfg, node));
    } else {
-      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
+      debug_assert(
+         trunk_node_is_well_formed_index(context->cfg->data_cfg, node));
    }
 
    rc = allocator_alloc(context->al, &header_addr, PAGE_TYPE_TRUNK);
@@ -1972,9 +2007,10 @@ node_serialize(trunk_node_context *context, trunk_node *node)
    }
    cache_mark_dirty(context->cc, header_page);
 
-   int64 min_inflight_bundle_start = node_first_live_inflight_bundle(node);
+   int64 min_inflight_bundle_start =
+      trunk_node_first_live_inflight_bundle(node);
 
-   ondisk_trunk_node *odnode = (ondisk_trunk_node *)header_page->data;
+   trunk_ondisk_node *odnode = (trunk_ondisk_node *)header_page->data;
    odnode->height            = node->height;
    odnode->num_pivots        = vector_length(&node->pivots);
    odnode->num_inflight_bundles =
@@ -1985,7 +2021,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       sizeof(*odnode) + sizeof(odnode->pivot_offsets[0]) * odnode->num_pivots;
 
    for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
-      uint64 pivot_size     = pivot_ondisk_size(vector_get(&node->pivots, i));
+      uint64 pivot_size = trunk_pivot_ondisk_size(vector_get(&node->pivots, i));
       uint64 required_space = pivot_size;
 
       bundle *pivot_bundle;
@@ -1997,15 +2033,15 @@ node_serialize(trunk_node_context *context, trunk_node *node)
 
          if (context->stats) {
             uint64 bundle_size = vector_length(&pivot_bundle->branches);
-            if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= bundle_size) {
-               bundle_size = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+            if (TRUNK_MAX_DISTRIBUTION_VALUE <= bundle_size) {
+               bundle_size = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
             }
             context->stats[tid]
                .bundle_num_branches_distribution[bundle_size][node->height]++;
          }
       }
 
-      rc = node_serialize_maybe_setup_next_page(
+      rc = trunk_node_serialize_maybe_setup_next_page(
          context->cc, required_space, header_page, &current_page, &page_offset);
       if (!SUCCESS(rc)) {
          platform_error_log(
@@ -2018,12 +2054,15 @@ node_serialize(trunk_node_context *context, trunk_node *node)
 
       odnode->pivot_offsets[i] =
          current_page->disk_addr - header_addr + page_offset;
-      pivot_serialize(
-         context, node, i, (ondisk_pivot *)(current_page->data + page_offset));
+      pivot_serialize(context,
+                      node,
+                      i,
+                      (trunk_ondisk_pivot *)(current_page->data + page_offset));
       page_offset += pivot_size;
       if (i < vector_length(&node->pivots) - 1) {
-         bundle_serialize(pivot_bundle,
-                          (ondisk_bundle *)(current_page->data + page_offset));
+         bundle_serialize(
+            pivot_bundle,
+            (trunk_ondisk_bundle *)(current_page->data + page_offset));
          page_offset += bundle_size;
       }
    }
@@ -2037,7 +2076,7 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       bundle *bndl        = vector_get_ptr(&node->inflight_bundles, i);
       uint64  bundle_size = bundle_ondisk_size(bndl);
 
-      rc = node_serialize_maybe_setup_next_page(
+      rc = trunk_node_serialize_maybe_setup_next_page(
          context->cc, bundle_size, header_page, &current_page, &page_offset);
       if (!SUCCESS(rc)) {
          platform_error_log(
@@ -2052,15 +2091,15 @@ node_serialize(trunk_node_context *context, trunk_node *node)
          odnode->inflight_bundles_offset =
             current_page->disk_addr - header_addr + page_offset;
       }
-      bundle_serialize(bndl,
-                       (ondisk_bundle *)(current_page->data + page_offset));
+      bundle_serialize(
+         bndl, (trunk_ondisk_bundle *)(current_page->data + page_offset));
       page_offset += bundle_size;
    }
 
-   node_inc_all_refs(context, node);
+   trunk_node_inc_all_refs(context, node);
 
-   result = ondisk_node_ref_create(
-      context->hid, node_pivot_key(node, 0), header_addr);
+   result = trunk_ondisk_node_ref_create(
+      context->hid, trunk_node_pivot_key(node, 0), header_addr);
    if (result == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_ref_create() failed", __func__, __LINE__);
@@ -2071,8 +2110,8 @@ node_serialize(trunk_node_context *context, trunk_node *node)
       uint64 num_pages = 1
                          + (current_page->disk_addr - header_addr)
                               / cache_page_size(context->cc);
-      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE <= num_pages) {
-         num_pages = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      if (TRUNK_MAX_DISTRIBUTION_VALUE <= num_pages) {
+         num_pages = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid]
          .node_size_pages_distribution[num_pages][node->height]++;
@@ -2103,13 +2142,13 @@ cleanup:
       cache_extent_discard(context->cc, header_addr, PAGE_TYPE_TRUNK);
    }
    if (result != NULL) {
-      ondisk_node_ref_destroy(result, context, context->hid);
+      trunk_ondisk_node_ref_destroy(result, context, context->hid);
    }
    return NULL;
 }
 
 static platform_status
-serialize_nodes(trunk_node_context     *context,
+serialize_nodes(trunk_context          *context,
                 trunk_node_vector      *nodes,
                 ondisk_node_ref_vector *result)
 {
@@ -2124,8 +2163,8 @@ serialize_nodes(trunk_node_context     *context,
       goto finish;
    }
    for (uint64 i = 0; i < vector_length(nodes); i++) {
-      ondisk_node_ref *odnref =
-         node_serialize(context, vector_get_ptr(nodes, i));
+      trunk_ondisk_node_ref *odnref =
+         trunk_node_serialize(context, vector_get_ptr(nodes, i));
       if (odnref == NULL) {
          platform_error_log(
             "%s():%d: node_serialize() failed", __func__, __LINE__);
@@ -2139,7 +2178,7 @@ serialize_nodes(trunk_node_context     *context,
 finish:
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
-         result, ondisk_node_ref_destroy, context, context->hid);
+         result, trunk_ondisk_node_ref_destroy, context, context->hid);
       vector_truncate(result, 0);
    }
 
@@ -2152,12 +2191,12 @@ finish:
  *********************************************/
 
 static void
-branch_merger_init(branch_merger     *merger,
-                   platform_heap_id   hid,
-                   const data_config *data_cfg,
-                   key                min_key,
-                   key                max_key,
-                   uint64             height)
+trunk_branch_merger_init(trunk_branch_merger *merger,
+                         platform_heap_id     hid,
+                         const data_config   *data_cfg,
+                         key                  min_key,
+                         key                  max_key,
+                         uint64               height)
 {
    merger->hid        = hid;
    merger->data_cfg   = data_cfg;
@@ -2169,11 +2208,11 @@ branch_merger_init(branch_merger     *merger,
 }
 
 static platform_status
-branch_merger_add_branch(branch_merger      *merger,
-                         cache              *cc,
-                         const btree_config *btree_cfg,
-                         uint64              addr,
-                         page_type           type)
+trunk_branch_merger_add_branch(trunk_branch_merger *merger,
+                               cache               *cc,
+                               const btree_config  *btree_cfg,
+                               uint64               addr,
+                               page_type            type)
 {
    btree_iterator *iter = TYPED_MALLOC(merger->hid, iter);
    if (iter == NULL) {
@@ -2204,11 +2243,11 @@ branch_merger_add_branch(branch_merger      *merger,
 
 
 static platform_status
-branch_merger_add_branches(branch_merger      *merger,
-                           cache              *cc,
-                           const btree_config *btree_cfg,
-                           uint64              num_branches,
-                           const branch_info  *branches)
+trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
+                                 cache                   *cc,
+                                 const btree_config      *btree_cfg,
+                                 uint64                   num_branches,
+                                 const trunk_branch_info *branches)
 {
    platform_status rc = vector_ensure_capacity(
       &merger->itors, vector_length(&merger->itors) + num_branches);
@@ -2221,7 +2260,7 @@ branch_merger_add_branches(branch_merger      *merger,
    }
 
    for (uint64 i = 0; i < num_branches; i++) {
-      rc = branch_merger_add_branch(
+      rc = trunk_branch_merger_add_branch(
          merger, cc, btree_cfg, branches[i].addr, branches[i].type);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
@@ -2235,10 +2274,10 @@ branch_merger_add_branches(branch_merger      *merger,
 }
 
 static platform_status
-branch_merger_add_bundle(branch_merger      *merger,
-                         cache              *cc,
-                         const btree_config *btree_cfg,
-                         const bundle       *routed)
+trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
+                               cache               *cc,
+                               const btree_config  *btree_cfg,
+                               const bundle        *routed)
 {
    platform_status rc = vector_ensure_capacity(
       &merger->itors,
@@ -2253,11 +2292,11 @@ branch_merger_add_bundle(branch_merger      *merger,
 
    for (uint64 i = 0; i < bundle_num_branches(routed); i++) {
       branch_ref bref = vector_get(&routed->branches, i);
-      rc              = branch_merger_add_branch(merger,
-                                    cc,
-                                    btree_cfg,
-                                    branch_ref_addr(bref),
-                                    bundle_branch_type(routed));
+      rc              = trunk_branch_merger_add_branch(merger,
+                                          cc,
+                                          btree_cfg,
+                                          branch_ref_addr(bref),
+                                          bundle_branch_type(routed));
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
                             __func__,
@@ -2270,7 +2309,8 @@ branch_merger_add_bundle(branch_merger      *merger,
 }
 
 static platform_status
-branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
+trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
+                                     merge_behavior       merge_mode)
 {
    platform_assert(merger->merge_itor == NULL);
 
@@ -2284,7 +2324,7 @@ branch_merger_build_merge_itor(branch_merger *merger, merge_behavior merge_mode)
 }
 
 static platform_status
-branch_merger_deinit(branch_merger *merger)
+trunk_branch_merger_deinit(trunk_branch_merger *merger)
 {
    platform_status rc;
    if (merger->merge_itor != NULL) {
@@ -2306,19 +2346,19 @@ branch_merger_deinit(branch_merger *merger)
  ************************/
 
 static void
-trunk_read_begin(trunk_node_context *context)
+trunk_read_begin(trunk_context *context)
 {
    platform_batch_rwlock_get(&context->root_lock, 0);
 }
 
 static void
-trunk_read_end(trunk_node_context *context)
+trunk_read_end(trunk_context *context)
 {
    platform_batch_rwlock_unget(&context->root_lock, 0);
 }
 
 platform_status
-trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle)
+trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
 {
    platform_status rc;
    trunk_read_begin(context);
@@ -2329,34 +2369,35 @@ trunk_init_root_handle(trunk_node_context *context, ondisk_node_handle *handle)
       handle->inflight_bundle_page = NULL;
       rc                           = STATUS_OK;
    } else {
-      rc = ondisk_node_handle_init(handle, context->cc, context->root->addr);
+      rc = trunk_ondisk_node_handle_init(
+         handle, context->cc, context->root->addr);
    }
    trunk_read_end(context);
    return rc;
 }
 
 void
-trunk_modification_begin(trunk_node_context *context)
+trunk_modification_begin(trunk_context *context)
 {
    platform_batch_rwlock_get(&context->root_lock, 0);
    platform_batch_rwlock_claim_loop(&context->root_lock, 0);
 }
 
 static void
-trunk_set_root(trunk_node_context *context, ondisk_node_ref *new_root_ref)
+trunk_set_root(trunk_context *context, trunk_ondisk_node_ref *new_root_ref)
 {
-   ondisk_node_ref *old_root_ref;
+   trunk_ondisk_node_ref *old_root_ref;
    platform_batch_rwlock_lock(&context->root_lock, 0);
    old_root_ref  = context->root;
    context->root = new_root_ref;
    platform_batch_rwlock_unlock(&context->root_lock, 0);
    if (old_root_ref != NULL) {
-      ondisk_node_ref_destroy(old_root_ref, context, context->hid);
+      trunk_ondisk_node_ref_destroy(old_root_ref, context, context->hid);
    }
 }
 
 void
-trunk_modification_end(trunk_node_context *context)
+trunk_modification_end(trunk_context *context)
 {
    platform_batch_rwlock_unclaim(&context->root_lock, 0);
    platform_batch_rwlock_unget(&context->root_lock, 0);
@@ -2366,24 +2407,24 @@ trunk_modification_end(trunk_node_context *context)
  * generic code to apply changes to nodes in the tree.
  ************************/
 
-typedef platform_status(apply_changes_fn)(trunk_node_context *context,
-                                          uint64              addr,
-                                          trunk_node         *node,
-                                          void               *arg);
+typedef platform_status(apply_changes_fn)(trunk_context *context,
+                                          uint64         addr,
+                                          trunk_node    *node,
+                                          void          *arg);
 
-static ondisk_node_ref *
-apply_changes_internal(trunk_node_context *context,
-                       uint64              addr,
-                       key                 minkey,
-                       key                 maxkey,
-                       uint64              height,
-                       apply_changes_fn   *func,
-                       void               *arg)
+static trunk_ondisk_node_ref *
+apply_changes_internal(trunk_context    *context,
+                       uint64            addr,
+                       key               minkey,
+                       key               maxkey,
+                       uint64            height,
+                       apply_changes_fn *func,
+                       void             *arg)
 {
    platform_status rc;
 
    trunk_node node;
-   rc = node_deserialize(context, addr, &node);
+   rc = trunk_node_deserialize(context, addr, &node);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: node_deserialize() failed: %s",
                          __func__,
@@ -2395,23 +2436,24 @@ apply_changes_internal(trunk_node_context *context,
    ondisk_node_ref_vector new_child_refs;
    vector_init(&new_child_refs, context->hid);
 
-   if (node_height(&node) == height) {
+   if (trunk_node_height(&node) == height) {
       rc = func(context, addr, &node, arg);
    } else {
-      rc = vector_ensure_capacity(&new_child_refs, node_num_children(&node));
+      rc = vector_ensure_capacity(&new_child_refs,
+                                  trunk_node_num_children(&node));
       if (SUCCESS(rc)) {
-         for (uint64 i = 0; i < node_num_children(&node); i++) {
-            pivot *child_pivot  = node_pivot(&node, i);
-            key    child_minkey = pivot_key(child_pivot);
-            key    child_maxkey = node_pivot_key(&node, i + 1);
+         for (uint64 i = 0; i < trunk_node_num_children(&node); i++) {
+            trunk_pivot *child_pivot  = trunk_node_pivot(&node, i);
+            key          child_minkey = trunk_pivot_key(child_pivot);
+            key          child_maxkey = trunk_node_pivot_key(&node, i + 1);
             if (data_key_compare(context->cfg->data_cfg, child_minkey, maxkey)
                    < 0
                 && data_key_compare(
                       context->cfg->data_cfg, minkey, child_maxkey)
                       < 0)
             {
-               uint64           child_addr    = pivot_child_addr(child_pivot);
-               ondisk_node_ref *new_child_ref = apply_changes_internal(
+               uint64 child_addr = trunk_pivot_child_addr(child_pivot);
+               trunk_ondisk_node_ref *new_child_ref = apply_changes_internal(
                   context, child_addr, minkey, maxkey, height, func, arg);
                if (new_child_ref == NULL) {
                   platform_error_log("%s():%d: apply_changes_internal() failed",
@@ -2423,34 +2465,34 @@ apply_changes_internal(trunk_node_context *context,
                rc = vector_append(&new_child_refs, new_child_ref);
                platform_assert_status_ok(rc);
 
-               pivot_set_child_addr(child_pivot, new_child_ref->addr);
+               trunk_pivot_set_child_addr(child_pivot, new_child_ref->addr);
             }
          }
       }
    }
 
-   ondisk_node_ref *result = NULL;
+   trunk_ondisk_node_ref *result = NULL;
    if (SUCCESS(rc)) {
-      result = node_serialize(context, &node);
+      result = trunk_node_serialize(context, &node);
    }
 
-   node_deinit(&node, context);
+   trunk_node_deinit(&node, context);
    VECTOR_APPLY_TO_ELTS(
-      &new_child_refs, ondisk_node_ref_destroy, context, context->hid);
+      &new_child_refs, trunk_ondisk_node_ref_destroy, context, context->hid);
    vector_deinit(&new_child_refs);
 
    return result;
 }
 
 static platform_status
-apply_changes(trunk_node_context *context,
-              key                 minkey,
-              key                 maxkey,
-              uint64              height,
-              apply_changes_fn   *func,
-              void               *arg)
+apply_changes(trunk_context    *context,
+              key               minkey,
+              key               maxkey,
+              uint64            height,
+              apply_changes_fn *func,
+              void             *arg)
 {
-   ondisk_node_ref *new_root_ref = apply_changes_internal(
+   trunk_ondisk_node_ref *new_root_ref = apply_changes_internal(
       context, context->root->addr, minkey, maxkey, height, func, arg);
    if (new_root_ref != NULL) {
       trunk_set_root(context, new_root_ref);
@@ -2509,8 +2551,7 @@ bundle_compaction_print_table_entry(const bundle_compaction *bc,
 }
 
 static void
-bundle_compaction_destroy(bundle_compaction  *compaction,
-                          trunk_node_context *context)
+bundle_compaction_destroy(bundle_compaction *compaction, trunk_context *context)
 {
    // platform_default_log("bundle_compaction_destroy: %p\n", compaction);
    // bundle_compaction_print_table_header(Platform_default_log_handle, 4);
@@ -2518,7 +2559,7 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
    //    compaction, Platform_default_log_handle, 4);
 
    for (uint64 i = 0; i < vector_length(&compaction->input_branches); i++) {
-      branch_info bi = vector_get(&compaction->input_branches, i);
+      trunk_branch_info bi = vector_get(&compaction->input_branches, i);
       btree_dec_ref(context->cc, context->cfg->btree_cfg, bi.addr, bi.type);
       __sync_fetch_and_add(&bc_decs, 1);
    }
@@ -2539,13 +2580,13 @@ bundle_compaction_destroy(bundle_compaction  *compaction,
 }
 
 static bundle_compaction *
-bundle_compaction_create(trunk_node_context     *context,
-                         trunk_node             *node,
-                         uint64                  pivot_num,
-                         pivot_compaction_state *state)
+bundle_compaction_create(trunk_context                *context,
+                         trunk_node                   *node,
+                         uint64                        pivot_num,
+                         trunk_pivot_compaction_state *state)
 {
    platform_status rc;
-   pivot          *pvt      = node_pivot(node, pivot_num);
+   trunk_pivot    *pvt      = trunk_node_pivot(node, pivot_num);
    bundle         *pvt_bndl = vector_get_ptr(&node->pivot_bundles, pivot_num);
 
    bundle_compaction *result = TYPED_ZALLOC(context->hid, result);
@@ -2555,9 +2596,9 @@ bundle_compaction_create(trunk_node_context     *context,
       return NULL;
    }
    result->state       = BUNDLE_COMPACTION_NOT_STARTED;
-   result->input_stats = pivot_received_bundles_stats(pvt);
+   result->input_stats = trunk_pivot_received_bundles_stats(pvt);
 
-   if (node_is_leaf(node) && state->bundle_compactions == NULL
+   if (trunk_node_is_leaf(node) && state->bundle_compactions == NULL
        && bundle_num_branches(pvt_bndl) == 0)
    {
       result->merge_mode = MERGE_FULL;
@@ -2566,8 +2607,9 @@ bundle_compaction_create(trunk_node_context     *context,
    }
 
    vector_init(&result->input_branches, context->hid);
-   int64  num_old_bundles  = state->total_bundles;
-   uint64 first_new_bundle = pivot_inflight_bundle_start(pvt) + num_old_bundles;
+   int64  num_old_bundles = state->total_bundles;
+   uint64 first_new_bundle =
+      trunk_pivot_inflight_bundle_start(pvt) + num_old_bundles;
    platform_assert(first_new_bundle == node->num_old_bundles);
 
    for (int64 i = first_new_bundle; i < vector_length(&node->inflight_bundles);
@@ -2589,9 +2631,9 @@ bundle_compaction_create(trunk_node_context     *context,
          branch_ref bref = vector_get(&bndl->branches, j);
          btree_inc_ref(
             context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
-         page_type   type = bundle_branch_type(bndl);
-         branch_info bi   = {bref.addr, type};
-         rc               = vector_append(&result->input_branches, bi);
+         page_type         type = bundle_branch_type(bndl);
+         trunk_branch_info bi   = {bref.addr, type};
+         rc                     = vector_append(&result->input_branches, bi);
          platform_assert_status_ok(rc);
          __sync_fetch_and_add(&bc_incs, 1);
       }
@@ -2609,17 +2651,17 @@ pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
 {
    uint64 hash = data_key_hash(data_cfg, lbkey, 271828);
    hash ^= height;
-   return hash % PIVOT_STATE_MAP_BUCKETS;
+   return hash % TRUNK_PIVOT_STATE_MAP_BUCKETS;
 }
 
 typedef uint64 pivot_state_map_lock;
 
 static void
-pivot_state_map_aquire_lock(pivot_state_map_lock *lock,
-                            trunk_node_context   *context,
-                            pivot_state_map      *map,
-                            key                   pivot_key,
-                            uint64                height)
+pivot_state_map_aquire_lock(pivot_state_map_lock  *lock,
+                            trunk_context         *context,
+                            trunk_pivot_state_map *map,
+                            key                    pivot_key,
+                            uint64                 height)
 {
    *lock = pivot_state_map_hash(context->cfg->data_cfg, pivot_key, height);
    uint64 wait = 1;
@@ -2630,19 +2672,20 @@ pivot_state_map_aquire_lock(pivot_state_map_lock *lock,
 }
 
 static void
-pivot_state_map_release_lock(pivot_state_map_lock *lock, pivot_state_map *map)
+pivot_state_map_release_lock(pivot_state_map_lock  *lock,
+                             trunk_pivot_state_map *map)
 {
    __sync_lock_release(&map->locks[*lock]);
 }
 
 static void
-pivot_state_incref(pivot_compaction_state *state)
+pivot_state_incref(trunk_pivot_compaction_state *state)
 {
    __sync_fetch_and_add(&state->refcount, 1);
 }
 
 static uint64
-pivot_state_decref(pivot_compaction_state *state)
+pivot_state_decref(trunk_pivot_compaction_state *state)
 {
    uint64 oldrc = __sync_fetch_and_add(&state->refcount, -1);
    platform_assert(0 < oldrc);
@@ -2650,22 +2693,22 @@ pivot_state_decref(pivot_compaction_state *state)
 }
 
 static void
-pivot_state_lock_compactions(pivot_compaction_state *state)
+pivot_state_lock_compactions(trunk_pivot_compaction_state *state)
 {
    platform_spin_lock(&state->compactions_lock);
 }
 
 static void
-pivot_state_unlock_compactions(pivot_compaction_state *state)
+pivot_state_unlock_compactions(trunk_pivot_compaction_state *state)
 {
    platform_spin_unlock(&state->compactions_lock);
 }
 
 debug_only static void
-pivot_compaction_state_print(pivot_compaction_state *state,
-                             platform_log_handle    *log,
-                             const data_config      *data_cfg,
-                             int                     indent)
+pivot_compaction_state_print(trunk_pivot_compaction_state *state,
+                             platform_log_handle          *log,
+                             const data_config            *data_cfg,
+                             int                           indent)
 {
    platform_log(log, "%*sheight: %lu\n", indent, "", state->height);
    platform_log(log,
@@ -2697,13 +2740,13 @@ pivot_compaction_state_print(pivot_compaction_state *state,
 }
 
 debug_only static void
-pivot_compaction_state_map_print(pivot_state_map     *map,
-                                 platform_log_handle *log,
-                                 const data_config   *data_cfg)
+pivot_compaction_state_map_print(trunk_pivot_state_map *map,
+                                 platform_log_handle   *log,
+                                 const data_config     *data_cfg)
 {
    platform_log(log, "pivot_state_map: %lu states\n", map->num_states);
-   for (uint64 i = 0; i < PIVOT_STATE_MAP_BUCKETS; i++) {
-      pivot_compaction_state *state = map->buckets[i];
+   for (uint64 i = 0; i < TRUNK_PIVOT_STATE_MAP_BUCKETS; i++) {
+      trunk_pivot_compaction_state *state = map->buckets[i];
       while (state != NULL) {
          pivot_compaction_state_print(state, log, data_cfg, 0);
          state = state->next;
@@ -2714,10 +2757,10 @@ pivot_compaction_state_map_print(pivot_state_map     *map,
 uint64 pivot_state_destructions = 0;
 
 static void
-pivot_state_destroy(pivot_compaction_state *state)
+pivot_state_destroy(trunk_pivot_compaction_state *state)
 {
-   trunk_node_context *context = state->context;
-   threadid            tid     = platform_get_tid();
+   trunk_context *context = state->context;
+   threadid       tid     = platform_get_tid();
    platform_assert(state->refcount == 0);
    // platform_default_log("pivot_state_destroy: %p\n", state);
    // pivot_compaction_state_print(
@@ -2747,8 +2790,8 @@ pivot_state_destroy(pivot_compaction_state *state)
 }
 
 static void
-pivot_compaction_state_append_compaction(pivot_compaction_state *state,
-                                         bundle_compaction      *compaction)
+pivot_compaction_state_append_compaction(trunk_pivot_compaction_state *state,
+                                         bundle_compaction *compaction)
 {
    platform_assert(compaction != NULL);
    platform_assert(0 < vector_length(&compaction->input_branches));
@@ -2767,28 +2810,29 @@ pivot_compaction_state_append_compaction(pivot_compaction_state *state,
 }
 
 static void
-pivot_state_map_init(pivot_state_map *map)
+pivot_state_map_init(trunk_pivot_state_map *map)
 {
    ZERO_CONTENTS(map);
 }
 
 static void
-pivot_state_map_deinit(pivot_state_map *map)
+pivot_state_map_deinit(trunk_pivot_state_map *map)
 {
    ZERO_CONTENTS(map);
 }
 
 
-static pivot_compaction_state *
-pivot_state_map_get_entry(trunk_node_context         *context,
-                          pivot_state_map            *map,
+static trunk_pivot_compaction_state *
+pivot_state_map_get_entry(trunk_context              *context,
+                          trunk_pivot_state_map      *map,
                           const pivot_state_map_lock *lock,
                           key                         pivot_key,
                           uint64                      height)
 {
-   pivot_compaction_state *result = NULL;
-   for (pivot_compaction_state *state = map->buckets[*lock]; state != NULL;
-        state                         = state->next)
+   trunk_pivot_compaction_state *result = NULL;
+   for (trunk_pivot_compaction_state *state = map->buckets[*lock];
+        state != NULL;
+        state = state->next)
    {
       if (data_key_compare(
              context->cfg->data_cfg, key_buffer_key(&state->key), pivot_key)
@@ -2804,16 +2848,16 @@ pivot_state_map_get_entry(trunk_node_context         *context,
 
 uint64 pivot_state_creations = 0;
 
-static pivot_compaction_state *
-pivot_state_map_create_entry(trunk_node_context         *context,
-                             pivot_state_map            *map,
+static trunk_pivot_compaction_state *
+pivot_state_map_create_entry(trunk_context              *context,
+                             trunk_pivot_state_map      *map,
                              const pivot_state_map_lock *lock,
                              key                         pivot_key,
                              key                         ubkey,
                              uint64                      height,
                              const bundle               *pivot_bundle)
 {
-   pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
+   trunk_pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
    if (state == NULL) {
       platform_error_log(
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
@@ -2858,12 +2902,13 @@ pivot_state_map_create_entry(trunk_node_context         *context,
 }
 
 static void
-pivot_state_map_remove(pivot_state_map        *map,
-                       pivot_state_map_lock   *lock,
-                       pivot_compaction_state *tgt)
+pivot_state_map_remove(trunk_pivot_state_map        *map,
+                       pivot_state_map_lock         *lock,
+                       trunk_pivot_compaction_state *tgt)
 {
-   pivot_compaction_state *prev = NULL;
-   for (pivot_compaction_state *state = map->buckets[*lock]; state != NULL;
+   trunk_pivot_compaction_state *prev = NULL;
+   for (trunk_pivot_compaction_state *state = map->buckets[*lock];
+        state != NULL;
         prev = state, state = state->next)
    {
       if (state == tgt) {
@@ -2878,17 +2923,17 @@ pivot_state_map_remove(pivot_state_map        *map,
    }
 }
 
-static pivot_compaction_state *
-pivot_state_map_get_or_create_entry(trunk_node_context *context,
-                                    pivot_state_map    *map,
-                                    key                 pivot_key,
-                                    key                 ubkey,
-                                    uint64              height,
-                                    const bundle       *pivot_bundle)
+static trunk_pivot_compaction_state *
+pivot_state_map_get_or_create_entry(trunk_context         *context,
+                                    trunk_pivot_state_map *map,
+                                    key                    pivot_key,
+                                    key                    ubkey,
+                                    uint64                 height,
+                                    const bundle          *pivot_bundle)
 {
    pivot_state_map_lock lock;
    pivot_state_map_aquire_lock(&lock, context, map, pivot_key, height);
-   pivot_compaction_state *state =
+   trunk_pivot_compaction_state *state =
       pivot_state_map_get_entry(context, map, &lock, pivot_key, height);
    if (state == NULL) {
       state = pivot_state_map_create_entry(
@@ -2901,9 +2946,9 @@ pivot_state_map_get_or_create_entry(trunk_node_context *context,
 }
 
 static void
-pivot_state_map_release_entry(trunk_node_context     *context,
-                              pivot_state_map        *map,
-                              pivot_compaction_state *state)
+pivot_state_map_release_entry(trunk_context                *context,
+                              trunk_pivot_state_map        *map,
+                              trunk_pivot_compaction_state *state)
 {
    pivot_state_map_lock lock;
    pivot_state_map_aquire_lock(
@@ -2916,13 +2961,13 @@ pivot_state_map_release_entry(trunk_node_context     *context,
 }
 
 static bool32
-pivot_state_map_abandon_entry(trunk_node_context *context, key k, uint64 height)
+pivot_state_map_abandon_entry(trunk_context *context, key k, uint64 height)
 {
    bool32               result = FALSE;
    pivot_state_map_lock lock;
    pivot_state_map_aquire_lock(
       &lock, context, &context->pivot_states, k, height);
-   pivot_compaction_state *pivot_state = pivot_state_map_get_entry(
+   trunk_pivot_compaction_state *pivot_state = pivot_state_map_get_entry(
       context, &context->pivot_states, &lock, k, height);
    if (pivot_state) {
       pivot_state->abandoned = TRUE;
@@ -2934,15 +2979,15 @@ pivot_state_map_abandon_entry(trunk_node_context *context, key k, uint64 height)
 }
 
 debug_only static void
-print_pivot_states_for_node(trunk_node_context *context, trunk_node *node)
+print_pivot_states_for_node(trunk_context *context, trunk_node *node)
 {
-   uint64 height = node_height(node);
-   for (int i = 0; i < node_num_children(node); i++) {
-      key                  k = node_pivot_key(node, i);
+   uint64 height = trunk_node_height(node);
+   for (int i = 0; i < trunk_node_num_children(node); i++) {
+      key                  k = trunk_node_pivot_key(node, i);
       pivot_state_map_lock lock;
       pivot_state_map_aquire_lock(
          &lock, context, &context->pivot_states, k, height);
-      pivot_compaction_state *state = pivot_state_map_get_entry(
+      trunk_pivot_compaction_state *state = pivot_state_map_get_entry(
          context, &context->pivot_states, &lock, k, height);
       if (state != NULL) {
          pivot_state_incref(state);
@@ -2966,33 +3011,34 @@ print_pivot_states_for_node(trunk_node_context *context, trunk_node *node)
  *********************************************/
 
 typedef struct maplet_compaction_apply_args {
-   pivot_compaction_state *state;
-   uint64                  num_input_bundles;
-   routing_filter          new_maplet;
-   branch_ref_vector       branches;
-   trunk_pivot_stats       delta;
+   trunk_pivot_compaction_state *state;
+   uint64                        num_input_bundles;
+   routing_filter                new_maplet;
+   branch_ref_vector             branches;
+   trunk_pivot_stats             delta;
    // Outputs
    bool32 found_match;
 } maplet_compaction_apply_args;
 
 static bool32
-pivot_matches_compaction(const trunk_node_context           *context,
+pivot_matches_compaction(const trunk_context                *context,
                          trunk_node                         *target,
                          uint64                              pivot_num,
                          const maplet_compaction_apply_args *args)
 {
-   pivot  *pvt        = node_pivot(target, pivot_num);
-   bundle *pivot_bndl = node_pivot_bundle(target, pivot_num);
+   trunk_pivot *pvt        = trunk_node_pivot(target, pivot_num);
+   bundle      *pivot_bndl = trunk_node_pivot_bundle(target, pivot_num);
 
    platform_assert(0 < args->num_input_bundles);
    platform_assert(args->state->bundle_compactions != NULL);
    platform_assert(
       0 < vector_length(&args->state->bundle_compactions->input_branches));
 
-   bundle_compaction *oldest_bc    = args->state->bundle_compactions;
-   branch_info oldest_input_branch = vector_get(&oldest_bc->input_branches, 0);
+   bundle_compaction *oldest_bc = args->state->bundle_compactions;
+   trunk_branch_info  oldest_input_branch =
+      vector_get(&oldest_bc->input_branches, 0);
 
-   uint64 ifs = pivot_inflight_bundle_start(pvt);
+   uint64 ifs = trunk_pivot_inflight_bundle_start(pvt);
    if (vector_length(&target->inflight_bundles) < ifs + args->num_input_bundles)
    {
       return FALSE;
@@ -3004,11 +3050,11 @@ pivot_matches_compaction(const trunk_node_context           *context,
    bool32 result =
       data_key_compare(context->cfg->data_cfg,
                        key_buffer_key(&args->state->key),
-                       pivot_key(pvt))
+                       trunk_pivot_key(pvt))
          == 0
       && data_key_compare(context->cfg->data_cfg,
                           key_buffer_key(&args->state->ubkey),
-                          node_pivot_key(target, pivot_num + 1))
+                          trunk_node_pivot_key(target, pivot_num + 1))
             == 0
       && routing_filters_equal(&pivot_bndl->maplet, &args->state->maplet)
       && oldest_pivot_inflight_branch.addr == oldest_input_branch.addr;
@@ -3016,24 +3062,25 @@ pivot_matches_compaction(const trunk_node_context           *context,
 }
 
 static platform_status
-apply_changes_maplet_compaction(trunk_node_context *context,
-                                uint64              addr,
-                                trunk_node         *target,
-                                void               *arg)
+apply_changes_maplet_compaction(trunk_context *context,
+                                uint64         addr,
+                                trunk_node    *target,
+                                void          *arg)
 {
    platform_status               rc;
    maplet_compaction_apply_args *args = (maplet_compaction_apply_args *)arg;
 
-   for (uint64 i = 0; i < node_num_children(target); i++) {
-      if (node_is_leaf(target)) {
-         debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, target));
+   for (uint64 i = 0; i < trunk_node_num_children(target); i++) {
+      if (trunk_node_is_leaf(target)) {
+         debug_assert(
+            trunk_node_is_well_formed_leaf(context->cfg->data_cfg, target));
       } else {
          debug_assert(
-            node_is_well_formed_index(context->cfg->data_cfg, target));
+            trunk_node_is_well_formed_index(context->cfg->data_cfg, target));
       }
 
       if (pivot_matches_compaction(context, target, i, args)) {
-         bundle *bndl = node_pivot_bundle(target, i);
+         bundle *bndl = trunk_node_pivot_bundle(target, i);
          rc = bundle_add_branches(bndl, args->new_maplet, &args->branches);
          if (!SUCCESS(rc)) {
             platform_error_log("apply_changes_maplet_compaction: "
@@ -3041,19 +3088,22 @@ apply_changes_maplet_compaction(trunk_node_context *context,
                                rc.r);
             return rc;
          }
-         pivot *pvt = node_pivot(target, i);
-         pivot_set_inflight_bundle_start(
-            pvt, pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
-         pivot_add_tuple_counts(pvt, -1, args->delta);
+         trunk_pivot *pvt = trunk_node_pivot(target, i);
+         trunk_pivot_set_inflight_bundle_start(
+            pvt,
+            trunk_pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
+         trunk_pivot_add_tuple_counts(pvt, -1, args->delta);
          args->found_match = TRUE;
          break;
       }
    }
 
-   if (node_is_leaf(target)) {
-      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, target));
+   if (trunk_node_is_leaf(target)) {
+      debug_assert(
+         trunk_node_is_well_formed_leaf(context->cfg->data_cfg, target));
    } else {
-      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, target));
+      debug_assert(
+         trunk_node_is_well_formed_index(context->cfg->data_cfg, target));
    }
 
 
@@ -3061,17 +3111,17 @@ apply_changes_maplet_compaction(trunk_node_context *context,
 }
 
 static platform_status
-enqueue_maplet_compaction(pivot_compaction_state *args);
+enqueue_maplet_compaction(trunk_pivot_compaction_state *args);
 
 static void
 maplet_compaction_task(void *arg, void *scratch)
 {
-   platform_status              rc         = STATUS_OK;
-   pivot_compaction_state      *state      = (pivot_compaction_state *)arg;
-   trunk_node_context          *context    = state->context;
-   routing_filter               new_maplet = state->maplet;
-   maplet_compaction_apply_args apply_args;
-   threadid                     tid;
+   platform_status               rc      = STATUS_OK;
+   trunk_pivot_compaction_state *state   = (trunk_pivot_compaction_state *)arg;
+   trunk_context                *context = state->context;
+   routing_filter                new_maplet = state->maplet;
+   maplet_compaction_apply_args  apply_args;
+   threadid                      tid;
 
    tid = platform_get_tid();
 
@@ -3242,7 +3292,7 @@ cleanup:
 }
 
 static platform_status
-enqueue_maplet_compaction(pivot_compaction_state *args)
+enqueue_maplet_compaction(trunk_pivot_compaction_state *args)
 {
    pivot_state_incref(args);
    platform_status rc = task_enqueue(
@@ -3260,15 +3310,15 @@ enqueue_maplet_compaction(pivot_compaction_state *args)
  ************************/
 
 static platform_status
-compute_tuple_bound(trunk_node_context *context,
-                    branch_info_vector *branches,
-                    key                 lb,
-                    key                 ub,
-                    uint64             *tuple_bound)
+compute_tuple_bound(trunk_context            *context,
+                    trunk_branch_info_vector *branches,
+                    key                       lb,
+                    key                       ub,
+                    uint64                   *tuple_bound)
 {
    *tuple_bound = 0;
    for (uint64 i = 0; i < vector_length(branches); i++) {
-      branch_info       bi = vector_get(branches, i);
+      trunk_branch_info bi = vector_get(branches, i);
       btree_pivot_stats stats;
       btree_count_in_range(
          context->cc, context->cfg->btree_cfg, bi.addr, lb, ub, &stats);
@@ -3281,10 +3331,10 @@ compute_tuple_bound(trunk_node_context *context,
 static void
 bundle_compaction_task(void *arg, void *scratch)
 {
-   platform_status         rc;
-   pivot_compaction_state *state   = (pivot_compaction_state *)arg;
-   trunk_node_context     *context = state->context;
-   threadid                tid     = platform_get_tid();
+   platform_status               rc;
+   trunk_pivot_compaction_state *state   = (trunk_pivot_compaction_state *)arg;
+   trunk_context                *context = state->context;
+   threadid                      tid     = platform_get_tid();
 
    if (context->stats) {
       context->stats[tid].compactions[state->height]++;
@@ -3315,18 +3365,18 @@ bundle_compaction_task(void *arg, void *scratch)
    platform_assert(bc != NULL);
    platform_assert(0 < vector_length(&bc->input_branches));
 
-   branch_merger merger;
-   branch_merger_init(&merger,
-                      context->hid,
-                      context->cfg->data_cfg,
-                      key_buffer_key(&state->key),
-                      key_buffer_key(&state->ubkey),
-                      0);
-   rc = branch_merger_add_branches(&merger,
-                                   context->cc,
-                                   context->cfg->btree_cfg,
-                                   vector_length(&bc->input_branches),
-                                   vector_data(&bc->input_branches));
+   trunk_branch_merger merger;
+   trunk_branch_merger_init(&merger,
+                            context->hid,
+                            context->cfg->data_cfg,
+                            key_buffer_key(&state->key),
+                            key_buffer_key(&state->ubkey),
+                            0);
+   rc = trunk_branch_merger_add_branches(&merger,
+                                         context->cc,
+                                         context->cfg->btree_cfg,
+                                         vector_length(&bc->input_branches),
+                                         vector_data(&bc->input_branches));
    if (!SUCCESS(rc)) {
       platform_error_log(
          "branch_merger_add_branches failed for state: %p bc: %p: %s\n",
@@ -3351,7 +3401,7 @@ bundle_compaction_task(void *arg, void *scratch)
       goto cleanup;
    }
 
-   rc = branch_merger_build_merge_itor(&merger, bc->merge_mode);
+   rc = trunk_branch_merger_build_merge_itor(&merger, bc->merge_mode);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "branch_merger_build_merge_itor failed for state: %p bc: %p: %s\n",
@@ -3419,7 +3469,7 @@ bundle_compaction_task(void *arg, void *scratch)
 
 cleanup:
    btree_pack_req_deinit(&pack_req, context->hid);
-   branch_merger_deinit(&merger);
+   trunk_branch_merger_deinit(&merger);
 
    if (SUCCESS(rc)) {
       bc->state = BUNDLE_COMPACTION_SUCCEEDED;
@@ -3437,19 +3487,19 @@ cleanup:
 }
 
 static platform_status
-enqueue_bundle_compaction(trunk_node_context *context, trunk_node *node)
+enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
 {
-   uint64 height       = node_height(node);
-   uint64 num_children = node_num_children(node);
+   uint64 height       = trunk_node_height(node);
+   uint64 num_children = trunk_node_num_children(node);
 
    for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
-      if (node_pivot_has_received_bundles(node, pivot_num)) {
-         platform_status rc           = STATUS_OK;
-         key             pivot_key    = node_pivot_key(node, pivot_num);
-         key             ubkey        = node_pivot_key(node, pivot_num + 1);
-         bundle         *pivot_bundle = node_pivot_bundle(node, pivot_num);
+      if (trunk_node_pivot_has_received_bundles(node, pivot_num)) {
+         platform_status rc        = STATUS_OK;
+         key             pivot_key = trunk_node_pivot_key(node, pivot_num);
+         key             ubkey     = trunk_node_pivot_key(node, pivot_num + 1);
+         bundle *pivot_bundle      = trunk_node_pivot_bundle(node, pivot_num);
 
-         pivot_compaction_state *state =
+         trunk_pivot_compaction_state *state =
             pivot_state_map_get_or_create_entry(context,
                                                 &context->pivot_states,
                                                 pivot_key,
@@ -3511,16 +3561,14 @@ incorporation_tasks_init(incorporation_tasks *itasks, platform_heap_id hid)
 }
 
 static void
-incorporation_tasks_deinit(incorporation_tasks *itasks,
-                           trunk_node_context  *context)
+incorporation_tasks_deinit(incorporation_tasks *itasks, trunk_context *context)
 {
-   VECTOR_APPLY_TO_PTRS(&itasks->node_compactions, node_deinit, context);
+   VECTOR_APPLY_TO_PTRS(&itasks->node_compactions, trunk_node_deinit, context);
    vector_deinit(&itasks->node_compactions);
 }
 
 static void
-incorporation_tasks_execute(incorporation_tasks *itasks,
-                            trunk_node_context  *context)
+incorporation_tasks_execute(incorporation_tasks *itasks, trunk_context *context)
 {
    for (uint64 i = 0; i < vector_length(&itasks->node_compactions); i++) {
       trunk_node     *node = vector_get_ptr(&itasks->node_compactions, i);
@@ -3534,7 +3582,7 @@ incorporation_tasks_execute(incorporation_tasks *itasks,
 }
 
 static platform_status
-serialize_nodes_and_save_contingent_compactions(trunk_node_context     *context,
+serialize_nodes_and_save_contingent_compactions(trunk_context          *context,
                                                 trunk_node_vector      *nodes,
                                                 ondisk_node_ref_vector *result,
                                                 incorporation_tasks    *itasks)
@@ -3552,7 +3600,7 @@ serialize_nodes_and_save_contingent_compactions(trunk_node_context     *context,
    rc = vector_append_vector(&itasks->node_compactions, nodes);
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
-         result, ondisk_node_ref_destroy, context, context->hid);
+         result, trunk_ondisk_node_ref_destroy, context, context->hid);
       vector_truncate(result, 0);
    }
 
@@ -3569,11 +3617,11 @@ serialize_nodes_and_save_contingent_compactions(trunk_node_context     *context,
  ************************/
 
 static platform_status
-accumulate_branch_tuple_counts_in_range(branch_ref          bref,
-                                        trunk_node_context *context,
-                                        key                 minkey,
-                                        key                 maxkey,
-                                        btree_pivot_stats  *acc)
+accumulate_branch_tuple_counts_in_range(branch_ref         bref,
+                                        trunk_context     *context,
+                                        key                minkey,
+                                        key                maxkey,
+                                        btree_pivot_stats *acc)
 {
    btree_pivot_stats stats;
    btree_count_in_range(context->cc,
@@ -3591,7 +3639,7 @@ accumulate_branch_tuple_counts_in_range(branch_ref          bref,
 
 static platform_status
 accumulate_branches_tuple_counts_in_range(const branch_ref_vector *brefs,
-                                          trunk_node_context      *context,
+                                          trunk_context           *context,
                                           key                      minkey,
                                           key                      maxkey,
                                           btree_pivot_stats       *acc)
@@ -3608,13 +3656,13 @@ accumulate_branches_tuple_counts_in_range(const branch_ref_vector *brefs,
 
 static platform_status
 accumulate_inflight_bundle_tuple_counts_in_range(bundle             *bndl,
-                                                 trunk_node_context *context,
-                                                 pivot_vector       *pivots,
+                                                 trunk_context      *context,
+                                                 trunk_pivot_vector *pivots,
                                                  uint64              child_num,
                                                  btree_pivot_stats  *acc)
 {
-   key minkey = pivot_key(vector_get(pivots, child_num));
-   key maxkey = pivot_key(vector_get(pivots, child_num + 1));
+   key minkey = trunk_pivot_key(vector_get(pivots, child_num));
+   key maxkey = trunk_pivot_key(vector_get(pivots, child_num + 1));
 
    return accumulate_branches_tuple_counts_in_range(
       &bndl->branches, context, minkey, maxkey, acc);
@@ -3625,11 +3673,11 @@ accumulate_inflight_bundle_tuple_counts_in_range(bundle             *bndl,
  *****************************************************/
 
 static platform_status
-node_receive_bundles(trunk_node_context *context,
-                     trunk_node         *node,
-                     bundle             *pivot_bundle,
-                     bundle_vector      *inflight,
-                     uint64              inflight_start)
+node_receive_bundles(trunk_context *context,
+                     trunk_node    *node,
+                     bundle        *pivot_bundle,
+                     bundle_vector *inflight,
+                     uint64         inflight_start)
 {
    platform_status rc;
 
@@ -3667,7 +3715,7 @@ node_receive_bundles(trunk_node_context *context,
       }
    }
 
-   for (uint64 i = 0; i < node_num_children(node); i++) {
+   for (uint64 i = 0; i < trunk_node_num_children(node); i++) {
       btree_pivot_stats btree_stats;
       ZERO_CONTENTS(&btree_stats);
       if (pivot_bundle) {
@@ -3697,8 +3745,8 @@ node_receive_bundles(trunk_node_context *context,
       }
       trunk_pivot_stats trunk_stats =
          trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
-      pivot *pvt = node_pivot(node, i);
-      pivot_add_tuple_counts(pvt, 1, trunk_stats);
+      trunk_pivot *pvt = trunk_node_pivot(node, i);
+      trunk_pivot_add_tuple_counts(pvt, 1, trunk_stats);
    }
 
    return rc;
@@ -3709,23 +3757,23 @@ node_receive_bundles(trunk_node_context *context,
  ************************/
 
 static bool
-leaf_might_need_to_split(const trunk_node_config *cfg,
-                         uint64                   routing_filter_tuple_limit,
-                         trunk_node              *leaf)
+leaf_might_need_to_split(const trunk_config *cfg,
+                         uint64              routing_filter_tuple_limit,
+                         trunk_node         *leaf)
 {
-   return routing_filter_tuple_limit < leaf_num_tuples(leaf)
+   return routing_filter_tuple_limit < trunk_leaf_num_tuples(leaf)
           || cfg->incorporation_size_kv_bytes * cfg->target_fanout
-                < leaf_num_kv_bytes(leaf);
+                < trunk_leaf_num_kv_bytes(leaf);
 }
 
 static platform_status
-leaf_estimate_unique_keys(trunk_node_context *context,
-                          trunk_node         *leaf,
-                          uint64             *estimate)
+leaf_estimate_unique_keys(trunk_context *context,
+                          trunk_node    *leaf,
+                          uint64        *estimate)
 {
    platform_status rc;
 
-   debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
+   debug_assert(trunk_node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
    routing_filter_vector maplets;
    vector_init(&maplets, context->hid);
@@ -3771,8 +3819,8 @@ leaf_estimate_unique_keys(trunk_node_context *context,
          btree_count_in_range(context->cc,
                               context->cfg->btree_cfg,
                               bundle_branch(bndl, 0).addr,
-                              node_pivot_min_key(leaf),
-                              node_pivot_max_key(leaf),
+                              trunk_node_pivot_min_key(leaf),
+                              trunk_node_pivot_max_key(leaf),
                               &stats);
          unfiltered_tuples += stats.num_kvs;
       } else {
@@ -3800,7 +3848,7 @@ leaf_estimate_unique_keys(trunk_node_context *context,
       num_globally_unique_fp = routing_filter_estimate_unique_keys_from_count(
          context->cfg->filter_cfg, num_globally_unique_fp);
 
-      uint64 num_tuples                 = leaf_num_tuples(leaf);
+      uint64 num_tuples                 = trunk_leaf_num_tuples(leaf);
       uint64 est_num_leaf_sb_unique     = num_unique_fp * num_tuples / num_fp;
       uint64 est_num_non_leaf_sb_unique = num_fp - est_num_leaf_sb_unique;
 
@@ -3815,11 +3863,11 @@ cleanup:
 }
 
 static platform_status
-leaf_split_target_num_leaves(trunk_node_context *context,
-                             trunk_node         *leaf,
-                             uint64             *target)
+leaf_split_target_num_leaves(trunk_context *context,
+                             trunk_node    *leaf,
+                             uint64        *target)
 {
-   debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
+   debug_assert(trunk_node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
    uint64 rflimit = routing_filter_max_fingerprints(
       cache_get_config(context->cc), context->cfg->filter_cfg);
@@ -3839,11 +3887,11 @@ leaf_split_target_num_leaves(trunk_node_context *context,
       return rc;
    }
 
-   uint64 num_tuples = leaf_num_tuples(leaf);
+   uint64 num_tuples = trunk_leaf_num_tuples(leaf);
    if (estimated_unique_keys > num_tuples * 19 / 20) {
       estimated_unique_keys = num_tuples;
    }
-   uint64 kv_bytes = leaf_num_kv_bytes(leaf);
+   uint64 kv_bytes = trunk_leaf_num_kv_bytes(leaf);
    uint64 estimated_unique_kv_bytes =
       estimated_unique_keys * kv_bytes / num_tuples;
    uint64 target_num_leaves = (estimated_unique_kv_bytes
@@ -3866,14 +3914,14 @@ leaf_split_target_num_leaves(trunk_node_context *context,
 typedef VECTOR(key_buffer) key_buffer_vector;
 
 static platform_status
-leaf_split_select_pivots(trunk_node_context *context,
-                         trunk_node         *leaf,
-                         uint64              target_num_leaves,
-                         key_buffer_vector  *pivots)
+leaf_split_select_pivots(trunk_context     *context,
+                         trunk_node        *leaf,
+                         uint64             target_num_leaves,
+                         key_buffer_vector *pivots)
 {
    platform_status rc;
-   pivot          *first   = vector_get(&leaf->pivots, 0);
-   pivot          *last    = vector_get(&leaf->pivots, 1);
+   trunk_pivot    *first   = vector_get(&leaf->pivots, 0);
+   trunk_pivot    *last    = vector_get(&leaf->pivots, 1);
    key             min_key = ondisk_key_to_key(&first->key);
    key             max_key = ondisk_key_to_key(&last->key);
 
@@ -3886,18 +3934,18 @@ leaf_split_select_pivots(trunk_node_context *context,
       goto cleanup;
    }
 
-   branch_merger merger;
-   branch_merger_init(&merger,
-                      context->hid,
-                      context->cfg->data_cfg,
-                      min_key,
-                      max_key,
-                      context->cfg->branch_rough_count_height);
+   trunk_branch_merger merger;
+   trunk_branch_merger_init(&merger,
+                            context->hid,
+                            context->cfg->data_cfg,
+                            min_key,
+                            max_key,
+                            context->cfg->branch_rough_count_height);
 
-   rc = branch_merger_add_bundle(&merger,
-                                 context->cc,
-                                 context->cfg->btree_cfg,
-                                 vector_get_ptr(&leaf->pivot_bundles, 0));
+   rc = trunk_branch_merger_add_bundle(&merger,
+                                       context->cc,
+                                       context->cfg->btree_cfg,
+                                       vector_get_ptr(&leaf->pivot_bundles, 0));
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "branch_merger_add_bundle failed: %d\n",
@@ -3905,12 +3953,12 @@ leaf_split_select_pivots(trunk_node_context *context,
       goto cleanup;
    }
 
-   for (uint64 bundle_num = pivot_inflight_bundle_start(first);
+   for (uint64 bundle_num = trunk_pivot_inflight_bundle_start(first);
         bundle_num < vector_length(&leaf->inflight_bundles);
         bundle_num++)
    {
       bundle *bndl = vector_get_ptr(&leaf->inflight_bundles, bundle_num);
-      rc           = branch_merger_add_bundle(
+      rc           = trunk_branch_merger_add_bundle(
          &merger, context->cc, context->cfg->btree_cfg, bndl);
       if (!SUCCESS(rc)) {
          platform_error_log("leaf_split_select_pivots: "
@@ -3920,7 +3968,7 @@ leaf_split_select_pivots(trunk_node_context *context,
       }
    }
 
-   rc = branch_merger_build_merge_itor(&merger, MERGE_RAW);
+   rc = trunk_branch_merger_build_merge_itor(&merger, MERGE_RAW);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "branch_merger_build_merge_itor failed: %d\n",
@@ -3945,7 +3993,7 @@ leaf_split_select_pivots(trunk_node_context *context,
                                        + pivot_data->stats.message_bytes;
       uint64 new_tuples = current_tuples + pivot_data->stats.num_kvs;
       uint64 next_boundary =
-         leaf_num * leaf_num_kv_bytes(leaf) / target_num_leaves;
+         leaf_num * trunk_leaf_num_kv_bytes(leaf) / target_num_leaves;
       if ((cumulative_kv_bytes < next_boundary
            && next_boundary <= new_cumulative_kv_bytes)
           || rflimit < new_tuples)
@@ -3978,7 +4026,7 @@ leaf_split_select_pivots(trunk_node_context *context,
 
    platform_status deinit_rc;
 cleanup:
-   deinit_rc = branch_merger_deinit(&merger);
+   deinit_rc = trunk_branch_merger_deinit(&merger);
    if (!SUCCESS(rc)) {
       for (uint64 i = 0; i < vector_length(pivots); i++) {
          key_buffer_deinit(vector_get_ptr(pivots, i));
@@ -3989,40 +4037,41 @@ cleanup:
 }
 
 static platform_status
-leaf_split_init(trunk_node         *new_leaf,
-                trunk_node_context *context,
-                trunk_node         *leaf,
-                key                 min_key,
-                key                 max_key)
+leaf_split_init(trunk_node    *new_leaf,
+                trunk_context *context,
+                trunk_node    *leaf,
+                key            min_key,
+                key            max_key)
 {
    platform_status rc;
-   platform_assert(node_is_leaf(leaf));
+   platform_assert(trunk_node_is_leaf(leaf));
 
-   pivot *pvt = node_pivot(leaf, 0);
+   trunk_pivot *pvt = trunk_node_pivot(leaf, 0);
 
-   rc = node_init_empty_leaf(new_leaf, context->hid, min_key, max_key);
+   rc = trunk_node_init_empty_leaf(new_leaf, context->hid, min_key, max_key);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_init: node_init_empty_leaf failed: %d\n",
                          rc.r);
       return rc;
    }
-   debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, new_leaf));
+   debug_assert(
+      trunk_node_is_well_formed_leaf(context->cfg->data_cfg, new_leaf));
 
    return node_receive_bundles(context,
                                new_leaf,
-                               node_pivot_bundle(leaf, 0),
+                               trunk_node_pivot_bundle(leaf, 0),
                                &leaf->inflight_bundles,
-                               pivot_inflight_bundle_start(pvt));
+                               trunk_pivot_inflight_bundle_start(pvt));
 }
 
 static uint64
-node_pivot_eventual_num_branches(trunk_node_context *context,
-                                 trunk_node         *node,
-                                 uint64              pivot_num)
+node_pivot_eventual_num_branches(trunk_context *context,
+                                 trunk_node    *node,
+                                 uint64         pivot_num)
 {
    uint64 num_branches = 0;
 
-   bundle *bndl = node_pivot_bundle(node, pivot_num);
+   bundle *bndl = trunk_node_pivot_bundle(node, pivot_num);
    num_branches += bundle_num_branches(bndl);
 
    /* Count the branches that will be added by inflight compactions. */
@@ -4030,14 +4079,14 @@ node_pivot_eventual_num_branches(trunk_node_context *context,
    pivot_state_map_aquire_lock(&lock,
                                context,
                                &context->pivot_states,
-                               node_pivot_key(node, pivot_num),
-                               node_height(node));
-   pivot_compaction_state *state =
+                               trunk_node_pivot_key(node, pivot_num),
+                               trunk_node_height(node));
+   trunk_pivot_compaction_state *state =
       pivot_state_map_get_entry(context,
                                 &context->pivot_states,
                                 &lock,
-                                node_pivot_key(node, pivot_num),
-                                node_height(node));
+                                trunk_node_pivot_key(node, pivot_num),
+                                trunk_node_height(node));
    if (state != NULL) {
       pivot_state_lock_compactions(state);
       bundle_compaction *bc = state->bundle_compactions;
@@ -4049,7 +4098,7 @@ node_pivot_eventual_num_branches(trunk_node_context *context,
    }
    pivot_state_map_release_lock(&lock, &context->pivot_states);
 
-   if (node_pivot_has_received_bundles(node, pivot_num)) {
+   if (trunk_node_pivot_has_received_bundles(node, pivot_num)) {
       num_branches++;
    }
 
@@ -4057,10 +4106,10 @@ node_pivot_eventual_num_branches(trunk_node_context *context,
 }
 
 static platform_status
-leaf_split(trunk_node_context *context,
-           trunk_node         *leaf,
-           trunk_node_vector  *new_leaves,
-           bool32             *abandon_compactions)
+leaf_split(trunk_context     *context,
+           trunk_node        *leaf,
+           trunk_node_vector *new_leaves,
+           bool32            *abandon_compactions)
 {
    platform_status rc;
    uint64          target_num_leaves;
@@ -4083,7 +4132,7 @@ leaf_split(trunk_node_context *context,
       }
       *abandon_compactions = FALSE;
       return VECTOR_EMPLACE_APPEND(
-         new_leaves, node_copy_init, leaf, context->hid);
+         new_leaves, trunk_node_copy_init, leaf, context->hid);
    }
 
    if (context->stats) {
@@ -4117,8 +4166,8 @@ leaf_split(trunk_node_context *context,
          platform_error_log("leaf_split: leaf_split_init failed: %d\n", rc.r);
          goto cleanup_new_leaves;
       }
-      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg,
-                                            vector_get_ptr(new_leaves, i)));
+      debug_assert(trunk_node_is_well_formed_leaf(
+         context->cfg->data_cfg, vector_get_ptr(new_leaves, i)));
    }
 
    *abandon_compactions = TRUE;
@@ -4132,7 +4181,7 @@ leaf_split(trunk_node_context *context,
 
 cleanup_new_leaves:
    if (!SUCCESS(rc)) {
-      VECTOR_APPLY_TO_PTRS(new_leaves, node_deinit, context);
+      VECTOR_APPLY_TO_PTRS(new_leaves, trunk_node_deinit, context);
       vector_truncate(new_leaves, 0);
    }
 
@@ -4155,7 +4204,7 @@ index_init_split(trunk_node      *new_index,
 {
    platform_status rc;
 
-   pivot_vector pivots;
+   trunk_pivot_vector pivots;
    vector_init(&pivots, hid);
    rc = vector_ensure_capacity(&pivots, end_child_num - start_child_num + 1);
    if (!SUCCESS(rc)) {
@@ -4164,8 +4213,8 @@ index_init_split(trunk_node      *new_index,
       goto cleanup_pivots;
    }
    for (uint64 i = start_child_num; i < end_child_num + 1; i++) {
-      pivot *pvt  = vector_get(&index->pivots, i);
-      pivot *copy = pivot_copy(pvt, hid);
+      trunk_pivot *pvt  = vector_get(&index->pivots, i);
+      trunk_pivot *copy = trunk_pivot_copy(pvt, hid);
       if (copy == NULL) {
          platform_error_log("index_init_split: pivot_copy failed\n");
          rc = STATUS_NO_MEMORY;
@@ -4206,12 +4255,12 @@ index_init_split(trunk_node      *new_index,
       goto cleanup_inflight_bundles;
    }
 
-   node_init(new_index,
-             node_height(index),
-             pivots,
-             pivot_bundles,
-             node_num_old_bundles(index),
-             inflight_bundles);
+   trunk_node_init(new_index,
+                   trunk_node_height(index),
+                   pivots,
+                   pivot_bundles,
+                   trunk_node_num_old_bundles(index),
+                   inflight_bundles);
 
    return rc;
 
@@ -4222,20 +4271,20 @@ cleanup_pivot_bundles:
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
    vector_deinit(&pivot_bundles);
 cleanup_pivots:
-   VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, hid);
    vector_deinit(&pivots);
    return rc;
 }
 
 static platform_status
-index_split(trunk_node_context *context,
-            trunk_node         *index,
-            trunk_node_vector  *new_indexes)
+index_split(trunk_context     *context,
+            trunk_node        *index,
+            trunk_node_vector *new_indexes)
 {
-   debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
+   debug_assert(trunk_node_is_well_formed_index(context->cfg->data_cfg, index));
    platform_status rc;
 
-   uint64 num_children = node_num_children(index);
+   uint64 num_children = trunk_node_num_children(index);
    uint64 num_nodes    = (num_children + context->cfg->target_fanout - 1)
                       / context->cfg->target_fanout;
 
@@ -4258,14 +4307,14 @@ index_split(trunk_node_context *context,
          platform_error_log("index_split: index_init_split failed: %d\n", rc.r);
          goto cleanup_new_indexes;
       }
-      debug_assert(node_is_well_formed_index(context->cfg->data_cfg,
-                                             vector_get_ptr(new_indexes, i)));
+      debug_assert(trunk_node_is_well_formed_index(
+         context->cfg->data_cfg, vector_get_ptr(new_indexes, i)));
    }
 
 cleanup_new_indexes:
    if (!SUCCESS(rc)) {
       for (uint64 i = 0; i < vector_length(new_indexes); i++) {
-         node_deinit(vector_get_ptr(new_indexes, i), context);
+         trunk_node_deinit(vector_get_ptr(new_indexes, i), context);
       }
       vector_truncate(new_indexes, 0);
    }
@@ -4280,7 +4329,7 @@ cleanup_new_indexes:
 uint64 abandoned_leaf_compactions = 0;
 
 static platform_status
-restore_balance_leaf(trunk_node_context     *context,
+restore_balance_leaf(trunk_context          *context,
                      trunk_node             *leaf,
                      ondisk_node_ref_vector *new_leaf_refs,
                      incorporation_tasks    *itasks)
@@ -4298,7 +4347,7 @@ restore_balance_leaf(trunk_node_context     *context,
 
    if (abandon_compactions) {
       pivot_state_map_abandon_entry(
-         context, node_pivot_min_key(leaf), node_height(leaf));
+         context, trunk_node_pivot_min_key(leaf), trunk_node_height(leaf));
       abandoned_leaf_compactions++;
    }
 
@@ -4318,7 +4367,7 @@ restore_balance_leaf(trunk_node_context     *context,
    return rc;
 
 cleanup_new_nodes:
-   VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+   VECTOR_APPLY_TO_PTRS(&new_nodes, trunk_node_deinit, context);
    vector_deinit(&new_nodes);
    return rc;
 }
@@ -4346,7 +4395,7 @@ bundle_vector_init_empty(bundle_vector   *new_bundles,
 }
 
 static platform_status
-flush_then_compact(trunk_node_context     *context,
+flush_then_compact(trunk_context          *context,
                    trunk_node             *node,
                    bundle                 *routed,
                    bundle_vector          *inflight,
@@ -4355,7 +4404,7 @@ flush_then_compact(trunk_node_context     *context,
                    incorporation_tasks    *itasks);
 
 static platform_status
-flush_to_one_child(trunk_node_context     *context,
+flush_to_one_child(trunk_context          *context,
                    trunk_node             *index,
                    uint64                  pivot_num,
                    ondisk_node_ref_vector *new_childrefs_accumulator,
@@ -4364,7 +4413,7 @@ flush_to_one_child(trunk_node_context     *context,
    platform_status rc = STATUS_OK;
 
    // Check whether we need to flush to this child
-   pivot *pvt = node_pivot(index, pivot_num);
+   trunk_pivot *pvt = trunk_node_pivot(index, pivot_num);
 
    // Start a timer
    uint64 flush_start;
@@ -4374,7 +4423,7 @@ flush_to_one_child(trunk_node_context     *context,
 
    // Load the child
    trunk_node child;
-   rc = node_deserialize(context, pivot_child_addr(pvt), &child);
+   rc = trunk_node_deserialize(context, trunk_pivot_child_addr(pvt), &child);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: node_deserialize failed: %d\n",
                          rc.r);
@@ -4386,12 +4435,12 @@ flush_to_one_child(trunk_node_context     *context,
    vector_init(&new_childrefs, context->hid);
    rc = flush_then_compact(context,
                            &child,
-                           node_pivot_bundle(index, pivot_num),
+                           trunk_node_pivot_bundle(index, pivot_num),
                            &index->inflight_bundles,
-                           pivot_inflight_bundle_start(pvt),
+                           trunk_pivot_inflight_bundle_start(pvt),
                            &new_childrefs,
                            itasks);
-   node_deinit(&child, context);
+   trunk_node_deinit(&child, context);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: flush_then_compact failed: %d\n",
                          rc.r);
@@ -4399,7 +4448,7 @@ flush_to_one_child(trunk_node_context     *context,
    }
 
    // Construct our new pivots for the new children
-   pivot_vector new_pivots;
+   trunk_pivot_vector new_pivots;
    vector_init(&new_pivots, context->hid);
    rc = vector_ensure_capacity(&new_pivots, vector_length(&new_childrefs));
    if (!SUCCESS(rc)) {
@@ -4409,7 +4458,7 @@ flush_to_one_child(trunk_node_context     *context,
       goto cleanup_new_pivots;
    }
    rc = VECTOR_MAP_ELTS(&new_pivots,
-                        pivot_create_from_ondisk_node_ref,
+                        trunk_pivot_create_from_ondisk_node_ref,
                         &new_childrefs,
                         context->hid);
    if (!SUCCESS(rc)) {
@@ -4418,9 +4467,9 @@ flush_to_one_child(trunk_node_context     *context,
       goto cleanup_new_pivots;
    }
    for (uint64 j = 0; j < vector_length(&new_pivots); j++) {
-      pivot *new_pivot = vector_get(&new_pivots, j);
-      pivot_set_inflight_bundle_start(new_pivot,
-                                      vector_length(&index->inflight_bundles));
+      trunk_pivot *new_pivot = vector_get(&new_pivots, j);
+      trunk_pivot_set_inflight_bundle_start(
+         new_pivot, vector_length(&index->inflight_bundles));
    }
 
    // Construct the new empty pivot bundles for the new children
@@ -4446,7 +4495,7 @@ flush_to_one_child(trunk_node_context     *context,
    }
    // Reget this since the pointer may have
    // changed due to the vector_ensure_capacity
-   pvt = node_pivot(index, pivot_num);
+   pvt = trunk_node_pivot(index, pivot_num);
    rc  = vector_ensure_capacity(&index->pivot_bundles,
                                vector_length(&index->pivot_bundles)
                                   + vector_length(&new_pivot_bundles) - 1);
@@ -4468,14 +4517,15 @@ flush_to_one_child(trunk_node_context     *context,
    // the index in place.
 
    // Abandon the enqueued compactions now, before we destroy pvt.
-   pivot_state_map_abandon_entry(context, pivot_key(pvt), node_height(index));
+   pivot_state_map_abandon_entry(
+      context, trunk_pivot_key(pvt), trunk_node_height(index));
 
    // Replace the old pivot and pivot bundles with the new ones
-   pivot_destroy(pvt, context->hid);
+   trunk_pivot_destroy(pvt, context->hid);
    rc = vector_replace(
       &index->pivots, pivot_num, 1, &new_pivots, 0, vector_length(&new_pivots));
    platform_assert_status_ok(rc);
-   bundle_deinit(node_pivot_bundle(index, pivot_num));
+   bundle_deinit(trunk_node_pivot_bundle(index, pivot_num));
    rc = vector_replace(&index->pivot_bundles,
                        pivot_num,
                        1,
@@ -4487,10 +4537,11 @@ flush_to_one_child(trunk_node_context     *context,
    if (context->stats) {
       uint64   flush_time = platform_timestamp_elapsed(flush_start);
       threadid tid        = platform_get_tid();
-      context->stats[tid].count_flushes[node_height(index)]++;
-      context->stats[tid].flush_time_ns[node_height(index)] += flush_time;
-      context->stats[tid].flush_time_max_ns[node_height(index)] = MAX(
-         context->stats[tid].flush_time_max_ns[node_height(index)], flush_time);
+      context->stats[tid].count_flushes[trunk_node_height(index)]++;
+      context->stats[tid].flush_time_ns[trunk_node_height(index)] += flush_time;
+      context->stats[tid].flush_time_max_ns[trunk_node_height(index)] =
+         MAX(context->stats[tid].flush_time_max_ns[trunk_node_height(index)],
+             flush_time);
    }
 
 cleanup_new_pivot_bundles:
@@ -4503,7 +4554,7 @@ cleanup_new_childrefs:
 }
 
 static platform_status
-restore_balance_index(trunk_node_context     *context,
+restore_balance_index(trunk_context          *context,
                       trunk_node             *index,
                       ondisk_node_ref_vector *new_index_refs,
                       incorporation_tasks    *itasks)
@@ -4513,15 +4564,15 @@ restore_balance_index(trunk_node_context     *context,
    uint64          rflimit = routing_filter_max_fingerprints(
       cache_get_config(context->cc), context->cfg->filter_cfg);
 
-   debug_assert(node_is_well_formed_index(context->cfg->data_cfg, index));
+   debug_assert(trunk_node_is_well_formed_index(context->cfg->data_cfg, index));
 
    ondisk_node_ref_vector all_new_childrefs;
    vector_init(&all_new_childrefs, context->hid);
 
    uint64 fullest_child    = 0;
    uint64 fullest_kv_bytes = 0;
-   for (uint64 i = 0; i < node_num_children(index); i++) {
-      pivot *pvt = node_pivot(index, i);
+   for (uint64 i = 0; i < trunk_node_num_children(index); i++) {
+      trunk_pivot *pvt = trunk_node_pivot(index, i);
 
       if (context->cfg->target_fanout
              < node_pivot_eventual_num_branches(context, index, i)
@@ -4537,12 +4588,12 @@ restore_balance_index(trunk_node_context     *context,
          }
 
          if (context->stats) {
-            context->stats[tid].full_flushes[node_height(index)]++;
+            context->stats[tid].full_flushes[trunk_node_height(index)]++;
          }
 
-      } else if (fullest_kv_bytes < pivot_num_kv_bytes(pvt)) {
+      } else if (fullest_kv_bytes < trunk_pivot_num_kv_bytes(pvt)) {
          fullest_child    = i;
-         fullest_kv_bytes = pivot_num_kv_bytes(pvt);
+         fullest_kv_bytes = trunk_pivot_num_kv_bytes(pvt);
       }
    }
 
@@ -4581,13 +4632,13 @@ restore_balance_index(trunk_node_context     *context,
 
 cleanup_new_nodes:
    if (!SUCCESS(rc)) {
-      VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+      VECTOR_APPLY_TO_PTRS(&new_nodes, trunk_node_deinit, context);
    }
    vector_deinit(&new_nodes);
 
 cleanup_all_new_children:
    VECTOR_APPLY_TO_ELTS(
-      &all_new_childrefs, ondisk_node_ref_destroy, context, context->hid);
+      &all_new_childrefs, trunk_ondisk_node_ref_destroy, context, context->hid);
    vector_deinit(&all_new_childrefs);
    return rc;
 }
@@ -4602,7 +4653,7 @@ cleanup_all_new_children:
  * node/nodes are returned in new_nodes.
  */
 static platform_status
-flush_then_compact(trunk_node_context     *context,
+flush_then_compact(trunk_context          *context,
                    trunk_node             *node,
                    bundle                 *routed,
                    bundle_vector          *inflight,
@@ -4621,14 +4672,16 @@ flush_then_compact(trunk_node_context     *context,
                          platform_status_to_string(rc));
       return rc;
    }
-   if (node_is_leaf(node)) {
-      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, node));
+   if (trunk_node_is_leaf(node)) {
+      debug_assert(
+         trunk_node_is_well_formed_leaf(context->cfg->data_cfg, node));
    } else {
-      debug_assert(node_is_well_formed_index(context->cfg->data_cfg, node));
+      debug_assert(
+         trunk_node_is_well_formed_index(context->cfg->data_cfg, node));
    }
 
    // Perform any needed recursive flushes and node splits
-   if (node_is_leaf(node)) {
+   if (trunk_node_is_leaf(node)) {
       rc = restore_balance_leaf(context, node, new_node_refs, itasks);
    } else {
       rc = restore_balance_index(context, node, new_node_refs, itasks);
@@ -4638,7 +4691,7 @@ flush_then_compact(trunk_node_context     *context,
 }
 
 static platform_status
-build_new_roots(trunk_node_context     *context,
+build_new_roots(trunk_context          *context,
                 uint64                  height, // height of current root
                 ondisk_node_ref_vector *node_refs)
 {
@@ -4647,7 +4700,7 @@ build_new_roots(trunk_node_context     *context,
    debug_assert(1 < vector_length(node_refs));
 
    // Create the pivots vector for the new root
-   pivot_vector pivots;
+   trunk_pivot_vector pivots;
    vector_init(&pivots, context->hid);
    rc = vector_ensure_capacity(&pivots, vector_length(node_refs) + 1);
    if (!SUCCESS(rc)) {
@@ -4655,18 +4708,20 @@ build_new_roots(trunk_node_context     *context,
                          rc.r);
       goto cleanup_pivots;
    }
-   rc = VECTOR_MAP_ELTS(
-      &pivots, pivot_create_from_ondisk_node_ref, node_refs, context->hid);
+   rc = VECTOR_MAP_ELTS(&pivots,
+                        trunk_pivot_create_from_ondisk_node_ref,
+                        node_refs,
+                        context->hid);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: VECTOR_MAP_ELTS failed: %d\n", rc.r);
       goto cleanup_pivots;
    }
-   pivot *ub_pivot = pivot_create(context->hid,
-                                  POSITIVE_INFINITY_KEY,
-                                  0,
-                                  0,
-                                  TRUNK_STATS_ZERO,
-                                  TRUNK_STATS_ZERO);
+   trunk_pivot *ub_pivot = trunk_pivot_create(context->hid,
+                                              POSITIVE_INFINITY_KEY,
+                                              0,
+                                              0,
+                                              TRUNK_STATS_ZERO,
+                                              TRUNK_STATS_ZERO);
    if (ub_pivot == NULL) {
       platform_error_log("build_new_roots: pivot_create failed\n");
       rc = STATUS_NO_MEMORY;
@@ -4691,8 +4746,9 @@ build_new_roots(trunk_node_context     *context,
 
    // Build the new root
    trunk_node new_root;
-   node_init(&new_root, height + 1, pivots, pivot_bundles, 0, inflight);
-   debug_assert(node_is_well_formed_index(context->cfg->data_cfg, &new_root));
+   trunk_node_init(&new_root, height + 1, pivots, pivot_bundles, 0, inflight);
+   debug_assert(
+      trunk_node_is_well_formed_index(context->cfg->data_cfg, &new_root));
 
    // At this point, all our resources that we've allocated have been put
    // into the new root.
@@ -4700,10 +4756,10 @@ build_new_roots(trunk_node_context     *context,
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, context->hid);
    rc = index_split(context, &new_root, &new_nodes);
-   node_deinit(&new_root, context);
+   trunk_node_deinit(&new_root, context);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: index_split failed: %d\n", rc.r);
-      VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+      VECTOR_APPLY_TO_PTRS(&new_nodes, trunk_node_deinit, context);
       vector_deinit(&new_nodes);
       return rc;
    }
@@ -4711,7 +4767,7 @@ build_new_roots(trunk_node_context     *context,
    ondisk_node_ref_vector new_ondisk_node_refs;
    vector_init(&new_ondisk_node_refs, context->hid);
    rc = serialize_nodes(context, &new_nodes, &new_ondisk_node_refs);
-   VECTOR_APPLY_TO_PTRS(&new_nodes, node_deinit, context);
+   VECTOR_APPLY_TO_PTRS(&new_nodes, trunk_node_deinit, context);
    vector_deinit(&new_nodes);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: serialize_nodes_and_enqueue_bundle_"
@@ -4721,29 +4777,31 @@ build_new_roots(trunk_node_context     *context,
    }
 
    VECTOR_APPLY_TO_ELTS(
-      node_refs, ondisk_node_ref_destroy, context, context->hid);
+      node_refs, trunk_ondisk_node_ref_destroy, context, context->hid);
    rc = vector_copy(node_refs, &new_ondisk_node_refs);
    platform_assert_status_ok(rc);
    vector_deinit(&new_ondisk_node_refs);
    return STATUS_OK;
 
 cleanup_new_ondisk_node_refs:
-   VECTOR_APPLY_TO_ELTS(
-      &new_ondisk_node_refs, ondisk_node_ref_destroy, context, context->hid);
+   VECTOR_APPLY_TO_ELTS(&new_ondisk_node_refs,
+                        trunk_ondisk_node_ref_destroy,
+                        context,
+                        context->hid);
    vector_deinit(&new_ondisk_node_refs);
 cleanup_pivots:
-   VECTOR_APPLY_TO_ELTS(&pivots, pivot_destroy, context->hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, context->hid);
    vector_deinit(&pivots);
 
    return rc;
 }
 
 platform_status
-trunk_incorporate(trunk_node_context *context, uint64 branch_addr)
+trunk_incorporate(trunk_context *context, uint64 branch_addr)
 {
-   platform_status  rc;
-   ondisk_node_ref *result = NULL;
-   uint64           height;
+   platform_status        rc;
+   trunk_ondisk_node_ref *result = NULL;
+   uint64                 height;
 
    incorporation_tasks itasks;
    incorporation_tasks_init(&itasks, context->hid);
@@ -4756,7 +4814,7 @@ trunk_incorporate(trunk_node_context *context, uint64 branch_addr)
    ondisk_node_ref_vector new_node_refs;
    vector_init(&new_node_refs, context->hid);
 
-   pivot_vector new_pivot;
+   trunk_pivot_vector new_pivot;
    vector_init(&new_pivot, context->hid);
 
    // Construct a vector of inflight bundles with one singleton bundle for
@@ -4772,7 +4830,7 @@ trunk_incorporate(trunk_node_context *context, uint64 branch_addr)
    // Read the old root.
    trunk_node root;
    if (context->root != NULL) {
-      rc = node_deserialize(context, context->root->addr, &root);
+      rc = trunk_node_deserialize(context, context->root->addr, &root);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_incorporate: node_deserialize failed: %d\n",
                             rc.r);
@@ -4780,22 +4838,23 @@ trunk_incorporate(trunk_node_context *context, uint64 branch_addr)
       }
    } else {
       // If there is no root, create an empty one.
-      rc = node_init_empty_leaf(
+      rc = trunk_node_init_empty_leaf(
          &root, context->hid, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "trunk_incorporate: node_init_empty_leaf failed: %d\n", rc.r);
          goto cleanup_vectors;
       }
-      debug_assert(node_is_well_formed_leaf(context->cfg->data_cfg, &root));
+      debug_assert(
+         trunk_node_is_well_formed_leaf(context->cfg->data_cfg, &root));
    }
 
-   height = node_height(&root);
+   height = trunk_node_height(&root);
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
    rc = flush_then_compact(
       context, &root, NULL, &inflight, 0, &new_node_refs, &itasks);
-   node_deinit(&root, context);
+   trunk_node_deinit(&root, context);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_incorporate: flush_then_compact failed: %d\n",
                          rc.r);
@@ -4822,8 +4881,8 @@ trunk_incorporate(trunk_node_context *context, uint64 branch_addr)
    if (context->stats) {
       threadid tid       = platform_get_tid();
       uint64   footprint = vector_length(&itasks.node_compactions);
-      if (TRUNK_NODE_MAX_DISTRIBUTION_VALUE < footprint) {
-         footprint = TRUNK_NODE_MAX_DISTRIBUTION_VALUE - 1;
+      if (TRUNK_MAX_DISTRIBUTION_VALUE < footprint) {
+         footprint = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid].incorporation_footprint_distribution[footprint]++;
    }
@@ -4831,7 +4890,7 @@ trunk_incorporate(trunk_node_context *context, uint64 branch_addr)
 cleanup_vectors:
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
-         &new_node_refs, ondisk_node_ref_destroy, context, context->hid);
+         &new_node_refs, trunk_ondisk_node_ref_destroy, context, context->hid);
    }
    vector_deinit(&new_node_refs);
    VECTOR_APPLY_TO_PTRS(&inflight, bundle_deinit);
@@ -4846,28 +4905,28 @@ cleanup_vectors:
  ***********************************/
 
 static platform_status
-ondisk_node_find_pivot(const trunk_node_context *context,
-                       ondisk_node_handle       *handle,
+ondisk_node_find_pivot(const trunk_context      *context,
+                       trunk_ondisk_node_handle *handle,
                        key                       tgt,
                        comparison                cmp,
-                       ondisk_pivot            **pivot)
+                       trunk_ondisk_pivot      **pivot)
 {
-   uint64 num_pivots = ondisk_node_num_pivots(handle);
+   uint64 num_pivots = trunk_ondisk_node_num_pivots(handle);
    uint64 min        = 0;
    uint64 max        = num_pivots - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
-   int           last_cmp;
-   ondisk_pivot *min_pivot = NULL;
+   int                 last_cmp;
+   trunk_ondisk_pivot *min_pivot = NULL;
    while (min + 1 < max) {
-      uint64        mid       = (min + max) / 2;
-      ondisk_pivot *mid_pivot = ondisk_node_get_pivot(handle, mid);
+      uint64              mid       = (min + max) / 2;
+      trunk_ondisk_pivot *mid_pivot = trunk_ondisk_node_get_pivot(handle, mid);
       if (mid_pivot == NULL) {
          platform_error_log("ondisk_node_find_pivot: "
                             "ondisk_node_get_pivot failed\n");
          return STATUS_IO_ERROR;
       }
-      key mid_key = ondisk_pivot_key(mid_pivot);
+      key mid_key = trunk_ondisk_pivot_key(mid_pivot);
       int cmp     = data_key_compare(context->cfg->data_cfg, tgt, mid_key);
       if (cmp < 0) {
          max = mid;
@@ -4883,11 +4942,11 @@ ondisk_node_find_pivot(const trunk_node_context *context,
    */
    if (0 < min && last_cmp == 0 && cmp == less_than) {
       min--;
-      min_pivot = ondisk_node_get_pivot(handle, min);
+      min_pivot = trunk_ondisk_node_get_pivot(handle, min);
    }
 
    if (min_pivot == NULL) {
-      min_pivot = ondisk_node_get_pivot(handle, min);
+      min_pivot = trunk_ondisk_node_get_pivot(handle, min);
    }
 
    *pivot = min_pivot;
@@ -4923,21 +4982,21 @@ ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    async_begin(state, depth);
 
    state->min = 0;
-   state->max = ondisk_node_num_pivots(&state->handle) - 1;
+   state->max = trunk_ondisk_node_num_pivots(&state->handle) - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
    state->min_pivot = NULL;
    while (state->min + 1 < state->max) {
       state->mid       = (state->min + state->max) / 2;
       state->pivot_num = state->mid;
-      async_await_subroutine(state, ondisk_node_get_pivot_async);
+      async_await_subroutine(state, trunk_ondisk_node_get_pivot_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("ondisk_node_find_pivot_async: "
                             "ondisk_node_get_pivot_async failed: %d\n",
                             state->rc.r);
          async_return(state);
       }
-      key mid_key = ondisk_pivot_key(state->pivot);
+      key mid_key = trunk_ondisk_pivot_key(state->pivot);
       int cmp =
          data_key_compare(state->context->cfg->data_cfg, state->tgt, mid_key);
       if (cmp < 0) {
@@ -4958,7 +5017,8 @@ ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    // }
 
    if (state->min_pivot == NULL) {
-      state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
+      state->min_pivot =
+         trunk_ondisk_node_get_pivot(&state->handle, state->min);
    }
 
    state->pivot = state->min_pivot;
@@ -4967,9 +5027,9 @@ ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
 }
 
 static platform_status
-ondisk_bundle_merge_lookup(trunk_node_context  *context,
+ondisk_bundle_merge_lookup(trunk_context       *context,
                            uint64               height,
-                           ondisk_bundle       *bndl,
+                           trunk_ondisk_bundle *bndl,
                            key                  tgt,
                            merge_accumulator   *result,
                            platform_log_handle *log)
@@ -5015,7 +5075,7 @@ ondisk_bundle_merge_lookup(trunk_node_context  *context,
       rc = btree_lookup_and_merge(context->cc,
                                   context->cfg->btree_cfg,
                                   branch_ref_addr(bndl->branches[idx]),
-                                  ondisk_bundle_branch_type(bndl),
+                                  trunk_ondisk_bundle_branch_type(bndl),
                                   tgt,
                                   result,
                                   &local_found);
@@ -5044,7 +5104,7 @@ ondisk_bundle_merge_lookup(trunk_node_context  *context,
          rc = btree_lookup_and_merge(context->cc,
                                      context->cfg->btree_cfg,
                                      branch_ref_addr(bndl->branches[idx]),
-                                     ondisk_bundle_branch_type(bndl),
+                                     trunk_ondisk_bundle_branch_type(bndl),
                                      tgt,
                                      &ma,
                                      &local_found);
@@ -5118,7 +5178,7 @@ ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
                        state->context->cc,
                        state->context->cfg->btree_cfg,
                        branch_ref_addr(state->bndl->branches[state->idx]),
-                       ondisk_bundle_branch_type(state->bndl),
+                       trunk_ondisk_bundle_branch_type(state->bndl),
                        state->tgt,
                        state->result,
                        state->callback,
@@ -5151,7 +5211,7 @@ ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
             state->context->cc,
             state->context->cfg->btree_cfg,
             branch_ref_addr(state->bndl->branches[state->idx]),
-            ondisk_bundle_branch_type(state->bndl),
+            trunk_ondisk_bundle_branch_type(state->bndl),
             state->tgt,
             &ma,
             &state->btree_state.found);
@@ -5174,15 +5234,15 @@ ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
 }
 
 platform_status
-trunk_merge_lookup(trunk_node_context  *context,
-                   ondisk_node_handle  *inhandle,
-                   key                  tgt,
-                   merge_accumulator   *result,
-                   platform_log_handle *log)
+trunk_merge_lookup(trunk_context            *context,
+                   trunk_ondisk_node_handle *inhandle,
+                   key                       tgt,
+                   merge_accumulator        *result,
+                   platform_log_handle      *log)
 {
    platform_status rc = STATUS_OK;
 
-   ondisk_node_handle handle;
+   trunk_ondisk_node_handle handle;
    rc = trunk_ondisk_node_handle_clone(&handle, inhandle);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_merge_lookup: "
@@ -5192,11 +5252,12 @@ trunk_merge_lookup(trunk_node_context  *context,
    }
 
    while (handle.header_page) {
-      uint64 height = ondisk_node_height(&handle);
+      uint64 height = trunk_ondisk_node_height(&handle);
 
       if (log) {
          trunk_node node;
-         rc = node_deserialize(context, handle.header_page->disk_addr, &node);
+         rc = trunk_node_deserialize(
+            context, handle.header_page->disk_addr, &node);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "node_deserialize failed: %d\n",
@@ -5204,11 +5265,11 @@ trunk_merge_lookup(trunk_node_context  *context,
             goto cleanup;
          }
          platform_log(log, "addr: %lu\n", handle.header_page->disk_addr);
-         node_print(&node, log, context->cfg->data_cfg, 0);
-         node_deinit(&node, context);
+         trunk_node_print(&node, log, context->cfg->data_cfg, 0);
+         trunk_node_deinit(&node, context);
       }
 
-      ondisk_pivot *pivot;
+      trunk_ondisk_pivot *pivot;
       rc = ondisk_node_find_pivot(
          context, &handle, tgt, less_than_or_equal, &pivot);
       if (!SUCCESS(rc)) {
@@ -5223,12 +5284,12 @@ trunk_merge_lookup(trunk_node_context  *context,
          platform_log(
             log,
             "pivot: %s\n",
-            key_string(context->cfg->data_cfg, ondisk_pivot_key(pivot)));
+            key_string(context->cfg->data_cfg, trunk_ondisk_pivot_key(pivot)));
       }
 
       // Search the inflight bundles
-      ondisk_bundle *bndl;
-      rc = ondisk_node_get_first_inflight_bundle(&handle, &bndl);
+      trunk_ondisk_bundle *bndl;
+      rc = trunk_ondisk_node_get_first_inflight_bundle(&handle, &bndl);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_node_get_first_inflight_bundle failed\n");
@@ -5247,12 +5308,12 @@ trunk_merge_lookup(trunk_node_context  *context,
             goto cleanup;
          }
          if (i < pivot->num_live_inflight_bundles - 1) {
-            bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
+            bndl = trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl);
          }
       }
 
       // Search the pivot bundle
-      bndl = ondisk_pivot_bundle(pivot);
+      bndl = trunk_ondisk_pivot_bundle(pivot);
       rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
@@ -5266,8 +5327,8 @@ trunk_merge_lookup(trunk_node_context  *context,
 
       // Search the child
       if (pivot->child_addr != 0) {
-         ondisk_node_handle child_handle;
-         rc = ondisk_node_handle_init(
+         trunk_ondisk_node_handle child_handle;
+         rc = trunk_ondisk_node_handle_init(
             &child_handle, context->cc, pivot->child_addr);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
@@ -5305,12 +5366,12 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
    }
 
    while (state->handle.header_page) {
-      state->height = ondisk_node_height(&state->handle);
+      state->height = trunk_ondisk_node_height(&state->handle);
 
       if (state->log) {
          // Sorry, but we're not going to perform the logging asynchronously.
          trunk_node node;
-         state->rc = node_deserialize(
+         state->rc = trunk_node_deserialize(
             state->context, state->handle.header_page->disk_addr, &node);
          if (!SUCCESS(state->rc)) {
             platform_error_log("trunk_merge_lookup_async: "
@@ -5320,8 +5381,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          }
          platform_log(
             state->log, "addr: %lu\n", state->handle.header_page->disk_addr);
-         node_print(&node, state->log, state->context->cfg->data_cfg, 0);
-         node_deinit(&node, state->context);
+         trunk_node_print(&node, state->log, state->context->cfg->data_cfg, 0);
+         trunk_node_deinit(&node, state->context);
       }
 
       async_await_subroutine(state, ondisk_node_find_pivot_async);
@@ -5338,12 +5399,12 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
                       "pivot_num: %lu pivot: %s\n",
                       state->min,
                       key_string(state->context->cfg->data_cfg,
-                                 ondisk_pivot_key(state->pivot)));
+                                 trunk_ondisk_pivot_key(state->pivot)));
       }
 
       // Search the inflight bundles
       async_await_subroutine(state,
-                             ondisk_node_get_first_inflight_bundle_async);
+                             trunk_ondisk_node_get_first_inflight_bundle_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log(
             "trunk_merge_lookup_async: "
@@ -5368,8 +5429,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          if (state->inflight_bundle_num
              < state->pivot->num_live_inflight_bundles - 1)
          {
-            async_await_subroutine(state,
-                                   ondisk_node_get_next_inflight_bundle_async);
+            async_await_subroutine(
+               state, trunk_ondisk_node_get_next_inflight_bundle_async);
             if (state->bndl == NULL) {
                platform_error_log(
                   "trunk_merge_lookup_async: "
@@ -5381,7 +5442,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       }
 
       // Search the pivot bundle
-      state->bndl = ondisk_pivot_bundle(state->pivot);
+      state->bndl = trunk_ondisk_pivot_bundle(state->pivot);
       async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("trunk_merge_lookup_async: "
@@ -5395,7 +5456,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
 
       // Search the child
       if (state->pivot->child_addr != 0) {
-         async_await_subroutine(state, ondisk_node_handle_init_async);
+         async_await_subroutine(state, trunk_ondisk_node_handle_init_async);
          if (!SUCCESS(state->rc)) {
             platform_error_log("trunk_merge_lookup_async: "
                                "ondisk_node_handle_init_async failed: %d\n",
@@ -5418,10 +5479,10 @@ cleanup:
 
 
 static platform_status
-trunk_collect_bundle_branches(ondisk_bundle *bndl,
-                              uint64         capacity,
-                              uint64        *num_branches,
-                              branch_info   *branches)
+trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
+                              uint64               capacity,
+                              uint64              *num_branches,
+                              trunk_branch_info   *branches)
 {
    for (int64 i = bndl->num_branches - 1; 0 <= i; i--) {
       if (*num_branches == capacity) {
@@ -5431,7 +5492,7 @@ trunk_collect_bundle_branches(ondisk_bundle *bndl,
          return STATUS_LIMIT_EXCEEDED;
       }
       branches[*num_branches].addr = branch_ref_addr(bndl->branches[i]);
-      branches[*num_branches].type = ondisk_bundle_branch_type(bndl);
+      branches[*num_branches].type = trunk_ondisk_bundle_branch_type(bndl);
 
       (*num_branches)++;
    }
@@ -5439,8 +5500,8 @@ trunk_collect_bundle_branches(ondisk_bundle *bndl,
 }
 
 static void
-ondisk_bundle_inc_all_branch_refs(const trunk_node_context *context,
-                                  ondisk_bundle            *bndl)
+ondisk_bundle_inc_all_branch_refs(const trunk_context *context,
+                                  trunk_ondisk_bundle *bndl)
 {
    for (uint64 i = 0; i < bndl->num_branches; i++) {
       branch_ref bref = bndl->branches[i];
@@ -5450,15 +5511,15 @@ ondisk_bundle_inc_all_branch_refs(const trunk_node_context *context,
 }
 
 platform_status
-trunk_collect_branches(const trunk_node_context *context,
-                       const ondisk_node_handle *inhandle,
-                       key                       tgt,
-                       comparison                start_type,
-                       uint64                    capacity,
-                       uint64                   *num_branches,
-                       branch_info              *branches,
-                       key_buffer               *min_key,
-                       key_buffer               *max_key)
+trunk_collect_branches(const trunk_context            *context,
+                       const trunk_ondisk_node_handle *inhandle,
+                       key                             tgt,
+                       comparison                      start_type,
+                       uint64                          capacity,
+                       uint64                         *num_branches,
+                       trunk_branch_info              *branches,
+                       key_buffer                     *min_key,
+                       key_buffer                     *max_key)
 {
    platform_status rc                    = STATUS_OK;
    uint64          original_num_branches = *num_branches;
@@ -5468,7 +5529,7 @@ trunk_collect_branches(const trunk_node_context *context,
    rc = key_buffer_copy_key(max_key, POSITIVE_INFINITY_KEY);
    platform_assert_status_ok(rc);
 
-   ondisk_node_handle handle;
+   trunk_ondisk_node_handle handle;
    rc = trunk_ondisk_node_handle_clone(&handle, inhandle);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_collect_branches: "
@@ -5478,7 +5539,7 @@ trunk_collect_branches(const trunk_node_context *context,
    }
 
    while (handle.header_page) {
-      ondisk_pivot *pivot;
+      trunk_ondisk_pivot *pivot;
       if (start_type != less_than) {
          rc = ondisk_node_find_pivot(
             context, &handle, tgt, less_than_or_equal, &pivot);
@@ -5498,8 +5559,8 @@ trunk_collect_branches(const trunk_node_context *context,
       num_inflight_bundles = pivot->num_live_inflight_bundles;
 
       // Add branches from the inflight bundles
-      ondisk_bundle *bndl;
-      rc = ondisk_node_get_first_inflight_bundle(&handle, &bndl);
+      trunk_ondisk_bundle *bndl;
+      rc = trunk_ondisk_node_get_first_inflight_bundle(&handle, &bndl);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_collect_branches: "
                             "ondisk_node_get_first_inflight_bundle failed\n");
@@ -5518,12 +5579,12 @@ trunk_collect_branches(const trunk_node_context *context,
          ondisk_bundle_inc_all_branch_refs(context, bndl);
 
          if (i < num_inflight_bundles - 1) {
-            bndl = ondisk_node_get_next_inflight_bundle(&handle, bndl);
+            bndl = trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl);
          }
       }
 
       // Add branches from the pivot bundle
-      bndl = ondisk_pivot_bundle(pivot);
+      bndl = trunk_ondisk_pivot_bundle(pivot);
       rc =
          trunk_collect_bundle_branches(bndl, capacity, num_branches, branches);
       if (!SUCCESS(rc)) {
@@ -5537,8 +5598,9 @@ trunk_collect_branches(const trunk_node_context *context,
 
       // Proceed to the child
       if (child_addr != 0) {
-         ondisk_node_handle child_handle;
-         rc = ondisk_node_handle_init(&child_handle, context->cc, child_addr);
+         trunk_ondisk_node_handle child_handle;
+         rc = trunk_ondisk_node_handle_init(
+            &child_handle, context->cc, child_addr);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "ondisk_node_handle_init failed: %d\n",
@@ -5550,15 +5612,15 @@ trunk_collect_branches(const trunk_node_context *context,
       } else {
          key leaf_min_key;
          key leaf_max_key;
-         debug_assert(ondisk_node_num_pivots(&handle) == 2);
-         rc = ondisk_node_get_pivot_key(&handle, 0, &leaf_min_key);
+         debug_assert(trunk_ondisk_node_num_pivots(&handle) == 2);
+         rc = trunk_ondisk_node_get_pivot_key(&handle, 0, &leaf_min_key);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "ondisk_node_get_pivot_key failed: %d\n",
                                rc.r);
             goto cleanup;
          }
-         rc = ondisk_node_get_pivot_key(&handle, 1, &leaf_max_key);
+         rc = trunk_ondisk_node_get_pivot_key(&handle, 1, &leaf_max_key);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "ondisk_node_get_pivot_key failed: %d\n",
@@ -5605,14 +5667,14 @@ cleanup:
  ************************************/
 
 void
-trunk_node_config_init(trunk_node_config    *config,
-                       const data_config    *data_cfg,
-                       const btree_config   *btree_cfg,
-                       const routing_config *filter_cfg,
-                       uint64                incorporation_size_kv_bytes,
-                       uint64                target_fanout,
-                       uint64                branch_rough_count_height,
-                       bool32                use_stats)
+trunk_config_init(trunk_config         *config,
+                  const data_config    *data_cfg,
+                  const btree_config   *btree_cfg,
+                  const routing_config *filter_cfg,
+                  uint64                incorporation_size_kv_bytes,
+                  uint64                target_fanout,
+                  uint64                branch_rough_count_height,
+                  bool32                use_stats)
 {
    config->data_cfg                    = data_cfg;
    config->btree_cfg                   = btree_cfg;
@@ -5625,17 +5687,17 @@ trunk_node_config_init(trunk_node_config    *config,
 
 
 platform_status
-trunk_node_context_init(trunk_node_context      *context,
-                        const trunk_node_config *cfg,
-                        platform_heap_id         hid,
-                        cache                   *cc,
-                        allocator               *al,
-                        task_system             *ts,
-                        uint64                   root_addr)
+trunk_context_init(trunk_context      *context,
+                   const trunk_config *cfg,
+                   platform_heap_id    hid,
+                   cache              *cc,
+                   allocator          *al,
+                   task_system        *ts,
+                   uint64              root_addr)
 {
    if (root_addr != 0) {
       context->root =
-         ondisk_node_ref_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
+         trunk_ondisk_node_ref_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
       if (context->root == NULL) {
          platform_error_log("trunk_node_context_init: "
                             "ondisk_node_ref_create failed\n");
@@ -5657,7 +5719,7 @@ trunk_node_context_init(trunk_node_context      *context,
                             "TYPED_ARRAY_MALLOC failed\n");
          return STATUS_NO_MEMORY;
       }
-      memset(context->stats, 0, sizeof(trunk_node_stats) * MAX_THREADS);
+      memset(context->stats, 0, sizeof(trunk_stats) * MAX_THREADS);
    }
 
    pivot_state_map_init(&context->pivot_states);
@@ -5668,55 +5730,55 @@ trunk_node_context_init(trunk_node_context      *context,
 }
 
 platform_status
-trunk_node_inc_ref(const trunk_node_config *cfg,
-                   platform_heap_id         hid,
-                   cache                   *cc,
-                   allocator               *al,
-                   task_system             *ts,
-                   uint64                   root_addr)
+trunk_inc_ref(const trunk_config *cfg,
+              platform_heap_id    hid,
+              cache              *cc,
+              allocator          *al,
+              task_system        *ts,
+              uint64              root_addr)
 {
-   trunk_node_context context;
-   platform_status    rc =
-      trunk_node_context_init(&context, cfg, hid, cc, al, ts, root_addr);
+   trunk_context   context;
+   platform_status rc =
+      trunk_context_init(&context, cfg, hid, cc, al, ts, root_addr);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_node_inc_ref: trunk_node_context_init failed: "
                          "%d\n",
                          rc.r);
       return rc;
    }
-   ondisk_node_inc_ref(&context, root_addr);
-   trunk_node_context_deinit(&context);
+   trunk_ondisk_node_inc_ref(&context, root_addr);
+   trunk_context_deinit(&context);
    return STATUS_OK;
 }
 
 platform_status
-trunk_node_dec_ref(const trunk_node_config *cfg,
-                   platform_heap_id         hid,
-                   cache                   *cc,
-                   allocator               *al,
-                   task_system             *ts,
-                   uint64                   root_addr)
+trunk_dec_ref(const trunk_config *cfg,
+              platform_heap_id    hid,
+              cache              *cc,
+              allocator          *al,
+              task_system        *ts,
+              uint64              root_addr)
 {
-   trunk_node_context context;
-   platform_status    rc =
-      trunk_node_context_init(&context, cfg, hid, cc, al, ts, root_addr);
+   trunk_context   context;
+   platform_status rc =
+      trunk_context_init(&context, cfg, hid, cc, al, ts, root_addr);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_node_dec_ref: trunk_node_context_init failed: "
                          "%d\n",
                          rc.r);
       return rc;
    }
-   ondisk_node_dec_ref(&context, root_addr);
-   trunk_node_context_deinit(&context);
+   trunk_ondisk_node_dec_ref(&context, root_addr);
+   trunk_context_deinit(&context);
    return STATUS_OK;
 }
 
 void
-trunk_node_context_deinit(trunk_node_context *context)
+trunk_context_deinit(trunk_context *context)
 {
    platform_assert(context->pivot_states.num_states == 0);
    if (context->root != NULL) {
-      ondisk_node_ref_destroy(context->root, context, context->hid);
+      trunk_ondisk_node_ref_destroy(context->root, context, context->hid);
    }
    pivot_state_map_deinit(&context->pivot_states);
    platform_batch_rwlock_deinit(&context->root_lock);
@@ -5724,10 +5786,10 @@ trunk_node_context_deinit(trunk_node_context *context)
 
 
 platform_status
-trunk_node_context_clone(trunk_node_context *dst, trunk_node_context *src)
+trunk_context_clone(trunk_context *dst, trunk_context *src)
 {
-   platform_status    rc;
-   ondisk_node_handle handle;
+   platform_status          rc;
+   trunk_ondisk_node_handle handle;
    rc = trunk_init_root_handle(src, &handle);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_node_context_clone: trunk_init_root_handle "
@@ -5737,14 +5799,14 @@ trunk_node_context_clone(trunk_node_context *dst, trunk_node_context *src)
    }
    uint64 root_addr = handle.header_page->disk_addr;
 
-   rc = trunk_node_context_init(
+   rc = trunk_context_init(
       dst, src->cfg, src->hid, src->cc, src->al, src->ts, root_addr);
    trunk_ondisk_node_handle_deinit(&handle);
    return rc;
 }
 
 platform_status
-trunk_node_make_durable(trunk_node_context *context)
+trunk_make_durable(trunk_context *context)
 {
    cache_flush(context->cc);
    return STATUS_OK;
@@ -5781,7 +5843,7 @@ array_accumulate_max(uint64 len, uint64 *dst, uint64 *src)
                         (uint64 *)&src->field)
 
 static void
-trunk_node_stats_accumulate(trunk_node_stats *dst, trunk_node_stats *src)
+trunk_node_stats_accumulate(trunk_stats *dst, trunk_stats *src)
 {
    STATS_FIELD_ADD(dst, src, fanout_distribution);
    STATS_FIELD_ADD(dst, src, num_inflight_bundles_distribution);
@@ -5950,7 +6012,7 @@ distribution_sum_avg(uint64       rows,
    for (uint64 i = 0; i < rows; i++) {
       uint64 count    = 0;
       uint64 sumcount = 0;
-      for (uint64 j = 0; j < TRUNK_NODE_MAX_DISTRIBUTION_VALUE; j++) {
+      for (uint64 j = 0; j < TRUNK_MAX_DISTRIBUTION_VALUE; j++) {
          count += distribution[i + j * rows];
          sumcount += j * distribution[i + j * rows];
       }
@@ -5984,10 +6046,10 @@ arrays_subtract(uint64 len, uint64 *result, uint64 *a, uint64 *b)
 }
 
 void
-trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
-                                 const trunk_node_context *context)
+trunk_print_insertion_stats(platform_log_handle *log_handle,
+                            const trunk_context *context)
 {
-   const uint64 height_array[TRUNK_NODE_MAX_HEIGHT] = {
+   const uint64 height_array[TRUNK_MAX_HEIGHT] = {
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
    if (!context->stats) {
@@ -6002,19 +6064,20 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
 
    // Get the height of the tree
    trunk_node      root;
-   platform_status rc = node_deserialize(context, context->root->addr, &root);
+   platform_status rc =
+      trunk_node_deserialize(context, context->root->addr, &root);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_node_print_insertion_stats: "
                          "node_deserialize failed: %d\n",
                          rc.r);
       return;
    }
-   uint64 height = node_height(&root);
-   node_deinit(&root, context);
+   uint64 height = trunk_node_height(&root);
+   trunk_node_deinit(&root, context);
 
    // Merge all the stats
-   trunk_node_stats global_stats;
-   memcpy(&global_stats, &context->stats[0], sizeof(trunk_node_stats));
+   trunk_stats global_stats;
+   memcpy(&global_stats, &context->stats[0], sizeof(trunk_stats));
    for (threadid tid = 1; tid < MAX_THREADS; tid++) {
       trunk_node_stats_accumulate(&global_stats, &context->stats[tid]);
    }
@@ -6023,27 +6086,24 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
    // Overall shape
    //
    platform_log(log_handle, "Height: %lu\n", height);
-   uint64   total[TRUNK_NODE_MAX_HEIGHT];
-   fraction avg[TRUNK_NODE_MAX_HEIGHT];
+   uint64   total[TRUNK_MAX_HEIGHT];
+   fraction avg[TRUNK_MAX_HEIGHT];
 
    // Fanout
-   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
-                        total,
-                        avg,
-                        &global_stats.fanout_distribution[0][0]);
+   distribution_sum_avg(
+      TRUNK_MAX_HEIGHT, total, avg, &global_stats.fanout_distribution[0][0]);
    column fanout_columns[] = {
       COLUMN("height", height_array),
       COLUMN("total", total),
       COLUMN("avg", avg),
-      DISTRIBUTION_COLUMNS(global_stats.fanout_distribution,
-                           TRUNK_NODE_MAX_HEIGHT),
+      DISTRIBUTION_COLUMNS(global_stats.fanout_distribution, TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Fanout distribution\n");
    print_column_table(
       log_handle, ARRAY_SIZE(fanout_columns), fanout_columns, height + 1);
 
    // Inflight bundles
-   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+   distribution_sum_avg(TRUNK_MAX_HEIGHT,
                         total,
                         avg,
                         &global_stats.num_inflight_bundles_distribution[0][0]);
@@ -6052,14 +6112,14 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
       COLUMN("total", total),
       COLUMN("avg", avg),
       DISTRIBUTION_COLUMNS(global_stats.num_inflight_bundles_distribution,
-                           TRUNK_NODE_MAX_HEIGHT),
+                           TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Inflight bundles distribution\n");
    print_column_table(
       log_handle, ARRAY_SIZE(inflight_columns), inflight_columns, height + 1);
 
    // Bundle size
-   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+   distribution_sum_avg(TRUNK_MAX_HEIGHT,
                         total,
                         avg,
                         &global_stats.bundle_num_branches_distribution[0][0]);
@@ -6068,14 +6128,14 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
       COLUMN("total", total),
       COLUMN("avg", avg),
       DISTRIBUTION_COLUMNS(global_stats.bundle_num_branches_distribution,
-                           TRUNK_NODE_MAX_HEIGHT),
+                           TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Bundle size distribution\n");
    print_column_table(
       log_handle, ARRAY_SIZE(bundle_columns), bundle_columns, height + 1);
 
    // Node size
-   distribution_sum_avg(TRUNK_NODE_MAX_HEIGHT,
+   distribution_sum_avg(TRUNK_MAX_HEIGHT,
                         total,
                         avg,
                         &global_stats.node_size_pages_distribution[0][0]);
@@ -6084,7 +6144,7 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
       COLUMN("total", total),
       COLUMN("avg", avg),
       DISTRIBUTION_COLUMNS(global_stats.node_size_pages_distribution,
-                           TRUNK_NODE_MAX_HEIGHT),
+                           TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Node size distribution\n");
    print_column_table(
@@ -6112,8 +6172,8 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
       log_handle, ARRAY_SIZE(incorporation_columns), incorporation_columns, 1);
 
    // Flushes
-   fraction avg_flush_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction avg_flush_time_ns[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    avg_flush_time_ns,
                    global_stats.flush_time_ns,
                    global_stats.count_flushes);
@@ -6129,33 +6189,33 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
       log_handle, ARRAY_SIZE(flush_columns), flush_columns, height + 1);
 
    // Compactions
-   fraction avg_compaction_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction avg_compaction_time_ns[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    avg_compaction_time_ns,
                    global_stats.compaction_time_ns,
                    global_stats.compactions);
-   uint64 setup_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   arrays_subtract(TRUNK_NODE_MAX_HEIGHT,
+   uint64 setup_time_ns[TRUNK_MAX_HEIGHT];
+   arrays_subtract(TRUNK_MAX_HEIGHT,
                    setup_time_ns,
                    global_stats.compaction_time_ns,
                    global_stats.compaction_pack_time_ns);
-   fraction avg_setup_time_ns[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction avg_setup_time_ns[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    avg_setup_time_ns,
                    setup_time_ns,
                    global_stats.compactions);
-   fraction avg_pack_time_per_tuple_ns[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction avg_pack_time_per_tuple_ns[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    avg_pack_time_per_tuple_ns,
                    global_stats.compaction_pack_time_ns,
                    global_stats.compaction_tuples);
-   fraction avg_tuples[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction avg_tuples[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    avg_tuples,
                    global_stats.compaction_tuples,
                    global_stats.compactions);
-   fraction fraction_wasted_compaction_time[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction fraction_wasted_compaction_time[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    fraction_wasted_compaction_time,
                    global_stats.compaction_time_wasted_ns,
                    global_stats.compaction_time_ns);
@@ -6179,13 +6239,13 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
                       height + 1);
 
    // Maplets
-   fraction avg_maplet_build_time_per_tuple_ns[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction avg_maplet_build_time_per_tuple_ns[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    avg_maplet_build_time_per_tuple_ns,
                    global_stats.maplet_build_time_ns,
                    global_stats.maplet_tuples);
-   fraction fraction_wasted_maplet_time[TRUNK_NODE_MAX_HEIGHT];
-   arrays_fraction(TRUNK_NODE_MAX_HEIGHT,
+   fraction fraction_wasted_maplet_time[TRUNK_MAX_HEIGHT];
+   arrays_fraction(TRUNK_MAX_HEIGHT,
                    fraction_wasted_maplet_time,
                    global_stats.maplet_build_time_wasted_ns,
                    global_stats.maplet_build_time_ns);
@@ -6237,9 +6297,9 @@ trunk_node_print_insertion_stats(platform_log_handle      *log_handle,
 }
 
 void
-trunk_node_reset_stats(trunk_node_context *context)
+trunk_reset_stats(trunk_context *context)
 {
    if (context->stats) {
-      memset(context->stats, 0, sizeof(trunk_node_stats) * MAX_THREADS);
+      memset(context->stats, 0, sizeof(trunk_stats) * MAX_THREADS);
    }
 }

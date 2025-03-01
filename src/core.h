@@ -12,7 +12,7 @@
 #include "splinterdb/data.h"
 #include "memtable.h"
 #include "log.h"
-#include "trunk_node.h"
+#include "trunk.h"
 
 /*
  * Upper-bound on most number of branches that we can find our lookup-key in.
@@ -34,13 +34,13 @@ typedef struct core_config {
    uint64 queue_scale_percent; // Governs when inserters perform bg tasks.  See
                                // task.h
 
-   bool32             use_stats; // stats
-   memtable_config    mt_cfg;
-   btree_config      *btree_cfg;
-   data_config       *data_cfg;
-   bool32             use_log;
-   log_config        *log_cfg;
-   trunk_node_config *trunk_node_cfg;
+   bool32          use_stats; // stats
+   memtable_config mt_cfg;
+   btree_config   *btree_cfg;
+   data_config    *data_cfg;
+   bool32          use_log;
+   log_config     *log_cfg;
+   trunk_config   *trunk_node_cfg;
 
    // verbose logging
    bool32               verbose_logging_enabled;
@@ -101,12 +101,12 @@ struct core_handle {
    uint64            super_block_idx;
    allocator_root_id id;
 
-   allocator         *al;
-   cache             *cc;
-   task_system       *ts;
-   log_handle        *log;
-   trunk_node_context trunk_context;
-   memtable_context  *mt_ctxt;
+   allocator        *al;
+   cache            *cc;
+   task_system      *ts;
+   log_handle       *log;
+   trunk_context     trunk_context;
+   memtable_context *mt_ctxt;
 
    core_stats *stats;
 
@@ -114,23 +114,23 @@ struct core_handle {
 };
 
 typedef struct core_range_iterator {
-   iterator        super;
-   core_handle    *spl;
-   uint64          num_tuples;
-   uint64          num_branches;
-   uint64          num_memtable_branches;
-   uint64          memtable_start_gen;
-   uint64          memtable_end_gen;
-   bool32          compacted[CORE_RANGE_ITOR_MAX_BRANCHES];
-   merge_iterator *merge_itor;
-   bool32          can_prev;
-   bool32          can_next;
-   key_buffer      min_key;
-   key_buffer      max_key;
-   key_buffer      local_min_key;
-   key_buffer      local_max_key;
-   btree_iterator  btree_itor[CORE_RANGE_ITOR_MAX_BRANCHES];
-   branch_info     branch[CORE_RANGE_ITOR_MAX_BRANCHES];
+   iterator          super;
+   core_handle      *spl;
+   uint64            num_tuples;
+   uint64            num_branches;
+   uint64            num_memtable_branches;
+   uint64            memtable_start_gen;
+   uint64            memtable_end_gen;
+   bool32            compacted[CORE_RANGE_ITOR_MAX_BRANCHES];
+   merge_iterator   *merge_itor;
+   bool32            can_prev;
+   bool32            can_next;
+   key_buffer        min_key;
+   key_buffer        max_key;
+   key_buffer        local_min_key;
+   key_buffer        local_max_key;
+   btree_iterator    btree_itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+   trunk_branch_info branch[CORE_RANGE_ITOR_MAX_BRANCHES];
 
    // used for merge iterator construction
    iterator *itor[CORE_RANGE_ITOR_MAX_BRANCHES];
@@ -158,13 +158,13 @@ core_lookup_found(merge_accumulator *result)
 
 // clang-format off
 DEFINE_ASYNC_STATE(core_lookup_async_state, 1,
-   param, core_handle *,        spl,
-   param, key,                   target,
-   param, merge_accumulator *,   result,
-   param, async_callback_fn,     callback,
-   param, void *,                callback_arg,
-   local, platform_status,       __async_result,
-   local, ondisk_node_handle,    root_handle,
+   param, core_handle *,                  spl,
+   param, key,                            target,
+   param, merge_accumulator *,            result,
+   param, async_callback_fn,              callback,
+   param, void *,                         callback_arg,
+   local, platform_status,                __async_result,
+   local, trunk_ondisk_node_handle,       root_handle,
    local, trunk_merge_lookup_async_state, trunk_node_state)
 // clang-format on
 
@@ -273,7 +273,7 @@ core_config_init(core_config         *trunk_cfg,
                  data_config         *data_cfg,
                  btree_config        *btree_cfg,
                  log_config          *log_cfg,
-                 trunk_node_config   *trunk_node_cfg,
+                 trunk_config        *trunk_node_cfg,
                  uint64               queue_scale_percent,
                  bool32               use_log,
                  bool32               use_stats,

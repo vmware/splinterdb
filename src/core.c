@@ -158,12 +158,12 @@ core_set_super_block(core_handle *spl,
 
    if (spl->trunk_context.root != NULL) {
       super->root_addr = spl->trunk_context.root->addr;
-      rc               = trunk_node_inc_ref(spl->cfg.trunk_node_cfg,
-                              spl->heap_id,
-                              spl->cc,
-                              spl->al,
-                              spl->ts,
-                              super->root_addr);
+      rc               = trunk_inc_ref(spl->cfg.trunk_node_cfg,
+                         spl->heap_id,
+                         spl->cc,
+                         spl->al,
+                         spl->ts,
+                         super->root_addr);
       platform_assert_status_ok(rc);
 
    } else {
@@ -193,12 +193,12 @@ core_set_super_block(core_handle *spl,
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
 
    if (old_root_addr != 0 && !is_create) {
-      rc = trunk_node_dec_ref(spl->cfg.trunk_node_cfg,
-                              spl->heap_id,
-                              spl->cc,
-                              spl->al,
-                              spl->ts,
-                              old_root_addr);
+      rc = trunk_dec_ref(spl->cfg.trunk_node_cfg,
+                         spl->heap_id,
+                         spl->cc,
+                         spl->al,
+                         spl->ts,
+                         old_root_addr);
       platform_assert_status_ok(rc);
    }
 }
@@ -882,7 +882,7 @@ core_range_iterator_init(core_handle         *spl,
       range_itor->num_branches++;
    }
 
-   ondisk_node_handle root_handle;
+   trunk_ondisk_node_handle root_handle;
    trunk_init_root_handle(&spl->trunk_context, &root_handle);
 
    memtable_end_lookup(spl->mt_ctxt);
@@ -1269,8 +1269,8 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
       }
    }
 
-   ondisk_node_handle root_handle;
-   platform_status    rc;
+   trunk_ondisk_node_handle root_handle;
+   platform_status          rc;
    rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
    // release memtable lookup lock before we handle any errors
    memtable_end_lookup(spl->mt_ctxt);
@@ -1479,7 +1479,7 @@ core_create(core_config      *cfg,
    // ALEX: For now we assume an init means destroying any present super blocks
    core_set_super_block(spl, FALSE, FALSE, TRUE);
 
-   trunk_node_context_init(
+   trunk_context_init(
       &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
 
    if (spl->cfg.use_stats) {
@@ -1551,7 +1551,7 @@ core_mount(core_config      *cfg,
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }
 
-   trunk_node_context_init(
+   trunk_context_init(
       &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
 
    core_set_super_block(spl, FALSE, FALSE, FALSE);
@@ -1624,7 +1624,7 @@ void
 core_destroy(core_handle *spl)
 {
    core_prepare_for_shutdown(spl);
-   trunk_node_context_deinit(&spl->trunk_context);
+   trunk_context_deinit(&spl->trunk_context);
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
@@ -1652,7 +1652,7 @@ core_unmount(core_handle **spl_in)
    core_handle *spl = *spl_in;
    core_prepare_for_shutdown(spl);
    core_set_super_block(spl, FALSE, TRUE, FALSE);
-   trunk_node_context_deinit(&spl->trunk_context);
+   trunk_context_deinit(&spl->trunk_context);
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
@@ -1923,7 +1923,7 @@ core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
    platform_log(log_handle, "| height |   built | avg tuples | avg build time (ns) | build_time / tuple (ns) |\n");
    platform_log(log_handle, "---------|---------|------------|---------------------|-------------------------|\n");
 
-   trunk_node_print_insertion_stats(log_handle, &spl->trunk_context);
+   trunk_print_insertion_stats(log_handle, &spl->trunk_context);
 
    task_print_stats(spl->ts);
    platform_log(log_handle, "\n");
@@ -2005,7 +2005,7 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
       }
    }
 
-   ondisk_node_handle handle;
+   trunk_ondisk_node_handle handle;
    trunk_init_root_handle(&spl->trunk_context, &handle);
    trunk_merge_lookup(&spl->trunk_context, &handle, target, &data, log_handle);
    trunk_ondisk_node_handle_deinit(&handle);
@@ -2066,7 +2066,7 @@ core_config_init(core_config         *core_cfg,
                  data_config         *data_cfg,
                  btree_config        *btree_cfg,
                  log_config          *log_cfg,
-                 trunk_node_config   *trunk_node_cfg,
+                 trunk_config        *trunk_node_cfg,
                  uint64               queue_scale_percent,
                  bool32               use_log,
                  bool32               use_stats,

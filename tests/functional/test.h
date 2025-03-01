@@ -202,7 +202,7 @@ generator_average_message_size(test_message_generator *gen)
 
 typedef struct system_config {
    core_config        splinter_cfg;
-   trunk_node_config  trunk_node_cfg;
+   trunk_config       trunk_node_cfg;
    btree_config       btree_cfg;
    routing_config     filter_cfg;
    shard_log_config   log_cfg;
@@ -271,14 +271,14 @@ test_config_init(system_config          *system_cfg, // OUT
                      &system_cfg->cache_cfg.super,
                      system_cfg->data_cfg);
 
-   trunk_node_config_init(&system_cfg->trunk_node_cfg,
-                          system_cfg->data_cfg,
-                          &system_cfg->btree_cfg,
-                          &system_cfg->filter_cfg,
-                          master_cfg->memtable_capacity,
-                          master_cfg->fanout,
-                          master_cfg->btree_rough_count_height,
-                          master_cfg->use_stats);
+   trunk_config_init(&system_cfg->trunk_node_cfg,
+                     system_cfg->data_cfg,
+                     &system_cfg->btree_cfg,
+                     &system_cfg->filter_cfg,
+                     master_cfg->memtable_capacity,
+                     master_cfg->fanout,
+                     master_cfg->btree_rough_count_height,
+                     master_cfg->use_stats);
 
    rc = core_config_init(&system_cfg->splinter_cfg,
                          &system_cfg->cache_cfg.super,

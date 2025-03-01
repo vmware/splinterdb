@@ -50,7 +50,7 @@ typedef struct splinterdb {
    allocator_root_id  trunk_id;
    routing_config     filter_cfg;
    btree_config       btree_cfg;
-   trunk_node_config  trunk_node_cfg;
+   trunk_config       trunk_node_cfg;
    core_config        trunk_cfg;
    core_handle       *spl;
    platform_heap_id   heap_id;
@@ -211,14 +211,14 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 
    btree_config_init(&kvs->btree_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
 
-   trunk_node_config_init(&kvs->trunk_node_cfg,
-                          kvs->data_cfg,
-                          &kvs->btree_cfg,
-                          &kvs->filter_cfg,
-                          cfg.memtable_capacity,
-                          cfg.fanout,
-                          cfg.btree_rough_count_height,
-                          cfg.use_stats);
+   trunk_config_init(&kvs->trunk_node_cfg,
+                     kvs->data_cfg,
+                     &kvs->btree_cfg,
+                     &kvs->filter_cfg,
+                     cfg.memtable_capacity,
+                     cfg.fanout,
+                     cfg.btree_rough_count_height,
+                     cfg.use_stats);
 
    rc = core_config_init(&kvs->trunk_cfg,
                          &kvs->cache_cfg.super,
