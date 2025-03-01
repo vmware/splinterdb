@@ -359,7 +359,7 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
    platform_default_log(
       "txn_splinterdb_cfg->iceberght_config.max_num_keys: %lu\n",
-      txn_splinterdb_cfg->iceberght_config.max_num_keys)
+      txn_splinterdb_cfg->iceberght_config.max_num_keys);
 #elif EXPERIMENTAL_MODE_STO_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
    txn_splinterdb_cfg->sktch_config.cols =
