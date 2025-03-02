@@ -598,7 +598,8 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
          return STATUS_NO_MEMORY;
       }
       if (btree_merge_tuples(
-             cfg, tuple_key, oldmessage, &spec->msg.merged_message)) {
+             cfg, tuple_key, oldmessage, &spec->msg.merged_message))
+      {
          merge_accumulator_deinit(&spec->msg.merged_message);
          return STATUS_NO_MEMORY;
       } else {

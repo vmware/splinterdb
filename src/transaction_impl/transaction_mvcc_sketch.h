@@ -629,21 +629,37 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->sktch_config.get_value_fn    = &sketch_get_timestamps;
 
    txn_splinterdb_cfg->iceberght_config.max_num_keys = 1000;
+   const int cache_or_sketch_size_bytes              = 32 * 1024;
 #if EXPERIMENTAL_MODE_MVCC_COUNTER
    txn_splinterdb_cfg->sktch_config.rows = 1;
    txn_splinterdb_cfg->sktch_config.cols = 1;
 #elif EXPERIMENTAL_MODE_MVCC_COUNTER_LAZY
-   txn_splinterdb_cfg->iceberght_config.max_num_keys += 820;
+   const int key_timestamp_size =
+      txn_splinterdb_cfg->kvsb_cfg.data_cfg->max_key_size
+      + sizeof(txn_timestamp);
+   const int num_keys_for_cache =
+      (int)ceil((double)cache_or_sketch_size_bytes / key_timestamp_size);
+   txn_splinterdb_cfg->iceberght_config.max_num_keys += num_keys_for_cache;
    txn_splinterdb_cfg->sktch_config.rows                     = 1;
    txn_splinterdb_cfg->sktch_config.cols                     = 1;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
+   platform_default_log(
+      "txn_splinterdb_cfg->iceberght_config.max_num_keys: %lu\n",
+      txn_splinterdb_cfg->iceberght_config.max_num_keys);
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH
    txn_splinterdb_cfg->sktch_config.rows = 2;
-   txn_splinterdb_cfg->sktch_config.cols = 1024; // 131072;
+   txn_splinterdb_cfg->sktch_config.cols =
+      (cache_or_sketch_size_bytes / txn_splinterdb_cfg->sktch_config.rows)
+      / sizeof(txn_timestamp);
+   platform_default_log("txn_splinterdb_cfg->sktch_config.cols: %lu\n",
+                        txn_splinterdb_cfg->sktch_config.cols);
 #elif EXPERIMENTAL_MODE_MVCC_SKETCH_LAZY
    txn_splinterdb_cfg->iceberght_config.max_num_keys += 410;
-   txn_splinterdb_cfg->sktch_config.rows                     = 2;
-   txn_splinterdb_cfg->sktch_config.cols                     = 512; // 131072;
+   txn_splinterdb_cfg->sktch_config.rows = 2;
+   txn_splinterdb_cfg->sktch_config.cols =
+      ((cache_or_sketch_size_bytes / txn_splinterdb_cfg->sktch_config.rows)
+       / sizeof(txn_timestamp))
+      / 2;
    txn_splinterdb_cfg->iceberght_config.enable_lazy_eviction = TRUE;
 #else
 #   error "Invalid experimental mode"
