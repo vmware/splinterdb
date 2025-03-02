@@ -305,7 +305,8 @@ transactional_splinterdb_config_init(
       &sketch_insert_timestamp_set;
    txn_splinterdb_cfg->sktch_config.get_value_fn = &sketch_get_timestamp_set;
 
-   txn_splinterdb_cfg->iceberght_config.max_num_keys = 1000;
+   const int num_active_keys_per_txn = 16;
+   txn_splinterdb_cfg->iceberght_config.max_num_keys = num_active_keys_per_txn * MAX_THREADS;
    const int cache_or_sketch_size_bytes              = 32 * 1024;
 #if EXPERIMENTAL_MODE_TICTOC_COUNTER
    txn_splinterdb_cfg->sktch_config.rows = 1;
