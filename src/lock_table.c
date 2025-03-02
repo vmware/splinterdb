@@ -108,7 +108,8 @@ lock_table_try_acquire_entry_lock_timeouts(lock_table       *lock_tbl,
       }
 
       if (platform_timestamp_diff(start_ns, platform_get_timestamp())
-          > timeout_ns) {
+          > timeout_ns)
+      {
          break;
       }
    }

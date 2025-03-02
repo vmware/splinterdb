@@ -60,7 +60,8 @@ atomic_counter_init(atomic_counter *counter)
 
 void
 atomic_counter_deinit(atomic_counter *counter)
-{}
+{
+}
 
 uint64
 atomic_counter_get_next(atomic_counter *counter)

@@ -283,7 +283,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_uint64("libaio-queue-depth", cfg, io_async_queue_depth) {}
          config_set_uint64(
             "io-contexts-per-process", cfg, io_contexts_per_process)
-         {}
+         {
+         }
          config_set_mib("cache-capacity", cfg, cache_capacity) {}
          config_set_gib("cache-capacity", cfg, cache_capacity) {}
          config_set_string("cache-debug-log", cfg, cache_logfile) {}

@@ -275,7 +275,7 @@ slot_mask_64_half(__m256i fprint, __m256i md, __m256i mask)
 {
    __m256i masked_fp = _mm256_or_si256(fprint, mask);
    __m256i masked_md = _mm256_or_si256(md, mask);
-   __m256i cmp = _mm256_cmpeq_epi8(masked_md, masked_fp);
+   __m256i cmp       = _mm256_cmpeq_epi8(masked_md, masked_fp);
    return _mm256_movemask_epi8(cmp);
 }
 
@@ -284,12 +284,12 @@ slot_mask_64(uint8_t *metadata, uint8_t fp)
 {
    __m256i fprint = _mm256_set1_epi8(fp);
 
-   __m256i md1 = _mm256_loadu_si256((const __m256i *)(metadata));
-   __m256i mask1 = _mm256_loadu_si256((const __m256i *)(broadcast_mask));
+   __m256i  md1     = _mm256_loadu_si256((const __m256i *)(metadata));
+   __m256i  mask1   = _mm256_loadu_si256((const __m256i *)(broadcast_mask));
    uint64_t result1 = slot_mask_64_half(fprint, md1, mask1);
 
-   __m256i md2 = _mm256_loadu_si256((const __m256i *)(&metadata[32]));
-   __m256i mask2 = _mm256_loadu_si256((const __m256i *)(&broadcast_mask[32]));
+   __m256i  md2   = _mm256_loadu_si256((const __m256i *)(&metadata[32]));
+   __m256i  mask2 = _mm256_loadu_si256((const __m256i *)(&broadcast_mask[32]));
    uint64_t result2 = slot_mask_64_half(fprint, md2, mask2);
 
    return ((uint64_t)result2 << 32) | result1;
@@ -920,7 +920,6 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          }
 
          // going to the same block in lv2
-         /*
          if (!done) {
            iceberg_lv2_block *blocks = table->level2[0];
            __mmask32 md_mask =
@@ -953,7 +952,7 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
              }
            }
          }
-         */
+         
          unlock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md);
       }
    } while (!done);
@@ -1365,7 +1364,8 @@ iceberg_put_or_insert(iceberg_table *table,
                                       boffset,
                                       thread_id);
    if (!ret) {
-      platform_assert(false, "block going to lv2\n");
+      // platform_assert(false, "block going to lv2\n");
+      platform_default_log("going to lv2\n");
       ret = iceberg_lv2_insert(
          table, *key, **value, refcount, q_refcount, index, thread_id);
    }
@@ -1617,7 +1617,8 @@ iceberg_lv3_remove_internal(iceberg_table *table,
       iceberg_lv3_node *next_node = current_node->next_node;
 
       if (iceberg_key_compare(table->spl_data_config, next_node->kv.key, key)
-          == 0) {
+          == 0)
+      {
          bool should_remove = false;
          if (force_remove) {
             should_remove = true;
@@ -2210,7 +2211,8 @@ iceberg_lv3_get_value_internal(iceberg_table *table,
 
    for (uint64_t i = 0; i < metadata->lv3_sizes[bindex][boffset]; ++i) {
       if (iceberg_key_compare(table->spl_data_config, current_node->kv.key, key)
-          == 0) {
+          == 0)
+      {
          *kv                                  = &current_node->kv;
          metadata->lv3_locks[bindex][boffset] = 0;
          return true;
