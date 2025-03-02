@@ -1,8 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef _SPLINTER_UTIL_H_
-#define _SPLINTER_UTIL_H_
+#pragma once
 
 #include "platform.h"
 #include "splinterdb/public_util.h"
@@ -72,6 +71,11 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,                                                        \
    })
 
+static inline fraction
+fraction_init_or_zero(uint64 num, uint64 den)
+{
+   return den ? init_fraction(num, den) : zero_fraction;
+}
 
 static inline slice
 slice_copy_contents(void *dst, const slice src)
@@ -429,4 +433,74 @@ size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size);
        onstack_chartmp;                                                        \
     }).buffer)
 
-#endif // _SPLINTER_UTIL_H_
+/************************************
+ * Helpers for statistics
+ ************************************/
+
+static inline void
+array_accumulate_add(uint64 len, uint64 *dst, uint64 *src)
+{
+   for (uint64 i = 0; i < len; i++) {
+      dst[i] += src[i];
+   }
+}
+
+static inline void
+array_accumulate_max(uint64 len, uint64 *dst, uint64 *src)
+{
+   for (uint64 i = 0; i < len; i++) {
+      dst[i] = MAX(dst[i], src[i]);
+   }
+}
+
+static inline void
+arrays_fraction(uint64 len, fraction *result, uint64 *num, uint64 *den)
+{
+   for (uint64 i = 0; i < len; i++) {
+      result[i] = fraction_init_or_zero(num[i], den[i]);
+   }
+}
+
+static inline void
+arrays_subtract(uint64 len, uint64 *result, uint64 *a, uint64 *b)
+{
+   for (uint64 i = 0; i < len; i++) {
+      result[i] = a[i] - b[i];
+   }
+}
+
+#define STATS_FIELD_ADD(dst, src, field)                                       \
+   array_accumulate_add(sizeof(dst->field) / sizeof(uint64),                   \
+                        (uint64 *)&dst->field,                                 \
+                        (uint64 *)&src->field)
+
+#define STATS_FIELD_MAX(dst, src, field)                                       \
+   array_accumulate_max(sizeof(dst->field) / sizeof(uint64),                   \
+                        (uint64 *)&dst->field,                                 \
+                        (uint64 *)&src->field)
+
+
+/************************************
+ * Helpers for printing tables
+ ************************************/
+
+typedef struct column {
+   const char *name;
+   enum { INT, FRACTION } type;
+   union {
+      const uint64   *integer;
+      const fraction *frac;
+   } data;
+   int width;
+} column;
+
+#define COLUMN(name, data)                                                     \
+   _Generic((data)[0],                                                         \
+      uint64: (column){name, INT, {.integer = (uint64 *)(data)}, 0},           \
+      fraction: (column){name, FRACTION, {.frac = (fraction *)(data)}, 0})
+
+void
+print_column_table(platform_log_handle *log_handle,
+                   int                  num_columns,
+                   column              *columns,
+                   int                  num_rows);

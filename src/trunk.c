@@ -59,7 +59,7 @@ typedef struct trunk_pivot {
 
 typedef VECTOR(trunk_pivot *) trunk_pivot_vector;
 
-typedef VECTOR(trunk_ondisk_node_ref *) ondisk_node_ref_vector;
+typedef VECTOR(trunk_ondisk_node_ref *) trunk_ondisk_node_ref_vector;
 
 struct ONDISK trunk_ondisk_pivot {
    trunk_pivot_stats stats;
@@ -113,20 +113,20 @@ typedef struct bundle_compaction {
 
 typedef struct trunk_context trunk_context;
 
-struct trunk_pivot_compaction_state {
-   struct trunk_pivot_compaction_state *next;
-   uint64                               refcount;
-   bool32                               abandoned;
-   trunk_context                       *context;
-   key_buffer                           key;
-   key_buffer                           ubkey;
-   uint64                               height;
-   routing_filter                       maplet;
-   uint64                               num_branches;
-   bool32                               maplet_compaction_failed;
-   uint64                               total_bundles;
-   platform_spinlock                    compactions_lock;
-   bundle_compaction                   *bundle_compactions;
+struct trunk_pivot_state {
+   struct trunk_pivot_state *next;
+   uint64                    refcount;
+   bool32                    abandoned;
+   trunk_context            *context;
+   key_buffer                key;
+   key_buffer                ubkey;
+   uint64                    height;
+   routing_filter            maplet;
+   uint64                    num_branches;
+   bool32                    maplet_compaction_failed;
+   uint64                    total_bundles;
+   platform_spinlock         compactions_lock;
+   bundle_compaction        *bundle_compactions;
 };
 
 /***************************************************
@@ -2148,9 +2148,9 @@ cleanup:
 }
 
 static platform_status
-serialize_nodes(trunk_context          *context,
-                trunk_node_vector      *nodes,
-                ondisk_node_ref_vector *result)
+serialize_nodes(trunk_context                *context,
+                trunk_node_vector            *nodes,
+                trunk_ondisk_node_ref_vector *result)
 {
    platform_status rc;
 
@@ -2407,19 +2407,19 @@ trunk_modification_end(trunk_context *context)
  * generic code to apply changes to nodes in the tree.
  ************************/
 
-typedef platform_status(apply_changes_fn)(trunk_context *context,
-                                          uint64         addr,
-                                          trunk_node    *node,
-                                          void          *arg);
+typedef platform_status(trunk_apply_changes_fn)(trunk_context *context,
+                                                uint64         addr,
+                                                trunk_node    *node,
+                                                void          *arg);
 
 static trunk_ondisk_node_ref *
-apply_changes_internal(trunk_context    *context,
-                       uint64            addr,
-                       key               minkey,
-                       key               maxkey,
-                       uint64            height,
-                       apply_changes_fn *func,
-                       void             *arg)
+trunk_apply_changes_internal(trunk_context          *context,
+                             uint64                  addr,
+                             key                     minkey,
+                             key                     maxkey,
+                             uint64                  height,
+                             trunk_apply_changes_fn *func,
+                             void                   *arg)
 {
    platform_status rc;
 
@@ -2433,7 +2433,7 @@ apply_changes_internal(trunk_context    *context,
       return NULL;
    }
 
-   ondisk_node_ref_vector new_child_refs;
+   trunk_ondisk_node_ref_vector new_child_refs;
    vector_init(&new_child_refs, context->hid);
 
    if (trunk_node_height(&node) == height) {
@@ -2453,8 +2453,9 @@ apply_changes_internal(trunk_context    *context,
                       < 0)
             {
                uint64 child_addr = trunk_pivot_child_addr(child_pivot);
-               trunk_ondisk_node_ref *new_child_ref = apply_changes_internal(
-                  context, child_addr, minkey, maxkey, height, func, arg);
+               trunk_ondisk_node_ref *new_child_ref =
+                  trunk_apply_changes_internal(
+                     context, child_addr, minkey, maxkey, height, func, arg);
                if (new_child_ref == NULL) {
                   platform_error_log("%s():%d: apply_changes_internal() failed",
                                      __func__,
@@ -2485,14 +2486,14 @@ apply_changes_internal(trunk_context    *context,
 }
 
 static platform_status
-apply_changes(trunk_context    *context,
-              key               minkey,
-              key               maxkey,
-              uint64            height,
-              apply_changes_fn *func,
-              void             *arg)
+trunk_apply_changes(trunk_context          *context,
+                    key                     minkey,
+                    key                     maxkey,
+                    uint64                  height,
+                    trunk_apply_changes_fn *func,
+                    void                   *arg)
 {
-   trunk_ondisk_node_ref *new_root_ref = apply_changes_internal(
+   trunk_ondisk_node_ref *new_root_ref = trunk_apply_changes_internal(
       context, context->root->addr, minkey, maxkey, height, func, arg);
    if (new_root_ref != NULL) {
       trunk_set_root(context, new_root_ref);
@@ -2580,10 +2581,10 @@ bundle_compaction_destroy(bundle_compaction *compaction, trunk_context *context)
 }
 
 static bundle_compaction *
-bundle_compaction_create(trunk_context                *context,
-                         trunk_node                   *node,
-                         uint64                        pivot_num,
-                         trunk_pivot_compaction_state *state)
+bundle_compaction_create(trunk_context     *context,
+                         trunk_node        *node,
+                         uint64             pivot_num,
+                         trunk_pivot_state *state)
 {
    platform_status rc;
    trunk_pivot    *pvt      = trunk_node_pivot(node, pivot_num);
@@ -2647,7 +2648,9 @@ bundle_compaction_create(trunk_context                *context,
 }
 
 static uint64
-pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
+trunk_pivot_state_map_hash(const data_config *data_cfg,
+                           key                lbkey,
+                           uint64             height)
 {
    uint64 hash = data_key_hash(data_cfg, lbkey, 271828);
    hash ^= height;
@@ -2657,13 +2660,14 @@ pivot_state_map_hash(const data_config *data_cfg, key lbkey, uint64 height)
 typedef uint64 pivot_state_map_lock;
 
 static void
-pivot_state_map_aquire_lock(pivot_state_map_lock  *lock,
-                            trunk_context         *context,
-                            trunk_pivot_state_map *map,
-                            key                    pivot_key,
-                            uint64                 height)
+trunk_pivot_state_map_aquire_lock(pivot_state_map_lock  *lock,
+                                  trunk_context         *context,
+                                  trunk_pivot_state_map *map,
+                                  key                    pivot_key,
+                                  uint64                 height)
 {
-   *lock = pivot_state_map_hash(context->cfg->data_cfg, pivot_key, height);
+   *lock =
+      trunk_pivot_state_map_hash(context->cfg->data_cfg, pivot_key, height);
    uint64 wait = 1;
    while (__sync_val_compare_and_swap(&map->locks[*lock], 0, 1) != 0) {
       platform_sleep_ns(wait);
@@ -2672,20 +2676,20 @@ pivot_state_map_aquire_lock(pivot_state_map_lock  *lock,
 }
 
 static void
-pivot_state_map_release_lock(pivot_state_map_lock  *lock,
-                             trunk_pivot_state_map *map)
+trunk_pivot_state_map_release_lock(pivot_state_map_lock  *lock,
+                                   trunk_pivot_state_map *map)
 {
    __sync_lock_release(&map->locks[*lock]);
 }
 
 static void
-pivot_state_incref(trunk_pivot_compaction_state *state)
+trunk_pivot_state_incref(trunk_pivot_state *state)
 {
    __sync_fetch_and_add(&state->refcount, 1);
 }
 
 static uint64
-pivot_state_decref(trunk_pivot_compaction_state *state)
+trunk_pivot_state_decref(trunk_pivot_state *state)
 {
    uint64 oldrc = __sync_fetch_and_add(&state->refcount, -1);
    platform_assert(0 < oldrc);
@@ -2693,22 +2697,22 @@ pivot_state_decref(trunk_pivot_compaction_state *state)
 }
 
 static void
-pivot_state_lock_compactions(trunk_pivot_compaction_state *state)
+trunk_pivot_state_lock_compactions(trunk_pivot_state *state)
 {
    platform_spin_lock(&state->compactions_lock);
 }
 
 static void
-pivot_state_unlock_compactions(trunk_pivot_compaction_state *state)
+trunk_pivot_state_unlock_compactions(trunk_pivot_state *state)
 {
    platform_spin_unlock(&state->compactions_lock);
 }
 
 debug_only static void
-pivot_compaction_state_print(trunk_pivot_compaction_state *state,
-                             platform_log_handle          *log,
-                             const data_config            *data_cfg,
-                             int                           indent)
+trunk_pivot_state_print(trunk_pivot_state   *state,
+                        platform_log_handle *log,
+                        const data_config   *data_cfg,
+                        int                  indent)
 {
    platform_log(log, "%*sheight: %lu\n", indent, "", state->height);
    platform_log(log,
@@ -2729,35 +2733,35 @@ pivot_compaction_state_print(trunk_pivot_compaction_state *state,
                 "",
                 state->maplet_compaction_failed);
 
-   pivot_state_lock_compactions(state);
+   trunk_pivot_state_lock_compactions(state);
    bundle_compaction_print_table_header(log, indent + 4);
    for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
         bc                    = bc->next)
    {
       bundle_compaction_print_table_entry(bc, log, indent + 4);
    }
-   pivot_state_unlock_compactions(state);
+   trunk_pivot_state_unlock_compactions(state);
 }
 
 debug_only static void
-pivot_compaction_state_map_print(trunk_pivot_state_map *map,
-                                 platform_log_handle   *log,
-                                 const data_config     *data_cfg)
+trunk_pivot_state_map_print(trunk_pivot_state_map *map,
+                            platform_log_handle   *log,
+                            const data_config     *data_cfg)
 {
    platform_log(log, "pivot_state_map: %lu states\n", map->num_states);
    for (uint64 i = 0; i < TRUNK_PIVOT_STATE_MAP_BUCKETS; i++) {
-      trunk_pivot_compaction_state *state = map->buckets[i];
+      trunk_pivot_state *state = map->buckets[i];
       while (state != NULL) {
-         pivot_compaction_state_print(state, log, data_cfg, 0);
+         trunk_pivot_state_print(state, log, data_cfg, 0);
          state = state->next;
       }
    }
 }
 
-uint64 pivot_state_destructions = 0;
+static uint64 pivot_state_destructions = 0;
 
 static void
-pivot_state_destroy(trunk_pivot_compaction_state *state)
+trunk_pivot_state_destroy(trunk_pivot_state *state)
 {
    trunk_context *context = state->context;
    threadid       tid     = platform_get_tid();
@@ -2767,7 +2771,7 @@ pivot_state_destroy(trunk_pivot_compaction_state *state)
    //    state, Platform_default_log_handle, state->context->cfg->data_cfg, 4);
    key_buffer_deinit(&state->key);
    routing_filter_dec_ref(state->context->cc, &state->maplet);
-   pivot_state_lock_compactions(state);
+   trunk_pivot_state_lock_compactions(state);
    bundle_compaction *bc = state->bundle_compactions;
    while (bc != NULL) {
       if (context->stats) {
@@ -2783,19 +2787,19 @@ pivot_state_destroy(trunk_pivot_compaction_state *state)
       bundle_compaction_destroy(bc, state->context);
       bc = next;
    }
-   pivot_state_unlock_compactions(state);
+   trunk_pivot_state_unlock_compactions(state);
    platform_spinlock_destroy(&state->compactions_lock);
    platform_free(state->context->hid, state);
    __sync_fetch_and_add(&pivot_state_destructions, 1);
 }
 
 static void
-pivot_compaction_state_append_compaction(trunk_pivot_compaction_state *state,
-                                         bundle_compaction *compaction)
+trunk_pivot_state_append_compaction(trunk_pivot_state *state,
+                                    bundle_compaction *compaction)
 {
    platform_assert(compaction != NULL);
    platform_assert(0 < vector_length(&compaction->input_branches));
-   pivot_state_lock_compactions(state);
+   trunk_pivot_state_lock_compactions(state);
    if (state->bundle_compactions == NULL) {
       state->bundle_compactions = compaction;
    } else {
@@ -2806,33 +2810,31 @@ pivot_compaction_state_append_compaction(trunk_pivot_compaction_state *state,
       last->next = compaction;
    }
    state->total_bundles += compaction->num_bundles;
-   pivot_state_unlock_compactions(state);
+   trunk_pivot_state_unlock_compactions(state);
 }
 
 static void
-pivot_state_map_init(trunk_pivot_state_map *map)
+trunk_pivot_state_map_init(trunk_pivot_state_map *map)
 {
    ZERO_CONTENTS(map);
 }
 
 static void
-pivot_state_map_deinit(trunk_pivot_state_map *map)
+trunk_pivot_state_map_deinit(trunk_pivot_state_map *map)
 {
    ZERO_CONTENTS(map);
 }
 
-
-static trunk_pivot_compaction_state *
-pivot_state_map_get_entry(trunk_context              *context,
-                          trunk_pivot_state_map      *map,
-                          const pivot_state_map_lock *lock,
-                          key                         pivot_key,
-                          uint64                      height)
+static trunk_pivot_state *
+trunk_pivot_state_map_get_entry(trunk_context              *context,
+                                trunk_pivot_state_map      *map,
+                                const pivot_state_map_lock *lock,
+                                key                         pivot_key,
+                                uint64                      height)
 {
-   trunk_pivot_compaction_state *result = NULL;
-   for (trunk_pivot_compaction_state *state = map->buckets[*lock];
-        state != NULL;
-        state = state->next)
+   trunk_pivot_state *result = NULL;
+   for (trunk_pivot_state *state = map->buckets[*lock]; state != NULL;
+        state                    = state->next)
    {
       if (data_key_compare(
              context->cfg->data_cfg, key_buffer_key(&state->key), pivot_key)
@@ -2846,18 +2848,18 @@ pivot_state_map_get_entry(trunk_context              *context,
    return result;
 }
 
-uint64 pivot_state_creations = 0;
+static uint64 pivot_state_creations = 0;
 
-static trunk_pivot_compaction_state *
-pivot_state_map_create_entry(trunk_context              *context,
-                             trunk_pivot_state_map      *map,
-                             const pivot_state_map_lock *lock,
-                             key                         pivot_key,
-                             key                         ubkey,
-                             uint64                      height,
-                             const bundle               *pivot_bundle)
+static trunk_pivot_state *
+trunk_pivot_state_map_create_entry(trunk_context              *context,
+                                   trunk_pivot_state_map      *map,
+                                   const pivot_state_map_lock *lock,
+                                   key                         pivot_key,
+                                   key                         ubkey,
+                                   uint64                      height,
+                                   const bundle               *pivot_bundle)
 {
-   trunk_pivot_compaction_state *state = TYPED_ZALLOC(context->hid, state);
+   trunk_pivot_state *state = TYPED_ZALLOC(context->hid, state);
    if (state == NULL) {
       platform_error_log(
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
@@ -2902,13 +2904,12 @@ pivot_state_map_create_entry(trunk_context              *context,
 }
 
 static void
-pivot_state_map_remove(trunk_pivot_state_map        *map,
-                       pivot_state_map_lock         *lock,
-                       trunk_pivot_compaction_state *tgt)
+trunk_pivot_state_map_remove(trunk_pivot_state_map *map,
+                             pivot_state_map_lock  *lock,
+                             trunk_pivot_state     *tgt)
 {
-   trunk_pivot_compaction_state *prev = NULL;
-   for (trunk_pivot_compaction_state *state = map->buckets[*lock];
-        state != NULL;
+   trunk_pivot_state *prev = NULL;
+   for (trunk_pivot_state *state = map->buckets[*lock]; state != NULL;
         prev = state, state = state->next)
    {
       if (state == tgt) {
@@ -2923,58 +2924,60 @@ pivot_state_map_remove(trunk_pivot_state_map        *map,
    }
 }
 
-static trunk_pivot_compaction_state *
-pivot_state_map_get_or_create_entry(trunk_context         *context,
-                                    trunk_pivot_state_map *map,
-                                    key                    pivot_key,
-                                    key                    ubkey,
-                                    uint64                 height,
-                                    const bundle          *pivot_bundle)
+static trunk_pivot_state *
+trunk_pivot_state_map_get_or_create_entry(trunk_context         *context,
+                                          trunk_pivot_state_map *map,
+                                          key                    pivot_key,
+                                          key                    ubkey,
+                                          uint64                 height,
+                                          const bundle          *pivot_bundle)
 {
    pivot_state_map_lock lock;
-   pivot_state_map_aquire_lock(&lock, context, map, pivot_key, height);
-   trunk_pivot_compaction_state *state =
-      pivot_state_map_get_entry(context, map, &lock, pivot_key, height);
+   trunk_pivot_state_map_aquire_lock(&lock, context, map, pivot_key, height);
+   trunk_pivot_state *state =
+      trunk_pivot_state_map_get_entry(context, map, &lock, pivot_key, height);
    if (state == NULL) {
-      state = pivot_state_map_create_entry(
+      state = trunk_pivot_state_map_create_entry(
          context, map, &lock, pivot_key, ubkey, height, pivot_bundle);
    } else {
-      pivot_state_incref(state);
+      trunk_pivot_state_incref(state);
    }
-   pivot_state_map_release_lock(&lock, map);
+   trunk_pivot_state_map_release_lock(&lock, map);
    return state;
 }
 
 static void
-pivot_state_map_release_entry(trunk_context                *context,
-                              trunk_pivot_state_map        *map,
-                              trunk_pivot_compaction_state *state)
+trunk_pivot_state_map_release_entry(trunk_context         *context,
+                                    trunk_pivot_state_map *map,
+                                    trunk_pivot_state     *state)
 {
    pivot_state_map_lock lock;
-   pivot_state_map_aquire_lock(
+   trunk_pivot_state_map_aquire_lock(
       &lock, context, map, key_buffer_key(&state->key), state->height);
-   if (0 == pivot_state_decref(state)) {
-      pivot_state_map_remove(map, &lock, state);
-      pivot_state_destroy(state);
+   if (0 == trunk_pivot_state_decref(state)) {
+      trunk_pivot_state_map_remove(map, &lock, state);
+      trunk_pivot_state_destroy(state);
    }
-   pivot_state_map_release_lock(&lock, map);
+   trunk_pivot_state_map_release_lock(&lock, map);
 }
 
 static bool32
-pivot_state_map_abandon_entry(trunk_context *context, key k, uint64 height)
+trunk_pivot_state_map_abandon_entry(trunk_context *context,
+                                    key            k,
+                                    uint64         height)
 {
    bool32               result = FALSE;
    pivot_state_map_lock lock;
-   pivot_state_map_aquire_lock(
+   trunk_pivot_state_map_aquire_lock(
       &lock, context, &context->pivot_states, k, height);
-   trunk_pivot_compaction_state *pivot_state = pivot_state_map_get_entry(
+   trunk_pivot_state *pivot_state = trunk_pivot_state_map_get_entry(
       context, &context->pivot_states, &lock, k, height);
    if (pivot_state) {
       pivot_state->abandoned = TRUE;
-      pivot_state_map_remove(&context->pivot_states, &lock, pivot_state);
+      trunk_pivot_state_map_remove(&context->pivot_states, &lock, pivot_state);
       result = TRUE;
    }
-   pivot_state_map_release_lock(&lock, &context->pivot_states);
+   trunk_pivot_state_map_release_lock(&lock, &context->pivot_states);
    return result;
 }
 
@@ -2985,22 +2988,22 @@ print_pivot_states_for_node(trunk_context *context, trunk_node *node)
    for (int i = 0; i < trunk_node_num_children(node); i++) {
       key                  k = trunk_node_pivot_key(node, i);
       pivot_state_map_lock lock;
-      pivot_state_map_aquire_lock(
+      trunk_pivot_state_map_aquire_lock(
          &lock, context, &context->pivot_states, k, height);
-      trunk_pivot_compaction_state *state = pivot_state_map_get_entry(
+      trunk_pivot_state *state = trunk_pivot_state_map_get_entry(
          context, &context->pivot_states, &lock, k, height);
       if (state != NULL) {
-         pivot_state_incref(state);
+         trunk_pivot_state_incref(state);
       }
-      pivot_state_map_release_lock(&lock, &context->pivot_states);
+      trunk_pivot_state_map_release_lock(&lock, &context->pivot_states);
       if (state != NULL) {
-         pivot_compaction_state_print(
+         trunk_pivot_state_print(
             state, Platform_error_log_handle, context->cfg->data_cfg, 4);
       } else {
          platform_error_log("    No pivot compaction state for pivot %d\n", i);
       }
       if (state != NULL) {
-         pivot_state_decref(state);
+         trunk_pivot_state_decref(state);
       }
    }
 }
@@ -3011,11 +3014,11 @@ print_pivot_states_for_node(trunk_context *context, trunk_node *node)
  *********************************************/
 
 typedef struct maplet_compaction_apply_args {
-   trunk_pivot_compaction_state *state;
-   uint64                        num_input_bundles;
-   routing_filter                new_maplet;
-   branch_ref_vector             branches;
-   trunk_pivot_stats             delta;
+   trunk_pivot_state *state;
+   uint64             num_input_bundles;
+   routing_filter     new_maplet;
+   branch_ref_vector  branches;
+   trunk_pivot_stats  delta;
    // Outputs
    bool32 found_match;
 } maplet_compaction_apply_args;
@@ -3062,10 +3065,10 @@ pivot_matches_compaction(const trunk_context                *context,
 }
 
 static platform_status
-apply_changes_maplet_compaction(trunk_context *context,
-                                uint64         addr,
-                                trunk_node    *target,
-                                void          *arg)
+trunk_apply_changes_maplet_compaction(trunk_context *context,
+                                      uint64         addr,
+                                      trunk_node    *target,
+                                      void          *arg)
 {
    platform_status               rc;
    maplet_compaction_apply_args *args = (maplet_compaction_apply_args *)arg;
@@ -3111,17 +3114,17 @@ apply_changes_maplet_compaction(trunk_context *context,
 }
 
 static platform_status
-enqueue_maplet_compaction(trunk_pivot_compaction_state *args);
+enqueue_maplet_compaction(trunk_pivot_state *args);
 
 static void
 maplet_compaction_task(void *arg, void *scratch)
 {
-   platform_status               rc      = STATUS_OK;
-   trunk_pivot_compaction_state *state   = (trunk_pivot_compaction_state *)arg;
-   trunk_context                *context = state->context;
-   routing_filter                new_maplet = state->maplet;
-   maplet_compaction_apply_args  apply_args;
-   threadid                      tid;
+   platform_status              rc         = STATUS_OK;
+   trunk_pivot_state           *state      = (trunk_pivot_state *)arg;
+   trunk_context               *context    = state->context;
+   routing_filter               new_maplet = state->maplet;
+   maplet_compaction_apply_args apply_args;
+   threadid                     tid;
 
    tid = platform_get_tid();
 
@@ -3212,12 +3215,12 @@ maplet_compaction_task(void *arg, void *scratch)
 
    trunk_modification_begin(context);
 
-   rc = apply_changes(context,
-                      key_buffer_key(&state->key),
-                      key_buffer_key(&state->ubkey),
-                      state->height,
-                      apply_changes_maplet_compaction,
-                      &apply_args);
+   rc = trunk_apply_changes(context,
+                            key_buffer_key(&state->key),
+                            key_buffer_key(&state->ubkey),
+                            state->height,
+                            trunk_apply_changes_maplet_compaction,
+                            &apply_args);
    if (!SUCCESS(rc)) {
       platform_error_log("maplet_compaction_task: apply_changes failed: %d\n",
                          rc.r);
@@ -3229,18 +3232,19 @@ maplet_compaction_task(void *arg, void *scratch)
       if (!state->abandoned) {
          platform_error_log("Failed to find matching pivot for non-abandoned "
                             "compaction state\n");
-         pivot_compaction_state_print(
+         trunk_pivot_state_print(
             state, Platform_error_log_handle, context->cfg->data_cfg, 4);
       }
 
       pivot_state_map_lock lock;
-      pivot_state_map_aquire_lock(&lock,
-                                  context,
-                                  &context->pivot_states,
-                                  key_buffer_key(&state->key),
-                                  state->height);
-      pivot_state_map_remove(&context->pivot_states, &lock, apply_args.state);
-      pivot_state_map_release_lock(&lock, &context->pivot_states);
+      trunk_pivot_state_map_aquire_lock(&lock,
+                                        context,
+                                        &context->pivot_states,
+                                        key_buffer_key(&state->key),
+                                        state->height);
+      trunk_pivot_state_map_remove(
+         &context->pivot_states, &lock, apply_args.state);
+      trunk_pivot_state_map_release_lock(&lock, &context->pivot_states);
       trunk_modification_end(context);
 
       if (context->stats) {
@@ -3258,7 +3262,7 @@ maplet_compaction_task(void *arg, void *scratch)
       state->maplet = new_maplet;
    }
    state->num_branches += vector_length(&apply_args.branches);
-   pivot_state_lock_compactions(state);
+   trunk_pivot_state_lock_compactions(state);
    while (state->bundle_compactions != last) {
       bundle_compaction *next = state->bundle_compactions->next;
       state->total_bundles -= state->bundle_compactions->num_bundles;
@@ -3275,7 +3279,7 @@ maplet_compaction_task(void *arg, void *scratch)
    {
       enqueue_maplet_compaction(state);
    }
-   pivot_state_unlock_compactions(state);
+   trunk_pivot_state_unlock_compactions(state);
 
    trunk_modification_end(context);
 
@@ -3287,20 +3291,20 @@ cleanup:
       }
    }
 
-   pivot_state_map_release_entry(context, &context->pivot_states, state);
+   trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
    vector_deinit(&apply_args.branches);
 }
 
 static platform_status
-enqueue_maplet_compaction(trunk_pivot_compaction_state *args)
+enqueue_maplet_compaction(trunk_pivot_state *args)
 {
-   pivot_state_incref(args);
+   trunk_pivot_state_incref(args);
    platform_status rc = task_enqueue(
       args->context->ts, TASK_TYPE_NORMAL, maplet_compaction_task, args, FALSE);
    if (!SUCCESS(rc)) {
       platform_error_log("enqueue_maplet_compaction: task_enqueue failed: %d\n",
                          rc.r);
-      pivot_state_decref(args);
+      trunk_pivot_state_decref(args);
    }
    return rc;
 }
@@ -3331,17 +3335,18 @@ compute_tuple_bound(trunk_context            *context,
 static void
 bundle_compaction_task(void *arg, void *scratch)
 {
-   platform_status               rc;
-   trunk_pivot_compaction_state *state   = (trunk_pivot_compaction_state *)arg;
-   trunk_context                *context = state->context;
-   threadid                      tid     = platform_get_tid();
+   platform_status    rc;
+   trunk_pivot_state *state   = (trunk_pivot_state *)arg;
+   trunk_context     *context = state->context;
+   threadid           tid     = platform_get_tid();
 
    if (context->stats) {
       context->stats[tid].compactions[state->height]++;
    }
 
    if (state->abandoned) {
-      pivot_state_map_release_entry(context, &context->pivot_states, state);
+      trunk_pivot_state_map_release_entry(
+         context, &context->pivot_states, state);
 
       if (context->stats) {
          context->stats[tid].compactions_aborted[state->height]++;
@@ -3352,7 +3357,7 @@ bundle_compaction_task(void *arg, void *scratch)
    uint64 compaction_start = platform_get_timestamp();
 
    // Find a bundle compaction that needs doing for this pivot
-   pivot_state_lock_compactions(state);
+   trunk_pivot_state_lock_compactions(state);
    bundle_compaction *bc = state->bundle_compactions;
    while (bc != NULL
           && !__sync_bool_compare_and_swap(&bc->state,
@@ -3361,7 +3366,7 @@ bundle_compaction_task(void *arg, void *scratch)
    {
       bc = bc->next;
    }
-   pivot_state_unlock_compactions(state);
+   trunk_pivot_state_unlock_compactions(state);
    platform_assert(bc != NULL);
    platform_assert(0 < vector_length(&bc->input_branches));
 
@@ -3476,14 +3481,14 @@ cleanup:
    } else {
       bc->state = BUNDLE_COMPACTION_FAILED;
    }
-   pivot_state_lock_compactions(state);
+   trunk_pivot_state_lock_compactions(state);
    if (bc->state == BUNDLE_COMPACTION_SUCCEEDED
        && state->bundle_compactions == bc)
    {
       enqueue_maplet_compaction(state);
    }
-   pivot_state_unlock_compactions(state);
-   pivot_state_map_release_entry(context, &context->pivot_states, state);
+   trunk_pivot_state_unlock_compactions(state);
+   trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
 }
 
 static platform_status
@@ -3499,13 +3504,13 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
          key             ubkey     = trunk_node_pivot_key(node, pivot_num + 1);
          bundle *pivot_bundle      = trunk_node_pivot_bundle(node, pivot_num);
 
-         trunk_pivot_compaction_state *state =
-            pivot_state_map_get_or_create_entry(context,
-                                                &context->pivot_states,
-                                                pivot_key,
-                                                ubkey,
-                                                height,
-                                                pivot_bundle);
+         trunk_pivot_state *state =
+            trunk_pivot_state_map_get_or_create_entry(context,
+                                                      &context->pivot_states,
+                                                      pivot_key,
+                                                      ubkey,
+                                                      height,
+                                                      pivot_bundle);
          if (state == NULL) {
             platform_error_log("enqueue_bundle_compaction: "
                                "pivot_state_map_get_or_create failed\n");
@@ -3522,16 +3527,16 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
             goto next;
          }
 
-         pivot_compaction_state_append_compaction(state, bc);
+         trunk_pivot_state_append_compaction(state, bc);
 
-         pivot_state_incref(state);
+         trunk_pivot_state_incref(state);
          rc = task_enqueue(context->ts,
                            TASK_TYPE_NORMAL,
                            bundle_compaction_task,
                            state,
                            FALSE);
          if (!SUCCESS(rc)) {
-            pivot_state_decref(state);
+            trunk_pivot_state_decref(state);
             platform_error_log(
                "enqueue_bundle_compaction: task_enqueue failed\n");
          }
@@ -3541,7 +3546,7 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
             bc->state = BUNDLE_COMPACTION_FAILED;
          }
          if (state != NULL) {
-            pivot_state_map_release_entry(
+            trunk_pivot_state_map_release_entry(
                context, &context->pivot_states, state);
          }
       }
@@ -3582,10 +3587,11 @@ incorporation_tasks_execute(incorporation_tasks *itasks, trunk_context *context)
 }
 
 static platform_status
-serialize_nodes_and_save_contingent_compactions(trunk_context          *context,
-                                                trunk_node_vector      *nodes,
-                                                ondisk_node_ref_vector *result,
-                                                incorporation_tasks    *itasks)
+serialize_nodes_and_save_contingent_compactions(
+   trunk_context                *context,
+   trunk_node_vector            *nodes,
+   trunk_ondisk_node_ref_vector *result,
+   incorporation_tasks          *itasks)
 {
    platform_status rc;
 
@@ -3673,11 +3679,11 @@ accumulate_inflight_bundle_tuple_counts_in_range(bundle             *bndl,
  *****************************************************/
 
 static platform_status
-node_receive_bundles(trunk_context *context,
-                     trunk_node    *node,
-                     bundle        *pivot_bundle,
-                     bundle_vector *inflight,
-                     uint64         inflight_start)
+trunk_node_receive_bundles(trunk_context *context,
+                           trunk_node    *node,
+                           bundle        *pivot_bundle,
+                           bundle_vector *inflight,
+                           uint64         inflight_start)
 {
    platform_status rc;
 
@@ -4057,17 +4063,17 @@ leaf_split_init(trunk_node    *new_leaf,
    debug_assert(
       trunk_node_is_well_formed_leaf(context->cfg->data_cfg, new_leaf));
 
-   return node_receive_bundles(context,
-                               new_leaf,
-                               trunk_node_pivot_bundle(leaf, 0),
-                               &leaf->inflight_bundles,
-                               trunk_pivot_inflight_bundle_start(pvt));
+   return trunk_node_receive_bundles(context,
+                                     new_leaf,
+                                     trunk_node_pivot_bundle(leaf, 0),
+                                     &leaf->inflight_bundles,
+                                     trunk_pivot_inflight_bundle_start(pvt));
 }
 
 static uint64
-node_pivot_eventual_num_branches(trunk_context *context,
-                                 trunk_node    *node,
-                                 uint64         pivot_num)
+trunk_node_pivot_eventual_num_branches(trunk_context *context,
+                                       trunk_node    *node,
+                                       uint64         pivot_num)
 {
    uint64 num_branches = 0;
 
@@ -4076,27 +4082,27 @@ node_pivot_eventual_num_branches(trunk_context *context,
 
    /* Count the branches that will be added by inflight compactions. */
    pivot_state_map_lock lock;
-   pivot_state_map_aquire_lock(&lock,
-                               context,
-                               &context->pivot_states,
-                               trunk_node_pivot_key(node, pivot_num),
-                               trunk_node_height(node));
-   trunk_pivot_compaction_state *state =
-      pivot_state_map_get_entry(context,
-                                &context->pivot_states,
-                                &lock,
-                                trunk_node_pivot_key(node, pivot_num),
-                                trunk_node_height(node));
+   trunk_pivot_state_map_aquire_lock(&lock,
+                                     context,
+                                     &context->pivot_states,
+                                     trunk_node_pivot_key(node, pivot_num),
+                                     trunk_node_height(node));
+   trunk_pivot_state *state =
+      trunk_pivot_state_map_get_entry(context,
+                                      &context->pivot_states,
+                                      &lock,
+                                      trunk_node_pivot_key(node, pivot_num),
+                                      trunk_node_height(node));
    if (state != NULL) {
-      pivot_state_lock_compactions(state);
+      trunk_pivot_state_lock_compactions(state);
       bundle_compaction *bc = state->bundle_compactions;
       while (bc != NULL) {
          num_branches++;
          bc = bc->next;
       }
-      pivot_state_unlock_compactions(state);
+      trunk_pivot_state_unlock_compactions(state);
    }
-   pivot_state_map_release_lock(&lock, &context->pivot_states);
+   trunk_pivot_state_map_release_lock(&lock, &context->pivot_states);
 
    if (trunk_node_pivot_has_received_bundles(node, pivot_num)) {
       num_branches++;
@@ -4124,7 +4130,7 @@ leaf_split(trunk_context     *context,
    }
 
    if (target_num_leaves == 1
-       && node_pivot_eventual_num_branches(context, leaf, 0)
+       && trunk_node_pivot_eventual_num_branches(context, leaf, 0)
              <= context->cfg->target_fanout)
    {
       if (context->stats) {
@@ -4326,13 +4332,13 @@ cleanup_new_indexes:
  * flushing
  ***********************************/
 
-uint64 abandoned_leaf_compactions = 0;
+static uint64 abandoned_leaf_compactions = 0;
 
 static platform_status
-restore_balance_leaf(trunk_context          *context,
-                     trunk_node             *leaf,
-                     ondisk_node_ref_vector *new_leaf_refs,
-                     incorporation_tasks    *itasks)
+restore_balance_leaf(trunk_context                *context,
+                     trunk_node                   *leaf,
+                     trunk_ondisk_node_ref_vector *new_leaf_refs,
+                     incorporation_tasks          *itasks)
 {
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, context->hid);
@@ -4346,7 +4352,7 @@ restore_balance_leaf(trunk_context          *context,
    }
 
    if (abandon_compactions) {
-      pivot_state_map_abandon_entry(
+      trunk_pivot_state_map_abandon_entry(
          context, trunk_node_pivot_min_key(leaf), trunk_node_height(leaf));
       abandoned_leaf_compactions++;
    }
@@ -4395,20 +4401,20 @@ bundle_vector_init_empty(bundle_vector   *new_bundles,
 }
 
 static platform_status
-flush_then_compact(trunk_context          *context,
-                   trunk_node             *node,
-                   bundle                 *routed,
-                   bundle_vector          *inflight,
-                   uint64                  inflight_start,
-                   ondisk_node_ref_vector *new_node_refs,
-                   incorporation_tasks    *itasks);
+flush_then_compact(trunk_context                *context,
+                   trunk_node                   *node,
+                   bundle                       *routed,
+                   bundle_vector                *inflight,
+                   uint64                        inflight_start,
+                   trunk_ondisk_node_ref_vector *new_node_refs,
+                   incorporation_tasks          *itasks);
 
 static platform_status
-flush_to_one_child(trunk_context          *context,
-                   trunk_node             *index,
-                   uint64                  pivot_num,
-                   ondisk_node_ref_vector *new_childrefs_accumulator,
-                   incorporation_tasks    *itasks)
+flush_to_one_child(trunk_context                *context,
+                   trunk_node                   *index,
+                   uint64                        pivot_num,
+                   trunk_ondisk_node_ref_vector *new_childrefs_accumulator,
+                   incorporation_tasks          *itasks)
 {
    platform_status rc = STATUS_OK;
 
@@ -4431,7 +4437,7 @@ flush_to_one_child(trunk_context          *context,
    }
 
    // Perform the flush, getting back the new children
-   ondisk_node_ref_vector new_childrefs;
+   trunk_ondisk_node_ref_vector new_childrefs;
    vector_init(&new_childrefs, context->hid);
    rc = flush_then_compact(context,
                            &child,
@@ -4517,7 +4523,7 @@ flush_to_one_child(trunk_context          *context,
    // the index in place.
 
    // Abandon the enqueued compactions now, before we destroy pvt.
-   pivot_state_map_abandon_entry(
+   trunk_pivot_state_map_abandon_entry(
       context, trunk_pivot_key(pvt), trunk_node_height(index));
 
    // Replace the old pivot and pivot bundles with the new ones
@@ -4554,10 +4560,10 @@ cleanup_new_childrefs:
 }
 
 static platform_status
-restore_balance_index(trunk_context          *context,
-                      trunk_node             *index,
-                      ondisk_node_ref_vector *new_index_refs,
-                      incorporation_tasks    *itasks)
+restore_balance_index(trunk_context                *context,
+                      trunk_node                   *index,
+                      trunk_ondisk_node_ref_vector *new_index_refs,
+                      incorporation_tasks          *itasks)
 {
    platform_status rc;
    threadid        tid     = platform_get_tid();
@@ -4566,7 +4572,7 @@ restore_balance_index(trunk_context          *context,
 
    debug_assert(trunk_node_is_well_formed_index(context->cfg->data_cfg, index));
 
-   ondisk_node_ref_vector all_new_childrefs;
+   trunk_ondisk_node_ref_vector all_new_childrefs;
    vector_init(&all_new_childrefs, context->hid);
 
    uint64 fullest_child    = 0;
@@ -4575,7 +4581,7 @@ restore_balance_index(trunk_context          *context,
       trunk_pivot *pvt = trunk_node_pivot(index, i);
 
       if (context->cfg->target_fanout
-             < node_pivot_eventual_num_branches(context, index, i)
+             < trunk_node_pivot_eventual_num_branches(context, index, i)
           || rflimit < pvt->stats.num_tuples)
       {
          rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
@@ -4653,18 +4659,19 @@ cleanup_all_new_children:
  * node/nodes are returned in new_nodes.
  */
 static platform_status
-flush_then_compact(trunk_context          *context,
-                   trunk_node             *node,
-                   bundle                 *routed,
-                   bundle_vector          *inflight,
-                   uint64                  inflight_start,
-                   ondisk_node_ref_vector *new_node_refs,
-                   incorporation_tasks    *itasks)
+flush_then_compact(trunk_context                *context,
+                   trunk_node                   *node,
+                   bundle                       *routed,
+                   bundle_vector                *inflight,
+                   uint64                        inflight_start,
+                   trunk_ondisk_node_ref_vector *new_node_refs,
+                   incorporation_tasks          *itasks)
 {
    platform_status rc;
 
    // Add the bundles to the node
-   rc = node_receive_bundles(context, node, routed, inflight, inflight_start);
+   rc = trunk_node_receive_bundles(
+      context, node, routed, inflight, inflight_start);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: node_receive_bundles() failed: %s",
                          __func__,
@@ -4691,9 +4698,9 @@ flush_then_compact(trunk_context          *context,
 }
 
 static platform_status
-build_new_roots(trunk_context          *context,
-                uint64                  height, // height of current root
-                ondisk_node_ref_vector *node_refs)
+build_new_roots(trunk_context                *context,
+                uint64                        height, // height of current root
+                trunk_ondisk_node_ref_vector *node_refs)
 {
    platform_status rc;
 
@@ -4764,7 +4771,7 @@ build_new_roots(trunk_context          *context,
       return rc;
    }
 
-   ondisk_node_ref_vector new_ondisk_node_refs;
+   trunk_ondisk_node_ref_vector new_ondisk_node_refs;
    vector_init(&new_ondisk_node_refs, context->hid);
    rc = serialize_nodes(context, &new_nodes, &new_ondisk_node_refs);
    VECTOR_APPLY_TO_PTRS(&new_nodes, trunk_node_deinit, context);
@@ -4811,7 +4818,7 @@ trunk_incorporate(trunk_context *context, uint64 branch_addr)
    bundle_vector inflight;
    vector_init(&inflight, context->hid);
 
-   ondisk_node_ref_vector new_node_refs;
+   trunk_ondisk_node_ref_vector new_node_refs;
    vector_init(&new_node_refs, context->hid);
 
    trunk_pivot_vector new_pivot;
@@ -4905,11 +4912,11 @@ cleanup_vectors:
  ***********************************/
 
 static platform_status
-ondisk_node_find_pivot(const trunk_context      *context,
-                       trunk_ondisk_node_handle *handle,
-                       key                       tgt,
-                       comparison                cmp,
-                       trunk_ondisk_pivot      **pivot)
+trunk_ondisk_node_find_pivot(const trunk_context      *context,
+                             trunk_ondisk_node_handle *handle,
+                             key                       tgt,
+                             comparison                cmp,
+                             trunk_ondisk_pivot      **pivot)
 {
    uint64 num_pivots = trunk_ondisk_node_num_pivots(handle);
    uint64 min        = 0;
@@ -4976,8 +4983,8 @@ ondisk_node_find_pivot(const trunk_context      *context,
  * state->cache_get_state: the cache get state
  */
 static async_status
-ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
-                             uint64                          depth)
+trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
+                                   uint64                          depth)
 {
    async_begin(state, depth);
 
@@ -5027,12 +5034,12 @@ ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
 }
 
 static platform_status
-ondisk_bundle_merge_lookup(trunk_context       *context,
-                           uint64               height,
-                           trunk_ondisk_bundle *bndl,
-                           key                  tgt,
-                           merge_accumulator   *result,
-                           platform_log_handle *log)
+trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
+                                 uint64               height,
+                                 trunk_ondisk_bundle *bndl,
+                                 key                  tgt,
+                                 merge_accumulator   *result,
+                                 platform_log_handle *log)
 {
    threadid tid = platform_get_tid();
    uint64   found_values;
@@ -5125,8 +5132,8 @@ ondisk_bundle_merge_lookup(trunk_context       *context,
 }
 
 static async_status
-ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
-                                 uint64                          depth)
+trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
+                                       uint64                          depth)
 {
    // Get the current thread id after every yield.
    threadid tid = platform_get_tid();
@@ -5270,7 +5277,7 @@ trunk_merge_lookup(trunk_context            *context,
       }
 
       trunk_ondisk_pivot *pivot;
-      rc = ondisk_node_find_pivot(
+      rc = trunk_ondisk_node_find_pivot(
          context, &handle, tgt, less_than_or_equal, &pivot);
       if (!SUCCESS(rc)) {
          platform_error_log(
@@ -5296,8 +5303,8 @@ trunk_merge_lookup(trunk_context            *context,
          goto cleanup;
       }
       for (uint64 i = 0; i < pivot->num_live_inflight_bundles; i++) {
-         rc =
-            ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
+         rc = trunk_ondisk_bundle_merge_lookup(
+            context, height, bndl, tgt, result, log);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "ondisk_bundle_merge_lookup failed: %d\n",
@@ -5314,7 +5321,8 @@ trunk_merge_lookup(trunk_context            *context,
 
       // Search the pivot bundle
       bndl = trunk_ondisk_pivot_bundle(pivot);
-      rc = ondisk_bundle_merge_lookup(context, height, bndl, tgt, result, log);
+      rc   = trunk_ondisk_bundle_merge_lookup(
+         context, height, bndl, tgt, result, log);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_bundle_merge_lookup failed: %d\n",
@@ -5385,7 +5393,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          trunk_node_deinit(&node, state->context);
       }
 
-      async_await_subroutine(state, ondisk_node_find_pivot_async);
+      async_await_subroutine(state, trunk_ondisk_node_find_pivot_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log(
             "trunk_merge_lookup_async: ondisk_node_find_pivot_async failed: "
@@ -5416,7 +5424,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
            state->inflight_bundle_num < state->pivot->num_live_inflight_bundles;
            state->inflight_bundle_num++)
       {
-         async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
+         async_await_subroutine(state, trunk_ondisk_bundle_merge_lookup_async);
          if (!SUCCESS(state->rc)) {
             platform_error_log("trunk_merge_lookup_async: "
                                "ondisk_bundle_merge_lookup_async failed: %d\n",
@@ -5443,7 +5451,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
 
       // Search the pivot bundle
       state->bndl = trunk_ondisk_pivot_bundle(state->pivot);
-      async_await_subroutine(state, ondisk_bundle_merge_lookup_async);
+      async_await_subroutine(state, trunk_ondisk_bundle_merge_lookup_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("trunk_merge_lookup_async: "
                             "ondisk_bundle_merge_lookup_async failed: %d\n",
@@ -5500,8 +5508,8 @@ trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
 }
 
 static void
-ondisk_bundle_inc_all_branch_refs(const trunk_context *context,
-                                  trunk_ondisk_bundle *bndl)
+trunk_ondisk_bundle_inc_all_branch_refs(const trunk_context *context,
+                                        trunk_ondisk_bundle *bndl)
 {
    for (uint64 i = 0; i < bndl->num_branches; i++) {
       branch_ref bref = bndl->branches[i];
@@ -5541,10 +5549,11 @@ trunk_collect_branches(const trunk_context            *context,
    while (handle.header_page) {
       trunk_ondisk_pivot *pivot;
       if (start_type != less_than) {
-         rc = ondisk_node_find_pivot(
+         rc = trunk_ondisk_node_find_pivot(
             context, &handle, tgt, less_than_or_equal, &pivot);
       } else {
-         rc = ondisk_node_find_pivot(context, &handle, tgt, less_than, &pivot);
+         rc = trunk_ondisk_node_find_pivot(
+            context, &handle, tgt, less_than, &pivot);
       }
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_collect_branches: "
@@ -5576,7 +5585,7 @@ trunk_collect_branches(const trunk_context            *context,
             goto cleanup;
          }
 
-         ondisk_bundle_inc_all_branch_refs(context, bndl);
+         trunk_ondisk_bundle_inc_all_branch_refs(context, bndl);
 
          if (i < num_inflight_bundles - 1) {
             bndl = trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl);
@@ -5594,7 +5603,7 @@ trunk_collect_branches(const trunk_context            *context,
          goto cleanup;
       }
 
-      ondisk_bundle_inc_all_branch_refs(context, bndl);
+      trunk_ondisk_bundle_inc_all_branch_refs(context, bndl);
 
       // Proceed to the child
       if (child_addr != 0) {
@@ -5722,7 +5731,7 @@ trunk_context_init(trunk_context      *context,
       memset(context->stats, 0, sizeof(trunk_stats) * MAX_THREADS);
    }
 
-   pivot_state_map_init(&context->pivot_states);
+   trunk_pivot_state_map_init(&context->pivot_states);
    platform_batch_rwlock_init(&context->root_lock);
 
 
@@ -5780,7 +5789,7 @@ trunk_context_deinit(trunk_context *context)
    if (context->root != NULL) {
       trunk_ondisk_node_ref_destroy(context->root, context, context->hid);
    }
-   pivot_state_map_deinit(&context->pivot_states);
+   trunk_pivot_state_map_deinit(&context->pivot_states);
    platform_batch_rwlock_deinit(&context->root_lock);
 }
 
@@ -5813,37 +5822,11 @@ trunk_make_durable(trunk_context *context)
 }
 
 /************************************
- * Statistics
+ * Stats
  ************************************/
 
 static void
-array_accumulate_add(uint64 len, uint64 *dst, uint64 *src)
-{
-   for (uint64 i = 0; i < len; i++) {
-      dst[i] += src[i];
-   }
-}
-
-static void
-array_accumulate_max(uint64 len, uint64 *dst, uint64 *src)
-{
-   for (uint64 i = 0; i < len; i++) {
-      dst[i] = MAX(dst[i], src[i]);
-   }
-}
-
-#define STATS_FIELD_ADD(dst, src, field)                                       \
-   array_accumulate_add(sizeof(dst->field) / sizeof(uint64),                   \
-                        (uint64 *)&dst->field,                                 \
-                        (uint64 *)&src->field)
-
-#define STATS_FIELD_MAX(dst, src, field)                                       \
-   array_accumulate_max(sizeof(dst->field) / sizeof(uint64),                   \
-                        (uint64 *)&dst->field,                                 \
-                        (uint64 *)&src->field)
-
-static void
-trunk_node_stats_accumulate(trunk_stats *dst, trunk_stats *src)
+trunk_stats_accumulate(trunk_stats *dst, trunk_stats *src)
 {
    STATS_FIELD_ADD(dst, src, fanout_distribution);
    STATS_FIELD_ADD(dst, src, num_inflight_bundles_distribution);
@@ -5888,97 +5871,6 @@ trunk_node_stats_accumulate(trunk_stats *dst, trunk_stats *src)
    STATS_FIELD_ADD(dst, src, branch_lookups);
 }
 
-
-typedef struct column {
-   const char *name;
-   enum { INT, FRACTION } type;
-   union {
-      const uint64   *integer;
-      const fraction *frac;
-   } data;
-   int width;
-} column;
-
-#define COLUMN(name, data)                                                     \
-   _Generic((data)[0],                                                         \
-      uint64: (column){name, INT, {.integer = (uint64 *)(data)}, 0},           \
-      fraction: (column){name, FRACTION, {.frac = (fraction *)(data)}, 0})
-
-static void
-compute_column_width(column *col, uint64 num_rows)
-{
-   col->width = strlen(col->name);
-   for (uint64 i = 0; i < num_rows; i++) {
-      switch (col->type) {
-         case INT:
-         {
-            uint64 val = col->data.integer[i];
-            col->width = MAX(col->width, snprintf(NULL, 0, "%lu", val));
-            break;
-         }
-         case FRACTION:
-         {
-            fraction val = col->data.frac[i];
-            col->width =
-               MAX(col->width,
-                   snprintf(NULL, 0, FRACTION_FMT(12, 4), FRACTION_ARGS(val)));
-            break;
-         }
-      }
-   }
-}
-
-static void
-print_horizontal_separator(platform_log_handle *log_handle,
-                           uint64               num_columns,
-                           column              *cols,
-                           char                 colsep)
-{
-   static const char dashes[] = {[0 ... 1023] = '-', [1024] = '\0'};
-   for (int i = 0; i < num_columns; i++) {
-      platform_log(log_handle, "%c%.*s", colsep, 2 + cols[i].width, dashes);
-   }
-   platform_log(log_handle, "%c\n", colsep);
-}
-
-static void
-print_column_table(platform_log_handle *log_handle,
-                   int                  num_columns,
-                   column              *columns,
-                   int                  num_rows)
-{
-   for (int i = 0; i < num_columns; i++) {
-      compute_column_width(&columns[i], num_rows);
-   }
-
-   print_horizontal_separator(log_handle, num_columns, columns, '-');
-
-   for (int i = 0; i < num_columns; i++) {
-      platform_log(log_handle, "| %*s ", columns[i].width, columns[i].name);
-   }
-   platform_log(log_handle, "|\n");
-
-   print_horizontal_separator(log_handle, num_columns, columns, '|');
-
-   for (int i = 0; i < num_rows; i++) {
-      for (int j = 0; j < num_columns; j++) {
-         if (columns[j].type == FRACTION) {
-            fraction f = columns[j].data.frac[i];
-            platform_log(log_handle,
-                         "| " FRACTION_FMT(*, 4) " ",
-                         columns[j].width,
-                         FRACTION_ARGS(f));
-         } else {
-            uint64 val = columns[j].data.integer[i];
-            platform_log(log_handle, "| %*lu ", columns[j].width, val);
-         }
-      }
-      platform_log(log_handle, "|\n");
-   }
-
-   print_horizontal_separator(log_handle, num_columns, columns, '-');
-}
-
 #define DISTRIBUTION_COLUMNS(dist, rows)                                       \
    COLUMN("0", ((uint64 *)dist) + 0 * rows),                                   \
       COLUMN("1", ((uint64 *)dist) + 1 * rows),                                \
@@ -5997,12 +5889,6 @@ print_column_table(platform_log_handle *log_handle,
       COLUMN("14", ((uint64 *)dist) + 14 * rows),                              \
       COLUMN(">= 15", ((uint64 *)dist) + 15 * rows)
 
-static fraction
-fraction_init_or_zero(uint64 num, uint64 den)
-{
-   return den ? init_fraction(num, den) : zero_fraction;
-}
-
 static void
 distribution_sum_avg(uint64       rows,
                      uint64       sum[],
@@ -6018,30 +5904,6 @@ distribution_sum_avg(uint64       rows,
       }
       sum[i] = count;
       avg[i] = fraction_init_or_zero(sumcount, count);
-   }
-}
-
-static void
-arrays_fraction(uint64 len, fraction *result, uint64 *num, uint64 *den)
-{
-   for (uint64 i = 0; i < len; i++) {
-      result[i] = fraction_init_or_zero(num[i], den[i]);
-   }
-}
-
-// static void
-// array_fraction(uint64 len, fraction *result, uint64 *num, uint64 den)
-// {
-//    for (uint64 i = 0; i < len; i++) {
-//       result[i] = fraction_init_or_zero(num[i], den);
-//    }
-// }
-
-static void
-arrays_subtract(uint64 len, uint64 *result, uint64 *a, uint64 *b)
-{
-   for (uint64 i = 0; i < len; i++) {
-      result[i] = a[i] - b[i];
    }
 }
 
@@ -6079,7 +5941,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
    trunk_stats global_stats;
    memcpy(&global_stats, &context->stats[0], sizeof(trunk_stats));
    for (threadid tid = 1; tid < MAX_THREADS; tid++) {
-      trunk_node_stats_accumulate(&global_stats, &context->stats[tid]);
+      trunk_stats_accumulate(&global_stats, &context->stats[tid]);
    }
 
    //

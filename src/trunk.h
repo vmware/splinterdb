@@ -105,12 +105,12 @@ typedef struct trunk_stats {
 
 #define TRUNK_PIVOT_STATE_MAP_BUCKETS 1024
 
-typedef struct trunk_pivot_compaction_state trunk_pivot_compaction_state;
+typedef struct trunk_pivot_state trunk_pivot_state;
 
 typedef struct trunk_pivot_state_map {
-   uint64                        num_states;
-   uint64                        locks[TRUNK_PIVOT_STATE_MAP_BUCKETS];
-   trunk_pivot_compaction_state *buckets[TRUNK_PIVOT_STATE_MAP_BUCKETS];
+   uint64             num_states;
+   uint64             locks[TRUNK_PIVOT_STATE_MAP_BUCKETS];
+   trunk_pivot_state *buckets[TRUNK_PIVOT_STATE_MAP_BUCKETS];
 } trunk_pivot_state_map;
 
 /* An ondisk_node_ref is a pivot that has an associated bump in the refcount of

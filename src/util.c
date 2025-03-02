@@ -430,3 +430,78 @@ size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size)
    snprintf(outbuf, outbuflen, fmtstr, size_str(size));
    return outbuf;
 }
+
+static void
+compute_column_width(column *col, uint64 num_rows)
+{
+   col->width = strlen(col->name);
+   for (uint64 i = 0; i < num_rows; i++) {
+      switch (col->type) {
+         case INT:
+         {
+            uint64 val = col->data.integer[i];
+            col->width = MAX(col->width, snprintf(NULL, 0, "%lu", val));
+            break;
+         }
+         case FRACTION:
+         {
+            fraction val = col->data.frac[i];
+            col->width =
+               MAX(col->width,
+                   snprintf(NULL, 0, FRACTION_FMT(12, 4), FRACTION_ARGS(val)));
+            break;
+         }
+      }
+   }
+}
+
+static void
+print_horizontal_separator(platform_log_handle *log_handle,
+                           uint64               num_columns,
+                           column              *cols,
+                           char                 colsep)
+{
+   static const char dashes[] = {[0 ... 1023] = '-', [1024] = '\0'};
+   for (int i = 0; i < num_columns; i++) {
+      platform_log(log_handle, "%c%.*s", colsep, 2 + cols[i].width, dashes);
+   }
+   platform_log(log_handle, "%c\n", colsep);
+}
+
+void
+print_column_table(platform_log_handle *log_handle,
+                   int                  num_columns,
+                   column              *columns,
+                   int                  num_rows)
+{
+   for (int i = 0; i < num_columns; i++) {
+      compute_column_width(&columns[i], num_rows);
+   }
+
+   print_horizontal_separator(log_handle, num_columns, columns, '-');
+
+   for (int i = 0; i < num_columns; i++) {
+      platform_log(log_handle, "| %*s ", columns[i].width, columns[i].name);
+   }
+   platform_log(log_handle, "|\n");
+
+   print_horizontal_separator(log_handle, num_columns, columns, '|');
+
+   for (int i = 0; i < num_rows; i++) {
+      for (int j = 0; j < num_columns; j++) {
+         if (columns[j].type == FRACTION) {
+            fraction f = columns[j].data.frac[i];
+            platform_log(log_handle,
+                         "| " FRACTION_FMT(*, 4) " ",
+                         columns[j].width,
+                         FRACTION_ARGS(f));
+         } else {
+            uint64 val = columns[j].data.integer[i];
+            platform_log(log_handle, "| %*lu ", columns[j].width, val);
+         }
+      }
+      platform_log(log_handle, "|\n");
+   }
+
+   print_horizontal_separator(log_handle, num_columns, columns, '-');
+}
