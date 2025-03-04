@@ -306,10 +306,9 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
-        tctr < ARRAY_SIZE(thread_cfg);
-        tctr++, thread_cfgp++)
-   {
+   for (tctr = max_tid_so_far; tctr < ARRAY_SIZE(thread_cfg); tctr++) {
+      thread_cfgp = &thread_cfg[tctr];
+
       // These are independent of the new thread's creation.
       thread_cfgp->tasks          = data->tasks;
       thread_cfgp->exp_thread_idx = tctr;
@@ -322,11 +321,9 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
-        tctr < ARRAY_SIZE(thread_cfg);
-        tctr++, thread_cfgp++)
-   {
-      rc = platform_thread_join(thread_cfgp->this_thread_id);
+   for (tctr = max_tid_so_far; tctr < ARRAY_SIZE(thread_cfg); tctr++) {
+      thread_cfgp = &thread_cfg[tctr];
+      rc          = platform_thread_join(thread_cfgp->this_thread_id);
       ASSERT_TRUE(SUCCESS(rc));
    }
 }
@@ -592,7 +589,11 @@ exec_one_of_n_threads(void *arg)
    // Before registration, thread ID should be in an uninit'ed state
    ASSERT_EQUAL(INVALID_TID, platform_get_tid());
 
-   task_register_this_thread(thread_cfg->tasks, core_get_scratch_size());
+   platform_status rc =
+      task_register_this_thread(thread_cfg->tasks, core_get_scratch_size());
+   ASSERT_TRUE(SUCCESS(rc),
+               "task_register_this_thread() failed: thread idx is %lu",
+               platform_get_tid());
 
    threadid this_threads_index = platform_get_tid();
 
