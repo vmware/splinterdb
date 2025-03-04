@@ -26,9 +26,13 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
    /*
     * This is a special bitmask where 1 indicates free and 0 indicates
     * allocated. So, we set all bits to 1 during init.
+    * We set all bits to 1 even in the unused portion of the last bitmask
+    * to maintain compatibility with the cleanup assertion.
     */
-   for (int i = 0; i < MAX_THREADS; i++) {
-      tid_bitmask[i / 64] |= (1ULL << (i % 64));
+   int num_bitmasks = (MAX_THREADS + 63) / 64;
+
+   for (int i = 0; i < num_bitmasks; i++) {
+      tid_bitmask[i] = (uint64)-1;
    }
 }
 
@@ -55,42 +59,37 @@ task_allocate_threadid(task_system *ts)
    uint64   old_bitmask;
    uint64   new_bitmask;
 
-   while (!__sync_lock_test_and_set(&ts->tid_bitmask_lock, 1)) {
+   while (__sync_lock_test_and_set(&ts->tid_bitmask_lock, 1)) {
       // spin
    }
 
-   int i;
-   for (i = 0; i < (MAX_THREADS + 63) / 64; i++) {
+   int    i;
+   uint64 pos = 0;
+   for (i = 0; pos == 0 && i < (MAX_THREADS + 63) / 64; i++) {
       old_bitmask = tid_bitmask[i];
       // first bit set to 1 starting from LSB.
-      uint64 pos = __builtin_ffsl(old_bitmask);
-
-      // If all threads are in-use, bitmask will be all 0s.
-      if (pos == 0) {
-         continue;
-      }
-
-      // builtin_ffsl returns the position plus 1.
-      tid = pos - 1;
-      // set bit at that position to 0, indicating in use.
-      new_bitmask = (old_bitmask & ~(1ULL << (pos - 1)));
-      if (__sync_bool_compare_and_swap(
-             &tid_bitmask[i], old_bitmask, new_bitmask))
-      {
-         break;
-      }
+      pos = __builtin_ffsl(old_bitmask);
    }
+
+   if (pos == 0) {
+      __sync_lock_release(&ts->tid_bitmask_lock);
+      platform_error_log("No thread id available");
+      return INVALID_TID;
+   }
+
+   i--;
+
+   // builtin_ffsl returns the position plus 1.
+   tid = pos - 1;
+   // set bit at that position to 0, indicating in use.
+   new_bitmask = (old_bitmask & ~(1ULL << tid));
+   int r =
+      __sync_bool_compare_and_swap(&tid_bitmask[i], old_bitmask, new_bitmask);
+   platform_assert(r);
 
    __sync_lock_release(&ts->tid_bitmask_lock);
 
-   if (i == 2) {
-      return INVALID_TID;
-   }
-
    tid += i * 64;
-   if (tid >= MAX_THREADS) {
-      return INVALID_TID;
-   }
 
    // Invariant: we have successfully allocated tid
 
@@ -112,6 +111,10 @@ task_deallocate_threadid(task_system *ts, threadid tid)
 {
    uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
 
+   while (__sync_lock_test_and_set(&ts->tid_bitmask_lock, 1)) {
+      // spin
+   }
+
    uint64 bitmask_val = tid_bitmask[tid / 64];
 
    // Ensure that caller is only clearing for a thread that's in-use.
@@ -129,6 +132,8 @@ task_deallocate_threadid(task_system *ts, threadid tid)
       tmp_bitmask = tid_bitmask[tid / 64];
       new_value   = tmp_bitmask | (1ULL << (tid % 64));
    }
+
+   __sync_lock_release(&ts->tid_bitmask_lock);
 }
 
 
@@ -229,6 +234,7 @@ task_invoke_with_hooks(void *func_and_args)
    platform_thread_worker func           = thread_started->func;
    void                  *arg            = thread_started->arg;
 
+   platform_assert(thread_started->tid < MAX_THREADS);
    platform_set_tid(thread_started->tid);
 
    task_run_thread_hooks(thread_started->ts);
@@ -386,12 +392,19 @@ task_register_thread(task_system *ts,
    if (0 < scratch_size) {
       char *scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
       if (scratch == NULL) {
+         platform_default_log("[%s:%d::%s()] Error! Failed to allocate scratch "
+                              "space for thread %lu\n",
+                              file,
+                              lineno,
+                              func,
+                              thread_tid);
          task_deallocate_threadid(ts, thread_tid);
          return STATUS_NO_MEMORY;
       }
       ts->thread_scratch[thread_tid] = scratch;
    }
 
+   platform_assert(thread_tid < MAX_THREADS);
    platform_set_tid(thread_tid);
    task_run_thread_hooks(ts);
 
