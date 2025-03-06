@@ -549,8 +549,6 @@ core_memtable_incorporate_and_flush(core_handle   *spl,
                                     uint64         generation,
                                     const threadid tid)
 {
-   trunk_modification_begin(&spl->trunk_context);
-
    platform_stream_handle stream;
    platform_status        rc = core_open_log_stream_if_enabled(spl, &stream);
    platform_assert_status_ok(rc);
@@ -565,7 +563,7 @@ core_memtable_incorporate_and_flush(core_handle   *spl,
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
-   rc = trunk_incorporate(&spl->trunk_context, cmt->branch.root_addr);
+   rc = trunk_incorporate_prepare(&spl->trunk_context, cmt->branch.root_addr);
    platform_assert_status_ok(rc);
    btree_dec_ref(
       spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
@@ -582,6 +580,7 @@ core_memtable_incorporate_and_flush(core_handle   *spl,
     * Lock the lookup lock, blocking lookups.
     * Transition memtable state and increment memtable generation (blocks
     * lookups from accessing the memtable that's being incorporated).
+    * And switch to the new root of the trunk.
     */
    memtable_block_lookups(spl->mt_ctxt);
    memtable *mt = core_get_memtable(spl, generation);
@@ -593,10 +592,10 @@ core_memtable_incorporate_and_flush(core_handle   *spl,
    memtable_transition(
       mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
    memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
-
-   // Switch in the new root and release all locks
-   trunk_modification_end(&spl->trunk_context);
+   trunk_incorporate_commit(&spl->trunk_context);
    memtable_unblock_lookups(spl->mt_ctxt);
+
+   trunk_incorporate_cleanup(&spl->trunk_context);
 
    core_close_log_stream_if_enabled(spl, &stream);
 

@@ -121,6 +121,37 @@ typedef struct trunk_ondisk_node_ref {
    ondisk_key key;
 } trunk_ondisk_node_ref;
 
+typedef struct ONDISK branch_ref {
+   uint64 addr;
+} branch_ref;
+
+typedef VECTOR(branch_ref) branch_ref_vector;
+
+typedef struct bundle {
+   routing_filter maplet;
+   // branches[0] is the oldest branch
+   branch_ref_vector branches;
+} bundle;
+
+typedef VECTOR(bundle) bundle_vector;
+
+typedef struct trunk_pivot trunk_pivot;
+typedef VECTOR(trunk_pivot *) trunk_pivot_vector;
+
+typedef struct trunk_node {
+   uint16             height;
+   trunk_pivot_vector pivots;
+   bundle_vector      pivot_bundles; // indexed by child
+   uint64             num_old_bundles;
+   // inflight_bundles[0] is the oldest bundle
+   bundle_vector inflight_bundles;
+} trunk_node;
+
+typedef VECTOR(trunk_node) trunk_node_vector;
+
+typedef struct incorporation_tasks {
+   trunk_node_vector node_compactions;
+} incorporation_tasks;
 
 typedef struct trunk_context {
    const trunk_config    *cfg;
@@ -132,6 +163,9 @@ typedef struct trunk_context {
    trunk_pivot_state_map  pivot_states;
    platform_batch_rwlock  root_lock;
    trunk_ondisk_node_ref *root;
+   trunk_ondisk_node_ref *post_incorporation_root;
+   trunk_ondisk_node_ref *pre_incorporation_root;
+   incorporation_tasks    tasks;
 } trunk_context;
 
 typedef struct trunk_ondisk_node_handle {
@@ -209,8 +243,23 @@ trunk_make_durable(trunk_context *context);
 void
 trunk_modification_begin(trunk_context *context);
 
+// Build a new trunk with the branch incorporated.  The new trunk is not yet
+// visible to queriers.
 platform_status
-trunk_incorporate(trunk_context *context, uint64 branch);
+trunk_incorporate_prepare(trunk_context *context, uint64 branch);
+
+// Must be called iff trunk_incorporate_prepare returned SUCCESS
+// This switches to the new trunk with the new branch incorporated.
+// This is the only step that must be done atomically with removing the
+// incorporated branch from the queue of memtables.
+void
+trunk_incorporate_commit(trunk_context *context);
+
+// This must be called iff trunk_incorporate_prepare returned SUCCESS
+// This must be called after trunk_incorporate_commit.
+// This cleans up the old trunk and enqueues background rebalancing jobs.
+void
+trunk_incorporate_cleanup(trunk_context *context);
 
 void
 trunk_modification_end(trunk_context *context);

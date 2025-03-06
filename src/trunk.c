@@ -22,20 +22,6 @@
 
 typedef VECTOR(routing_filter) routing_filter_vector;
 
-typedef struct ONDISK branch_ref {
-   uint64 addr;
-} branch_ref;
-
-typedef VECTOR(branch_ref) branch_ref_vector;
-
-typedef struct bundle {
-   routing_filter maplet;
-   // branches[0] is the oldest branch
-   branch_ref_vector branches;
-} bundle;
-
-typedef VECTOR(bundle) bundle_vector;
-
 struct ONDISK trunk_ondisk_bundle {
    routing_filter maplet;
    uint16         num_branches;
@@ -48,16 +34,14 @@ typedef struct ONDISK trunk_pivot_stats {
    int64 num_tuples;
 } trunk_pivot_stats;
 
-typedef struct trunk_pivot {
+struct trunk_pivot {
    trunk_pivot_stats prereceive_stats;
    trunk_pivot_stats stats;
    uint64            child_addr;
    // Index of the oldest bundle that is live for this pivot
    uint64     inflight_bundle_start;
    ondisk_key key;
-} trunk_pivot;
-
-typedef VECTOR(trunk_pivot *) trunk_pivot_vector;
+};
 
 typedef VECTOR(trunk_ondisk_node_ref *) trunk_ondisk_node_ref_vector;
 
@@ -67,17 +51,6 @@ struct ONDISK trunk_ondisk_pivot {
    uint64            num_live_inflight_bundles;
    ondisk_key        key;
 };
-
-typedef struct trunk_node {
-   uint16             height;
-   trunk_pivot_vector pivots;
-   bundle_vector      pivot_bundles; // indexed by child
-   uint64             num_old_bundles;
-   // inflight_bundles[0] is the oldest bundle
-   bundle_vector inflight_bundles;
-} trunk_node;
-
-typedef VECTOR(trunk_node) trunk_node_vector;
 
 typedef struct ONDISK trunk_ondisk_node {
    uint16 height;
@@ -3555,10 +3528,6 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
    return STATUS_OK;
 }
 
-typedef struct incorporation_tasks {
-   trunk_node_vector node_compactions;
-} incorporation_tasks;
-
 static void
 incorporation_tasks_init(incorporation_tasks *itasks, platform_heap_id hid)
 {
@@ -4804,14 +4773,14 @@ cleanup_pivots:
 }
 
 platform_status
-trunk_incorporate(trunk_context *context, uint64 branch_addr)
+trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
 {
-   platform_status        rc;
-   trunk_ondisk_node_ref *result = NULL;
-   uint64                 height;
+   platform_status rc;
+   uint64          height;
 
-   incorporation_tasks itasks;
-   incorporation_tasks_init(&itasks, context->hid);
+   trunk_modification_begin(context);
+
+   incorporation_tasks_init(&context->tasks, context->hid);
 
    branch_ref branch = create_branch_ref(branch_addr);
 
@@ -4860,7 +4829,7 @@ trunk_incorporate(trunk_context *context, uint64 branch_addr)
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
    rc = flush_then_compact(
-      context, &root, NULL, &inflight, 0, &new_node_refs, &itasks);
+      context, &root, NULL, &inflight, 0, &new_node_refs, &context->tasks);
    trunk_node_deinit(&root, context);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_incorporate: flush_then_compact failed: %d\n",
@@ -4880,14 +4849,12 @@ trunk_incorporate(trunk_context *context, uint64 branch_addr)
       height++;
    }
 
-   result = vector_get(&new_node_refs, 0);
-
-   trunk_set_root(context, result);
-   incorporation_tasks_execute(&itasks, context);
+   platform_assert(context->post_incorporation_root == NULL);
+   context->post_incorporation_root = vector_get(&new_node_refs, 0);
 
    if (context->stats) {
       threadid tid       = platform_get_tid();
-      uint64   footprint = vector_length(&itasks.node_compactions);
+      uint64   footprint = vector_length(&context->tasks.node_compactions);
       if (TRUNK_MAX_DISTRIBUTION_VALUE < footprint) {
          footprint = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
       }
@@ -4898,13 +4865,38 @@ cleanup_vectors:
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
          &new_node_refs, trunk_ondisk_node_ref_destroy, context, context->hid);
+      incorporation_tasks_deinit(&context->tasks, context);
+      trunk_modification_end(context);
    }
    vector_deinit(&new_node_refs);
    VECTOR_APPLY_TO_PTRS(&inflight, bundle_deinit);
    vector_deinit(&inflight);
-   incorporation_tasks_deinit(&itasks, context);
 
    return rc;
+}
+
+void
+trunk_incorporate_commit(trunk_context *context)
+{
+   platform_batch_rwlock_lock(&context->root_lock, 0);
+   platform_assert(context->pre_incorporation_root == NULL);
+   context->pre_incorporation_root  = context->root;
+   context->root                    = context->post_incorporation_root;
+   context->post_incorporation_root = NULL;
+   platform_batch_rwlock_unlock(&context->root_lock, 0);
+}
+
+void
+trunk_incorporate_cleanup(trunk_context *context)
+{
+   if (context->pre_incorporation_root != NULL) {
+      trunk_ondisk_node_ref_destroy(
+         context->pre_incorporation_root, context, context->hid);
+      context->pre_incorporation_root = NULL;
+   }
+   incorporation_tasks_execute(&context->tasks, context);
+   incorporation_tasks_deinit(&context->tasks, context);
+   trunk_modification_end(context);
 }
 
 /***********************************
