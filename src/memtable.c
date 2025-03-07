@@ -309,8 +309,8 @@ memtable_context_create(platform_heap_id hid,
 {
    memtable_context *ctxt =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ctxt, mt, cfg->max_memtables);
-   ctxt->cc = cc;
-   memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
+   ctxt->cc  = cc;
+   ctxt->cfg = *cfg;
 
    platform_mutex_init(
       &ctxt->incorporation_mutex, platform_get_module_id(), hid);
