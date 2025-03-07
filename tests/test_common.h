@@ -31,7 +31,7 @@ typedef struct {
  * Tuple verification routine.
  */
 void
-verify_tuple(core_handle           *spl,
+verify_tuple(core_handle            *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
              key                     tuple_key,
@@ -39,7 +39,7 @@ verify_tuple(core_handle           *spl,
              bool32                  expected_found);
 
 void
-test_wait_for_inflight(core_handle      *spl,
+test_wait_for_inflight(core_handle       *spl,
                        test_async_lookup *async_lookup,
                        verify_tuple_arg  *vtarg);
 
@@ -47,7 +47,7 @@ void
 verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg);
 
 test_async_ctxt *
-test_async_ctxt_get(core_handle      *spl,
+test_async_ctxt_get(core_handle       *spl,
                     test_async_lookup *async_lookup,
                     verify_tuple_arg  *vtarg);
 

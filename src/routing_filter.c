@@ -65,6 +65,9 @@ RadixSort(uint32 *pData,
    uint32 rounds = (fp_size + 7) / 8;
    uint8  c;
 
+
+   platform_assert(rounds <= MATRIX_ROWS);
+
    for (i = 0; i < MATRIX_ROWS; i++) {
       mIndex[i] = &mBuf[i * MATRIX_COLS];
       for (ptrdiff_t j = 0; j < MATRIX_COLS; j++) {
