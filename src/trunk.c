@@ -89,6 +89,7 @@ typedef struct trunk_context trunk_context;
 struct trunk_pivot_state {
    struct trunk_pivot_state *next;
    uint64                    refcount;
+   bool32                    maplet_compaction_initiated;
    bool32                    abandoned;
    trunk_context            *context;
    key_buffer                key;
@@ -3247,6 +3248,8 @@ maplet_compaction_task(void *arg, void *scratch)
    state->total_bundles -= last->num_bundles;
    bundle_compaction_destroy(last, context);
 
+   __sync_lock_release(&state->maplet_compaction_initiated);
+
    if (state->bundle_compactions
        && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
    {
@@ -3271,6 +3274,9 @@ cleanup:
 static platform_status
 enqueue_maplet_compaction(trunk_pivot_state *args)
 {
+   if (__sync_lock_test_and_set(&args->maplet_compaction_initiated, 1)) {
+      return STATUS_OK;
+   }
    trunk_pivot_state_incref(args);
    platform_status rc = task_enqueue(
       args->context->ts, TASK_TYPE_NORMAL, maplet_compaction_task, args, FALSE);
