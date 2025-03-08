@@ -3,14 +3,15 @@
 
 #include "allocator.h"
 #include "cache.h"
-#include "trunk.h"
+#include "core.h"
+#include "test.h"
 #include "platform.h"
 
 platform_status
 test_functionality(allocator       *al,
                    io_handle       *io,
                    cache           *cc[],
-                   trunk_config    *cfg,
+                   system_config   *cfg,
                    uint64           seed,
                    uint64           num_inserts,
                    uint64           correctness_check_frequency,

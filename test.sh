@@ -666,9 +666,11 @@ function run_slower_unit_tests() {
     # FIXME: Disable script failing upon an error. Re-enable when following is fixed:
     # Asserts tripping:
     # 813 TEST 7/12 large_inserts_bugs_stress:test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid OS-pid=373371, OS-tid=373385, Thread-ID=6, Assertion failed at src/platform_linux/platform.c:286:platform_batch_rwlock_lock(): "lock->write_lock[lock_idx].claim".
+    #
+    # robj -- turning this off for now, as we are seeing some asserts trip in this test.
     # --------------------------------------------------------------------------
 
-    set +e
+    # set +e
 
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \

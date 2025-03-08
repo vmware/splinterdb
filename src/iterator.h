@@ -5,6 +5,7 @@
 
 #include "data_internal.h"
 #include "util.h"
+#include "vector.h"
 
 typedef struct iterator iterator;
 
@@ -39,6 +40,8 @@ typedef struct iterator_ops {
 struct iterator {
    const iterator_ops *ops;
 };
+
+typedef VECTOR(iterator *) iterator_vector;
 
 // It is safe to call curr whenever iterator_in_range() returns true
 // otherwise the behavior of iterator_curr is undefined

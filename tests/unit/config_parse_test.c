@@ -15,7 +15,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/public_platform.h"
-#include "trunk.h"
+#include "core.h"
 #include "clockcache.h"
 #include "allocator.h"
 #include "rc_allocator.h"
@@ -60,34 +60,18 @@ CTEST_TEARDOWN(config_parse)
  */
 CTEST2(config_parse, test_basic_parsing)
 {
-   // Config structs required, as per splinter_test() setup work.
-   io_config          io_cfg;
-   allocator_config   al_cfg;
-   shard_log_config   log_cfg;
-   task_system_config task_cfg;
-
    // Following get setup pointing to allocated memory
-   trunk_config          *splinter_cfg = NULL;
-   data_config           *data_cfg     = NULL;
-   clockcache_config     *cache_cfg    = NULL;
+   system_config         *system_cfg = NULL;
    test_message_generator gen;
 
    int num_tables = 1;
 
    // Allocate memory for global config structures
-   splinter_cfg = TYPED_ARRAY_MALLOC(data->hid, splinter_cfg, num_tables);
-
-   cache_cfg = TYPED_ARRAY_MALLOC(data->hid, cache_cfg, num_tables);
+   system_cfg = TYPED_ARRAY_MALLOC(data->hid, system_cfg, num_tables);
 
    platform_status rc;
 
-   rc = test_parse_args_n(splinter_cfg,
-                          &data_cfg,
-                          &io_cfg,
-                          &al_cfg,
-                          cache_cfg,
-                          &log_cfg,
-                          &task_cfg,
+   rc = test_parse_args_n(system_cfg,
                           &data->test_exec_cfg,
                           &gen,
                           num_tables,
@@ -95,16 +79,12 @@ CTEST2(config_parse, test_basic_parsing)
                           (char **)Ctest_argv);
    platform_assert_status_ok(rc);
 
-   // Check parsing of some key --config-options expected by diff sub-systems
-   int max_branches_per_node = 42;
-   ASSERT_EQUAL(max_branches_per_node,
-                splinter_cfg->max_branches_per_node,
-                "Parameter '%s' expected. ",
-                "--max-branches-per-node 42");
-
-   ASSERT_TRUE(splinter_cfg->use_stats, "Parameter '%s' expected. ", "--stats");
-   ASSERT_TRUE(splinter_cfg->use_log, "Parameter '%s' expected. ", "--log");
-   ASSERT_TRUE(splinter_cfg->verbose_logging_enabled,
+   ASSERT_TRUE(system_cfg->splinter_cfg.use_stats,
+               "Parameter '%s' expected. ",
+               "--stats");
+   ASSERT_TRUE(
+      system_cfg->splinter_cfg.use_log, "Parameter '%s' expected. ", "--log");
+   ASSERT_TRUE(system_cfg->splinter_cfg.verbose_logging_enabled,
                "Parameter '%s' expected. ",
                "--verbose-logging");
 
@@ -118,6 +98,5 @@ CTEST2(config_parse, test_basic_parsing)
                "Parameter '%s' expected. ",
                "--verbose-progress");
 
-   platform_free(data->hid, cache_cfg);
-   platform_free(data->hid, splinter_cfg);
+   platform_free(data->hid, system_cfg);
 }

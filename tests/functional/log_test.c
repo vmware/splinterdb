@@ -15,7 +15,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
-#include "trunk.h"
+#include "core.h"
 #include "test.h"
 
 #include "poison.h"
@@ -228,12 +228,7 @@ int
 log_test(int argc, char *argv[])
 {
    platform_status        status;
-   data_config           *data_cfg;
-   io_config              io_cfg;
-   allocator_config       al_cfg;
-   clockcache_config      cache_cfg;
-   shard_log_config       log_cfg;
-   task_system_config     task_cfg;
+   system_config          system_cfg;
    rc_allocator           al;
    platform_status        ret;
    int                    config_argc;
@@ -272,16 +267,10 @@ log_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
-   trunk_config *cfg                            = TYPED_MALLOC(hid, cfg);
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   core_config *cfg                            = TYPED_MALLOC(hid, cfg);
+   uint64       num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
-   status = test_parse_args(cfg,
-                            &data_cfg,
-                            &io_cfg,
-                            &al_cfg,
-                            &cache_cfg,
-                            &log_cfg,
-                            &task_cfg,
+   status = test_parse_args(&system_cfg,
                             &seed,
                             &gen,
                             &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -302,13 +291,13 @@ log_test(int argc, char *argv[])
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   status = io_handle_init(io, &io_cfg, hid);
+   status = io_handle_init(io, &system_cfg.io_cfg, hid);
    if (!SUCCESS(status)) {
       rc = -1;
       goto free_iohandle;
    }
 
-   status = test_init_task_system(hid, io, &ts, &task_cfg);
+   status = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));
@@ -316,14 +305,17 @@ log_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   status = rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
+   status = rc_allocator_init(&al,
+                              &system_cfg.allocator_cfg,
+                              (io_handle *)io,
+                              hid,
+                              platform_get_module_id());
    platform_assert_status_ok(status);
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc != NULL);
    status = clockcache_init(cc,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             (io_handle *)io,
                             (allocator *)&al,
                             "test",
@@ -335,15 +327,15 @@ log_test(int argc, char *argv[])
    platform_assert(log != NULL);
    if (run_perf_test) {
       ret = test_log_perf(
-         (cache *)cc, &log_cfg, log, 200000000, &gen, 16, ts, hid);
+         (cache *)cc, &system_cfg.log_cfg, log, 200000000, &gen, 16, ts, hid);
       rc = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
       rc = test_log_crash(cc,
-                          &cache_cfg,
+                          &system_cfg.cache_cfg,
                           (io_handle *)io,
                           (allocator *)&al,
-                          &log_cfg,
+                          &system_cfg.log_cfg,
                           log,
                           ts,
                           hid,
@@ -353,10 +345,10 @@ log_test(int argc, char *argv[])
       platform_assert(rc == 0);
    } else {
       rc = test_log_crash(cc,
-                          &cache_cfg,
+                          &system_cfg.cache_cfg,
                           (io_handle *)io,
                           (allocator *)&al,
-                          &log_cfg,
+                          &system_cfg.log_cfg,
                           log,
                           ts,
                           hid,

@@ -18,7 +18,7 @@
 #include "clockcache.h"
 #include "platform_linux/platform.h"
 #include "rc_allocator.h"
-#include "trunk.h"
+#include "core.h"
 #include "btree_private.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
@@ -48,8 +48,11 @@ typedef struct splinterdb {
    shard_log_config   log_cfg;
    task_system_config task_cfg;
    allocator_root_id  trunk_id;
-   trunk_config       trunk_cfg;
-   trunk_handle      *spl;
+   routing_config     filter_cfg;
+   btree_config       btree_cfg;
+   trunk_config       trunk_node_cfg;
+   core_config        trunk_cfg;
+   core_handle       *spl;
    platform_heap_id   heap_id;
    data_config       *data_cfg;
    bool               we_created_heap;
@@ -92,11 +95,11 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->btree_rough_count_height = 1;
    }
 
-   if (!cfg->filter_index_size) {
-      cfg->filter_index_size = 512;
+   if (!cfg->filter_log_index_size) {
+      cfg->filter_log_index_size = 9;
    }
-   if (!cfg->filter_remainder_size) {
-      cfg->filter_remainder_size = 4;
+   if (!cfg->filter_hash_size) {
+      cfg->filter_hash_size = 26;
    }
 
    if (!cfg->memtable_capacity) {
@@ -104,9 +107,6 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    }
    if (!cfg->fanout) {
       cfg->fanout = 8;
-   }
-   if (!cfg->max_branches_per_node) {
-      cfg->max_branches_per_node = 24;
    }
    if (!cfg->reclaim_threshold) {
       cfg->reclaim_threshold = UINT64_MAX;
@@ -196,27 +196,41 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
 
    rc = task_system_config_init(
-      &kvs->task_cfg, cfg.use_stats, num_bg_threads, trunk_get_scratch_size());
+      &kvs->task_cfg, cfg.use_stats, num_bg_threads, core_get_scratch_size());
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   rc = trunk_config_init(&kvs->trunk_cfg,
-                          &kvs->cache_cfg.super,
-                          kvs->data_cfg,
-                          (log_config *)&kvs->log_cfg,
-                          cfg.memtable_capacity,
-                          cfg.fanout,
-                          cfg.max_branches_per_node,
-                          cfg.btree_rough_count_height,
-                          cfg.filter_remainder_size,
-                          cfg.filter_index_size,
-                          cfg.reclaim_threshold,
-                          cfg.queue_scale_percent,
-                          cfg.use_log,
-                          cfg.use_stats,
-                          FALSE,
-                          Platform_default_log_handle);
+   rc = routing_config_init(&kvs->filter_cfg,
+                            &kvs->cache_cfg.super,
+                            kvs->data_cfg,
+                            cfg.filter_hash_size,
+                            cfg.filter_log_index_size,
+                            kvs->data_cfg->key_hash,
+                            42);
+
+   btree_config_init(&kvs->btree_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
+
+   trunk_config_init(&kvs->trunk_node_cfg,
+                     kvs->data_cfg,
+                     &kvs->btree_cfg,
+                     &kvs->filter_cfg,
+                     cfg.memtable_capacity,
+                     cfg.fanout,
+                     cfg.btree_rough_count_height,
+                     cfg.use_stats);
+
+   rc = core_config_init(&kvs->trunk_cfg,
+                         &kvs->cache_cfg.super,
+                         kvs->data_cfg,
+                         &kvs->btree_cfg,
+                         (log_config *)&kvs->log_cfg,
+                         &kvs->trunk_node_cfg,
+                         cfg.queue_scale_percent,
+                         cfg.use_log,
+                         cfg.use_stats,
+                         FALSE,
+                         Platform_default_log_handle);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -342,21 +356,21 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    kvs->trunk_id = 1;
    if (open_existing) {
-      kvs->spl = trunk_mount(&kvs->trunk_cfg,
+      kvs->spl = core_mount(&kvs->trunk_cfg,
+                            (allocator *)&kvs->allocator_handle,
+                            (cache *)&kvs->cache_handle,
+                            kvs->task_sys,
+                            kvs->trunk_id,
+                            kvs->heap_id);
+   } else {
+      kvs->spl = core_create(&kvs->trunk_cfg,
                              (allocator *)&kvs->allocator_handle,
                              (cache *)&kvs->cache_handle,
                              kvs->task_sys,
                              kvs->trunk_id,
                              kvs->heap_id);
-   } else {
-      kvs->spl = trunk_create(&kvs->trunk_cfg,
-                              (allocator *)&kvs->allocator_handle,
-                              (cache *)&kvs->cache_handle,
-                              kvs->task_sys,
-                              kvs->trunk_id,
-                              kvs->heap_id);
    }
-   if (kvs->spl == NULL) {
+   if (kvs->spl == NULL || !SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB instance.\n",
                          (open_existing ? "mount existing" : "initialize"));
 
@@ -443,7 +457,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
     * order when these sub-systems were init'ed when a Splinter device was
     * created or re-opened. Otherwise, asserts will trip.
     */
-   trunk_unmount(&kvs->spl);
+   core_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
@@ -484,8 +498,9 @@ splinterdb_register_thread(splinterdb *kvs) // IN
 {
    platform_assert(kvs != NULL);
 
-   size_t scratch_size = trunk_get_scratch_size();
-   task_register_this_thread(kvs->task_sys, scratch_size);
+   size_t          scratch_size = core_get_scratch_size();
+   platform_status rc = task_register_this_thread(kvs->task_sys, scratch_size);
+   platform_assert_status_ok(rc);
 }
 
 /*
@@ -532,7 +547,7 @@ splinterdb_insert_message(const splinterdb *kvs,      // IN
 {
    key tuple_key = key_create_from_slice(user_key);
    platform_assert(kvs != NULL);
-   platform_status status = trunk_insert(kvs->spl, tuple_key, msg);
+   platform_status status = core_insert(kvs->spl, tuple_key, msg);
    return platform_status_to_int(status);
 }
 
@@ -601,7 +616,7 @@ _Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   return trunk_lookup_found(&_result->value);
+   return core_lookup_found(&_result->value);
 }
 
 int
@@ -648,15 +663,15 @@ splinterdb_lookup(const splinterdb         *kvs, // IN
    key                        target  = key_create_from_slice(user_key);
 
    platform_assert(kvs != NULL);
-   status = trunk_lookup(kvs->spl, target, &_result->value);
+   status = core_lookup(kvs->spl, target, &_result->value);
    return platform_status_to_int(status);
 }
 
 
 struct splinterdb_iterator {
-   trunk_range_iterator sri;
-   platform_status      last_rc;
-   const splinterdb    *parent;
+   core_range_iterator sri;
+   platform_status     last_rc;
+   const splinterdb   *parent;
 };
 
 int
@@ -672,8 +687,8 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
    }
    it->last_rc = STATUS_OK;
 
-   trunk_range_iterator *range_itor = &(it->sri);
-   key                   start_key;
+   core_range_iterator *range_itor = &(it->sri);
+   key                  start_key;
 
    if (slice_is_null(user_start_key)) {
       start_key = NEGATIVE_INFINITY_KEY;
@@ -681,13 +696,13 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
       start_key = key_create_from_slice(user_start_key);
    }
 
-   platform_status rc = trunk_range_iterator_init(kvs->spl,
-                                                  range_itor,
-                                                  NEGATIVE_INFINITY_KEY,
-                                                  POSITIVE_INFINITY_KEY,
-                                                  start_key,
-                                                  greater_than_or_equal,
-                                                  UINT64_MAX);
+   platform_status rc = core_range_iterator_init(kvs->spl,
+                                                 range_itor,
+                                                 NEGATIVE_INFINITY_KEY,
+                                                 POSITIVE_INFINITY_KEY,
+                                                 start_key,
+                                                 greater_than_or_equal,
+                                                 UINT64_MAX);
    if (!SUCCESS(rc)) {
       platform_free(kvs->spl->heap_id, *iter);
       return platform_status_to_int(rc);
@@ -701,10 +716,10 @@ splinterdb_iterator_init(const splinterdb     *kvs,           // IN
 void
 splinterdb_iterator_deinit(splinterdb_iterator *iter)
 {
-   trunk_range_iterator *range_itor = &(iter->sri);
-   trunk_range_iterator_deinit(range_itor);
+   core_range_iterator *range_itor = &(iter->sri);
+   core_range_iterator_deinit(range_itor);
 
-   trunk_handle *spl = range_itor->spl;
+   core_handle *spl = range_itor->spl;
    platform_free(spl->heap_id, range_itor);
 }
 
@@ -776,19 +791,19 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs)
 {
-   trunk_print_insertion_stats(Platform_default_log_handle, kvs->spl);
+   core_print_insertion_stats(Platform_default_log_handle, kvs->spl);
 }
 
 void
 splinterdb_stats_print_lookup(const splinterdb *kvs)
 {
-   trunk_print_lookup_stats(Platform_default_log_handle, kvs->spl);
+   core_print_lookup_stats(Platform_default_log_handle, kvs->spl);
 }
 
 void
 splinterdb_stats_reset(splinterdb *kvs)
 {
-   trunk_reset_stats(kvs->spl);
+   core_reset_stats(kvs->spl);
 }
 
 static void
@@ -840,7 +855,7 @@ splinterdb_get_cache_handle(const splinterdb *kvs)
    return (cache *)&kvs->cache_handle;
 }
 
-const trunk_handle *
+const core_handle *
 splinterdb_get_trunk_handle(const splinterdb *kvs)
 {
    return kvs->spl;
