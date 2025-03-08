@@ -1022,9 +1022,7 @@ splinter_perf_inserts(platform_heap_id             hid,
       platform_thread_join(params[i].thread);
    }
 
-   for (uint64 i = 0; i < num_tables; i++) {
-      task_wait_for_completion(ts);
-   }
+   task_perform_until_quiescent(ts);
 
    uint64    total_time         = platform_timestamp_elapsed(start_time);
    timestamp insert_latency_max = 0;
@@ -1546,9 +1544,7 @@ test_splinter_periodic(system_config   *cfg,
       platform_thread_join(params[i].thread);
    }
 
-   for (uint64 i = 0; i < num_tables; i++) {
-      task_wait_for_completion(ts);
-   }
+   task_perform_until_quiescent(ts);
 
    uint64    total_time         = platform_timestamp_elapsed(start_time);
    timestamp insert_latency_max = 0;
@@ -1617,9 +1613,7 @@ test_splinter_periodic(system_config   *cfg,
          platform_thread_join(params[i].thread);
       }
 
-      for (uint64 i = 0; i < num_tables; i++) {
-         task_wait_for_completion(ts);
-      }
+      task_perform_until_quiescent(ts);
 
       total_time         = platform_timestamp_elapsed(start_time);
       insert_latency_max = 0;

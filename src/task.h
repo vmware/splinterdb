@@ -265,9 +265,6 @@ task_perform_until_quiescent(task_system *ts);
  *Functions for tests and debugging.
  */
 
-void
-task_wait_for_completion(task_system *ts);
-
 threadid
 task_get_max_tid(task_system *ts);
 

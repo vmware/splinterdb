@@ -983,24 +983,6 @@ task_system_get_thread_scratch(task_system *ts, const threadid tid)
    return ts->thread_scratch[tid];
 }
 
-void
-task_wait_for_completion(task_system *ts)
-{
-   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
-      task_group *group             = &ts->group[type];
-      uint64      outstanding_tasks = 0;
-      while (group->current_waiting_tasks != 0) {
-         if (group->current_waiting_tasks != outstanding_tasks) {
-            platform_default_log("waiting for %lu tasks of type %d\n",
-                                 group->current_waiting_tasks,
-                                 type);
-            outstanding_tasks = group->current_waiting_tasks;
-         }
-         platform_sleep_ns(1000);
-      }
-   }
-}
-
 static void
 task_group_print_stats(task_group *group, task_type type)
 {
