@@ -318,6 +318,10 @@ async_wait_queue_release_one(async_wait_queue *q)
 {
    async_waiter *waiter;
 
+   if (!q->head) {
+      return;
+   }
+
    async_wait_queue_lock(q);
 
    waiter = q->head;
@@ -339,6 +343,10 @@ static inline void
 async_wait_queue_release_all(async_wait_queue *q)
 {
    async_waiter *waiter;
+
+   if (!q->head) {
+      return;
+   }
 
    async_wait_queue_lock(q);
    waiter  = q->head;
