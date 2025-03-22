@@ -1221,7 +1221,7 @@ start:;
                      table->config.post_remove(
                         &blocks[boffset].slots[slot].val);
                   }
-                  table->metadata.lv1_md[0][boffset].block_md[slot] = 0;
+                  table->metadata.lv1_md[boffset][boffset].block_md[slot] = 0;
                   void *ptr =
                      (void *)slice_data(blocks[boffset].slots[slot].key);
                   platform_free(0, ptr);
