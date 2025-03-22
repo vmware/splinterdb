@@ -1199,44 +1199,44 @@ start:;
    uint8_t popct = __builtin_popcountll(md_mask);
 
    if (unlikely(!popct)) {
-      if (table->sktch) {
-         // We want to use lv1 only because the current eviction code
-         // supports lv1 only. Although we configure the hash table size
-         // enough large, there is a rare chance that the lv1 block is full
-         // for a workload. In this case, an item not being used will be
-         // evicted.
-         bool done = false;
-         md_mask   = ~md_mask;
-         while (md_mask != 0) {
-            int slot = __builtin_ctzll(md_mask);
-            md_mask  = md_mask & ~(1ULL << slot);
-            platform_assert(metadata->lv1_md[bindex][boffset].block_md[slot]
-                            > 0);
-            if (blocks[boffset].slots[slot].refcount <= 0) {
-               platform_assert(table->sktch, "Eviction requires a counter\n");
-               sketch_insert(table->sktch,
-                             blocks[boffset].slots[slot].key,
-                             blocks[boffset].slots[slot].val);
-               if (table->config.post_remove) {
-                  table->config.post_remove(&blocks[boffset].slots[slot].val);
-               }
-               metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
-               void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
-               platform_free(0, ptr);
-               blocks[boffset].slots[slot].key      = NULL_SLICE;
-               blocks[boffset].slots[slot].refcount = 0;
-               pc_add(&metadata->lv1_balls, -1, thread_id);
-               done = true;
-               break;
-            }
-         }
-         platform_assert(done, "No empty slot in the block\n");
-         md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
-         popct   = __builtin_popcountll(md_mask);
-         platform_assert(likely(popct));
-      } else {
+      // if (table->sktch) {
+      //    // We want to use lv1 only because the current eviction code
+      //    // supports lv1 only. Although we configure the hash table size
+      //    // enough large, there is a rare chance that the lv1 block is full
+      //    // for a workload. In this case, an item not being used will be
+      //    // evicted.
+      //    bool done = false;
+      //    md_mask   = ~md_mask;
+      //    while (md_mask != 0) {
+      //       int slot = __builtin_ctzll(md_mask);
+      //       md_mask  = md_mask & ~(1ULL << slot);
+      //       platform_assert(metadata->lv1_md[bindex][boffset].block_md[slot]
+      //                       > 0);
+      //       if (blocks[boffset].slots[slot].refcount <= 0) {
+      //          platform_assert(table->sktch, "Eviction requires a counter\n");
+      //          sketch_insert(table->sktch,
+      //                        blocks[boffset].slots[slot].key,
+      //                        blocks[boffset].slots[slot].val);
+      //          if (table->config.post_remove) {
+      //             table->config.post_remove(&blocks[boffset].slots[slot].val);
+      //          }
+      //          metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
+      //          void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
+      //          platform_free(0, ptr);
+      //          blocks[boffset].slots[slot].key      = NULL_SLICE;
+      //          blocks[boffset].slots[slot].refcount = 0;
+      //          pc_add(&metadata->lv1_balls, -1, thread_id);
+      //          done = true;
+      //          break;
+      //       }
+      //    }
+      //    platform_assert(done, "No empty slot in the block\n");
+      //    md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
+      //    popct   = __builtin_popcountll(md_mask);
+      //    platform_assert(likely(popct));
+      // } else {
          return false;
-      }
+      // }
    }
 
    uint8_t start = 0;
