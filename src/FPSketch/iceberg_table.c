@@ -1235,6 +1235,8 @@ start:;
             ++target_refcount;
          }
          platform_assert(done, "No empty slot in the block\n");
+         popct = __builtin_popcountll(md_mask);
+         platform_assert(likely(popct));
          md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
       } else {
          return false;
