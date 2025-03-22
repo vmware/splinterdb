@@ -1205,71 +1205,68 @@ start:;
          // enough large, there is a rare chance that the lv1 block is full
          // for a workload. In this case, an item not being used will be
          // evicted.
-         bool done            = false;
-         int  target_refcount = -1;
-         while (!done && target_refcount <= 0) {
-            for (int slot = 0; slot < SLOT_BITS; ++slot) {
-               platform_assert(
-                  table->metadata.lv1_md[bindex][boffset].block_md[slot] > 0);
-               if (blocks[boffset].slots[slot].refcount == target_refcount) {
-                  platform_assert(table->sktch,
-                                  "Eviction requires a counter\n");
-                  sketch_insert(table->sktch,
-                                blocks[boffset].slots[slot].key,
-                                blocks[boffset].slots[slot].val);
-                  if (table->config.post_remove) {
-                     table->config.post_remove(
-                        &blocks[boffset].slots[slot].val);
-                  }
-                  table->metadata.lv1_md[bindex][boffset].block_md[slot] = 0;
-                  void *ptr =
-                     (void *)slice_data(blocks[boffset].slots[slot].key);
-                  platform_free(0, ptr);
-                  blocks[boffset].slots[slot].key      = NULL_SLICE;
-                  blocks[boffset].slots[slot].refcount = 0;
-                  pc_add(&table->metadata.lv1_balls, -1, thread_id);
-                  done = true;
-                  break;
+         bool done = false;
+         md_mask   = ~md_mask;
+         while (md_mask != 0) {
+            int slot = __builtin_ctzll(md_mask);
+            md_mask  = md_mask & ~(1ULL << slot);
+            platform_assert(metadata->lv1_md[bindex][boffset].block_md[slot]
+                            > 0);
+            if (blocks[boffset].slots[slot].refcount <= 0) {
+               platform_assert(table->sktch, "Eviction requires a counter\n");
+               sketch_insert(table->sktch,
+                             blocks[boffset].slots[slot].key,
+                             blocks[boffset].slots[slot].val);
+               if (table->config.post_remove) {
+                  table->config.post_remove(&blocks[boffset].slots[slot].val);
                }
+               metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
+               void *ptr = (void *)slice_data(blocks[boffset].slots[slot].key);
+               platform_free(0, ptr);
+               blocks[boffset].slots[slot].key      = NULL_SLICE;
+               blocks[boffset].slots[slot].refcount = 0;
+               pc_add(&metadata->lv1_balls, -1, thread_id);
+               done = true;
+               break;
             }
-            ++target_refcount;
          }
-         platform_assert(done, "No empty slot in the block\n");
-         md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
-         popct = __builtin_popcountll(md_mask);
-         platform_assert(likely(popct));
-      } else {
-         return false;
       }
+      platform_assert(done, "No empty slot in the block\n");
+      md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
+      popct   = __builtin_popcountll(md_mask);
+      platform_assert(likely(popct));
+   } else {
+      return false;
    }
+}
 
-   uint8_t start = 0;
-   uint8_t slot  = word_select(md_mask, start);
+uint8_t start = 0;
+uint8_t slot  = word_select(md_mask, start);
 
-   /*if(__sync_bool_compare_and_swap(metadata->lv1_md[bindex][boffset].block_md
-    * + slot, 0, 1)) {*/
-   pc_add(&metadata->lv1_balls, 1, thread_id);
-   blocks[boffset].slots[slot].key        = key;
-   blocks[boffset].slots[slot].val        = value;
-   blocks[boffset].slots[slot].refcount   = refcount;
-   blocks[boffset].slots[slot].q_refcount = q_refcount;
-   // ValueType value_with_refcount = {.value    = value.value,
-   //                                  .refcount = value.refcount};
-   // // printf("tid %d %p %s %s before update refcount: %d\n", thread_id, (void
-   // *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
+/*if(__sync_bool_compare_and_swap(metadata->lv1_md[bindex][boffset].block_md
+ * + slot, 0, 1)) {*/
+pc_add(&metadata->lv1_balls, 1, thread_id);
+blocks[boffset].slots[slot].key        = key;
+blocks[boffset].slots[slot].val        = value;
+blocks[boffset].slots[slot].refcount   = refcount;
+blocks[boffset].slots[slot].q_refcount = q_refcount;
+// ValueType value_with_refcount = {.value    = value.value,
+//                                  .refcount = value.refcount};
+// // printf("tid %d %p %s %s before update refcount: %d\n", thread_id, (void
+// *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
 
-   // atomic_write_128(
-   //    key, value_with_refcount, (uint64_t *)&blocks[boffset].slots[slot]);
-   // printf("tid %d %p %s %s after update refcount: %d\n", thread_id, (void
-   // *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
+// atomic_write_128(
+//    key, value_with_refcount, (uint64_t *)&blocks[boffset].slots[slot]);
+// printf("tid %d %p %s %s after update refcount: %d\n", thread_id, (void
+// *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
 
-   metadata->lv1_md[bindex][boffset].block_md[slot] = fprint;
-   return true;
-   /*}*/
-   goto start;
-   /*}*/
+metadata->lv1_md[bindex][boffset].block_md[slot] = fprint;
+return true;
+/*}*/
+goto start;
+/*}*/
 
-   return false;
+return false;
 }
 
 
