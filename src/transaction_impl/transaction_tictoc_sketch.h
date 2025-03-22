@@ -344,7 +344,7 @@ transactional_splinterdb_config_init(
 #   error "Invalid experimental mode"
 #endif
    txn_splinterdb_cfg->iceberght_config.log_slots = (int)ceil(
-      log2(6 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
+      log2(7 * (double)txn_splinterdb_cfg->iceberght_config.max_num_keys));
 }
 
 static int
