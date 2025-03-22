@@ -942,9 +942,9 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          //           table->config.post_remove(&blocks[hand].slots[slot].val);
          //         }
          //         table->metadata.lv2_md[0][hand].block_md[slot] = 0;
-         //         void *ptr = (void *)slice_data(blocks[hand].slots[slot].key);
-         //         platform_free(0, ptr);
-         //         blocks[hand].slots[slot].key      = NULL_SLICE;
+         //         void *ptr = (void
+         //         *)slice_data(blocks[hand].slots[slot].key); platform_free(0,
+         //         ptr); blocks[hand].slots[slot].key      = NULL_SLICE;
          //         blocks[hand].slots[slot].refcount = 0;
          //         pc_add(&table->metadata.lv2_balls, -1, thread_id);
          //         done = true;
@@ -952,7 +952,7 @@ iceberg_evict(iceberg_table *table, threadid thread_id)
          //     }
          //   }
          // }
-         
+
          unlock_block((uint64_t *)&table->metadata.lv1_md[0][hand].block_md);
       }
    } while (!done);
@@ -1198,8 +1198,48 @@ start:;
 
    uint8_t popct = __builtin_popcountll(md_mask);
 
-   if (unlikely(!popct))
-      return false;
+   if (unlikely(!popct)) {
+      if (table->sktch) {
+         // We want to use lv1 only because the current eviction code
+         // supports lv1 only. Although we configure the hash table size
+         // enough large, there is a rare chance that the lv1 block is full
+         // for a workload. In this case, an item not being used will be
+         // evicted.
+         bool done            = false;
+         int  target_refcount = -1;
+         while (!done && target_refcount <= 0) {
+            for (int slot = 0; slot < SLOT_BITS; ++slot) {
+               platform_assert(
+                  table->metadata.lv1_md[bindex][boffset].block_md[slot] > 0);
+               if (blocks[boffset].slots[slot].refcount == target_refcount) {
+                  platform_assert(table->sktch,
+                                  "Eviction requires a counter\n");
+                  sketch_insert(table->sktch,
+                                blocks[boffset].slots[slot].key,
+                                blocks[boffset].slots[slot].val);
+                  if (table->config.post_remove) {
+                     table->config.post_remove(
+                        &blocks[boffset].slots[slot].val);
+                  }
+                  table->metadata.lv1_md[0][boffset].block_md[slot] = 0;
+                  void *ptr =
+                     (void *)slice_data(blocks[boffset].slots[slot].key);
+                  platform_free(0, ptr);
+                  blocks[boffset].slots[slot].key      = NULL_SLICE;
+                  blocks[boffset].slots[slot].refcount = 0;
+                  pc_add(&table->metadata.lv1_balls, -1, thread_id);
+                  done = true;
+                  break;
+               }
+            }
+            ++target_refcount;
+         }
+         platform_assert(done, "No empty slot in the block\n");
+         md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
+      } else {
+         return false;
+      }
+   }
 
    uint8_t start = 0;
    uint8_t slot  = word_select(md_mask, start);
