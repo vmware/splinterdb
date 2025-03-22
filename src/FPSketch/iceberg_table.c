@@ -1230,43 +1230,42 @@ start:;
                break;
             }
          }
+         platform_assert(done, "No empty slot in the block\n");
+         md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
+         popct   = __builtin_popcountll(md_mask);
+         platform_assert(likely(popct));
+      } else {
+         return false;
       }
-      platform_assert(done, "No empty slot in the block\n");
-      md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, 0);
-      popct   = __builtin_popcountll(md_mask);
-      platform_assert(likely(popct));
-   } else {
-      return false;
    }
-}
 
-uint8_t start = 0;
-uint8_t slot  = word_select(md_mask, start);
+   uint8_t start = 0;
+   uint8_t slot  = word_select(md_mask, start);
 
-/*if(__sync_bool_compare_and_swap(metadata->lv1_md[bindex][boffset].block_md
- * + slot, 0, 1)) {*/
-pc_add(&metadata->lv1_balls, 1, thread_id);
-blocks[boffset].slots[slot].key        = key;
-blocks[boffset].slots[slot].val        = value;
-blocks[boffset].slots[slot].refcount   = refcount;
-blocks[boffset].slots[slot].q_refcount = q_refcount;
-// ValueType value_with_refcount = {.value    = value.value,
-//                                  .refcount = value.refcount};
-// // printf("tid %d %p %s %s before update refcount: %d\n", thread_id, (void
-// *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
+   /*if(__sync_bool_compare_and_swap(metadata->lv1_md[bindex][boffset].block_md
+    * + slot, 0, 1)) {*/
+   pc_add(&metadata->lv1_balls, 1, thread_id);
+   blocks[boffset].slots[slot].key        = key;
+   blocks[boffset].slots[slot].val        = value;
+   blocks[boffset].slots[slot].refcount   = refcount;
+   blocks[boffset].slots[slot].q_refcount = q_refcount;
+   // ValueType value_with_refcount = {.value    = value.value,
+   //                                  .refcount = value.refcount};
+   // // printf("tid %d %p %s %s before update refcount: %d\n", thread_id, (void
+   // *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
 
-// atomic_write_128(
-//    key, value_with_refcount, (uint64_t *)&blocks[boffset].slots[slot]);
-// printf("tid %d %p %s %s after update refcount: %d\n", thread_id, (void
-// *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
+   // atomic_write_128(
+   //    key, value_with_refcount, (uint64_t *)&blocks[boffset].slots[slot]);
+   // printf("tid %d %p %s %s after update refcount: %d\n", thread_id, (void
+   // *)table, __func__, key, blocks[boffset].slots[slot].val.refcount);
 
-metadata->lv1_md[bindex][boffset].block_md[slot] = fprint;
-return true;
-/*}*/
-goto start;
-/*}*/
+   metadata->lv1_md[bindex][boffset].block_md[slot] = fprint;
+   return true;
+   /*}*/
+   goto start;
+   /*}*/
 
-return false;
+   return false;
 }
 
 
