@@ -1364,8 +1364,7 @@ iceberg_put_or_insert(iceberg_table *table,
                                       boffset,
                                       thread_id);
    if (!ret) {
-      // platform_assert(false, "block going to lv2\n");
-      platform_default_log("going to lv2\n");
+      platform_assert(false, "block going to lv2\n");
       ret = iceberg_lv2_insert(
          table, *key, **value, refcount, q_refcount, index, thread_id);
    }
