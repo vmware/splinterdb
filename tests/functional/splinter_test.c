@@ -2309,7 +2309,7 @@ test_splinter_delete(trunk_config    *cfg,
                               &params[i].thread);
       if (!SUCCESS(rc)) {
          for (uint64 j = 0; j < i; j++) {
-            platform_thread_join(params[i].thread);
+            platform_thread_join(params[j].thread);
          }
          goto destroy_splinter;
       }
