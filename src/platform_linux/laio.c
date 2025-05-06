@@ -278,7 +278,11 @@ laio_async_run(io_async_state *gios)
    // loop after yielding when the io_submit is successful..
    int submit_status = 1;
 
+   // Every other iteration we try optimisitically
+   async_wait_queue *queue = NULL;
+
    laio_async_state *ios = (laio_async_state *)gios;
+
    async_begin(ios, 0);
 
    if (ios->iovlen == 0) {
@@ -326,13 +330,13 @@ laio_async_run(io_async_state *gios)
    //    ios->callback,
    //    ios->callback_arg);
 
+
    while (1) {
-      // Save a local pointer to the queue because we lose access to ios after
-      // a successful io_submit.
-      async_wait_queue *queue     = &ios->pctx->submit_waiters;
       ios->__async_state_stack[0] = &&io_has_completed;
 
-      async_wait_queue_lock(queue);
+      if (queue != NULL) {
+         async_wait_queue_lock(queue);
+      }
 
       submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
 
@@ -340,7 +344,9 @@ laio_async_run(io_async_state *gios)
          // Successfully submitted, which means that our state was stored on the
          // kernel's wait queue for this io, which means we have "given away"
          // our state and therefore must not touch it again before returning.
-         async_wait_queue_unlock(queue);
+         if (queue != NULL) {
+            async_wait_queue_unlock(queue);
+         }
          return ASYNC_STATUS_RUNNING;
 
       io_has_completed:
@@ -349,7 +355,9 @@ laio_async_run(io_async_state *gios)
 
       } else if (submit_status != -EAGAIN) {
          // Hard failure, which means we still own our state.  Bail out.
-         async_wait_queue_unlock(&ios->pctx->submit_waiters);
+         if (queue != NULL) {
+            async_wait_queue_unlock(queue);
+         }
          __sync_fetch_and_sub(&ios->pctx->io_count, 1);
          ios->status = submit_status - 1; // Don't set status to 0
          platform_error_log("%s(): OS-pid=%d, tid=%lu"
@@ -361,15 +369,18 @@ laio_async_run(io_async_state *gios)
                             strerror(-submit_status));
          async_return(ios);
 
-      } else {
+      } else if (queue != NULL) {
          // Transient failure to submit, so we still own our state.  Wait to try
          // again.
-         async_wait_queue_append(&ios->pctx->submit_waiters,
-                                 &ios->waiter_node,
-                                 ios->callback,
-                                 ios->callback_arg);
-         async_yield_after(ios,
-                           async_wait_queue_unlock(&ios->pctx->submit_waiters));
+         async_wait_queue_append(
+            queue, &ios->waiter_node, ios->callback, ios->callback_arg);
+         async_yield_after(ios, async_wait_queue_unlock(queue));
+         // queue will be reset to NULL upon re-entry
+      } else {
+         // Transient failure to submit, so we still own our state, but we were
+         // trying optimistically to submit w/o locking our wait queue.  So try
+         // again with lock held.
+         queue = &ios->pctx->submit_waiters;
       }
    }
 

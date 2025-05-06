@@ -253,9 +253,9 @@ typedef struct async_waiter {
 } async_waiter;
 
 typedef struct async_wait_queue {
-   uint64        lock;
-   async_waiter *head;
-   async_waiter *tail;
+   uint64                 lock;
+   volatile async_waiter *head;
+   async_waiter          *tail;
 } async_wait_queue;
 
 static inline void
@@ -294,7 +294,7 @@ async_wait_queue_unlock(async_wait_queue *q)
 }
 
 /* Internal function. */
-static inline void
+static inline async_waiter *
 async_wait_queue_append(async_wait_queue *q,
                         async_waiter     *waiter,
                         async_callback_fn callback,
@@ -304,19 +304,34 @@ async_wait_queue_append(async_wait_queue *q,
    waiter->callback_arg = callback_arg;
    waiter->next         = NULL;
 
+   async_waiter *result;
    if (q->head == NULL) {
       q->head = waiter;
+      result  = NULL;
    } else {
       q->tail->next = waiter;
+      result        = q->tail;
    }
    q->tail = waiter;
+   return result;
+}
+
+static inline void
+async_wait_queue_remove(async_wait_queue *queue, async_waiter *pred)
+{
+   if (pred != NULL) {
+      pred->next  = NULL;
+      queue->tail = pred;
+   } else {
+      queue->head = queue->tail = NULL;
+   }
 }
 
 /* Public: notify one waiter that the condition has become true. */
 static inline void
 async_wait_queue_release_one(async_wait_queue *q)
 {
-   async_waiter *waiter;
+   volatile async_waiter *waiter;
 
    if (!q->head) {
       return;
@@ -342,7 +357,7 @@ async_wait_queue_release_one(async_wait_queue *q)
 static inline void
 async_wait_queue_release_all(async_wait_queue *q)
 {
-   async_waiter *waiter;
+   volatile async_waiter *waiter;
 
    if (!q->head) {
       return;
@@ -375,18 +390,27 @@ async_wait_queue_release_all(async_wait_queue *q)
 #define async_wait_on_queue_until(                                             \
    ready, state, queue, node, callback, callback_arg)                          \
    do {                                                                        \
-      int async_wait_queue_locked = 0;                                         \
+      async_waiter *__async_wait_pred     = NULL;                              \
+      int           __async_wait_in_queue = 0;                                 \
       while (!(ready)) {                                                       \
-         if (async_wait_queue_locked) {                                        \
-            async_wait_queue_append(queue, node, callback, callback_arg);      \
+         if (__async_wait_in_queue) {                                          \
             async_yield_after(state, async_wait_queue_unlock(queue));          \
-            async_wait_queue_locked = 0;                                       \
+            __async_wait_pred     = NULL;                                      \
+            __async_wait_in_queue = 0;                                         \
          } else {                                                              \
             async_wait_queue_lock(queue);                                      \
-            async_wait_queue_locked = 1;                                       \
+            __async_wait_pred =                                                \
+               async_wait_queue_append(queue, node, callback, callback_arg);   \
+            __async_wait_in_queue = 1;                                         \
          }                                                                     \
       }                                                                        \
-      if (async_wait_queue_locked) {                                           \
+      if (__async_wait_in_queue) {                                             \
+         if (__async_wait_pred != NULL) {                                      \
+            __async_wait_pred->next = NULL;                                    \
+            (queue)->tail           = __async_wait_pred;                       \
+         } else {                                                              \
+            (queue)->head = (queue)->tail = NULL;                              \
+         }                                                                     \
          async_wait_queue_unlock(queue);                                       \
       }                                                                        \
    } while (0)

@@ -37,7 +37,7 @@
 #define CC_CLEANER_GAP 512
 
 /* number of events to poll for during clockcache_wait */
-#define CC_DEFAULT_MAX_IO_EVENTS 32
+#define CC_DEFAULT_MAX_IO_EVENTS 1
 
 /*
  *-----------------------------------------------------------------------------
@@ -810,6 +810,8 @@ clockcache_try_set_writeback(clockcache *cc,
                 entry_number,
                 cc->cfg->page_capacity);
 
+   platform_assert(cc->entry[entry_number].waiters.head == NULL);
+
    volatile uint32 *status = &cc->entry[entry_number].status;
    if (__sync_bool_compare_and_swap(
           status, CC_CLEANABLE1_STATUS, CC_WRITEBACK1_STATUS))
@@ -1097,6 +1099,7 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
    debug_assert(debug_status);
 
    /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
+   platform_assert(entry->waiters.head == NULL);
    entry->status = CC_FREE_STATUS;
    clockcache_log(
       addr, entry_number, "evict: entry %u addr %lu\n", entry_number, addr);
@@ -1232,6 +1235,7 @@ clockcache_get_free_page(clockcache *cc,
             if (refcount) {
                clockcache_inc_ref(cc, entry_no, tid);
             }
+            platform_assert(entry->waiters.head == NULL);
             entry->status = status;
             debug_assert(entry->page.disk_addr == CC_UNMAPPED_ADDR);
             return entry_no;
@@ -1448,6 +1452,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
 
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
+      platform_assert(entry->waiters.head == NULL);
       entry->status = CC_FREE_STATUS;
 
       /* 7. reset pincount */
@@ -1576,6 +1581,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
           &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
    {
       clockcache_dec_ref(cc, entry_number, tid);
+      platform_assert(entry->waiters.head == NULL);
       entry->status = CC_FREE_STATUS;
       clockcache_log(addr,
                      entry_number,
@@ -2399,7 +2405,8 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                 * entry and retry
                 */
                entry->page.disk_addr = CC_UNMAPPED_ADDR;
-               entry->status         = CC_FREE_STATUS;
+               platform_assert(entry->waiters.head == NULL);
+               entry->status = CC_FREE_STATUS;
                page_off--;
             }
             break;

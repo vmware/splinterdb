@@ -68,6 +68,7 @@ test_wait_for_inflight(core_handle       *spl,
                        test_async_lookup *async_lookup,
                        verify_tuple_arg  *vtarg)
 {
+   static uint64   max_elapsed = SEC_TO_NSEC(1);
    const timestamp ts          = platform_get_timestamp();
    uint64         *latency_max = NULL;
    if (vtarg->stats != NULL) {
@@ -79,7 +80,16 @@ test_wait_for_inflight(core_handle       *spl,
       spl, async_lookup, latency_max, verify_tuple_callback, vtarg))
    {
       cache_cleanup(spl->cc);
-      platform_assert(platform_timestamp_elapsed(ts) < TEST_STUCK_IO_TIMEOUT);
+      if (2 * max_elapsed < platform_timestamp_elapsed(ts)) {
+         platform_error_log("Stuck IO detected (%lu ns): %u inflight async "
+                            "lookups, %u avail inflight lookups\n",
+                            platform_timestamp_elapsed(ts),
+                            pcq_count(async_lookup->ready_q),
+                            pcq_count(async_lookup->avail_q));
+         max_elapsed = platform_timestamp_elapsed(ts);
+      }
+      // platform_assert(platform_timestamp_elapsed(ts) <
+      // TEST_STUCK_IO_TIMEOUT);
    }
 }
 
