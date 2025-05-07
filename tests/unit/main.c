@@ -631,7 +631,7 @@ suite_filter(struct ctest *t)
 
    // Exact match
    if (strlen(suite_name) != strlen(t->ssname))
-     return 0;
+      return 0;
 
    // If user didn't request filtering by test case name, we are done.
    if (!testcase_name)
