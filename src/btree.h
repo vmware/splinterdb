@@ -372,7 +372,8 @@ void
 btree_print_tree_stats(platform_log_handle *log_handle,
                        cache               *cc,
                        btree_config        *cfg,
-                       uint64               addr);
+                       uint64               addr,
+                       page_type            type);
 
 void
 btree_print_lookup(cache        *cc,

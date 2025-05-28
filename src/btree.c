@@ -3574,11 +3574,12 @@ void
 btree_print_tree_stats(platform_log_handle *log_handle,
                        cache               *cc,
                        btree_config        *cfg,
-                       uint64               addr)
+                       uint64               addr,
+                       page_type            type)
 {
    btree_node node;
    node.addr = addr;
-   btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
+   btree_node_get(cc, cfg, &node, type);
 
    platform_default_log("Tree stats: height %u\n", node.hdr->height);
    cache_print_stats(log_handle, cc);

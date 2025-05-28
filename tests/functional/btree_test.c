@@ -110,6 +110,7 @@ test_btree_lookup(cache           *cc,
                   btree_config    *cfg,
                   platform_heap_id hid,
                   uint64           root_addr,
+                  page_type        type,
                   key              target,
                   message          expected_data)
 {
@@ -119,7 +120,7 @@ test_btree_lookup(cache           *cc,
 
    merge_accumulator_init(&result, hid);
 
-   rc = btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, &result);
+   rc = btree_lookup(cc, cfg, root_addr, type, target, &result);
    platform_assert_status_ok(rc);
 
    message data = merge_accumulator_to_message(&result);
@@ -143,8 +144,13 @@ test_memtable_lookup(test_memtable_context *ctxt,
    btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    uint64        root_addr = ctxt->mt_ctxt->mt[mt_no].root_addr;
    cache        *cc        = ctxt->cc;
-   return test_btree_lookup(
-      cc, btree_cfg, ctxt->heap_id, root_addr, target, expected_data);
+   return test_btree_lookup(cc,
+                            btree_cfg,
+                            ctxt->heap_id,
+                            root_addr,
+                            PAGE_TYPE_MEMTABLE,
+                            target,
+                            expected_data);
 }
 
 void
@@ -467,6 +473,7 @@ test_btree_async_lookup(cache                   *cc,
                         btree_test_async_ctxt   *async_ctxt,
                         btree_test_async_lookup *async_lookup,
                         uint64                   root_addr,
+                        page_type                type,
                         bool32                   expected_found,
                         bool32                  *correct)
 {
@@ -477,7 +484,7 @@ test_btree_async_lookup(cache                   *cc,
                                  cc,
                                  cfg,
                                  root_addr,
-                                 PAGE_TYPE_BRANCH,
+                                 type,
                                  target,
                                  &async_ctxt->result,
                                  btree_test_async_callback,
@@ -509,6 +516,7 @@ test_memtable_async_lookup(test_memtable_context   *ctxt,
                                   async_ctxt,
                                   async_lookup,
                                   mt->root_addr,
+                                  PAGE_TYPE_MEMTABLE,
                                   expected_found,
                                   correct);
 }
@@ -651,8 +659,11 @@ test_btree_basic(cache             *cc,
       &req, cc, btree_cfg, (iterator *)&itor, UINT64_MAX, NULL, 0, NULL);
    platform_assert_status_ok(rc);
 
-   btree_print_tree_stats(
-      Platform_default_log_handle, cc, btree_cfg, root_addr);
+   btree_print_tree_stats(Platform_default_log_handle,
+                          cc,
+                          btree_cfg,
+                          root_addr,
+                          PAGE_TYPE_MEMTABLE);
 
    start_time = platform_get_timestamp();
    rc         = btree_pack(&req);
@@ -677,6 +688,7 @@ test_btree_basic(cache             *cc,
                               btree_cfg,
                               hid,
                               packed_root_addr,
+                              PAGE_TYPE_BRANCH,
                               key_buffer_key(&keybuf),
                               merge_accumulator_to_message(&expected_data));
          if (!correct) {
@@ -702,6 +714,7 @@ test_btree_basic(cache             *cc,
                                                     async_ctxt,
                                                     async_lookup,
                                                     packed_root_addr,
+                                                    PAGE_TYPE_BRANCH,
                                                     TRUE,
                                                     &correct);
          if (res == ASYNC_STATUS_DONE) {
@@ -738,6 +751,7 @@ test_btree_basic(cache             *cc,
                                          btree_cfg,
                                          hid,
                                          packed_root_addr,
+                                         PAGE_TYPE_BRANCH,
                                          key_buffer_key(&keybuf),
                                          NULL_MESSAGE);
       if (!correct) {
@@ -758,8 +772,11 @@ test_btree_basic(cache             *cc,
                         platform_timestamp_elapsed(start_time) / num_inserts);
    cache_assert_free(cc);
 
-   btree_print_tree_stats(
-      Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
+   btree_print_tree_stats(Platform_default_log_handle,
+                          cc,
+                          btree_cfg,
+                          packed_root_addr,
+                          PAGE_TYPE_BRANCH);
 
    btree_dec_ref(cc, btree_cfg, packed_root_addr, PAGE_TYPE_BRANCH);
 
