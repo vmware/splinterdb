@@ -253,7 +253,7 @@ typedef struct async_waiter {
 } async_waiter;
 
 typedef struct async_wait_queue {
-   uint64                 lock;
+   volatile uint64        lock;
    volatile async_waiter *head;
    async_waiter          *tail;
 } async_wait_queue;
@@ -317,13 +317,22 @@ async_wait_queue_append(async_wait_queue *q,
 }
 
 static inline void
-async_wait_queue_remove(async_wait_queue *queue, async_waiter *pred)
+async_wait_queue_remove(async_wait_queue *queue,
+                        async_waiter     *pred,
+                        async_waiter     *waiter)
 {
    if (pred != NULL) {
-      pred->next  = NULL;
-      queue->tail = pred;
+      platform_assert(pred->next == waiter);
+      pred->next = waiter->next;
+      if (queue->tail == waiter) {
+         queue->tail = pred;
+      }
    } else {
-      queue->head = queue->tail = NULL;
+      platform_assert(queue->head == waiter);
+      queue->head = waiter->next;
+      if (queue->head == NULL) {
+         queue->tail = NULL;
+      }
    }
 }
 
@@ -357,7 +366,7 @@ async_wait_queue_release_one(async_wait_queue *q)
 static inline void
 async_wait_queue_release_all(async_wait_queue *q)
 {
-   volatile async_waiter *waiter;
+   volatile async_waiter *waiter = NULL;
 
    if (!q->head) {
       return;
@@ -383,38 +392,23 @@ async_wait_queue_release_all(async_wait_queue *q)
  * avoids the race where <ready> becomes true and all waiters get notified
  * between the time that we check the condition (w/o locks) and add ourselves to
  * the queue.
- *
- * The macro is also written so that <ready> gets used only once, which can be
- * important if <ready> includes another async macro invocation.
  */
 #define async_wait_on_queue_until(                                             \
    ready, state, queue, node, callback, callback_arg)                          \
    do {                                                                        \
-      async_waiter *__async_wait_pred     = NULL;                              \
-      int           __async_wait_in_queue = 0;                                 \
-      while (!(ready)) {                                                       \
-         if (__async_wait_in_queue) {                                          \
+      if (!(ready)) {                                                          \
+         async_wait_queue_lock(queue);                                         \
+         async_waiter *__async_wait_pred =                                     \
+            async_wait_queue_append(queue, node, callback, callback_arg);      \
+         __sync_synchronize();                                                 \
+         if (!(ready)) {                                                       \
             async_yield_after(state, async_wait_queue_unlock(queue));          \
-            __async_wait_pred     = NULL;                                      \
-            __async_wait_in_queue = 0;                                         \
          } else {                                                              \
-            async_wait_queue_lock(queue);                                      \
-            __async_wait_pred =                                                \
-               async_wait_queue_append(queue, node, callback, callback_arg);   \
-            __async_wait_in_queue = 1;                                         \
+            async_wait_queue_remove(queue, __async_wait_pred, node);           \
+            async_wait_queue_unlock(queue);                                    \
          }                                                                     \
-      }                                                                        \
-      if (__async_wait_in_queue) {                                             \
-         if (__async_wait_pred != NULL) {                                      \
-            __async_wait_pred->next = NULL;                                    \
-            (queue)->tail           = __async_wait_pred;                       \
-         } else {                                                              \
-            (queue)->head = (queue)->tail = NULL;                              \
-         }                                                                     \
-         async_wait_queue_unlock(queue);                                       \
       }                                                                        \
    } while (0)
-
 
 /*
  * Macros for calling async functions.
