@@ -2258,25 +2258,6 @@ btree_lookup(cache             *cc,        // IN
    return rc;
 }
 
-// platform_status
-// btree_lookup(cache             *cc,        // IN
-//              btree_config      *cfg,       // IN
-//              uint64             root_addr, // IN
-//              page_type          type,      // IN
-//              key                target,    // IN
-//              merge_accumulator *result)    // OUT
-// {
-//    return async_call_sync_callback(cache_cleanup(cc),
-//                                    btree_lookup_async,
-//                                    cc,
-//                                    cfg,
-//                                    root_addr,
-//                                    type,
-//                                    target,
-//                                    result);
-// }
-
-
 platform_status
 btree_lookup_and_merge(cache              *cc,        // IN
                        const btree_config *cfg,       // IN

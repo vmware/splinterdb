@@ -271,11 +271,9 @@ static async_status
 laio_async_run(io_async_state *gios)
 {
    // Reset submit_status to 1 every time we enter the function (1 is the return
-   // value from a successful call to io_submit).  This interoperates with the
-   // async_yield_if below, so that we will exit the wait_on_queue loop after
-   // yielding if submit_status is 1.  This enables us to avoid mutating the
-   // state (e.g. by storing the submit_status in the state) and still exit the
-   // loop after yielding when the io_submit is successful..
+   // value from a successful call to io_submit).  This enables us to avoid
+   // mutating the state (e.g. by storing the submit_status in the state) and
+   // still exit the loop after yielding when the io_submit is successful..
    int submit_status = 1;
 
    // Every other iteration we try optimisitically

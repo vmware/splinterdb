@@ -57,7 +57,7 @@
  *
  * Callback-based async functions are appropriate when you have some way of
  * receiving external notification that the awaited event has occured, and you
- * want to notify your callers that they can now resum execution of your code.
+ * want to notify your callers that they can now resume execution of your code.
  * One example might be an asynchronous I/O library that calls a callback when
  * I/O completes.
  *
@@ -178,15 +178,6 @@ typedef void *async_state;
       }                                                                        \
    } while (0)
 
-#define async_yield_if(statep, expr)                                           \
-   do {                                                                        \
-      ASYNC_STATE(statep) = &&_ASYNC_LABEL(_async_yield_if);                   \
-      if (expr) {                                                              \
-         return ASYNC_STATUS_RUNNING;                                          \
-      }                                                                        \
-      _ASYNC_LABEL(_async_yield_if) : {}                                       \
-   } while (0)
-
 /* Call statement and then yield without further modifying our state. This is
  * useful for avoiding races when, e.g. stmt might cause another thread to begin
  * execution using our state. */
@@ -198,7 +189,7 @@ typedef void *async_state;
       _ASYNC_LABEL(_async_yield_after) : {}                                    \
    } while (0)
 
-#define async_yield(statep) async_yield_if(statep, 1)
+#define async_yield(statep) async_yield_after(statep, )
 
 /* Supports an optional return value. */
 #define async_return(statep, ...)                                              \
@@ -388,10 +379,12 @@ async_wait_queue_release_all(async_wait_queue *q)
 /* Public: Wait on the queue until the predicate <ready> evaluates to true.
  * There is a subtle race condition that this code avoids.  This code checks
  * <ready> without holding any locks.  If <ready> is not true, then it locks the
- * wait queue and checks again.  By checking again with lock held, this code
- * avoids the race where <ready> becomes true and all waiters get notified
- * between the time that we check the condition (w/o locks) and add ourselves to
- * the queue.
+ * wait queue, puts itself on the queue, and checks again.  By checking again
+ * while on the queue, this code avoids the race where <ready> becomes true and
+ * all waiters get notified between the time that we check the condition (w/o
+ * locks) and add ourselves to the queue.  This also enables the lockless
+ * queue-emptiness check at the beginning of async_wait_queue_release_{one,all}
+ * to work correctly.
  */
 #define async_wait_on_queue_until(                                             \
    ready, state, queue, node, callback, callback_arg)                          \
