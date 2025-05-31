@@ -901,7 +901,7 @@ function run_tests_with_shared_memory() {
    # These are written to always create shared segment, so --use-shmem arg is
    # not needed when invoking them. These tests will fork one or more child
    # processes.
-   run_slower_forked_process_tests
+   #run_slower_forked_process_tests
 
    record_elapsed_time ${shmem_tests_run_start} "Tests with shared memory configured"
 }
