@@ -1091,7 +1091,6 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
       uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
       cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
-      entry->type           = PAGE_TYPE_INVALID;
    }
    debug_only uint32 debug_status =
       clockcache_test_flag(cc, entry_number, CC_WRITELOCKED | CC_CLAIMED);
@@ -1099,6 +1098,7 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
 
    /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
    platform_assert(entry->waiters.head == NULL);
+   entry->type   = PAGE_TYPE_INVALID;
    entry->status = CC_FREE_STATUS;
    clockcache_log(
       addr, entry_number, "evict: entry %u addr %lu\n", entry_number, addr);
@@ -1453,10 +1453,10 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
       cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
       debug_assert(entry->page.disk_addr == addr);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
-      entry->type           = PAGE_TYPE_INVALID;
 
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       platform_assert(entry->waiters.head == NULL);
+      entry->type   = PAGE_TYPE_INVALID;
       entry->status = CC_FREE_STATUS;
 
       /* 7. reset pincount */
@@ -1593,6 +1593,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
    {
       clockcache_dec_ref(cc, entry_number, tid);
       platform_assert(entry->waiters.head == NULL);
+      entry->type   = PAGE_TYPE_INVALID;
       entry->status = CC_FREE_STATUS;
       clockcache_log(addr,
                      entry_number,

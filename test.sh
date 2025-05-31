@@ -221,12 +221,11 @@ function nightly_functionality_stress_tests() {
     cache_size=512      # MiB
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     # echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with small ${cache_size} MiB cache"
-    # Commented out, because we run into issue # 322.
-    # run_with_timing "Functionality Stress test ${test_descr}" \
-    #         "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
-                                                # --num-tables ${ntables} \
-                                                # --cache-capacity-mib ${cache_size} \
-                                                # --db-location ${dbname}
+    run_with_timing "Functionality Stress test ${test_descr}" \
+            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
+                                                --num-tables ${ntables} \
+                                                --cache-capacity-mib ${cache_size} \
+                                                --db-location ${dbname}
     rm ${dbname}
 }
 
@@ -245,20 +244,14 @@ function nightly_unit_stress_tests() {
     local test_descr="${nrows_h} rows, ${n_threads} threads"
     local test_name=large_inserts_stress_test
 
-    # FIXME: This stress test is currently unstable. We run into shmem-OOMs
-    # Also, we need a big machine with large # of cores to be able to run
-    # with this configuration. The config-params listed below -should- work but
-    # this combination has never been exercised successfully due to lack of hw.
     echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
-    # RESOLVE: Revert: shellcheck disable=SC2086
-    # run_with_timing "Large Inserts Stress test ${test_descr}" \
-    #         "$BINDIR"/unit/${test_name} \
-    #                            $Use_shmem \
-    #                            --shmem-capacity-gib 8 \
-    #                            --num-inserts ${num_rows} \
-    #                            --num-threads ${n_threads} \
-    #                            --num-memtable-bg-threads 8 \
-    #                            --num-normal-bg-threads 20
+    run_with_timing "Large Inserts Stress test ${test_descr}" \
+            "$BINDIR"/unit/${test_name} \
+                               $Use_shmem \
+                               --shmem-capacity-gib 8 \
+                               --num-inserts ${num_rows} \
+                               --num-memtable-bg-threads 8 \
+                               --num-normal-bg-threads 20
 }
 
 # #############################################################################
@@ -662,16 +655,6 @@ function run_slower_unit_tests() {
     num_rows=$((n_mills * 1000 * 1000))
     msg="Large inserts stress test, ${n_mills}M rows, ${use_msg}"
 
-    # --------------------------------------------------------------------------
-    # FIXME: Disable script failing upon an error. Re-enable when following is fixed:
-    # Asserts tripping:
-    # 813 TEST 7/12 large_inserts_bugs_stress:test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid OS-pid=373371, OS-tid=373385, Thread-ID=6, Assertion failed at src/platform_linux/platform.c:286:platform_batch_rwlock_lock(): "lock->write_lock[lock_idx].claim".
-    #
-    # robj -- turning this off for now, as we are seeing some asserts trip in this test.
-    # --------------------------------------------------------------------------
-
-    # set +e
-
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
             "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} --num-inserts ${num_rows}
@@ -689,7 +672,6 @@ function run_slower_unit_tests() {
                                                         --num-normal-bg-threads 4 \
                                                         --num-memtable-bg-threads 3
     rm splinterdb_unit_tests_db
-    set -e
 }
 
 # ##################################################################
@@ -706,20 +688,10 @@ function run_slower_forked_process_tests() {
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
     rm splinterdb_forked_child_test_db
     
-    # --------------------------------------------------------------------------
-    # Will be an interesting test to exercise, but ASAN job in CI failed with:
-    # TEST 4/4 splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1569, OS-tid=1569, Thread-ID=1, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
-    # OS-pid=1565, OS-tid=1565, Thread-ID=0, Assertion failed at tests/unit/splinterdb_forked_child_test.c:536:ctest_splinterdb_forked_child_test_multiple_forked_process_doing_IOs_run(): "WIFEXITED(wstatus)". Child terminated abnormally: SIGNAL=6
-    #
-    # main pr-clang job also failed with this error:
-    # splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1182, OS-tid=1182, Thread-ID=3, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
-    # So -- this test scenario is unearthing some existing bugs. Comment out for now.
-    # --------------------------------------------------------------------------
-    #
-    # num_forked_procs=4
-    # msg="Splinter tests using ${num_forked_procs} forked child processes"
-    # run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
-    #                                     --num-processes ${num_forked_procs}
+    num_forked_procs=4
+    msg="Splinter tests using ${num_forked_procs} forked child processes"
+    run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
+                                        --num-processes ${num_forked_procs}
 
     # ---- Run large_inserts_stress_test with small configuration as a quick check
     # using forked child process execution.

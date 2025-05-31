@@ -523,31 +523,10 @@ unlock_incorp_lock:
    return should_continue;
 }
 
-/*
- * Function to incorporate the memtable to the root.
- * Carries out the following steps :
- *  1. Claim and copy the root.
- *  2. Add the memtable to the new root as a new compacted bundle.
- *  3. If the new root is full, flush until it is no longer full. Also flushes
- *     any full descendents.
- *  4. If necessary, split the new root.
- *  5. Lock lookup lock (blocks lookups, which must obtain a read lock on the
- *     lookup lock).
- *  6. Transition memtable state and increment generation_retired.
- *  7. Update root to new_root and unlock all locks (root lock, lookup lock,
- *     new root lock).
- *  8. Enqueue the filter building task.
- *  9. Decrement the now-incorporated memtable ref count and recycle if no
- *     references.
- *
- * This functions has some preconditions prior to being called.
- *  --> Trunk root node should be write locked.
- *  --> The memtable should have inserts blocked (can_insert == FALSE)
- */
 static void
-core_memtable_incorporate_and_flush(core_handle   *spl,
-                                    uint64         generation,
-                                    const threadid tid)
+core_memtable_incorporate(core_handle   *spl,
+                          uint64         generation,
+                          const threadid tid)
 {
    platform_stream_handle stream;
    platform_status        rc = core_open_log_stream_if_enabled(spl, &stream);
@@ -635,7 +614,7 @@ core_memtable_flush_internal(core_handle *spl, uint64 generation)
       goto out;
    }
    do {
-      core_memtable_incorporate_and_flush(spl, generation, tid);
+      core_memtable_incorporate(spl, generation, tid);
       generation++;
    } while (core_try_continue_incorporate(spl, generation));
 out:
@@ -1453,17 +1432,12 @@ core_create(core_config      *cfg,
       hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
-   // Validate configured key-size is within limits.
    spl->al = al;
    spl->cc = cc;
    debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
    spl->id      = id;
    spl->heap_id = hid;
    spl->ts      = ts;
-
-   // get a free node for the root
-   //    we don't use the mini allocator for this, since the root doesn't
-   //    maintain constant height
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
@@ -1581,8 +1555,7 @@ core_mount(core_config      *cfg,
 }
 
 /*
- * This function is only safe to call when all other calls to spl have returned
- * and all tasks have been complete.
+ * This function is only safe to call when all other calls to spl have returned.
  */
 void
 core_prepare_for_shutdown(core_handle *spl)
