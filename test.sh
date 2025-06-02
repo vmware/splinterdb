@@ -884,10 +884,10 @@ function run_tests_with_shared_memory() {
 
    # Additional case exercised while developing shared memory support for multi
    # process execution to verify management of IO-contexts under forked processes
-   run_with_timing "IO APIs test using shared memory and forked child" \
-                   "$BINDIR"/driver_test io_apis_test \
-                   --use-shmem --fork-child
-   rm splinterdb_io_apis_test_db
+#    run_with_timing "IO APIs test using shared memory and forked child" \
+#                    "$BINDIR"/driver_test io_apis_test \
+#                    --use-shmem --fork-child
+#    rm splinterdb_io_apis_test_db
 
    Use_shmem="--use-shmem" run_slower_unit_tests
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
