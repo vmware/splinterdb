@@ -6156,6 +6156,209 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
       log_handle, ARRAY_SIZE(lookup_columns), lookup_columns, height + 1);
 }
 
+/************************************
+ * Node traversal
+ ************************************/
+
+typedef platform_status (*node_visitor)(trunk_context *context,
+                                        trunk_node    *node,
+                                        void          *arg);
+
+static platform_status
+visit_nodes_internal(trunk_context *context,
+                     trunk_node    *node,
+                     node_visitor   visitor,
+                     void          *arg)
+{
+   platform_status rc;
+
+   rc = visitor(context, node, arg);
+   if (!SUCCESS(rc)) {
+      platform_error_log("visit_nodes_internal: visitor failed: %d\n", rc.r);
+      return rc;
+   }
+
+   for (int i = 0; i < trunk_node_num_children(node); i++) {
+      trunk_pivot *pivot;
+      trunk_node   child;
+
+      pivot = vector_get(&node->pivots, i);
+      rc    = trunk_node_deserialize(context, pivot->child_addr, &child);
+      if (!SUCCESS(rc)) {
+         platform_error_log("visit_nodes_internal: "
+                            "trunk_node_deserialize failed: %d\n",
+                            rc.r);
+         return rc;
+      }
+
+      rc = visit_nodes_internal(context, &child, visitor, arg);
+      trunk_node_deinit(&child, context);
+
+      if (!SUCCESS(rc)) {
+         platform_error_log("visit_nodes_internal: "
+                            "visit_nodes_internal failed: %d\n",
+                            rc.r);
+         return rc;
+      }
+   }
+
+   return rc;
+}
+
+static platform_status
+visit_nodes(trunk_context *context, node_visitor visitor, void *arg)
+{
+   trunk_ondisk_node_handle root_handle;
+   platform_status          rc;
+
+   rc = trunk_init_root_handle(context, &root_handle);
+   if (!SUCCESS(rc)) {
+      platform_error_log("visit_nodes: trunk_init_root_handle failed: %d\n",
+                         rc.r);
+      return rc;
+   }
+
+   trunk_node node;
+   rc = trunk_node_deserialize(
+      context, root_handle.header_page->disk_addr, &node);
+   if (!SUCCESS(rc)) {
+      platform_error_log("visit_nodes_internal: "
+                         "trunk_node_deserialize failed: %d\n",
+                         rc.r);
+      return rc;
+   }
+
+
+   rc = visit_nodes_internal(context, &node, visitor, arg);
+   if (!SUCCESS(rc)) {
+      platform_error_log("visit_nodes: visit_nodes_internal failed: %d\n",
+                         rc.r);
+   }
+
+   trunk_node_deinit(&node, context);
+   trunk_ondisk_node_handle_deinit(&root_handle);
+   return rc;
+}
+
+/************************************
+ * Space use
+ ************************************/
+
+typedef struct space_use_stats {
+   uint64 trunk_bytes[TRUNK_MAX_HEIGHT];
+   uint64 maplet_bytes[TRUNK_MAX_HEIGHT];
+   uint64 branch_bytes[TRUNK_MAX_HEIGHT];
+} space_use_stats;
+
+static void
+accumulate_space_use_branch(const branch_ref bref,
+                            trunk_context   *context,
+                            space_use_stats *dst,
+                            uint64           height)
+{
+   dst->branch_bytes[height] += btree_space_use_bytes(context->cc,
+                                                      context->cfg->btree_cfg,
+                                                      branch_ref_addr(bref),
+                                                      PAGE_TYPE_BRANCH);
+}
+
+static void
+accumulate_space_use_bundle(const bundle    *bndl,
+                            trunk_context   *context,
+                            space_use_stats *dst,
+                            uint64           height)
+{
+   if (!routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
+      dst->maplet_bytes[height] +=
+         routing_filter_space_use_bytes(context->cc, &bndl->maplet);
+   }
+   VECTOR_APPLY_TO_ELTS(
+      &bndl->branches, accumulate_space_use_branch, context, dst, height);
+}
+
+
+static platform_status
+accumulate_space_use_node(trunk_context *context, trunk_node *src, void *arg)
+{
+   space_use_stats *dst = (space_use_stats *)arg;
+   if (src->height >= TRUNK_MAX_HEIGHT) {
+      platform_error_log("accumulate_space_use_node: "
+                         "node height exceeds max levels\n");
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   dst->trunk_bytes[src->height] += cache_extent_size(context->cc);
+
+   VECTOR_APPLY_TO_PTRS(&src->pivot_bundles,
+                        accumulate_space_use_bundle,
+                        context,
+                        &dst[src->height],
+                        src->height);
+   return STATUS_OK;
+}
+
+void
+trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context)
+{
+   /* Measure the space used by the tree */
+   space_use_stats space_usage;
+   memset(&space_usage, 0, sizeof(space_usage));
+   platform_status rc;
+   rc = visit_nodes(context, accumulate_space_use_node, &space_usage);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_print_space_use: "
+                         "visit_nodes failed: %d\n",
+                         rc.r);
+      return;
+   }
+
+   /* Aggregate into per-level stats */
+   uint64 total_bytes_per_level[TRUNK_MAX_HEIGHT];
+   memset(total_bytes_per_level, 0, sizeof(total_bytes_per_level));
+   array_accumulate_add(
+      TRUNK_MAX_HEIGHT, total_bytes_per_level, space_usage.trunk_bytes);
+   array_accumulate_add(
+      TRUNK_MAX_HEIGHT, total_bytes_per_level, space_usage.maplet_bytes);
+   array_accumulate_add(
+      TRUNK_MAX_HEIGHT, total_bytes_per_level, space_usage.branch_bytes);
+
+   /* Aggregate into per-type stats */
+   uint64 total_trunk_bytes =
+      array_sum(TRUNK_MAX_HEIGHT, space_usage.trunk_bytes);
+   uint64 total_maplet_bytes =
+      array_sum(TRUNK_MAX_HEIGHT, space_usage.maplet_bytes);
+   uint64 total_branch_bytes =
+      array_sum(TRUNK_MAX_HEIGHT, space_usage.branch_bytes);
+
+   /* Le grand total */
+   uint64 total_bytes =
+      total_trunk_bytes + total_maplet_bytes + total_branch_bytes;
+
+
+   platform_log(log_handle,
+                "Space use: trunk %lu bytes, maplet %lu bytes, "
+                "branch %lu bytes, total %lu bytes\n",
+                total_trunk_bytes,
+                total_maplet_bytes,
+                total_branch_bytes,
+                total_bytes);
+
+   const uint64 height_array[TRUNK_MAX_HEIGHT] = {
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+   column space_use_columns[] = {
+      COLUMN("height", height_array),
+      COLUMN("trunk bytes", space_usage.trunk_bytes),
+      COLUMN("maplet bytes", space_usage.maplet_bytes),
+      COLUMN("branch bytes", space_usage.branch_bytes),
+      COLUMN("total bytes", total_bytes_per_level),
+   };
+   platform_log(log_handle, "Space use\n");
+   print_column_table(log_handle,
+                      ARRAY_SIZE(space_use_columns),
+                      space_use_columns,
+                      TRUNK_MAX_HEIGHT);
+}
+
 void
 trunk_reset_stats(trunk_context *context)
 {

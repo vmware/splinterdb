@@ -1095,7 +1095,7 @@ routing_filter_dec_ref(cache *cc, routing_filter *filter)
    }
 
    uint64 meta_head = filter->meta_head;
-   mini_dec_ref(cc, meta_head, PAGE_TYPE_FILTER, FALSE);
+   mini_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
 }
 
 /*
@@ -1131,6 +1131,12 @@ routing_filter_estimate_unique_keys(routing_filter *filter, routing_config *cfg)
    // platform_default_log("unique fp %u\n", filter->num_unique);
    return routing_filter_estimate_unique_keys_from_count(cfg,
                                                          filter->num_unique);
+}
+
+uint64
+routing_filter_space_use_bytes(cache *cc, const routing_filter *filter)
+{
+   return mini_space_use_bytes(cc, filter->meta_head, PAGE_TYPE_FILTER);
 }
 
 /*

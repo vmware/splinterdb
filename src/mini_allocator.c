@@ -485,8 +485,8 @@ mini_release(mini_allocator *mini)
  *-----------------------------------------------------------------------------
  */
 
-void
-mini_deinit(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
+static void
+mini_deinit(cache *cc, uint64 meta_head, page_type type)
 {
    allocator *al        = cache_get_allocator(cc);
    uint64     meta_addr = meta_head;
@@ -513,62 +513,80 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
 
 /*
  *-----------------------------------------------------------------------------
- * mini_for_each(_self_exclusive) --
+ * mini_for_each_meta_page --
  *
- *      Calls func on each extent_addr in the mini_allocator.
- *
- *      The self-exclusive version does hand-over-hand locking with claims to
- *      prevent races among callers. This is used for mini_dec_ref so
- *      that an order is enforced and the last caller can deinit the
- *      meta_pages.
- *
- *      NOTE: Should not be called if there are no intersecting ranges.
+ *      Calls func on each meta_page in the mini_allocator.
  *
  * Results:
  *      None
  *
  * Side effects:
- *      func may store output in out.
+ *      func may store output in arg.
  *-----------------------------------------------------------------------------
  */
 
-typedef bool32 (*mini_for_each_fn)(cache    *cc,
-                                   page_type type,
-                                   uint64    base_addr,
-                                   void     *out);
+typedef void (*mini_for_each_meta_page_fn)(cache       *cc,
+                                           page_type    type,
+                                           page_handle *meta_page,
+                                           void        *arg);
+
+static void
+mini_for_each_meta_page(cache                     *cc,
+                        uint64                     meta_head,
+                        page_type                  type,
+                        mini_for_each_meta_page_fn func,
+                        void                      *arg)
+{
+   uint64 meta_addr = meta_head;
+   while (meta_addr != 0) {
+      page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
+      func(cc, type, meta_page, arg);
+      meta_addr = mini_get_next_meta_addr(meta_page);
+      cache_unget(cc, meta_page);
+   }
+}
+
+/* mini_for_each(): call a function on each allocated extent in the
+ * mini_allocator (not including the extents used by the mini_allocator itself).
+ */
+typedef void (*mini_for_each_fn)(cache    *cc,
+                                 page_type type,
+                                 uint64    extent_addr,
+                                 void     *arg);
+
+typedef struct for_each_func {
+   mini_for_each_fn func;
+   void            *arg;
+} for_each_func;
+
+static void
+mini_for_each_meta_page_func(cache       *cc,
+                             page_type    type,
+                             page_handle *meta_page,
+                             void        *arg)
+{
+   for_each_func *fef = (for_each_func *)arg;
+
+   uint64      num_meta_entries = mini_num_entries(meta_page);
+   meta_entry *entry            = first_entry(meta_page);
+   for (uint64 i = 0; i < num_meta_entries; i++) {
+      fef->func(cc, type, entry->extent_addr, fef->arg);
+      entry = next_entry(entry);
+   }
+}
 
 static void
 mini_for_each(cache           *cc,
               uint64           meta_head,
               page_type        type,
-              bool32           pinned,
               mini_for_each_fn func,
               void            *out)
 {
-   uint64 meta_addr = meta_head;
-   do {
-      page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
-
-      uint64      num_meta_entries = mini_num_entries(meta_page);
-      meta_entry *entry            = first_entry(meta_page);
-      for (uint64 i = 0; i < num_meta_entries; i++) {
-         func(cc, type, entry->extent_addr, out);
-         entry = next_entry(entry);
-      }
-      meta_addr = mini_get_next_meta_addr(meta_page);
-      cache_unget(cc, meta_page);
-   } while (meta_addr != 0);
+   for_each_func fef = {func, out};
+   mini_for_each_meta_page(
+      cc, meta_head, type, mini_for_each_meta_page_func, &fef);
 }
 
-/*
- * NOTE: The exact values of these enums is *** important *** to
- * interval_intersects_range(). See its implementation and comments.
- */
-typedef enum boundary_state {
-   before_start = 1,
-   in_range     = 0,
-   after_end    = 2
-} boundary_state;
 
 /*
  *-----------------------------------------------------------------------------
@@ -594,7 +612,7 @@ mini_inc_ref(cache *cc, uint64 meta_head)
    return ref - MINI_NO_REFS;
 }
 
-static bool32
+static void
 mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    allocator *al  = cache_get_allocator(cc);
@@ -603,18 +621,11 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
    cache_extent_discard(cc, base_addr, type);
    ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_FREE);
-   return TRUE;
 }
 
 refcount
-mini_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
+mini_dec_ref(cache *cc, uint64 meta_head, page_type type)
 {
-   if (type == PAGE_TYPE_MEMTABLE) {
-      platform_assert(pinned);
-   } else {
-      platform_assert(!pinned);
-   }
-
    allocator *al  = cache_get_allocator(cc);
    refcount   ref = allocator_dec_ref(al, base_addr(cc, meta_head), type);
    if (ref != MINI_NO_REFS) {
@@ -624,8 +635,8 @@ mini_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
    }
 
    // need to deallocate and clean up the mini allocator
-   mini_for_each(cc, meta_head, type, FALSE, mini_dealloc_extent, NULL);
-   mini_deinit(cc, meta_head, type, pinned);
+   mini_for_each(cc, meta_head, type, mini_dealloc_extent, NULL);
+   mini_deinit(cc, meta_head, type);
    return 0;
 }
 
@@ -642,18 +653,45 @@ mini_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned)
  *      Standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-static bool32
+static void
 mini_prefetch_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    cache_prefetch(cc, base_addr, type);
-   return FALSE;
 }
 
 void
 mini_prefetch(cache *cc, page_type type, uint64 meta_head)
 {
-   mini_for_each(cc, meta_head, type, FALSE, mini_prefetch_extent, NULL);
+   mini_for_each(cc, meta_head, type, mini_prefetch_extent, NULL);
 }
+
+static void
+space_use_add_extent(cache *cc, page_type type, uint64 extent_addr, void *out)
+{
+   uint64 *sum = (uint64 *)out;
+   *sum += cache_extent_size(cc);
+}
+
+static void
+space_use_add_meta_page(cache       *cc,
+                        page_type    type,
+                        page_handle *meta_page,
+                        void        *out)
+{
+   uint64 *sum = (uint64 *)out;
+   *sum += cache_page_size(cc);
+}
+
+uint64
+mini_space_use_bytes(cache *cc, uint64 meta_head, page_type type)
+{
+   uint64 total = 0;
+   mini_for_each(cc, meta_head, type, space_use_add_extent, &total);
+   mini_for_each_meta_page(
+      cc, meta_head, type, space_use_add_meta_page, &total);
+   return total;
+}
+
 
 /*
  *-----------------------------------------------------------------------------

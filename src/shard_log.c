@@ -128,7 +128,7 @@ shard_log_zap(shard_log *log)
       thread_data->offset                = 0;
    }
 
-   mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
+   mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
 }
 
 /*

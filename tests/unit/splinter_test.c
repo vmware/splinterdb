@@ -642,9 +642,6 @@ CTEST2(splinter, test_splinter_print_diags)
 
    core_print_space_use(Platform_default_log_handle, spl);
 
-   CTEST_LOG_INFO("\n** trunk_print() **\n");
-   core_print(Platform_default_log_handle, spl);
-
    CTEST_LOG_INFO("\n** Allocator stats **\n");
    allocator_print_stats(alp);
    allocator_print_allocated(alp);
@@ -726,14 +723,6 @@ splinter_do_inserts(void         *datap,
       // Show progress message in %age-completed to stdout
       SHOW_PCT_PROGRESS(insert_num, num_inserts, "inserting %3lu%% complete");
 
-      if (verify && (insert_num != 0)
-          && (insert_num % TEST_VERIFY_GRANULARITY) == 0)
-      {
-         bool32 result = core_verify_tree(spl);
-         ASSERT_TRUE(result,
-                     "trunk_verify_tree() failed after %d inserts. ",
-                     insert_num);
-      }
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       generate_test_message(&data->gen, insert_num, &msg);
       rc = core_insert(
@@ -764,7 +753,6 @@ splinter_do_inserts(void         *datap,
       (elapsed_s ? "" : "(n/a)"),
       (elapsed_s ? (num_inserts / NSEC_TO_SEC(elapsed_ns)) : num_inserts));
 
-   platform_assert(core_verify_tree(spl));
    cache_assert_free((cache *)data->clock_cache);
 
    // Cleanup memory allocated in this test case

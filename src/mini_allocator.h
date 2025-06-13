@@ -66,7 +66,7 @@ mini_alloc(mini_allocator *mini, uint64 batch, uint64 *next_extent);
 refcount
 mini_inc_ref(cache *cc, uint64 meta_head);
 refcount
-mini_dec_ref(cache *cc, uint64 meta_head, page_type type, bool32 pinned);
+mini_dec_ref(cache *cc, uint64 meta_head, page_type type);
 
 void
 mini_block_dec_ref(cache *cc, uint64 meta_head);
@@ -77,6 +77,11 @@ mini_unblock_dec_ref(cache *cc, uint64 meta_head);
 void
 mini_prefetch(cache *cc, page_type type, uint64 meta_head);
 
+/* Return total bytes allocated by the mini_allocator, including space used by
+ * the mini_allocator itself.*/
+uint64
+mini_space_use_bytes(cache *cc, uint64 meta_head, page_type type);
+
 void
 mini_print(cache *cc, uint64 meta_head, page_type type);
 
@@ -85,6 +90,7 @@ mini_meta_tail(mini_allocator *mini)
 {
    return mini->meta_tail;
 }
+
 
 static inline uint64
 mini_num_extents(mini_allocator *mini)

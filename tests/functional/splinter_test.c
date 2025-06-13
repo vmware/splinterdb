@@ -1061,7 +1061,6 @@ splinter_perf_inserts(platform_heap_id             hid,
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       core_handle *spl = spl_tables[spl_idx];
       cache_assert_free(spl->cc);
-      platform_assert(core_verify_tree(spl));
       core_print_insertion_stats(Platform_default_log_handle, spl);
       cache_print_stats(Platform_default_log_handle, spl->cc);
       core_print_space_use(Platform_default_log_handle, spl);
@@ -1581,7 +1580,6 @@ test_splinter_periodic(system_config   *cfg,
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       core_handle *spl = spl_tables[spl_idx];
       cache_assert_free(spl->cc);
-      platform_assert(core_verify_tree(spl));
       core_print_insertion_stats(Platform_default_log_handle, spl);
       cache_print_stats(Platform_default_log_handle, spl->cc);
       core_print_space_use(Platform_default_log_handle, spl);
@@ -1649,7 +1647,6 @@ test_splinter_periodic(system_config   *cfg,
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          core_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         platform_assert(core_verify_tree(spl));
          core_print_insertion_stats(Platform_default_log_handle, spl);
          cache_print_stats(Platform_default_log_handle, spl->cc);
          core_print_space_use(Platform_default_log_handle, spl);

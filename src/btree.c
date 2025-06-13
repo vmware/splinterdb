@@ -1236,7 +1236,7 @@ btree_dec_ref(cache              *cc,
               page_type           type)
 {
    uint64   meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   refcount ref = mini_dec_ref(cc, meta_head, type, type == PAGE_TYPE_MEMTABLE);
+   refcount ref       = mini_dec_ref(cc, meta_head, type);
    return ref == 0;
 }
 
@@ -3087,10 +3087,8 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    // if output tree is empty, deallocate any preallocated extents
    if (req->num_tuples == 0) {
       mini_release(&req->mini);
-      refcount r = mini_dec_ref(cc,
-                                btree_root_to_meta_addr(cfg, req->root_addr, 0),
-                                PAGE_TYPE_BRANCH,
-                                FALSE);
+      refcount r = mini_dec_ref(
+         cc, btree_root_to_meta_addr(cfg, req->root_addr, 0), PAGE_TYPE_BRANCH);
       platform_assert(r == 0);
       req->root_addr = 0;
       return;
@@ -3573,15 +3571,13 @@ btree_print_tree_stats(platform_log_handle *log_handle,
  * btree
  */
 uint64
-btree_space_use_in_range(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type,
-                         key           start_key,
-                         key           end_key)
+btree_space_use_bytes(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
+                      page_type           type)
 {
-   platform_assert(0);
-   return 0;
+   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
+   return mini_space_use_bytes(cc, meta_head, type);
 }
 
 bool32

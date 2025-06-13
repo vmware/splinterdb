@@ -177,6 +177,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
                                   routing_filter       *filter,
                                   uint64                num_filters);
 
+uint64
+routing_filter_space_use_bytes(cache *cc, const routing_filter *filter);
+
 // Debug functions
 
 void

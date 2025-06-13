@@ -437,6 +437,16 @@ size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size);
  * Helpers for statistics
  ************************************/
 
+static inline uint64
+array_sum(uint64 len, uint64 *arr)
+{
+   uint64 sum = 0;
+   for (uint64 i = 0; i < len; i++) {
+      sum += arr[i];
+   }
+   return sum;
+}
+
 static inline void
 array_accumulate_add(uint64 len, uint64 *dst, uint64 *src)
 {

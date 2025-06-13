@@ -1660,16 +1660,6 @@ core_perform_tasks(core_handle *spl)
  *-----------------------------------------------------------------------------
  */
 
-/*
- * verify_tree verifies each node with itself and its neighbors
- */
-bool32
-core_verify_tree(core_handle *spl)
-{
-   platform_default_log("core_verify_tree not implemented");
-   return TRUE;
-}
-
 void
 core_print_space_use(platform_log_handle *log_handle, core_handle *spl)
 {
@@ -1688,51 +1678,6 @@ core_print_space_use(platform_log_handle *log_handle, core_handle *spl)
    //                 size_str(bytes_used_by_level[i]));
    // }
    // platform_log(log_handle, "\n");
-}
-
-/*
- * core_print_memtable() --
- *
- * Print the currently active Memtable, and the other Memtables being processed.
- * Memtable printing will drill-down to BTree printing which will keep
- * recursing.
- */
-static void
-core_print_memtable(platform_log_handle *log_handle, core_handle *spl)
-{
-   uint64 curr_memtable =
-      memtable_generation(spl->mt_ctxt) % CORE_NUM_MEMTABLES;
-   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
-   platform_log(log_handle, "&&  MEMTABLES \n");
-   platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
-   platform_log(log_handle, "-------------------\n{\n");
-
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
-   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      memtable *mt = core_get_memtable(spl, mt_gen);
-      platform_log(log_handle,
-                   "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
-                   mt->root_addr,
-                   mt_gen,
-                   allocator_get_refcount(spl->al, mt->root_addr),
-                   mt->state);
-
-      memtable_print(log_handle, spl->cc, mt);
-   }
-   platform_log(log_handle, "\n}\n");
-}
-
-/*
- * core_print()
- *
- * Driver routine to print a SplinterDB core, and all its sub-pages.
- */
-void
-core_print(platform_log_handle *log_handle, core_handle *spl)
-{
-   core_print_memtable(log_handle, spl);
-   platform_default_log("core_print not implemented");
 }
 
 /*

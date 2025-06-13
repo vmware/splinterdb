@@ -222,9 +222,6 @@ void
 core_reset_stats(core_handle *spl);
 
 void
-core_print(platform_log_handle *log_handle, core_handle *spl);
-
-void
 core_print_super_block(platform_log_handle *log_handle, core_handle *spl);
 
 void
@@ -236,9 +233,6 @@ core_print_extent_counts(platform_log_handle *log_handle, core_handle *spl);
 
 void
 core_print_space_use(platform_log_handle *log_handle, core_handle *spl);
-
-bool32
-core_verify_tree(core_handle *spl);
 
 static inline uint64
 core_max_key_size(core_handle *spl)

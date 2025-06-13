@@ -389,12 +389,10 @@ uint64
 btree_extent_count(cache *cc, btree_config *cfg, uint64 root_addr);
 
 uint64
-btree_space_use_in_range(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type,
-                         key           start_key,
-                         key           end_key);
+btree_space_use_bytes(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
+                      page_type           type);
 
 void
 btree_config_init(btree_config *btree_cfg,

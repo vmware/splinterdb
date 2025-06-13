@@ -352,4 +352,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
                             const trunk_context *context);
 
 void
+trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context);
+
+void
 trunk_reset_stats(trunk_context *context);
