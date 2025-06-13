@@ -7,25 +7,15 @@ To integrate SplinterDB into another application, see [Usage](usage.md).
 Builds are known to work on Ubuntu using recent versions of GCC and Clang.
 
 ### Tooling
-In CI, we test against GCC 9 and Clang 13.
+In CI, we test against GCC 13 and Clang 16.
 
-We use `clang-format-13` for code formatting.
-
-To install `clang-13` tools on Ubuntu Linux, do this:
-
-```shell
-$ wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-
-$ sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main'
-
-$ sudo apt-get install -y clang-13 clang-format-13
-```
+We use `clang-format-16` for code formatting.
 
 ### Full build
 Here are the steps to do a full-build of the library, run smoke tests, and to install the shared libraries:
 
 ```shell
-$ export COMPILER=gcc    # or clang-13
+$ export COMPILER=gcc    # or clang
 $ sudo apt update -y
 $ sudo apt install -y libaio-dev libconfig-dev libxxhash-dev $COMPILER
 $ export CC=$COMPILER

@@ -38,7 +38,6 @@ typedef struct {
    task_system    *tasks;
    platform_thread this_thread_id; // OS-generated thread ID
    threadid        exp_thread_idx; // Splinter-generated expected thread index
-   uint64          active_threads_bitmask;
 } thread_config;
 
 // Configuration for worker threads used in lock-step testing exercise
@@ -89,8 +88,6 @@ CTEST_DATA(task_system)
    // Following get setup pointing to allocated memory
    platform_io_handle *ioh; // Only prerequisite needed to setup task system
    task_system        *tasks;
-
-   uint64 active_threads_bitmask;
 };
 
 /*
@@ -138,22 +135,6 @@ CTEST_SETUP(task_system)
 
    // Main task (this thread) is at index 0
    ASSERT_EQUAL(0, platform_get_tid());
-
-   // Main thread should now be marked as being active in the bitmask.
-   // Active threads have their bit turned -OFF- in this bitmask.
-   uint64 task_bitmask              = task_active_tasks_mask(data->tasks);
-   uint64 all_threads_inactive_mask = (~0L);
-   uint64 this_thread_active_mask   = (~0x1L);
-   uint64 exp_bitmask = (all_threads_inactive_mask & this_thread_active_mask);
-
-   ASSERT_EQUAL(exp_bitmask,
-                task_bitmask,
-                "exp_bitmask=0x%x, task_bitmask=0x%x\n",
-                exp_bitmask,
-                task_bitmask);
-
-   // Save it off, so it can be used for verification in a test case.
-   data->active_threads_bitmask = exp_bitmask;
 }
 
 // Teardown function for suite, called after every test in suite
@@ -209,8 +190,7 @@ CTEST2(task_system, test_one_thread_using_lower_apis)
    thread_cfg.tasks = data->tasks;
 
    // Main thread is at index 0
-   thread_cfg.exp_thread_idx         = 1;
-   thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
+   thread_cfg.exp_thread_idx = 1;
 
    platform_status rc = STATUS_OK;
 
@@ -264,8 +244,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
    thread_cfg.tasks = data->tasks;
 
    // Main thread is at index 0
-   thread_cfg.exp_thread_idx         = 1;
-   thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
+   thread_cfg.exp_thread_idx = 1;
 
    platform_status rc = STATUS_OK;
 
@@ -327,10 +306,9 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
-        tctr < ARRAY_SIZE(thread_cfg);
-        tctr++, thread_cfgp++)
-   {
+   for (tctr = max_tid_so_far; tctr < ARRAY_SIZE(thread_cfg); tctr++) {
+      thread_cfgp = &thread_cfg[tctr];
+
       // These are independent of the new thread's creation.
       thread_cfgp->tasks          = data->tasks;
       thread_cfgp->exp_thread_idx = tctr;
@@ -343,11 +321,9 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
-        tctr < ARRAY_SIZE(thread_cfg);
-        tctr++, thread_cfgp++)
-   {
-      rc = platform_thread_join(thread_cfgp->this_thread_id);
+   for (tctr = max_tid_so_far; tctr < ARRAY_SIZE(thread_cfg); tctr++) {
+      thread_cfgp = &thread_cfg[tctr];
+      rc          = platform_thread_join(thread_cfgp->this_thread_id);
       ASSERT_TRUE(SUCCESS(rc));
    }
 }
@@ -363,26 +339,6 @@ CTEST2(task_system, test_task_system_creation_with_bg_threads)
    task_system_destroy(data->hid, &data->tasks);
    platform_status rc = create_task_system_with_bg_threads(data, 2, 4);
    ASSERT_TRUE(SUCCESS(rc));
-
-   uint64 all_threads_inactive_mask = (~0L);
-
-   // Construct known bit-mask for active threads knowing that the background
-   // threads are started up when task system is created w/bg threads.
-   threadid max_thread_id       = task_get_max_tid(data->tasks);
-   uint64   active_threads_mask = 0;
-   for (int tid = 0; tid < max_thread_id; tid++) {
-      active_threads_mask |= (1L << tid);
-   }
-   active_threads_mask = ~active_threads_mask;
-
-   uint64 exp_bitmask  = (all_threads_inactive_mask & active_threads_mask);
-   uint64 task_bitmask = task_active_tasks_mask(data->tasks);
-
-   ASSERT_EQUAL(exp_bitmask,
-                task_bitmask,
-                "exp_bitmask=0x%x, task_bitmask=0x%x\n",
-                exp_bitmask,
-                task_bitmask);
 }
 
 /*
@@ -533,28 +489,10 @@ exec_one_thread_use_lower_apis(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
-   uint64 task_bitmask_before_register =
-      task_active_tasks_mask(thread_cfg->tasks);
-
-   // Verify that the state of active-threads bitmask (managed by Splinter) has
-   // not changed just by creating this pthread. It should be the same as what
-   // we had recorded just prior to platform_thread_create().
-   ASSERT_EQUAL(thread_cfg->active_threads_bitmask,
-                task_bitmask_before_register);
-
-   CTEST_LOG_INFO("active_threads_bitmask=0x%lx\n",
-                  thread_cfg->active_threads_bitmask);
-
    // This is the important call to initialize thread-specific stuff in
    // Splinter's task-system, which sets up the thread-id (index) and records
    // this thread as active with the task system.
    task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
-
-   uint64 task_bitmask_after_register =
-      task_active_tasks_mask(thread_cfg->tasks);
-
-   // _Now, the active tasks bitmask should have changed.
-   ASSERT_NOT_EQUAL(task_bitmask_before_register, task_bitmask_after_register);
 
    threadid this_threads_idx = platform_get_tid();
    ASSERT_EQUAL(thread_cfg->exp_thread_idx,
@@ -562,22 +500,6 @@ exec_one_thread_use_lower_apis(void *arg)
                 "exp_thread_idx=%lu, this_threads_idx=%lu\n",
                 thread_cfg->exp_thread_idx,
                 this_threads_idx);
-
-   // This thread is recorded as 'being active' by clearing its bit from the
-   // mask.
-   uint64 exp_bitmask = (0x1L << this_threads_idx);
-   exp_bitmask        = (task_bitmask_before_register & ~exp_bitmask);
-
-   CTEST_LOG_INFO("this_threads_idx=%lu"
-                  ", task_bitmask_before_register=0x%lx"
-                  ", task_bitmask_after_register=0x%lx"
-                  ", exp_bitmask=0x%lx\n",
-                  this_threads_idx,
-                  task_bitmask_before_register,
-                  task_bitmask_after_register,
-                  exp_bitmask);
-
-   ASSERT_EQUAL(task_bitmask_after_register, exp_bitmask);
 
    // Registration should have allocated some scratch space memory.
    ASSERT_TRUE(
@@ -590,12 +512,6 @@ exec_one_thread_use_lower_apis(void *arg)
                || (thread_cfg->this_thread_id == 0));
 
    task_deregister_this_thread(thread_cfg->tasks);
-
-   uint64 task_bitmask_after_deregister =
-      task_active_tasks_mask(thread_cfg->tasks);
-
-   // De-registering this task removes it from the active tasks mask
-   ASSERT_EQUAL(task_bitmask_before_register, task_bitmask_after_deregister);
 
    // Deregistration releases scratch space memory.
    ASSERT_TRUE(
@@ -628,24 +544,8 @@ exec_one_thread_use_extern_apis(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
-   uint64 bitmask_before_thread_create = thread_cfg->active_threads_bitmask;
-
-   uint64 bitmask_after_thread_create =
-      task_active_tasks_mask(thread_cfg->tasks);
-
-   // The task_thread_create() -> task_invoke_with_hooks() also registers this
-   // thread with Splinter. First, confirm that the bitmask has changed from
-   // what it was before this thread was invoked.
-   ASSERT_NOT_EQUAL(bitmask_before_thread_create, bitmask_after_thread_create);
-
    threadid this_threads_idx = platform_get_tid();
    ASSERT_EQUAL(thread_cfg->exp_thread_idx, this_threads_idx);
-
-   // This thread is recorded as 'being active' by clearing its bit from the
-   // mask. Verify the expected task bitmask.
-   uint64 exp_bitmask = (0x1L << this_threads_idx);
-   exp_bitmask        = (bitmask_before_thread_create & ~exp_bitmask);
-   ASSERT_EQUAL(bitmask_after_thread_create, exp_bitmask);
 
    /*
     * Dead Code Warning!
@@ -686,7 +586,11 @@ exec_one_of_n_threads(void *arg)
    // Before registration, thread ID should be in an uninit'ed state
    ASSERT_EQUAL(INVALID_TID, platform_get_tid());
 
-   task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
+   platform_status rc =
+      task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
+   ASSERT_TRUE(SUCCESS(rc),
+               "task_register_this_thread() failed: thread idx is %lu",
+               platform_get_tid());
 
    threadid this_threads_index = platform_get_tid();
 

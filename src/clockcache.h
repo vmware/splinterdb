@@ -13,7 +13,7 @@
 #include "cache.h"
 #include "io.h"
 
-//#define ADDR_TRACING
+// #define ADDR_TRACING
 #define TRACE_ADDR  (UINT64_MAX - 1)
 #define TRACE_ENTRY (UINT32_MAX - 1)
 

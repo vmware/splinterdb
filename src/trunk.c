@@ -2634,7 +2634,8 @@ trunk_clear_bundle(trunk_handle *spl, trunk_node *node, uint16 bundle_no)
 
    // update the pivot start bundles
    for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
-        pivot_no++) {
+        pivot_no++)
+   {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (!trunk_bundle_valid(spl, node, pdata->start_bundle)) {
          pdata->start_bundle = trunk_start_bundle(spl, node);
@@ -2822,7 +2823,8 @@ trunk_process_generation_to_pos(trunk_handle             *spl,
 {
    uint64 pos = 0;
    while ((pos != TRUNK_MAX_PIVOTS)
-          && (req->pivot_generation[pos] != generation)) {
+          && (req->pivot_generation[pos] != generation))
+   {
       pos++;
    }
    return pos;
@@ -3128,7 +3130,8 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (!trunk_branch_live_for_pivot(
-             spl, node, bundle_start_branch, pivot_no)) {
+             spl, node, bundle_start_branch, pivot_no))
+      {
          pdata->start_branch =
             trunk_subtract_branch_number(spl, pdata->start_branch, branch_diff);
          debug_assert(trunk_branch_valid(spl, node, pdata->start_branch));
@@ -4140,7 +4143,8 @@ trunk_prepare_build_filter(trunk_handle             *spl,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
 
       if (trunk_bundle_live_for_pivot(
-             spl, node, compact_req->bundle_no, pivot_no)) {
+             spl, node, compact_req->bundle_no, pivot_no))
+      {
          uint64 pos = trunk_process_generation_to_pos(
             spl, compact_req, pdata->generation);
          platform_assert(pos != TRUNK_MAX_PIVOTS);
@@ -4249,7 +4253,8 @@ trunk_replace_routing_filter(trunk_handle             *spl,
       uint64            pos =
          trunk_process_generation_to_pos(spl, compact_req, pdata->generation);
       if (!trunk_bundle_live_for_pivot(
-             spl, node, compact_req->bundle_no, pivot_no)) {
+             spl, node, compact_req->bundle_no, pivot_no))
+      {
          if (pos != TRUNK_MAX_PIVOTS && filter_scratch->filter[pos].addr != 0) {
             trunk_dec_filter(spl, &filter_scratch->filter[pos]);
             ZERO_CONTENTS(&filter_scratch->filter[pos]);
@@ -4861,7 +4866,8 @@ trunk_flush_fullest(trunk_handle *spl, trunk_node *node)
     * children
     */
    for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
-        pivot_no++) {
+        pivot_no++)
+   {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       // if a pivot has too many branches, just flush it here
       if (trunk_pivot_needs_flush(spl, node, pdata)) {
@@ -5890,7 +5896,8 @@ trunk_split_leaf(trunk_handle *spl,
       platform_assert_status_ok(rc2);
 
       for (uint64 branch_offset = 0; branch_offset < num_branches;
-           branch_offset++) {
+           branch_offset++)
+      {
          uint64 branch_no =
             trunk_add_branch_number(spl, start_branch, branch_offset);
          debug_assert(branch_no != trunk_end_branch(spl, leaf));
@@ -8750,7 +8757,8 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
    {
       // Generate marker line if current branch is a pivot's start branch
       for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
-           pivot_no++) {
+           pivot_no++)
+      {
          if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
             // clang-format off
             platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                 |\n",
