@@ -1663,21 +1663,7 @@ core_perform_tasks(core_handle *spl)
 void
 core_print_space_use(platform_log_handle *log_handle, core_handle *spl)
 {
-   platform_log(log_handle, "Space usage: unimplemented\n");
-   // uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
-   // trunk_for_each_node(spl, trunk_node_space_use, bytes_used_by_level);
-
-   // platform_log(log_handle,
-   //              "Space used by level: trunk_tree_height=%d\n",
-   //              trunk_tree_height(spl));
-   // for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
-   //    platform_log(log_handle,
-   //                 "%u: %lu bytes (%s)\n",
-   //                 i,
-   //                 bytes_used_by_level[i],
-   //                 size_str(bytes_used_by_level[i]));
-   // }
-   // platform_log(log_handle, "\n");
+   trunk_print_space_use(log_handle, &spl->trunk_context);
 }
 
 /*

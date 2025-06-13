@@ -6178,6 +6178,11 @@ visit_nodes_internal(trunk_context *context,
       return rc;
    }
 
+   if (trunk_node_is_leaf(node)) {
+      // Leaf nodes have no children, so we are done
+      return rc;
+   }
+
    for (int i = 0; i < trunk_node_num_children(node); i++) {
       trunk_pivot *pivot;
       trunk_node   child;
@@ -6222,6 +6227,7 @@ visit_nodes(trunk_context *context, node_visitor visitor, void *arg)
    rc = trunk_node_deserialize(
       context, root_handle.header_page->disk_addr, &node);
    if (!SUCCESS(rc)) {
+      trunk_ondisk_node_handle_deinit(&root_handle);
       platform_error_log("visit_nodes_internal: "
                          "trunk_node_deserialize failed: %d\n",
                          rc.r);
@@ -6304,6 +6310,12 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context)
    space_use_stats space_usage;
    memset(&space_usage, 0, sizeof(space_usage));
    platform_status rc;
+
+   if (context->root == NULL) {
+      platform_log(log_handle, "Trunk space usage: none\n");
+      return;
+   }
+
    rc = visit_nodes(context, accumulate_space_use_node, &space_usage);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_print_space_use: "
@@ -6312,23 +6324,24 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context)
       return;
    }
 
+   uint64 height = TRUNK_MAX_HEIGHT;
+   while (height > 0 && space_usage.trunk_bytes[height - 1] == 0) {
+      height--;
+   }
+
    /* Aggregate into per-level stats */
    uint64 total_bytes_per_level[TRUNK_MAX_HEIGHT];
    memset(total_bytes_per_level, 0, sizeof(total_bytes_per_level));
+   array_accumulate_add(height, total_bytes_per_level, space_usage.trunk_bytes);
    array_accumulate_add(
-      TRUNK_MAX_HEIGHT, total_bytes_per_level, space_usage.trunk_bytes);
+      height, total_bytes_per_level, space_usage.maplet_bytes);
    array_accumulate_add(
-      TRUNK_MAX_HEIGHT, total_bytes_per_level, space_usage.maplet_bytes);
-   array_accumulate_add(
-      TRUNK_MAX_HEIGHT, total_bytes_per_level, space_usage.branch_bytes);
+      height, total_bytes_per_level, space_usage.branch_bytes);
 
    /* Aggregate into per-type stats */
-   uint64 total_trunk_bytes =
-      array_sum(TRUNK_MAX_HEIGHT, space_usage.trunk_bytes);
-   uint64 total_maplet_bytes =
-      array_sum(TRUNK_MAX_HEIGHT, space_usage.maplet_bytes);
-   uint64 total_branch_bytes =
-      array_sum(TRUNK_MAX_HEIGHT, space_usage.branch_bytes);
+   uint64 total_trunk_bytes  = array_sum(height, space_usage.trunk_bytes);
+   uint64 total_maplet_bytes = array_sum(height, space_usage.maplet_bytes);
+   uint64 total_branch_bytes = array_sum(height, space_usage.branch_bytes);
 
    /* Le grand total */
    uint64 total_bytes =
@@ -6353,10 +6366,8 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context)
       COLUMN("total bytes", total_bytes_per_level),
    };
    platform_log(log_handle, "Space use\n");
-   print_column_table(log_handle,
-                      ARRAY_SIZE(space_use_columns),
-                      space_use_columns,
-                      TRUNK_MAX_HEIGHT);
+   print_column_table(
+      log_handle, ARRAY_SIZE(space_use_columns), space_use_columns, height);
 }
 
 void
