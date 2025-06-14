@@ -6298,7 +6298,7 @@ accumulate_space_use_node(trunk_context *context, trunk_node *src, void *arg)
    VECTOR_APPLY_TO_PTRS(&src->pivot_bundles,
                         accumulate_space_use_bundle,
                         context,
-                        &dst[src->height],
+                        dst,
                         src->height);
    return STATUS_OK;
 }
@@ -6365,7 +6365,6 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context)
       COLUMN("branch bytes", space_usage.branch_bytes),
       COLUMN("total bytes", total_bytes_per_level),
    };
-   platform_log(log_handle, "Space use\n");
    print_column_table(
       log_handle, ARRAY_SIZE(space_use_columns), space_use_columns, height);
 }

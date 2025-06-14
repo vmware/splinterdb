@@ -2670,7 +2670,7 @@ splinter_test(int argc, char *argv[])
     * 2. Parse test_config options, see test_config_usage()
     */
 
-   test_config *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
+   test_config *test_cfg = TYPED_ARRAY_ZALLOC(hid, test_cfg, num_tables);
    for (uint8 i = 0; i < num_tables; i++) {
       test_config_set_defaults(test, &test_cfg[i]);
 
