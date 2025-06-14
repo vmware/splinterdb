@@ -71,6 +71,7 @@ struct clockcache_entry {
    page_handle           page;
    volatile entry_status status;
    page_type             type;
+   async_wait_queue      waiters;
 #ifdef RECORD_ACQUISITION_STACKS
    int            next_history_record;
    history_record history[NUM_HISTORY_RECORDS];
@@ -122,9 +123,9 @@ struct clockcache {
    platform_heap_id     heap_id;
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
-   buffer_handle   rc_bh;
-   volatile uint8 *refcount;
-   volatile uint8 *pincount;
+   buffer_handle    rc_bh;
+   volatile uint16 *refcount;
+   volatile uint8  *pincount;
 
    // Clock hands and related metadata
    volatile uint32  evict_hand;
@@ -141,6 +142,9 @@ struct clockcache {
    cache_stats stats[MAX_THREADS];
 };
 
+_Static_assert(MAX_READ_REFCOUNT
+                  < 1ULL << (8 * sizeof(((clockcache *)NULL)->refcount[0])),
+               "MAX_READ_REFCOUNT too large");
 
 /*
  *-----------------------------------------------------------------------------

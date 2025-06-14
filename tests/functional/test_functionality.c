@@ -4,7 +4,7 @@
 #include "platform.h"
 
 #include "test_functionality.h"
-#include "trunk.h"
+#include "core.h"
 #include "clockcache.h"
 #include "rc_allocator.h"
 #include "log.h"
@@ -29,17 +29,17 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
  * database. Used for diagnosing failures.
  */
 static void
-search_for_key_via_iterator(trunk_handle *spl, key target)
+search_for_key_via_iterator(core_handle *spl, key target)
 {
-   trunk_range_iterator iter;
+   core_range_iterator iter;
 
-   trunk_range_iterator_init(spl,
-                             &iter,
-                             NEGATIVE_INFINITY_KEY,
-                             POSITIVE_INFINITY_KEY,
-                             NEGATIVE_INFINITY_KEY,
-                             greater_than_or_equal,
-                             UINT64_MAX);
+   core_range_iterator_init(spl,
+                            &iter,
+                            NEGATIVE_INFINITY_KEY,
+                            POSITIVE_INFINITY_KEY,
+                            NEGATIVE_INFINITY_KEY,
+                            greater_than_or_equal,
+                            UINT64_MAX);
    uint64 count = 0;
    while (iterator_can_curr((iterator *)&iter)) {
       key     curr_key;
@@ -58,7 +58,7 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
 
 
 static void
-verify_tuple(trunk_handle    *spl,
+verify_tuple(core_handle     *spl,
              key              keybuf,
              message          msg,
              int8             refcount,
@@ -84,7 +84,7 @@ verify_tuple(trunk_handle    *spl,
          int_key,
          refcount);
       *result = STATUS_NOT_FOUND;
-      trunk_print_lookup(spl, keybuf, Platform_default_log_handle);
+      core_print_lookup(spl, keybuf, Platform_default_log_handle);
       search_for_key_via_iterator(spl, keybuf);
       platform_assert(0);
    } else if (refcount == 0 && found) {
@@ -95,7 +95,7 @@ verify_tuple(trunk_handle    *spl,
          int_key,
          dh->ref_count);
       *result = STATUS_INVALID_STATE;
-      trunk_print_lookup(spl, keybuf, Platform_default_log_handle);
+      core_print_lookup(spl, keybuf, Platform_default_log_handle);
       platform_assert(0);
    } else if (refcount && found) {
       merge_accumulator expected_message;
@@ -124,7 +124,7 @@ verify_tuple(trunk_handle    *spl,
 }
 
 static void
-verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
+verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    platform_status *result = arg;
 
@@ -151,7 +151,7 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
  *-----------------------------------------------------------------------------
  */
 platform_status
-verify_against_shadow(trunk_handle               *spl,
+verify_against_shadow(core_handle                *spl,
                       test_splinter_shadow_array *sharr,
                       test_async_lookup          *async_lookup)
 {
@@ -181,7 +181,7 @@ verify_against_shadow(trunk_handle               *spl,
       if (ctxt == NULL) {
          test_int_to_key(&keybuf, keynum, key_size);
          key target = key_buffer_key(&keybuf);
-         rc         = trunk_lookup(spl, target, &merge_acc);
+         rc         = core_lookup(spl, target, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -190,7 +190,7 @@ verify_against_shadow(trunk_handle               *spl,
       } else {
          test_int_to_key(&ctxt->key, keynum, key_size);
          ctxt->refcount = refcount;
-         async_ctxt_process_one(
+         async_ctxt_submit(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
       merge_accumulator_set_to_null(&merge_acc);
@@ -218,7 +218,7 @@ verify_against_shadow(trunk_handle               *spl,
  * range in the shadow.
  */
 platform_status
-verify_range_against_shadow(trunk_handle               *spl,
+verify_range_against_shadow(core_handle                *spl,
                             test_splinter_shadow_array *sharr,
                             key                         start_key,
                             key                         end_key,
@@ -236,15 +236,15 @@ verify_range_against_shadow(trunk_handle               *spl,
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
-   trunk_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
+   core_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
-   status = trunk_range_iterator_init(spl,
-                                      range_itor,
-                                      start_key,
-                                      end_key,
-                                      start_key,
-                                      greater_than_or_equal,
-                                      end_index - start_index);
+   status = core_range_iterator_init(spl,
+                                     range_itor,
+                                     start_key,
+                                     end_key,
+                                     start_key,
+                                     greater_than_or_equal,
+                                     end_index - start_index);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
                          platform_status_to_string(status));
@@ -281,7 +281,7 @@ verify_range_against_shadow(trunk_handle               *spl,
                             shadow_refcount,
                             splinter_key,
                             splinter_data_handle->ref_count);
-         trunk_print_lookup(spl, splinter_keybuf, Platform_default_log_handle);
+         core_print_lookup(spl, splinter_keybuf, Platform_default_log_handle);
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
@@ -312,7 +312,7 @@ verify_range_against_shadow(trunk_handle               *spl,
    }
 
 destroy:
-   trunk_range_iterator_deinit(range_itor);
+   core_range_iterator_deinit(range_itor);
 
 out:
    platform_free(hid, range_itor);
@@ -380,7 +380,7 @@ choose_key(data_config                *cfg,         // IN
 }
 
 platform_status
-verify_range_against_shadow_all_types(trunk_handle               *spl,
+verify_range_against_shadow_all_types(core_handle                *spl,
                                       random_state               *prg,
                                       test_splinter_shadow_array *sharr,
                                       platform_heap_id            hid,
@@ -468,7 +468,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
 }
 
 static platform_status
-validate_tree_against_shadow(trunk_handle              *spl,
+validate_tree_against_shadow(core_handle               *spl,
                              random_state              *prg,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_id           hid,
@@ -534,7 +534,7 @@ cleanup:
  *-----------------------------------------------------------------------------
  */
 static platform_status
-insert_random_messages(trunk_handle              *spl,
+insert_random_messages(core_handle               *spl,
                        test_splinter_shadow_tree *shadow,
                        random_state              *prg,
                        int                        num_messages,
@@ -579,7 +579,7 @@ insert_random_messages(trunk_handle              *spl,
       }
       test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      rc = trunk_insert(spl, tuple_key, merge_accumulator_to_message(&msg));
+      rc = core_insert(spl, tuple_key, merge_accumulator_to_message(&msg));
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -635,7 +635,7 @@ platform_status
 test_functionality(allocator       *al,
                    io_handle       *io,
                    cache           *cc[],
-                   trunk_config    *cfg,
+                   system_config   *cfg,
                    uint64           seed,
                    uint64           num_inserts,
                    uint64           correctness_check_frequency,
@@ -648,7 +648,7 @@ test_functionality(allocator       *al,
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
 
-   trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
+   core_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
    test_splinter_shadow_tree **shadows =
@@ -683,8 +683,8 @@ test_functionality(allocator       *al,
       }
       splinters[idx] = test_generate_allocator_root_id();
 
-      spl_tables[idx] =
-         trunk_create(&cfg[idx], al, cache_to_use, state, splinters[idx], hid);
+      spl_tables[idx] = core_create(
+         &cfg[idx].splinter_cfg, al, cache_to_use, state, splinters[idx], hid);
       if (spl_tables[idx] == NULL) {
          status = STATUS_NO_MEMORY;
          platform_error_log("splinter_create() failed for index=%d.\n", idx);
@@ -694,7 +694,7 @@ test_functionality(allocator       *al,
 
    // Validate each tree against an empty shadow.
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      trunk_handle              *spl    = spl_tables[idx];
+      core_handle               *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       status                            = validate_tree_against_shadow(
          spl, &prg, shadow, hid, TRUE, async_lookup);
@@ -770,7 +770,7 @@ test_functionality(allocator       *al,
       // Run the main test loop for each table.
       for (uint8 idx = 0; idx < num_tables; idx++) {
          // cache *cache_to_use = num_caches > 1 ? cc[idx] : *cc;
-         trunk_handle              *spl    = spl_tables[idx];
+         core_handle               *spl    = spl_tables[idx];
          test_splinter_shadow_tree *shadow = shadows[idx];
          // allocator_root_id spl_id = splinters[idx];
 
@@ -832,7 +832,7 @@ test_functionality(allocator       *al,
 
    // Validate each tree against the shadow one last time.
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      trunk_handle              *spl    = spl_tables[idx];
+      core_handle               *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
 
       status = validate_tree_against_shadow(
@@ -854,7 +854,7 @@ test_functionality(allocator       *al,
 cleanup:
    for (uint8 idx = 0; idx < num_tables; idx++) {
       if (spl_tables[idx] != NULL) {
-         trunk_destroy(spl_tables[idx]);
+         core_destroy(spl_tables[idx]);
       }
       if (shadows[idx] != NULL) {
          test_splinter_shadow_destroy(hid, shadows[idx]);

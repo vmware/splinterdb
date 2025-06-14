@@ -62,6 +62,7 @@ static int
 iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
+               page_type        type,
                int              nkvs,
                bool32           start_front,
                platform_heap_id hid);
@@ -196,10 +197,20 @@ CTEST2(btree_stress, iterator_basics)
    for (int i = 0; i < 1000; i++) {
       uint64 generation;
       bool32 was_unique;
-      iterator_tests(
-         (cache *)&data->cc, &data->dbtree_cfg, root_addr, i, TRUE, data->hid);
-      iterator_tests(
-         (cache *)&data->cc, &data->dbtree_cfg, root_addr, i, FALSE, data->hid);
+      iterator_tests((cache *)&data->cc,
+                     &data->dbtree_cfg,
+                     root_addr,
+                     PAGE_TYPE_MEMTABLE,
+                     i,
+                     TRUE,
+                     data->hid);
+      iterator_tests((cache *)&data->cc,
+                     &data->dbtree_cfg,
+                     root_addr,
+                     PAGE_TYPE_MEMTABLE,
+                     i,
+                     FALSE,
+                     data->hid);
 
       if (!SUCCESS(
              btree_insert((cache *)&data->cc,
@@ -278,6 +289,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        root_addr,
+                       PAGE_TYPE_MEMTABLE,
                        nkvs,
                        TRUE,
                        data->hid))
@@ -287,6 +299,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        root_addr,
+                       PAGE_TYPE_MEMTABLE,
                        nkvs,
                        FALSE,
                        data->hid))
@@ -317,6 +330,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    rc = iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        packed_root_addr,
+                       PAGE_TYPE_BRANCH,
                        nkvs,
                        TRUE,
                        data->hid);
@@ -535,6 +549,7 @@ static int
 iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
+               page_type        type,
                int              nkvs,
                bool32           start_front,
                platform_heap_id hid)
@@ -551,7 +566,7 @@ iterator_tests(cache           *cc,
                        cfg,
                        &dbiter,
                        root_addr,
-                       PAGE_TYPE_MEMTABLE,
+                       type,
                        NEGATIVE_INFINITY_KEY,
                        POSITIVE_INFINITY_KEY,
                        start_key,

@@ -299,6 +299,12 @@ platform_batch_rwlock_init(platform_batch_rwlock *lock)
    ZERO_CONTENTS(lock);
 }
 
+void
+platform_batch_rwlock_deinit(platform_batch_rwlock *lock)
+{
+   ZERO_CONTENTS(lock);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * lock/unlock

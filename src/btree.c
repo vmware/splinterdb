@@ -1069,7 +1069,7 @@ btree_alloc(cache          *cc,
             page_type       type,
             btree_node     *node)
 {
-   node->addr = mini_alloc(mini, height, alloc_key, next_extent);
+   node->addr = mini_alloc(mini, height, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
 
@@ -1153,17 +1153,6 @@ btree_node_full_unlock(cache              *cc,  // IN
    btree_node_unget(cc, cfg, node);
 }
 
-static inline void
-btree_node_get_from_cache_ctxt(const btree_config *cfg,  // IN
-                               cache_async_ctxt   *ctxt, // IN
-                               btree_node         *node)         // OUT
-{
-   node->addr = ctxt->page->disk_addr;
-   node->page = ctxt->page;
-   node->hdr  = (btree_hdr *)node->page->data;
-}
-
-
 static inline bool32
 btree_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
 {
@@ -1228,36 +1217,16 @@ btree_create(cache              *cc,
              root.addr + btree_page_size(cfg),
              0,
              BTREE_MAX_HEIGHT,
-             type,
-             type == PAGE_TYPE_BRANCH);
+             type);
 
    return root.addr;
 }
 
 void
-btree_inc_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key)
+btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
 {
-   debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
-   mini_keyed_inc_ref(
-      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
-}
-
-bool32
-btree_dec_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key)
-{
-   debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
-   uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
-   return mini_keyed_dec_ref(
-      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
+   mini_inc_ref(cc, meta_page_addr);
 }
 
 bool32
@@ -1266,24 +1235,9 @@ btree_dec_ref(cache              *cc,
               uint64              root_addr,
               page_type           type)
 {
-   platform_assert(type == PAGE_TYPE_MEMTABLE);
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
+   uint64   meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
+   refcount ref       = mini_dec_ref(cc, meta_head, type);
    return ref == 0;
-}
-
-void
-btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
-{
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   mini_block_dec_ref(cc, meta_head);
-}
-
-void
-btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
-{
-   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   mini_unblock_dec_ref(cc, meta_head);
 }
 
 /*
@@ -2069,14 +2023,14 @@ start_over:
  *-----------------------------------------------------------------------------
  */
 platform_status
-btree_lookup_node(cache             *cc,             // IN
-                  btree_config      *cfg,            // IN
-                  uint64             root_addr,      // IN
-                  key                target,         // IN
-                  uint16             stop_at_height, // IN
-                  page_type          type,           // IN
-                  btree_node        *out_node,       // OUT
-                  btree_pivot_stats *stats)          // OUT
+btree_lookup_node(cache              *cc,             // IN
+                  const btree_config *cfg,            // IN
+                  uint64              root_addr,      // IN
+                  key                 target,         // IN
+                  uint16              stop_at_height, // IN
+                  page_type           type,           // IN
+                  btree_node         *out_node,       // OUT
+                  btree_pivot_stats  *stats)           // OUT
 {
    btree_node node, child_node;
    uint32     h;
@@ -2115,16 +2069,146 @@ btree_lookup_node(cache             *cc,             // IN
    return STATUS_OK;
 }
 
+/*
+ * IN Parameters:
+ * - state->cc: the cache
+ * - state->cfg: the btree config
+ * - state->root_addr: the root address of the btree
+ * - state->type: the type of the root node
+ * - state->target: the key to look up
+ * - state->stop_at_height: the height to stop at
+ *
+ * OUT Parameters:
+ * - state->node: the node found
+ * - state->stats: the stats of the node found
+ *
+ * LOCAL Variables:
+ * - state->h: the height of the current node
+ * - state->found: whether the target was found
+ * - state->child_node: the child node
+ */
+static inline async_status
+btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
+{
+   async_begin(state, depth);
+
+   if (state->stats) {
+      memset(state->stats, 0, sizeof(*state->stats));
+   }
+
+   debug_assert(state->type == PAGE_TYPE_BRANCH
+                || state->type == PAGE_TYPE_MEMTABLE);
+   state->node.addr = state->root_addr;
+
+   cache_get_async_state_init(state->cache_get_state,
+                              state->cc,
+                              state->node.addr,
+                              state->type,
+                              state->callback,
+                              state->callback_arg);
+   while (cache_get_async(state->cc, state->cache_get_state)
+          != ASYNC_STATUS_DONE)
+   {
+      async_yield(state);
+   }
+   state->node.page =
+      cache_get_async_state_result(state->cc, state->cache_get_state);
+   state->node.hdr = (btree_hdr *)state->node.page->data;
+
+   for (state->h = btree_height(state->node.hdr);
+        state->h > state->stop_at_height;
+        state->h--)
+   {
+      int64 child_idx =
+         key_is_positive_infinity(state->target)
+            ? btree_num_entries(state->node.hdr) - 1
+            : btree_find_pivot(
+               state->cfg, state->node.hdr, state->target, &state->found);
+      if (child_idx < 0) {
+         child_idx = 0;
+      }
+      index_entry *entry =
+         btree_get_index_entry(state->cfg, state->node.hdr, child_idx);
+      state->child_node.addr = index_entry_child_addr(entry);
+
+      if (state->stats) {
+         accumulate_node_ranks(
+            state->cfg, state->node.hdr, 0, child_idx, state->stats);
+      }
+
+
+      cache_get_async_state_init(state->cache_get_state,
+                                 state->cc,
+                                 state->child_node.addr,
+                                 state->type,
+                                 state->callback,
+                                 state->callback_arg);
+      while (cache_get_async(state->cc, state->cache_get_state)
+             != ASYNC_STATUS_DONE)
+      {
+         async_yield(state);
+      }
+      state->child_node.page =
+         cache_get_async_state_result(state->cc, state->cache_get_state);
+      state->child_node.hdr = (btree_hdr *)state->child_node.page->data;
+
+      debug_assert(state->child_node.page->disk_addr == state->child_node.addr);
+      btree_node_unget(state->cc, state->cfg, &state->node);
+      state->node = state->child_node;
+   }
+
+   async_return(state);
+}
+
+/*
+ * IN Parameters:
+ * - state->cc: the cache
+ * - state->cfg: the btree config
+ * - state->root_addr: the root address of the btree
+ * - state->type: the type of the root node
+ * - state->target: the key to look up
+ *
+ * OUT Parameters:
+ * - state->node: the node found
+ * - state->found: whether the target was found in the leaf
+ * - state->msg: the message of the target
+ *
+ * LOCAL Variables:
+ * - state->stats: the stats of the node found
+ * - state->stop_at_height: the height to stop at
+ * - state->h: the height of the current node
+ * - state->child_node: the child node
+ */
+static inline async_status
+btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
+{
+   async_begin(state, depth);
+
+   state->stop_at_height = 0;
+   state->stats          = NULL;
+   async_await_subroutine(state, btree_lookup_node_async);
+
+   int64 idx = btree_find_tuple(
+      state->cfg, state->node.hdr, state->target, &state->found);
+   if (state->found) {
+      state->msg = leaf_entry_message(
+         btree_get_leaf_entry(state->cfg, state->node.hdr, idx));
+   } else {
+      btree_node_unget(state->cc, state->cfg, &state->node);
+   }
+   async_return(state);
+}
+
 
 static inline void
-btree_lookup_with_ref(cache        *cc,        // IN
-                      btree_config *cfg,       // IN
-                      uint64        root_addr, // IN
-                      page_type     type,      // IN
-                      key           target,    // IN
-                      btree_node   *node,      // OUT
-                      message      *msg,       // OUT
-                      bool32       *found)           // OUT
+btree_lookup_with_ref(cache              *cc,        // IN
+                      const btree_config *cfg,       // IN
+                      uint64              root_addr, // IN
+                      page_type           type,      // IN
+                      key                 target,    // IN
+                      btree_node         *node,      // OUT
+                      message            *msg,       // OUT
+                      bool32             *found)                 // OUT
 {
    btree_lookup_node(cc, cfg, root_addr, target, 0, type, node, NULL);
    int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
@@ -2135,6 +2219,21 @@ btree_lookup_with_ref(cache        *cc,        // IN
       btree_node_unget(cc, cfg, node);
    }
 }
+
+async_status
+btree_lookup_async(btree_lookup_async_state *state)
+{
+   async_begin(state, 0);
+
+   async_await_subroutine(state, btree_lookup_with_ref_async);
+   bool32 success = TRUE;
+   if (state->found) {
+      success = merge_accumulator_copy_message(state->result, state->msg);
+      btree_node_unget(state->cc, state->cfg, &state->node);
+   }
+   async_return(state, success ? STATUS_OK : STATUS_NO_MEMORY);
+}
+
 
 platform_status
 btree_lookup(cache             *cc,        // IN
@@ -2160,13 +2259,13 @@ btree_lookup(cache             *cc,        // IN
 }
 
 platform_status
-btree_lookup_and_merge(cache             *cc,        // IN
-                       btree_config      *cfg,       // IN
-                       uint64             root_addr, // IN
-                       page_type          type,      // IN
-                       key                target,    // IN
-                       merge_accumulator *data,      // OUT
-                       bool32            *local_found)          // OUT
+btree_lookup_and_merge(cache              *cc,        // IN
+                       const btree_config *cfg,       // IN
+                       uint64              root_addr, // IN
+                       page_type           type,      // IN
+                       key                 target,    // IN
+                       merge_accumulator  *data,      // OUT
+                       bool32             *local_found)           // OUT
 {
    btree_node      node;
    message         local_data;
@@ -2189,267 +2288,48 @@ btree_lookup_and_merge(cache             *cc,        // IN
 }
 
 /*
- *-----------------------------------------------------------------------------
- * btree_async_set_state --
- *      Set the state of the async btree lookup state machine.
+ * IN Parameters:
+ * - state->cc: the cache
+ * - state->cfg: the btree config
+ * - state->root_addr: the root address of the btree
+ * - state->type: the type of the root node
+ * - state->target: the key to look up
  *
- * Results:
- *      None.
+ * IN/OUT Parameters:
+ * - state->result: the result of the lookup
  *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
+ * OUT Parameters:
+ * - state->found: whether the target was found in the leaf
+ *
+ * LOCAL Variables:
+ * - state->node: the node found
+ * - state->stats: the stats of the node found
+ * - state->stop_at_height: the height to stop at
+ * - state->h: the height of the current node
+ * - state->child_node: the child node
+ * - state->msg: the message of the target
  */
-static inline void
-btree_async_set_state(btree_async_ctxt *ctxt, btree_async_state new_state)
+async_status
+btree_lookup_and_merge_async(btree_lookup_async_state *state)
 {
-   ctxt->prev_state = ctxt->state;
-   ctxt->state      = new_state;
-}
+   async_begin(state, 0);
 
+   async_await_subroutine(state, btree_lookup_with_ref_async);
 
-/*
- *-----------------------------------------------------------------------------
- * btree_async_callback --
- *
- *      Callback that's called when the async cache get loads a page into
- *      the cache. This function moves the async btree lookup
- *      state machine's state ahead, and calls the upper layer callback
- *      that will re-enqueue the btree lookup for dispatch.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static void
-btree_async_callback(cache_async_ctxt *cache_ctxt)
-{
-   btree_async_ctxt *ctxt = cache_ctxt->cbdata;
-
-   platform_assert(SUCCESS(cache_ctxt->status));
-   platform_assert(cache_ctxt->page);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page %p
-   //   (%#lx)\n",
-   //                __FILE__, __LINE__, platform_get_tid(), ctxt,
-   //                cache_ctxt->page, ctxt->child_addr);
-   ctxt->was_async = TRUE;
-   platform_assert(ctxt->state == btree_async_state_get_node);
-   // Move state machine ahead and requeue for dispatch
-   btree_async_set_state(ctxt, btree_async_state_get_index_complete);
-   ctxt->cb(ctxt);
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- * btree_lookup_async_with_ref --
- *
- *      State machine for the async btree point lookup. This uses hand over
- *      hand locking to descend the tree and every time a child node needs to
- *      be looked up from the cache, it uses the async get api. A reference to
- *      the parent node is held in btree_async_ctxt->node while a reference to
- *      the child page is obtained by the cache_get_async() in
- *      btree_async_ctxt->cache_ctxt->page
- *
- * Results:
- *      See btree_lookup_async(). if returning async_success and
- *      found = TRUE, this returns with ref on the btree leaf. Caller
- *      must do unget() on node_out.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static cache_async_result
-btree_lookup_async_with_ref(cache            *cc,        // IN
-                            btree_config     *cfg,       // IN
-                            uint64            root_addr, // IN
-                            key               target,    // IN
-                            btree_node       *node_out,  // OUT
-                            message          *data,      // OUT
-                            bool32           *found,     // OUT
-                            btree_async_ctxt *ctxt)      // IN
-{
-   cache_async_result res  = 0;
-   bool32             done = FALSE;
-   btree_node        *node = &ctxt->node;
-
-   do {
-      switch (ctxt->state) {
-         case btree_async_state_start:
-         {
-            ctxt->child_addr = root_addr;
-            node->page       = NULL;
-            btree_async_set_state(ctxt, btree_async_state_get_node);
-            // fallthrough
-         }
-         case btree_async_state_get_node:
-         {
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            cache_ctxt_init(cc, btree_async_callback, ctxt, cache_ctxt);
-            res = cache_get_async(
-               cc, ctxt->child_addr, PAGE_TYPE_BRANCH, cache_ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  ctxt->was_async = FALSE;
-                  btree_async_set_state(ctxt,
-                                        btree_async_state_get_index_complete);
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case btree_async_state_get_index_complete:
-         {
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            if (node->page) {
-               // Unlock parent
-               btree_node_unget(cc, cfg, node);
-            }
-            btree_node_get_from_cache_ctxt(cfg, cache_ctxt, node);
-            debug_assert(node->addr == ctxt->child_addr);
-            if (ctxt->was_async) {
-               cache_async_done(cc, PAGE_TYPE_BRANCH, cache_ctxt);
-            }
-            if (btree_height(node->hdr) == 0) {
-               btree_async_set_state(ctxt, btree_async_state_get_leaf_complete);
-               break;
-            }
-            bool32 found_pivot;
-            int64  child_idx =
-               btree_find_pivot(cfg, node->hdr, target, &found_pivot);
-            if (child_idx < 0) {
-               child_idx = 0;
-            }
-            ctxt->child_addr = btree_get_child_addr(cfg, node->hdr, child_idx);
-            btree_async_set_state(ctxt, btree_async_state_get_node);
-            break;
-         }
-         case btree_async_state_get_leaf_complete:
-         {
-            int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
-            if (*found) {
-               *data     = btree_get_tuple_message(cfg, node->hdr, idx);
-               *node_out = *node;
-            } else {
-               btree_node_unget(cc, cfg, node);
-            }
-            res  = async_success;
-            done = TRUE;
-            break;
-         }
-         default:
-            platform_assert(0);
+   platform_status rc = STATUS_OK;
+   if (state->found) {
+      if (merge_accumulator_is_null(state->result)) {
+         bool32 success =
+            merge_accumulator_copy_message(state->result, state->msg);
+         rc = success ? STATUS_OK : STATUS_NO_MEMORY;
+      } else if (btree_merge_tuples(
+                    state->cfg, state->target, state->msg, state->result))
+      {
+         rc = STATUS_NO_MEMORY;
       }
-   } while (!done);
-
-   return res;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * btree_lookup_async --
- *
- *      Async btree point lookup. The ctxt should've been
- *      initialized using btree_ctxt_init().
- *
- * The return value can be one of:
- *
- *   - async_locked: A page needed by lookup is locked. User should retry
- *     request.
- *   - async_no_reqs: A page needed by lookup is not in cache and the IO
- *     subsystem is out of requests. User should throttle.
- *   - async_io_started: Async IO was started to read a page needed by the
- *     lookup into the cache. When the read is done, caller will be notified
- *     using ctxt->cb, that won't run on the thread context. It can be used
- *     to requeue the async lookup request for dispatch in thread context.
- *     When it's requeued, it must use the same function params except found.
- *     success: *found is TRUE if found, FALSE otherwise, data is stored in
- *     *data_out
- *
- * Results:
- *      Async result.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-cache_async_result
-btree_lookup_async(cache             *cc,        // IN
-                   btree_config      *cfg,       // IN
-                   uint64             root_addr, // IN
-                   key                target,    // IN
-                   merge_accumulator *result,    // OUT
-                   btree_async_ctxt  *ctxt)       // IN
-{
-   cache_async_result res;
-   btree_node         node;
-   message            data;
-   bool32             local_found;
-   res = btree_lookup_async_with_ref(
-      cc, cfg, root_addr, target, &node, &data, &local_found, ctxt);
-   if (res == async_success && local_found) {
-      bool32 success = merge_accumulator_copy_message(result, data);
-      platform_assert(success); // FIXME
-      btree_node_unget(cc, cfg, &node);
+      btree_node_unget(state->cc, state->cfg, &state->node);
    }
-
-   return res;
-}
-
-cache_async_result
-btree_lookup_and_merge_async(cache             *cc,          // IN
-                             btree_config      *cfg,         // IN
-                             uint64             root_addr,   // IN
-                             key                target,      // IN
-                             merge_accumulator *data,        // OUT
-                             bool32            *local_found, // OUT
-                             btree_async_ctxt  *ctxt)         // IN
-{
-   cache_async_result res;
-   btree_node         node;
-   message            local_data;
-
-   res = btree_lookup_async_with_ref(
-      cc, cfg, root_addr, target, &node, &local_data, local_found, ctxt);
-   if (res == async_success && *local_found) {
-      if (merge_accumulator_is_null(data)) {
-         bool32 success = merge_accumulator_copy_message(data, local_data);
-         platform_assert(success);
-      } else {
-         int rc = btree_merge_tuples(cfg, target, local_data, data);
-         platform_assert(rc == 0);
-      }
-      btree_node_unget(cc, cfg, &node);
-   }
-   return res;
+   async_return(state, rc);
 }
 
 /*
@@ -2557,6 +2437,7 @@ find_key_in_node(btree_iterator *itor,
    } else if (itor->height > hdr->height) {
       // so we will always exceed height in future lookups
       itor->height = (uint32)-1;
+      *found       = FALSE;
       return 0; // this iterator is invalid, so return 0 for all lookups
    } else {
       tmp = btree_find_pivot(itor->cfg, hdr, itor->min_key, found);
@@ -2617,8 +2498,8 @@ btree_iterator_find_end(btree_iterator *itor)
 static void
 btree_iterator_next_leaf(btree_iterator *itor)
 {
-   cache        *cc  = itor->cc;
-   btree_config *cfg = itor->cfg;
+   cache              *cc  = itor->cc;
+   const btree_config *cfg = itor->cfg;
 
    uint64 last_addr = itor->curr.addr;
    uint64 next_addr = itor->curr.hdr->next_addr;
@@ -2681,8 +2562,8 @@ btree_iterator_next_leaf(btree_iterator *itor)
 static void
 btree_iterator_prev_leaf(btree_iterator *itor)
 {
-   cache        *cc  = itor->cc;
-   btree_config *cfg = itor->cfg;
+   cache              *cc  = itor->cc;
+   const btree_config *cfg = itor->cfg;
 
    debug_only uint64 curr_addr = itor->curr.addr;
    uint64            prev_addr = itor->curr.hdr->prev_addr;
@@ -2729,10 +2610,12 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    /* if (itor->do_prefetch */
    /*     && !btree_addrs_share_extent(cc, last_addr, itor->curr.addr) */
    /*     && itor->curr.hdr->next_extent_addr != 0 */
-   /*     && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr)) */
+   /*     && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr))
+    */
    /* { */
    /*    // IO prefetch the next extent */
-   /*    cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
+   /*    cache_prefetch(cc, itor->curr.hdr->next_extent_addr,
+    * itor->page_type);
     */
    /* } */
 }
@@ -2843,7 +2726,7 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    // If min key doesn't exist in current node, but is:
    // 1) in range:     Min idx = smallest key > min_key
    // 2) out of range: Min idx = -1
-   itor->curr_min_idx = !found && tmp == 0 ? --tmp : tmp;
+   itor->curr_min_idx = !found && tmp == 0 ? tmp - 1 : tmp;
    // if min_key is not within the current node but there is no previous node
    // then set curr_min_idx to 0
    if (itor->curr_min_idx == -1 && itor->curr.hdr->prev_addr == 0) {
@@ -2948,17 +2831,17 @@ const static iterator_ops btree_iterator_ops = {
  *-----------------------------------------------------------------------------
  */
 void
-btree_iterator_init(cache          *cc,
-                    btree_config   *cfg,
-                    btree_iterator *itor,
-                    uint64          root_addr,
-                    page_type       page_type,
-                    key             min_key,
-                    key             max_key,
-                    key             start_key,
-                    comparison      start_type,
-                    bool32          do_prefetch,
-                    uint32          height)
+btree_iterator_init(cache              *cc,
+                    const btree_config *cfg,
+                    btree_iterator     *itor,
+                    uint64              root_addr,
+                    page_type           page_type,
+                    key                 min_key,
+                    key                 max_key,
+                    key                 start_key,
+                    comparison          start_type,
+                    bool32              do_prefetch,
+                    uint32              height)
 {
    platform_assert(root_addr != 0);
    debug_assert(page_type == PAGE_TYPE_MEMTABLE
@@ -3195,15 +3078,18 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 static inline void
 btree_pack_post_loop(btree_pack_req *req, key last_key)
 {
-   cache        *cc  = req->cc;
-   btree_config *cfg = req->cfg;
+   cache              *cc  = req->cc;
+   const btree_config *cfg = req->cfg;
    // we want to use the allocation node, so we copy the root created in the
    // loop into the btree_create root
    btree_node root;
 
    // if output tree is empty, deallocate any preallocated extents
    if (req->num_tuples == 0) {
-      mini_destroy_unused(&req->mini);
+      mini_release(&req->mini);
+      refcount r = mini_dec_ref(
+         cc, btree_root_to_meta_addr(cfg, req->root_addr, 0), PAGE_TYPE_BRANCH);
+      platform_assert(r == 0);
       req->root_addr = 0;
       return;
    }
@@ -3226,7 +3112,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
 
    btree_node_full_unlock(cc, cfg, &req->edge[req->height][0]);
 
-   mini_release(&req->mini, last_key);
+   mini_release(&req->mini);
 }
 
 static bool32
@@ -3244,11 +3130,7 @@ btree_pack_abort(btree_pack_req *req)
       }
    }
 
-   btree_dec_ref_range(req->cc,
-                       req->cfg,
-                       req->root_addr,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY);
+   btree_dec_ref(req->cc, req->cfg, req->root_addr, PAGE_TYPE_BRANCH);
 }
 
 /*
@@ -3305,11 +3187,11 @@ btree_pack(btree_pack_req *req)
  * the total size of all such keys and messages.
  */
 static inline void
-btree_get_rank(cache             *cc,
-               btree_config      *cfg,
-               uint64             root_addr,
-               key                target,
-               btree_pivot_stats *stats)
+btree_get_rank(cache              *cc,
+               const btree_config *cfg,
+               uint64              root_addr,
+               key                 target,
+               btree_pivot_stats  *stats)
 {
    btree_node leaf;
 
@@ -3329,12 +3211,12 @@ btree_get_rank(cache             *cc,
  * btree between min_key (inc) and max_key (excl).
  */
 void
-btree_count_in_range(cache             *cc,
-                     btree_config      *cfg,
-                     uint64             root_addr,
-                     key                min_key,
-                     key                max_key,
-                     btree_pivot_stats *stats)
+btree_count_in_range(cache              *cc,
+                     const btree_config *cfg,
+                     uint64              root_addr,
+                     key                 min_key,
+                     key                 max_key,
+                     btree_pivot_stats  *stats)
 {
    btree_pivot_stats min_stats;
 
@@ -3455,7 +3337,7 @@ btree_print_btree_pivot_data(platform_log_handle *log_handle,
 
 static void
 btree_print_index_entry(platform_log_handle *log_handle,
-                        btree_config        *cfg,
+                        const btree_config  *cfg,
                         index_entry         *entry,
                         uint64               entry_num)
 {
@@ -3469,7 +3351,7 @@ btree_print_index_entry(platform_log_handle *log_handle,
 
 static void
 btree_print_index_node(platform_log_handle *log_handle,
-                       btree_config        *cfg,
+                       const btree_config  *cfg,
                        uint64               addr,
                        btree_hdr           *hdr,
                        page_type            type)
@@ -3500,7 +3382,7 @@ btree_print_index_node(platform_log_handle *log_handle,
 
 static void
 btree_print_leaf_entry(platform_log_handle *log_handle,
-                       btree_config        *cfg,
+                       const btree_config  *cfg,
                        leaf_entry          *entry,
                        uint64               entry_num)
 {
@@ -3514,7 +3396,7 @@ btree_print_leaf_entry(platform_log_handle *log_handle,
 
 static void
 btree_print_leaf_node(platform_log_handle *log_handle,
-                      btree_config        *cfg,
+                      const btree_config  *cfg,
                       uint64               addr,
                       btree_hdr           *hdr,
                       page_type            type)
@@ -3554,7 +3436,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
  */
 void
 btree_print_locked_node(platform_log_handle *log_handle,
-                        btree_config        *cfg,
+                        const btree_config  *cfg,
                         uint64               addr,
                         btree_hdr           *hdr,
                         page_type            type)
@@ -3573,7 +3455,7 @@ btree_print_locked_node(platform_log_handle *log_handle,
 void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
-                 btree_config        *cfg,
+                 const btree_config  *cfg,
                  btree_node          *node,
                  page_type            type)
 {
@@ -3654,7 +3536,8 @@ btree_print_memtable_tree(platform_log_handle *log_handle,
 /*
  * btree_print_tree()
  *
- * Driver routine to print a BTree of page-type 'type', starting from root_addr.
+ * Driver routine to print a BTree of page-type 'type', starting from
+ * root_addr.
  */
 void
 btree_print_tree(platform_log_handle *log_handle,
@@ -3670,11 +3553,12 @@ void
 btree_print_tree_stats(platform_log_handle *log_handle,
                        cache               *cc,
                        btree_config        *cfg,
-                       uint64               addr)
+                       uint64               addr,
+                       page_type            type)
 {
    btree_node node;
    node.addr = addr;
-   btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
+   btree_node_get(cc, cfg, &node, type);
 
    platform_default_log("Tree stats: height %u\n", node.hdr->height);
    cache_print_stats(log_handle, cc);
@@ -3687,17 +3571,13 @@ btree_print_tree_stats(platform_log_handle *log_handle,
  * btree
  */
 uint64
-btree_space_use_in_range(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type,
-                         key           start_key,
-                         key           end_key)
+btree_space_use_bytes(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
+                      page_type           type)
 {
-   uint64 meta_head    = btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint64 extents_used = mini_keyed_extent_count(
-      cc, cfg->data_cfg, type, meta_head, start_key, end_key);
-   return extents_used * btree_extent_size(cfg);
+   uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
+   return mini_space_use_bytes(cc, meta_head, type);
 }
 
 bool32
