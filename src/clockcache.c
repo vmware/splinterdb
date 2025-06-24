@@ -2499,12 +2499,19 @@ clockcache_validate_page(clockcache *cc, page_handle *page, uint64 addr)
 void
 clockcache_assert_ungot(clockcache *cc, uint64 addr)
 {
-   uint32         entry_number = clockcache_lookup(cc, addr);
-   const threadid tid          = platform_get_tid();
+   uint32 entry_number = clockcache_lookup(cc, addr);
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
-      debug_only uint16 ref_count = clockcache_get_ref(cc, entry_number, tid);
-      debug_assert(ref_count == 0);
+      for (threadid tid = 0; tid < CC_RC_WIDTH; tid++) {
+         debug_only uint16 ref_count =
+            clockcache_get_ref(cc, entry_number, tid);
+         debug_assert(ref_count == 0,
+                      "Entry %u addr %lu has ref count %u for thread %lu",
+                      entry_number,
+                      addr,
+                      ref_count,
+                      tid);
+      }
    }
 }
 
