@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "allocator.h"
 #include "io.h"
+#include "async.h"
 
 typedef struct page_handle {
    char  *data;
@@ -57,40 +58,6 @@ typedef struct cache_stats {
 // This is probably necessary:
 _Static_assert(IS_POWER_OF_2(MAX_PAGES_PER_EXTENT),
                "MAX_PAGES_PER_EXTENT not a power of 2");
-
-typedef enum {
-   // Success without needing async IO because of cache hit.
-   async_success = 0xc0ffee,
-   /*
-    * Locked it's write-locked, or raced with eviction or
-    * another thread was loading the page. Caller needs to retry.
-    */
-   async_locked,
-   // Retry or throttle ingress lookups because we're out of io reqs.
-   async_no_reqs,
-   // Started async IO and caller will be notified via callback.
-   async_io_started
-} cache_async_result;
-
-struct cache_async_ctxt;
-typedef void (*cache_async_cb)(struct cache_async_ctxt *ctxt);
-
-/*
- * Context structure to manage async access through the cache.
- * User can embed this within a user-specific context
- */
-typedef struct cache_async_ctxt {
-   cache          *cc;     // IN cache
-   cache_async_cb  cb;     // IN callback for async_io_started
-   void           *cbdata; // IN opaque callback data
-   platform_status status; // IN status of async IO
-   page_handle    *page;   // OUT page handle
-   // Internal stats
-   struct {
-      timestamp issue_ts; // issue time
-      timestamp compl_ts; // completion time
-   } stats;
-} cache_async_ctxt;
 
 typedef uint64 (*cache_config_generic_uint64_fn)(const cache_config *cfg);
 
@@ -139,13 +106,19 @@ typedef page_handle *(*page_get_fn)(cache    *cc,
                                     uint64    addr,
                                     bool32    blocking,
                                     page_type type);
-typedef cache_async_result (*page_get_async_fn)(cache            *cc,
-                                                uint64            addr,
-                                                page_type         type,
-                                                cache_async_ctxt *ctxt);
-typedef void (*page_async_done_fn)(cache            *cc,
-                                   page_type         type,
-                                   cache_async_ctxt *ctxt);
+
+#define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (2048)
+typedef uint8 page_get_async_state_buffer[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
+typedef void (*page_get_async_state_init_fn)(page_get_async_state_buffer buffer,
+                                             cache                      *cc,
+                                             uint64                      addr,
+                                             page_type                   type,
+                                             async_callback_fn callback,
+                                             void             *callback_arg);
+typedef async_status (*page_get_async_fn)(page_get_async_state_buffer buffer);
+typedef page_handle *(*page_get_async_state_result_fn)(
+   page_get_async_state_buffer buffer);
+
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
                              page_handle *page,
@@ -173,11 +146,14 @@ typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
  * for a caching system.
  */
 typedef struct cache_ops {
-   page_alloc_fn        page_alloc;
-   extent_discard_fn    extent_discard;
-   page_get_fn          page_get;
-   page_get_async_fn    page_get_async;
-   page_async_done_fn   page_async_done;
+   page_alloc_fn     page_alloc;
+   extent_discard_fn extent_discard;
+   page_get_fn       page_get;
+
+   page_get_async_state_init_fn   page_get_async_state_init;
+   page_get_async_fn              page_get_async;
+   page_get_async_state_result_fn page_get_async_result;
+
    page_generic_fn      page_unget;
    page_try_claim_fn    page_try_claim;
    page_generic_fn      page_unclaim;
@@ -283,50 +259,28 @@ cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
    return cc->ops->page_get(cc, addr, blocking, type);
 }
 
-/*
- *----------------------------------------------------------------------
- * cache_ctxt_init
- *
- * Initialize an async context, preparing it for use with cache_get_async.
- *----------------------------------------------------------------------
- */
 static inline void
-cache_ctxt_init(cache            *cc,
-                cache_async_cb    cb,
-                void             *cbdata,
-                cache_async_ctxt *ctxt)
+cache_get_async_state_init(page_get_async_state_buffer buffer,
+                           cache                      *cc,
+                           uint64                      addr,
+                           page_type                   type,
+                           async_callback_fn           callback,
+                           void                       *callback_arg)
 {
-   ctxt->cc     = cc;
-   ctxt->cb     = cb;
-   ctxt->cbdata = cbdata;
-   ctxt->page   = NULL;
+   return cc->ops->page_get_async_state_init(
+      buffer, cc, addr, type, callback, callback_arg);
 }
 
-/*
- *----------------------------------------------------------------------
- * cache_get_async
- *
- * Schedules an asynchronous page get. See cache_async_result for results.
- *----------------------------------------------------------------------
- */
-static inline cache_async_result
-cache_get_async(cache *cc, uint64 addr, page_type type, cache_async_ctxt *ctxt)
+static inline async_status
+cache_get_async(cache *cc, page_get_async_state_buffer buffer)
 {
-   return cc->ops->page_get_async(cc, addr, type, ctxt);
+   return cc->ops->page_get_async(buffer);
 }
 
-/*
- *----------------------------------------------------------------------
- * cache_async_done
- *
- * Perform callbacks on the thread that made the async call after an async
- * operation completes.
- *----------------------------------------------------------------------
- */
-static inline void
-cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
+static inline page_handle *
+cache_get_async_state_result(cache *cc, page_get_async_state_buffer buffer)
 {
-   return cc->ops->page_async_done(cc, type, ctxt);
+   return cc->ops->page_get_async_result(buffer);
 }
 
 /*

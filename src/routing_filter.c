@@ -30,10 +30,10 @@
  *       single index. Appears on pages of page type == PAGE_TYPE_FILTER.
  *----------------------------------------------------------------------
  */
-typedef struct ONDISK routing_hdr {
+struct ONDISK routing_hdr {
    uint16 num_remainders;
    char   encoding[];
-} routing_hdr;
+};
 
 /*
  *----------------------------------------------------------------------
@@ -53,21 +53,20 @@ RadixSort(uint32 *pData,
           uint32  mBuf[static MATRIX_ROWS * MATRIX_COLS],
           uint32 *pTemp,
           uint32  count,
-          uint32  fp_size,
-          uint32  value_size)
+          uint32  fp_size)
 {
    uint32 *mIndex[MATRIX_ROWS]; // index matrix
    uint32 *pDst, *pSrc, *pTmp;
    uint32  i, j, m, n;
    uint32  u;
-   uint32  fpover = value_size % 8;
    if (fp_size == 0) {
       fp_size = 1;
    }
-   uint32 rounds = (fp_size + fpover - 1) / 8 + 1;
+   uint32 rounds = (fp_size + 7) / 8;
    uint8  c;
-   uint32 fpshift = value_size / 8;
-   value_size     = value_size / 8 * 8;
+
+
+   platform_assert(rounds <= MATRIX_ROWS);
 
    for (i = 0; i < MATRIX_ROWS; i++) {
       mIndex[i] = &mBuf[i * MATRIX_COLS];
@@ -76,7 +75,13 @@ RadixSort(uint32 *pData,
       }
    }
    for (i = 0; i < count; i++) { // generate histograms
-      u = pData[i] >> value_size;
+      u = pData[i];
+      platform_assert(u < (1ULL << (8 * rounds)),
+                      "pData[i]=0x%x u=0x%x, fp_size=%u rounds=%u\n",
+                      pData[i],
+                      u,
+                      fp_size,
+                      rounds);
       for (j = 0; j < rounds; j++) {
          c = ((uint8 *)&u)[j];
          mIndex[j][c]++;
@@ -99,17 +104,19 @@ RadixSort(uint32 *pData,
    for (j = 0; j < rounds; j++) {
       for (i = 0; i < count; i++) {
          u = pSrc[i];
-         c = ((uint8 *)&u)[j + fpshift];
+         c = ((uint8 *)&u)[j];
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
-                         ", mIndex[j][c]=%d, count=%u\n",
+                         ", mIndex[j][c]=%d, count=%u pData=%p pTemp=%p\n",
                          platform_getpid(),
                          platform_get_tid(),
                          i,
                          j,
                          c,
                          mIndex[j][c],
-                         count);
+                         count,
+                         pData,
+                         pTemp);
          pDst[mIndex[j][c]++] = u;
       }
       pTmp = pSrc;
@@ -156,21 +163,21 @@ routing_get_index(uint32 fp, size_t index_remainder_and_value_size)
 }
 
 static inline void
-routing_filter_get_remainder_and_value(routing_config *cfg,
-                                       uint32         *data,
-                                       uint32          pos,
-                                       uint32         *remainder_and_value,
-                                       size_t          remainder_value_size)
+routing_filter_get_remainder_and_value(const routing_config *cfg,
+                                       uint32               *data,
+                                       uint32                pos,
+                                       uint32 *remainder_and_value,
+                                       size_t  remainder_value_size)
 {
    *remainder_and_value = PackedArray_get(data, pos, remainder_value_size);
 }
 
 static inline routing_hdr *
-routing_get_header(cache          *cc,
-                   routing_config *cfg,
-                   uint64          filter_addr,
-                   uint64          index,
-                   page_handle   **filter_page)
+routing_get_header(cache                *cc,
+                   const routing_config *cfg,
+                   uint64                filter_addr,
+                   uint64                index,
+                   page_handle         **filter_page)
 {
    uint64 page_size      = cache_config_page_size(cfg->cache_cfg);
    uint64 addrs_per_page = page_size / sizeof(uint64);
@@ -194,7 +201,7 @@ routing_unget_header(cache *cc, page_handle *header_page)
 }
 
 static inline uint64
-routing_header_length(routing_config *cfg, routing_hdr *hdr)
+routing_header_length(const routing_config *cfg, routing_hdr *hdr)
 {
    uint64 metamessage_size =
       (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
@@ -269,7 +276,9 @@ routing_get_bucket_bounds(char   *encoding,
 }
 
 void
-routing_get_bucket_counts(routing_config *cfg, routing_hdr *hdr, uint32 *count)
+routing_get_bucket_counts(const routing_config *cfg,
+                          routing_hdr          *hdr,
+                          uint32               *count)
 {
    uint64  start = 0;
    uint64  end;
@@ -319,17 +328,17 @@ routing_get_bucket_counts(routing_config *cfg, routing_hdr *hdr, uint32 *count)
  *      routing filter at old_filter_addr and returns the result in
  *      filter_addr.
  *
- *      meta_head should be passed to routing_filter_zap
+ *      meta_head should be passed to routing_filter_dec_ref
  *----------------------------------------------------------------------
  */
 platform_status
-routing_filter_add(cache          *cc,
-                   routing_config *cfg,
-                   routing_filter *old_filter,
-                   routing_filter *filter,
-                   uint32         *new_fp_arr,
-                   uint64          num_new_fp,
-                   uint16          value)
+routing_filter_add(cache                *cc,
+                   const routing_config *cfg,
+                   routing_filter       *old_filter,
+                   routing_filter       *filter,
+                   uint32               *new_fp_arr,
+                   uint64                num_new_fp,
+                   uint16                value)
 {
    ZERO_CONTENTS(filter);
 
@@ -341,7 +350,7 @@ routing_filter_add(cache          *cc,
    uint32 old_value_mask               = 0;
    size_t old_remainder_and_value_size = 0;
    if (old_filter->addr != 0) {
-      mini_unkeyed_prefetch(cc, PAGE_TYPE_FILTER, old_filter->meta_head);
+      mini_prefetch(cc, PAGE_TYPE_FILTER, old_filter->meta_head);
       old_log_num_buckets = 31 - __builtin_clz(old_filter->num_fingerprints);
       if (old_log_num_buckets < cfg->log_index_size) {
          old_log_num_buckets = cfg->log_index_size;
@@ -422,35 +431,39 @@ routing_filter_add(cache          *cc,
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
    mini_allocator mini;
-   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE);
+   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER);
 
    // set up the index pages
    uint64       addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64       index_addr = mini_alloc(&mini, 0, NULL_KEY, NULL);
+   uint64       index_addr = mini_alloc(&mini, 0, NULL);
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
-      uint64 next_index_addr = mini_alloc(&mini, 0, NULL_KEY, NULL);
+      uint64 next_index_addr = mini_alloc(&mini, 0, NULL);
       platform_assert(next_index_addr == index_addr + i * page_size);
       index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64       addr          = mini_alloc(&mini, 0, NULL_KEY, NULL);
+   uint64       addr          = mini_alloc(&mini, 0, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char        *filter_cursor = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
       new_fp_arr[new_fp_no] >>= 32 - cfg->fingerprint_size;
-      new_fp_arr[new_fp_no] <<= value_size;
-      new_fp_arr[new_fp_no] |= value;
    }
 
-   uint32 *fp_arr = RadixSort(
-      new_fp_arr, matrix, temp, num_new_fp, cfg->fingerprint_size, value_size);
+   uint32 *fp_arr =
+      RadixSort(new_fp_arr, matrix, temp, num_new_fp, cfg->fingerprint_size);
+
+   for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
+      fp_arr[new_fp_no] <<= value_size;
+      fp_arr[new_fp_no] |= value;
+   }
+
 
    uint32 dst_fp_no         = 0;
    uint64 num_new_unique_fp = num_new_fp;
@@ -586,7 +599,7 @@ routing_filter_add(cache          *cc,
          uint32 header_size   = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-            addr        = mini_alloc(&mini, 0, NULL_KEY, NULL);
+            addr        = mini_alloc(&mini, 0, NULL);
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
@@ -632,7 +645,7 @@ routing_filter_add(cache          *cc,
       routing_unlock_and_unget_page(cc, index_page[i]);
    }
 
-   mini_release(&mini, NULL_KEY);
+   mini_release(&mini);
 
    platform_free(PROCESS_PRIVATE_HEAP_ID, temp);
 
@@ -640,10 +653,10 @@ routing_filter_add(cache          *cc,
 }
 
 void
-routing_filter_prefetch(cache          *cc,
-                        routing_config *cfg,
-                        routing_filter *filter,
-                        uint64          num_indices)
+routing_filter_prefetch(cache                *cc,
+                        const routing_config *cfg,
+                        routing_filter       *filter,
+                        uint64                num_indices)
 {
    uint64 last_extent_addr = 0;
    uint64 page_size        = cache_config_page_size(cfg->cache_cfg);
@@ -684,12 +697,13 @@ routing_filter_prefetch(cache          *cc,
 }
 
 uint32
-routing_filter_estimate_unique_fp(cache           *cc,
-                                  routing_config  *cfg,
-                                  platform_heap_id hid,
-                                  routing_filter  *filter,
-                                  uint64           num_filters)
+routing_filter_estimate_unique_fp(cache                *cc,
+                                  const routing_config *cfg,
+                                  platform_heap_id      hid,
+                                  routing_filter       *filter,
+                                  uint64                num_filters)
 {
+   platform_assert(num_filters <= MAX_FILTERS);
    uint32 total_num_fp = 0;
    for (uint64 i = 0; i != num_filters; i++) {
       total_num_fp += filter[i].num_fingerprints;
@@ -814,6 +828,138 @@ routing_filter_estimate_unique_fp(cache           *cc,
    return num_unique * 16;
 }
 
+static inline async_status
+routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
+{
+   async_begin(state, depth);
+
+   state->page_size      = cache_config_page_size(state->cfg->cache_cfg);
+   state->addrs_per_page = state->page_size / sizeof(uint64);
+   debug_assert(state->index / state->addrs_per_page < 32);
+   state->index_addr =
+      state->filter.addr
+      + state->page_size * (state->index / state->addrs_per_page);
+
+   cache_get_async_state_init(state->cache_get_state,
+                              state->cc,
+                              state->index_addr,
+                              PAGE_TYPE_FILTER,
+                              state->callback,
+                              state->callback_arg);
+   while (cache_get_async(state->cc, state->cache_get_state)
+          != ASYNC_STATUS_DONE)
+   {
+      async_yield(state);
+   }
+   state->index_page =
+      cache_get_async_state_result(state->cc, state->cache_get_state);
+
+   state->hdr_raw_addr =
+      ((uint64 *)state->index_page->data)[state->index % state->addrs_per_page];
+   platform_assert(state->hdr_raw_addr != 0);
+   state->header_addr =
+      state->hdr_raw_addr - (state->hdr_raw_addr % state->page_size);
+
+   cache_get_async_state_init(state->cache_get_state,
+                              state->cc,
+                              state->header_addr,
+                              PAGE_TYPE_FILTER,
+                              state->callback,
+                              state->callback_arg);
+   while (cache_get_async(state->cc, state->cache_get_state)
+          != ASYNC_STATUS_DONE)
+   {
+      async_yield(state);
+   }
+   state->filter_page =
+      cache_get_async_state_result(state->cc, state->cache_get_state);
+
+   uint64 header_off = state->hdr_raw_addr - state->header_addr;
+   state->hdr        = (routing_hdr *)(state->filter_page->data + header_off);
+   cache_unget(state->cc, state->index_page);
+   async_return(state);
+}
+
+
+async_status
+routing_filter_lookup_async(routing_filter_lookup_async_state *state)
+{
+   async_begin(state, 0);
+
+   debug_assert(key_is_user_key(state->target));
+
+   if (state->filter.addr == 0) {
+      *state->found_values = 0;
+      async_return(state, STATUS_OK);
+   }
+
+   state->fp = state->cfg->hash(
+      key_data(state->target), key_length(state->target), state->cfg->seed);
+   state->fp >>= 32 - state->cfg->fingerprint_size;
+   uint32 log_num_buckets = 31 - __builtin_clz(state->filter.num_fingerprints);
+   if (log_num_buckets < state->cfg->log_index_size) {
+      log_num_buckets = state->cfg->log_index_size;
+   }
+   state->remainder_size = state->cfg->fingerprint_size - log_num_buckets;
+   size_t index_remainder_and_value_size = state->remainder_size
+                                           + state->filter.value_size
+                                           + state->cfg->log_index_size;
+   state->index = routing_get_index(state->fp << state->filter.value_size,
+                                    index_remainder_and_value_size);
+
+   async_await_subroutine(state, routing_get_header_async);
+
+   uint64 encoding_size =
+      (state->hdr->num_remainders + state->cfg->index_size - 1) / 8 + 4;
+   uint64 header_length = encoding_size + sizeof(routing_hdr);
+
+   size_t remainder_and_value_size =
+      state->remainder_size + state->filter.value_size;
+   uint32 bucket     = routing_get_bucket(state->fp << state->filter.value_size,
+                                      remainder_and_value_size);
+   uint32 bucket_off = bucket % state->cfg->index_size;
+   uint64 start, end;
+   routing_get_bucket_bounds(
+      state->hdr->encoding, header_length, bucket_off, &start, &end);
+   char *remainder_block_start = (char *)state->hdr + header_length;
+
+   // platform_default_log("routing_filter_lookup: "
+   //      "index 0x%lx bucket 0x%lx (0x%lx) remainder 0x%x start %lu end
+   //      %lu\n", index, bucket, bucket % index_size, remainder, start, end);
+
+   if (start == end) {
+      routing_unget_header(state->cc, state->filter_page);
+      *state->found_values = 0;
+      async_return(state, STATUS_OK);
+   }
+
+   uint32 remainder_mask = (1UL << state->remainder_size) - 1;
+   uint32 remainder      = state->fp & remainder_mask;
+
+   uint64 found_values_int = 0;
+   for (uint32 i = 0; i < end - start; i++) {
+      uint32 pos = end - i - 1;
+      uint32 found_remainder_and_value;
+      routing_filter_get_remainder_and_value(state->cfg,
+                                             (uint32 *)remainder_block_start,
+                                             pos,
+                                             &found_remainder_and_value,
+                                             remainder_and_value_size);
+      uint32 found_remainder =
+         found_remainder_and_value >> state->filter.value_size;
+      if (found_remainder == remainder) {
+         uint32 value_mask  = (1UL << state->filter.value_size) - 1;
+         uint16 found_value = found_remainder_and_value & value_mask;
+         platform_assert(found_value < 64);
+         found_values_int |= (1UL << found_value);
+      }
+   }
+
+   routing_unget_header(state->cc, state->filter_page);
+   *state->found_values = found_values_int;
+   async_return(state, STATUS_OK);
+}
+
 /*
  *----------------------------------------------------------------------
  * routing_filter_lookup
@@ -826,12 +972,21 @@ routing_filter_estimate_unique_fp(cache           *cc,
  *----------------------------------------------------------------------
  */
 platform_status
-routing_filter_lookup(cache          *cc,
-                      routing_config *cfg,
-                      routing_filter *filter,
-                      key             target,
-                      uint64         *found_values)
+routing_filter_lookup(cache                *cc,
+                      const routing_config *cfg,
+                      routing_filter       *filter,
+                      key                   target,
+                      uint64               *found_values)
 {
+#if 0
+   return async_call_sync_callback(cache_cleanup(cc),
+                                   routing_filter_lookup_async,
+                                   cc,
+                                   cfg,
+                                   *filter,
+                                   target,
+                                   found_values);
+#else
    debug_assert(key_is_user_key(target));
 
    if (filter->addr == 0) {
@@ -904,279 +1059,43 @@ routing_filter_lookup(cache          *cc,
    routing_unget_header(cc, filter_node);
    *found_values = found_values_int;
    return STATUS_OK;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * routing_async_set_state --
- *
- *      Set the state of the async filter lookup state machine.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static inline void
-routing_async_set_state(routing_async_ctxt *ctxt, routing_async_state new_state)
-{
-   ctxt->prev_state = ctxt->state;
-   ctxt->state      = new_state;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- * routing_filter_async_callback --
- *
- *      Callback that's called when the async cache get loads a page into
- *      the cache. This function moves the async filter lookup state machine's
- *      state ahead, and calls the upper layer callback that'll re-enqueue
- *      the filter lookup for dispatch.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static void
-routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
-{
-   routing_async_ctxt *ctxt = cache_ctxt->cbdata;
-
-   platform_assert(SUCCESS(cache_ctxt->status));
-   platform_assert(cache_ctxt->page);
-   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page
-   //   %p\n",
-   //                __FILE__, __LINE__, platform_get_tid(), ctxt,
-   //                cache_ctxt->page);
-   ctxt->was_async = TRUE;
-   // Move state machine ahead and requeue for dispatch
-   if (ctxt->state == routing_async_state_get_index) {
-      routing_async_set_state(ctxt, routing_async_state_got_index);
-   } else {
-      debug_assert(ctxt->state == routing_async_state_get_filter);
-      routing_async_set_state(ctxt, routing_async_state_got_filter);
-   }
-   ctxt->cb(ctxt);
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- * routing_filter_lookup_async --
- *
- *      Async filter lookup api. Returns if lookup found a key in *found_values.
- *      The ctxt should've been initialized using routing_filter_ctxt_init().
- *      The return value can be either of:
- *      async_locked: A page needed by lookup is locked. User should retry
- *                    request.
- *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *                     subsystem is out of requests. User should throttle.
- *      async_io_started: Async IO was started to read a page needed by the
- *                        lookup into the cache. When the read is done, caller
- *                        will be notified using ctxt->cb, that won't run on
- *                        the thread context. It can be used to requeue the
- *                        async lookup request for dispatch in thread context.
- *                        When it's requeued, it must use the same function
- *                        params except found.
- *      success: Results are in *found_values
- *
- * Results:
- *      Async result.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-cache_async_result
-routing_filter_lookup_async(cache              *cc,
-                            routing_config     *cfg,
-                            routing_filter     *filter,
-                            key                 target,
-                            uint64             *found_values,
-                            routing_async_ctxt *ctxt)
-{
-   cache_async_result res  = 0;
-   bool32             done = FALSE;
-
-   debug_assert(key_is_user_key(target));
-
-   uint64 page_size = cache_config_page_size(cfg->cache_cfg);
-   do {
-      switch (ctxt->state) {
-         case routing_async_state_start:
-         {
-            // Calculate filter parameters for the key
-            hash_fn hash = cfg->hash;
-            uint64  seed = cfg->seed;
-
-            uint32 fp = hash(key_data(target), key_length(target), seed);
-            fp >>= 32 - cfg->fingerprint_size;
-            size_t value_size = filter->value_size;
-            uint32 log_num_buckets =
-               31 - __builtin_clz(filter->num_fingerprints);
-            if (log_num_buckets < cfg->log_index_size) {
-               log_num_buckets = cfg->log_index_size;
-            }
-            ctxt->remainder_size = cfg->fingerprint_size - log_num_buckets;
-            size_t remainder_and_value_size = ctxt->remainder_size + value_size;
-            ctxt->bucket =
-               routing_get_bucket(fp << value_size, remainder_and_value_size);
-            size_t index_remainder_and_value_size =
-               ctxt->remainder_size + value_size + cfg->log_index_size;
-            uint32 remainder_mask = (1UL << ctxt->remainder_size) - 1;
-            ctxt->index           = routing_get_index(fp << value_size,
-                                            index_remainder_and_value_size);
-            ctxt->remainder       = fp & remainder_mask;
-
-            uint64 addrs_per_page = (page_size / sizeof(uint64));
-            ctxt->page_addr =
-               filter->addr + page_size * (ctxt->index / addrs_per_page);
-            routing_async_set_state(ctxt, routing_async_state_get_index);
-            // fallthrough;
-         }
-         case routing_async_state_get_index:
-         case routing_async_state_get_filter:
-         {
-            // Get the index or filter page.
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            cache_ctxt_init(
-               cc, routing_filter_async_callback, ctxt, cache_ctxt);
-            res = cache_get_async(
-               cc, ctxt->page_addr, PAGE_TYPE_FILTER, cache_ctxt);
-            switch (res) {
-               case async_locked:
-               case async_no_reqs:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            retry\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  /*
-                   * Ctxt remains at same state. The invocation is done, but
-                   * the request isn't; and caller will re-invoke me.
-                   */
-                  done = TRUE;
-                  break;
-               case async_io_started:
-                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
-                  //            io_started\n",
-                  //                         __FILE__, __LINE__,
-                  //                         platform_get_tid(), ctxt);
-                  // Invocation is done; request isn't. Callback will move
-                  // state.
-                  done = TRUE;
-                  break;
-               case async_success:
-                  ctxt->was_async = FALSE;
-                  if (ctxt->state == routing_async_state_get_index) {
-                     routing_async_set_state(ctxt,
-                                             routing_async_state_got_index);
-                  } else {
-                     debug_assert(ctxt->state
-                                  == routing_async_state_get_filter);
-                     routing_async_set_state(ctxt,
-                                             routing_async_state_got_filter);
-                  }
-                  break;
-               default:
-                  platform_assert(0);
-            }
-            break;
-         }
-         case routing_async_state_got_index:
-         {
-            // Got the index; find address of filter page
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            if (ctxt->was_async) {
-               cache_async_done(cc, PAGE_TYPE_FILTER, cache_ctxt);
-            }
-            uint64 *index_arr      = ((uint64 *)cache_ctxt->page->data);
-            uint64  addrs_per_page = (page_size / sizeof(uint64));
-            ctxt->header_addr      = index_arr[ctxt->index % addrs_per_page];
-            ctxt->page_addr =
-               ctxt->header_addr - (ctxt->header_addr % page_size);
-            cache_unget(cc, cache_ctxt->page);
-            routing_async_set_state(ctxt, routing_async_state_get_filter);
-            break;
-         }
-         case routing_async_state_got_filter:
-         {
-            // Got the filter; find bucket and search for remainder
-            cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
-
-            if (ctxt->was_async) {
-               cache_async_done(cc, PAGE_TYPE_FILTER, cache_ctxt);
-            }
-            routing_hdr *hdr =
-               (routing_hdr *)(cache_ctxt->page->data
-                               + (ctxt->header_addr % page_size));
-            uint64 encoding_size =
-               (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
-            uint64 header_length = encoding_size + sizeof(routing_hdr);
-            uint64 start, end;
-            uint32 bucket_off = ctxt->bucket % cfg->index_size;
-            routing_get_bucket_bounds(
-               hdr->encoding, header_length, bucket_off, &start, &end);
-            char *remainder_block_start = (char *)hdr + header_length;
-
-            uint64 found_values_int = 0;
-            for (uint32 i = 0; i < end - start; i++) {
-               uint32 pos = end - i - 1;
-               uint32 found_remainder_and_value;
-               size_t value_size = filter->value_size;
-               size_t remainder_and_value_size =
-                  ctxt->remainder_size + value_size;
-               routing_filter_get_remainder_and_value(
-                  cfg,
-                  (uint32 *)remainder_block_start,
-                  pos,
-                  &found_remainder_and_value,
-                  remainder_and_value_size);
-               uint32 found_remainder = found_remainder_and_value >> value_size;
-               if (found_remainder == ctxt->remainder) {
-                  uint32 value_mask  = (1UL << value_size) - 1;
-                  uint16 found_value = found_remainder_and_value & value_mask;
-                  platform_assert(found_value < 64);
-                  found_values_int |= (1UL << found_value);
-               }
-            }
-            *found_values = found_values_int;
-            cache_unget(cc, cache_ctxt->page);
-            res  = async_success;
-            done = TRUE;
-            break;
-         }
-         default:
-            platform_assert(0);
-      }
-   } while (!done);
-
-   return res;
+#endif
 }
 
 /*
  *----------------------------------------------------------------------
- * routing_filter_zap
+ * routing_filter_inc_ref
  *
- *      decs the ref count of the filter and destroys it if it reaches 0
+ *      incs the ref count of the filter
  *----------------------------------------------------------------------
  */
 void
-routing_filter_zap(cache *cc, routing_filter *filter)
+routing_filter_inc_ref(cache *cc, routing_filter *filter)
 {
    if (filter->num_fingerprints == 0) {
       return;
    }
 
    uint64 meta_head = filter->meta_head;
-   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER, FALSE);
+   mini_inc_ref(cc, meta_head);
+}
+
+/*
+ *----------------------------------------------------------------------
+ * routing_filter_dec_ref
+ *
+ *      decs the ref count of the filter and destroys it if it reaches 0
+ *----------------------------------------------------------------------
+ */
+void
+routing_filter_dec_ref(cache *cc, routing_filter *filter)
+{
+   if (filter->num_fingerprints == 0) {
+      return;
+   }
+
+   uint64 meta_head = filter->meta_head;
+   mini_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
 }
 
 /*
@@ -1188,8 +1107,8 @@ routing_filter_zap(cache *cc, routing_filter *filter)
  *----------------------------------------------------------------------
  */
 uint32
-routing_filter_estimate_unique_keys_from_count(routing_config *cfg,
-                                               uint64          num_unique)
+routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
+                                               uint64                num_unique)
 {
    double universe_size = 1UL << cfg->fingerprint_size;
    double unseen_fp     = universe_size - num_unique;
@@ -1212,6 +1131,12 @@ routing_filter_estimate_unique_keys(routing_filter *filter, routing_config *cfg)
    // platform_default_log("unique fp %u\n", filter->num_unique);
    return routing_filter_estimate_unique_keys_from_count(cfg,
                                                          filter->num_unique);
+}
+
+uint64
+routing_filter_space_use_bytes(cache *cc, const routing_filter *filter)
+{
+   return mini_space_use_bytes(cc, filter->meta_head, PAGE_TYPE_FILTER);
 }
 
 /*

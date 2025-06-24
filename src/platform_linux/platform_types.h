@@ -64,8 +64,6 @@ typedef struct {
 
 typedef sem_t platform_semaphore;
 
-typedef void *List_Links;
-
 #define STRINGIFY(x)       #x
 #define STRINGIFY_VALUE(s) STRINGIFY(s)
 #define FRACTION_FMT(w, s) "%" STRINGIFY_VALUE(w) "." STRINGIFY_VALUE(s) "f"
@@ -112,6 +110,9 @@ _Static_assert(sizeof(platform_batch_rwlock)
 
 void
 platform_batch_rwlock_init(platform_batch_rwlock *lock);
+
+void
+platform_batch_rwlock_deinit(platform_batch_rwlock *lock);
 
 /* no lock -> shared lock */
 void

@@ -136,7 +136,7 @@ typedef struct {
  */
 
 static inline key
-key_buffer_key(key_buffer *kb)
+key_buffer_key(const key_buffer *kb)
 {
    if (kb->kind == NEGATIVE_INFINITY) {
       return NEGATIVE_INFINITY_KEY;
@@ -557,6 +557,16 @@ data_key_compare(const data_config *cfg, key key1, key key2)
    }
 }
 
+static inline uint32
+data_key_hash(const data_config *cfg, key k, uint32 seed)
+{
+   if (key_is_user_key(k)) {
+      return cfg->key_hash(key_data(k), key_length(k), seed);
+   } else {
+      return seed * (uint32)k.kind;
+   }
+}
+
 static inline int
 data_merge_tuples(const data_config *cfg,
                   key                tuple_key,
@@ -611,7 +621,7 @@ data_key_to_string(const data_config *cfg, key k, char *str, size_t size)
 {
    if (key_is_negative_infinity(k)) {
       snprintf(str, size, "(negative_infinity)");
-   } else if (key_is_negative_infinity(k)) {
+   } else if (key_is_positive_infinity(k)) {
       snprintf(str, size, "(positive_infinity)");
    } else {
       cfg->key_to_string(cfg, k.user_slice, str, size);

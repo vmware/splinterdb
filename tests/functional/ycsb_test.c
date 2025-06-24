@@ -3,7 +3,7 @@
 
 #include "platform.h"
 
-#include "trunk.h"
+#include "core.h"
 #include "task.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
@@ -281,8 +281,8 @@ typedef struct ycsb_log_params {
    platform_thread thread;
 
    // State
-   uint64        next_op;
-   trunk_handle *spl;
+   uint64       next_op;
+   core_handle *spl;
 
    // Coordination
    uint64 *threads_complete;
@@ -316,7 +316,7 @@ ycsb_thread(void *arg)
    platform_status   rc;
    uint64            i;
    ycsb_log_params  *params     = (ycsb_log_params *)arg;
-   trunk_handle     *spl        = params->spl;
+   core_handle      *spl        = params->spl;
    uint64            num_ops    = params->total_ops;
    uint64            batch_size = params->batch_size;
    uint64            my_batch;
@@ -341,8 +341,8 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               rc = trunk_lookup(
-                  spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
+               rc =
+                  core_lookup(spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -360,17 +360,17 @@ ycsb_thread(void *arg)
                message val =
                   message_create(MESSAGE_TYPE_INSERT,
                                  slice_create(YCSB_DATA_SIZE, ops->value));
-               rc = trunk_insert(spl, key_create(YCSB_KEY_SIZE, ops->key), val);
+               rc = core_insert(spl, key_create(YCSB_KEY_SIZE, ops->key), val);
                platform_assert_status_ok(rc);
                break;
             }
             case 's':
             {
-               rc = trunk_range(spl,
-                                key_create(YCSB_KEY_SIZE, ops->key),
-                                ops->range_len,
-                                nop_tuple_func,
-                                NULL);
+               rc = core_apply_to_range(spl,
+                                        key_create(YCSB_KEY_SIZE, ops->key),
+                                        ops->range_len,
+                                        nop_tuple_func,
+                                        NULL);
                platform_assert_status_ok(rc);
                break;
             }
@@ -390,7 +390,7 @@ ycsb_thread(void *arg)
    __sync_fetch_and_add(params->threads_complete, 1);
 
    while (*params->threads_complete != params->total_threads) {
-      trunk_perform_tasks(spl);
+      core_perform_tasks(spl);
       platform_sleep_ns(2000);
    }
 
@@ -415,7 +415,7 @@ ycsb_thread(void *arg)
 }
 
 static int
-run_ycsb_phase(trunk_handle    *spl,
+run_ycsb_phase(core_handle     *spl,
                ycsb_phase      *phase,
                task_system     *ts,
                platform_heap_id hid)
@@ -450,7 +450,7 @@ run_ycsb_phase(trunk_handle    *spl,
          ret = task_thread_create("ycsb_thread",
                                   ycsb_thread,
                                   &phase->params[i],
-                                  trunk_get_scratch_size(),
+                                  core_get_scratch_size(),
                                   ts,
                                   hid,
                                   &threads[cur_thread]);
@@ -507,7 +507,7 @@ shutdown:
 }
 
 static int
-run_all_ycsb_phases(trunk_handle    *spl,
+run_all_ycsb_phases(core_handle     *spl,
                     ycsb_phase      *phase,
                     uint64           nphases,
                     task_system     *ts,
@@ -518,8 +518,8 @@ run_all_ycsb_phases(trunk_handle    *spl,
       platform_default_log("Beginning phase %lu\n", i);
       if (run_ycsb_phase(spl, &phase[i], ts, hid) < 0)
          return -1;
-      trunk_print_insertion_stats(Platform_default_log_handle, spl);
-      trunk_print_lookup_stats(Platform_default_log_handle, spl);
+      core_print_insertion_stats(Platform_default_log_handle, spl);
+      core_print_lookup_stats(Platform_default_log_handle, spl);
       cache_print_stats(Platform_default_log_handle, spl->cc);
       // trunk_reset_stats(spl);
       cache_reset_stats(spl->cc);
@@ -1147,10 +1147,6 @@ write_all_reports(ycsb_phase *phases, int num_phases)
 int
 ycsb_test(int argc, char *argv[])
 {
-   io_config          io_cfg;
-   allocator_config   allocator_cfg;
-   clockcache_config  cache_cfg;
-   shard_log_config   log_cfg;
    int                config_argc;
    char             **config_argv;
    platform_status    rc;
@@ -1187,17 +1183,10 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hid);
    platform_assert_status_ok(rc);
 
-   data_config  *data_cfg;
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   system_config *system_cfg = TYPED_MALLOC(hid, system_cfg);
+   uint64         num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
-   rc = test_parse_args(splinter_cfg,
-                        &data_cfg,
-                        &io_cfg,
-                        &allocator_cfg,
-                        &cache_cfg,
-                        &log_cfg,
-                        &task_cfg,
+   rc = test_parse_args(system_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1210,17 +1199,18 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (data_cfg->max_key_size != YCSB_KEY_SIZE) {
+   if (system_cfg->data_cfg->max_key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
       goto cleanup;
    }
 
-   uint64 overhead_bytes = memory_bytes
-                              / cache_config_page_size(splinter_cfg->cache_cfg)
-                              * (sizeof(clockcache_entry) + 64)
-                           + allocator_cfg.extent_capacity * sizeof(uint8)
-                           + allocator_cfg.page_capacity * sizeof(uint32);
+   uint64 overhead_bytes =
+      memory_bytes
+         / cache_config_page_size((cache_config *)&system_cfg->cache_cfg)
+         * (sizeof(clockcache_entry) + 64)
+      + system_cfg->allocator_cfg.extent_capacity * sizeof(uint8)
+      + system_cfg->allocator_cfg.page_capacity * sizeof(uint32);
    uint64 buffer_bytes = MiB_TO_B(1024);
    // if (memory_bytes > GiB_TO_B(40)) {
    //   buffer_bytes = use_existing ? MiB_TO_B(2048) : MiB_TO_B(1280);
@@ -1233,13 +1223,14 @@ ycsb_test(int argc, char *argv[])
    platform_default_log("overhead %lu MiB buffer %lu MiB\n",
                         B_TO_MiB(overhead_bytes),
                         B_TO_MiB(buffer_bytes));
-   cache_cfg.capacity      = memory_bytes - buffer_bytes;
-   cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.io_cfg->page_size;
+   system_cfg->cache_cfg.capacity = memory_bytes - buffer_bytes;
+   system_cfg->cache_cfg.page_capacity =
+      system_cfg->cache_cfg.capacity / system_cfg->cache_cfg.io_cfg->page_size;
 
-   uint64 al_size = allocator_cfg.extent_capacity * sizeof(uint8);
+   uint64 al_size = system_cfg->allocator_cfg.extent_capacity * sizeof(uint8);
    al_size        = ROUNDUP(al_size, 2 * MiB);
-   platform_assert(cache_cfg.capacity % (2 * MiB) == 0);
-   uint64 huge_tlb_memory_bytes = cache_cfg.capacity + al_size;
+   platform_assert(system_cfg->cache_cfg.capacity % (2 * MiB) == 0);
+   uint64 huge_tlb_memory_bytes = system_cfg->cache_cfg.capacity + al_size;
    platform_assert(huge_tlb_memory_bytes % (2 * MiB) == 0);
    // uint64 huge_tlb_pages = huge_tlb_memory_bytes / (2 * MiB);
    // uint64 remaining_memory_bytes =
@@ -1247,7 +1238,7 @@ ycsb_test(int argc, char *argv[])
    platform_default_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
                         B_TO_MiB(memory_bytes),
                         B_TO_MiB(huge_tlb_memory_bytes),
-                        B_TO_MiB(cache_cfg.capacity));
+                        B_TO_MiB(system_cfg->cache_cfg.capacity));
 
    // char *resize_cgroup_command =
    //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
@@ -1274,7 +1265,7 @@ ycsb_test(int argc, char *argv[])
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
-   rc = io_handle_init(io, &io_cfg, hid);
+   rc = io_handle_init(io, &system_cfg->io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
@@ -1286,51 +1277,57 @@ ycsb_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   rc_allocator  al;
-   clockcache   *cc = TYPED_MALLOC(hid, cc);
-   trunk_handle *spl;
+   rc_allocator al;
+   clockcache  *cc = TYPED_MALLOC(hid, cc);
+   core_handle *spl;
 
    if (use_existing) {
-      rc_allocator_mount(
-         &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
+      rc_allocator_mount(&al,
+                         &system_cfg->allocator_cfg,
+                         (io_handle *)io,
+                         hid,
+                         platform_get_module_id());
       rc = clockcache_init(cc,
-                           &cache_cfg,
+                           &system_cfg->cache_cfg,
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = trunk_mount(splinter_cfg,
+      spl = core_mount(&system_cfg->splinter_cfg,
+                       (allocator *)&al,
+                       (cache *)cc,
+                       ts,
+                       test_generate_allocator_root_id(),
+                       hid);
+      platform_assert(spl);
+   } else {
+      rc_allocator_init(&al,
+                        &system_cfg->allocator_cfg,
+                        (io_handle *)io,
+                        hid,
+                        platform_get_module_id());
+      rc = clockcache_init(cc,
+                           &system_cfg->cache_cfg,
+                           (io_handle *)io,
+                           (allocator *)&al,
+                           "test",
+                           hid,
+                           platform_get_module_id());
+      platform_assert_status_ok(rc);
+      spl = core_create(&system_cfg->splinter_cfg,
                         (allocator *)&al,
                         (cache *)cc,
                         ts,
                         test_generate_allocator_root_id(),
                         hid);
       platform_assert(spl);
-   } else {
-      rc_allocator_init(
-         &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
-      rc = clockcache_init(cc,
-                           &cache_cfg,
-                           (io_handle *)io,
-                           (allocator *)&al,
-                           "test",
-                           hid,
-                           platform_get_module_id());
-      platform_assert_status_ok(rc);
-      spl = trunk_create(splinter_cfg,
-                         (allocator *)&al,
-                         (cache *)cc,
-                         ts,
-                         test_generate_allocator_root_id(),
-                         hid);
-      platform_assert(spl);
    }
 
    run_all_ycsb_phases(spl, phases, nphases, ts, hid);
 
-   trunk_unmount(&spl);
+   core_unmount(&spl);
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_unmount(&al);
@@ -1360,7 +1357,7 @@ deinit_iohandle:
 free_iohandle:
    platform_free(hid, io);
 cleanup:
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, system_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

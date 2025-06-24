@@ -128,7 +128,7 @@ test_filter_basic(cache           *cc,
       FRACTION_ARGS(false_positive_rate));
 
    for (uint64 i = 0; i < num_values; i++) {
-      routing_filter_zap(cc, &filter[i + 1]);
+      routing_filter_dec_ref(cc, &filter[i + 1]);
    }
 
 out:
@@ -193,7 +193,7 @@ test_filter_perf(cache           *cc,
          if (!SUCCESS(rc)) {
             goto out;
          }
-         routing_filter_zap(cc, &filter[k]);
+         routing_filter_dec_ref(cc, &filter[k]);
          filter[k] = new_filter;
       }
    }
@@ -257,7 +257,7 @@ test_filter_perf(cache           *cc,
 
 out:
    for (uint64 i = 0; i < num_trees; i++) {
-      routing_filter_zap(cc, &filter[i]);
+      routing_filter_dec_ref(cc, &filter[i]);
    }
    if (fp_arr) {
       platform_free(hid, fp_arr);
@@ -281,12 +281,7 @@ int
 filter_test(int argc, char *argv[])
 {
    int                    r;
-   data_config           *data_cfg;
-   io_config              io_cfg;
-   allocator_config       allocator_cfg;
-   clockcache_config      cache_cfg;
-   shard_log_config       log_cfg;
-   task_system_config     task_cfg;
+   system_config          system_cfg;
    rc_allocator           al;
    clockcache            *cc;
    int                    config_argc;
@@ -317,15 +312,7 @@ filter_test(int argc, char *argv[])
    uint64 num_memtable_bg_threads_unused = 0;
    uint64 num_normal_bg_threads_unused   = 0;
 
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
-
-   rc = test_parse_args(cfg,
-                        &data_cfg,
-                        &io_cfg,
-                        &allocator_cfg,
-                        &cache_cfg,
-                        &log_cfg,
-                        &task_cfg,
+   rc = test_parse_args(&system_cfg,
                         &seed,
                         &gen,
                         &num_memtable_bg_threads_unused,
@@ -345,23 +332,26 @@ filter_test(int argc, char *argv[])
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hid);
+   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
 
    task_system *ts = NULL;
-   rc              = task_system_create(hid, io, &ts, &task_cfg);
+   rc              = task_system_create(hid, io, &ts, &system_cfg.task_cfg);
    platform_assert_status_ok(rc);
 
-   rc = rc_allocator_init(
-      &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
+   rc = rc_allocator_init(&al,
+                          &system_cfg.allocator_cfg,
+                          (io_handle *)io,
+                          hid,
+                          platform_get_module_id());
    platform_assert_status_ok(rc);
 
    cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc);
    rc = clockcache_init(cc,
-                        &cache_cfg,
+                        &system_cfg.cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,
                         "test",
@@ -369,37 +359,41 @@ filter_test(int argc, char *argv[])
                         platform_get_module_id());
    platform_assert_status_ok(rc);
 
-   uint64 max_tuples_per_memtable =
-      cfg->mt_cfg.max_extents_per_memtable
-      * cache_config_extent_size((cache_config *)&cache_cfg)
-      / (data_cfg->max_key_size + generator_average_message_size(&gen));
+   uint64 rflimit = routing_filter_max_fingerprints(
+      (cache_config *)&system_cfg.cache_cfg, &system_cfg.filter_cfg);
 
    if (run_perf_test) {
       rc = test_filter_perf((cache *)cc,
-                            &cfg->filter_cfg,
+                            &system_cfg.filter_cfg,
                             hid,
-                            max_tuples_per_memtable,
-                            cfg->fanout,
+                            rflimit / system_cfg.trunk_node_cfg.target_fanout,
+                            system_cfg.trunk_node_cfg.target_fanout,
                             100);
       platform_assert(SUCCESS(rc));
    } else {
       rc = test_filter_basic((cache *)cc,
-                             &cfg->filter_cfg,
+                             &system_cfg.filter_cfg,
                              hid,
-                             max_tuples_per_memtable,
-                             cfg->fanout);
+                             rflimit / system_cfg.trunk_node_cfg.target_fanout,
+                             system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic(
-         (cache *)cc, &cfg->filter_cfg, hid, 100, cfg->fanout);
+      rc = test_filter_basic((cache *)cc,
+                             &system_cfg.filter_cfg,
+                             hid,
+                             100,
+                             system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic(
-         (cache *)cc, &cfg->filter_cfg, hid, 50, cfg->max_branches_per_node);
+      rc = test_filter_basic((cache *)cc,
+                             &system_cfg.filter_cfg,
+                             hid,
+                             1,
+                             system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
-      rc =
-         test_filter_basic((cache *)cc, &cfg->filter_cfg, hid, 1, cfg->fanout);
-      platform_assert(SUCCESS(rc));
-      rc = test_filter_basic(
-         (cache *)cc, &cfg->filter_cfg, hid, 1, 2 * cfg->fanout);
+      rc = test_filter_basic((cache *)cc,
+                             &system_cfg.filter_cfg,
+                             hid,
+                             1,
+                             2 * system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
    }
 
@@ -412,7 +406,6 @@ free_iohandle:
    platform_free(hid, io);
    r = 0;
 cleanup:
-   platform_free(hid, cfg);
    platform_heap_destroy(&hid);
 
    return r;

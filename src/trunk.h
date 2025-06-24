@@ -1,115 +1,65 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2023 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
  * trunk.h --
  *
- *     This file contains the interface for SplinterDB.
+ *     This file contains the interface of the SplinterDB trunk.
  */
 
-#pragma once
-
-#include "splinterdb/data.h"
-#include "btree.h"
-#include "memtable.h"
-#include "routing_filter.h"
+#include "platform.h"
+#include "vector.h"
 #include "cache.h"
+#include "allocator.h"
+#include "task.h"
+#include "btree.h"
+#include "routing_filter.h"
 #include "iterator.h"
 #include "merge.h"
-#include "allocator.h"
-#include "log.h"
-#include "srq.h"
+#include "data_internal.h"
 
-/*
- * Max height of the Trunk Tree; Limited for convenience to allow for static
- * allocation of various nested arrays. (Should be possible to increase this, if
- * ever needed, in future w/o perf impacts.) This limit is quite large enough
- * for most expected installations.
- */
-#define TRUNK_MAX_HEIGHT 8
-
-/*
- * Mini-allocator uses separate batches for each height of the Trunk tree.
- * Therefore, the max # of mini-batches that the mini-allocator can track
- * is limited by the max height of the SplinterDB trunk.
- */
-_Static_assert(TRUNK_MAX_HEIGHT == MINI_MAX_BATCHES,
-               "TRUNK_MAX_HEIGHT should be == MINI_MAX_BATCHES");
-
-/*
- * Upper-bound on most number of branches that we can find our lookup-key in.
- * (Used in the range iterator context.) A convenience limit, used mostly to
- * size statically defined arrays.
- */
-#define TRUNK_RANGE_ITOR_MAX_BRANCHES 256
-
-
-/*
- *----------------------------------------------------------------------
- * Splinter Configuration structure
- *----------------------------------------------------------------------
- */
 typedef struct trunk_config {
-   cache_config *cache_cfg;
-
-   // parameters
-   uint64 fanout;              // children to trigger split
-   uint64 max_pivot_keys;      // hard limit on number of pivot keys
-   uint64 max_tuples_per_node; // deprecated
-   uint64 max_kv_bytes_per_node;
-   uint64 max_branches_per_node;
-   uint64 hard_max_branches_per_node;
-   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
-   uint64 reclaim_threshold;    // start reclaming space when
-                                // free space < threshold
-   uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
-                                // task.h
-   bool32          use_stats;   // stats
-   memtable_config mt_cfg;
-   btree_config    btree_cfg;
-   routing_config  filter_cfg;
-   data_config    *data_cfg;
-   bool32          use_log;
-   log_config     *log_cfg;
-
-   // verbose logging
-   bool32               verbose_logging_enabled;
-   platform_log_handle *log_handle;
+   const data_config    *data_cfg;
+   const btree_config   *btree_cfg;
+   const routing_config *filter_cfg;
+   uint64                incorporation_size_kv_bytes;
+   uint64                target_fanout;
+   uint64                branch_rough_count_height;
+   bool32                use_stats;
 } trunk_config;
 
+#define TRUNK_MAX_HEIGHT             16
+#define TRUNK_MAX_DISTRIBUTION_VALUE 16
+
 typedef struct trunk_stats {
-   uint64 insertions;
-   uint64 updates;
-   uint64 deletions;
+   uint64 fanout_distribution[TRUNK_MAX_DISTRIBUTION_VALUE][TRUNK_MAX_HEIGHT];
+   uint64 num_inflight_bundles_distribution[TRUNK_MAX_DISTRIBUTION_VALUE]
+                                           [TRUNK_MAX_HEIGHT];
+   uint64 bundle_num_branches_distribution[TRUNK_MAX_DISTRIBUTION_VALUE]
+                                          [TRUNK_MAX_HEIGHT];
 
-   platform_histo_handle insert_latency_histo;
-   platform_histo_handle update_latency_histo;
-   platform_histo_handle delete_latency_histo;
+   uint64 node_size_pages_distribution[TRUNK_MAX_DISTRIBUTION_VALUE]
+                                      [TRUNK_MAX_HEIGHT];
 
-   uint64 flush_wait_time_ns[TRUNK_MAX_HEIGHT];
+   uint64 incorporation_footprint_distribution[TRUNK_MAX_DISTRIBUTION_VALUE];
+
+   uint64 count_flushes[TRUNK_MAX_HEIGHT];
    uint64 flush_time_ns[TRUNK_MAX_HEIGHT];
    uint64 flush_time_max_ns[TRUNK_MAX_HEIGHT];
    uint64 full_flushes[TRUNK_MAX_HEIGHT];
-   uint64 count_flushes[TRUNK_MAX_HEIGHT];
-   uint64 memtable_flushes;
-   uint64 memtable_flush_time_ns;
-   uint64 memtable_flush_time_max_ns;
-   uint64 memtable_flush_wait_time_ns;
-   uint64 memtable_flush_root_full;
-   uint64 root_full_flushes;
-   uint64 root_count_flushes;
-   uint64 root_flush_time_ns;
-   uint64 root_flush_time_max_ns;
-   uint64 root_flush_wait_time_ns;
-   uint64 failed_flushes[TRUNK_MAX_HEIGHT];
-   uint64 root_failed_flushes;
-   uint64 memtable_failed_flushes;
+
+   // We don't know whether a node is the root. So we can't track these stats
+   // carrying around some extra information that would be useful only for
+   // collecting these stats.
+   // uint64 root_full_flushes;
+   // uint64 root_count_flushes;
+   // uint64 root_flush_time_ns;
+   // uint64 root_flush_time_max_ns;
+   // uint64 root_flush_wait_time_ns;
 
    uint64 compactions[TRUNK_MAX_HEIGHT];
-   uint64 compactions_aborted_flushed[TRUNK_MAX_HEIGHT];
-   uint64 compactions_aborted_leaf_split[TRUNK_MAX_HEIGHT];
-   uint64 compactions_discarded_flushed[TRUNK_MAX_HEIGHT];
-   uint64 compactions_discarded_leaf_split[TRUNK_MAX_HEIGHT];
+   uint64 compactions_aborted[TRUNK_MAX_HEIGHT];
+   uint64 compactions_discarded[TRUNK_MAX_HEIGHT];
    uint64 compactions_empty[TRUNK_MAX_HEIGHT];
    uint64 compaction_tuples[TRUNK_MAX_HEIGHT];
    uint64 compaction_max_tuples[TRUNK_MAX_HEIGHT];
@@ -118,362 +68,291 @@ typedef struct trunk_stats {
    uint64 compaction_time_wasted_ns[TRUNK_MAX_HEIGHT];
    uint64 compaction_pack_time_ns[TRUNK_MAX_HEIGHT];
 
-   uint64 unskipped_branch_compactions[TRUNK_MAX_HEIGHT];
-   uint64 skipped_branch_compactions[TRUNK_MAX_HEIGHT];
-   uint64 unskipped_bundle_compactions[TRUNK_MAX_HEIGHT];
-   uint64 skipped_bundle_compactions[TRUNK_MAX_HEIGHT];
+   uint64 maplet_builds[TRUNK_MAX_HEIGHT];
+   uint64 maplet_builds_aborted[TRUNK_MAX_HEIGHT];
+   uint64 maplet_builds_discarded[TRUNK_MAX_HEIGHT];
+   uint64 maplet_build_time_ns[TRUNK_MAX_HEIGHT];
+   uint64 maplet_tuples[TRUNK_MAX_HEIGHT];
+   uint64 maplet_build_time_max_ns[TRUNK_MAX_HEIGHT];
+   uint64 maplet_build_time_wasted_ns[TRUNK_MAX_HEIGHT];
 
-   uint64 root_compactions;
-   uint64 root_compaction_pack_time_ns;
-   uint64 root_compaction_tuples;
-   uint64 root_compaction_max_tuples;
-   uint64 root_compaction_time_ns;
-   uint64 root_compaction_time_max_ns;
-
-   uint64 discarded_deletes;
-   uint64 index_splits;
-   uint64 leaf_splits;
-   uint64 leaf_splits_leaves_created;
+   uint64 node_splits[TRUNK_MAX_HEIGHT];
+   uint64 node_splits_nodes_created[TRUNK_MAX_HEIGHT];
    uint64 leaf_split_time_ns;
-   uint64 leaf_split_max_time_ns;
-
+   uint64 leaf_split_time_max_ns;
    uint64 single_leaf_splits;
-   uint64 single_leaf_tuples;
-   uint64 single_leaf_max_tuples;
 
-   uint64 root_filters_built;
-   uint64 root_filter_tuples;
-   uint64 root_filter_time_ns;
-   uint64 filters_built[TRUNK_MAX_HEIGHT];
-   uint64 filter_tuples[TRUNK_MAX_HEIGHT];
-   uint64 filter_time_ns[TRUNK_MAX_HEIGHT];
+   // The compaction that computes these stats is donez long after the decision
+   // to do a single-leaf split was made, so we can't track these stats.
+   //  uint64 single_leaf_tuples;
+   //  uint64 single_leaf_max_tuples;
 
-   uint64 lookups_found;
-   uint64 lookups_not_found;
-   uint64 filter_lookups[TRUNK_MAX_HEIGHT];
+   // These are better tracked at the level that manages the memtable/trunk
+   // interaction.
+   // uint64 lookups_found;
+   // uint64 lookups_not_found;
+
+   uint64 maplet_lookups[TRUNK_MAX_HEIGHT];
+   uint64 maplet_false_positives[TRUNK_MAX_HEIGHT];
    uint64 branch_lookups[TRUNK_MAX_HEIGHT];
-   uint64 filter_false_positives[TRUNK_MAX_HEIGHT];
-   uint64 filter_negatives[TRUNK_MAX_HEIGHT];
 
-   uint64 space_recs[TRUNK_MAX_HEIGHT];
-   uint64 space_rec_time_ns[TRUNK_MAX_HEIGHT];
-   uint64 space_rec_tuples_reclaimed[TRUNK_MAX_HEIGHT];
-   uint64 tuples_reclaimed[TRUNK_MAX_HEIGHT];
+   // Not yet implemented
+   // uint64 space_recs[TRUNK_MAX_HEIGHT];
+   // uint64 space_rec_time_ns[TRUNK_MAX_HEIGHT];
+   // uint64 space_rec_tuples_reclaimed[TRUNK_MAX_HEIGHT];
+   // uint64 tuples_reclaimed[TRUNK_MAX_HEIGHT];
 } PLATFORM_CACHELINE_ALIGNED trunk_stats;
 
-// splinter refers to btrees as branches
-typedef struct trunk_branch {
-   uint64 root_addr; // root address of point btree
-} trunk_branch;
+#define TRUNK_PIVOT_STATE_MAP_BUCKETS 1024
 
-typedef struct trunk_handle             trunk_handle;
-typedef struct trunk_compact_bundle_req trunk_compact_bundle_req;
+typedef struct trunk_pivot_state trunk_pivot_state;
 
-typedef struct trunk_memtable_args {
-   trunk_handle *spl;
-   uint64        generation;
-} trunk_memtable_args;
+typedef struct trunk_pivot_state_map {
+   uint64             num_states;
+   uint64             locks[TRUNK_PIVOT_STATE_MAP_BUCKETS];
+   trunk_pivot_state *buckets[TRUNK_PIVOT_STATE_MAP_BUCKETS];
+} trunk_pivot_state_map;
 
-typedef struct trunk_compacted_memtable {
-   trunk_branch              branch;
-   routing_filter            filter;
-   timestamp                 wait_start;
-   trunk_memtable_args       mt_args;
-   trunk_compact_bundle_req *req;
-} trunk_compacted_memtable;
+/* An ondisk_node_ref is a pivot that has an associated bump in the refcount of
+ * the child, so destroying an ondisk_node_ref will perform an
+ * ondisk_node_dec_ref. */
+typedef struct trunk_ondisk_node_ref {
+   uint64     addr;
+   ondisk_key key;
+} trunk_ondisk_node_ref;
 
-struct trunk_handle {
-   volatile uint64       root_addr;
-   uint64                super_block_idx;
-   uint64                next_node_id;
-   trunk_config          cfg;
-   platform_heap_id      heap_id;
-   platform_batch_rwlock trunk_root_lock;
+typedef struct ONDISK branch_ref {
+   uint64 addr;
+} branch_ref;
 
-   // space reclamation
-   uint64 est_tuples_in_compaction;
+typedef VECTOR(branch_ref) branch_ref_vector;
 
-   // allocator/cache/log
-   allocator     *al;
-   cache         *cc;
-   log_handle    *log;
-   mini_allocator mini;
+typedef struct bundle {
+   routing_filter maplet;
+   // branches[0] is the oldest branch
+   branch_ref_vector branches;
+} bundle;
 
-   // memtables
-   allocator_root_id id;
-   memtable_context *mt_ctxt;
+typedef VECTOR(bundle) bundle_vector;
 
-   // task system
-   task_system *ts; // ALEX: currently not durable
-
-   // stats
-   trunk_stats *stats;
-
-   // Link inside the splinter list
-   List_Links links;
-
-   /*
-    * Per thread task and per splinter table task counter. Used to decide when
-    * to run tasks.
-    */
-
-   struct {
-      uint64 counter;
-   } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
-
-   // space rec queue
-   srq srq;
-
-   trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
-};
-
-typedef struct trunk_range_iterator {
-   iterator        super;
-   trunk_handle   *spl;
-   uint64          num_tuples;
-   uint64          num_branches;
-   uint64          num_memtable_branches;
-   uint64          memtable_start_gen;
-   uint64          memtable_end_gen;
-   bool32          compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-   merge_iterator *merge_itor;
-   bool32          can_prev;
-   bool32          can_next;
-   key_buffer      min_key;
-   key_buffer      max_key;
-   key_buffer      local_min_key;
-   key_buffer      local_max_key;
-   btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-   trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-
-   // used for merge iterator construction
-   iterator *itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
-} trunk_range_iterator;
-
-
-typedef enum {
-   async_state_invalid = 0,
-   async_state_start,
-   async_state_lookup_memtable,
-   async_state_get_root_reentrant,
-   async_state_trunk_node_lookup,
-   async_state_subbundle_lookup,
-   async_state_pivot_lookup,
-   async_state_filter_lookup_start,
-   async_state_filter_lookup_reentrant,
-   async_state_btree_lookup_start,
-   async_state_btree_lookup_reentrant,
-   async_state_next_in_node,
-   async_state_trunk_node_done,
-   async_state_get_child_trunk_node_reentrant,
-   async_state_unget_parent_trunk_node,
-   async_state_found_final_answer_early,
-   async_state_end
-} trunk_async_state;
-
-typedef enum {
-   async_lookup_state_invalid = 0,
-   async_lookup_state_pivot,
-   async_lookup_state_subbundle,
-   async_lookup_state_compacted_subbundle
-} trunk_async_lookup_state;
-
-struct trunk_async_ctxt;
-struct trunk_pivot_data;
-struct trunk_subbundle;
-
-typedef void (*trunk_async_cb)(struct trunk_async_ctxt *ctxt);
-
-struct trunk_hdr;
-typedef struct trunk_hdr trunk_hdr;
+typedef struct trunk_pivot trunk_pivot;
+typedef VECTOR(trunk_pivot *) trunk_pivot_vector;
 
 typedef struct trunk_node {
-   uint64       addr;
-   page_handle *page;
-   trunk_hdr   *hdr;
+   uint16             height;
+   trunk_pivot_vector pivots;
+   bundle_vector      pivot_bundles; // indexed by child
+   uint64             num_old_bundles;
+   // inflight_bundles[0] is the oldest bundle
+   bundle_vector inflight_bundles;
 } trunk_node;
 
-typedef struct trunk_async_ctxt {
-   trunk_async_cb cb; // IN: callback (requeues ctxt
-                      // for dispatch)
-   // These fields are internal
-   trunk_async_state prev_state; // state machine's previous state
-   trunk_async_state state;      // state machine's current state
-   trunk_node        trunk_node; // Current trunk node
-   uint16            height;     // height of trunk_node
+typedef VECTOR(trunk_node) trunk_node_vector;
 
-   uint16 sb_no;     // subbundle number (newest)
-   uint16 end_sb_no; // subbundle number (oldest,
-                     // exclusive
-   uint16 filter_no; // sb filter no
+typedef struct incorporation_tasks {
+   trunk_node_vector node_compactions;
+} incorporation_tasks;
 
-   trunk_async_lookup_state lookup_state; // Can be pivot or
-                                          // [compacted] subbundle
-   struct trunk_subbundle  *sb;           // Subbundle
-   struct trunk_pivot_data *pdata;        // Pivot data for next trunk node
-   routing_filter          *filter;       // Filter for subbundle or pivot
-   uint64                   found_values; // values found in filter
-   uint16                   value;        // Current value found in filter
+typedef struct trunk_context {
+   const trunk_config    *cfg;
+   platform_heap_id       hid;
+   cache                 *cc;
+   allocator             *al;
+   task_system           *ts;
+   trunk_stats           *stats;
+   trunk_pivot_state_map  pivot_states;
+   platform_batch_rwlock  root_lock;
+   trunk_ondisk_node_ref *root;
+   trunk_ondisk_node_ref *post_incorporation_root;
+   trunk_ondisk_node_ref *pre_incorporation_root;
+   incorporation_tasks    tasks;
+} trunk_context;
 
-   uint16 branch_no;        // branch number (newest)
-   uint16 branch_no_end;    // branch number end (oldest,
-                            // exclusive)
-   bool32        was_async; // Did an async IO for trunk ?
-   trunk_branch *branch;    // Current branch
-   union {
-      routing_async_ctxt filter_ctxt; // Filter async context
-      btree_async_ctxt   btree_ctxt;  // Btree async context
-   };
-   cache_async_ctxt cache_ctxt; // Async cache context
-} trunk_async_ctxt;
+typedef struct trunk_ondisk_node_handle {
+   cache       *cc;
+   page_handle *header_page;
+   page_handle *pivot_page;
+   page_handle *inflight_bundle_page;
+} trunk_ondisk_node_handle;
 
+typedef struct trunk_branch_merger {
+   platform_heap_id   hid;
+   const data_config *data_cfg;
+   key                min_key;
+   key                max_key;
+   uint64             height;
+   merge_iterator    *merge_itor;
+   iterator_vector    itors;
+} trunk_branch_merger;
 
-/*
- *----------------------------------------------------------------------
- *
- * Splinter API
- *
- *----------------------------------------------------------------------
- */
+/********************************
+ * Lifecycle
+ ********************************/
+
+void
+trunk_config_init(trunk_config         *config,
+                  const data_config    *data_cfg,
+                  const btree_config   *btree_cfg,
+                  const routing_config *filter_cfg,
+                  uint64                incorporation_size_kv_bytes,
+                  uint64                target_fanout,
+                  uint64                branch_rough_count_height,
+                  bool32                use_stats);
 
 platform_status
-trunk_insert(trunk_handle *spl, key tuple_key, message data);
+trunk_context_init(trunk_context      *context,
+                   const trunk_config *cfg,
+                   platform_heap_id    hid,
+                   cache              *cc,
+                   allocator          *al,
+                   task_system        *ts,
+                   uint64              root_addr);
+
 
 platform_status
-trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result);
-
-static inline bool32
-trunk_lookup_found(merge_accumulator *result)
-{
-   return !merge_accumulator_is_null(result);
-}
-
-cache_async_result
-trunk_lookup_async(trunk_handle      *spl,
-                   key                target,
-                   merge_accumulator *data,
-                   trunk_async_ctxt  *ctxt);
-platform_status
-trunk_range_iterator_init(trunk_handle         *spl,
-                          trunk_range_iterator *range_itor,
-                          key                   min_key,
-                          key                   max_key,
-                          key                   start_key,
-                          comparison            start_type,
-                          uint64                num_tuples);
-void
-trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
-
-typedef void (*tuple_function)(key tuple_key, message value, void *arg);
-platform_status
-trunk_range(trunk_handle  *spl,
-            key            start_key,
-            uint64         num_tuples,
-            tuple_function func,
-            void          *arg);
-
-trunk_handle *
-trunk_create(trunk_config     *cfg,
-             allocator        *al,
-             cache            *cc,
-             task_system      *ts,
-             allocator_root_id id,
-             platform_heap_id  hid);
-void
-trunk_destroy(trunk_handle *spl);
-trunk_handle *
-trunk_mount(trunk_config     *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid);
-void
-trunk_unmount(trunk_handle **spl);
-
-void
-trunk_perform_tasks(trunk_handle *spl);
-
-void
-trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl);
-void
-trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl);
-void
-trunk_reset_stats(trunk_handle *spl);
-
-void
-trunk_print(platform_log_handle *log_handle, trunk_handle *spl);
-
-void
-trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
-
-void
-trunk_print_lookup(trunk_handle        *spl,
-                   key                  target,
-                   platform_log_handle *log_handle);
-void
-trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
-void
-trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
-void
-trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
-bool32
-trunk_verify_tree(trunk_handle *spl);
-
-static inline uint64
-trunk_max_key_size(trunk_handle *spl)
-{
-   return spl->cfg.data_cfg->max_key_size;
-}
-
-static inline int
-trunk_key_compare(trunk_handle *spl, key key1, key key2)
-{
-   return btree_key_compare(&spl->cfg.btree_cfg, key1, key2);
-}
-
-static inline void
-trunk_key_to_string(trunk_handle *spl, key key_to_print, char str[static 128])
-{
-   btree_key_to_string(&spl->cfg.btree_cfg, key_to_print, str);
-}
-
-static inline void
-trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
-{
-   btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
-}
-
-static inline void
-trunk_async_ctxt_init(trunk_async_ctxt *ctxt, trunk_async_cb cb)
-{
-   ZERO_CONTENTS(ctxt);
-   ctxt->state = async_state_start;
-   ctxt->cb    = cb;
-}
-
-uint64
-trunk_pivot_message_size();
-
-uint64
-trunk_hdr_size();
+trunk_inc_ref(const trunk_config *cfg,
+              platform_heap_id    hid,
+              cache              *cc,
+              allocator          *al,
+              task_system        *ts,
+              uint64              root_addr);
 
 platform_status
-trunk_config_init(trunk_config        *trunk_cfg,
-                  cache_config        *cache_cfg,
-                  data_config         *data_cfg,
-                  log_config          *log_cfg,
-                  uint64               memtable_capacity,
-                  uint64               fanout,
-                  uint64               max_branches_per_node,
-                  uint64               btree_rough_count_height,
-                  uint64               filter_remainder_size,
-                  uint64               filter_index_size,
-                  uint64               reclaim_threshold,
-                  uint64               queue_scale_percent,
-                  bool32               use_log,
-                  bool32               use_stats,
-                  bool32               verbose_logging,
-                  platform_log_handle *log_handle);
-size_t
-trunk_get_scratch_size();
+trunk_dec_ref(const trunk_config *cfg,
+              platform_heap_id    hid,
+              cache              *cc,
+              allocator          *al,
+              task_system        *ts,
+              uint64              root_addr);
+
+void
+trunk_context_deinit(trunk_context *context);
+
+/* Create a writable snapshot of a trunk */
+platform_status
+trunk_context_clone(trunk_context *dst, trunk_context *src);
+
+/* Make a trunk durable */
+platform_status
+trunk_make_durable(trunk_context *context);
+
+/********************************
+ * Mutations
+ ********************************/
+
+void
+trunk_modification_begin(trunk_context *context);
+
+// Build a new trunk with the branch incorporated.  The new trunk is not yet
+// visible to queriers.
+platform_status
+trunk_incorporate_prepare(trunk_context *context, uint64 branch);
+
+// Must be called iff trunk_incorporate_prepare returned SUCCESS
+// This switches to the new trunk with the new branch incorporated.
+// This is the only step that must be done atomically with removing the
+// incorporated branch from the queue of memtables.
+void
+trunk_incorporate_commit(trunk_context *context);
+
+// This must be called iff trunk_incorporate_prepare returned SUCCESS
+// This must be called after trunk_incorporate_commit.
+// This cleans up the old trunk and enqueues background rebalancing jobs.
+void
+trunk_incorporate_cleanup(trunk_context *context);
+
+void
+trunk_modification_end(trunk_context *context);
+
+/********************************
+ * Queries
+ ********************************/
+
+platform_status
+trunk_init_root_handle(trunk_context            *context,
+                       trunk_ondisk_node_handle *handle);
+
+void
+trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle);
+
+platform_status
+trunk_merge_lookup(trunk_context            *context,
+                   trunk_ondisk_node_handle *handle,
+                   key                       tgt,
+                   merge_accumulator        *result,
+                   platform_log_handle      *log);
+
+typedef struct trunk_branch_info {
+   uint64    addr;
+   page_type type;
+} trunk_branch_info;
+
+platform_status
+trunk_collect_branches(const trunk_context            *context,
+                       const trunk_ondisk_node_handle *handle,
+                       key                             tgt,
+                       comparison                      start_type,
+                       uint64                          capacity,
+                       uint64                         *num_branches,
+                       trunk_branch_info              *branches,
+                       key_buffer                     *min_key,
+                       key_buffer                     *max_key);
+
+typedef struct trunk_ondisk_pivot  trunk_ondisk_pivot;
+typedef struct trunk_ondisk_bundle trunk_ondisk_bundle;
+
+// clang-format off
+DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
+   param, trunk_context *,            context,
+   param, trunk_ondisk_node_handle *, inhandle,
+   param, key,                        tgt,
+   param, merge_accumulator *,        result,
+   param, platform_log_handle *,      log,
+   param, async_callback_fn,          callback,
+   param, void *,                     callback_arg,
+   local, platform_status,            __async_result,
+   local, platform_status,            rc,
+   local, trunk_ondisk_node_handle,   handle,
+   local, uint64,                     height,
+   local, trunk_ondisk_pivot *,       pivot,
+   local, uint64,                     inflight_bundle_num,
+   local, trunk_ondisk_bundle *,      bndl,
+   local, trunk_ondisk_node_handle,   child_handle,
+   // ondisk_node_handle_setup_content_page
+   // ondisk_node_get_pivot
+   // ondisk_node_bundle_at_offset
+   // ondisk_node_get_first_inflight_bundle
+   local, uint64,                       offset,
+   local, page_handle **,               page,
+   local, uint64,                       pivot_num,
+   local, page_get_async_state_buffer,  cache_get_state,   
+   // ondisk_node_find_pivot
+   local, uint64,                       min,
+   local, uint64,                       max,
+   local, uint64,                       mid,
+   local, int,                          last_cmp,
+   local, trunk_ondisk_pivot *,         min_pivot,
+   // ondisk_bundle_merge_lookup
+   local, uint64,                             found_values,
+   local, uint64,                             idx,
+   local, routing_filter_lookup_async_state,  filter_state,
+   local, btree_lookup_async_state,           btree_state,
+ )
+// clang-format on
+
+async_status
+trunk_merge_lookup_async(trunk_merge_lookup_async_state *state);
+
+/**********************************
+ * Statistics
+ **********************************/
+
+void
+trunk_print_insertion_stats(platform_log_handle *log_handle,
+                            const trunk_context *context);
+
+void
+trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context);
+
+void
+trunk_reset_stats(trunk_context *context);

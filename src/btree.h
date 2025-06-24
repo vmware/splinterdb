@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "async.h"
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "util.h"
@@ -127,14 +128,14 @@ typedef struct ONDISK btree_pivot_data {
  * A BTree iterator:
  */
 typedef struct btree_iterator {
-   iterator      super;
-   cache        *cc;
-   btree_config *cfg;
-   bool32        do_prefetch;
-   uint32        height;
-   page_type     page_type;
-   key           min_key;
-   key           max_key;
+   iterator            super;
+   cache              *cc;
+   const btree_config *cfg;
+   bool32              do_prefetch;
+   uint32              height;
+   page_type           page_type;
+   key                 min_key;
+   key                 max_key;
 
    uint64     root_addr;
    btree_node curr;
@@ -147,13 +148,13 @@ typedef struct btree_iterator {
 
 typedef struct btree_pack_req {
    // inputs to the pack
-   cache        *cc;
-   btree_config *cfg;
-   iterator     *itor; // the itor which is being packed
-   uint64        max_tuples;
-   hash_fn       hash; // hash function used for calculating filter_hash
-   unsigned int  seed; // seed used for calculating filter_hash
-   uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
+   cache              *cc;
+   const btree_config *cfg;
+   iterator           *itor; // the itor which is being packed
+   uint64              max_tuples;
+   hash_fn             hash; // hash function used for calculating filter_hash
+   unsigned int        seed; // seed used for calculating filter_hash
+   uint32 *fingerprint_arr;  // IN/OUT: hashes of the keys in the tree
 
    // internal data
    uint16            height;
@@ -170,36 +171,6 @@ typedef struct btree_pack_req {
    uint64 message_bytes; // total size of msgs in tuples of the output tree
 } btree_pack_req;
 
-struct btree_async_ctxt;
-typedef void (*btree_async_cb)(struct btree_async_ctxt *ctxt);
-
-// States for the btree async lookup.
-typedef enum {
-   btree_async_state_invalid = 0,
-   btree_async_state_start,
-   btree_async_state_get_node, // re-entrant state
-   btree_async_state_get_index_complete,
-   btree_async_state_get_leaf_complete
-} btree_async_state;
-
-// Context of a bree async lookup request
-typedef struct btree_async_ctxt {
-   /*
-    * When async lookup returns async_io_started, it uses this callback to
-    * inform the upper layer that the page needed by async btree lookup
-    * has been loaded into the cache, and the upper layer should re-enqueue
-    * the async btree lookup for dispatch.
-    */
-   btree_async_cb cb;
-   // Internal fields
-   cache_async_ctxt *cache_ctxt; // cache ctxt for async get
-   btree_async_state prev_state; // Previous state
-   btree_async_state state;      // Current state
-   bool32            was_async;  // Was the last cache_get async ?
-   btree_node        node;       // Current node
-   uint64            child_addr; // Child disk address
-} btree_async_ctxt;
-
 platform_status
 btree_insert(cache              *cc,         // IN
              const btree_config *cfg,        // IN
@@ -212,29 +183,6 @@ btree_insert(cache              *cc,         // IN
              uint64             *generation, // OUT
              bool32             *was_unique);            // OUT
 
-/*
- *-----------------------------------------------------------------------------
- * btree_ctxt_init --
- *
- *      Initialize the async context used by an async btree lookup request.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static inline void
-btree_ctxt_init(btree_async_ctxt *ctxt,       // OUT
-                cache_async_ctxt *cache_ctxt, // IN
-                btree_async_cb    cb)            // IN
-{
-   ctxt->state      = btree_async_state_start;
-   ctxt->cb         = cb;
-   ctxt->cache_ctxt = cache_ctxt;
-}
-
 uint64
 btree_create(cache              *cc,
              const btree_config *cfg,
@@ -242,30 +190,13 @@ btree_create(cache              *cc,
              page_type           type);
 
 void
-btree_inc_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key);
-
-bool32
-btree_dec_ref_range(cache              *cc,
-                    const btree_config *cfg,
-                    uint64              root_addr,
-                    key                 start_key,
-                    key                 end_key);
+btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
 
 bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
               page_type           type);
-
-void
-btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
-
-void
-btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);
@@ -284,56 +215,81 @@ btree_found(merge_accumulator *result)
 }
 
 platform_status
-btree_lookup_and_merge(cache             *cc,
-                       btree_config      *cfg,
-                       uint64             root_addr,
-                       page_type          type,
-                       key                target,
-                       merge_accumulator *data,
-                       bool32            *local_found);
+btree_lookup_and_merge(cache              *cc,
+                       const btree_config *cfg,
+                       uint64              root_addr,
+                       page_type           type,
+                       key                 target,
+                       merge_accumulator  *data,
+                       bool32             *local_found);
 
-cache_async_result
-btree_lookup_async(cache             *cc,
-                   btree_config      *cfg,
-                   uint64             root_addr,
-                   key                target,
-                   merge_accumulator *result,
-                   btree_async_ctxt  *ctxt);
+// clang-format off
+DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
+   param, cache *,                      cc,
+   param, const btree_config *,         cfg,
+   param, uint64,                       root_addr,
+   param, page_type,                    type,
+   param, key,                          target,
+   param, merge_accumulator *,          result,
+   param, async_callback_fn,            callback,
+   param, void *,                       callback_arg,
+   local, platform_status,              __async_result,
+   local, uint16,                       stop_at_height,
+   local, btree_pivot_stats *,          stats,
+   local, btree_node,                   node,
+   local, btree_node,                   child_node,
+   local, uint32,                       h,
+   local, bool32,                       found,
+   local, message,                      msg,
+   local, page_get_async_state_buffer, cache_get_state)
+// clang-format on
 
-cache_async_result
-btree_lookup_and_merge_async(cache             *cc,          // IN
-                             btree_config      *cfg,         // IN
-                             uint64             root_addr,   // IN
-                             key                target,      // IN
-                             merge_accumulator *data,        // OUT
-                             bool32            *local_found, // OUT
-                             btree_async_ctxt  *ctxt);        // IN
+static inline void
+btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
+                                        cache                    *cc,
+                                        const btree_config       *cfg,
+                                        uint64                    root_addr,
+                                        page_type                 type,
+                                        key                       target,
+                                        merge_accumulator        *result,
+                                        async_callback_fn         callback,
+                                        void                     *callback_arg)
+{
+   btree_lookup_async_state_init(
+      state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
+}
+
+async_status
+btree_lookup_async(btree_lookup_async_state *state);
+
+async_status
+btree_lookup_and_merge_async(btree_lookup_async_state *state);
 
 void
-btree_iterator_init(cache          *cc,
-                    btree_config   *cfg,
-                    btree_iterator *itor,
-                    uint64          root_addr,
-                    page_type       page_type,
-                    key             min_key,
-                    key             max_key,
-                    key             start_key,
-                    comparison      start_type,
-                    bool32          do_prefetch,
-                    uint32          height);
+btree_iterator_init(cache              *cc,
+                    const btree_config *cfg,
+                    btree_iterator     *itor,
+                    uint64              root_addr,
+                    page_type           page_type,
+                    key                 min_key,
+                    key                 max_key,
+                    key                 start_key,
+                    comparison          start_type,
+                    bool32              do_prefetch,
+                    uint32              height);
 
 void
 btree_iterator_deinit(btree_iterator *itor);
 
 static inline platform_status
-btree_pack_req_init(btree_pack_req  *req,
-                    cache           *cc,
-                    btree_config    *cfg,
-                    iterator        *itor,
-                    uint64           max_tuples,
-                    hash_fn          hash,
-                    unsigned int     seed,
-                    platform_heap_id hid)
+btree_pack_req_init(btree_pack_req     *req,
+                    cache              *cc,
+                    const btree_config *cfg,
+                    iterator           *itor,
+                    uint64              max_tuples,
+                    hash_fn             hash,
+                    unsigned int        seed,
+                    platform_heap_id    hid)
 {
    memset(req, 0, sizeof(*req));
    req->cc         = cc;
@@ -370,12 +326,12 @@ platform_status
 btree_pack(btree_pack_req *req);
 
 void
-btree_count_in_range(cache             *cc,
-                     btree_config      *cfg,
-                     uint64             root_addr,
-                     key                min_key,
-                     key                max_key,
-                     btree_pivot_stats *stats);
+btree_count_in_range(cache              *cc,
+                     const btree_config *cfg,
+                     uint64              root_addr,
+                     key                 min_key,
+                     key                 max_key,
+                     btree_pivot_stats  *stats);
 
 void
 btree_count_in_range_by_iterator(cache             *cc,
@@ -400,7 +356,7 @@ btree_print_tree(platform_log_handle *log_handle,
 
 void
 btree_print_locked_node(platform_log_handle *log_handle,
-                        btree_config        *cfg,
+                        const btree_config  *cfg,
                         uint64               addr,
                         btree_hdr           *hdr,
                         page_type            type);
@@ -408,7 +364,7 @@ btree_print_locked_node(platform_log_handle *log_handle,
 void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
-                 btree_config        *cfg,
+                 const btree_config  *cfg,
                  btree_node          *node,
                  page_type            type);
 
@@ -416,7 +372,8 @@ void
 btree_print_tree_stats(platform_log_handle *log_handle,
                        cache               *cc,
                        btree_config        *cfg,
-                       uint64               addr);
+                       uint64               addr,
+                       page_type            type);
 
 void
 btree_print_lookup(cache        *cc,
@@ -432,12 +389,10 @@ uint64
 btree_extent_count(cache *cc, btree_config *cfg, uint64 root_addr);
 
 uint64
-btree_space_use_in_range(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type,
-                         key           start_key,
-                         key           end_key);
+btree_space_use_bytes(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
+                      page_type           type);
 
 void
 btree_config_init(btree_config *btree_cfg,

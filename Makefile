@@ -118,12 +118,12 @@ BUILD_DIR := $(BUILD_MODE)
 ifeq "$(BUILD_MODE)" "debug"
    CFLAGS    += -DSPLINTER_DEBUG
 else ifeq "$(BUILD_MODE)" "release"
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -O3 -ffast-math -flto
+   LDFLAGS   += -O3 -ffast-math -flto
 else ifeq "$(BUILD_MODE)" "optimized-debug"
    CFLAGS    += -DSPLINTER_DEBUG
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -O3 -ffast-math -flto
+   LDFLAGS   += -O3 -ffast-math -flto
 else
    $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
@@ -161,8 +161,8 @@ ifndef BUILD_MSAN
 endif
 
 ifeq "$(BUILD_MSAN)" "1"
-   CFLAGS  += -fsanitize=memory
-   LDFLAGS += -fsanitize=memory
+   CFLAGS  += -fsanitize=memory -fsanitize-memory-track-origins
+   LDFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
    BUILD_DIR:=$(BUILD_DIR)-msan
 else ifneq "$(BUILD_MSAN)" "0"
    $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
@@ -413,6 +413,7 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 # defined above using unit_test_self_dependency.
 #
 $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
+$(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)            \
                                 $(COMMON_UNIT_TESTOBJ)

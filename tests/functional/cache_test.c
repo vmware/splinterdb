@@ -269,7 +269,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_get_allocator(cc);
-      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
@@ -546,7 +546,7 @@ test_cache_flush(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_get_allocator(cc);
-      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
@@ -572,8 +572,8 @@ exit:
 #define READER_BATCH_SIZE 32
 
 typedef struct {
-   cache_async_ctxt    ctxt;
-   platform_semaphore *sema;
+   page_get_async_state_buffer buffer;
+   enum { waiting_on_io, ready_to_continue, done } status;
 } test_async_ctxt;
 
 typedef struct {
@@ -590,62 +590,45 @@ typedef struct {
    uint32             sync_probability;        // IN probability of sync get
    page_handle      **handle_arr;              // page handles
    test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
-   platform_semaphore batch_sema;              // batch semaphore
 } test_params;
 
 void
-test_async_callback(cache_async_ctxt *ctxt)
+test_async_callback(void *ctxt)
 {
-   platform_semaphore *batch_sema = ((test_async_ctxt *)ctxt)->sema;
-
-   platform_assert_status_ok(ctxt->status);
-   platform_assert(ctxt->page != NULL);
-   platform_semaphore_post(batch_sema);
+   test_async_ctxt *test_ctxt = (test_async_ctxt *)ctxt;
+   test_ctxt->status          = ready_to_continue;
 }
 
 // Wait for in flight async lookups
 static void
 test_wait_inflight(test_params *params,
-                   uint64       batch_end) // Exclusive
+                   uint64       batch_start) // Exclusive
 {
    uint64 j;
 
-   for (j = 0; j < batch_end; j++) {
-      platform_status rc;
+   for (j = 0; j < READER_BATCH_SIZE; j++) {
+      test_async_ctxt *ctxt = &params->ctxt[j];
 
-      do {
-         rc = platform_semaphore_try_wait(&params->batch_sema);
-         cache_cleanup(params->cc);
-      } while (STATUS_IS_EQ(rc, STATUS_BUSY));
-      platform_assert(SUCCESS(rc));
-   }
-}
+      if (ctxt->status != done) {
+         while (ctxt->status != done) {
+            if (ctxt->status == waiting_on_io) {
+               cache_cleanup(params->cc);
+            } else if (ctxt->status == ready_to_continue) {
+               ctxt->status     = waiting_on_io;
+               async_status res = cache_get_async(params->cc, ctxt->buffer);
+               if (res == ASYNC_STATUS_DONE) {
+                  ctxt->status = done;
+               }
+            }
+         }
 
-// Abandon a batch of async lookups we issued
-static void
-test_abandon_read_batch(test_params *params,
-                        uint64       batch_start,
-                        uint64       batch_end, // exclusive
-                        bool32       was_async[])
-{
-   page_handle **handle_arr = params->handle_arr;
-   const uint64 *addr_arr   = params->addr_arr;
-   cache        *cc         = params->cc;
-   uint64        j;
-
-   test_wait_inflight(params, batch_end);
-   // Unget all pages we have in the batch
-   for (j = 0; j < batch_end; j++) {
-      cache_async_ctxt *ctxt = &params->ctxt[j].ctxt;
-
-      platform_assert(ctxt->page);
-      handle_arr[batch_start + j] = ctxt->page;
-      if (was_async[j]) {
-         cache_async_done(cc, PAGE_TYPE_MISC, ctxt);
+         platform_assert(params->handle_arr[batch_start + j] == NULL);
+         params->handle_arr[batch_start + j] =
+            cache_get_async_state_result(params->cc, ctxt->buffer);
       }
-      cache_unget(cc, handle_arr[batch_start + j]);
-      handle_arr[batch_start + j] = NULL;
-      cache_assert_ungot(cc, addr_arr[batch_start + j]);
+
+      platform_assert(params->handle_arr[batch_start + j]->disk_addr
+                      == params->addr_arr[batch_start + j]);
    }
 }
 
@@ -657,72 +640,45 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
    const uint64 *addr_arr   = &params->addr_arr[batch_start];
    const bool32  mt_reader  = params->mt_reader;
    cache        *cc         = params->cc;
-   bool32        was_async[READER_BATCH_SIZE] = {FALSE};
    uint64        j;
 
-   // Prepare to do async gets on current batch
    for (j = 0; j < READER_BATCH_SIZE; j++) {
+      async_status     res;
       test_async_ctxt *ctxt = &params->ctxt[j];
-      cache_ctxt_init(cc, test_async_callback, NULL, &ctxt->ctxt);
-      ctxt->sema = &params->batch_sema;
-   }
-   for (j = 0; j < READER_BATCH_SIZE; j++) {
-      cache_async_result res;
-      cache_async_ctxt  *ctxt = &params->ctxt[j].ctxt;
 
-      cache_assert_ungot(cc, addr_arr[j]);
       // MT test probabilistically mixes sync and async api to test races
       if (mt_reader && params->sync_probability != 0
           && (tid + batch_start + j) % params->sync_probability == 0)
       {
-         ctxt->page = cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
-         res        = async_success;
+         handle_arr[j] = cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
+         platform_assert(handle_arr[j] != NULL);
+         ctxt->status = done;
       } else {
-         res = cache_get_async(cc, addr_arr[j], PAGE_TYPE_MISC, ctxt);
-      }
-      // platform_log_stream("batch %lu, %lu: res %u\n", batch_start, j, res);
-      if (mt_reader) {
+         cache_get_async_state_init(ctxt->buffer,
+                                    cc,
+                                    addr_arr[j],
+                                    PAGE_TYPE_MISC,
+                                    test_async_callback,
+                                    &params->ctxt[j]);
+         ctxt->status = waiting_on_io;
+         res          = cache_get_async(cc, ctxt->buffer);
          switch (res) {
-            case async_locked:
-            case async_no_reqs:
-               cache_assert_ungot(cc, addr_arr[j]);
-               /*
-                * Need to keep lock order. Lock order is lower disk
-                * address to higher disk address. If a writer thread has
-                * the page locked, we cannot take read refs on blocks
-                * with higher addresses, then come back to take read refs
-                * on blocks with lower addresses. This'll be a lock order
-                * violation and cause deadlock. So abandon this batch,
-                * and ask caller to retry.
-                */
-               test_abandon_read_batch(params, batch_start, j, was_async);
-               return TRUE;
-            case async_success:
-               platform_assert(ctxt->page);
-               platform_semaphore_post(&params->batch_sema);
-               continue;
-            case async_io_started:
-               was_async[j] = TRUE;
+            case ASYNC_STATUS_DONE:
+               platform_assert(handle_arr[j] == NULL);
+               handle_arr[j] = cache_get_async_state_result(cc, ctxt->buffer);
+               platform_assert(handle_arr[j] != NULL);
+               ctxt->status = done;
+               break;
+            case ASYNC_STATUS_RUNNING:
                break;
             default:
                platform_assert(0);
          }
-      } else {
-         platform_assert(res == async_io_started);
       }
    }
-   // Wait for the batch of async gets to complete
-   test_wait_inflight(params, READER_BATCH_SIZE);
-   // Remember the handles we got for unget later, and call done()
-   for (j = 0; j < READER_BATCH_SIZE; j++) {
-      cache_async_ctxt *ctxt = &params->ctxt[j].ctxt;
 
-      platform_assert(ctxt->page);
-      handle_arr[j] = ctxt->page;
-      if (was_async[j]) {
-         cache_async_done(cc, PAGE_TYPE_MISC, ctxt);
-      }
-   }
+   // Wait for the batch of async gets to complete
+   test_wait_inflight(params, batch_start);
 
    return FALSE;
 }
@@ -731,14 +687,12 @@ void
 test_reader_thread(void *arg)
 {
    test_params   *params     = (test_params *)arg;
-   const uint64  *addr_arr   = params->addr_arr;
    page_handle  **handle_arr = params->handle_arr;
    cache         *cc         = params->cc;
    uint64         i, j, k;
    const uint64   num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
    const threadid tid       = platform_get_tid();
 
-   platform_semaphore_init(&params->batch_sema, 0, params->hid);
    for (i = k = 0; i < num_pages; i += READER_BATCH_SIZE) {
       if (params->logger) {
          platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
@@ -750,7 +704,6 @@ test_reader_thread(void *arg)
          for (j = 0; j < READER_BATCH_SIZE; j++) {
             cache_unget(cc, handle_arr[k + j]);
             handle_arr[k + j] = NULL;
-            cache_assert_ungot(cc, addr_arr[k + j]);
          }
          k += READER_BATCH_SIZE;
       }
@@ -762,16 +715,13 @@ test_reader_thread(void *arg)
          }
       } while (need_retry);
    }
-   platform_semaphore_destroy(&params->batch_sema);
+
    for (; k < num_pages; k += j) {
       for (j = 0; j < READER_BATCH_SIZE; j++) {
          platform_assert(handle_arr[k + j] != NULL);
          cache_unget(cc, handle_arr[k + j]);
-         cache_assert_ungot(cc, addr_arr[k + j]);
+         handle_arr[k + j] = NULL;
       }
-   }
-   for (k = 0; k < num_pages; k++) {
-      cache_assert_ungot(cc, addr_arr[k]);
    }
 }
 
@@ -925,6 +875,11 @@ test_cache_async(cache             *cc,
    for (i = 0; i < total_threads; i++) {
       platform_thread_join(params[i].thread);
    }
+
+   for (i = 0; i < pages_to_allocate; i++) {
+      cache_assert_ungot(cc, addr_arr[i]);
+   }
+
    for (i = 0; i < total_threads; i++) {
       platform_free(hid, params[i].handle_arr);
    }
@@ -932,7 +887,7 @@ test_cache_async(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_get_allocator(cc);
-      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
@@ -958,12 +913,7 @@ usage(const char *argv0)
 int
 cache_test(int argc, char *argv[])
 {
-   data_config           *data_cfg;
-   io_config              io_cfg;
-   allocator_config       al_cfg;
-   clockcache_config      cache_cfg;
-   shard_log_config       log_cfg;
-   task_system_config     task_cfg;
+   system_config          system_cfg;
    int                    config_argc = argc - 1;
    char                 **config_argv = argv + 1;
    platform_status        rc;
@@ -997,16 +947,10 @@ cache_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64       num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   core_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
-   rc = test_parse_args(splinter_cfg,
-                        &data_cfg,
-                        &io_cfg,
-                        &al_cfg,
-                        &cache_cfg,
-                        &log_cfg,
-                        &task_cfg,
+   rc = test_parse_args(&system_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1024,23 +968,25 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (al_cfg.page_capacity < 5 * cache_cfg.page_capacity) {
+   if (system_cfg.allocator_cfg.page_capacity
+       < 5 * system_cfg.cache_cfg.page_capacity)
+   {
       platform_error_log("cache_test: disk capacity, # of pages=%lu, must be"
                          " at least 5 times cache capacity # of pages=%u\n",
-                         al_cfg.page_capacity,
-                         cache_cfg.page_capacity);
+                         system_cfg.allocator_cfg.page_capacity,
+                         system_cfg.cache_cfg.page_capacity);
       rc = STATUS_BAD_PARAM;
       goto cleanup;
    }
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hid);
+   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &task_cfg);
+   rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -1048,12 +994,15 @@ cache_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
+   rc_allocator_init(&al,
+                     &system_cfg.allocator_cfg,
+                     (io_handle *)io,
+                     hid,
+                     platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
-                        &cache_cfg,
+                        &system_cfg.cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,
                         "test",
@@ -1064,11 +1013,14 @@ cache_test(int argc, char *argv[])
    cache *ccp = (cache *)cc;
 
    if (benchmark) {
-      rc = test_cache_flush(ccp, &cache_cfg, hid, al_cfg.extent_capacity);
+      rc = test_cache_flush(ccp,
+                            &system_cfg.cache_cfg,
+                            hid,
+                            system_cfg.allocator_cfg.extent_capacity);
    } else if (async) {
       // Single thread, no cache pressure
       rc = test_cache_async(ccp,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             hid,
                             ts,
                             1,   // num readers
@@ -1077,7 +1029,7 @@ cache_test(int argc, char *argv[])
       // Multi thread, no cache pressure
       platform_assert(SUCCESS(rc));
       rc = test_cache_async(ccp,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             hid,
                             ts,
                             8,   // num reader
@@ -1086,7 +1038,7 @@ cache_test(int argc, char *argv[])
       // Multi thread, no cache pressure, with writers
       platform_assert(SUCCESS(rc));
       rc = test_cache_async(ccp,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             hid,
                             ts,
                             8,   // num reader
@@ -1095,7 +1047,7 @@ cache_test(int argc, char *argv[])
       platform_assert(SUCCESS(rc));
       // Single thread, cache pressure
       rc = test_cache_async(ccp,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             hid,
                             ts,
                             1,   // num readers
@@ -1104,7 +1056,7 @@ cache_test(int argc, char *argv[])
       platform_assert(SUCCESS(rc));
       // Multi  thread, cache pressure
       rc = test_cache_async(ccp,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             hid,
                             ts,
                             8,   // num readers
@@ -1112,7 +1064,7 @@ cache_test(int argc, char *argv[])
                             80); // per-thread working set
       // Multi  thread, high cache pressure
       rc = test_cache_async(ccp,
-                            &cache_cfg,
+                            &system_cfg.cache_cfg,
                             hid,
                             ts,
                             8,   // num readers
@@ -1120,7 +1072,7 @@ cache_test(int argc, char *argv[])
                             96); // per-thread working set
       platform_assert(SUCCESS(rc));
    } else {
-      rc = test_cache_basic(ccp, &cache_cfg, hid);
+      rc = test_cache_basic(ccp, &system_cfg.cache_cfg, hid);
    }
    platform_assert_status_ok(rc);
 
