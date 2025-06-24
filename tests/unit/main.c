@@ -623,7 +623,7 @@ testcase_filter(struct ctest *t)
 static int
 suite_filter(struct ctest *t)
 {
-   int rv = (strncmp(suite_name, t->ssname, strlen(suite_name)) == 0);
+   int rv = (strcmp(suite_name, t->ssname) == 0);
 
    // If suite name itself didn't match, we are done.
    if (!rv)
