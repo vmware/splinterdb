@@ -602,25 +602,33 @@ test_async_callback(void *ctxt)
 // Wait for in flight async lookups
 static void
 test_wait_inflight(test_params *params,
-                   uint64       batch_end) // Exclusive
+                   uint64       batch_start) // Exclusive
 {
    uint64 j;
 
-   for (j = 0; j < batch_end; j++) {
+   for (j = 0; j < READER_BATCH_SIZE; j++) {
       test_async_ctxt *ctxt = &params->ctxt[j];
 
-      while (ctxt->status != done) {
-         if (ctxt->status == waiting_on_io) {
-            cache_cleanup(params->cc);
-         } else if (ctxt->status == ready_to_continue) {
-            async_status res = cache_get_async(params->cc, ctxt->buffer);
-            if (res == ASYNC_STATUS_DONE) {
-               ctxt->status = done;
+      if (ctxt->status != done) {
+         while (ctxt->status != done) {
+            if (ctxt->status == waiting_on_io) {
+               cache_cleanup(params->cc);
+            } else if (ctxt->status == ready_to_continue) {
+               ctxt->status     = waiting_on_io;
+               async_status res = cache_get_async(params->cc, ctxt->buffer);
+               if (res == ASYNC_STATUS_DONE) {
+                  ctxt->status = done;
+               }
             }
          }
+
+         platform_assert(params->handle_arr[batch_start + j] == NULL);
+         params->handle_arr[batch_start + j] =
+            cache_get_async_state_result(params->cc, ctxt->buffer);
       }
-      params->handle_arr[j] =
-         cache_get_async_state_result(params->cc, ctxt->buffer);
+
+      platform_assert(params->handle_arr[batch_start + j]->disk_addr
+                      == params->addr_arr[batch_start + j]);
    }
 }
 
@@ -638,13 +646,12 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
       async_status     res;
       test_async_ctxt *ctxt = &params->ctxt[j];
 
-      cache_assert_ungot(cc, addr_arr[j]);
       // MT test probabilistically mixes sync and async api to test races
       if (mt_reader && params->sync_probability != 0
           && (tid + batch_start + j) % params->sync_probability == 0)
       {
-         params->handle_arr[j] =
-            cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
+         handle_arr[j] = cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
+         platform_assert(handle_arr[j] != NULL);
          ctxt->status = done;
       } else {
          cache_get_async_state_init(ctxt->buffer,
@@ -657,8 +664,10 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
          res          = cache_get_async(cc, ctxt->buffer);
          switch (res) {
             case ASYNC_STATUS_DONE:
+               platform_assert(handle_arr[j] == NULL);
                handle_arr[j] = cache_get_async_state_result(cc, ctxt->buffer);
-               ctxt->status  = done;
+               platform_assert(handle_arr[j] != NULL);
+               ctxt->status = done;
                break;
             case ASYNC_STATUS_RUNNING:
                break;
@@ -669,7 +678,7 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
    }
 
    // Wait for the batch of async gets to complete
-   test_wait_inflight(params, READER_BATCH_SIZE);
+   test_wait_inflight(params, batch_start);
 
    return FALSE;
 }
@@ -678,7 +687,6 @@ void
 test_reader_thread(void *arg)
 {
    test_params   *params     = (test_params *)arg;
-   const uint64  *addr_arr   = params->addr_arr;
    page_handle  **handle_arr = params->handle_arr;
    cache         *cc         = params->cc;
    uint64         i, j, k;
@@ -696,7 +704,6 @@ test_reader_thread(void *arg)
          for (j = 0; j < READER_BATCH_SIZE; j++) {
             cache_unget(cc, handle_arr[k + j]);
             handle_arr[k + j] = NULL;
-            cache_assert_ungot(cc, addr_arr[k + j]);
          }
          k += READER_BATCH_SIZE;
       }
@@ -713,11 +720,8 @@ test_reader_thread(void *arg)
       for (j = 0; j < READER_BATCH_SIZE; j++) {
          platform_assert(handle_arr[k + j] != NULL);
          cache_unget(cc, handle_arr[k + j]);
-         cache_assert_ungot(cc, addr_arr[k + j]);
+         handle_arr[k + j] = NULL;
       }
-   }
-   for (k = 0; k < num_pages; k++) {
-      cache_assert_ungot(cc, addr_arr[k]);
    }
 }
 
@@ -871,6 +875,11 @@ test_cache_async(cache             *cc,
    for (i = 0; i < total_threads; i++) {
       platform_thread_join(params[i].thread);
    }
+
+   for (i = 0; i < pages_to_allocate; i++) {
+      cache_assert_ungot(cc, addr_arr[i]);
+   }
+
    for (i = 0; i < total_threads; i++) {
       platform_free(hid, params[i].handle_arr);
    }
