@@ -275,6 +275,8 @@ trunk_init_root_handle(trunk_context            *context,
 void
 trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle);
 
+/* Note: consumes handle, i.e. calls deinit on handle, even if the lookup
+ * otherwise encounters an error. */
 platform_status
 trunk_merge_lookup(trunk_context            *context,
                    trunk_ondisk_node_handle *handle,
@@ -301,6 +303,8 @@ trunk_collect_branches(const trunk_context            *context,
 typedef struct trunk_ondisk_pivot  trunk_ondisk_pivot;
 typedef struct trunk_ondisk_bundle trunk_ondisk_bundle;
 
+/* As with trunk_merge_lookup, trunk_merge_lookup_async always deinits inhandle.
+ */
 // clang-format off
 DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    param, trunk_context *,            context,
@@ -313,6 +317,7 @@ DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    local, platform_status,            __async_result,
    local, platform_status,            rc,
    local, trunk_ondisk_node_handle,   handle,
+   local, trunk_ondisk_node_handle *, handlep,
    local, uint64,                     height,
    local, trunk_ondisk_pivot *,       pivot,
    local, uint64,                     inflight_bundle_num,
