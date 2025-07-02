@@ -974,7 +974,6 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    set -x
    run_with_timing "Config-params parsing test"
             "$BINDIR"/unit/config_parse_test --log \
-                                             --max-branches-per-node 42 \
                                              --num-inserts 20 \
                                              --rough-count-height 11 \
                                              --stats \
