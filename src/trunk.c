@@ -5338,17 +5338,21 @@ trunk_merge_lookup(trunk_context            *context,
                                rc.r);
             goto cleanup;
          }
-         trunk_ondisk_node_handle_deinit(handlep);
+         if (handlep != inhandle) {
+            trunk_ondisk_node_handle_deinit(handlep);
+         }
          handle  = child_handle;
          handlep = &handle;
       } else {
-         trunk_ondisk_node_handle_deinit(handlep);
+         if (handlep != inhandle) {
+            trunk_ondisk_node_handle_deinit(handlep);
+         }
          handlep = NULL;
       }
    }
 
 cleanup:
-   if (handlep) {
+   if (handlep && handlep != inhandle) {
       trunk_ondisk_node_handle_deinit(handlep);
    }
    return rc;
@@ -5459,17 +5463,21 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
                                state->rc.r);
             goto cleanup;
          }
-         trunk_ondisk_node_handle_deinit(state->handlep);
+         if (state->handlep != state->inhandle) {
+            trunk_ondisk_node_handle_deinit(state->handlep);
+         }
          state->handle  = state->child_handle;
          state->handlep = &state->handle;
       } else {
-         trunk_ondisk_node_handle_deinit(state->handlep);
+         if (state->handlep != state->inhandle) {
+            trunk_ondisk_node_handle_deinit(state->handlep);
+         }
          state->handlep = NULL;
       }
    }
 
 cleanup:
-   if (state->handlep) {
+   if (state->handlep && state->handlep != state->inhandle) {
       trunk_ondisk_node_handle_deinit(state->handlep);
    }
    async_return(state, state->rc);

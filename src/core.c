@@ -1259,6 +1259,7 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
 
    rc = trunk_merge_lookup(
       &spl->trunk_context, &root_handle, target, result, NULL);
+   trunk_ondisk_node_handle_deinit(&root_handle);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1337,6 +1338,7 @@ core_lookup_async(core_lookup_async_state *state)
                     NULL,
                     state->callback,
                     state->callback_arg);
+   trunk_ondisk_node_handle_deinit(&state->root_handle);
    rc = async_result(&state->trunk_node_state);
    if (!SUCCESS(rc)) {
       async_return(state, rc);
@@ -1906,6 +1908,7 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
    trunk_ondisk_node_handle handle;
    trunk_init_root_handle(&spl->trunk_context, &handle);
    trunk_merge_lookup(&spl->trunk_context, &handle, target, &data, log_handle);
+   trunk_ondisk_node_handle_deinit(&handle);
 }
 
 void
