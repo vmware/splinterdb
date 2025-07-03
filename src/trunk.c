@@ -103,6 +103,11 @@ struct trunk_pivot_state {
    bundle_compaction        *bundle_compactions;
 };
 
+struct pending_gc {
+   pending_gc *next;
+   uint64      addr;
+};
+
 /***************************************************
  * branch_ref operations
  ***************************************************/
@@ -1647,71 +1652,97 @@ bundle_dec_all_refs(trunk_context *context, bundle *bndl)
    bundle_dec_all_branch_refs(context, bndl);
 }
 
+// static void
+// trunk_ondisk_node_wait_for_readers(trunk_context *context, uint64 addr)
+// {
+//    page_handle *page    = cache_get(context->cc, addr, TRUE,
+//    PAGE_TYPE_TRUNK); bool32       success = cache_try_claim(context->cc,
+//    page); platform_assert(success); cache_lock(context->cc, page);
+//    cache_unlock(context->cc, page);
+//    cache_unclaim(context->cc, page);
+//    cache_unget(context->cc, page);
+// }
+
 static void
-trunk_ondisk_node_wait_for_readers(trunk_context *context, uint64 addr)
+trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr);
+
+/* Prerequisite: addr must be in the AL_NO_REFS state. */
+static void
+trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
 {
-   page_handle *page    = cache_get(context->cc, addr, TRUE, PAGE_TYPE_TRUNK);
-   bool32       success = cache_try_claim(context->cc, page);
-   platform_assert(success);
-   cache_lock(context->cc, page);
-   cache_unlock(context->cc, page);
-   cache_unclaim(context->cc, page);
-   cache_unget(context->cc, page);
+   trunk_node      node;
+   platform_status rc = trunk_node_deserialize(context, addr, &node);
+   if (SUCCESS(rc)) {
+      if (!trunk_node_is_leaf(&node)) {
+         for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
+            trunk_pivot *pvt = vector_get(&node.pivots, i);
+            trunk_ondisk_node_dec_ref(context, pvt->child_addr);
+         }
+      }
+      for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
+         bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
+         bundle_dec_all_refs(context, bndl);
+      }
+      for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
+         bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
+         bundle_dec_all_refs(context, bndl);
+      }
+      trunk_node_deinit(&node, context);
+   } else {
+      platform_error_log("%s():%d: node_deserialize() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+   }
+   cache_extent_discard(context->cc, addr, PAGE_TYPE_TRUNK);
+   allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
 }
+
+static void
+pending_gcs_lock(trunk_context *context)
+{
+   while (__sync_lock_test_and_set(&context->pending_gcs_lock, 1)) {
+      platform_yield();
+   }
+}
+
+static void
+pending_gcs_unlock(trunk_context *context)
+{
+   __sync_lock_release(&context->pending_gcs_lock);
+}
+
 
 static void
 trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
 {
-   // FIXME: the cache needs to allow accessing pages in the AL_NO_REFS state.
-   // Otherwise there is a crazy race here.  This is an attempt to handle it.
-   //
-   // The problem is that the cache doesn't let you access pages in the
-   // AL_NO_REFS state.  As a result, if we do a dec_ref while another thread is
-   // accessing the node, then it might do a cache_get on a page of the node
-   // after we've done the dec_ref, causing an assertion violation in the cache.
-   // So what we do is we wait for all readers to go away, and then we do a
-   // dec_ref.  If a reader comes in after we've done the dec_ref, then the
-   // refcount must have been more than 1 before we did the dec_ref, so it
-   // won't be in the AL_NO_REFS state, so the other reader will not have a
-   // problem.  Note that waiting for readers to go away is wasteful when the
-   // refcount is > 1, so it would be nice to get rid of this restriction that
-   // we are working around.
-   //
-   // If we do get AL_NO_REFS after the dec_ref, then we also face another
-   // problem: we need to deserialize the node to perform recursive dec_refs. So
-   // we have to temporarilty inc_ref the node, do our work, and then dec_ref it
-   // again.  Sigh.
-   trunk_ondisk_node_wait_for_readers(context, addr);
-   refcount rfc = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
-   if (rfc == AL_NO_REFS) {
-      trunk_node node;
-      allocator_inc_ref(context->al, addr);
-      platform_status rc = trunk_node_deserialize(context, addr, &node);
-      if (SUCCESS(rc)) {
-         if (!trunk_node_is_leaf(&node)) {
-            for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
-               trunk_pivot *pvt = vector_get(&node.pivots, i);
-               trunk_ondisk_node_dec_ref(context, pvt->child_addr);
-            }
+   refcount ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+   if (ref == AL_NO_REFS) {
+      if (cache_in_use(context->cc, addr)) {
+         pending_gc *pgc = TYPED_MALLOC(context->hid, pgc);
+         if (pgc == NULL) {
+            platform_error_log("%s():%d: TYPED_MALLOC() failed.  We're gonna "
+                               "leak some disk space.",
+                               __func__,
+                               __LINE__);
+            return;
          }
-         for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
-            bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
-            bundle_dec_all_refs(context, bndl);
+         pgc->addr = addr;
+         pgc->next = NULL;
+
+         pending_gcs_lock(context);
+         if (context->pending_gcs_tail == NULL) {
+            context->pending_gcs      = pgc;
+            context->pending_gcs_tail = pgc;
+         } else {
+            context->pending_gcs_tail->next = pgc;
+            context->pending_gcs_tail       = pgc;
          }
-         for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
-            bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
-            bundle_dec_all_refs(context, bndl);
-         }
-         trunk_node_deinit(&node, context);
+         pending_gcs_unlock(context);
+
       } else {
-         platform_error_log("%s():%d: node_deserialize() failed: %s",
-                            __func__,
-                            __LINE__,
-                            platform_status_to_string(rc));
+         trunk_ondisk_node_gc(context, addr);
       }
-      allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
-      cache_extent_discard(context->cc, addr, PAGE_TYPE_TRUNK);
-      allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    }
 }
 
@@ -2351,6 +2382,12 @@ trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
    return rc;
 }
 
+uint64
+trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle)
+{
+   return handle->header_page == NULL ? 0 : handle->header_page->disk_addr;
+}
+
 void
 trunk_modification_begin(trunk_context *context)
 {
@@ -2371,11 +2408,34 @@ trunk_set_root(trunk_context *context, trunk_ondisk_node_ref *new_root_ref)
    }
 }
 
+static void
+perform_pending_gcs(trunk_context *context)
+{
+   pending_gcs_lock(context);
+
+   pending_gc *pgc = context->pending_gcs;
+
+   while (pgc && !cache_in_use(context->cc, pgc->addr)) {
+      trunk_ondisk_node_gc(context, pgc->addr);
+      pending_gc *next = pgc->next;
+      platform_free(context->hid, pgc);
+      pgc = next;
+   }
+
+   context->pending_gcs = pgc;
+   if (pgc == NULL) {
+      context->pending_gcs_tail = NULL;
+   }
+
+   pending_gcs_unlock(context);
+}
+
 void
 trunk_modification_end(trunk_context *context)
 {
    platform_batch_rwlock_unclaim(&context->root_lock, 0);
    platform_batch_rwlock_unget(&context->root_lock, 0);
+   perform_pending_gcs(context);
 }
 
 /*************************
@@ -5787,6 +5847,8 @@ trunk_context_deinit(trunk_context *context)
    if (context->root != NULL) {
       trunk_ondisk_node_ref_destroy(context->root, context, context->hid);
    }
+   perform_pending_gcs(context);
+   platform_assert(context->pending_gcs == NULL);
    trunk_pivot_state_map_deinit(&context->pivot_states);
    platform_batch_rwlock_deinit(&context->root_lock);
 }

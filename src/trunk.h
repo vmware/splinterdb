@@ -153,6 +153,8 @@ typedef struct incorporation_tasks {
    trunk_node_vector node_compactions;
 } incorporation_tasks;
 
+typedef struct pending_gc pending_gc;
+
 typedef struct trunk_context {
    const trunk_config    *cfg;
    platform_heap_id       hid;
@@ -165,6 +167,9 @@ typedef struct trunk_context {
    trunk_ondisk_node_ref *root;
    trunk_ondisk_node_ref *post_incorporation_root;
    trunk_ondisk_node_ref *pre_incorporation_root;
+   uint64                 pending_gcs_lock;
+   pending_gc            *pending_gcs;
+   pending_gc            *pending_gcs_tail;
    incorporation_tasks    tasks;
 } trunk_context;
 
@@ -207,7 +212,6 @@ trunk_context_init(trunk_context      *context,
                    allocator          *al,
                    task_system        *ts,
                    uint64              root_addr);
-
 
 platform_status
 trunk_inc_ref(const trunk_config *cfg,
@@ -271,6 +275,9 @@ trunk_modification_end(trunk_context *context);
 platform_status
 trunk_init_root_handle(trunk_context            *context,
                        trunk_ondisk_node_handle *handle);
+
+uint64
+trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle);
 
 void
 trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle);

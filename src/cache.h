@@ -129,7 +129,8 @@ typedef void (*extent_sync_fn)(cache  *cc,
                                uint64 *pages_outstanding);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 typedef int (*evict_fn)(cache *cc, bool32 ignore_pinned);
-typedef void (*assert_ungot_fn)(cache *cc, uint64 addr);
+typedef bool32 (*page_addr_pred_fn)(cache *cc, uint64 addr);
+typedef void (*page_addr_fn)(cache *cc, uint64 addr);
 typedef void (*validate_page_fn)(cache *cc, page_handle *page, uint64 addr);
 typedef void (*io_stats_fn)(cache *cc, uint64 *read_bytes, uint64 *write_bytes);
 typedef uint32 (*count_dirty_fn)(cache *cc);
@@ -168,7 +169,8 @@ typedef struct cache_ops {
    cache_generic_fn     flush;
    evict_fn             evict;
    cache_generic_fn     cleanup;
-   assert_ungot_fn      assert_ungot;
+   page_addr_pred_fn    in_use;
+   page_addr_fn         assert_ungot;
    cache_generic_fn     assert_free;
    validate_page_fn     validate_page;
    cache_present_fn     cache_present;
@@ -550,6 +552,20 @@ static inline void
 cache_cleanup(cache *cc)
 {
    return cc->ops->cleanup(cc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_in_use
+ *
+ * Returns TRUE if there is a reader or writer holding a reference
+ * to the page at addr.
+ *-----------------------------------------------------------------------------
+ */
+static inline bool32
+cache_in_use(cache *cc, uint64 addr)
+{
+   return cc->ops->in_use(cc, addr);
 }
 
 /*

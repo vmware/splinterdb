@@ -156,8 +156,11 @@ core_set_super_block(core_handle *spl,
    super                = (core_super_block *)super_page->data;
    uint64 old_root_addr = super->root_addr;
 
-   if (spl->trunk_context.root != NULL) {
-      super->root_addr = spl->trunk_context.root->addr;
+   trunk_ondisk_node_handle root_handle;
+   trunk_init_root_handle(&spl->trunk_context, &root_handle);
+   uint64 root_addr = trunk_ondisk_node_handle_addr(&root_handle);
+   if (root_addr != 0) {
+      super->root_addr = root_addr;
       rc               = trunk_inc_ref(spl->cfg.trunk_node_cfg,
                          spl->heap_id,
                          spl->cc,
@@ -169,6 +172,8 @@ core_set_super_block(core_handle *spl,
    } else {
       super->root_addr = 0;
    }
+   trunk_ondisk_node_handle_deinit(&root_handle);
+
    if (spl->cfg.use_log) {
       if (spl->log) {
          super->log_addr      = log_addr(spl->log);

@@ -1480,7 +1480,7 @@ void
 clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
 {
    debug_assert(addr % clockcache_extent_size(cc) == 0);
-   debug_assert(allocator_get_refcount(cc->al, addr) == 1);
+   debug_assert(allocator_get_refcount(cc->al, addr) == AL_NO_REFS);
 
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
@@ -1697,10 +1697,10 @@ clockcache_get_internal(clockcache   *cc,       // IN
    refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
 
    // Dump allocated extents info for deeper debugging.
-   if (extent_ref_count <= 1) {
+   if (extent_ref_count AL_FREE) {
       allocator_print_allocated(cc->al);
    }
-   debug_assert((extent_ref_count > 1),
+   debug_assert((extent_ref_count != AL_FREE),
                 "Attempt to get a buffer for page addr=%lu"
                 ", page type=%d ('%s'),"
                 " from extent addr=%lu, (extent number=%lu)"
@@ -1917,10 +1917,10 @@ clockcache_get_internal_async(clockcache_get_async_state *state, uint64 depth)
       allocator_get_refcount(state->cc->al, state->base_addr);
 
    // Dump allocated extents info for deeper debugging.
-   if (state->extent_ref_count <= 1) {
+   if (state->extent_ref_count == AL_FREE) {
       allocator_print_allocated(state->cc->al);
    }
-   debug_assert((state->extent_ref_count > 1),
+   debug_assert((state->extent_ref_count != AL_FREE),
                 "Attempt to get a buffer for page addr=%lu"
                 ", page type=%d ('%s'),"
                 " from extent addr=%lu, (extent number=%lu)"
@@ -2680,6 +2680,21 @@ clockcache_count_dirty(clockcache *cc)
    return dirty_count;
 }
 
+bool32
+clockcache_in_use(clockcache *cc, uint64 addr)
+{
+   uint32 entry_no = clockcache_lookup(cc, addr);
+   if (entry_no == CC_UNMAPPED_ENTRY) {
+      return FALSE;
+   }
+   for (threadid thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
+      if (clockcache_get_ref(cc, entry_no, thr_i) > 0) {
+         return TRUE;
+      }
+   }
+   return clockcache_test_flag(cc, entry_no, CC_WRITELOCKED);
+}
+
 uint16
 clockcache_get_read_ref(clockcache *cc, page_handle *page)
 {
@@ -2896,6 +2911,13 @@ clockcache_wait_virtual(cache *c)
    return clockcache_wait(cc);
 }
 
+bool32
+clockcache_in_use_virtual(cache *c, uint64 addr)
+{
+   clockcache *cc = (clockcache *)c;
+   return clockcache_in_use(cc, addr);
+}
+
 void
 clockcache_assert_ungot_virtual(cache *c, uint64 addr)
 {
@@ -3010,6 +3032,7 @@ static cache_ops clockcache_ops = {
    .flush             = clockcache_flush_virtual,
    .evict             = clockcache_evict_all_virtual,
    .cleanup           = clockcache_wait_virtual,
+   .in_use            = clockcache_in_use_virtual,
    .assert_ungot      = clockcache_assert_ungot_virtual,
    .assert_free       = clockcache_assert_no_locks_held_virtual,
    .print             = clockcache_print_virtual,
