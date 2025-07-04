@@ -5762,6 +5762,8 @@ trunk_context_init(trunk_context      *context,
                    task_system        *ts,
                    uint64              root_addr)
 {
+   memset(context, 0, sizeof(trunk_context));
+
    if (root_addr != 0) {
       context->root =
          trunk_ondisk_node_ref_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
@@ -5791,7 +5793,6 @@ trunk_context_init(trunk_context      *context,
 
    trunk_pivot_state_map_init(&context->pivot_states);
    platform_batch_rwlock_init(&context->root_lock);
-
 
    return STATUS_OK;
 }

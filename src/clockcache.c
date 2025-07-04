@@ -1697,7 +1697,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
    refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
 
    // Dump allocated extents info for deeper debugging.
-   if (extent_ref_count AL_FREE) {
+   if (extent_ref_count == AL_FREE) {
       allocator_print_allocated(cc->al);
    }
    debug_assert((extent_ref_count != AL_FREE),
