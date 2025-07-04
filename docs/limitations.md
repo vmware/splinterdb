@@ -8,10 +8,7 @@ Thus, SplinterDB is provided *as-is* given the following limitations and missing
 * Public API is not yet stable. Users should expect breaking changes in future versions.
 * SplinterDB on-disk format is not versioned (Data may not survive software upgrades.)
 * Single 4KiB page size, with fixed extent size of 32 pages/extent.
-* Key and value size need to be less than the page size. Key size must be
-  between 8 to 105 bytes. Support for smaller key-sizes is experimental.
-* The application must specify the minimum and maximum of the key range.
-* SplinterDB on-disk size is fixed at compile time.
+* Key and value size need to be less than the page size.
 * SplinterDB does not expose an API to force the latest write to be durable (e.g., fsync/commit.)
 * SplinterDB disk size cannot be changed once configured.
 * SplinterDB does not have a public API for the experimental async features.
