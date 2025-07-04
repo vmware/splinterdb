@@ -5423,6 +5423,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
 {
    async_begin(state, 0);
 
+   state->rc      = STATUS_OK;
    state->handlep = state->inhandle;
 
    while (state->handlep && state->handlep->header_page) {
