@@ -103,6 +103,11 @@ struct trunk_pivot_state {
    bundle_compaction        *bundle_compactions;
 };
 
+struct pending_gc {
+   pending_gc *next;
+   uint64      addr;
+};
+
 /***************************************************
  * branch_ref operations
  ***************************************************/
@@ -1027,7 +1032,7 @@ trunk_ondisk_node_handle_setup_content_page(trunk_ondisk_node_handle *handle,
 
 /*
  * IN Parameters:
- * - state->handle: the ondisk_node_handle
+ * - state->handlep: the ondisk_node_handle
  * - state->offset: the offset of the page to get
  *
  * IN/OUT Parameters:
@@ -1046,37 +1051,37 @@ trunk_ondisk_node_handle_setup_content_page_async(
 {
    async_begin(state, depth);
 
-   uint64 page_size = cache_page_size(state->handle.cc);
+   uint64 page_size = cache_page_size(state->handlep->cc);
 
-   if (offset_is_in_content_page(&state->handle, *state->page, state->offset)) {
+   if (offset_is_in_content_page(state->handlep, *state->page, state->offset)) {
       state->rc = STATUS_OK;
       async_return(state);
    }
 
-   if (*state->page != NULL && *state->page != state->handle.header_page) {
-      cache_unget(state->handle.cc, *state->page);
+   if (*state->page != NULL && *state->page != state->handlep->header_page) {
+      cache_unget(state->handlep->cc, *state->page);
    }
 
    if (state->offset < page_size) {
-      *state->page = state->handle.header_page;
+      *state->page = state->handlep->header_page;
       state->rc    = STATUS_OK;
       async_return(state);
    } else {
-      uint64 addr = state->handle.header_page->disk_addr + state->offset;
+      uint64 addr = state->handlep->header_page->disk_addr + state->offset;
       addr -= (addr % page_size);
       cache_get_async_state_init(state->cache_get_state,
-                                 state->handle.cc,
+                                 state->handlep->cc,
                                  addr,
                                  PAGE_TYPE_TRUNK,
                                  state->callback,
                                  state->callback_arg);
-      while (cache_get_async(state->handle.cc, state->cache_get_state)
+      while (cache_get_async(state->handlep->cc, state->cache_get_state)
              != ASYNC_STATUS_DONE)
       {
          async_yield(state);
       }
-      *state->page =
-         cache_get_async_state_result(state->handle.cc, state->cache_get_state);
+      *state->page = cache_get_async_state_result(state->handlep->cc,
+                                                  state->cache_get_state);
       if (*state->page == NULL) {
          platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
          state->rc = STATUS_IO_ERROR;
@@ -1123,7 +1128,7 @@ trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
 
 /*
  * IN Parameters:
- * - state->handle: the ondisk_node_handle
+ * - state->handlep: the ondisk_node_handle
  * - state->pivot_num: the pivot number to get
  *
  * OUT Parameters:
@@ -1142,9 +1147,9 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
    async_begin(state, depth);
 
    trunk_ondisk_node *header =
-      (trunk_ondisk_node *)state->handle.header_page->data;
+      (trunk_ondisk_node *)state->handlep->header_page->data;
    state->offset = header->pivot_offsets[state->pivot_num];
-   state->page   = &state->handle.pivot_page;
+   state->page   = &state->handlep->pivot_page;
    async_await_subroutine(state,
                           trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
@@ -1157,9 +1162,9 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->pivot =
-      (trunk_ondisk_pivot *)(state->handle.pivot_page->data + state->offset
-                             - content_page_offset(&state->handle,
-                                                   state->handle.pivot_page));
+      (trunk_ondisk_pivot *)(state->handlep->pivot_page->data + state->offset
+                             - content_page_offset(state->handlep,
+                                                   state->handlep->pivot_page));
    state->rc = STATUS_OK;
    async_return(state);
 }
@@ -1245,7 +1250,7 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
 
 /*
  * IN Parameters:
- * - state->handle: the ondisk_node_handle
+ * - state->handlep: the ondisk_node_handle
  * - state->offset: the offset of the bundle
  *
  * OUT Parameters:
@@ -1260,7 +1265,7 @@ static async_status
 trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
                                          uint64                          depth)
 {
-   uint64 page_size = cache_page_size(state->handle.cc);
+   uint64 page_size = cache_page_size(state->handlep->cc);
 
    async_begin(state, depth);
 
@@ -1270,7 +1275,7 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
       state->offset += page_size - (state->offset % page_size);
    }
 
-   state->page = &state->handle.inflight_bundle_page;
+   state->page = &state->handlep->inflight_bundle_page;
    async_await_subroutine(state,
                           trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
@@ -1283,17 +1288,17 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->bndl =
-      (trunk_ondisk_bundle *)(state->handle.inflight_bundle_page->data
+      (trunk_ondisk_bundle *)(state->handlep->inflight_bundle_page->data
                               + state->offset
                               - content_page_offset(
-                                 &state->handle,
-                                 state->handle.inflight_bundle_page));
+                                 state->handlep,
+                                 state->handlep->inflight_bundle_page));
 
    /* If there wasn't enough room for this bundle on this page, then we would
     * have zeroed the remaining bytes and put the bundle on the next page. */
    if (state->bndl->num_branches == 0) {
       state->offset += page_size - (state->offset % page_size);
-      state->page = &state->handle.inflight_bundle_page;
+      state->page = &state->handlep->inflight_bundle_page;
       async_await_subroutine(state,
                              trunk_ondisk_node_handle_setup_content_page_async);
       if (!SUCCESS(state->rc)) {
@@ -1306,11 +1311,11 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
          async_return(state);
       }
       state->bndl =
-         (trunk_ondisk_bundle *)(state->handle.inflight_bundle_page->data
+         (trunk_ondisk_bundle *)(state->handlep->inflight_bundle_page->data
                                  + state->offset
                                  - content_page_offset(
-                                    &state->handle,
-                                    state->handle.inflight_bundle_page));
+                                    state->handlep,
+                                    state->handlep->inflight_bundle_page));
    }
    async_return(state);
 }
@@ -1331,7 +1336,7 @@ trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
 
 /*
  * IN Parameters:
- * - state->handle: the ondisk_node_handle
+ * - state->handlep: the ondisk_node_handle
  *
  * OUT Parameters:
  * - state->bndl: the bundle
@@ -1350,7 +1355,7 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
    async_begin(state, depth);
 
    trunk_ondisk_node *header =
-      (trunk_ondisk_node *)state->handle.header_page->data;
+      (trunk_ondisk_node *)state->handlep->header_page->data;
    if (header->num_inflight_bundles == 0) {
       state->bndl = NULL;
       state->rc   = STATUS_OK;
@@ -1374,7 +1379,7 @@ trunk_ondisk_node_get_next_inflight_bundle(trunk_ondisk_node_handle *handle,
 
 /*
  * IN Parameters:
- * - state->handle: the ondisk_node_handle
+ * - state->handlep: the ondisk_node_handle
  *
  * IN/OUT Parameters:
  * - state->bndl: the bundle
@@ -1393,10 +1398,11 @@ trunk_ondisk_node_get_next_inflight_bundle_async(
    uint64                          depth)
 {
    async_begin(state, depth);
-   state->offset =
-      ((char *)state->bndl) - state->handle.inflight_bundle_page->data
-      + content_page_offset(&state->handle, state->handle.inflight_bundle_page)
-      + sizeof_trunk_ondisk_bundle(state->bndl);
+   state->offset = ((char *)state->bndl)
+                   - state->handlep->inflight_bundle_page->data
+                   + content_page_offset(state->handlep,
+                                         state->handlep->inflight_bundle_page)
+                   + sizeof_trunk_ondisk_bundle(state->bndl);
    async_await_subroutine(state, trunk_ondisk_node_bundle_at_offset_async);
    async_return(state);
 }
@@ -1646,71 +1652,97 @@ bundle_dec_all_refs(trunk_context *context, bundle *bndl)
    bundle_dec_all_branch_refs(context, bndl);
 }
 
+// static void
+// trunk_ondisk_node_wait_for_readers(trunk_context *context, uint64 addr)
+// {
+//    page_handle *page    = cache_get(context->cc, addr, TRUE,
+//    PAGE_TYPE_TRUNK); bool32       success = cache_try_claim(context->cc,
+//    page); platform_assert(success); cache_lock(context->cc, page);
+//    cache_unlock(context->cc, page);
+//    cache_unclaim(context->cc, page);
+//    cache_unget(context->cc, page);
+// }
+
 static void
-trunk_ondisk_node_wait_for_readers(trunk_context *context, uint64 addr)
+trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr);
+
+/* Prerequisite: addr must be in the AL_NO_REFS state. */
+static void
+trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
 {
-   page_handle *page    = cache_get(context->cc, addr, TRUE, PAGE_TYPE_TRUNK);
-   bool32       success = cache_try_claim(context->cc, page);
-   platform_assert(success);
-   cache_lock(context->cc, page);
-   cache_unlock(context->cc, page);
-   cache_unclaim(context->cc, page);
-   cache_unget(context->cc, page);
+   trunk_node      node;
+   platform_status rc = trunk_node_deserialize(context, addr, &node);
+   if (SUCCESS(rc)) {
+      if (!trunk_node_is_leaf(&node)) {
+         for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
+            trunk_pivot *pvt = vector_get(&node.pivots, i);
+            trunk_ondisk_node_dec_ref(context, pvt->child_addr);
+         }
+      }
+      for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
+         bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
+         bundle_dec_all_refs(context, bndl);
+      }
+      for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
+         bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
+         bundle_dec_all_refs(context, bndl);
+      }
+      trunk_node_deinit(&node, context);
+   } else {
+      platform_error_log("%s():%d: node_deserialize() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+   }
+   cache_extent_discard(context->cc, addr, PAGE_TYPE_TRUNK);
+   allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
 }
+
+static void
+pending_gcs_lock(trunk_context *context)
+{
+   while (__sync_lock_test_and_set(&context->pending_gcs_lock, 1)) {
+      platform_yield();
+   }
+}
+
+static void
+pending_gcs_unlock(trunk_context *context)
+{
+   __sync_lock_release(&context->pending_gcs_lock);
+}
+
 
 static void
 trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
 {
-   // FIXME: the cache needs to allow accessing pages in the AL_NO_REFS state.
-   // Otherwise there is a crazy race here.  This is an attempt to handle it.
-   //
-   // The problem is that the cache doesn't let you access pages in the
-   // AL_NO_REFS state.  As a result, if we do a dec_ref while another thread is
-   // accessing the node, then it might do a cache_get on a page of the node
-   // after we've done the dec_ref, causing an assertion violation in the cache.
-   // So what we do is we wait for all readers to go away, and then we do a
-   // dec_ref.  If a reader comes in after we've done the dec_ref, then the
-   // refcount must have been more than 1 before we did the dec_ref, so it
-   // won't be in the AL_NO_REFS state, so the other reader will not have a
-   // problem.  Note that waiting for readers to go away is wasteful when the
-   // refcount is > 1, so it would be nice to get rid of this restriction that
-   // we are working around.
-   //
-   // If we do get AL_NO_REFS after the dec_ref, then we also face another
-   // problem: we need to deserialize the node to perform recursive dec_refs. So
-   // we have to temporarilty inc_ref the node, do our work, and then dec_ref it
-   // again.  Sigh.
-   trunk_ondisk_node_wait_for_readers(context, addr);
-   refcount rfc = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
-   if (rfc == AL_NO_REFS) {
-      trunk_node node;
-      allocator_inc_ref(context->al, addr);
-      platform_status rc = trunk_node_deserialize(context, addr, &node);
-      if (SUCCESS(rc)) {
-         if (!trunk_node_is_leaf(&node)) {
-            for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
-               trunk_pivot *pvt = vector_get(&node.pivots, i);
-               trunk_ondisk_node_dec_ref(context, pvt->child_addr);
-            }
+   refcount ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+   if (ref == AL_NO_REFS) {
+      if (cache_in_use(context->cc, addr)) {
+         pending_gc *pgc = TYPED_MALLOC(context->hid, pgc);
+         if (pgc == NULL) {
+            platform_error_log("%s():%d: TYPED_MALLOC() failed.  We're gonna "
+                               "leak some disk space.",
+                               __func__,
+                               __LINE__);
+            return;
          }
-         for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
-            bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
-            bundle_dec_all_refs(context, bndl);
+         pgc->addr = addr;
+         pgc->next = NULL;
+
+         pending_gcs_lock(context);
+         if (context->pending_gcs_tail == NULL) {
+            context->pending_gcs      = pgc;
+            context->pending_gcs_tail = pgc;
+         } else {
+            context->pending_gcs_tail->next = pgc;
+            context->pending_gcs_tail       = pgc;
          }
-         for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
-            bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
-            bundle_dec_all_refs(context, bndl);
-         }
-         trunk_node_deinit(&node, context);
+         pending_gcs_unlock(context);
+
       } else {
-         platform_error_log("%s():%d: node_deserialize() failed: %s",
-                            __func__,
-                            __LINE__,
-                            platform_status_to_string(rc));
+         trunk_ondisk_node_gc(context, addr);
       }
-      allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
-      cache_extent_discard(context->cc, addr, PAGE_TYPE_TRUNK);
-      allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    }
 }
 
@@ -2350,6 +2382,12 @@ trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
    return rc;
 }
 
+uint64
+trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle)
+{
+   return handle->header_page == NULL ? 0 : handle->header_page->disk_addr;
+}
+
 void
 trunk_modification_begin(trunk_context *context)
 {
@@ -2370,11 +2408,34 @@ trunk_set_root(trunk_context *context, trunk_ondisk_node_ref *new_root_ref)
    }
 }
 
+static void
+perform_pending_gcs(trunk_context *context)
+{
+   pending_gcs_lock(context);
+
+   pending_gc *pgc = context->pending_gcs;
+
+   while (pgc && !cache_in_use(context->cc, pgc->addr)) {
+      trunk_ondisk_node_gc(context, pgc->addr);
+      pending_gc *next = pgc->next;
+      platform_free(context->hid, pgc);
+      pgc = next;
+   }
+
+   context->pending_gcs = pgc;
+   if (pgc == NULL) {
+      context->pending_gcs_tail = NULL;
+   }
+
+   pending_gcs_unlock(context);
+}
+
 void
 trunk_modification_end(trunk_context *context)
 {
    platform_batch_rwlock_unclaim(&context->root_lock, 0);
    platform_batch_rwlock_unget(&context->root_lock, 0);
+   perform_pending_gcs(context);
 }
 
 /*************************
@@ -4961,7 +5022,7 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
 /*
  * IN Parameters:
  * state->context: the trunk node context
- * state->handle: the ondisk node handle
+ * state->handlep: the ondisk node handle
  * state->tgt: the target key
  * //state->cmp: the comparison to use
  *
@@ -4987,7 +5048,7 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    async_begin(state, depth);
 
    state->min = 0;
-   state->max = trunk_ondisk_node_num_pivots(&state->handle) - 1;
+   state->max = trunk_ondisk_node_num_pivots(state->handlep) - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
    state->min_pivot = NULL;
@@ -5018,12 +5079,12 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    */
    // if (0 < state->min && state->last_cmp == 0 && state->cmp == less_than) {
    //    state->min--;
-   //    state->min_pivot = ondisk_node_get_pivot(&state->handle, state->min);
+   //    state->min_pivot = ondisk_node_get_pivot(state->handlep, state->min);
    // }
 
    if (state->min_pivot == NULL) {
       state->min_pivot =
-         trunk_ondisk_node_get_pivot(&state->handle, state->min);
+         trunk_ondisk_node_get_pivot(state->handlep, state->min);
    }
 
    state->pivot = state->min_pivot;
@@ -5247,36 +5308,31 @@ trunk_merge_lookup(trunk_context            *context,
 {
    platform_status rc = STATUS_OK;
 
-   trunk_ondisk_node_handle handle;
-   rc = trunk_ondisk_node_handle_clone(&handle, inhandle);
-   if (!SUCCESS(rc)) {
-      platform_error_log("trunk_merge_lookup: "
-                         "trunk_ondisk_node_handle_clone failed: %d\n",
-                         rc.r);
-      return rc;
-   }
+   trunk_ondisk_node_handle  handle;
+   trunk_ondisk_node_handle *handlep;
+   handlep = inhandle;
 
-   while (handle.header_page) {
-      uint64 height = trunk_ondisk_node_height(&handle);
+   while (handlep && handlep->header_page) {
+      uint64 height = trunk_ondisk_node_height(handlep);
 
       if (log) {
          trunk_node node;
          rc = trunk_node_deserialize(
-            context, handle.header_page->disk_addr, &node);
+            context, handlep->header_page->disk_addr, &node);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "node_deserialize failed: %d\n",
                                rc.r);
             goto cleanup;
          }
-         platform_log(log, "addr: %lu\n", handle.header_page->disk_addr);
+         platform_log(log, "addr: %lu\n", handlep->header_page->disk_addr);
          trunk_node_print(&node, log, context->cfg->data_cfg, 0);
          trunk_node_deinit(&node, context);
       }
 
       trunk_ondisk_pivot *pivot;
       rc = trunk_ondisk_node_find_pivot(
-         context, &handle, tgt, less_than_or_equal, &pivot);
+         context, handlep, tgt, less_than_or_equal, &pivot);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "trunk_merge_lookup: ondisk_node_find_pivot failed: "
@@ -5294,7 +5350,7 @@ trunk_merge_lookup(trunk_context            *context,
 
       // Search the inflight bundles
       trunk_ondisk_bundle *bndl;
-      rc = trunk_ondisk_node_get_first_inflight_bundle(&handle, &bndl);
+      rc = trunk_ondisk_node_get_first_inflight_bundle(handlep, &bndl);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_node_get_first_inflight_bundle failed\n");
@@ -5313,7 +5369,7 @@ trunk_merge_lookup(trunk_context            *context,
             goto cleanup;
          }
          if (i < pivot->num_live_inflight_bundles - 1) {
-            bndl = trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl);
+            bndl = trunk_ondisk_node_get_next_inflight_bundle(handlep, bndl);
          }
       }
 
@@ -5342,16 +5398,22 @@ trunk_merge_lookup(trunk_context            *context,
                                rc.r);
             goto cleanup;
          }
-         trunk_ondisk_node_handle_deinit(&handle);
-         handle = child_handle;
+         if (handlep != inhandle) {
+            trunk_ondisk_node_handle_deinit(handlep);
+         }
+         handle  = child_handle;
+         handlep = &handle;
       } else {
-         trunk_ondisk_node_handle_deinit(&handle);
+         if (handlep != inhandle) {
+            trunk_ondisk_node_handle_deinit(handlep);
+         }
+         handlep = NULL;
       }
    }
 
 cleanup:
-   if (handle.header_page) {
-      trunk_ondisk_node_handle_deinit(&handle);
+   if (handlep && handlep != inhandle) {
+      trunk_ondisk_node_handle_deinit(handlep);
    }
    return rc;
 }
@@ -5361,24 +5423,17 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
 {
    async_begin(state, 0);
 
-   // We don't need to perform the clone asynchronously because the header page
-   // is guaranteed to be in memory.
-   state->rc = trunk_ondisk_node_handle_clone(&state->handle, state->inhandle);
-   if (!SUCCESS(state->rc)) {
-      platform_error_log("trunk_merge_lookup_async: "
-                         "trunk_ondisk_node_handle_clone failed: %d\n",
-                         state->rc.r);
-      async_return(state, state->rc);
-   }
+   state->rc      = STATUS_OK;
+   state->handlep = state->inhandle;
 
-   while (state->handle.header_page) {
-      state->height = trunk_ondisk_node_height(&state->handle);
+   while (state->handlep && state->handlep->header_page) {
+      state->height = trunk_ondisk_node_height(state->handlep);
 
       if (state->log) {
          // Sorry, but we're not going to perform the logging asynchronously.
          trunk_node node;
          state->rc = trunk_node_deserialize(
-            state->context, state->handle.header_page->disk_addr, &node);
+            state->context, state->handlep->header_page->disk_addr, &node);
          if (!SUCCESS(state->rc)) {
             platform_error_log("trunk_merge_lookup_async: "
                                "node_deserialize failed: %d\n",
@@ -5386,7 +5441,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
             goto cleanup;
          }
          platform_log(
-            state->log, "addr: %lu\n", state->handle.header_page->disk_addr);
+            state->log, "addr: %lu\n", state->handlep->header_page->disk_addr);
          trunk_node_print(&node, state->log, state->context->cfg->data_cfg, 0);
          trunk_node_deinit(&node, state->context);
       }
@@ -5469,16 +5524,22 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
                                state->rc.r);
             goto cleanup;
          }
-         trunk_ondisk_node_handle_deinit(&state->handle);
-         state->handle = state->child_handle;
+         if (state->handlep != state->inhandle) {
+            trunk_ondisk_node_handle_deinit(state->handlep);
+         }
+         state->handle  = state->child_handle;
+         state->handlep = &state->handle;
       } else {
-         trunk_ondisk_node_handle_deinit(&state->handle);
+         if (state->handlep != state->inhandle) {
+            trunk_ondisk_node_handle_deinit(state->handlep);
+         }
+         state->handlep = NULL;
       }
    }
 
 cleanup:
-   if (state->handle.header_page) {
-      trunk_ondisk_node_handle_deinit(&state->handle);
+   if (state->handlep && state->handlep != state->inhandle) {
+      trunk_ondisk_node_handle_deinit(state->handlep);
    }
    async_return(state, state->rc);
 }
@@ -5702,6 +5763,8 @@ trunk_context_init(trunk_context      *context,
                    task_system        *ts,
                    uint64              root_addr)
 {
+   memset(context, 0, sizeof(trunk_context));
+
    if (root_addr != 0) {
       context->root =
          trunk_ondisk_node_ref_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
@@ -5731,7 +5794,6 @@ trunk_context_init(trunk_context      *context,
 
    trunk_pivot_state_map_init(&context->pivot_states);
    platform_batch_rwlock_init(&context->root_lock);
-
 
    return STATUS_OK;
 }
@@ -5787,6 +5849,8 @@ trunk_context_deinit(trunk_context *context)
    if (context->root != NULL) {
       trunk_ondisk_node_ref_destroy(context->root, context, context->hid);
    }
+   perform_pending_gcs(context);
+   platform_assert(context->pending_gcs == NULL);
    trunk_pivot_state_map_deinit(&context->pivot_states);
    platform_batch_rwlock_deinit(&context->root_lock);
 }
