@@ -377,12 +377,14 @@ function nightly_async_perf_tests() {
     local npthreads=20
     local nbgthreads=20
     local nasync=10
+    local tree_size=5
     local test_descr="${npthreads} pthreads,bgt=${nbgthreads},async=${nasync}"
     local dbname="splinter_test.perf.db"
     run_with_timing "Parallel Async Performance test ${test_descr}" \
             "$BINDIR"/driver_test splinter_test --parallel-perf \
                                                 --max-async-inflight ${nasync} \
                                                 --num-pthreads ${npthreads} \
+                                                --tree-size-gib ${tree_size} \
                                                 --num-normal-bg-threads ${nbgthreads} \
                                                 --num-memtable-bg-threads 2 \
                                                 --db-capacity-gib 60 \
