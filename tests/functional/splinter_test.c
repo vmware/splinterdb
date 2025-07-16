@@ -681,8 +681,8 @@ test_trunk_insert_lookup_thread(void *arg)
    uint64      *bases[NUM_OP_TYPES];
    uint64       granularities[NUM_OP_TYPES];
    uint64       offsets[NUM_OP_TYPES];
-   uint8        insert_done;
-   uint64       num_ops = 0;
+   uint8        insert_done = 0;
+   uint64       num_ops     = 0;
    random_state rs;
 
    random_init(&rs, seed, 0);
