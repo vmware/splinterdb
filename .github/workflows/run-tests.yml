@@ -70,9 +70,9 @@ jobs:
             run_nightly_tests: 'true'
     name: >
           ${{ matrix.target == 'all' && 'Compile' || 'Run' }}
+          ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
           ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == 'true' && '(slow tests)' || '' }}
           ${{ matrix.target == 'run-tests' && matrix.run_nightly_tests == 'true' && '(nightly tests)' || '' }}
-          ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
     runs-on: ubuntu-latest
     env:
       CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
