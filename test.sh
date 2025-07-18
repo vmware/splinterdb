@@ -937,23 +937,6 @@ testRunStartSeconds=$SECONDS
 echo "$(TZ="America/Los_Angeles" date) **** SplinterDB${run_type}Test Suite Execution Times **** " > "${test_exec_log_file}"
 echo >> "${test_exec_log_file}"
 
-# ---- Nightly Stress and Performance test runs ----
-if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
-
-    set +e
-    run_with_timing "Check limits, error conditions." nightly_test_limitations
-
-    run_nightly_stress_tests
-
-    Use_shmem=""            run_nightly_perf_tests
-    Use_shmem="--use-shmem" run_nightly_perf_tests
-    set -e
-
-    record_elapsed_time ${testRunStartSeconds} "Nightly Stress & Performance Tests"
-    cat_exec_log_file
-    exit 0
-fi
-
 # ------------------------------------------------------------------------
 # Fast-path execution support. You can invoke this script specifying the
 # name of one of the functions to execute a specific set of tests. If the
@@ -1062,10 +1045,11 @@ if [ "$INCLUDE_SLOW_TESTS" == "true" ]; then
     # Re-run a collection of tests using shared-memory.
     Use_shmem="--use-shmem" run_tests_with_shared_memory
 
-    #
-    # The tests formerly known as 'nightly' tests, which are now run as part of 
-    # SLOW_TESTS.
-    #
+fi
+
+# ---- Nightly Stress and Performance test runs ----
+if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
+
     set +e
     run_with_timing "Check limits, error conditions." nightly_test_limitations
 
@@ -1076,8 +1060,10 @@ if [ "$INCLUDE_SLOW_TESTS" == "true" ]; then
     set -e
 
     record_elapsed_time ${testRunStartSeconds} "Nightly Stress & Performance Tests"
-
+    cat_exec_log_file
+    exit 0
 fi
+
 
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
