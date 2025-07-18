@@ -179,6 +179,7 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
 
     # ----
     ntables=2
@@ -190,6 +191,7 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
 
     # ----
     cache_size=1        # GiB
@@ -206,6 +208,7 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
 
     # ----
     ntables=4
@@ -217,6 +220,8 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
+
     # ----
     cache_size=512      # MiB
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
@@ -238,6 +243,7 @@ function nightly_unit_stress_tests() {
     local n_mills=10
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
+    local dbname="splinterdb_unit_tests_db"
 
     # ----
     local n_threads=32
@@ -251,7 +257,10 @@ function nightly_unit_stress_tests() {
                                --shmem-capacity-gib 8 \
                                --num-inserts ${num_rows} \
                                --num-memtable-bg-threads 8 \
-                               --num-normal-bg-threads 20
+                               --num-normal-bg-threads 20 \
+                               --db-location ${dbname}
+    rm ${dbname}
+
 }
 
 # #############################################################################
@@ -353,6 +362,7 @@ function nightly_cache_perf_tests() {
             "$BINDIR"/driver_test cache_test --perf \
                                              --db-location ${dbname} \
                                              ${Use_shmem}
+    rm ${dbname}
 
     cache_size=6  # GiB
     test_descr="${cache_size} GiB cache"
@@ -695,6 +705,7 @@ function run_slower_forked_process_tests() {
     msg="Splinter tests using ${num_forked_procs} forked child processes"
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
                                         --num-processes ${num_forked_procs}
+    rm splinterdb_unit_tests_db
 
     # ---- Run large_inserts_stress_test with small configuration as a quick check
     # using forked child process execution.
