@@ -59,3 +59,11 @@ test_show_verbose_progress(test_exec_config *test_exec_cfg)
 
 void
 trace_wait_for_gdb(void);
+
+#define test_print_progress(progress_state, progress, ...)                     \
+   do {                                                                        \
+      if (*progress_state != progress) {                                       \
+         *progress_state = progress;                                           \
+         platform_default_log(__VA_ARGS__);                                    \
+      }                                                                        \
+   } while (0)

@@ -18,7 +18,7 @@
 #include "task.h"
 #include "util.h"
 #include "random.h"
-
+#include "test_common.h"
 #include "poison.h"
 
 platform_status
@@ -574,29 +574,29 @@ exit:
 typedef struct {
    page_get_async_state_buffer buffer;
    enum { waiting_on_io, ready_to_continue, done } status;
-} test_async_ctxt;
+} cache_test_async_ctxt;
 
 typedef struct {
-   cache             *cc;                      // IN
-   clockcache_config *cfg;                     // IN
-   task_system       *ts;                      // IN
-   platform_thread    thread;                  // IN
-   platform_heap_id   hid;                     // IN
-   bool32             mt_reader;               // IN readers are MT
-   bool32             logger;                  // IN logger thread
-   const uint64      *addr_arr;                // IN array of page addrs
-   uint64             num_pages;               // IN #of pages to get
-   uint64             num_pages_ws;            // IN #of pages in working set
-   uint32             sync_probability;        // IN probability of sync get
-   page_handle      **handle_arr;              // page handles
-   test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
+   cache                *cc;                      // IN
+   clockcache_config    *cfg;                     // IN
+   task_system          *ts;                      // IN
+   platform_thread       thread;                  // IN
+   platform_heap_id      hid;                     // IN
+   bool32                mt_reader;               // IN readers are MT
+   bool32                logger;                  // IN logger thread
+   const uint64         *addr_arr;                // IN array of page addrs
+   uint64                num_pages;               // IN #of pages to get
+   uint64                num_pages_ws;            // IN #of pages in working set
+   uint32                sync_probability;        // IN probability of sync get
+   page_handle         **handle_arr;              // page handles
+   cache_test_async_ctxt ctxt[READER_BATCH_SIZE]; // async_get() contexts
 } test_params;
 
 void
 test_async_callback(void *ctxt)
 {
-   test_async_ctxt *test_ctxt = (test_async_ctxt *)ctxt;
-   test_ctxt->status          = ready_to_continue;
+   cache_test_async_ctxt *test_ctxt = (cache_test_async_ctxt *)ctxt;
+   test_ctxt->status                = ready_to_continue;
 }
 
 // Wait for in flight async lookups
@@ -607,7 +607,7 @@ test_wait_inflight(test_params *params,
    uint64 j;
 
    for (j = 0; j < READER_BATCH_SIZE; j++) {
-      test_async_ctxt *ctxt = &params->ctxt[j];
+      cache_test_async_ctxt *ctxt = &params->ctxt[j];
 
       if (ctxt->status != done) {
          while (ctxt->status != done) {
@@ -643,8 +643,8 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
    uint64        j;
 
    for (j = 0; j < READER_BATCH_SIZE; j++) {
-      async_status     res;
-      test_async_ctxt *ctxt = &params->ctxt[j];
+      async_status           res;
+      cache_test_async_ctxt *ctxt = &params->ctxt[j];
 
       // MT test probabilistically mixes sync and async api to test races
       if (mt_reader && params->sync_probability != 0
@@ -692,12 +692,14 @@ test_reader_thread(void *arg)
    uint64         i, j, k;
    const uint64   num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
    const threadid tid       = platform_get_tid();
+   uint64         progress  = 0;
 
    for (i = k = 0; i < num_pages; i += READER_BATCH_SIZE) {
       if (params->logger) {
-         platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
-                                      PLATFORM_CR "test %3lu%% complete",
-                                      i * 100 / num_pages);
+         test_print_progress(&progress,
+                             i * 100 / num_pages,
+                             PLATFORM_CR "test %3lu%% complete",
+                             i * 100 / num_pages);
       }
       // Maintain working set by doing ungets on old pages
       if (i >= k + params->num_pages_ws) {

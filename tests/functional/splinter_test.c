@@ -72,6 +72,7 @@ typedef struct test_splinter_thread_params {
    uint8              lookup_positive_pct; // parallel lookup positive %
    uint64             seed;
    uint64             range_lookups_done;
+   uint64             progress;
 } test_splinter_thread_params;
 
 /*
@@ -142,11 +143,13 @@ test_trunk_insert_thread(void *arg)
          if (test_is_done(done, spl_idx)) {
             continue;
          }
-         platform_default_log(PLATFORM_CR "Thread %lu inserting %3lu%% "
-                                          "complete for table %u ... ",
-                              thread_number,
-                              insert_base[spl_idx] / (total_ops[spl_idx] / 100),
-                              spl_idx);
+         test_print_progress(&params->progress,
+                             insert_base[spl_idx] / (total_ops[spl_idx] / 100),
+                             PLATFORM_CR "Thread %lu inserting %3lu%% "
+                                         "complete for table %u",
+                             thread_number,
+                             insert_base[spl_idx] / (total_ops[spl_idx] / 100),
+                             spl_idx);
          insert_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (insert_base[spl_idx] >= total_ops[spl_idx]) {
@@ -251,12 +254,13 @@ test_trunk_lookup_thread(void *arg)
          if (test_is_done(done, spl_idx)) {
             continue;
          }
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "Thread %lu lookups %3lu%% complete for table %u",
-            thread_number,
-            lookup_base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx);
+         test_print_progress(&params->progress,
+                             lookup_base[spl_idx] / (total_ops[spl_idx] / 100),
+                             PLATFORM_CR "Thread %lu lookups %3lu%% complete "
+                                         "for table %u",
+                             thread_number,
+                             lookup_base[spl_idx] / (total_ops[spl_idx] / 100),
+                             spl_idx);
          lookup_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (lookup_base[spl_idx] >= total_ops[spl_idx]) {
@@ -398,15 +402,16 @@ test_trunk_range_thread(void *arg)
                start_time = platform_get_timestamp();
             }
          }
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "Thread %lu range lookups %3lu%% complete for table %u"
-                        ", range_base=%lu%s",
-            thread_number,
-            range_base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx,
-            range_base[spl_idx],
-            newmsg);
+         test_print_progress(&params->progress,
+                             range_base[spl_idx] / (total_ops[spl_idx] / 100),
+                             PLATFORM_CR
+                             "Thread %lu range lookups %3lu%% "
+                             "complete for table %u, range_base=%lu%s",
+                             thread_number,
+                             range_base[spl_idx] / (total_ops[spl_idx] / 100),
+                             spl_idx,
+                             range_base[spl_idx],
+                             newmsg);
 
          range_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
@@ -463,12 +468,12 @@ out:
  *-----------------------------------------------------------------------------
  */
 static bool32
-advance_base(const test_splinter_thread_params *params,
-             uint64                            *curr_op,
-             uint64                            *base,
-             uint8                             *done,
-             random_state                      *rs,
-             test_splinter_pthread_op_type      type)
+advance_base(test_splinter_thread_params  *params,
+             uint64                       *curr_op,
+             uint64                       *base,
+             uint8                        *done,
+             random_state                 *rs,
+             test_splinter_pthread_op_type type)
 {
    const uint64 *total_ops           = params->total_ops;
    const uint64  op_granularity      = params->op_granularity;
@@ -481,12 +486,12 @@ advance_base(const test_splinter_thread_params *params,
       }
 
       if (type == OP_INSERT) {
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "inserting/lookups %3lu%% complete for table %u",
-            base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx);
-
+         test_print_progress(&params->progress,
+                             base[spl_idx] / (total_ops[spl_idx] / 100),
+                             PLATFORM_CR "inserting/lookups %3lu%% complete "
+                                         "for table %u",
+                             base[spl_idx] / (total_ops[spl_idx] / 100),
+                             spl_idx);
          base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (base[spl_idx] >= total_ops[spl_idx]) {
@@ -681,8 +686,8 @@ test_trunk_insert_lookup_thread(void *arg)
    uint64      *bases[NUM_OP_TYPES];
    uint64       granularities[NUM_OP_TYPES];
    uint64       offsets[NUM_OP_TYPES];
-   uint8        insert_done;
-   uint64       num_ops = 0;
+   uint8        insert_done = 0;
+   uint64       num_ops     = 0;
    random_state rs;
 
    random_init(&rs, seed, 0);

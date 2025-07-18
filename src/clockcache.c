@@ -963,8 +963,11 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
 
 
-         async_io_state *state = TYPED_MALLOC(cc->heap_id, state);
-         platform_assert(state != NULL);
+         async_io_state *state;
+         while ((state = TYPED_MALLOC(cc->heap_id, state)) == NULL) {
+            clockcache_wait(cc);
+         }
+
          state->cc                = cc;
          state->outstanding_pages = NULL;
          io_async_state_init(state->iostate,
