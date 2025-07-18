@@ -22,8 +22,8 @@ jobs:
         compiler_mode: [gcc, clang, gcc-asan, clang-msan]
         build_mode: [release, debug]
         target: [all] # Just compile most configs
-        include_slow_tests: [true]
-        run_nightly_tests: [false]
+        include_slow_tests: ['true']
+        run_nightly_tests: ['false']
         exclude:
           # Don't do a compile job on these, since we will do run-tests on them below
           - compiler_mode: gcc-asan
@@ -52,8 +52,8 @@ jobs:
           - compiler_mode: gcc
             build_mode: release
             target: run-tests
-            include_slow_tests: false
-            run_nightly_tests: true
+            include_slow_tests: 'false'
+            run_nightly_tests: 'true'
     name: > 
           ${{ matrix.target == 'all' && 'Compile' || 'Run' }}
           ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == 'true' && '(slow tests)' || '' }}
