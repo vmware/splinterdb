@@ -29,32 +29,46 @@ jobs:
           - compiler_mode: gcc-asan
             build_mode: release
             target: all
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
           - compiler_mode: clang-msan
             build_mode: release
             target: all
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
           - compiler_mode: clang
             build_mode: debug
             target: all
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
           - compiler_mode: gcc
             build_mode: release
             target: all
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
         include:
           # Compile and run tests on these configs
           - compiler_mode: gcc-asan
             build_mode: release
             target: run-tests
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
           - compiler_mode: clang-msan
             build_mode: release
             target: run-tests
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
           - compiler_mode: clang
             build_mode: debug
             target: run-tests
+            include_slow_tests: 'true'
+            run_nightly_tests: 'false'
           - compiler_mode: gcc
             build_mode: release
             target: run-tests
             include_slow_tests: 'false'
             run_nightly_tests: 'true'
-    name: > 
+    name: >
           ${{ matrix.target == 'all' && 'Compile' || 'Run' }}
           ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == 'true' && '(slow tests)' || '' }}
           ${{ matrix.target == 'run-tests' && matrix.run_nightly_tests == 'true' && '(nightly tests)' || '' }}
