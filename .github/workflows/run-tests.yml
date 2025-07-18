@@ -54,9 +54,9 @@ jobs:
             target: run-tests
             include_slow_tests: false
             run_nightly_tests: true
-    name: ${{ matrix.target == 'all' && 'Compile' || 'Run' }} \
-          ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == true && '(slow tests)' || '' }} \
-          ${{ matrix.target == 'run-tests' && matrix.run_nightly_tests == true && '(nightly tests)' || '' }} \
+    name: ${{ matrix.target == 'all' && 'Compile' || 'Run' }} \\
+          ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == 'true' && '(slow tests)' || '' }} \\
+          ${{ matrix.target == 'run-tests' && matrix.run_nightly_tests == 'true' && '(nightly tests)' || '' }} \\
           ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
     runs-on: ubuntu-latest
     env:
