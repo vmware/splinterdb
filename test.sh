@@ -257,8 +257,7 @@ function nightly_unit_stress_tests() {
                                --shmem-capacity-gib 8 \
                                --num-inserts ${num_rows} \
                                --num-memtable-bg-threads 8 \
-                               --num-normal-bg-threads 20 \
-                               --db-location ${dbname}
+                               --num-normal-bg-threads 20
     rm ${dbname}
 
 }
