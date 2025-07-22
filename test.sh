@@ -179,6 +179,7 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
 
     # ----
     ntables=2
@@ -190,6 +191,7 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
 
     # ----
     cache_size=1        # GiB
@@ -206,6 +208,7 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
 
     # ----
     ntables=4
@@ -217,6 +220,8 @@ function nightly_functionality_stress_tests() {
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
+    rm ${dbname}
+
     # ----
     cache_size=512      # MiB
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
@@ -238,6 +243,7 @@ function nightly_unit_stress_tests() {
     local n_mills=10
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
+    local dbname="splinterdb_unit_tests_db"
 
     # ----
     local n_threads=32
@@ -252,6 +258,8 @@ function nightly_unit_stress_tests() {
                                --num-inserts ${num_rows} \
                                --num-memtable-bg-threads 8 \
                                --num-normal-bg-threads 20
+    rm ${dbname}
+
 }
 
 # #############################################################################
@@ -298,7 +306,7 @@ function nightly_sync_perf_tests() {
                                                 --tree-size-gib 4 \
                                                 --db-capacity-gib 60 \
                                                 --db-location ${dbname} \
-                                                --verbose-progress
+                                                --verbose-progress \
                                                 ${Use_shmem}
     rm ${dbname}
 
@@ -353,6 +361,7 @@ function nightly_cache_perf_tests() {
             "$BINDIR"/driver_test cache_test --perf \
                                              --db-location ${dbname} \
                                              ${Use_shmem}
+    rm ${dbname}
 
     cache_size=6  # GiB
     test_descr="${cache_size} GiB cache"
@@ -377,13 +386,16 @@ function nightly_async_perf_tests() {
     local npthreads=20
     local nbgthreads=20
     local nasync=10
+    local tree_size=5
     local test_descr="${npthreads} pthreads,bgt=${nbgthreads},async=${nasync}"
     local dbname="splinter_test.perf.db"
     run_with_timing "Parallel Async Performance test ${test_descr}" \
             "$BINDIR"/driver_test splinter_test --parallel-perf \
-                                                --num-bg-threads ${nbgthreads} \
                                                 --max-async-inflight ${nasync} \
                                                 --num-pthreads ${npthreads} \
+                                                --tree-size-gib ${tree_size} \
+                                                --num-normal-bg-threads ${nbgthreads} \
+                                                --num-memtable-bg-threads 2 \
                                                 --db-capacity-gib 60 \
                                                 --db-location ${dbname}
     rm ${dbname}
@@ -397,7 +409,7 @@ function run_nightly_perf_tests() {
 
     nightly_cache_perf_tests
 
-    # nightly_async_perf_tests
+    nightly_async_perf_tests
 }
 
 # #############################################################################
@@ -692,6 +704,7 @@ function run_slower_forked_process_tests() {
     msg="Splinter tests using ${num_forked_procs} forked child processes"
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
                                         --num-processes ${num_forked_procs}
+    rm splinterdb_unit_tests_db
 
     # ---- Run large_inserts_stress_test with small configuration as a quick check
     # using forked child process execution.
@@ -934,71 +947,6 @@ testRunStartSeconds=$SECONDS
 echo "$(TZ="America/Los_Angeles" date) **** SplinterDB${run_type}Test Suite Execution Times **** " > "${test_exec_log_file}"
 echo >> "${test_exec_log_file}"
 
-# ---- Nightly Stress and Performance test runs ----
-if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
-
-    set +e
-    run_with_timing "Check limits, error conditions." nightly_test_limitations
-
-    run_nightly_stress_tests
-
-    Use_shmem=""            run_nightly_perf_tests
-    Use_shmem="--use-shmem" run_nightly_perf_tests
-    set -e
-
-    record_elapsed_time ${testRunStartSeconds} "Nightly Stress & Performance Tests"
-    cat_exec_log_file
-    exit 0
-fi
-
-# ---- Fast running Smoke test runs ----
-if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
-
-   # For some coverage, exercise --help, --list args for unit test binaries
-   set -x
-   "$BINDIR"/unit_test --help
-   "$BINDIR"/unit_test --list
-   "$BINDIR"/unit_test --list splinterdb_quick
-   "$BINDIR"/unit/btree_test --help
-   "$BINDIR"/unit/splinterdb_quick_test --list
-   set +x
-
-   echo " "
-   echo "NOTE: **** Only running fast unit tests ****"
-   echo "To run all tests, set the env var, and re-run: $ INCLUDE_SLOW_TESTS=true ./$Me"
-   echo " "
-
-   # Exercise config-parsing test case. Here, we feed-in a set of
-   # --config-params that the test code knows to "expect" and validates.
-   # These options can come in any order.
-   set -x
-   run_with_timing "Config-params parsing test"
-            "$BINDIR"/unit/config_parse_test --log \
-                                             --num-inserts 20 \
-                                             --rough-count-height 11 \
-                                             --stats \
-                                             --verbose-logging \
-                                             --verbose-progress
-   set +x
-
-   start_seconds=$SECONDS
-
-   run_with_timing "Smoke tests" run_fast_unit_tests ""
-
-   Use_shmem="--use-shmem"
-   run_with_timing "Smoke tests using shared memory" run_fast_unit_tests
-
-   if [ "$RUN_MAKE_TESTS" == "true" ]; then
-      run_with_timing "Basic build-and-test tests" test_make_run_tests
-   fi
-
-   cat_exec_log_file
-   exit 0
-fi
-
-# ---- Rest of the coverage runs included in CI test runs ----
-UNIT_TESTS_DB_DEV="unit_tests_db"
-
 # ------------------------------------------------------------------------
 # Fast-path execution support. You can invoke this script specifying the
 # name of one of the functions to execute a specific set of tests. If the
@@ -1039,29 +987,94 @@ if [ $# -ge 1 ]; then
    exit 0
 fi
 
-# Run all the unit-tests first, to get basic coverage
-run_with_timing "Fast unit tests" "$BINDIR"/unit_test
+#
+# Fast tests
+#
 
-# ------------------------------------------------------------------------
-# Run mini-unit-tests that were excluded from bin/unit_test binary:
-# ------------------------------------------------------------------------
-Use_shmem=""
-run_slower_unit_tests
+# For some coverage, exercise --help, --list args for unit test binaries
+set -x
+"$BINDIR"/unit_test --help
+"$BINDIR"/unit_test --list
+"$BINDIR"/unit_test --list splinterdb_quick
+"$BINDIR"/unit/btree_test --help
+"$BINDIR"/unit/splinterdb_quick_test --list
+set +x
 
-if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
+# Exercise config-parsing test case. Here, we feed-in a set of
+# --config-params that the test code knows to "expect" and validates.
+# These options can come in any order.
+set -x
+run_with_timing "Config-params parsing test"
+        "$BINDIR"/unit/config_parse_test --log \
+                                            --num-inserts 20 \
+                                            --rough-count-height 11 \
+                                            --stats \
+                                            --verbose-logging \
+                                            --verbose-progress
+set +x
 
-run_splinter_functionality_tests
+run_with_timing "Smoke tests" run_fast_unit_tests ""
 
-run_splinter_perf_tests
+Use_shmem="--use-shmem"
+run_with_timing "Smoke tests using shared memory" run_fast_unit_tests
 
-run_btree_tests
+if [ "$RUN_MAKE_TESTS" == "true" ]; then
+    run_with_timing "Basic build-and-test tests" test_make_run_tests
+fi
 
-run_other_driver_tests
+#
+# Slow tests
+#
 
-record_elapsed_time ${testRunStartSeconds} "Tests without shared memory configured"
-# ------------------------------------------------------------------------
-# Re-run a collection of tests using shared-memory.
-Use_shmem="--use-shmem" run_tests_with_shared_memory
+if [ "$INCLUDE_SLOW_TESTS" == "true" ]; then
+
+    # ---- Rest of the coverage runs included in CI test runs ----
+    UNIT_TESTS_DB_DEV="unit_tests_db"
+
+    # Run all the unit-tests first, to get basic coverage
+    run_with_timing "Fast unit tests" "$BINDIR"/unit_test
+
+    # ------------------------------------------------------------------------
+    # Run mini-unit-tests that were excluded from bin/unit_test binary:
+    # ------------------------------------------------------------------------
+    Use_shmem=""
+    run_slower_unit_tests
+
+    if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
+
+    run_splinter_functionality_tests
+
+    run_splinter_perf_tests
+
+    run_btree_tests
+
+    run_other_driver_tests
+
+    record_elapsed_time ${testRunStartSeconds} "Tests without shared memory configured"
+    # ------------------------------------------------------------------------
+    # Re-run a collection of tests using shared-memory.
+    Use_shmem="--use-shmem" run_tests_with_shared_memory
+
+fi
+
+# ---- Nightly Stress and Performance test runs ----
+if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
+
+    set +e
+    run_with_timing "Check limits, error conditions." nightly_test_limitations
+
+    run_nightly_stress_tests
+
+    Use_shmem=""            run_nightly_perf_tests
+    Use_shmem="--use-shmem" run_nightly_perf_tests
+    set -e
+
+    record_elapsed_time ${testRunStartSeconds} "Nightly Stress & Performance Tests"
+    cat_exec_log_file
+    exit 0
+fi
+
+
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED
