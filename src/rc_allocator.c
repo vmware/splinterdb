@@ -459,8 +459,8 @@ rc_allocator_mount(rc_allocator      *al,
    }
 
    // load the ref counts from disk.
-   uint32 io_size =
-      ROUNDUP(al->cfg->extent_capacity, al->cfg->io_cfg->page_size);
+   uint64 bytes   = (uint64)al->cfg->extent_capacity * sizeof(refcount);
+   uint64 io_size = ROUNDUP(bytes, al->cfg->io_cfg->page_size);
    status = io_read(io, al->ref_count, io_size, cfg->io_cfg->extent_size);
    platform_assert_status_ok(status);
 
@@ -479,8 +479,8 @@ rc_allocator_unmount(rc_allocator *al)
    platform_status status;
 
    // persist the ref counts upon unmount.
-   uint32 io_size =
-      ROUNDUP(al->cfg->extent_capacity, al->cfg->io_cfg->page_size);
+   uint64 bytes   = (uint64)al->cfg->extent_capacity * sizeof(refcount);
+   uint64 io_size = ROUNDUP(bytes, al->cfg->io_cfg->page_size);
    status =
       io_write(al->io, al->ref_count, io_size, al->cfg->io_cfg->extent_size);
    platform_assert_status_ok(status);
