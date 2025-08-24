@@ -1,6 +1,13 @@
 #!/bin/bash
 # ##############################################################################
 # test.sh - Driver script to invoke SplinterDB test suites.
+# Re-run CI-jobs with code at SHA 2fb4d7c9
+# 2fb4d7c9 Deukyeon Hwang 5 months ago Tue, 15-Aug-2023, 05:19:03 PM (Authored: Tue, 15-Aug-2023, 05:19:03 PM)
+ # Fix the compile error on platform_open_log_file() (#596)
+ #
+ # to re-establish state of tests run before shared memory support was added.
+ # NOTE: Add this line. Previous test PR #611 seems to have not pulled the
+ # right SHA to build code. Very weird. Re-do build-and-test job.
 # ##############################################################################
 
 Me=$(basename "$0")
