@@ -421,4 +421,22 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 void
 splinterdb_stats_reset(splinterdb *kvs);
 
+/*
+ * Statistics Emitters
+ *
+ * Reports insertion or lookup statistics by calling the passed
+ * function with the passed void* data pointer.  For programmatic
+ * access to stats without having to parse the output
+ * of splinterdb_stats_print_{insertion|lookup}
+ */
+void
+splinterdb_stats_emit_insertion(const splinterdb *kvs,
+                                void             *user_data,
+                                emit_stat_fn      user_fn);
+
+void
+splinterdb_stats_emit_lookup(const splinterdb *kvs,
+                             void             *user_data,
+                             emit_stat_fn      user_fn);
+
 #endif // _SPLINTERDB_H_

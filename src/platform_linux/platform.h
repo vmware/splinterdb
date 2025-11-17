@@ -1,9 +1,12 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// clang-format off
+
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#include "splinterdb/data.h"
 #include "splinterdb/public_platform.h"
 
 /*
@@ -648,6 +651,12 @@ platform_histo_print(platform_histo_handle histo,
                      const char           *name,
                      platform_log_handle  *log_handle);
 
+void
+platform_histo_emit(platform_histo_handle histo,
+                    const char           *name,
+                    void                 *user_data,
+                    emit_stat_fn          user_fn);
+
 static inline threadid
 platform_get_tid();
 
@@ -826,3 +835,5 @@ platform_backtrace(void **buffer, int size)
 }
 
 #endif // PLATFORM_H
+
+// clang-format on

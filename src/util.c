@@ -505,3 +505,63 @@ print_column_table(platform_log_handle *log_handle,
 
    print_horizontal_separator(log_handle, num_columns, columns, '-');
 }
+
+void
+emit_stats_array_uint64(const char   *format,
+                        int           count,
+                        const uint64 *stats,
+                        void         *user_data,
+                        emit_stat_fn  user_fn)
+{
+    char name_buf[256];
+    
+    for (int i=0; i<count; i++) {
+        snprintf(name_buf, sizeof(name_buf), format, i);
+        user_fn(user_data, name_buf, stats[i]);
+    }
+}
+
+void
+emit_stats_dist_array_uint64(const char   *eq_format,
+                             const char   *gt_format,
+                             uint64        max_value,
+                             int           count,
+                             const uint64 *dist_array,
+                             void         *user_data,
+                             emit_stat_fn  user_fn)
+{
+    char name_buf[256];
+
+    for (int i=0; i<count; i++) {
+        const uint64 *dist = &dist_array[i * max_value];
+        for (uint64 val=0; val<max_value; val++) {
+            if (val == max_value - 1) {
+                snprintf(name_buf, sizeof(name_buf), gt_format, i, val - 1);
+            }else {
+                snprintf(name_buf, sizeof(name_buf), eq_format, i, val);
+            }
+            user_fn(user_data, name_buf, dist[val]);
+        }
+    }
+}
+
+void
+emit_stats_array_fraction(const char     *format,
+                          int             count,
+                          const fraction *stats,
+                          void           *user_data,
+                          emit_stat_fn    user_fn)
+{
+    char format_buf[256];
+    char name_buf[256];
+
+    for (int i=0; i<count; i++) {
+        snprintf(format_buf, sizeof(format_buf), "%s.num", format);
+        snprintf(name_buf, sizeof(name_buf), format_buf, i);
+        user_fn(user_data, name_buf, stats[i].numerator);
+ 
+        snprintf(format_buf, sizeof(format_buf), "%s.div", format);
+        snprintf(name_buf, sizeof(name_buf), format_buf, i);
+        user_fn(user_data, name_buf, stats[i].denominator);
+   }
+}

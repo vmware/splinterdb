@@ -1,6 +1,8 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// clang-format off
+
 /*
  * allocator.h --
  *
@@ -139,6 +141,7 @@ typedef uint64 (*base_addr_fn)(const allocator *al, uint64 addr);
 
 typedef void (*print_fn)(allocator *al);
 typedef void (*assert_fn)(allocator *al);
+typedef void (*emit_fn)(allocator* al, void* user_data, emit_stat_fn user_fn);
 
 /*
  * Define an abstract allocator interface, holding different allocation-related
@@ -165,6 +168,7 @@ typedef struct allocator_ops {
 
    print_fn print_stats;
    print_fn print_allocated;
+   emit_fn emit_stats;
 } allocator_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -293,4 +297,12 @@ allocator_page_valid(allocator *al, uint64 addr)
                          allocator_get_capacity(al));
       return FALSE;
    }
+}
+
+// clang-format on
+
+static inline void
+allocator_emit_stats(allocator *al, void *user_data, emit_stat_fn user_fn)
+{
+   return al->ops->emit_stats(al, user_data, user_fn);
 }

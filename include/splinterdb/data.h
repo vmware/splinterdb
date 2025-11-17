@@ -171,3 +171,12 @@ struct data_config {
    key_to_str_fn        key_to_string;
    message_to_str_fn    message_to_string;
 };
+
+/*
+ * emit_stat_fn - a function for emitting stats as name/value pairs.
+ *
+ *  fn_data - opaque context pointer passed to the emit stats function
+ *  name    - the name of the stat
+ *  value   - the value of the stat
+ */
+typedef void (*emit_stat_fn)(void *fn_data, const char *name, uint64 value);

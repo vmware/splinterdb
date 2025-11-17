@@ -180,6 +180,20 @@ rc_allocator_print_allocated_virtual(allocator *a)
    rc_allocator_print_allocated(al);
 }
 
+void
+rc_allocator_emit_stats(rc_allocator *al,
+                        void         *user_data,
+                        emit_stat_fn  user_fn);
+
+void
+rc_allocator_emit_stats_virtual(allocator   *a,
+                                void        *user_data,
+                                emit_stat_fn user_fn)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   rc_allocator_emit_stats(al, user_data, user_fn);
+}
+
 const static allocator_ops rc_allocator_ops = {
    .get_config        = rc_allocator_get_config_virtual,
    .alloc             = rc_allocator_alloc_virtual,
@@ -194,6 +208,7 @@ const static allocator_ops rc_allocator_ops = {
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
    .print_allocated   = rc_allocator_print_allocated_virtual,
+   .emit_stats        = rc_allocator_emit_stats_virtual,
 };
 
 /*
@@ -834,6 +849,94 @@ rc_allocator_print_stats(rc_allocator *al)
       "Expected count of extents in-use from footprint = %ld extents (%s)\n",
       exp_allocated_count,
       size_str(exp_allocated_count * extent_size));
+}
+
+/*
+ *----------------------------------------------------------------------
+ * rc_allocator_emit_stats() --
+ *
+ *      Emits basic statistics about the allocator state.
+ *
+ *      Max allocations, and page type stats are since last mount.
+ *----------------------------------------------------------------------
+ */
+void
+rc_allocator_emit_stats(rc_allocator *al, void *user_data, emit_stat_fn user_fn)
+{
+   uint64 extent_size = al->cfg->io_cfg->extent_size; // bytes
+
+   user_fn(user_data,
+           "splinterdb.allocator.allocated_extents",
+           al->stats.curr_allocated);
+
+   user_fn(user_data,
+           "splinterdb.allocator.allocated_bytes",
+           al->stats.curr_allocated * extent_size);
+
+   user_fn(
+      user_data, "splinterdb.allocator.max_extents", al->stats.max_allocated);
+
+   user_fn(user_data,
+           "splinterdb.allocator.max_bytes",
+           al->stats.max_allocated * extent_size);
+
+   char  name_buf[256];
+   int64 exp_allocated_count = 0;
+   for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
+      const char *str       = page_type_str[type];
+      int64       allocs    = al->stats.extent_allocs[type];
+      int64       deallocs  = al->stats.extent_deallocs[type];
+      int64       footprint = allocs - deallocs;
+
+      exp_allocated_count += footprint;
+
+      //-----------------------
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.allocator.%s.allocated_extents",
+               str);
+      user_fn(user_data, name_buf, allocs);
+
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.allocator.%s.allocated_bytes",
+               str);
+      user_fn(user_data, name_buf, allocs * extent_size);
+
+      //-----------------------
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.allocator.%s.freed_extents",
+               str);
+      user_fn(user_data, name_buf, deallocs);
+
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.allocator.%s.freed_bytes",
+               str);
+      user_fn(user_data, name_buf, deallocs * extent_size);
+
+      //-----------------------
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.allocator.%s.footprint_extents",
+               str);
+      user_fn(user_data, name_buf, footprint);
+
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.allocator.%s.footprint_bytes",
+               str);
+      user_fn(user_data, name_buf, footprint * extent_size);
+   }
+
+   user_fn(user_data, //
+           "splinterdb.allocator.in_use_extents",
+           exp_allocated_count);
+
+   user_fn(user_data,
+           "splinterdb.allocator.in_use_bytes",
+           exp_allocated_count * extent_size);
 }
 
 /*

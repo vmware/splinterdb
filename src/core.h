@@ -212,11 +212,64 @@ core_unmount(core_handle **spl);
 void
 core_perform_tasks(core_handle *spl);
 
+//----------------------------------------------
+// insertion stats
+//
+typedef struct core_insertion_stats_collection {
+
+   uint64                avg_flush_wait_time;
+   uint64                avg_flush_time;
+   uint64                num_flushes;
+   uint64                avg_compaction_tuples;
+   uint64                pack_time_per_tuple;
+   uint64                avg_setup_time;
+   core_stats           *global;
+   platform_histo_handle insert_lat_accum;
+   platform_histo_handle update_lat_accum;
+   platform_histo_handle delete_lat_accum;
+
+} core_insertion_stats_collection;
+
+int
+core_insertion_stats_collection_create(core_handle                     *spl,
+                                       core_insertion_stats_collection *c);
+
+void
+core_insertion_stats_collection_destroy(core_handle                     *spl,
+                                        core_insertion_stats_collection *c);
+
+int
+core_emit_insertion_stats(core_handle *spl,
+                          void        *user_data,
+                          emit_stat_fn user_fn);
+
 void
 core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl);
 
+//----------------------------------------------
+// lookup stats
+//
+typedef struct core_lookup_stats_collection {
+   uint64 lookups_found;
+   uint64 lookups_not_found;
+   uint64 lookups;
+} core_lookup_stats_collection;
+
+int
+core_lookup_stats_collection_create(core_handle                  *spl,
+                                    core_lookup_stats_collection *c);
+
+void
+core_lookup_stats_collection_destroy(core_handle                  *spl,
+                                     core_lookup_stats_collection *c);
+
+int
+core_emit_lookup_stats(core_handle *spl, void *user_data, emit_stat_fn user_fn);
+
 void
 core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl);
+
+//----------------------------------------------
 
 void
 core_reset_stats(core_handle *spl);
