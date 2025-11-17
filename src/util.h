@@ -514,3 +514,26 @@ print_column_table(platform_log_handle *log_handle,
                    int                  num_columns,
                    column              *columns,
                    int                  num_rows);
+
+void
+emit_stats_array_uint64(const char   *format,
+                        int           count,
+                        const uint64 *stats,
+                        void         *user_data,
+                        emit_stat_fn  user_fn);
+
+void
+emit_stats_dist_array_uint64(const char   *eq_format,
+                             const char   *gt_format,
+                             uint64        max_value,
+                             int           count,
+                             const uint64 *dist_array,
+                             void         *user_data,
+                             emit_stat_fn  user_fn);
+
+void
+emit_stats_array_fraction(const char     *format,
+                          int             count,
+                          const fraction *stats,
+                          void           *user_data,
+                          emit_stat_fn    user_fn);

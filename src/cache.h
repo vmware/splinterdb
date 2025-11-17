@@ -140,6 +140,9 @@ typedef void (*enable_sync_get_fn)(cache *cc, bool32 enabled);
 typedef allocator *(*get_allocator_fn)(const cache *cc);
 typedef cache_config *(*cache_config_fn)(const cache *cc);
 typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
+typedef void (*cache_emit_stats_fn)(void        *user_data,
+                                    emit_stat_fn user_fn,
+                                    cache       *cc);
 
 /*
  * Cache Operations structure:
@@ -176,6 +179,7 @@ typedef struct cache_ops {
    cache_present_fn     cache_present;
    cache_print_fn       print;
    cache_print_fn       print_stats;
+   cache_emit_stats_fn  emit_stats;
    io_stats_fn          io_stats;
    cache_generic_fn     reset_stats;
    count_dirty_fn       count_dirty;
@@ -624,6 +628,20 @@ static inline void
 cache_print_stats(platform_log_handle *log_handle, cache *cc)
 {
    return cc->ops->print_stats(log_handle, cc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_print_stats
+ *
+ * Analysis facility.
+ * Emits performance statistics.
+ *-----------------------------------------------------------------------------
+ */
+static inline void
+cache_emit_stats(void *user_data, emit_stat_fn user_fn, cache *cc)
+{
+   return cc->ops->emit_stats(user_data, user_fn, cc);
 }
 
 /*

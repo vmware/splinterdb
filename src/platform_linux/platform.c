@@ -599,6 +599,38 @@ platform_histo_print(platform_histo_handle histo,
    platform_log(log_handle, "\n");
 }
 
+void
+platform_histo_emit(platform_histo_handle histo,
+                    const char           *name,
+                    void                 *user_data,
+                    emit_stat_fn          user_fn)
+{
+    char name_buf[256];
+
+    snprintf(name_buf, sizeof(name_buf), "%s.min", name);
+    user_fn(user_data, name_buf, histo->min);
+
+    snprintf(name_buf, sizeof(name_buf), "%s.max", name);
+    user_fn(user_data, name_buf, histo->max);
+
+    snprintf(name_buf, sizeof(name_buf), "%s.mean", name);
+    user_fn(user_data, name_buf, histo->num == 0 ? 0 : histo->total / histo->num);
+
+    snprintf(name_buf, sizeof(name_buf), "%s.count", name);
+    user_fn(user_data, name_buf, histo->num);
+
+   for (uint32 i = 0; i < histo->num_buckets; i++) {
+      if (i == histo->num_buckets - 1) {
+          snprintf(name_buf, sizeof(name_buf), "%s.gt%ld", name, histo->bucket_limits[i - 1]);
+          user_fn(user_data, name_buf, histo->count[i]);
+      } else {
+          snprintf(name_buf, sizeof(name_buf), "%s.le%ld", name, histo->bucket_limits[i]);
+          user_fn(user_data, name_buf, histo->count[i]);
+      }
+   }
+}
+                         
+
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx)
 {

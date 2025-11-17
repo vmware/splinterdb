@@ -1694,99 +1694,225 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
    core_release_super_block(spl, super_page);
 }
 
+/*
+ *
+ */
+int
+core_insertion_stats_collection_create(core_handle                     *spl,
+                                       core_insertion_stats_collection *c)
+{
+   if (!spl->cfg.use_stats) {
+      return -EINVAL;
+   }
+
+   c->global = TYPED_ZALLOC(spl->heap_id, c->global);
+   if (c->global == NULL) {
+      return -ENOMEM;
+   }
+
+   platform_histo_create(spl->heap_id,
+                         LATENCYHISTO_SIZE + 1,
+                         latency_histo_buckets,
+                         &c->insert_lat_accum);
+   platform_histo_create(spl->heap_id,
+                         LATENCYHISTO_SIZE + 1,
+                         latency_histo_buckets,
+                         &c->update_lat_accum);
+   platform_histo_create(spl->heap_id,
+                         LATENCYHISTO_SIZE + 1,
+                         latency_histo_buckets,
+                         &c->delete_lat_accum);
+
+   threadid thr_i;
+
+   for (thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      platform_histo_merge_in(c->insert_lat_accum,
+                              spl->stats[thr_i].insert_latency_histo);
+      platform_histo_merge_in(c->update_lat_accum,
+                              spl->stats[thr_i].update_latency_histo);
+      platform_histo_merge_in(c->delete_lat_accum,
+                              spl->stats[thr_i].delete_latency_histo);
+
+          c->global->root_compactions                    += spl->stats[thr_i].root_compactions;
+          c->global->root_compaction_pack_time_ns        += spl->stats[thr_i].root_compaction_pack_time_ns;
+          c->global->root_compaction_tuples              += spl->stats[thr_i].root_compaction_tuples;
+          if (spl->stats[thr_i].root_compaction_max_tuples >
+               c->global->root_compaction_max_tuples) {
+             c->global->root_compaction_max_tuples =
+               spl->stats[thr_i].root_compaction_max_tuples;
+          }
+          c->global->root_compaction_time_ns             += spl->stats[thr_i].root_compaction_time_ns;
+          if (spl->stats[thr_i].root_compaction_time_max_ns >
+               c->global->root_compaction_time_max_ns) {
+             c->global->root_compaction_time_max_ns =
+               spl->stats[thr_i].root_compaction_time_max_ns;
+          }
+
+      c->global->insertions                  += spl->stats[thr_i].insertions;
+      c->global->updates                     += spl->stats[thr_i].updates;
+      c->global->deletions                   += spl->stats[thr_i].deletions;
+      c->global->discarded_deletes           += spl->stats[thr_i].discarded_deletes;
+
+      c->global->memtable_flushes            += spl->stats[thr_i].memtable_flushes;
+      c->global->memtable_flush_wait_time_ns += spl->stats[thr_i].memtable_flush_wait_time_ns;
+      c->global->memtable_flush_time_ns      += spl->stats[thr_i].memtable_flush_time_ns;
+      if (spl->stats[thr_i].memtable_flush_time_max_ns >
+          c->global->memtable_flush_time_max_ns) {
+         c->global->memtable_flush_time_max_ns =
+            spl->stats[thr_i].memtable_flush_time_max_ns;
+      }
+      c->global->memtable_flush_root_full    += spl->stats[thr_i].memtable_flush_root_full;
+   }
+
+   c->num_flushes = c->global->memtable_flushes;
+   c->avg_flush_wait_time = c->num_flushes == 0 ? 0 : c->global->memtable_flush_wait_time_ns / c->num_flushes;
+   c->avg_flush_time = c->num_flushes == 0 ? 0 : c->global->memtable_flush_time_ns / c->num_flushes;
+
+   c->avg_setup_time = c->global->root_compactions == 0 ? 0
+      : (c->global->root_compaction_time_ns - c->global->root_compaction_pack_time_ns)
+            / c->global->root_compactions;
+   c->avg_compaction_tuples = c->global->root_compactions == 0 ? 0
+      : c->global->root_compaction_tuples / c->global->root_compactions;
+   c->pack_time_per_tuple = c->global->root_compaction_tuples == 0 ? 0
+      : c->global->root_compaction_pack_time_ns / c->global->root_compaction_tuples;
+
+   return 0;
+}
+
+/*
+ *
+ */
+void
+core_insertion_stats_collection_destroy(core_handle                     *spl,
+                                        core_insertion_stats_collection *c)
+{
+   platform_histo_destroy(spl->heap_id, &c->insert_lat_accum);
+   platform_histo_destroy(spl->heap_id, &c->update_lat_accum);
+   platform_histo_destroy(spl->heap_id, &c->delete_lat_accum);
+   platform_free(spl->heap_id, c->global);
+}
+
+/*
+ * core_emit_insertion_stats
+ *
+ * Call the passed user_fn with each stat related to insertion.
+ *
+ * return 0 if stats are enabled; -1 otherwise.
+ */
+int
+core_emit_insertion_stats(core_handle *spl,
+                          void        *user_data,
+                          emit_stat_fn user_fn)
+{
+    core_insertion_stats_collection c;
+
+    int retval = core_insertion_stats_collection_create(spl, &c);
+    if (retval != 0) {
+        return retval;
+    }
+
+    // Overall Statistics
+    //
+    user_fn(user_data, "splinterdb.insertions", c.global->insertions);
+    user_fn(user_data, "splinterdb.updates", c.global->updates);
+    user_fn(user_data, "splinterdb.deletions", c.global->deletions);
+    user_fn(user_data, "splinterdb.completed_deletions", c.global->discarded_deletes);
+    user_fn(user_data, "splinterdb.root_stalls", c.global->memtable_flush_root_full);
+
+    // Latency Histogram Statistics
+    //
+    platform_histo_emit(c.insert_lat_accum, "splinterdb.insert_latency", user_data, user_fn);
+    platform_histo_emit(c.update_lat_accum, "splinterdb.update_latency", user_data, user_fn);
+    platform_histo_emit(c.delete_lat_accum, "splinterdb.delete_latency", user_data, user_fn);
+
+    // Flush Statistics
+    //
+    user_fn(user_data, "splinterdb.flush.memtable.avg_wait_time_ns", c.avg_flush_wait_time);
+    user_fn(user_data, "splinterdb.flush.memtable.avg_flush_time_ns", c.avg_flush_time);
+    user_fn(user_data, "splinterdb.flush.memtable.max_flush_time_ns", c.global->memtable_flush_time_max_ns);
+    user_fn(user_data, "splinterdb.flush.memtable.full_flushes", c.num_flushes);
+    user_fn(user_data, "splinterdb.flush.memtable.count_flushes", 0);
+
+    // Compaction Statistics
+    //
+    user_fn(user_data, "splinterdb.compact.root.count", c.global->root_compactions);
+    user_fn(user_data, "splinterdb.compact.root.avg_setup_time_ns", c.avg_setup_time);
+    user_fn(user_data, "splinterdb.compact.root.time_per_tuple_ns", c.pack_time_per_tuple);
+    user_fn(user_data, "splinterdb.compact.root.avg_tuples", c.avg_compaction_tuples);
+    user_fn(user_data, "splinterdb.compact.root.max_tuples", c.global->root_compaction_max_tuples);
+    user_fn(user_data, "splinterdb.compact.root.max_time_time_ns", c.global->root_compaction_time_max_ns);
+    user_fn(user_data, "splinterdb.compact.root.empty.count", 0);
+    user_fn(user_data, "splinterdb.compact.root.aborted.count", 0);
+    user_fn(user_data, "splinterdb.compact.root.discarded.count", 0);
+
+    // Filter Build Statistics
+    //
+    // ??
+
+    // Trunk Statistics
+    //
+    trunk_emit_insertion_stats(user_data, user_fn, &spl->trunk_context);
+
+    // Task Statistics
+    //
+    //task_print_stats(spl->ts);
+
+    // Cache Statistics
+    //
+    cache_emit_stats(user_data, user_fn, spl->cc);
+
+    // Cleanup.
+    //
+    core_insert_stats_collection_destroy(spl, &c);
+
+    return 0;
+}
+
+/*
+ * core_emit_insertion_stats
+ *
+ * Call the passed user_fn with each stat related to lookups.
+ */
+int
+core_emit_lookup_stats(core_handle *spl, void *user_data, emit_stat_fn user_fn)
+{
+    return 0;
+}
+
+
 // clang-format off
 void
 core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
 {
-   if (!spl->cfg.use_stats) {
+   core_insertion_stats_collection c;
+
+   int retval = core_insertion_stats_collection_create(spl, &c);
+
+   if (retval == -EINVAL) {
       platform_log(log_handle, "Statistics are not enabled\n");
       return;
    }
 
-   uint64 avg_flush_wait_time, avg_flush_time, num_flushes;
-   uint64 avg_compaction_tuples, pack_time_per_tuple, avg_setup_time;
-   threadid thr_i;
-
-   core_stats *global;
-
-   global = TYPED_ZALLOC(spl->heap_id, global);
-   if (global == NULL) {
+   if (retval == -ENOMEM) {
       platform_error_log("Out of memory for statistics");
       return;
    }
 
-   platform_histo_handle insert_lat_accum, update_lat_accum, delete_lat_accum;
-   platform_histo_create(spl->heap_id,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &insert_lat_accum);
-   platform_histo_create(spl->heap_id,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &update_lat_accum);
-   platform_histo_create(spl->heap_id,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &delete_lat_accum);
-
-   for (thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      platform_histo_merge_in(insert_lat_accum,
-                              spl->stats[thr_i].insert_latency_histo);
-      platform_histo_merge_in(update_lat_accum,
-                              spl->stats[thr_i].update_latency_histo);
-      platform_histo_merge_in(delete_lat_accum,
-                              spl->stats[thr_i].delete_latency_histo);
-
-          global->root_compactions                    += spl->stats[thr_i].root_compactions;
-          global->root_compaction_pack_time_ns        += spl->stats[thr_i].root_compaction_pack_time_ns;
-          global->root_compaction_tuples              += spl->stats[thr_i].root_compaction_tuples;
-          if (spl->stats[thr_i].root_compaction_max_tuples >
-               global->root_compaction_max_tuples) {
-             global->root_compaction_max_tuples =
-               spl->stats[thr_i].root_compaction_max_tuples;
-          }
-          global->root_compaction_time_ns             += spl->stats[thr_i].root_compaction_time_ns;
-          if (spl->stats[thr_i].root_compaction_time_max_ns >
-               global->root_compaction_time_max_ns) {
-             global->root_compaction_time_max_ns =
-               spl->stats[thr_i].root_compaction_time_max_ns;
-          }
-
-      global->insertions                  += spl->stats[thr_i].insertions;
-      global->updates                     += spl->stats[thr_i].updates;
-      global->deletions                   += spl->stats[thr_i].deletions;
-      global->discarded_deletes           += spl->stats[thr_i].discarded_deletes;
-
-      global->memtable_flushes            += spl->stats[thr_i].memtable_flushes;
-      global->memtable_flush_wait_time_ns += spl->stats[thr_i].memtable_flush_wait_time_ns;
-      global->memtable_flush_time_ns      += spl->stats[thr_i].memtable_flush_time_ns;
-      if (spl->stats[thr_i].memtable_flush_time_max_ns >
-          global->memtable_flush_time_max_ns) {
-         global->memtable_flush_time_max_ns =
-            spl->stats[thr_i].memtable_flush_time_max_ns;
-      }
-      global->memtable_flush_root_full    += spl->stats[thr_i].memtable_flush_root_full;
-   }
-
    platform_log(log_handle, "Overall Statistics\n");
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "| insertions:        %10lu\n", global->insertions);
-   platform_log(log_handle, "| updates:           %10lu\n", global->updates);
-   platform_log(log_handle, "| deletions:         %10lu\n", global->deletions);
-   platform_log(log_handle, "| completed deletes: %10lu\n", global->discarded_deletes);
+   platform_log(log_handle, "| insertions:        %10lu\n", c.global->insertions);
+   platform_log(log_handle, "| updates:           %10lu\n", c.global->updates);
+   platform_log(log_handle, "| deletions:         %10lu\n", c.global->deletions);
+   platform_log(log_handle, "| completed deletes: %10lu\n", c.global->discarded_deletes);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "| root stalls:       %10lu\n", global->memtable_flush_root_full);
+   platform_log(log_handle, "| root stalls:       %10lu\n", c.global->memtable_flush_root_full);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
 
    platform_log(log_handle, "Latency Histogram Statistics\n");
-   platform_histo_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
-   platform_histo_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
-   platform_histo_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
-   platform_histo_destroy(spl->heap_id, &insert_lat_accum);
-   platform_histo_destroy(spl->heap_id, &update_lat_accum);
-   platform_histo_destroy(spl->heap_id, &delete_lat_accum);
-
+   platform_histo_print(c.insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
+   platform_histo_print(c.update_lat_accum, "Update Latency Histogram (ns):", log_handle);
+   platform_histo_print(c.delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
 
    platform_log(log_handle, "Flush Statistics\n");
    platform_log(log_handle, "---------------------------------------------------------------------------------------------------------\n");
@@ -1794,12 +1920,9 @@ core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
    platform_log(log_handle, "---------|--------------------|---------------------|---------------------|--------------|---------------|\n");
 
    // memtable
-   num_flushes = global->memtable_flushes;
-   avg_flush_wait_time = num_flushes == 0 ? 0 : global->memtable_flush_wait_time_ns / num_flushes;
-   avg_flush_time = num_flushes == 0 ? 0 : global->memtable_flush_time_ns / num_flushes;
    platform_log(log_handle, "memtable | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
-                avg_flush_wait_time, avg_flush_time,
-                global->memtable_flush_time_max_ns, num_flushes, 0UL);
+                c.avg_flush_wait_time, c.avg_flush_time,
+                c.global->memtable_flush_time_max_ns, c.num_flushes, 0UL);
 
    platform_log(log_handle, "---------------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
@@ -1809,17 +1932,10 @@ core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
    platform_log(log_handle, "  height | compactions | avg setup time (ns) | time / tuple (ns) | avg tuples | max tuples | max time (ns) | empty | aborted | discarded |\n");
    platform_log(log_handle, "---------|-------------|---------------------|-------------------|------------|------------|---------------|-------|---------|-----------|\n");
 
-   avg_setup_time = global->root_compactions == 0 ? 0
-      : (global->root_compaction_time_ns - global->root_compaction_pack_time_ns)
-            / global->root_compactions;
-   avg_compaction_tuples = global->root_compactions == 0 ? 0
-      : global->root_compaction_tuples / global->root_compactions;
-   pack_time_per_tuple = global->root_compaction_tuples == 0 ? 0
-      : global->root_compaction_pack_time_ns / global->root_compaction_tuples;
    platform_log(log_handle, "    root | %11lu | %19lu | %17lu | %10lu | %10lu | %13lu | %5lu | %2lu | %2lu | %3lu | %3lu |\n",
-         global->root_compactions, avg_setup_time, pack_time_per_tuple,
-         avg_compaction_tuples, global->root_compaction_max_tuples,
-         global->root_compaction_time_max_ns, 0UL, 0UL, 0UL, 0UL, 0UL);
+         c.global->root_compactions, c.avg_setup_time, c.pack_time_per_tuple,
+         c.avg_compaction_tuples, c.global->root_compaction_max_tuples,
+         c.global->root_compaction_time_max_ns, 0UL, 0UL, 0UL, 0UL, 0UL);
    platform_log(log_handle, "------------------------------------------------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
 
@@ -1835,35 +1951,62 @@ core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
+
+   core_insertion_stats_collection_destroy(spl, &c);
 }
+
+int
+core_lookup_stats_collection_create(core_handle                  *spl,
+                                    core_lookup_stats_collection *c)
+{
+   if (!spl->cfg.use_stats) {
+       return -EINVAL;
+   }
+
+   c->lookups_found = 0;
+   c->lookups_not_found = 0;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+       c->lookups_found     += spl->stats[thr_i].lookups_found;
+       c->lookups_not_found += spl->stats[thr_i].lookups_not_found;
+   }
+   c->lookups = c->lookups_found + c->lookups_not_found;
+
+   return 0;
+}
+
+void
+core_lookup_stats_collection_destroy(core_handle                  *spl,
+                                     core_lookup_stats_collection *c)
+{
+    (void) spl;
+    (void) c;
+    // nothing to do - no dynamic allocs
+}
+
 
 void
 core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl)
 {
-   if (!spl->cfg.use_stats) {
+   core_lookup_stats_collection c;
+
+   int retval = core_lookup_stats_create(spl, &c);
+   if (retval == -EINVAL) {
       platform_log(log_handle, "Statistics are not enabled\n");
       return;
    }
 
-   uint64 lookups_found = 0;
-   uint64 lookups_not_found = 0;
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      lookups_found     += spl->stats[thr_i].lookups_found;
-      lookups_not_found += spl->stats[thr_i].lookups_not_found;
-   }
-   uint64 lookups = lookups_found + lookups_not_found;
-
    platform_log(log_handle, "Overall Statistics\n");
    platform_log(log_handle, "-----------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "| lookups:           %lu\n", lookups);
-   platform_log(log_handle, "| lookups found:     %lu\n", lookups_found);
-   platform_log(log_handle, "| lookups not found: %lu\n", lookups_not_found);
+   platform_log(log_handle, "| lookups:           %lu\n", c.lookups);
+   platform_log(log_handle, "| lookups found:     %lu\n", c.lookups_found);
+   platform_log(log_handle, "| lookups not found: %lu\n", c.lookups_not_found);
    platform_log(log_handle, "-----------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");
+
+   core_lookup_stats_collection_destroy(spl, &c);
 }
 // clang-format on
 

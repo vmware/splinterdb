@@ -4,6 +4,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#include "splinterdb/data.h"
 #include "splinterdb/public_platform.h"
 
 /*
@@ -95,10 +96,10 @@ typedef int32 bool32;
 #define TiB (GiB * 1024)
 
 // Convert 'x' in unit-specifiers to bytes
-#define KiB_TO_B(x) ((x)*KiB)
-#define MiB_TO_B(x) ((x)*MiB)
-#define GiB_TO_B(x) ((x)*GiB)
-#define TiB_TO_B(x) ((x)*TiB)
+#define KiB_TO_B(x) ((x) * KiB)
+#define MiB_TO_B(x) ((x) * MiB)
+#define GiB_TO_B(x) ((x) * GiB)
+#define TiB_TO_B(x) ((x) * TiB)
 
 // Convert 'x' in bytes to 'int'-value with unit-specifiers
 #define B_TO_KiB(x) ((x) / KiB)
@@ -118,13 +119,13 @@ typedef int32 bool32;
 #define BILLION  (THOUSAND * MILLION)
 
 #define USEC_TO_SEC(x)  ((x) / MILLION)
-#define USEC_TO_NSEC(x) ((x)*THOUSAND)
+#define USEC_TO_NSEC(x) ((x) * THOUSAND)
 #define NSEC_TO_SEC(x)  ((x) / BILLION)
 #define NSEC_TO_MSEC(x) ((x) / MILLION)
 #define NSEC_TO_USEC(x) ((x) / THOUSAND)
-#define SEC_TO_MSEC(x)  ((x)*THOUSAND)
-#define SEC_TO_USEC(x)  ((x)*MILLION)
-#define SEC_TO_NSEC(x)  ((x)*BILLION)
+#define SEC_TO_MSEC(x)  ((x) * THOUSAND)
+#define SEC_TO_USEC(x)  ((x) * MILLION)
+#define SEC_TO_NSEC(x)  ((x) * BILLION)
 
 #define MAX_STRING_LENGTH 256
 
@@ -149,7 +150,7 @@ typedef int (*platform_sort_cmpfn)(const void *a, const void *b, void *arg);
  */
 #ifndef container_of
 #   define container_of(ptr, type, memb)                                       \
-      ((type *)((char *)(ptr)-offsetof(type, memb)))
+      ((type *)((char *)(ptr) - offsetof(type, memb)))
 #endif
 
 /*
@@ -562,7 +563,7 @@ platform_sort_slow(void               *base,
                    void               *cmparg,
                    void               *temp);
 
-#define IS_POWER_OF_2(n) ((n) > 0 && ((n) & ((n)-1)) == 0)
+#define IS_POWER_OF_2(n) ((n) > 0 && ((n) & ((n) - 1)) == 0)
 
 #ifndef MAX
 #   define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -647,6 +648,12 @@ void
 platform_histo_print(platform_histo_handle histo,
                      const char           *name,
                      platform_log_handle  *log_handle);
+
+void
+platform_histo_emit(platform_histo_handle histo,
+                    const char           *name,
+                    void                 *user_data,
+                    emit_stat_fn          user_fn);
 
 static inline threadid
 platform_get_tid();

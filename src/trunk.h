@@ -360,6 +360,11 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
                             const trunk_context *context);
 
 void
+trunk_emit_insertion_stats(void                *user_data,
+                           emit_stat_fn         user_fn,
+                           const trunk_context *context);
+
+void
 trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context);
 
 void
