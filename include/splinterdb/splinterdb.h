@@ -419,6 +419,16 @@ void
 splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
+splinterdb_stats_emit_insertion(const splinterdb *kvs,
+                                void             *user_data,
+                                emit_stat_fn      user_fn);
+
+void
+splinterdb_stats_emit_lookup(const splinterdb *kvs,
+                             void             *user_data,
+                             emit_stat_fn      user_fn);
+
+void
 splinterdb_stats_reset(splinterdb *kvs);
 
 #endif // _SPLINTERDB_H_
