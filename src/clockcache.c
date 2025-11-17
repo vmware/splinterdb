@@ -2671,10 +2671,10 @@ clockcache_emit_page_type_stats(void* user_data, emit_stat_fn user_fn,
     snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.misses", name);
     user_fn(user_data, name_buf, col->global_stats.cache_misses[type]);
     
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time_num", name);
+    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time.num", name);
     user_fn(user_data, name_buf, col->miss_time[type].numerator);
 
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time_div", name);
+    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time.div", name);
     user_fn(user_data, name_buf, col->miss_time[type].denominator);
 
     snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.writes", name);
@@ -2683,10 +2683,10 @@ clockcache_emit_page_type_stats(void* user_data, emit_stat_fn user_fn,
     snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.reads", name);
     user_fn(user_data, name_buf, col->global_stats.page_reads[type]);
 
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.avg_prefetch_num", name);
+    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.avg_prefetch.num", name);
     user_fn(user_data, name_buf, col->avg_prefetch_pages[type].numerator);
     
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.avg_prefetch_div", name);
+    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.avg_prefetch.div", name);
     user_fn(user_data, name_buf, col->avg_prefetch_pages[type].denominator);
 }
 

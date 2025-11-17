@@ -6389,9 +6389,9 @@ trunk_emit_insertion_stats(void                *user_data,
    // Incorporations
    //
    user_fn(user_data, "splinterdb.trunk.total_incorporations", c.total_incorporations);
-   user_fn(user_data, "splinterdb.trunk.avg_incorporation_footprint_num",
+   user_fn(user_data, "splinterdb.trunk.avg_incorporation_footprint.num",
            c.average_incorporation_footprint.numerator);
-   user_fn(user_data, "splinterdb.trunk.avg_incorporation_footprint_div",
+   user_fn(user_data, "splinterdb.trunk.avg_incorporation_footprint.div",
            c.average_incorporation_footprint.denominator);
    emit_stats_dist_array_uint64("splinterdb.trunk.total_incorporations_eq%.0d%lu.count",
                                 "splinterdb.trunk.total_incorporations_gt%.0d%lu.count",
