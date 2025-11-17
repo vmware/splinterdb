@@ -5973,40 +5973,40 @@ distribution_sum_avg(uint64       rows,
 
 typedef struct trunk_insertion_stats_collection {
 
-    int         node_deserialize_error;
-    uint64      height;
-    trunk_stats global_stats;
-    
-    uint64      fanout_total[TRUNK_MAX_HEIGHT];
-    fraction    fanout_avg[TRUNK_MAX_HEIGHT];
-    
-    uint64      inflight_total[TRUNK_MAX_HEIGHT];
-    fraction    inflight_avg[TRUNK_MAX_HEIGHT];
+   int         node_deserialize_error;
+   uint64      height;
+   trunk_stats global_stats;
 
-    uint64      bundle_size_total[TRUNK_MAX_HEIGHT];
-    fraction    bundle_size_avg[TRUNK_MAX_HEIGHT];    
+   uint64   fanout_total[TRUNK_MAX_HEIGHT];
+   fraction fanout_avg[TRUNK_MAX_HEIGHT];
 
-    uint64      node_size_total[TRUNK_MAX_HEIGHT];
-    fraction    node_size_avg[TRUNK_MAX_HEIGHT];    
+   uint64   inflight_total[TRUNK_MAX_HEIGHT];
+   fraction inflight_avg[TRUNK_MAX_HEIGHT];
 
-    uint64      total_incorporations;
-    fraction    average_incorporation_footprint;
+   uint64   bundle_size_total[TRUNK_MAX_HEIGHT];
+   fraction bundle_size_avg[TRUNK_MAX_HEIGHT];
 
-    fraction    avg_flush_time_ns[TRUNK_MAX_HEIGHT];
+   uint64   node_size_total[TRUNK_MAX_HEIGHT];
+   fraction node_size_avg[TRUNK_MAX_HEIGHT];
 
-    fraction    avg_compaction_time_ns[TRUNK_MAX_HEIGHT];
-    uint64      setup_time_ns[TRUNK_MAX_HEIGHT];
-    fraction    avg_setup_time_ns[TRUNK_MAX_HEIGHT];
-    fraction    avg_pack_time_per_tuple_ns[TRUNK_MAX_HEIGHT];
-    fraction    avg_tuples[TRUNK_MAX_HEIGHT];
-    fraction    fraction_wasted_compaction_time[TRUNK_MAX_HEIGHT];
+   uint64   total_incorporations;
+   fraction average_incorporation_footprint;
 
-    fraction    avg_maplet_build_time_per_tuple_ns[TRUNK_MAX_HEIGHT];
-    fraction    fraction_wasted_maplet_time[TRUNK_MAX_HEIGHT];
+   fraction avg_flush_time_ns[TRUNK_MAX_HEIGHT];
 
-    fraction    avg_leaf_split_time_ns;
+   fraction avg_compaction_time_ns[TRUNK_MAX_HEIGHT];
+   uint64   setup_time_ns[TRUNK_MAX_HEIGHT];
+   fraction avg_setup_time_ns[TRUNK_MAX_HEIGHT];
+   fraction avg_pack_time_per_tuple_ns[TRUNK_MAX_HEIGHT];
+   fraction avg_tuples[TRUNK_MAX_HEIGHT];
+   fraction fraction_wasted_compaction_time[TRUNK_MAX_HEIGHT];
 
-    
+   fraction avg_maplet_build_time_per_tuple_ns[TRUNK_MAX_HEIGHT];
+   fraction fraction_wasted_maplet_time[TRUNK_MAX_HEIGHT];
+
+   fraction avg_leaf_split_time_ns;
+
+
 } trunk_insertion_stats_collection;
 
 #define TRUNK_STATS_ERR_NOT_ENABLED  -1
@@ -6015,122 +6015,126 @@ typedef struct trunk_insertion_stats_collection {
 
 
 int
-trunk_insert_stats_collection_create(const trunk_context *context,
-                                     trunk_insertion_stats_collection* c)
+trunk_insert_stats_collection_create(const trunk_context              *context,
+                                     trunk_insertion_stats_collection *col)
 {
-    if (!context->stats) {
-        return TRUNK_STATS_ERR_NOT_ENABLED;
-    }
-    if (context->root == NULL) {
-        return TRUNK_STATS_ERR_NO_ROOT_NODE;
-    }
+   if (!context->stats) {
+      return TRUNK_STATS_ERR_NOT_ENABLED;
+   }
+   if (context->root == NULL) {
+      return TRUNK_STATS_ERR_NO_ROOT_NODE;
+   }
+
+   // Zero out the stats collection
+   memset(col, 0, sizeof(*col));
 
    // Get the height of the tree
-   trunk_node root;
+   trunk_node      root;
    platform_status rc =
       trunk_node_deserialize(context, context->root->addr, &root);
    if (!SUCCESS(rc)) {
-       c->node_deserialize_error = rc.r;
-       return TRUNK_STATS_ERR_ROOT_DESER;
+      col->node_deserialize_error = rc.r;
+      return TRUNK_STATS_ERR_ROOT_DESER;
    }
-   c->node_deserialize_error = 0;
-   c->height = trunk_node_height(&root);
+   col->node_deserialize_error = 0;
+   col->height                 = trunk_node_height(&root);
    trunk_node_deinit(&root, context);
 
    // Merge all the stats
-   memcpy(&c->global_stats, &context->stats[0], sizeof(trunk_stats));
+   memcpy(&col->global_stats, &context->stats[0], sizeof(trunk_stats));
    for (threadid tid = 1; tid < MAX_THREADS; tid++) {
-      trunk_stats_accumulate(&c->global_stats, &context->stats[tid]);
+      trunk_stats_accumulate(&col->global_stats, &context->stats[tid]);
    }
 
    // Fanout
    distribution_sum_avg(TRUNK_MAX_HEIGHT,
-                        c->fanout_total,
-                        c->fanout_avg,
-                        &c->global_stats.fanout_distribution[0][0]);
+                        col->fanout_total,
+                        col->fanout_avg,
+                        &col->global_stats.fanout_distribution[0][0]);
 
-   // Inflight bundles   
-   distribution_sum_avg(TRUNK_MAX_HEIGHT,
-                        c->inflight_total,
-                        c->inflight_avg,
-                        &c->global_stats.num_inflight_bundles_distribution[0][0]);
+   // Inflight bundles
+   distribution_sum_avg(
+      TRUNK_MAX_HEIGHT,
+      col->inflight_total,
+      col->inflight_avg,
+      &col->global_stats.num_inflight_bundles_distribution[0][0]);
 
    // Bundle size
-   distribution_sum_avg(TRUNK_MAX_HEIGHT,
-                        c->bundle_size_total,
-                        c->bundle_size_avg,
-                        &c->global_stats.bundle_num_branches_distribution[0][0]);
+   distribution_sum_avg(
+      TRUNK_MAX_HEIGHT,
+      col->bundle_size_total,
+      col->bundle_size_avg,
+      &col->global_stats.bundle_num_branches_distribution[0][0]);
 
    // Node size
    distribution_sum_avg(TRUNK_MAX_HEIGHT,
-                        c->node_size_total,
-                        c->node_size_avg,
-                        &c->global_stats.node_size_pages_distribution[0][0]);
+                        col->node_size_total,
+                        col->node_size_avg,
+                        &col->global_stats.node_size_pages_distribution[0][0]);
 
    // Incorportations
    distribution_sum_avg(1,
-                        &c->total_incorporations,
-                        &c->average_incorporation_footprint,
-                        c->global_stats.incorporation_footprint_distribution);
+                        &col->total_incorporations,
+                        &col->average_incorporation_footprint,
+                        col->global_stats.incorporation_footprint_distribution);
 
    // Flushes
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->avg_flush_time_ns,
-                   c->global_stats.flush_time_ns,
-                   c->global_stats.count_flushes);
+                   col->avg_flush_time_ns,
+                   col->global_stats.flush_time_ns,
+                   col->global_stats.count_flushes);
 
    // Compactions
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->avg_compaction_time_ns,
-                   c->global_stats.compaction_time_ns,
-                   c->global_stats.compactions);
+                   col->avg_compaction_time_ns,
+                   col->global_stats.compaction_time_ns,
+                   col->global_stats.compactions);
    arrays_subtract(TRUNK_MAX_HEIGHT,
-                   c->setup_time_ns,
-                   c->global_stats.compaction_time_ns,
-                   c->global_stats.compaction_pack_time_ns);
+                   col->setup_time_ns,
+                   col->global_stats.compaction_time_ns,
+                   col->global_stats.compaction_pack_time_ns);
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->avg_setup_time_ns,
-                   c->setup_time_ns,
-                   c->global_stats.compactions);
+                   col->avg_setup_time_ns,
+                   col->setup_time_ns,
+                   col->global_stats.compactions);
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->avg_pack_time_per_tuple_ns,
-                   c->global_stats.compaction_pack_time_ns,
-                   c->global_stats.compaction_tuples);
+                   col->avg_pack_time_per_tuple_ns,
+                   col->global_stats.compaction_pack_time_ns,
+                   col->global_stats.compaction_tuples);
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->avg_tuples,
-                   c->global_stats.compaction_tuples,
-                   c->global_stats.compactions);
+                   col->avg_tuples,
+                   col->global_stats.compaction_tuples,
+                   col->global_stats.compactions);
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->fraction_wasted_compaction_time,
-                   c->global_stats.compaction_time_wasted_ns,
-                   c->global_stats.compaction_time_ns);
+                   col->fraction_wasted_compaction_time,
+                   col->global_stats.compaction_time_wasted_ns,
+                   col->global_stats.compaction_time_ns);
 
    // Maplets
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->avg_maplet_build_time_per_tuple_ns,
-                   c->global_stats.maplet_build_time_ns,
-                   c->global_stats.maplet_tuples);
+                   col->avg_maplet_build_time_per_tuple_ns,
+                   col->global_stats.maplet_build_time_ns,
+                   col->global_stats.maplet_tuples);
    arrays_fraction(TRUNK_MAX_HEIGHT,
-                   c->fraction_wasted_maplet_time,
-                   c->global_stats.maplet_build_time_wasted_ns,
-                   c->global_stats.maplet_build_time_ns);
+                   col->fraction_wasted_maplet_time,
+                   col->global_stats.maplet_build_time_wasted_ns,
+                   col->global_stats.maplet_build_time_ns);
 
    // Leaf splits
-   c->avg_leaf_split_time_ns =
-       fraction_init_or_zero(c->global_stats.leaf_split_time_ns,
-                             c->global_stats.node_splits[0]);
+   col->avg_leaf_split_time_ns = fraction_init_or_zero(
+      col->global_stats.leaf_split_time_ns, col->global_stats.node_splits[0]);
 
    return 0;
 }
 
 void
-trunk_insert_stats_collection_destroy(const trunk_context *context,
-                                      trunk_insertion_stats_collection* c)
+trunk_insert_stats_collection_destroy(const trunk_context              *context,
+                                      trunk_insertion_stats_collection *c)
 {
-    (void) context;
-    (void) c;
+   (void)context;
+   (void)c;
 
-    // nothing to do - no dynamic allocs
+   // nothing to do - no dynamic allocs
 }
 
 //----------------------------------------------
@@ -6142,80 +6146,83 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
    const uint64 height_array[TRUNK_MAX_HEIGHT] = {
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
-   trunk_insertion_stats_collection c;
-   
-   const int retval = trunk_insert_stats_collection_create(context, &c);
+   trunk_insertion_stats_collection col;
+
+   const int retval = trunk_insert_stats_collection_create(context, &col);
 
    switch (retval) {
-   case 0:
-       break;
+      case 0:
+         break;
 
-   case TRUNK_STATS_ERR_NOT_ENABLED:
-       platform_log(log_handle, "Statistics are not enabled\n");
-       return;
-      
-   case TRUNK_STATS_ERR_NO_ROOT_NODE:
-       platform_log(log_handle, "No root node\n");
-       return;
-       
-   case TRUNK_STATS_ERR_ROOT_DESER:
-       platform_error_log("trunk_node_print_insertion_stats: "
-                          "node_deserialize failed: %d\n",
-                          c.node_deserialize_error);
-       return;
+      case TRUNK_STATS_ERR_NOT_ENABLED:
+         platform_log(log_handle, "Statistics are not enabled\n");
+         return;
+
+      case TRUNK_STATS_ERR_NO_ROOT_NODE:
+         platform_log(log_handle, "No root node\n");
+         return;
+
+      case TRUNK_STATS_ERR_ROOT_DESER:
+         platform_error_log("trunk_node_print_insertion_stats: "
+                            "node_deserialize failed: %d\n",
+                            col.node_deserialize_error);
+         return;
    }
 
    //
    // Overall shape
    //
-   platform_log(log_handle, "Height: %lu\n", c.height);
+   platform_log(log_handle, "Height: %lu\n", col.height);
 
    // Fanout
    column fanout_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("total", c.fanout_total),
-      COLUMN("avg", c.fanout_avg),
-      DISTRIBUTION_COLUMNS(c.global_stats.fanout_distribution, TRUNK_MAX_HEIGHT),
+      COLUMN("total", col.fanout_total),
+      COLUMN("avg", col.fanout_avg),
+      DISTRIBUTION_COLUMNS(col.global_stats.fanout_distribution,
+                           TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Fanout distribution\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(fanout_columns), fanout_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(fanout_columns), fanout_columns, col.height + 1);
 
    // Inflight bundles
    column inflight_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("total", c.inflight_total),
-      COLUMN("avg", c.inflight_avg),
-      DISTRIBUTION_COLUMNS(c.global_stats.num_inflight_bundles_distribution,
+      COLUMN("total", col.inflight_total),
+      COLUMN("avg", col.inflight_avg),
+      DISTRIBUTION_COLUMNS(col.global_stats.num_inflight_bundles_distribution,
                            TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Inflight bundles distribution\n");
-   print_column_table(
-      log_handle, ARRAY_SIZE(inflight_columns), inflight_columns, c.height + 1);
+   print_column_table(log_handle,
+                      ARRAY_SIZE(inflight_columns),
+                      inflight_columns,
+                      col.height + 1);
 
    // Bundle size
    column bundle_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("total", c.bundle_size_total),
-      COLUMN("avg", c.bundle_size_avg),
-      DISTRIBUTION_COLUMNS(c.global_stats.bundle_num_branches_distribution,
+      COLUMN("total", col.bundle_size_total),
+      COLUMN("avg", col.bundle_size_avg),
+      DISTRIBUTION_COLUMNS(col.global_stats.bundle_num_branches_distribution,
                            TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Bundle size distribution\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(bundle_columns), bundle_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(bundle_columns), bundle_columns, col.height + 1);
 
    // Node size
    column node_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("total", c.node_size_total),
-      COLUMN("avg", c.node_size_avg),
-      DISTRIBUTION_COLUMNS(c.global_stats.node_size_pages_distribution,
+      COLUMN("total", col.node_size_total),
+      COLUMN("avg", col.node_size_avg),
+      DISTRIBUTION_COLUMNS(col.global_stats.node_size_pages_distribution,
                            TRUNK_MAX_HEIGHT),
    };
    platform_log(log_handle, "Node size distribution\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(node_columns), node_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(node_columns), node_columns, col.height + 1);
 
    //
    // Mutations
@@ -6223,10 +6230,10 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
 
    // Incorporations
    column incorporation_columns[] = {
-      COLUMN("total incorporations", &c.total_incorporations),
-      COLUMN("average footprint", &c.average_incorporation_footprint),
-      DISTRIBUTION_COLUMNS(c.global_stats.incorporation_footprint_distribution,
-                           1),
+      COLUMN("total incorporations", &col.total_incorporations),
+      COLUMN("average footprint", &col.average_incorporation_footprint),
+      DISTRIBUTION_COLUMNS(
+         col.global_stats.incorporation_footprint_distribution, 1),
    };
    platform_log(log_handle, "Incorporation footprint distribution\n");
    print_column_table(
@@ -6235,62 +6242,62 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
    // Flushes
    column flush_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("count", c.global_stats.count_flushes),
-      COLUMN("avg time (ns)", c.avg_flush_time_ns),
-      COLUMN("max time (ns)", c.global_stats.flush_time_max_ns),
-      COLUMN("full flushes", c.global_stats.full_flushes),
+      COLUMN("count", col.global_stats.count_flushes),
+      COLUMN("avg time (ns)", col.avg_flush_time_ns),
+      COLUMN("max time (ns)", col.global_stats.flush_time_max_ns),
+      COLUMN("full flushes", col.global_stats.full_flushes),
    };
    platform_log(log_handle, "Flushes\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(flush_columns), flush_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(flush_columns), flush_columns, col.height + 1);
 
    // Compactions
    column compaction_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("num compactions", c.global_stats.compactions),
-      COLUMN("avg setup time (ns)", c.avg_setup_time_ns),
-      COLUMN("avg pack time / tuple (ns)", c.avg_pack_time_per_tuple_ns),
-      COLUMN("avg tuples", c.avg_tuples),
-      COLUMN("max tuples", c.global_stats.compaction_max_tuples),
-      COLUMN("max time (ns)", c.global_stats.compaction_time_max_ns),
-      COLUMN("empty", c.global_stats.compactions_empty),
-      COLUMN("aborted", c.global_stats.compactions_aborted),
-      COLUMN("discarded", c.global_stats.compactions_discarded),
-      COLUMN("fraction wasted time", c.fraction_wasted_compaction_time),
+      COLUMN("num compactions", col.global_stats.compactions),
+      COLUMN("avg setup time (ns)", col.avg_setup_time_ns),
+      COLUMN("avg pack time / tuple (ns)", col.avg_pack_time_per_tuple_ns),
+      COLUMN("avg tuples", col.avg_tuples),
+      COLUMN("max tuples", col.global_stats.compaction_max_tuples),
+      COLUMN("max time (ns)", col.global_stats.compaction_time_max_ns),
+      COLUMN("empty", col.global_stats.compactions_empty),
+      COLUMN("aborted", col.global_stats.compactions_aborted),
+      COLUMN("discarded", col.global_stats.compactions_discarded),
+      COLUMN("fraction wasted time", col.fraction_wasted_compaction_time),
    };
    platform_log(log_handle, "Compactions\n");
    print_column_table(log_handle,
                       ARRAY_SIZE(compaction_columns),
                       compaction_columns,
-                      c.height + 1);
+                      col.height + 1);
 
    // Maplets
    column maplet_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("num maplets", c.global_stats.maplet_builds),
-      COLUMN("avg time / tuple (ns)", c.avg_maplet_build_time_per_tuple_ns),
-      COLUMN("max time (ns)", c.global_stats.maplet_build_time_max_ns),
-      COLUMN("aborted", c.global_stats.maplet_builds_aborted),
-      COLUMN("discarded", c.global_stats.maplet_builds_discarded),
-      COLUMN("fraction wasted time", c.fraction_wasted_maplet_time),
+      COLUMN("num maplets", col.global_stats.maplet_builds),
+      COLUMN("avg time / tuple (ns)", col.avg_maplet_build_time_per_tuple_ns),
+      COLUMN("max time (ns)", col.global_stats.maplet_build_time_max_ns),
+      COLUMN("aborted", col.global_stats.maplet_builds_aborted),
+      COLUMN("discarded", col.global_stats.maplet_builds_discarded),
+      COLUMN("fraction wasted time", col.fraction_wasted_maplet_time),
    };
    platform_log(log_handle, "Maplets\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(maplet_columns), maplet_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(maplet_columns), maplet_columns, col.height + 1);
 
    // Splits
    column split_columns[] = {
-      COLUMN("num splits", c.global_stats.node_splits),
-      COLUMN("num nodes created", c.global_stats.node_splits_nodes_created),
+      COLUMN("num splits", col.global_stats.node_splits),
+      COLUMN("num nodes created", col.global_stats.node_splits_nodes_created),
    };
    platform_log(log_handle, "Splits\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(split_columns), split_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(split_columns), split_columns, col.height + 1);
    // Leaf splits
    column leaf_split_columns[] = {
-      COLUMN("avg time (ns)", &c.avg_leaf_split_time_ns),
-      COLUMN("max time (ns)", &c.global_stats.leaf_split_time_max_ns),
-      COLUMN("single leaf splits", &c.global_stats.single_leaf_splits),
+      COLUMN("avg time (ns)", &col.avg_leaf_split_time_ns),
+      COLUMN("max time (ns)", &col.global_stats.leaf_split_time_max_ns),
+      COLUMN("single leaf splits", &col.global_stats.single_leaf_splits),
    };
    platform_log(log_handle, "Leaf splits\n");
    print_column_table(
@@ -6301,17 +6308,17 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
    //
    column lookup_columns[] = {
       COLUMN("height", height_array),
-      COLUMN("maplet lookups", c.global_stats.maplet_lookups),
-      COLUMN("maplet false positives", c.global_stats.maplet_false_positives),
-      COLUMN("branch lookups", c.global_stats.branch_lookups),
+      COLUMN("maplet lookups", col.global_stats.maplet_lookups),
+      COLUMN("maplet false positives", col.global_stats.maplet_false_positives),
+      COLUMN("branch lookups", col.global_stats.branch_lookups),
    };
    platform_log(log_handle, "Lookups\n");
    print_column_table(
-      log_handle, ARRAY_SIZE(lookup_columns), lookup_columns, c.height + 1);
+      log_handle, ARRAY_SIZE(lookup_columns), lookup_columns, col.height + 1);
 
    // Cleanup
    //
-   trunk_insert_stats_collection_destroy(context, &c);   
+   trunk_insert_stats_collection_destroy(context, &col);
 }
 
 void
@@ -6319,172 +6326,284 @@ trunk_emit_insertion_stats(void                *user_data,
                            emit_stat_fn         user_fn,
                            const trunk_context *context)
 {
-   trunk_insertion_stats_collection c;
-   
-   const int retval = trunk_insert_stats_collection_create(context, &c);
+   trunk_insertion_stats_collection col;
+
+   const int retval = trunk_insert_stats_collection_create(context, &col);
    if (retval != 0) {
-       return;
+      return;
    }
 
    // Overall shape
    //
-   user_fn(user_data, "splinterdb.trunk.height", c.height);
+   user_fn(user_data, "splinterdb.trunk.height", col.height);
 
    // Fanout
    //
    emit_stats_array_uint64("splinterdb.trunk.h%d.fanout_total",
-                           c.height + 1, c.fanout_total, user_data, user_fn);
+                           col.height + 1,
+                           col.fanout_total,
+                           user_data,
+                           user_fn);
    emit_stats_array_fraction("splinterdb.trunk.h%d.fanout_avg",
-                             c.height + 1, c.fanout_avg, user_data, user_fn);
-   emit_stats_dist_array_uint64("splinterdb.trunk.h%d.fanout_eq%lu.count",
-                                "splinterdb.trunk.h%d.fanout_gt%lu.count",
-                                TRUNK_MAX_DISTRIBUTION_VALUE,
-                                c.height + 1,
-                                (const uint64 *)c.global_stats.fanout_distribution,
-                                user_data,
-                                user_fn);
+                             col.height + 1,
+                             col.fanout_avg,
+                             user_data,
+                             user_fn);
+   emit_stats_dist_array_uint64(
+      "splinterdb.trunk.h%d.fanout_eq%lu.count",
+      "splinterdb.trunk.h%d.fanout_gt%lu.count",
+      TRUNK_MAX_DISTRIBUTION_VALUE,
+      col.height + 1,
+      (const uint64 *)col.global_stats.fanout_distribution,
+      user_data,
+      user_fn);
 
    // Inflight bundles
    //
    emit_stats_array_uint64("splinterdb.trunk.h%d.inflight_total",
-                           c.height + 1, c.inflight_total, user_data, user_fn);
+                           col.height + 1,
+                           col.inflight_total,
+                           user_data,
+                           user_fn);
    emit_stats_array_fraction("splinterdb.trunk.h%d.inflight_avg",
-                             c.height + 1, c.inflight_avg, user_data, user_fn);
-   emit_stats_dist_array_uint64("splinterdb.trunk.h%d.inflight_eq%lu.count",
-                                "splinterdb.trunk.h%d.inflight_gt%lu.count",
-                                TRUNK_MAX_DISTRIBUTION_VALUE,
-                                c.height + 1,
-                                (const uint64 *)c.global_stats.num_inflight_bundles_distribution,
-                                user_data,
-                                user_fn);
+                             col.height + 1,
+                             col.inflight_avg,
+                             user_data,
+                             user_fn);
+   emit_stats_dist_array_uint64(
+      "splinterdb.trunk.h%d.inflight_eq%lu.count",
+      "splinterdb.trunk.h%d.inflight_gt%lu.count",
+      TRUNK_MAX_DISTRIBUTION_VALUE,
+      col.height + 1,
+      (const uint64 *)col.global_stats.num_inflight_bundles_distribution,
+      user_data,
+      user_fn);
 
    // Bundle size
    //
    emit_stats_array_uint64("splinterdb.trunk.h%d.bundle_size_total",
-                           c.height + 1, c.bundle_size_total, user_data, user_fn);
+                           col.height + 1,
+                           col.bundle_size_total,
+                           user_data,
+                           user_fn);
    emit_stats_array_fraction("splinterdb.trunk.h%d.bundle_size_avg",
-                             c.height + 1, c.bundle_size_avg, user_data, user_fn);
-   emit_stats_dist_array_uint64("splinterdb.trunk.h%d.bundle_size_eq%lu.count",
-                                "splinterdb.trunk.h%d.bundle_size_gt%lu.count",
-                                TRUNK_MAX_DISTRIBUTION_VALUE,
-                                c.height + 1,
-                                (const uint64 *)c.global_stats.bundle_num_branches_distribution,
-                                user_data,
-                                user_fn);
+                             col.height + 1,
+                             col.bundle_size_avg,
+                             user_data,
+                             user_fn);
+   emit_stats_dist_array_uint64(
+      "splinterdb.trunk.h%d.bundle_size_eq%lu.count",
+      "splinterdb.trunk.h%d.bundle_size_gt%lu.count",
+      TRUNK_MAX_DISTRIBUTION_VALUE,
+      col.height + 1,
+      (const uint64 *)col.global_stats.bundle_num_branches_distribution,
+      user_data,
+      user_fn);
 
    // Node size
    //
    emit_stats_array_uint64("splinterdb.trunk.h%d.node_size_total",
-                           c.height + 1, c.node_size_total, user_data, user_fn);
+                           col.height + 1,
+                           col.node_size_total,
+                           user_data,
+                           user_fn);
    emit_stats_array_fraction("splinterdb.trunk.h%d.node_size_avg",
-                             c.height + 1, c.node_size_avg, user_data, user_fn);
-   emit_stats_dist_array_uint64("splinterdb.trunk.h%d.node_size_eq%lu.count",
-                                "splinterdb.trunk.h%d.node_size_gt%lu.count",
-                                TRUNK_MAX_DISTRIBUTION_VALUE,
-                                c.height + 1,
-                                (const uint64 *)c.global_stats.node_size_pages_distribution,
-                                user_data,
-                                user_fn);
-   
+                             col.height + 1,
+                             col.node_size_avg,
+                             user_data,
+                             user_fn);
+   emit_stats_dist_array_uint64(
+      "splinterdb.trunk.h%d.node_size_eq%lu.count",
+      "splinterdb.trunk.h%d.node_size_gt%lu.count",
+      TRUNK_MAX_DISTRIBUTION_VALUE,
+      col.height + 1,
+      (const uint64 *)col.global_stats.node_size_pages_distribution,
+      user_data,
+      user_fn);
+
    // Incorporations
    //
-   user_fn(user_data, "splinterdb.trunk.total_incorporations", c.total_incorporations);
-   user_fn(user_data, "splinterdb.trunk.avg_incorporation_footprint.num",
-           c.average_incorporation_footprint.numerator);
-   user_fn(user_data, "splinterdb.trunk.avg_incorporation_footprint.div",
-           c.average_incorporation_footprint.denominator);
-   emit_stats_dist_array_uint64("splinterdb.trunk.total_incorporations_eq%.0d%lu.count",
-                                "splinterdb.trunk.total_incorporations_gt%.0d%lu.count",
-                                TRUNK_MAX_DISTRIBUTION_VALUE,
-                                1,
-                                c.global_stats.incorporation_footprint_distribution,
-                                user_data,
-                                user_fn);
+   user_fn(user_data,
+           "splinterdb.trunk.total_incorporations",
+           col.total_incorporations);
+   user_fn(user_data,
+           "splinterdb.trunk.avg_incorporation_footprint.num",
+           col.average_incorporation_footprint.numerator);
+   user_fn(user_data,
+           "splinterdb.trunk.avg_incorporation_footprint.div",
+           col.average_incorporation_footprint.denominator);
+   emit_stats_dist_array_uint64(
+      "splinterdb.trunk.total_incorporations_eq%.0d%lu.count",
+      "splinterdb.trunk.total_incorporations_gt%.0d%lu.count",
+      TRUNK_MAX_DISTRIBUTION_VALUE,
+      1,
+      col.global_stats.incorporation_footprint_distribution,
+      user_data,
+      user_fn);
 
-#if 0 // TODO [tastolfi 2025-11-17] 
-   
    // Flushes
-   column flush_columns[] = {
-      COLUMN("height", height_array),
-      COLUMN("count", global_stats.count_flushes),
-      COLUMN("avg time (ns)", c.avg_flush_time_ns),
-      COLUMN("max time (ns)", global_stats.flush_time_max_ns),
-      COLUMN("full flushes", global_stats.full_flushes),
-   };
-   platform_log(log_handle, "Flushes\n");
-   print_column_table(
-      log_handle, ARRAY_SIZE(flush_columns), flush_columns, c.height + 1);
+   //
+   emit_stats_array_uint64("splinterdb.trunk.h%d.count_flushes",
+                           col.height + 1,
+                           col.global_stats.count_flushes,
+                           user_data,
+                           user_fn);
+   emit_stats_array_fraction("splinterdb.trunk.h%d.avg_flush_time_ns",
+                             col.height + 1,
+                             col.avg_flush_time_ns,
+                             user_data,
+                             user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.flush_time_max_ns",
+                           col.height + 1,
+                           col.global_stats.flush_time_max_ns,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.full_flushes",
+                           col.height + 1,
+                           col.global_stats.full_flushes,
+                           user_data,
+                           user_fn);
 
    // Compactions
-   column compaction_columns[] = {
-      COLUMN("height", height_array),
-      COLUMN("num compactions", c.global_stats.compactions),
-      COLUMN("avg setup time (ns)", c.avg_setup_time_ns),
-      COLUMN("avg pack time / tuple (ns)", c.avg_pack_time_per_tuple_ns),
-      COLUMN("avg tuples", c.avg_tuples),
-      COLUMN("max tuples", c.global_stats.compaction_max_tuples),
-      COLUMN("max time (ns)", c.global_stats.compaction_time_max_ns),
-      COLUMN("empty", c.global_stats.compactions_empty),
-      COLUMN("aborted", c.global_stats.compactions_aborted),
-      COLUMN("discarded", c.global_stats.compactions_discarded),
-      COLUMN("fraction wasted time", c.fraction_wasted_compaction_time),
-   };
-   platform_log(log_handle, "Compactions\n");
-   print_column_table(log_handle,
-                      ARRAY_SIZE(compaction_columns),
-                      compaction_columns,
-                      c.height + 1);
+   //
+   emit_stats_array_uint64("splinterdb.trunk.h%d.compactions",
+                           col.height + 1,
+                           col.global_stats.compactions,
+                           user_data,
+                           user_fn);
+   emit_stats_array_fraction("splinterdb.trunk.h%d.avg_setup_time_ns",
+                             col.height + 1,
+                             col.avg_setup_time_ns,
+                             user_data,
+                             user_fn);
+   emit_stats_array_fraction("splinterdb.trunk.h%d.avg_pack_time_per_tuple_ns",
+                             col.height + 1,
+                             col.avg_pack_time_per_tuple_ns,
+                             user_data,
+                             user_fn);
+   emit_stats_array_fraction("splinterdb.trunk.h%d.avg_tuples",
+                             col.height + 1,
+                             col.avg_tuples,
+                             user_data,
+                             user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.compaction_max_tuples",
+                           col.height + 1,
+                           col.global_stats.compaction_max_tuples,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.compaction_time_max_ns",
+                           col.height + 1,
+                           col.global_stats.compaction_time_max_ns,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.compactions_empty",
+                           col.height + 1,
+                           col.global_stats.compactions_empty,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.compactions_aborted",
+                           col.height + 1,
+                           col.global_stats.compactions_aborted,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.compactions_discarded",
+                           col.height + 1,
+                           col.global_stats.compactions_discarded,
+                           user_data,
+                           user_fn);
+   emit_stats_array_fraction(
+      "splinterdb.trunk.h%d.fraction_wasted_compaction_time",
+      col.height + 1,
+      col.fraction_wasted_compaction_time,
+      user_data,
+      user_fn);
 
-   // TODO [tastolfi 2025-11-17] 
-   
    // Maplets
-   column maplet_columns[] = {
-      COLUMN("height", height_array),
-      COLUMN("num maplets", c.global_stats.maplet_builds),
-      COLUMN("avg time / tuple (ns)", c.avg_maplet_build_time_per_tuple_ns),
-      COLUMN("max time (ns)", c.global_stats.maplet_build_time_max_ns),
-      COLUMN("aborted", c.global_stats.maplet_builds_aborted),
-      COLUMN("discarded", c.global_stats.maplet_builds_discarded),
-      COLUMN("fraction wasted time", c.fraction_wasted_maplet_time),
-   };
-   platform_log(log_handle, "Maplets\n");
-   print_column_table(
-      log_handle, ARRAY_SIZE(maplet_columns), maplet_columns, c.height + 1);
+   //
+   emit_stats_array_uint64("splinterdb.trunk.h%d.maplet_builds",
+                           col.height + 1,
+                           col.global_stats.maplet_builds,
+                           user_data,
+                           user_fn);
+   emit_stats_array_fraction(
+      "splinterdb.trunk.h%d.avg_maplet_build_time_per_tuple_ns",
+      col.height + 1,
+      col.avg_maplet_build_time_per_tuple_ns,
+      user_data,
+      user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.maplet_build_time_max_ns",
+                           col.height + 1,
+                           col.global_stats.maplet_build_time_max_ns,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.maplet_builds_aborted",
+                           col.height + 1,
+                           col.global_stats.maplet_builds_aborted,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.maplet_builds_discarded",
+                           col.height + 1,
+                           col.global_stats.maplet_builds_discarded,
+                           user_data,
+                           user_fn);
+   emit_stats_array_fraction("splinterdb.trunk.h%d.fraction_wasted_maplet_time",
+                             col.height + 1,
+                             col.fraction_wasted_maplet_time,
+                             user_data,
+                             user_fn);
 
    // Splits
-   column split_columns[] = {
-      COLUMN("num splits", c.global_stats.node_splits),
-      COLUMN("num nodes created", c.global_stats.node_splits_nodes_created),
-   };
-   platform_log(log_handle, "Splits\n");
-   print_column_table(
-      log_handle, ARRAY_SIZE(split_columns), split_columns, c.height + 1);
+   //
+   emit_stats_array_uint64("splinterdb.trunk.h%d.node_splits",
+                           col.height + 1,
+                           col.global_stats.node_splits,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.node_splits_nodes_created",
+                           col.height + 1,
+                           col.global_stats.node_splits_nodes_created,
+                           user_data,
+                           user_fn);
+
    // Leaf splits
-   column leaf_split_columns[] = {
-      COLUMN("avg time (ns)", &c.avg_leaf_split_time_ns),
-      COLUMN("max time (ns)", &c.global_stats.leaf_split_time_max_ns),
-      COLUMN("single leaf splits", &c.global_stats.single_leaf_splits),
-   };
-   platform_log(log_handle, "Leaf splits\n");
-   print_column_table(
-      log_handle, ARRAY_SIZE(leaf_split_columns), leaf_split_columns, 1);
-#endif 
+   //
+   emit_stats_array_fraction("splinterdb.trunk.h%d.avg_leaf_split_time_ns%.0lu",
+                             1,
+                             &col.avg_leaf_split_time_ns,
+                             user_data,
+                             user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.leaf_split_time_max_ns%.0lu",
+                           1,
+                           &col.global_stats.leaf_split_time_max_ns,
+                           user_data,
+                           user_fn);
+   emit_stats_array_uint64("splinterdb.trunk.h%d.single_leaf_splits%.0lu",
+                           1,
+                           &col.global_stats.single_leaf_splits,
+                           user_data,
+                           user_fn);
 
    // Lookups
    //
    emit_stats_array_uint64("splinterdb.trunk.h%d.maplet_lookups",
-                           c.height + 1, c.global_stats.maplet_lookups,
-                           user_data, user_fn);
+                           col.height + 1,
+                           col.global_stats.maplet_lookups,
+                           user_data,
+                           user_fn);
    emit_stats_array_uint64("splinterdb.trunk.h%d.maplet_false_positives",
-                           c.height + 1, c.global_stats.maplet_false_positives,
-                           user_data, user_fn);  
+                           col.height + 1,
+                           col.global_stats.maplet_false_positives,
+                           user_data,
+                           user_fn);
    emit_stats_array_uint64("splinterdb.trunk.h%d.branch_lookups",
-                           c.height + 1, c.global_stats.branch_lookups,
-                           user_data, user_fn);
-   
+                           col.height + 1,
+                           col.global_stats.branch_lookups,
+                           user_data,
+                           user_fn);
+
    // Cleanup
    //
-   trunk_insert_stats_collection_destroy(context, &c);   
+   trunk_insert_stats_collection_destroy(context, &col);
 }
 
 

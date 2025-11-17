@@ -2541,17 +2541,21 @@ clockcache_io_stats(clockcache *cc, uint64 *read_bytes, uint64 *write_bytes)
    *read_bytes  = read_pages * 4 * KiB;
 }
 
+// State struct for collecting cache statistics; captures common data
+// between print and emit stats functions.
+//
 typedef struct cache_stats_collection {
-    cache_stats global_stats;
-    uint64 page_writes;
-    fraction miss_time[NUM_PAGE_TYPES];
-    fraction avg_prefetch_pages[NUM_PAGE_TYPES];
-    fraction avg_write_pages;
-    
+
+   cache_stats global_stats;
+   uint64      page_writes;
+   fraction    miss_time[NUM_PAGE_TYPES];
+   fraction    avg_prefetch_pages[NUM_PAGE_TYPES];
+   fraction    avg_write_pages;
+
 } cache_stats_collection;
 
 int
-cache_stats_collection_create(clockcache *cc, cache_stats_collection* out)
+cache_stats_collection_create(clockcache *cc, cache_stats_collection *out)
 {
    if (!cc->cfg->use_stats) {
       return -1;
@@ -2562,7 +2566,8 @@ cache_stats_collection_create(clockcache *cc, cache_stats_collection* out)
    for (uint64_t i = 0; i < MAX_THREADS; i++) {
       for (page_type type = 0; type < NUM_PAGE_TYPES; type++) {
          out->global_stats.cache_hits[type] += cc->stats[i].cache_hits[type];
-         out->global_stats.cache_misses[type] += cc->stats[i].cache_misses[type];
+         out->global_stats.cache_misses[type] +=
+            cc->stats[i].cache_misses[type];
          out->global_stats.cache_miss_time_ns[type] +=
             cc->stats[i].cache_miss_time_ns[type];
          out->global_stats.page_writes[type] += cc->stats[i].page_writes[type];
@@ -2577,14 +2582,16 @@ cache_stats_collection_create(clockcache *cc, cache_stats_collection* out)
 
 
    for (page_type type = 0; type < NUM_PAGE_TYPES; type++) {
-      out->miss_time[type] =
-         init_fraction(out->global_stats.cache_miss_time_ns[type], SEC_TO_NSEC(1));
-      out->avg_prefetch_pages[type] = init_fraction(
-         out->global_stats.page_reads[type] - out->global_stats.cache_misses[type],
-         out->global_stats.prefetches_issued[type]);
+      out->miss_time[type] = init_fraction(
+         out->global_stats.cache_miss_time_ns[type], SEC_TO_NSEC(1));
+      out->avg_prefetch_pages[type] =
+         init_fraction(out->global_stats.page_reads[type]
+                          - out->global_stats.cache_misses[type],
+                       out->global_stats.prefetches_issued[type]);
    }
-   out->avg_write_pages = init_fraction(out->page_writes - out->global_stats.syncs_issued,
-                                        out->global_stats.writes_issued);   
+   out->avg_write_pages =
+      init_fraction(out->page_writes - out->global_stats.syncs_issued,
+                    out->global_stats.writes_issued);
 
    return 0;
 }
@@ -2594,9 +2601,9 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
 {
    cache_stats_collection col;
    if (cache_stats_collection_create(cc, &col) != 0) {
-     return;
+      return;
    }
-    
+
    // clang-format off
    platform_log(log_handle, "Cache Statistics\n");
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
@@ -2658,55 +2665,56 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
    allocator_print_stats(cc->al);
 }
 
-void
-clockcache_emit_page_type_stats(void* user_data, emit_stat_fn user_fn,
-                                const cache_stats_collection* col,
-                                page_type type, const char* name)
-{
-    char name_buf[256];
-
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.hits", name);
-    user_fn(user_data, name_buf, col->global_stats.cache_hits[type]);
-    
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.misses", name);
-    user_fn(user_data, name_buf, col->global_stats.cache_misses[type]);
-    
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time.num", name);
-    user_fn(user_data, name_buf, col->miss_time[type].numerator);
-
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time.div", name);
-    user_fn(user_data, name_buf, col->miss_time[type].denominator);
-
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.writes", name);
-    user_fn(user_data, name_buf, col->global_stats.page_writes[type]);
-
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.reads", name);
-    user_fn(user_data, name_buf, col->global_stats.page_reads[type]);
-
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.avg_prefetch.num", name);
-    user_fn(user_data, name_buf, col->avg_prefetch_pages[type].numerator);
-    
-    snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.avg_prefetch.div", name);
-    user_fn(user_data, name_buf, col->avg_prefetch_pages[type].denominator);
-}
 
 void
-clockcache_emit_stats(void* user_data, emit_stat_fn user_fn, clockcache *cc)
+clockcache_emit_stats(void *user_data, emit_stat_fn user_fn, clockcache *cc)
 {
    cache_stats_collection col;
    if (cache_stats_collection_create(cc, &col) != 0) {
-     return;
+      return;
    }
 
    user_fn(user_data, "splinterdb.cache.page_writes", col.page_writes);
 
-   clockcache_emit_page_type_stats(user_data, user_fn, &col, PAGE_TYPE_TRUNK, "trunk");
-   clockcache_emit_page_type_stats(user_data, user_fn, &col, PAGE_TYPE_BRANCH, "branch");
-   clockcache_emit_page_type_stats(user_data, user_fn, &col, PAGE_TYPE_MEMTABLE, "memtable");
-   clockcache_emit_page_type_stats(user_data, user_fn, &col, PAGE_TYPE_FILTER, "filter");
-   clockcache_emit_page_type_stats(user_data, user_fn, &col, PAGE_TYPE_LOG, "log");
-   clockcache_emit_page_type_stats(user_data, user_fn, &col, PAGE_TYPE_SUPERBLOCK, "superblock");
+   char name_buf[256];
 
+   for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
+      const char *name = page_type_str[type];
+
+      snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.hits", name);
+      user_fn(user_data, name_buf, col.global_stats.cache_hits[type]);
+
+      snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.misses", name);
+      user_fn(user_data, name_buf, col.global_stats.cache_misses[type]);
+
+      snprintf(
+         name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time.num", name);
+      user_fn(user_data, name_buf, col.miss_time[type].numerator);
+
+      snprintf(
+         name_buf, sizeof(name_buf), "splinterdb.cache.%s.miss_time.div", name);
+      user_fn(user_data, name_buf, col.miss_time[type].denominator);
+
+      snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.writes", name);
+      user_fn(user_data, name_buf, col.global_stats.page_writes[type]);
+
+      snprintf(name_buf, sizeof(name_buf), "splinterdb.cache.%s.reads", name);
+      user_fn(user_data, name_buf, col.global_stats.page_reads[type]);
+
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.cache.%s.avg_prefetch.num",
+               name);
+      user_fn(user_data, name_buf, col.avg_prefetch_pages[type].numerator);
+
+      snprintf(name_buf,
+               sizeof(name_buf),
+               "splinterdb.cache.%s.avg_prefetch.div",
+               name);
+      user_fn(user_data, name_buf, col.avg_prefetch_pages[type].denominator);
+   }
+
+   allocator_emit_stats(cc->al, user_data, user_fn);
 }
 
 void
