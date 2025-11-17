@@ -1863,7 +1863,7 @@ core_emit_insertion_stats(core_handle *spl,
 
     // Cleanup.
     //
-    core_insert_stats_collection_destroy(spl, &c);
+    core_insertion_stats_collection_destroy(spl, &c);
 
     return 0;
 }
@@ -1989,7 +1989,7 @@ core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl)
 {
    core_lookup_stats_collection c;
 
-   int retval = core_lookup_stats_create(spl, &c);
+   int retval = core_lookup_stats_collection_create(spl, &c);
    if (retval == -EINVAL) {
       platform_log(log_handle, "Statistics are not enabled\n");
       return;
