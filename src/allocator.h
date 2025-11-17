@@ -301,7 +301,8 @@ allocator_page_valid(allocator *al, uint64 addr)
 
 // clang-format on
 
-static inline void allocator_emit_stats(allocator* al, void* user_data, emit_stat_fn user_fn)
+static inline void
+allocator_emit_stats(allocator *al, void *user_data, emit_stat_fn user_fn)
 {
-    return al->ops->emit_stats(al, user_data, user_fn);
+   return al->ops->emit_stats(al, user_data, user_fn);
 }
