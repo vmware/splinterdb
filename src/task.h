@@ -8,7 +8,7 @@
 typedef struct task_system task_system;
 
 typedef void (*task_hook)(task_system *arg);
-typedef void (*task_fn)(void *arg, void *scratch);
+typedef void (*task_fn)(void *arg);
 
 typedef struct task {
    struct task *next;
@@ -80,14 +80,12 @@ typedef enum task_type {
 typedef struct task_system_config {
    bool32 use_stats;
    uint64 num_background_threads[NUM_TASK_TYPES];
-   uint64 scratch_size;
 } task_system_config;
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
                         bool32              use_stats,
-                        const uint64 num_background_threads[NUM_TASK_TYPES],
-                        uint64       scratch_size);
+                        const uint64 num_background_threads[NUM_TASK_TYPES]);
 
 
 #define TASK_MAX_HOOKS (4)
@@ -96,9 +94,8 @@ task_system_config_init(task_system_config *task_cfg,
  * ----------------------------------------------------------------------
  * Splinter specific state that gets created during initialization in
  * splinter_system_init(). Contains global state for splinter such as the
- * init thread, init thread's scratch memory, thread_id counter and an array
- * of all the threads, which acts like a map that is accessed by thread ID
- * to get the thread pointer.
+ * init thread, thread_id counter and an array of all the threads, which
+ * acts like a map that is accessed by thread ID to get the thread pointer.
  *
  * This structure is passed around like an opaque structure to all the
  * entities that need to access it. Some of them are task creation and
@@ -107,7 +104,6 @@ task_system_config_init(task_system_config *task_cfg,
  */
 struct task_system {
    const task_system_config *cfg;
-   // array of scratch space pointers for this system.
    // IO handle (currently one splinter system has just one)
    platform_io_handle *ioh;
    platform_heap_id    heap_id;
@@ -121,7 +117,6 @@ struct task_system {
    uint64 tid_bitmask[(MAX_THREADS + 63) / 64];
    // max thread id so far.
    threadid max_tid;
-   void    *thread_scratch[MAX_THREADS];
    // task groups
    task_group group[NUM_TASK_TYPES];
 
@@ -134,7 +129,6 @@ platform_status
 task_thread_create(const char            *name,
                    platform_thread_worker func,
                    void                  *arg,
-                   size_t                 scratch_size,
                    task_system           *ts,
                    platform_heap_id       hid,
                    platform_thread       *thread);
@@ -145,18 +139,17 @@ task_thread_create(const char            *name,
  * task_thread_create are automatically registered and unregistered.
  */
 
-// Register the calling thread, allocating scratch space for it
-#define task_register_this_thread(ts, scratch_size)                            \
-   task_register_thread((ts), (scratch_size), __FILE__, __LINE__, __func__)
+// Register the calling thread
+#define task_register_this_thread(ts)                                          \
+   task_register_thread((ts), __FILE__, __LINE__, __func__)
 
 platform_status
 task_register_thread(task_system *ts,
-                     uint64       scratch_size,
                      const char  *file,
                      const int    lineno,
                      const char  *func);
 
-// Unregister the calling thread and free its scratch space
+// Unregister the calling thread
 #define task_deregister_this_thread(ts)                                        \
    task_deregister_thread((ts), __FILE__, __LINE__, __func__)
 
@@ -191,10 +184,6 @@ task_system_create(platform_heap_id          hid,
  */
 void
 task_system_destroy(platform_heap_id hid, task_system **ts);
-
-
-void *
-task_system_get_thread_scratch(task_system *ts, threadid tid);
 
 platform_status
 task_enqueue(task_system *ts,

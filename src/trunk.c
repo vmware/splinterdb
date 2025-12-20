@@ -3152,7 +3152,7 @@ static platform_status
 enqueue_maplet_compaction(trunk_pivot_state *args);
 
 static void
-maplet_compaction_task(void *arg, void *scratch)
+maplet_compaction_task(void *arg)
 {
    platform_status              rc         = STATUS_OK;
    trunk_pivot_state           *state      = (trunk_pivot_state *)arg;
@@ -3373,7 +3373,7 @@ compute_tuple_bound(trunk_context            *context,
 
 
 static void
-bundle_compaction_task(void *arg, void *scratch)
+bundle_compaction_task(void *arg)
 {
    platform_status    rc;
    trunk_pivot_state *state   = (trunk_pivot_state *)arg;

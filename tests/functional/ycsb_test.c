@@ -450,7 +450,6 @@ run_ycsb_phase(core_handle     *spl,
          ret = task_thread_create("ycsb_thread",
                                   ycsb_thread,
                                   &phase->params[i],
-                                  core_get_scratch_size(),
                                   ts,
                                   hid,
                                   &threads[cur_thread]);

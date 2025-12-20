@@ -195,8 +195,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
    num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
 
-   rc = task_system_config_init(
-      &kvs->task_cfg, cfg.use_stats, num_bg_threads, core_get_scratch_size());
+   rc = task_system_config_init(&kvs->task_cfg, cfg.use_stats, num_bg_threads);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -478,7 +477,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
  *-----------------------------------------------------------------------------
  * splinterdb_register_thread --
  *
- *      Allocate scratch space and register the current thread.
+ *      Register the current thread.
  *
  *      Any thread, other than the initializing thread, must call this function
  *      exactly once before using the splinterdb.
@@ -490,7 +489,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
  *      None.
  *
  * Side effects:
- *      Allocates memory
+ *      None.
  *-----------------------------------------------------------------------------
  */
 void
@@ -498,8 +497,7 @@ splinterdb_register_thread(splinterdb *kvs) // IN
 {
    platform_assert(kvs != NULL);
 
-   size_t          scratch_size = core_get_scratch_size();
-   platform_status rc = task_register_this_thread(kvs->task_sys, scratch_size);
+   platform_status rc = task_register_this_thread(kvs->task_sys);
    platform_assert_status_ok(rc);
 }
 
@@ -507,15 +505,14 @@ splinterdb_register_thread(splinterdb *kvs) // IN
  *-----------------------------------------------------------------------------
  * splinterdb_deregister_thread --
  *
- *      Free scratch space.
+ *      Deregister the current thread.
  *      Call this function before exiting a registered thread.
- *      Otherwise, you'll leak memory.
  *
  * Results:
  *      None.
  *
  * Side effects:
- *      Frees memory
+ *      None.
  *-----------------------------------------------------------------------------
  */
 void

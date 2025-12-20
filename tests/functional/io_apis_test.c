@@ -269,7 +269,7 @@ splinter_io_apis_test(int argc, char *argv[])
    uint64             num_bg_threads[NUM_TASK_TYPES] = {0};
    task_system_config task_cfg;
    rc = task_system_config_init(
-      &task_cfg, TRUE /* use stats */, num_bg_threads, core_get_scratch_size());
+      &task_cfg, TRUE /* use stats */, num_bg_threads);
    platform_assert(SUCCESS(rc));
 
    task_system *tasks = NULL;
@@ -352,11 +352,11 @@ splinter_io_apis_test(int argc, char *argv[])
                                  platform_getpid(),
                                  this_thread_idx,
                                  whoami,
-                                 Parent_io_handle,
-                                 io_hdl);
+                                Parent_io_handle,
+                                io_hdl);
          }
 
-         task_register_this_thread(tasks, core_get_scratch_size());
+         task_register_this_thread(tasks);
          this_thread_idx = platform_get_tid();
 
          // Reset the handles / variables that have changed in the child
@@ -979,7 +979,6 @@ do_n_thread_creates(const char         *thread_type,
       ret = task_thread_create(thread_type,
                                thread_hdlr,
                                &params[i],
-                               core_get_scratch_size(),
                                params[i].tasks,
                                params[i].hid,
                                &params[i].thread);

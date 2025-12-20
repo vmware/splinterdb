@@ -254,7 +254,6 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
    rc = task_thread_create("test_one_thread",
                            exec_one_thread_use_extern_apis,
                            &thread_cfg,
-                           core_get_scratch_size(),
                            data->tasks,
                            data->hid,
                            &new_thread);
@@ -376,7 +375,6 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    rc = task_thread_create("test_one_thread",
                            exec_user_thread_loop_for_stop,
                            &thread_cfg[0],
-                           core_get_scratch_size(),
                            data->tasks,
                            data->hid,
                            &new_thread[0]);
@@ -393,7 +391,6 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    rc = task_thread_create("test_one_thread",
                            exec_user_thread_loop_for_stop,
                            &thread_cfg[1],
-                           core_get_scratch_size(),
                            data->tasks,
                            data->hid,
                            &new_thread[1]);
@@ -428,9 +425,8 @@ create_task_system_without_bg_threads(void *datap)
    // no background threads by default.
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    rc = task_system_config_init(&data->task_cfg,
-                                TRUE, // use stats
-                                num_bg_threads,
-                                core_get_scratch_size());
+                               TRUE, // use stats
+                               num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
    return rc;
@@ -455,9 +451,8 @@ create_task_system_with_bg_threads(void  *datap,
    num_bg_threads[TASK_TYPE_MEMTABLE]    = num_memtable_bg_threads;
    num_bg_threads[TASK_TYPE_NORMAL]      = num_normal_bg_threads;
    rc = task_system_config_init(&data->task_cfg,
-                                TRUE, // use stats
-                                num_bg_threads,
-                                core_get_scratch_size());
+                               TRUE, // use stats
+                               num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
@@ -492,7 +487,7 @@ exec_one_thread_use_lower_apis(void *arg)
    // This is the important call to initialize thread-specific stuff in
    // Splinter's task-system, which sets up the thread-id (index) and records
    // this thread as active with the task system.
-   task_register_this_thread(thread_cfg->tasks, core_get_scratch_size());
+   task_register_this_thread(thread_cfg->tasks);
 
    threadid this_threads_idx = platform_get_tid();
    ASSERT_EQUAL(thread_cfg->exp_thread_idx,
@@ -501,24 +496,12 @@ exec_one_thread_use_lower_apis(void *arg)
                 thread_cfg->exp_thread_idx,
                 this_threads_idx);
 
-   // Registration should have allocated some scratch space memory.
-   ASSERT_TRUE(
-      core_get_scratch_size() == 0
-      || task_system_get_thread_scratch(thread_cfg->tasks, platform_get_tid())
-            != NULL);
-
    // Brain-dead cross-check, to understand what's going on with thread-IDs.
    platform_thread thread_id = platform_thread_id_self();
    ASSERT_TRUE((thread_cfg->this_thread_id == thread_id)
                || (thread_cfg->this_thread_id == 0));
 
    task_deregister_this_thread(thread_cfg->tasks);
-
-   // Deregistration releases scratch space memory.
-   ASSERT_TRUE(
-      core_get_scratch_size() == 0
-      || task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
-            == NULL);
 
    // Register / de-register of thread with SplinterDB's task system is
    // SplinterDB's jugglery to keep track of resources. get_tid() should
@@ -554,13 +537,7 @@ exec_one_thread_use_extern_apis(void *arg)
     * The interface used here has already registered this thread. An attempt to
     * re-register this thread will trip an assertion. (Left here for posterity.)
     */
-   // task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
-
-   // Registration should have allocated some scratch space memory.
-   ASSERT_TRUE(
-      core_get_scratch_size() == 0
-      || task_system_get_thread_scratch(thread_cfg->tasks, this_threads_idx)
-            != NULL);
+   // task_register_this_thread(thread_cfg->tasks);
 
    /*
     * Dead Code Warning!
@@ -589,8 +566,7 @@ exec_one_of_n_threads(void *arg)
    // Before registration, thread ID should be in an uninit'ed state
    ASSERT_EQUAL(INVALID_TID, platform_get_tid());
 
-   platform_status rc =
-      task_register_this_thread(thread_cfg->tasks, core_get_scratch_size());
+   platform_status rc = task_register_this_thread(thread_cfg->tasks);
    ASSERT_TRUE(SUCCESS(rc),
                "task_register_this_thread() failed: thread idx is %lu",
                platform_get_tid());

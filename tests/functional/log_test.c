@@ -184,7 +184,6 @@ test_log_perf(cache                  *cc,
       ret = task_thread_create("log_thread",
                                test_log_thread,
                                &params[i],
-                               0,
                                ts,
                                hid,
                                &params[i].thread);

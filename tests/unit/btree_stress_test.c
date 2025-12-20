@@ -138,7 +138,7 @@ CTEST_SETUP(btree_stress)
                                                 &data->cache_cfg.super,
                                                 data->data_cfg)
        || !init_task_config_from_master_config(
-          &data->task_cfg, &data->master_cfg, sizeof(btree_scratch)))
+          &data->task_cfg, &data->master_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -265,7 +265,6 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       platform_status ret = task_thread_create("insert thread",
                                                insert_thread,
                                                &params[i],
-                                               0,
                                                data->ts,
                                                data->hid,
                                                &threads[i]);

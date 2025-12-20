@@ -248,7 +248,6 @@ test_btree_perf(cache             *cc,
       ret = task_thread_create("insert thread",
                                test_btree_insert_thread,
                                &params[thread_no],
-                               0,
                                ts,
                                hid,
                                &params[thread_no].thread);

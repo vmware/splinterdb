@@ -255,8 +255,7 @@ test_config_init(system_config          *system_cfg, // OUT
    num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
    platform_status rc = task_system_config_init(&system_cfg->task_cfg,
                                                 master_cfg->use_stats,
-                                                num_bg_threads,
-                                                core_get_scratch_size());
+                                                num_bg_threads);
    platform_assert_status_ok(rc);
 
    rc = routing_config_init(&system_cfg->filter_cfg,

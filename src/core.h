@@ -267,11 +267,9 @@ core_config_init(core_config         *trunk_cfg,
                  data_config         *data_cfg,
                  btree_config        *btree_cfg,
                  log_config          *log_cfg,
-                 trunk_config        *trunk_node_cfg,
-                 uint64               queue_scale_percent,
-                 bool32               use_log,
-                 bool32               use_stats,
-                 bool32               verbose_logging,
-                 platform_log_handle *log_handle);
-size_t
-core_get_scratch_size();
+                trunk_config        *trunk_node_cfg,
+                uint64               queue_scale_percent,
+                bool32               use_log,
+                bool32               use_stats,
+                bool32               verbose_logging,
+                platform_log_handle *log_handle);

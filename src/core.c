@@ -627,7 +627,7 @@ out:
 }
 
 static void
-core_memtable_flush_internal_virtual(void *arg, void *scratch)
+core_memtable_flush_internal_virtual(void *arg)
 {
    core_memtable_args *mt_args = arg;
    core_memtable_flush_internal(mt_args->spl, mt_args->generation);
@@ -2001,10 +2001,4 @@ core_config_init(core_config         *core_cfg,
 
    // When everything succeeds, return success.
    return STATUS_OK;
-}
-
-size_t
-core_get_scratch_size()
-{
-   return 0;
 }
