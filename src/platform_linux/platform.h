@@ -63,16 +63,6 @@ typedef int32 bool32;
  */
 #define ARRAY_SIZE(x) ASSERT_EXPR(IS_ARRAY(x), (sizeof(x) / sizeof((x)[0])))
 
-/*
- * MAX_THREADS is used primarily for convenience, where allocations made on a
- * per-thread basis create an array with MAX_THREADS items, e.g. the
- * trunk_stats field in trunk_handle. The task subsystem also uses a 64-bit
- * bit-array to track thread IDs in use. This could be changed relatively
- * easily if needed.
- */
-#define MAX_THREADS (64)
-#define INVALID_TID (MAX_THREADS)
-
 #define HASH_SEED (42)
 
 /*
@@ -95,10 +85,10 @@ typedef int32 bool32;
 #define TiB (GiB * 1024)
 
 // Convert 'x' in unit-specifiers to bytes
-#define KiB_TO_B(x) ((x)*KiB)
-#define MiB_TO_B(x) ((x)*MiB)
-#define GiB_TO_B(x) ((x)*GiB)
-#define TiB_TO_B(x) ((x)*TiB)
+#define KiB_TO_B(x) ((x) * KiB)
+#define MiB_TO_B(x) ((x) * MiB)
+#define GiB_TO_B(x) ((x) * GiB)
+#define TiB_TO_B(x) ((x) * TiB)
 
 // Convert 'x' in bytes to 'int'-value with unit-specifiers
 #define B_TO_KiB(x) ((x) / KiB)
@@ -118,17 +108,15 @@ typedef int32 bool32;
 #define BILLION  (THOUSAND * MILLION)
 
 #define USEC_TO_SEC(x)  ((x) / MILLION)
-#define USEC_TO_NSEC(x) ((x)*THOUSAND)
+#define USEC_TO_NSEC(x) ((x) * THOUSAND)
 #define NSEC_TO_SEC(x)  ((x) / BILLION)
 #define NSEC_TO_MSEC(x) ((x) / MILLION)
 #define NSEC_TO_USEC(x) ((x) / THOUSAND)
-#define SEC_TO_MSEC(x)  ((x)*THOUSAND)
-#define SEC_TO_USEC(x)  ((x)*MILLION)
-#define SEC_TO_NSEC(x)  ((x)*BILLION)
+#define SEC_TO_MSEC(x)  ((x) * THOUSAND)
+#define SEC_TO_USEC(x)  ((x) * MILLION)
+#define SEC_TO_NSEC(x)  ((x) * BILLION)
 
 #define MAX_STRING_LENGTH 256
-
-typedef void (*platform_thread_worker)(void *);
 
 /*
  * The comparator follows the same conventions as that of qsort(3). Ie. if:
@@ -149,7 +137,7 @@ typedef int (*platform_sort_cmpfn)(const void *a, const void *b, void *arg);
  */
 #ifndef container_of
 #   define container_of(ptr, type, memb)                                       \
-      ((type *)((char *)(ptr)-offsetof(type, memb)))
+      ((type *)((char *)(ptr) - offsetof(type, memb)))
 #endif
 
 /*
@@ -562,7 +550,7 @@ platform_sort_slow(void               *base,
                    void               *cmparg,
                    void               *temp);
 
-#define IS_POWER_OF_2(n) ((n) > 0 && ((n) & ((n)-1)) == 0)
+#define IS_POWER_OF_2(n) ((n) > 0 && ((n) & ((n) - 1)) == 0)
 
 #ifndef MAX
 #   define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -648,12 +636,6 @@ platform_histo_print(platform_histo_handle histo,
                      const char           *name,
                      platform_log_handle  *log_handle);
 
-static inline threadid
-platform_get_tid();
-
-static inline void
-platform_set_tid(threadid t);
-
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen);
 
@@ -701,20 +683,6 @@ platform_spinlock_init(platform_spinlock *lock,
 
 platform_status
 platform_spinlock_destroy(platform_spinlock *lock);
-
-platform_status
-platform_thread_create(platform_thread       *thread,
-                       bool32                 detached,
-                       platform_thread_worker worker,
-                       void                  *arg,
-                       platform_heap_id       heap_id);
-
-platform_status
-platform_thread_join(platform_thread thread);
-
-
-platform_thread
-platform_thread_id_self();
 
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);

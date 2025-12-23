@@ -69,8 +69,6 @@ typedef sem_t platform_semaphore;
 #define FRACTION_FMT(w, s) "%" STRINGIFY_VALUE(w) "." STRINGIFY_VALUE(s) "f"
 #define FRACTION_ARGS(f)   ((double)(f).numerator / (double)(f).denominator)
 
-typedef pthread_t platform_thread;
-
 // Thread-specific mutex, with ownership tracking.
 typedef struct {
    pthread_mutex_t mutex;

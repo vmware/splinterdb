@@ -5,6 +5,8 @@
 #include <sys/mman.h>
 #include "platform.h"
 #include "shmem.h"
+#include "task.h"
+#include "io.h"
 
 __thread threadid xxxtid = INVALID_TID;
 
@@ -27,7 +29,8 @@ platform_log_handle *Platform_error_log_handle   = NULL;
 platform_heap_id Heap_id = NULL;
 
 // This function is run automatically at library-load time
-void __attribute__((constructor)) platform_init_log_file_handles(void)
+void __attribute__((constructor))
+platform_init_log_file_handles(void)
 {
    FILE *dev_null_file = fopen("/dev/null", "w");
    platform_assert(dev_null_file != NULL);
@@ -172,50 +175,6 @@ platform_buffer_deinit(buffer_handle *bh)
    bh->addr   = NULL;
    bh->length = 0;
    return STATUS_OK;
-}
-
-/*
- * platform_thread_create() - External interface to create a Splinter thread.
- */
-platform_status
-platform_thread_create(platform_thread       *thread,
-                       bool32                 detached,
-                       platform_thread_worker worker,
-                       void                  *arg,
-                       platform_heap_id       UNUSED_PARAM(heap_id))
-{
-   int ret;
-
-   if (detached) {
-      pthread_attr_t attr;
-      pthread_attr_init(&attr);
-      size_t stacksize = 16UL * 1024UL;
-      pthread_attr_setstacksize(&attr, stacksize);
-      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-      ret = pthread_create(thread, &attr, (void *(*)(void *))worker, arg);
-      pthread_attr_destroy(&attr);
-   } else {
-      ret = pthread_create(thread, NULL, (void *(*)(void *))worker, arg);
-   }
-
-   return CONST_STATUS(ret);
-}
-
-platform_status
-platform_thread_join(platform_thread thread)
-{
-   int   ret;
-   void *retval;
-
-   ret = pthread_join(thread, &retval);
-
-   return CONST_STATUS(ret);
-}
-
-platform_thread
-platform_thread_id_self()
-{
-   return pthread_self();
 }
 
 platform_status

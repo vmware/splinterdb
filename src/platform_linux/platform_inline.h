@@ -211,26 +211,6 @@ platform_spin_unlock(platform_spinlock *lock)
    return CONST_STATUS(ret);
 }
 
-static inline threadid
-platform_get_tid()
-{
-   extern __thread threadid xxxtid;
-   return xxxtid;
-}
-
-static inline void
-platform_set_tid(threadid t)
-{
-   extern __thread threadid xxxtid;
-   xxxtid = t;
-}
-
-static inline int
-platform_getpid()
-{
-   return getpid();
-}
-
 static inline void
 platform_yield()
 {
@@ -348,11 +328,6 @@ platform_log_stream_to_string(platform_stream_handle *stream)
    do {                                                                        \
       fclose(log_handle);                                                      \
    } while (0)
-
-#define platform_thread_cleanup_push(func, arg)                                \
-   pthread_cleanup_push((func), (arg))
-
-#define platform_thread_cleanup_pop(exec) pthread_cleanup_pop((exec))
 
 static inline void
 platform_histo_insert(platform_histo_handle histo, int64 datum)

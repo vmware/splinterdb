@@ -107,16 +107,6 @@ struct task_system {
    // IO handle (currently one splinter system has just one)
    platform_io_handle *ioh;
    platform_heap_id    heap_id;
-   /*
-    * bitmask used for allocating thread id's.
-    * If a bit is set to 0, it means we have an in use thread id for that
-    * particular position, 1 means it is unset and that thread id is available
-    * for use.
-    */
-   uint64 tid_bitmask_lock;
-   uint64 tid_bitmask[(MAX_THREADS + 63) / 64];
-   // max thread id so far.
-   threadid max_tid;
    // task groups
    task_group group[NUM_TASK_TYPES];
 
