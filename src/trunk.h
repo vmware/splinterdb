@@ -17,6 +17,7 @@
 #include "iterator.h"
 #include "merge.h"
 #include "data_internal.h"
+#include "batch_rwlock.h"
 
 typedef struct trunk_config {
    const data_config    *data_cfg;
@@ -163,7 +164,7 @@ typedef struct trunk_context {
    task_system           *ts;
    trunk_stats           *stats;
    trunk_pivot_state_map  pivot_states;
-   platform_batch_rwlock  root_lock;
+   batch_rwlock           root_lock;
    trunk_ondisk_node_ref *root;
    trunk_ondisk_node_ref *post_incorporation_root;
    trunk_ondisk_node_ref *pre_incorporation_root;

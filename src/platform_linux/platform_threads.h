@@ -1,4 +1,6 @@
 #include "splinterdb/platform_linux/public_platform.h"
+#include "platform_status.h"
+#include "platform_heap.h"
 #include <unistd.h>
 #include <pthread.h>
 
@@ -28,13 +30,7 @@ platform_getpid()
 
 typedef void (*platform_thread_worker)(void *);
 
-typedef struct platform_thread {
-   pthread_t              pthread;
-   threadid               tid;
-   platform_thread_worker worker;
-   void                  *arg;
-   platform_heap_id       heap_id;
-} platform_thread;
+typedef pthread_t platform_thread;
 
 platform_status
 platform_thread_create(platform_thread       *thread,

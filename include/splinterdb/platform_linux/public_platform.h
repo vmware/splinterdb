@@ -43,6 +43,8 @@ typedef uint64_t      uint64;
 typedef uint64        timestamp;
 typedef uint64        threadid;
 
+typedef int32 bool32;
+
 #include <assert.h>
 static_assert(sizeof(int8) == 1, "incorrect type");
 static_assert(sizeof(uint8) == 1, "incorrect type");
@@ -87,11 +89,13 @@ platform_set_log_streams(platform_log_handle *info_stream,
 // Note: There is currently a limit of MAX_THREADS registered at a given time
 //
 // Returns 0 on success, -1 on error.
-static int
+int
 platform_register_thread(const char *file, const int lineno, const char *func);
 
 // Deregister the current thread.
 //
 // Call this function before exiting a registered thread.
-static void
-platform_deregister_thread(const char *file, const int lineno, const char *func)
+void
+platform_deregister_thread(const char *file,
+                           const int   lineno,
+                           const char *func);

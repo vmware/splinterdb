@@ -1,5 +1,6 @@
 #include "platform_threads.h"
 #include "splinterdb/platform_linux/public_platform.h"
+#include "platform_log.h"
 #include <sys/mman.h>
 #include <string.h>
 

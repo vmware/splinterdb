@@ -8,8 +8,6 @@
 #include "task.h"
 #include "io.h"
 
-__thread threadid xxxtid = INVALID_TID;
-
 bool32 platform_use_hugetlb = FALSE;
 bool32 platform_use_mlock   = FALSE;
 
@@ -19,14 +17,6 @@ bool32 platform_use_mlock   = FALSE;
 // Use platform_set_log_streams() to send the log messages elsewhere.
 platform_log_handle *Platform_default_log_handle = NULL;
 platform_log_handle *Platform_error_log_handle   = NULL;
-
-/*
- * Declare globals to track heap handle/ID that may have been created when
- * using shared memory. We stash away these handles so that we can return the
- * right handle via platform_get_heap_id() interface, in case shared segments
- * are in use.
- */
-platform_heap_id Heap_id = NULL;
 
 // This function is run automatically at library-load time
 void __attribute__((constructor))
@@ -55,41 +45,6 @@ platform_log_handle *
 platform_get_stdout_stream(void)
 {
    return Platform_default_log_handle;
-}
-
-/*
- * platform_heap_create() - Create a heap for memory allocation.
- *
- * By default, we just revert to process' heap-memory and use malloc() / free()
- * for memory management. If Splinter is run with shared-memory configuration,
- * create a shared-segment which acts as the 'heap' for memory allocation.
- */
-platform_status
-platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
-                     size_t             max,
-                     bool               use_shmem,
-                     platform_heap_id  *heap_id)
-{
-   *heap_id = PROCESS_PRIVATE_HEAP_ID;
-
-   if (use_shmem) {
-      platform_status rc = platform_shmcreate(max, heap_id);
-      if (SUCCESS(rc)) {
-         Heap_id = *heap_id;
-      }
-      return rc;
-   }
-   *heap_id = NULL;
-   return STATUS_OK;
-}
-
-void
-platform_heap_destroy(platform_heap_id *heap_id)
-{
-   // If shared segment was allocated, it's being tracked thru heap ID.
-   if (*heap_id) {
-      return platform_shmdestroy(heap_id);
-   }
 }
 
 /*
@@ -214,187 +169,6 @@ platform_mutex_destroy(platform_mutex *lock)
 }
 
 platform_status
-platform_spinlock_init(platform_spinlock *lock,
-                       platform_module_id UNUSED_PARAM(module_id),
-                       platform_heap_id   heap_id)
-{
-   int ret;
-
-   // Init spinlock so it can be shared between processes, if so configured
-   ret = pthread_spin_init(lock,
-                           ((heap_id == PROCESS_PRIVATE_HEAP_ID)
-                               ? PTHREAD_PROCESS_PRIVATE
-                               : PTHREAD_PROCESS_SHARED));
-   return CONST_STATUS(ret);
-}
-
-platform_status
-platform_spinlock_destroy(platform_spinlock *lock)
-{
-   int ret;
-
-   ret = pthread_spin_destroy(lock);
-
-   return CONST_STATUS(ret);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * Batch Read/Write Locks
- *
- * These are generic distributed reader/writer locks with an intermediate claim
- * state. These offer similar semantics to the locks in the clockcache, but in
- * these locks read locks cannot be held with write locks.
- *
- * These locks are allocated in batches of PLATFORM_CACHELINE_SIZE / 2, so that
- * the write lock and claim bits, as well as the distributed read counters, can
- * be colocated across the batch.
- *-----------------------------------------------------------------------------
- */
-
-void
-platform_batch_rwlock_init(platform_batch_rwlock *lock)
-{
-   ZERO_CONTENTS(lock);
-}
-
-void
-platform_batch_rwlock_deinit(platform_batch_rwlock *lock)
-{
-   ZERO_CONTENTS(lock);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * lock/unlock
- *
- * Drains and blocks all gets (read locks)
- *
- * Caller must hold a claim
- * Caller cannot hold a get (read lock)
- *-----------------------------------------------------------------------------
- */
-
-void
-platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   platform_assert(lock->write_lock[lock_idx].claim);
-   debug_only uint8 was_locked =
-      __sync_lock_test_and_set(&lock->write_lock[lock_idx].lock, 1);
-   debug_assert(!was_locked,
-                "platform_batch_rwlock_lock: Attempt to lock a locked page.\n");
-
-   uint64 wait = 1;
-   for (uint64 i = 0; i < MAX_THREADS; i++) {
-      while (lock->read_counter[i][lock_idx] != 0) {
-         platform_sleep_ns(wait);
-         wait = wait > 2048 ? wait : 2 * wait;
-      }
-      wait = 1;
-   }
-}
-
-void
-platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   __sync_lock_release(&lock->write_lock[lock_idx].lock);
-}
-
-void
-platform_batch_rwlock_full_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   platform_batch_rwlock_unlock(lock, lock_idx);
-   platform_batch_rwlock_unclaim(lock, lock_idx);
-   platform_batch_rwlock_unget(lock, lock_idx);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * try_claim/claim/unlock
- *
- * A claim blocks all other claimants (and therefore all other writelocks,
- * because writelocks are required to hold a claim during the writelock).
- *
- * Must hold a get (read lock)
- * try_claim returns whether the claim succeeded
- *-----------------------------------------------------------------------------
- */
-
-bool32
-platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   threadid tid = platform_get_tid();
-   debug_assert(lock->read_counter[tid][lock_idx]);
-   if (__sync_lock_test_and_set(&lock->write_lock[lock_idx].claim, 1)) {
-      return FALSE;
-   }
-   debug_only uint8 old_counter =
-      __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
-   debug_assert(0 < old_counter);
-   return TRUE;
-}
-
-void
-platform_batch_rwlock_claim_loop(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   uint64 wait = 1;
-   while (!platform_batch_rwlock_try_claim(lock, lock_idx)) {
-      platform_batch_rwlock_unget(lock, lock_idx);
-      platform_sleep_ns(wait);
-      wait = wait > 2048 ? wait : 2 * wait;
-      platform_batch_rwlock_get(lock, lock_idx);
-   }
-}
-
-void
-platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   threadid tid = platform_get_tid();
-   __sync_fetch_and_add(&lock->read_counter[tid][lock_idx], 1);
-   __sync_lock_release(&lock->write_lock[lock_idx].claim);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * get/unget
- *
- * Acquire a read lock
- *-----------------------------------------------------------------------------
- */
-
-void
-platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   threadid tid = platform_get_tid();
-   while (1) {
-      uint64 wait = 1;
-      while (lock->write_lock[lock_idx].lock) {
-         platform_sleep_ns(wait);
-         wait = wait > 2048 ? wait : 2 * wait;
-      }
-      debug_only uint8 old_counter =
-         __sync_fetch_and_add(&lock->read_counter[tid][lock_idx], 1);
-      debug_assert(old_counter == 0);
-      if (!lock->write_lock[lock_idx].lock) {
-         return;
-      }
-      old_counter = __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
-      debug_assert(old_counter == 1);
-   }
-   platform_assert(0);
-}
-
-void
-platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx)
-{
-   threadid         tid = platform_get_tid();
-   debug_only uint8 old_counter =
-      __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
-   debug_assert(old_counter == 1);
-}
-
-
-platform_status
 platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 {
    platform_status status;
@@ -490,72 +264,6 @@ platform_condvar_broadcast(platform_condvar *cv)
 
    status = pthread_cond_broadcast(&cv->cond);
    return CONST_STATUS(status);
-}
-
-platform_status
-platform_histo_create(platform_heap_id       heap_id,
-                      uint32                 num_buckets,
-                      const int64 *const     bucket_limits,
-                      platform_histo_handle *histo)
-{
-   platform_histo_handle hh;
-   hh = TYPED_MANUAL_MALLOC(
-      heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
-   if (!hh) {
-      return STATUS_NO_MEMORY;
-   }
-   hh->num_buckets   = num_buckets;
-   hh->bucket_limits = bucket_limits;
-   hh->total         = 0;
-   hh->min           = INT64_MAX;
-   hh->max           = INT64_MIN;
-   hh->num           = 0;
-   memset(hh->count, 0, hh->num_buckets * sizeof(hh->count[0]));
-
-   *histo = hh;
-   return STATUS_OK;
-}
-
-void
-platform_histo_destroy(platform_heap_id       heap_id,
-                       platform_histo_handle *histo_out)
-{
-   platform_assert(histo_out);
-   platform_histo_handle histo = *histo_out;
-   platform_free(heap_id, histo);
-   *histo_out = NULL;
-}
-
-void
-platform_histo_print(platform_histo_handle histo,
-                     const char           *name,
-                     platform_log_handle  *log_handle)
-{
-   if (histo->num == 0) {
-      return;
-   }
-
-   platform_log(log_handle, "%s\n", name);
-   platform_log(log_handle, "min: %ld\n", histo->min);
-   platform_log(log_handle, "max: %ld\n", histo->max);
-   platform_log(log_handle,
-                "mean: %ld\n",
-                histo->num == 0 ? 0 : histo->total / histo->num);
-   platform_log(log_handle, "count: %ld\n", histo->num);
-   for (uint32 i = 0; i < histo->num_buckets; i++) {
-      if (i == histo->num_buckets - 1) {
-         platform_log(log_handle,
-                      "%-12ld  > %12ld\n",
-                      histo->count[i],
-                      histo->bucket_limits[i - 1]);
-      } else {
-         platform_log(log_handle,
-                      "%-12ld <= %12ld\n",
-                      histo->count[i],
-                      histo->bucket_limits[i]);
-      }
-   }
-   platform_log(log_handle, "\n");
 }
 
 char *

@@ -7,9 +7,18 @@
  * This file contains the implementation for managing shared memory created
  * for use by SplinterDB and all its innards.
  */
-#include "platform.h"
 #include "shmem.h"
-#include "util.h"
+#include "splinterdb/platform_linux/public_platform.h"
+#include "platform_util.h"
+#include "platform_machine.h"
+#include "platform_threads.h"
+#include "platform_log.h"
+#include "platform_heap.h"
+#include "platform_assert.h"
+#include "platform_status.h"
+#include "platform_spinlock.h"
+#include "platform_units.h"
+#include <sys/stat.h>
 
 // SplinterDB's shared segment magic identifier. Mainly needed for diagnostics.
 #define SPLINTERDB_SHMEM_MAGIC (uint64)0x543e4a6d
@@ -113,7 +122,7 @@ typedef struct shminfo_usage_stats {
  *    done when freeing any fragment, to see if it's a large-fragment.
  * -----------------------------------------------------------------------------
  */
-typedef struct shmem_heap {
+struct shmem_heap {
    void *shm_start;      // Points to start address of shared segment.
    void *shm_end;        // Points to end address; one past end of sh segment
    void *shm_next;       // Points to next 'free' address to allocate from.
@@ -131,7 +140,7 @@ typedef struct shmem_heap {
    uint64              shm_magic; // Magic identifier for shared memory segment
    int                 shm_id;    // Shared memory ID returned by shmget()
 
-} PLATFORM_CACHELINE_ALIGNED shmem_heap;
+} PLATFORM_CACHELINE_ALIGNED;
 
 /* Permissions for accessing shared memory and IPC objects */
 #define PLATFORM_IPC_OBJS_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
@@ -189,24 +198,6 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
    return (shmem_heap *)hid;
 }
 
-/* Evaluates to valid 'low' address within shared segment. */
-static inline void *
-platform_shm_lop(platform_heap_id hid)
-{
-   return (void *)platform_heap_id_to_shmaddr(hid);
-}
-
-/*
- * Evaluates to valid 'high' address within shared segment.
- * shm_end points to one-byte-just-past-end of shared segment.
- * Valid 'high' byte is last byte just before shm_end inside segment.
- */
-static inline void *
-platform_shm_hip(platform_heap_id hid)
-{
-   return (void *)(platform_heap_id_to_shmaddr(hid)->shm_end - 1);
-}
-
 static inline void
 shm_lock_mem(shmem_heap *shm)
 {
@@ -249,10 +240,9 @@ platform_valid_addr_in_shm(shmem_heap *shmaddr, const void *addr)
  * region.
  */
 bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
+platform_valid_addr_in_heap(shmem_heap *heap, const void *addr)
 {
-   return platform_valid_addr_in_shm(platform_heap_id_to_shmaddr(heap_id),
-                                     addr);
+   return platform_valid_addr_in_shm(heap, addr);
 }
 
 /*
@@ -360,10 +350,9 @@ platform_shm_print_usage(platform_heap_id hid)
  * -----------------------------------------------------------------------------
  */
 platform_status
-platform_shmcreate(size_t            size,
-                   platform_heap_id *heap_id) // Out
+platform_shmcreate(size_t size, shmem_heap **heap) // Out
 {
-   platform_assert((*heap_id == NULL),
+   platform_assert((*heap == NULL),
                    "Heap handle is expected to be NULL while creating a new "
                    "shared segment.\n");
 
@@ -403,17 +392,15 @@ platform_shmcreate(size_t            size,
    shm->usage.total_bytes = size;
    shm->usage.free_bytes  = free_bytes;
 
-   // Return 'heap-ID' handle pointing to start addr of shared segment.
-   if (heap_id) {
-      *heap_id = (platform_heap_id *)shmaddr;
+   // Return heap handle pointing to start addr of shared segment.
+   if (heap) {
+      *heap = shm;
    }
 
-   platform_spinlock_init(
-      &shm->shm_mem_lock, platform_get_module_id(), *heap_id);
+   platform_spinlock_init(&shm->shm_mem_lock);
 
    // Initialize spinlock needed to access memory fragments tracker
-   platform_spinlock_init(
-      &shm->shm_mem_frags_lock, platform_get_module_id(), *heap_id);
+   platform_spinlock_init(&shm->shm_mem_frags_lock);
 
    // Always trace creation of shared memory segment.
    platform_default_log("Completed setup of shared memory of size "
@@ -434,21 +421,21 @@ platform_shmcreate(size_t            size,
  * -----------------------------------------------------------------------------
  */
 void
-platform_shmdestroy(platform_heap_id *hid_out)
+platform_shmdestroy(shmem_heap **heap)
 {
-   if (!hid_out) {
+   if (!heap) {
       platform_error_log(
-         "Error! Attempt to destroy shared memory with NULL heap ID!");
+         "Error! Attempt to destroy shared memory with NULL heap pointer!");
       return;
    }
 
-   const void *shmaddr = (const void *)platform_heap_id_to_shmaddr(*hid_out);
+   const void *shmaddr = (const void *)(*heap);
 
-   // Heap ID may be coming from the shared segment, itself, that we will
+   // Heap pointer may be coming from the shared segment, itself, that we will
    // be detaching from now and freeing, below. So, an attempt to NULL out
    // this handle after memory is freed will run into an exception. Clear
    // out this handle prior to all this circus.
-   *hid_out = NULL;
+   *heap = NULL;
 
    // Use a cached copy in case we are dealing with bogus input shmem address.
    shmem_heap shmem_heap_struct;
@@ -457,12 +444,12 @@ platform_shmdestroy(platform_heap_id *hid_out)
    shmem_heap *shm = &shmem_heap_struct;
 
    if (shm->shm_magic != SPLINTERDB_SHMEM_MAGIC) {
-      platform_error_log("%s(): Input heap ID, %p, does not seem to be a "
+      platform_error_log("%s(): Input heap, %p, does not seem to be a "
                          "valid SplinterDB shared segment's start address."
                          " Found magic 0x%lX does not match expected"
                          " magic 0x%lX.\n",
                          __func__,
-                         hid_out,
+                         shmaddr,
                          shm->shm_magic,
                          SPLINTERDB_SHMEM_MAGIC);
       return;
@@ -523,18 +510,18 @@ platform_shmdestroy(platform_heap_id *hid_out)
  */
 // RESOLVE: Pass down user requested alignment and handle it here.
 void *
-platform_shm_alloc(platform_heap_id hid,
-                   const size_t     size,
-                   const char      *objname,
-                   const char      *func,
-                   const char      *file,
-                   const int        lineno)
+platform_shm_alloc(shmem_heap  *heap,
+                   const size_t size,
+                   const char  *objname,
+                   const char  *func,
+                   const char  *file,
+                   const int    lineno)
 {
-   shmem_heap *shm = platform_heap_id_to_shmaddr(hid);
+   shmem_heap *shm = heap;
 
    debug_assert((platform_shm_heap_valid(shm) == TRUE),
-                "Shared memory heap ID at %p is not a valid shared memory ptr.",
-                hid);
+                "Shared memory heap at %p is not a valid shared memory ptr.",
+                heap);
 
    debug_assert(((size % PLATFORM_CACHELINE_SIZE) == 0),
                 "size=%lu is not aligned to PLATFORM_CACHELINE_SIZE",
@@ -630,13 +617,13 @@ platform_shm_alloc(platform_heap_id hid,
  * -----------------------------------------------------------------------------
  */
 void *
-platform_shm_realloc(platform_heap_id hid,
-                     void            *oldptr,
-                     const size_t     oldsize,
-                     const size_t     newsize,
-                     const char      *func,
-                     const char      *file,
-                     const int        lineno)
+platform_shm_realloc(shmem_heap  *heap,
+                     void        *oldptr,
+                     const size_t oldsize,
+                     const size_t newsize,
+                     const char  *func,
+                     const char  *file,
+                     const int    lineno)
 {
    debug_assert(((oldptr == NULL) && (oldsize == 0)) || (oldptr && oldsize),
                 "oldptr=%p, oldsize=%lu",
@@ -644,22 +631,22 @@ platform_shm_realloc(platform_heap_id hid,
                 oldsize);
 
    // We can only realloc from an oldptr that's allocated from shmem
-   debug_assert(!oldptr || platform_valid_addr_in_heap(hid, oldptr),
+   debug_assert(!oldptr || platform_valid_addr_in_heap(heap, oldptr),
                 "oldptr=%p is not allocated from shared memory",
                 oldptr);
 
    void *retptr =
-      platform_shm_alloc(hid, newsize, "Unknown", func, file, lineno);
+      platform_shm_alloc(heap, newsize, "Unknown", func, file, lineno);
    if (retptr) {
 
       // Copy over old contents, if any, and free that memory piece
       if (oldptr) {
          memcpy(retptr, oldptr, oldsize);
-         platform_shm_free(hid, oldptr, "Unknown", func, file, lineno);
+         platform_shm_free(heap, oldptr, "Unknown", func, file, lineno);
       }
    } else {
       // Report approx memory usage metrics w/o spinlock (diagnostics)
-      shmem_heap *shm         = platform_heap_id_to_shmaddr(hid);
+      shmem_heap *shm         = heap;
       size_t      total_bytes = shm->usage.total_bytes;
       size_t      used_bytes  = shm->usage.used_bytes;
       size_t      free_bytes  = shm->usage.free_bytes;
@@ -705,21 +692,21 @@ platform_shm_realloc(platform_heap_id hid,
  * -----------------------------------------------------------------------------
  */
 void
-platform_shm_free(platform_heap_id hid,
-                  void            *ptr,
-                  const char      *objname,
-                  const char      *func,
-                  const char      *file,
-                  const int        lineno)
+platform_shm_free(shmem_heap *heap,
+                  void       *ptr,
+                  const char *objname,
+                  const char *func,
+                  const char *file,
+                  const int   lineno)
 {
-   shmem_heap *shm = platform_heap_id_to_shmaddr(hid);
+   shmem_heap *shm = heap;
 
    debug_assert(
       (platform_shm_heap_valid(shm) == TRUE),
-      "Shared memory heap ID at %p is not a valid shared memory handle.",
-      hid);
+      "Shared memory heap at %p is not a valid shared memory handle.",
+      heap);
 
-   if (!platform_valid_addr_in_heap(hid, ptr)) {
+   if (!platform_valid_addr_in_heap(heap, ptr)) {
       platform_error_log("[%s:%d::%s()] -> %s: Requesting to free memory"
                          " at %p, for object '%s' which is a memory chunk not"
                          " allocated from shared memory {start=%p, end=%p}.\n",
@@ -729,8 +716,8 @@ platform_shm_free(platform_heap_id hid,
                          __func__,
                          ptr,
                          objname,
-                         platform_shm_lop(hid),
-                         platform_shm_hip(hid));
+                         (void *)shm,
+                         (void *)(shm->shm_end - 1));
       return;
    }
 
@@ -1168,11 +1155,10 @@ platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr)
 }
 
 void *
-platform_heap_get_splinterdb_handle(const platform_heap_id heap_id)
+platform_heap_get_splinterdb_handle(shmem_heap *heap)
 {
-   debug_assert(platform_shm_heap_id_valid(heap_id));
-   shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
-   return shm->shm_splinterdb_handle;
+   debug_assert(platform_shm_heap_valid(heap));
+   return heap->shm_splinterdb_handle;
 }
 
 /*
@@ -1258,29 +1244,29 @@ platform_shm_ctrlblock_size()
 }
 
 /*
- * Shmem-accessor interfaces by heap_id.
+ * Shmem-accessor interfaces by heap.
  */
 size_t
-platform_shmsize(platform_heap_id heap_id)
+platform_shmsize(shmem_heap *heap)
 {
-   return (platform_heap_id_to_shmaddr(heap_id)->usage.total_bytes);
+   return (heap->usage.total_bytes);
 }
 
 size_t
-platform_shmbytes_used(platform_heap_id heap_id)
+platform_shmbytes_used(shmem_heap *heap)
 {
-   return (platform_heap_id_to_shmaddr(heap_id)->usage.used_bytes);
+   return (heap->usage.used_bytes);
 }
 size_t
-platform_shmbytes_free(platform_heap_id heap_id)
+platform_shmbytes_free(shmem_heap *heap)
 {
-   return (platform_heap_id_to_shmaddr(heap_id)->usage.free_bytes);
+   return (heap->usage.free_bytes);
 }
 
 void *
-platform_shm_next_free_addr(platform_heap_id heap_id)
+platform_shm_next_free_addr(shmem_heap *heap)
 {
-   return (platform_heap_id_to_shmaddr(heap_id)->shm_next);
+   return (heap->shm_next);
 }
 
 static void

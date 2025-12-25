@@ -13,6 +13,7 @@
 #include "task.h"
 #include "cache.h"
 #include "btree.h"
+#include "batch_rwlock.h"
 
 #define MEMTABLE_SPACE_OVERHEAD_FACTOR (2)
 
@@ -117,7 +118,7 @@ typedef struct memtable_context {
 
    // batch distributed read/write locks protect the generation and
    // generation_retired counters
-   platform_batch_rwlock *rwlock;
+   batch_rwlock *rwlock;
 
    // Protected by the MEMTABLE_INSERT_LOCK_IDX'th lock of rwlock. Can read
    // without lock. Must get read lock to freeze and write lock to modify.
