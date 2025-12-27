@@ -127,6 +127,9 @@
 
 #pragma once
 
+#include "splinterdb/public_platform.h"
+#include "platform_assert.h"
+
 /* Async functions return async_status.  ASYNC_STATUS_RUNNING means that the
  * function has not yet completed.  ASYNC_STATUS_DONE means that the function
  * has completed.  Note that completion does not mean that the function

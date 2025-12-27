@@ -10,23 +10,14 @@
 #pragma once
 
 #include "async.h"
-#include "platform.h"
+#include "platform_status.h"
+#include "platform_threads.h"
 
 typedef struct io_handle      io_handle;
 typedef struct io_async_req   io_async_req;
 typedef struct io_async_state io_async_state;
 
-/*
- * IO Configuration structure - used to setup the run-time IO system.
- */
-typedef struct io_config {
-   uint64 kernel_queue_size;
-   uint64 page_size;
-   uint64 extent_size;
-   char   filename[MAX_STRING_LENGTH];
-   int    flags;
-   uint32 perms;
-} io_config;
+struct iovec;
 
 typedef void (*io_callback_fn)(void           *metadata,
                                struct iovec   *iovec,
@@ -102,12 +93,6 @@ typedef struct io_async_state_ops {
 struct io_async_state {
    const io_async_state_ops *ops;
 };
-
-platform_status
-io_handle_init(platform_io_handle *ioh, io_config *cfg, platform_heap_id hid);
-
-void
-io_handle_deinit(platform_io_handle *ioh);
 
 static inline platform_status
 io_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
@@ -205,36 +190,4 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
       return io->ops->max_latency_elapsed(io, ts);
    }
    return TRUE;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * io_config_init --
- *
- *      Initialize io config values
- *
- *  (Stores a copy of io_filename to io_cfg->filename, so the caller may
- *  deallocate io_filename once this returns)
- *-----------------------------------------------------------------------------
- */
-static inline void
-io_config_init(io_config  *io_cfg,
-               uint64      page_size,
-               uint64      extent_size,
-               int         flags,
-               uint32      perms,
-               uint64      async_queue_depth,
-               const char *io_filename)
-{
-   ZERO_CONTENTS(io_cfg);
-
-   io_cfg->page_size   = page_size;
-   io_cfg->extent_size = extent_size;
-
-   int rc = snprintf(io_cfg->filename, MAX_STRING_LENGTH, "%s", io_filename);
-   platform_assert(rc < MAX_STRING_LENGTH);
-
-   io_cfg->flags             = flags;
-   io_cfg->perms             = perms;
-   io_cfg->kernel_queue_size = async_queue_depth;
 }

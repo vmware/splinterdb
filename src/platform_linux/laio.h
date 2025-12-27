@@ -10,6 +10,9 @@
 #pragma once
 
 #include "io.h"
+#include "platform_threads.h"
+#include "platform_status.h"
+#include "async.h"
 #include <libaio.h>
 
 /*

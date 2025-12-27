@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#define MAX_STRING_LENGTH 256
+
 typedef struct {
    char *token_str;
    char *last_token;
