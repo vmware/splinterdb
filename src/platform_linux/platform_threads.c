@@ -81,7 +81,7 @@ allocate_threadid()
    }
 
    if (pos == 0) {
-      __sync_lock_release(&ts->tid_bitmask_lock);
+      __sync_lock_release(&tid_allocator->bitmask_lock);
       platform_error_log("No thread id available");
       return INVALID_TID;
    }
@@ -191,7 +191,7 @@ platform_register_thread(const char *file, const int lineno, const char *func)
                    func,
                    thread_tid);
 
-   thread_tid = platform_allocate_threadid();
+   thread_tid = allocate_threadid();
    // Unavailable threads is a temporary state that could go away.
    if (thread_tid == INVALID_TID) {
       return -1;

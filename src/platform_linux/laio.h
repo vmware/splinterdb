@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "io.h"
+#include "platform_io.h"
 #include "platform_threads.h"
 #include "platform_status.h"
 #include "async.h"
@@ -52,3 +52,9 @@ typedef struct laio_handle {
 
 platform_status
 laio_config_valid(io_config *cfg);
+
+io_handle *
+laio_handle_create(io_config *cfg, platform_heap_id hid);
+
+void
+laio_handle_destroy(io_handle *ioh);

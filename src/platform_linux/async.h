@@ -127,7 +127,6 @@
 
 #pragma once
 
-#include "splinterdb/public_platform.h"
 #include "platform_assert.h"
 
 /* Async functions return async_status.  ASYNC_STATUS_RUNNING means that the

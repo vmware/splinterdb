@@ -89,7 +89,7 @@ CTEST_DATA(splinter)
 
    // Following get setup pointing to allocated memory
    system_config         *system_cfg;
-   platform_io_handle    *io;
+   io_handle             *io;
    clockcache            *clock_cache;
    task_system           *tasks;
    test_message_generator gen;
@@ -158,9 +158,8 @@ CTEST_SETUP(splinter)
    }
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
-   ASSERT_TRUE((data->io != NULL));
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE((data->io != NULL), "Failed to create IO handle\n");
 
    data->tasks = NULL;
    rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->system_cfg->task_cfg);
@@ -168,7 +167,7 @@ CTEST_SETUP(splinter)
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));
 
-   rc_allocator_init(&data->al, &data->system_cfg->allocator_cfg, (io_handle *)data->io, data->hid,
+   rc_allocator_init(&data->al, &data->system_cfg->allocator_cfg, data->io, data->hid,
                      platform_get_module_id());
 
    data->clock_cache = TYPED_ARRAY_MALLOC(data->hid, data->clock_cache, num_caches);
@@ -177,7 +176,7 @@ CTEST_SETUP(splinter)
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&data->clock_cache[idx],
                            &data->system_cfg[idx].cache_cfg,
-                           (io_handle *)data->io,
+                           data->io,
                            (allocator *)&data->al,
                            "test",
                            data->hid,
@@ -203,8 +202,7 @@ CTEST_TEARDOWN(splinter)
    rc_allocator_deinit(&data->al);
    test_deinit_task_system(data->hid, &data->tasks);
 
-   io_handle_deinit(data->io);
-   platform_free(data->hid, data->io);
+   io_handle_destroy(data->io);
 
    if (data->system_cfg) {
       platform_free(data->hid, data->system_cfg);

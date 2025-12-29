@@ -44,7 +44,7 @@ CTEST_DATA(limitations)
    rc_allocator al;
 
    // Following get setup pointing to allocated memory
-   platform_io_handle    *io;
+   io_handle             *io;
    clockcache            *clock_cache;
    task_system           *tasks;
    test_message_generator gen;
@@ -106,10 +106,6 @@ CTEST2(limitations, test_io_init_invalid_page_size)
                           (char **)Ctest_argv);
    platform_assert_status_ok(rc);
 
-   // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
-   ASSERT_TRUE((data->io != NULL));
-
    // Hard-fix the configured default page-size to an illegal value
    uint64 page_size_configured = data->system_cfg->io_cfg.page_size;
    ASSERT_EQUAL(page_size_configured, 4096);
@@ -117,23 +113,23 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    data->system_cfg->io_cfg.page_size = 2048;
 
    // This should fail.
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_FALSE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io == NULL);
 
    // This should fail.
    data->system_cfg->io_cfg.page_size = (page_size_configured * 2);
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_FALSE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io == NULL);
 
    // Restore, and now set extent-size to invalid value
    data->system_cfg->io_cfg.page_size = page_size_configured;
 
    // This should succeed, finally!.
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_TRUE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io != NULL);
 
    // Release resources acquired in this test case.
-   io_handle_deinit(data->io);
+   io_handle_destroy(data->io);
 
    if (data->system_cfg) {
       platform_free(data->hid, data->system_cfg);
@@ -164,10 +160,6 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
                           (char **)Ctest_argv);
    platform_assert_status_ok(rc);
 
-   // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
-   ASSERT_TRUE((data->io != NULL));
-
    uint64 pages_per_extent = (data->system_cfg->io_cfg.extent_size
                               / data->system_cfg->io_cfg.page_size);
    ASSERT_EQUAL(MAX_PAGES_PER_EXTENT,
@@ -180,26 +172,27 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
 
    // This should fail.
    data->system_cfg->io_cfg.extent_size = data->system_cfg->io_cfg.page_size;
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_FALSE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io == NULL);
 
    // Halving the # of pages/extent. This should fail.
    data->system_cfg->io_cfg.extent_size =
       (data->system_cfg->io_cfg.page_size * pages_per_extent) / 2;
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_FALSE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io == NULL);
 
    // Doubling the # of pages/extent. This should fail.
    data->system_cfg->io_cfg.extent_size =
       (data->system_cfg->io_cfg.page_size * pages_per_extent * 2);
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_FALSE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io == NULL);
 
    data->system_cfg->io_cfg.extent_size = extent_size_configured;
 
    // This should succeed, finally!.
-   rc = io_handle_init(data->io, &data->system_cfg->io_cfg, data->hid);
-   ASSERT_TRUE(SUCCESS(rc));
+   data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
+   ASSERT_TRUE(data->io != NULL);
+   io_handle_destroy(data->io);
 
    if (data->system_cfg) {
       platform_free(data->hid, data->system_cfg);

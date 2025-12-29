@@ -10,7 +10,7 @@
 
 #include "log.h"
 #include "shard_log.h"
-#include "io.h"
+#include "platform_io.h"
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "cache.h"
@@ -181,12 +181,8 @@ test_log_perf(cache                  *cc,
 
    start_time = platform_get_timestamp();
    for (uint64 i = 0; i < num_threads; i++) {
-      ret = task_thread_create("log_thread",
-                               test_log_thread,
-                               &params[i],
-                               ts,
-                               hid,
-                               &params[i].thread);
+      ret = task_thread_create(
+         "log_thread", test_log_thread, &params[i], ts, hid, &params[i].thread);
       if (!SUCCESS(ret)) {
          // Wait for existing threads to quit
          for (uint64 j = 0; j < i; j++) {
@@ -288,12 +284,11 @@ log_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   status = io_handle_init(io, &system_cfg.io_cfg, hid);
-   if (!SUCCESS(status)) {
+   io_handle *io = io_handle_create(&system_cfg.io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
       rc = -1;
-      goto free_iohandle;
+      goto cleanup;
    }
 
    status = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
@@ -301,21 +296,18 @@ log_test(int argc, char *argv[])
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));
       rc = -1;
-      goto deinit_iohandle;
+      goto destroy_iohandle;
    }
 
-   status = rc_allocator_init(&al,
-                              &system_cfg.allocator_cfg,
-                              (io_handle *)io,
-                              hid,
-                              platform_get_module_id());
+   status = rc_allocator_init(
+      &al, &system_cfg.allocator_cfg, io, hid, platform_get_module_id());
    platform_assert_status_ok(status);
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc != NULL);
    status = clockcache_init(cc,
                             &system_cfg.cache_cfg,
-                            (io_handle *)io,
+                            io,
                             (allocator *)&al,
                             "test",
                             hid,
@@ -332,7 +324,7 @@ log_test(int argc, char *argv[])
    } else if (run_crash_test) {
       rc = test_log_crash(cc,
                           &system_cfg.cache_cfg,
-                          (io_handle *)io,
+                          io,
                           (allocator *)&al,
                           &system_cfg.log_cfg,
                           log,
@@ -345,7 +337,7 @@ log_test(int argc, char *argv[])
    } else {
       rc = test_log_crash(cc,
                           &system_cfg.cache_cfg,
-                          (io_handle *)io,
+                          io,
                           (allocator *)&al,
                           &system_cfg.log_cfg,
                           log,
@@ -362,10 +354,8 @@ log_test(int argc, char *argv[])
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
-deinit_iohandle:
-   io_handle_deinit(io);
-free_iohandle:
-   platform_free(hid, io);
+destroy_iohandle:
+   io_handle_destroy(io);
 cleanup:
    platform_free(hid, cfg);
    platform_heap_destroy(&hid);

@@ -25,7 +25,7 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
    *heap_id = PROCESS_PRIVATE_HEAP_ID;
 
    if (use_shmem) {
-      platform_status rc = platform_shmcreate(max, heap_id);
+      platform_status rc = platform_shmcreate(max, (shmem_heap **)heap_id);
       if (SUCCESS(rc)) {
          Heap_id = *heap_id;
       }
@@ -40,6 +40,6 @@ platform_heap_destroy(platform_heap_id *heap_id)
 {
    // If shared segment was allocated, it's being tracked thru heap ID.
    if (*heap_id) {
-      return platform_shmdestroy(heap_id);
+      return platform_shmdestroy((shmem_heap **)heap_id);
    }
 }

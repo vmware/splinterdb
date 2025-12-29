@@ -18,10 +18,12 @@
  */
 
 #define POISON_FROM_PLATFORM_IMPLEMENTATION
-#include "platform.h"
 
-#include "async.h"
 #include "laio.h"
+#include "platform_typed_alloc.h"
+#include "async.h"
+#include "platform_sleep.h"
+#include "platform_log.h"
 #include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -567,14 +569,20 @@ static io_ops laio_ops = {
  * Given an IO configuration, validate it. Allocate memory for various
  * sub-structures and allocate the SplinterDB device. Initialize the IO
  * sub-system, registering the file descriptor for SplinterDB device.
+ * Returns a pointer to the created io_handle, or NULL on error.
  */
-platform_status
-io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
+io_handle *
+laio_handle_create(io_config *cfg, platform_heap_id hid)
 {
    // Validate IO-configuration parameters
    platform_status rc = laio_config_valid(cfg);
    if (!SUCCESS(rc)) {
-      return rc;
+      return NULL;
+   }
+
+   laio_handle *io = TYPED_MALLOC(hid, io);
+   if (io == NULL) {
+      return NULL;
    }
 
    memset(io, 0, sizeof(*io));
@@ -591,39 +599,45 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
    if (io->fd == -1) {
       platform_error_log(
          "open() '%s' failed: %s\n", cfg->filename, strerror(errno));
-      return CONST_STATUS(errno);
+      platform_free(hid, io);
+      return NULL;
    }
 
    struct stat statbuf;
    int         r = fstat(io->fd, &statbuf);
    if (r) {
       platform_error_log("fstat failed: %s\n", strerror(errno));
-      return STATUS_IO_ERROR;
+      close(io->fd);
+      platform_free(hid, io);
+      return NULL;
    }
 
    if (S_ISREG(statbuf.st_mode) && statbuf.st_size < 128 * 1024) {
       r = fallocate(io->fd, 0, 0, 128 * 1024);
       if (r) {
          platform_error_log("fallocate failed: %s\n", strerror(errno));
-         return STATUS_IO_ERROR;
+         close(io->fd);
+         platform_free(hid, io);
+         return NULL;
       }
    }
 
    // leave req_hand set to 0
-   return STATUS_OK;
+   return (io_handle *)io;
 }
 
 /*
  * Dismantle the handle for the IO sub-system, close file and release memory.
  */
 void
-io_handle_deinit(laio_handle *io)
+laio_handle_destroy(io_handle *ioh)
 {
-   int status;
+   laio_handle *io = (laio_handle *)ioh;
+   int          status;
 
    for (int i = 0; i < MAX_THREADS; i++) {
       if (io->ctx[i].pid != 0) {
-         platform_error_log("ERROR: io_handle_deinit(): IO context for PID=%d"
+         platform_error_log("ERROR: io_handle_destroy(): IO context for PID=%d"
                             " is still active.\n",
                             io->ctx[i].pid);
       }
@@ -637,6 +651,8 @@ io_handle_deinit(laio_handle *io)
                          strerror(errno));
    }
    platform_assert(status == 0);
+
+   platform_free(io->heap_id, io);
 }
 
 /*

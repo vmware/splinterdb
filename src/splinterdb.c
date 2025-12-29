@@ -40,7 +40,7 @@ splinterdb_get_version()
 typedef struct splinterdb {
    task_system       *task_sys;
    io_config          io_cfg;
-   platform_io_handle io_handle;
+   io_handle         *io_handle;
    allocator_config   allocator_cfg;
    rc_allocator       allocator_handle;
    clockcache_config  cache_cfg;
@@ -304,15 +304,15 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       platform_shm_set_splinterdb_handle(use_this_heap_id, (void *)kvs);
    }
 
-   status = io_handle_init(&kvs->io_handle, &kvs->io_cfg, kvs->heap_id);
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to initialize IO handle: %s\n",
-                         platform_status_to_string(status));
-      goto io_handle_init_failed;
+   kvs->io_handle = io_handle_create(&kvs->io_cfg, kvs->heap_id);
+   if (kvs->io_handle == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      status = STATUS_NO_MEMORY;
+      goto io_handle_create_failed;
    }
 
    status = task_system_create(
-      kvs->heap_id, &kvs->io_handle, &kvs->task_sys, &kvs->task_cfg);
+      kvs->heap_id, kvs->io_handle, &kvs->task_sys, &kvs->task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log(
          "Failed to initialize SplinterDB task system state: %s\n",
@@ -323,13 +323,13 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    if (open_existing) {
       status = rc_allocator_mount(&kvs->allocator_handle,
                                   &kvs->allocator_cfg,
-                                  (io_handle *)&kvs->io_handle,
+                                  kvs->io_handle,
                                   kvs->heap_id,
                                   platform_get_module_id());
    } else {
       status = rc_allocator_init(&kvs->allocator_handle,
                                  &kvs->allocator_cfg,
-                                 (io_handle *)&kvs->io_handle,
+                                 kvs->io_handle,
                                  kvs->heap_id,
                                  platform_get_module_id());
    }
@@ -342,7 +342,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    status = clockcache_init(&kvs->cache_handle,
                             &kvs->cache_cfg,
-                            (io_handle *)&kvs->io_handle,
+                            kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "splinterdb",
                             kvs->heap_id,
@@ -388,8 +388,8 @@ deinit_allocator:
 deinit_system:
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
 deinit_iohandle:
-   io_handle_deinit(&kvs->io_handle);
-io_handle_init_failed:
+   io_handle_destroy(kvs->io_handle);
+io_handle_create_failed:
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
    // us to here via a 'goto', heap_id handle, if in use, may be in a
@@ -460,7 +460,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
-   io_handle_deinit(&kvs->io_handle);
+   io_handle_destroy(kvs->io_handle);
 
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_id heap_id         = kvs->heap_id;
@@ -834,7 +834,7 @@ splinterdb_get_task_system_handle(const splinterdb *kvs)
    return kvs->task_sys;
 }
 
-const platform_io_handle *
+const io_handle *
 splinterdb_get_io_handle(const splinterdb *kvs)
 {
    return &kvs->io_handle;

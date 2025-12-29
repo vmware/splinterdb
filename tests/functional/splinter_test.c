@@ -900,12 +900,8 @@ do_n_thread_creates(const char                  *thread_type,
 {
    platform_status ret;
    for (uint64 i = 0; i < num_threads; i++) {
-      ret = task_thread_create(thread_type,
-                               thread_hdlr,
-                               &params[i],
-                               ts,
-                               hid,
-                               &params[i].thread);
+      ret = task_thread_create(
+         thread_type, thread_hdlr, &params[i], ts, hid, &params[i].thread);
       if (!SUCCESS(ret)) {
          return ret;
       }
@@ -2732,26 +2728,23 @@ splinter_test(int argc, char *argv[])
                            system_cfg[0].io_cfg.kernel_queue_size);
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   rc = io_handle_init(io, &system_cfg[0].io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto io_free;
+   io_handle *io = io_handle_create(&system_cfg[0].io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto cfg_free;
    }
 
    rc = test_init_task_system(hid, io, &ts, &system_cfg[0].task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
-      goto handle_deinit;
+      goto handle_destroy;
    }
 
    rc_allocator al;
-   rc_allocator_init(&al,
-                     &system_cfg[0].allocator_cfg,
-                     (io_handle *)io,
-                     hid,
-                     platform_get_module_id());
+   rc_allocator_init(
+      &al, &system_cfg[0].allocator_cfg, io, hid, platform_get_module_id());
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
@@ -2759,7 +2752,7 @@ splinter_test(int argc, char *argv[])
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&cc[idx],
                            &system_cfg[idx].cache_cfg,
-                           (io_handle *)io,
+                           io,
                            (allocator *)&al,
                            "test",
                            hid,
@@ -2884,7 +2877,7 @@ splinter_test(int argc, char *argv[])
                test_data_config->key_to_string;
          }
          rc = test_functionality(alp,
-                                 (io_handle *)io,
+                                 io,
                                  caches,
                                  system_cfg,
                                  seed,
@@ -2918,10 +2911,8 @@ splinter_test(int argc, char *argv[])
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
-handle_deinit:
-   io_handle_deinit(io);
-io_free:
-   platform_free(hid, io);
+handle_destroy:
+   io_handle_destroy(io);
 cfg_free:
    platform_free(hid, system_cfg);
    platform_free(hid, test_cfg);

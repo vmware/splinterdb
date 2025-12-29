@@ -36,7 +36,7 @@
 
 #include "platform.h"
 #include "config.h"
-#include "io.h"
+#include "platform_io.h"
 #include "core.h" // Needed for trunk_get_scratch_size()
 #include "task.h"
 
@@ -49,7 +49,7 @@
 typedef struct io_test_fn_args {
    platform_heap_id    hid;
    io_config          *io_cfgp;
-   platform_io_handle *io_hdlp;
+   io_handle *io_hdlp;
    task_system        *tasks;
    uint64              start_addr;
    uint64              end_addr;
@@ -65,7 +65,7 @@ bool32 Verbose_progress = FALSE;
  * Global to track address of allocated IO-handle allocated in parent process.
  * Used for cross-checking in child's context after fork().
  */
-platform_io_handle *Parent_io_handle = NULL;
+io_handle *Parent_io_handle = NULL;
 
 /*
  * Different test cases in this test drive multiple threads each doing one
@@ -99,7 +99,7 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 static platform_status
 test_sync_writes(platform_heap_id    hid,
                  io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
+                 io_handle *io_hdlp,
                  uint64              start_addr,
                  uint64              end_addr,
                  char                stamp_char);
@@ -107,7 +107,7 @@ test_sync_writes(platform_heap_id    hid,
 static platform_status
 test_sync_reads(platform_heap_id    hid,
                 io_config          *io_cfgp,
-                platform_io_handle *io_hdlp,
+                io_handle *io_hdlp,
                 uint64              start_addr,
                 uint64              end_addr,
                 char                stamp_char);
@@ -120,7 +120,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
 static platform_status
 test_async_reads(platform_heap_id    hid,
                  io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
+                 io_handle *io_hdlp,
                  uint64              start_addr,
                  char                stamp_char,
                  const char         *whoami);
@@ -235,20 +235,13 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // For this test, we allocate this structure. In a running Splinter
    // instance, this struct is nested inside the splinterdb{} handle.
-   platform_io_handle *io_hdl = TYPED_ZALLOC(hid, io_hdl);
-   if (!io_hdl) {
+   io_handle *io_hdl = io_handle_create(&io_cfg, hid);
+   if (io_hdl == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
       goto heap_destroy;
    }
    Parent_io_handle = io_hdl;
-
-   // Initialize the handle to the IO sub-system. A device with a small initial
-   // size gets created here.
-   rc = io_handle_init(io_hdl, &io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      platform_error_log("Failed to initialize IO handle: %s\n",
-                         platform_status_to_string(rc));
-      goto io_free;
-   }
 
    uint64 disk_size_MB = DEVICE_SIZE_MB;
    uint64 disk_size    = (disk_size_MB * MiB); // bytes
@@ -268,8 +261,8 @@ splinter_io_apis_test(int argc, char *argv[])
     */
    uint64             num_bg_threads[NUM_TASK_TYPES] = {0};
    task_system_config task_cfg;
-   rc = task_system_config_init(
-      &task_cfg, TRUE /* use stats */, num_bg_threads);
+   rc =
+      task_system_config_init(&task_cfg, TRUE /* use stats */, num_bg_threads);
    platform_assert(SUCCESS(rc));
 
    task_system *tasks = NULL;
@@ -352,8 +345,8 @@ splinter_io_apis_test(int argc, char *argv[])
                                  platform_getpid(),
                                  this_thread_idx,
                                  whoami,
-                                Parent_io_handle,
-                                io_hdl);
+                                 Parent_io_handle,
+                                 io_hdl);
          }
 
          task_register_this_thread(tasks);
@@ -396,16 +389,14 @@ splinter_io_apis_test(int argc, char *argv[])
       task_deregister_this_thread(tasks);
    }
 
+io_free:
    // Only the parent process should dismantle stuff
-   if (pid > 0) {
+   if (pid != 0) {
       task_system_destroy(hid, &tasks);
-      io_handle_deinit(io_hdl);
+      io_handle_destroy(io_hdl);
    }
 
-io_free:
-   if (pid > 0) {
-      platform_free(hid, io_hdl);
-   }
+
 heap_destroy:
    if (pid > 0) {
       platform_heap_destroy(&hid);
@@ -439,7 +430,7 @@ heap_destroy:
 static platform_status
 test_sync_writes(platform_heap_id    hid,
                  io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
+                 io_handle *io_hdlp,
                  uint64              start_addr,
                  uint64              end_addr,
                  char                stamp_char)
@@ -531,7 +522,7 @@ test_sync_writes_worker(void *arg)
 static platform_status
 test_sync_reads(platform_heap_id    hid,
                 io_config          *io_cfgp,
-                platform_io_handle *io_hdlp,
+                io_handle *io_hdlp,
                 uint64              start_addr,
                 uint64              end_addr,
                 char                stamp_char)
@@ -816,7 +807,7 @@ read_async_callback(void *arg)
 static platform_status
 test_async_reads(platform_heap_id    hid,
                  io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
+                 io_handle *io_hdlp,
                  uint64              start_addr,
                  char                stamp_char,
                  const char         *whoami)

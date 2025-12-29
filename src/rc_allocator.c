@@ -12,7 +12,7 @@
 #include "platform.h"
 
 #include "rc_allocator.h"
-#include "io.h"
+#include "platform_io.h"
 
 #include "poison.h"
 

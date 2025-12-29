@@ -11,7 +11,7 @@
 
 #include "platform.h"
 
-#include "io.h"
+#include "platform_io.h"
 
 typedef uint64 allocator_root_id;
 #define INVALID_ALLOCATOR_ROOT_ID (0)

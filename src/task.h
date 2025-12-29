@@ -105,7 +105,7 @@ task_system_config_init(task_system_config *task_cfg,
 struct task_system {
    const task_system_config *cfg;
    // IO handle (currently one splinter system has just one)
-   platform_io_handle *ioh;
+   io_handle *ioh;
    platform_heap_id    heap_id;
    // task groups
    task_group group[NUM_TASK_TYPES];
@@ -154,7 +154,7 @@ task_deregister_thread(task_system *ts,
  */
 platform_status
 task_system_create(platform_heap_id          hid,
-                   platform_io_handle       *ioh,
+                   io_handle       *ioh,
                    task_system             **system,
                    const task_system_config *cfg);
 

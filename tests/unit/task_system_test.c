@@ -86,8 +86,8 @@ CTEST_DATA(task_system)
    task_system_config task_cfg;
 
    // Following get setup pointing to allocated memory
-   platform_io_handle *ioh; // Only prerequisite needed to setup task system
-   task_system        *tasks;
+   io_handle   *ioh; // Only prerequisite needed to setup task system
+   task_system *tasks;
 };
 
 /*
@@ -124,10 +124,8 @@ CTEST_SETUP(task_system)
                   master_cfg.io_async_queue_depth,
                   master_cfg.io_filename);
 
-   rc = io_handle_init(data->ioh, &data->io_cfg, data->hid);
-   ASSERT_TRUE(SUCCESS(rc),
-               "Failed to init IO handle: %s\n",
-               platform_status_to_string(rc));
+   data->ioh = io_handle_create(&data->io_cfg, data->hid);
+   ASSERT_TRUE(data->ioh != NULL, "Failed to create IO handle\n");
 
    // Background threads are OFF by default.
    rc = create_task_system_without_bg_threads(data);
@@ -141,7 +139,7 @@ CTEST_SETUP(task_system)
 CTEST_TEARDOWN(task_system)
 {
    task_system_destroy(data->hid, &data->tasks);
-   io_handle_deinit(data->ioh);
+   io_handle_destroy(data->ioh);
    platform_heap_destroy(&data->hid);
 }
 
@@ -425,8 +423,8 @@ create_task_system_without_bg_threads(void *datap)
    // no background threads by default.
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    rc = task_system_config_init(&data->task_cfg,
-                               TRUE, // use stats
-                               num_bg_threads);
+                                TRUE, // use stats
+                                num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
    return rc;
@@ -451,8 +449,8 @@ create_task_system_with_bg_threads(void  *datap,
    num_bg_threads[TASK_TYPE_MEMTABLE]    = num_memtable_bg_threads;
    num_bg_threads[TASK_TYPE_NORMAL]      = num_normal_bg_threads;
    rc = task_system_config_init(&data->task_cfg,
-                               TRUE, // use stats
-                               num_bg_threads);
+                                TRUE, // use stats
+                                num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);

@@ -27,7 +27,7 @@ splinterdb_get_heap_id(const splinterdb *kvs);
 const task_system *
 splinterdb_get_task_system_handle(const splinterdb *kvs);
 
-const platform_io_handle *
+const io_handle *
 splinterdb_get_io_handle(const splinterdb *kvs);
 
 const allocator *

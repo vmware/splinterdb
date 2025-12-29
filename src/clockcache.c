@@ -12,7 +12,7 @@
 
 #include "allocator.h"
 #include "clockcache.h"
-#include "io.h"
+#include "platform_io.h"
 #include <stddef.h>
 #include "util.h"
 

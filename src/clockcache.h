@@ -11,7 +11,7 @@
 
 #include "allocator.h"
 #include "cache.h"
-#include "io.h"
+#include "platform_io.h"
 
 // #define ADDR_TRACING
 #define TRACE_ADDR  (UINT64_MAX - 1)

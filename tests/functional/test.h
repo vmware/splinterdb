@@ -57,7 +57,7 @@ splinter_io_apis_test(int argc, char *argv[]);
  */
 static inline platform_status
 test_init_task_system(platform_heap_id          hid,
-                      platform_io_handle       *ioh,
+                      io_handle       *ioh,
                       task_system             **system,
                       const task_system_config *cfg)
 {

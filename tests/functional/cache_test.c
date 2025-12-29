@@ -979,31 +979,28 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto free_iohandle;
+   io_handle *io = io_handle_create(&system_cfg.io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
    }
 
    rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_iohandle;
+      goto destroy_iohandle;
    }
 
    rc_allocator al;
-   rc_allocator_init(&al,
-                     &system_cfg.allocator_cfg,
-                     (io_handle *)io,
-                     hid,
-                     platform_get_module_id());
+   rc_allocator_init(
+      &al, &system_cfg.allocator_cfg, io, hid, platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
                         &system_cfg.cache_cfg,
-                        (io_handle *)io,
+                        io,
                         (allocator *)&al,
                         "test",
                         hid,
@@ -1081,10 +1078,8 @@ cache_test(int argc, char *argv[])
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
-deinit_iohandle:
-   io_handle_deinit(io);
-free_iohandle:
-   platform_free(hid, io);
+destroy_iohandle:
+   io_handle_destroy(io);
 cleanup:
    platform_free(hid, splinter_cfg);
    platform_heap_destroy(&hid);

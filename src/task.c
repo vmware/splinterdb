@@ -4,7 +4,7 @@
 #include "platform.h"
 #include "task.h"
 #include "util.h"
-#include "io.h"
+#include "platform_io.h"
 
 #include "poison.h"
 
@@ -613,7 +613,7 @@ task_system_config_init(task_system_config *task_cfg,
  */
 platform_status
 task_system_create(platform_heap_id          hid,
-                   platform_io_handle       *ioh,
+                   io_handle       *ioh,
                    task_system             **system,
                    const task_system_config *cfg)
 {
