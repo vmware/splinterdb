@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "platform_log.h"
 #include "splinterdb/data.h"
 #include "util.h"
 

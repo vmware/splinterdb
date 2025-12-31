@@ -10,7 +10,10 @@
 
 #pragma once
 
-#include "platform.h"
+#include "splinterdb/public_platform.h"
+#include "platform_machine.h"
+#include "platform_heap.h"
+#include "platform_typed_alloc.h"
 
 typedef struct {
    uint32               num_elems;

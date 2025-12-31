@@ -5,7 +5,6 @@
  *  Define things in here that are going to be needed across most unit tests.
  */
 
-#include "splinterdb/public_platform.h"
 #include "ctest.h"
 
 /* Name of SplinterDB device created for unit-tests */

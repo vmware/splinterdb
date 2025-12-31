@@ -14,14 +14,14 @@
  */
 
 #include "splinterdb/splinterdb.h"
-#include "platform.h"
 #include "clockcache.h"
-#include "platform_linux/platform.h"
 #include "rc_allocator.h"
 #include "core.h"
-#include "btree_private.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
+#include "platform_typed_alloc.h"
+#include "platform_assert.h"
+#include "platform_units.h"
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
@@ -75,20 +75,20 @@ static void
 splinterdb_config_set_defaults(splinterdb_config *cfg)
 {
    if (!cfg->page_size) {
-      cfg->page_size = LAIO_DEFAULT_PAGE_SIZE;
+      cfg->page_size = IO_DEFAULT_PAGE_SIZE;
    }
    if (!cfg->extent_size) {
-      cfg->extent_size = LAIO_DEFAULT_EXTENT_SIZE;
+      cfg->extent_size = IO_DEFAULT_EXTENT_SIZE;
    }
    if (!cfg->io_flags) {
-      cfg->io_flags = O_RDWR | O_CREAT;
+      cfg->io_flags = IO_DEFAULT_FLAGS;
    }
    if (!cfg->io_perms) {
-      cfg->io_perms = 0755;
+      cfg->io_perms = IO_DEFAULT_PERMS;
    }
 
    if (!cfg->io_async_queue_depth) {
-      cfg->io_async_queue_depth = 256;
+      cfg->io_async_queue_depth = IO_DEFAULT_ASYNC_QUEUE_DEPTH;
    }
 
    if (!cfg->btree_rough_count_height) {
@@ -176,7 +176,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                   cfg.filename);
 
    // Validate IO-configuration parameters
-   rc = laio_config_valid(&kvs->io_cfg);
+   rc = io_config_valid(&kvs->io_cfg);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -311,8 +311,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto io_handle_create_failed;
    }
 
-   status = task_system_create(
-      kvs->heap_id, kvs->io_handle, &kvs->task_sys, &kvs->task_cfg);
+   status = task_system_create(kvs->heap_id, &kvs->task_sys, &kvs->task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log(
          "Failed to initialize SplinterDB task system state: %s\n",
@@ -472,56 +471,6 @@ splinterdb_close(splinterdb **kvs_in) // IN
    *kvs_in = (splinterdb *)NULL;
 }
 
-
-/*
- *-----------------------------------------------------------------------------
- * splinterdb_register_thread --
- *
- *      Register the current thread.
- *
- *      Any thread, other than the initializing thread, must call this function
- *      exactly once before using the splinterdb.
- *
- *      Notes:
- *      - The task system imposes a limit of MAX_THREADS live at any time
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-void
-splinterdb_register_thread(splinterdb *kvs) // IN
-{
-   platform_assert(kvs != NULL);
-
-   platform_status rc = task_register_this_thread(kvs->task_sys);
-   platform_assert_status_ok(rc);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * splinterdb_deregister_thread --
- *
- *      Deregister the current thread.
- *      Call this function before exiting a registered thread.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-void
-splinterdb_deregister_thread(splinterdb *kvs)
-{
-   platform_assert(kvs != NULL);
-
-   task_deregister_this_thread(kvs->task_sys);
-}
 
 /*
  *-----------------------------------------------------------------------------
@@ -837,7 +786,7 @@ splinterdb_get_task_system_handle(const splinterdb *kvs)
 const io_handle *
 splinterdb_get_io_handle(const splinterdb *kvs)
 {
-   return &kvs->io_handle;
+   return kvs->io_handle;
 }
 
 const allocator *

@@ -6,11 +6,12 @@
 // see README.md for usage instructions.
 // (‑●‑●)> released under the WTFPL v2 license, by Gregory Pakosz (@gpakosz)
 
-#include "platform.h"
 
 #ifndef PACKEDARRAY_SELF
 #define PACKEDARRAY_SELF "PackedArray.c"
 #endif
+
+#include "platform_assert.h"
 
 #ifdef PACKEDARRAY_IMPL
 

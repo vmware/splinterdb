@@ -9,9 +9,7 @@
 
 #pragma once
 
-#include "platform.h"
 #include "allocator.h"
-#include "platform_io.h"
 #include "async.h"
 
 typedef struct page_handle {

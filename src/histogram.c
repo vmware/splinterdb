@@ -9,6 +9,7 @@
 
 #include "histogram.h"
 #include "platform_typed_alloc.h"
+#include "platform_log.h"
 #include <string.h>
 
 platform_status
@@ -18,8 +19,10 @@ histogram_create(platform_heap_id   heap_id,
                  histogram_handle  *histo)
 {
    histogram_handle hh;
-   hh = TYPED_MANUAL_MALLOC(
-      heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
+   hh = TYPED_MANUAL_MALLOC(heap_id,
+                            hh,
+                            sizeof(hh) // NOLINT(bugprone-sizeof-expression)
+                               + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return STATUS_NO_MEMORY;
    }

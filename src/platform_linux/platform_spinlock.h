@@ -9,7 +9,7 @@
 // Spin lock
 typedef pthread_spinlock_t platform_spinlock;
 
-platform_status
+static inline platform_status
 platform_spinlock_init(platform_spinlock *lock)
 {
    int ret;
@@ -20,7 +20,7 @@ platform_spinlock_init(platform_spinlock *lock)
 }
 
 
-platform_status
+static inline platform_status
 platform_spinlock_destroy(platform_spinlock *lock)
 {
    int ret;

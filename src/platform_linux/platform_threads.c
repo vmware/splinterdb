@@ -6,6 +6,11 @@
 
 __thread threadid xxxtid;
 
+// xxxpid is valid iff ospid == getpid()
+threadid xxxpid;
+pid_t    ospid;
+
+
 /****************************************
  * Thread ID allocation and management  *
  ****************************************/
@@ -23,9 +28,27 @@ typedef struct threadid_allocator {
    threadid max_tid;
 } threadid_allocator;
 
+typedef struct pid_allocator {
+   uint64 lock;
+   uint64 thread_count[MAX_THREADS];
+} pid_allocator;
+
+typedef struct thread_invocation {
+   platform_thread_worker worker;
+   void                  *arg;
+} thread_invocation;
+
+typedef struct id_allocator {
+   threadid_allocator                tid_allocator;
+   pid_allocator                     pid_allocator;
+   uint64                            process_event_callback_list_lock;
+   process_event_callback_list_node *process_event_callback_list;
+   thread_invocation                 thread_invocations[MAX_THREADS];
+} id_allocator;
+
 // This will be allocated in shared memory so that it is shared by all
 // processes.
-static threadid_allocator *tid_allocator = NULL;
+static id_allocator *id_alloc = NULL;
 
 /*
  * task_init_tid_bitmask() - Initialize the global bitmask of active threads
@@ -33,24 +56,23 @@ static threadid_allocator *tid_allocator = NULL;
  * active.
  */
 static void
-tid_allocator_init_if_needed(void)
+id_allocator_init_if_needed(void)
 {
-   if (tid_allocator == NULL) {
-      tid_allocator = mmap(NULL,
-                           sizeof(threadid_allocator),
-                           PROT_READ | PROT_WRITE,
-                           MAP_SHARED | MAP_ANONYMOUS,
-                           -1,
-                           0);
-      if (tid_allocator == MAP_FAILED) {
-         platform_error_log("Failed to allocate memory for threadid allocator");
+   if (id_alloc == NULL) {
+      id_allocator *my_id_alloc = NULL;
+      my_id_alloc               = mmap(NULL,
+                         sizeof(id_allocator),
+                         PROT_READ | PROT_WRITE,
+                         MAP_SHARED | MAP_ANONYMOUS,
+                         -1,
+                         0);
+      if (my_id_alloc == MAP_FAILED) {
+         platform_error_log("Failed to allocate memory for id allocator");
          return;
       }
-      memset(tid_allocator, 0x00, sizeof(threadid_allocator));
-      int num_bitmasks = (MAX_THREADS + 63) / 64;
-
-      for (int i = 0; i < num_bitmasks; i++) {
-         tid_allocator->available_tids[i] = (uint64)-1;
+      memset(my_id_alloc, 0x00, sizeof(id_allocator));
+      if (!__sync_bool_compare_and_swap(&id_alloc, NULL, my_id_alloc)) {
+         munmap(my_id_alloc, sizeof(id_allocator));
       }
    }
 }
@@ -61,14 +83,12 @@ tid_allocator_init_if_needed(void)
 static threadid
 allocate_threadid()
 {
-   tid_allocator_init_if_needed();
-
    threadid tid         = INVALID_TID;
-   uint64  *tid_bitmask = tid_allocator->available_tids;
+   uint64  *tid_bitmask = id_alloc->tid_allocator.available_tids;
    uint64   old_bitmask;
    uint64   new_bitmask;
 
-   while (__sync_lock_test_and_set(&tid_allocator->bitmask_lock, 1)) {
+   while (__sync_lock_test_and_set(&id_alloc->tid_allocator.bitmask_lock, 1)) {
       // spin
    }
 
@@ -81,7 +101,7 @@ allocate_threadid()
    }
 
    if (pos == 0) {
-      __sync_lock_release(&tid_allocator->bitmask_lock);
+      __sync_lock_release(&id_alloc->tid_allocator.bitmask_lock);
       platform_error_log("No thread id available");
       return INVALID_TID;
    }
@@ -92,18 +112,18 @@ allocate_threadid()
    tid = pos - 1;
    // set bit at that position to 0, indicating in use.
    new_bitmask = (old_bitmask & ~(1ULL << tid));
-   int r =
-      __sync_bool_compare_and_swap(&tid_bitmask[i], old_bitmask, new_bitmask);
+   int r       = __sync_bool_compare_and_swap(
+      &id_alloc->tid_allocator.available_tids[i], old_bitmask, new_bitmask);
    platform_assert(r);
 
-   __sync_lock_release(&tid_allocator->bitmask_lock);
+   __sync_lock_release(&id_alloc->tid_allocator.bitmask_lock);
 
    tid += i * 64;
 
    // Invariant: we have successfully allocated tid
 
    // atomically update the max_tid.
-   threadid *max_tid = &tid_allocator->max_tid;
+   threadid *max_tid = &id_alloc->tid_allocator.max_tid;
    threadid  tmp     = *max_tid;
    while (tmp < tid && !__sync_bool_compare_and_swap(max_tid, tmp, tid)) {
       tmp = *max_tid;
@@ -119,9 +139,9 @@ allocate_threadid()
 static void
 deallocate_threadid(threadid tid)
 {
-   uint64 *tid_bitmask = tid_allocator->available_tids;
+   uint64 *tid_bitmask = id_alloc->tid_allocator.available_tids;
 
-   while (__sync_lock_test_and_set(&tid_allocator->bitmask_lock, 1)) {
+   while (__sync_lock_test_and_set(&id_alloc->tid_allocator.bitmask_lock, 1)) {
       // spin
    }
 
@@ -143,9 +163,75 @@ deallocate_threadid(threadid tid)
       new_value   = tmp_bitmask | (1ULL << (tid % 64));
    }
 
-   __sync_lock_release(&tid_allocator->bitmask_lock);
+   __sync_lock_release(&id_alloc->tid_allocator.bitmask_lock);
+
+   xxxtid = INVALID_TID;
 }
 
+static platform_status
+ensure_xxxpid_is_setup(void)
+{
+   pid_t myospid = getpid();
+
+   while (__sync_lock_test_and_set(&id_alloc->pid_allocator.lock, 1)) {
+      // spin
+   }
+
+   if (myospid == ospid) {
+      id_alloc->pid_allocator.thread_count[xxxpid]++;
+      __sync_lock_release(&id_alloc->pid_allocator.lock);
+      return STATUS_OK;
+   }
+
+   for (int i = 0; i < MAX_THREADS; i++) {
+      if (id_alloc->pid_allocator.thread_count[i] == 0) {
+         id_alloc->pid_allocator.thread_count[i] = 1;
+         xxxpid                                  = i;
+         ospid                                   = myospid;
+         xxxtid                                  = INVALID_TID;
+
+         break;
+      }
+   }
+
+   __sync_lock_release(&id_alloc->pid_allocator.lock);
+
+   if (ospid != myospid) {
+      return STATUS_BUSY;
+   }
+
+   return STATUS_OK;
+}
+
+static void
+decref_xxxpid(void)
+{
+   while (__sync_lock_test_and_set(&id_alloc->pid_allocator.lock, 1)) {
+      // spin
+   }
+
+   id_alloc->pid_allocator.thread_count[xxxpid]--;
+   if (id_alloc->pid_allocator.thread_count[xxxpid] == 0) {
+
+      while (__sync_lock_test_and_set(
+         &id_alloc->process_event_callback_list_lock, 1))
+      {
+         // spin
+      }
+      process_event_callback_list_node *current =
+         id_alloc->process_event_callback_list;
+      while (current != NULL) {
+         current->termination(xxxpid, current->arg);
+         current = current->next;
+      }
+      __sync_lock_release(&id_alloc->process_event_callback_list_lock);
+
+      xxxpid = INVALID_TID;
+      ospid  = 0;
+   }
+
+   __sync_lock_release(&id_alloc->pid_allocator.lock);
+}
 
 /*
  * Return the max thread-index across all active tasks.
@@ -154,14 +240,84 @@ deallocate_threadid(threadid tid)
 threadid
 platform_get_max_tid()
 {
-   tid_allocator_init_if_needed();
-   return tid_allocator->max_tid + 1;
+   id_allocator_init_if_needed();
+   return id_alloc->tid_allocator.max_tid + 1;
 }
 
+void
+platform_linux_add_process_event_callback(
+   process_event_callback_list_node *node)
+{
+   while (
+      __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
+   {
+      // spin
+   }
+   node->next = id_alloc->process_event_callback_list;
+   id_alloc->process_event_callback_list = node;
+   __sync_lock_release(&id_alloc->process_event_callback_list_lock);
+}
+
+void
+platform_linux_remove_process_event_callback(
+   process_event_callback_list_node *node)
+{
+   while (
+      __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
+   {
+      // spin
+   }
+
+   process_event_callback_list_node *current =
+      id_alloc->process_event_callback_list;
+   process_event_callback_list_node *prev = NULL;
+   while (current != NULL) {
+      if (current == node) {
+         if (prev == NULL) {
+            id_alloc->process_event_callback_list = current->next;
+         } else {
+            prev->next = current->next;
+         }
+         break;
+      }
+      prev    = current;
+      current = current->next;
+   }
+
+   __sync_lock_release(&id_alloc->process_event_callback_list_lock);
+}
 
 /******************************************************************************
  * Registering/deregistering threads.
  ******************************************************************************/
+
+/*
+ * platform_deregister_thread() - Deregister an active thread.
+ *
+ * Deregistration involves clearing the thread ID (index) for this thread.
+ */
+void
+platform_deregister_thread()
+{
+   threadid tid = platform_get_tid();
+
+   platform_assert(tid != INVALID_TID,
+                   "Error! Attempt to deregister unregistered thread.\n");
+
+   deallocate_threadid(tid);
+   decref_xxxpid();
+}
+
+static void
+thread_registration_cleanup_function(void *arg)
+{
+   if (xxxtid != INVALID_TID) {
+      platform_error_log(
+         "Thread registration cleanup function called for thread %lu", xxxtid);
+      platform_deregister_thread();
+   }
+}
+
 
 /*
  * platform_register_thread(): Register this new thread.
@@ -170,68 +326,53 @@ platform_get_max_tid()
  *  - Acquire a new thread ID (index) for this to-be-active thread
  */
 int
-platform_register_thread(const char *file, const int lineno, const char *func)
+platform_register_thread(void)
 {
-   tid_allocator_init_if_needed();
+   id_allocator_init_if_needed();
+
+   platform_status status = ensure_xxxpid_is_setup();
+   if (!SUCCESS(status)) {
+      return -1;
+   }
 
    threadid thread_tid = xxxtid;
 
-   thread_tid = xxxtid;
-
    // Before registration, all SplinterDB threads' tid will be its default
-   // value; i.e. INVALID_TID. However, for the special case when we run
-   // tests that simulate process-model of execution, we fork() from the main
-   // test. Before registration, this 'thread' inherits the thread ID from
-   // the main thread, which will be == 0.
-   platform_assert(((thread_tid == INVALID_TID) || (thread_tid == 0)),
-                   "[%s:%d::%s()] Attempt to register thread that is already "
+   // value; i.e. INVALID_TID.
+   platform_assert(thread_tid == INVALID_TID,
+                   "Attempt to register thread that is already "
                    "registered as thread %lu\n",
-                   file,
-                   lineno,
-                   func,
                    thread_tid);
 
    thread_tid = allocate_threadid();
    // Unavailable threads is a temporary state that could go away.
    if (thread_tid == INVALID_TID) {
+      decref_xxxpid();
       return -1;
    }
 
    platform_assert(thread_tid < MAX_THREADS);
    xxxtid = thread_tid;
 
-
-   laio_register_thread(ioh);
-
    return 0;
-}
-
-/*
- * platform_deregister_thread() - Deregister an active thread.
- *
- * Deregistration involves clearing the thread ID (index) for this thread.
- */
-void
-platform_deregister_thread(const char *file, const int lineno, const char *func)
-{
-   threadid tid = platform_get_tid();
-
-   platform_assert(
-      tid != INVALID_TID,
-      "[%s:%d::%s()] Error! Attempt to deregister unregistered thread.\n",
-      file,
-      lineno,
-      func);
-
-   laio_deregister_thread(ioh);
-   platform_set_tid(INVALID_TID);
-   process_deallocate_threadid(tid); // allow thread id to be re-used
 }
 
 
 /******************************************************************************
  * Thread creation and joining.
  ******************************************************************************/
+
+static void *
+thread_worker_function(void *arg)
+{
+   pthread_cleanup_push(thread_registration_cleanup_function, NULL);
+   thread_invocation *thread_inv = (thread_invocation *)arg;
+   threadid           tid        = thread_inv - id_alloc->thread_invocations;
+   xxxtid                        = tid;
+   thread_inv->worker(thread_inv->arg);
+   pthread_cleanup_pop(1);
+   return NULL;
+}
 
 /*
  * platform_thread_create() - External interface to create a Splinter thread.
@@ -245,34 +386,32 @@ platform_thread_create(platform_thread       *thread,
 {
    int ret;
 
-   if (detached) {
-      pthread_attr_t attr;
-      pthread_attr_init(&attr);
-      size_t stacksize = 16UL * 1024UL;
-      pthread_attr_setstacksize(&attr, stacksize);
-      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-      ret = pthread_create(thread, &attr, (void *(*)(void *))worker, arg);
-      pthread_attr_destroy(&attr);
-   } else {
-      ret = pthread_create(thread, NULL, (void *(*)(void *))worker, arg);
+   // We allocate the threadid here, rather than in the thread_worker_function,
+   // so that we can report an error if the threadid allocation fails.
+   threadid tid = allocate_threadid();
+   if (tid == INVALID_TID) {
+      return STATUS_BUSY;
+   }
+   thread_invocation *thread_inv = &id_alloc->thread_invocations[tid];
+   thread_inv->worker            = worker;
+   thread_inv->arg               = arg;
+
+   ret = pthread_create(thread, NULL, thread_worker_function, thread_inv);
+   if (ret != 0) {
+      deallocate_threadid(tid);
+      return STATUS_NO_MEMORY;
    }
 
    return CONST_STATUS(ret);
 }
 
 platform_status
-platform_thread_join(platform_thread thread)
+platform_thread_join(platform_thread *thread)
 {
    int   ret;
    void *retval;
 
-   ret = pthread_join(thread, &retval);
+   ret = pthread_join(*thread, &retval);
 
    return CONST_STATUS(ret);
-}
-
-platform_thread
-platform_thread_id_self()
-{
-   return pthread_self();
 }

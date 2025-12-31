@@ -204,7 +204,7 @@ CTEST2(task_system, test_one_thread_using_lower_apis)
    // This main-thread's thread-index remains unchanged.
    ASSERT_EQUAL(main_thread_idx, platform_get_tid());
 
-   rc = platform_thread_join(new_thread);
+   rc = platform_thread_join(&new_thread);
    ASSERT_TRUE(SUCCESS(rc));
 
    // This main-thread's thread-index remains unchanged.
@@ -249,12 +249,11 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
    // This interface packages all the platform_thread_create() and
    // register / deregister business, around the invocation of the
    // user's worker function, exec_one_thread_use_extern_apis().
-   rc = task_thread_create("test_one_thread",
-                           exec_one_thread_use_extern_apis,
-                           &thread_cfg,
-                           data->tasks,
-                           data->hid,
-                           &new_thread);
+   rc = platform_thread_create(&new_thread,
+                               FALSE,
+                               exec_one_thread_use_extern_apis,
+                               &thread_cfg,
+                               data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    thread_cfg.this_thread_id = new_thread;
@@ -264,7 +263,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
 
    // task_thread_join(), if it were to exist, would have been
    // a pass-through to platform-specific join() method, anyways.
-   rc = platform_thread_join(new_thread);
+   rc = platform_thread_join(&new_thread);
    ASSERT_TRUE(SUCCESS(rc));
 
    // This main-thread's thread-index remains unchanged.
@@ -370,12 +369,11 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    platform_thread new_thread[2] = {0};
 
    // This should successfully create a new (the last) thread
-   rc = task_thread_create("test_one_thread",
-                           exec_user_thread_loop_for_stop,
-                           &thread_cfg[0],
-                           data->tasks,
-                           data->hid,
-                           &new_thread[0]);
+   rc = platform_thread_create(&new_thread[0],
+                               FALSE,
+                               exec_user_thread_loop_for_stop,
+                               &thread_cfg[0],
+                               data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Wait till 1st user-thread gets to its wait-for-stop loop
@@ -386,12 +384,11 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    thread_cfg[1].exp_thread_idx = task_get_max_tid(data->tasks);
 
    // We've used up all threads. This thread creation should fail.
-   rc = task_thread_create("test_one_thread",
-                           exec_user_thread_loop_for_stop,
-                           &thread_cfg[1],
-                           data->tasks,
-                           data->hid,
-                           &new_thread[1]);
+   rc = platform_thread_create(&new_thread[1],
+                               FALSE,
+                               exec_user_thread_loop_for_stop,
+                               &thread_cfg[1],
+                               data->hid);
    ASSERT_FALSE(SUCCESS(rc),
                 "Thread should not have been created"
                 ", new_thread=%lu, max_tid=%lu\n",

@@ -3,11 +3,39 @@
 
 #pragma once
 
-#include "platform.h"
+#include "splinterdb/platform_linux/public_platform.h"
+#include "platform_status.h"
+#include "platform_heap.h"
+#include "platform_threads.h"
+#include "platform_condvar.h"
+
+/*
+ * We maintain separate task groups for the memtable because memtable
+ * jobs are much shorter than other jobs and are latency critical.  By
+ * separating them out, we can devote a small number of threads to
+ * deal with these small, latency critical tasks.
+ */
+typedef enum task_type {
+   TASK_TYPE_INVALID = 0,
+   TASK_TYPE_MEMTABLE,
+   TASK_TYPE_NORMAL,
+   NUM_TASK_TYPES,
+   TASK_TYPE_FIRST = TASK_TYPE_MEMTABLE
+} task_type;
+
+typedef struct task_system_config {
+   bool32 use_stats;
+   uint64 num_background_threads[NUM_TASK_TYPES];
+} task_system_config;
+
+platform_status
+task_system_config_init(task_system_config *task_cfg,
+                        bool32              use_stats,
+                        const uint64 num_background_threads[NUM_TASK_TYPES]);
+
 
 typedef struct task_system task_system;
 
-typedef void (*task_hook)(task_system *arg);
 typedef void (*task_fn)(void *arg);
 
 typedef struct task {
@@ -64,33 +92,6 @@ typedef struct task_group {
 } task_group;
 
 /*
- * We maintain separate task groups for the memtable because memtable
- * jobs are much shorter than other jobs and are latency critical.  By
- * separating them out, we can devote a small number of threads to
- * deal with these small, latency critical tasks.
- */
-typedef enum task_type {
-   TASK_TYPE_INVALID = 0,
-   TASK_TYPE_MEMTABLE,
-   TASK_TYPE_NORMAL,
-   NUM_TASK_TYPES,
-   TASK_TYPE_FIRST = TASK_TYPE_MEMTABLE
-} task_type;
-
-typedef struct task_system_config {
-   bool32 use_stats;
-   uint64 num_background_threads[NUM_TASK_TYPES];
-} task_system_config;
-
-platform_status
-task_system_config_init(task_system_config *task_cfg,
-                        bool32              use_stats,
-                        const uint64 num_background_threads[NUM_TASK_TYPES]);
-
-
-#define TASK_MAX_HOOKS (4)
-
-/*
  * ----------------------------------------------------------------------
  * Splinter specific state that gets created during initialization in
  * splinter_system_init(). Contains global state for splinter such as the
@@ -104,57 +105,16 @@ task_system_config_init(task_system_config *task_cfg,
  */
 struct task_system {
    const task_system_config *cfg;
-   // IO handle (currently one splinter system has just one)
-   io_handle *ioh;
-   platform_heap_id    heap_id;
+   platform_heap_id          heap_id;
    // task groups
    task_group group[NUM_TASK_TYPES];
-
-   int       hook_init_done;
-   int       num_hooks;
-   task_hook hooks[TASK_MAX_HOOKS];
 };
-
-platform_status
-task_thread_create(const char            *name,
-                   platform_thread_worker func,
-                   void                  *arg,
-                   task_system           *ts,
-                   platform_heap_id       hid,
-                   platform_thread       *thread);
-
-/*
- * Thread registration and deregistration.  These functions are for
- * threads created outside of the task system.  Threads created with
- * task_thread_create are automatically registered and unregistered.
- */
-
-// Register the calling thread
-#define task_register_this_thread(ts)                                          \
-   task_register_thread((ts), __FILE__, __LINE__, __func__)
-
-platform_status
-task_register_thread(task_system *ts,
-                     const char  *file,
-                     const int    lineno,
-                     const char  *func);
-
-// Unregister the calling thread
-#define task_deregister_this_thread(ts)                                        \
-   task_deregister_thread((ts), __FILE__, __LINE__, __func__)
-
-void
-task_deregister_thread(task_system *ts,
-                       const char  *file,
-                       const int    lineno,
-                       const char  *func);
 
 /*
  * Create a task system and register the calling thread.
  */
 platform_status
 task_system_create(platform_heap_id          hid,
-                   io_handle       *ioh,
                    task_system             **system,
                    const task_system_config *cfg);
 
@@ -243,9 +203,6 @@ task_perform_until_quiescent(task_system *ts);
 /*
  *Functions for tests and debugging.
  */
-
-threadid
-task_get_max_tid(task_system *ts);
 
 void
 task_print_stats(task_system *ts);

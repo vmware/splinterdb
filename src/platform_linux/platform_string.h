@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string.h>
+#include <ctype.h>
 
 #define MAX_STRING_LENGTH 256
 

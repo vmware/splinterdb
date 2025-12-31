@@ -9,7 +9,6 @@
 
 #include "trunk.h"
 #include "platform.h"
-#include "platform_types.h"
 #include "data_internal.h"
 #include "util.h"
 #include "btree.h"
@@ -2928,7 +2927,7 @@ trunk_pivot_state_map_create_entry(trunk_context              *context,
    state->maplet  = pivot_bundle->maplet;
    routing_filter_inc_ref(context->cc, &state->maplet);
    state->num_branches = bundle_num_branches(pivot_bundle);
-   platform_spinlock_init(&state->compactions_lock, NULL, context->hid);
+   platform_spinlock_init(&state->compactions_lock);
 
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;

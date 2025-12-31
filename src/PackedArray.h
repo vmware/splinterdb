@@ -4,8 +4,7 @@
 #ifndef PACKEDARRAY_H
 #define PACKEDARRAY_H
 
-#include "platform.h"
-#include "poison.h"
+#include "splinterdb/public_platform.h"
 
 /*
  * -----------------------------------------------------------------------------

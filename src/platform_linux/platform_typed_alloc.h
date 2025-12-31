@@ -2,10 +2,8 @@
 
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_assert.h"
-#include "platform_status.h"
 #include "platform_util.h"
 #include "platform_heap.h"
-#include "platform_log.h"
 
 /*
  * -----------------------------------------------------------------------------

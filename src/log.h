@@ -9,9 +9,7 @@
 
 #pragma once
 
-#include "platform.h"
 #include "cache.h"
-#include "util.h"
 #include "data_internal.h"
 
 typedef struct log_handle   log_handle;

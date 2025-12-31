@@ -1,5 +1,9 @@
 #pragma once
 
+#include "splinterdb/platform_linux/public_platform.h"
+#include "platform_units.h"
+#include <time.h>
+
 static inline void
 platform_pause()
 {
@@ -33,4 +37,3 @@ static inline void
 platform_yield()
 {
 }
-

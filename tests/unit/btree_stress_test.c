@@ -12,7 +12,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 
-#include "splinterdb/public_platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -20,6 +19,7 @@
 #include "splinterdb/data.h"
 #include "../config.h"
 #include "platform_io.h"
+#include "platform_units.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
 #include "btree_private.h"
@@ -155,8 +155,7 @@ CTEST_SETUP(btree_stress)
    data->ts = NULL;
    data->io = io_handle_create(&data->io_cfg, data->hid);
    if (data->io == NULL
-       || !SUCCESS(
-          task_system_create(data->hid, data->io, &data->ts, &data->task_cfg))
+       || !SUCCESS(task_system_create(data->hid, &data->ts, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
                                      data->io,
@@ -263,19 +262,15 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    }
 
    for (uint64 i = 0; i < nthreads; i++) {
-      platform_status ret = task_thread_create("insert thread",
-                                               insert_thread,
-                                               &params[i],
-                                               data->ts,
-                                               data->hid,
-                                               &threads[i]);
+      platform_status ret = platform_thread_create(
+         &threads[i], FALSE, insert_thread, &params[i], data->hid);
       ASSERT_TRUE(SUCCESS(ret));
       // insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, &mini,
       // root_addr, 0, nkvs);
    }
 
    for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
-      platform_thread_join(threads[thread_no]);
+      platform_thread_join(&threads[thread_no]);
    }
 
    int rc = query_tests((cache *)&data->cc,

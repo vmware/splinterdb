@@ -9,11 +9,12 @@
  *------------------------------------------------------------------------------
  */
 
-#include "platform.h"
-
 #include "rc_allocator.h"
 #include "platform_io.h"
-
+#include "platform_hash.h"
+#include "platform_buffer.h"
+#include "platform_mutex.h"
+#include "platform_typed_alloc.h"
 #include "poison.h"
 
 #define RC_ALLOCATOR_META_PAGE_CSUM_SEED (2718281828)
@@ -269,7 +270,7 @@ platform_status
 rc_allocator_valid_config(allocator_config *cfg)
 {
    platform_status rc = STATUS_OK;
-   rc                 = laio_config_valid(cfg->io_cfg);
+   rc                 = io_config_valid(cfg->io_cfg);
    if (!SUCCESS(rc)) {
       return rc;
    }

@@ -7,16 +7,12 @@
  *     This file contains the tests for clockcache.
  */
 
-#include "platform.h"
-
 #include "test.h"
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
-#include "splinterdb/data.h"
 #include "task.h"
-#include "util.h"
 #include "random.h"
 #include "test_common.h"
 #include "poison.h"
@@ -852,19 +848,11 @@ test_cache_async(cache             *cc,
        */
       params[i].mt_reader = total_threads > 1 ? TRUE : FALSE;
       if (is_reader) {
-         rc = task_thread_create("cache_reader",
-                                 test_reader_thread,
-                                 &params[i],
-                                 ts,
-                                 hid,
-                                 &params[i].thread);
+         rc = platform_thread_create(
+            &params[i].thread, FALSE, test_reader_thread, &params[i], hid);
       } else {
-         rc = task_thread_create("cache_writer",
-                                 test_writer_thread,
-                                 &params[i],
-                                 ts,
-                                 hid,
-                                 &params[i].thread);
+         rc = platform_thread_create(
+            &params[i].thread, FALSE, test_writer_thread, &params[i], hid);
       }
       if (!SUCCESS(rc)) {
          total_threads = i;
@@ -873,7 +861,7 @@ test_cache_async(cache             *cc,
    }
    // Wait for test threads
    for (i = 0; i < total_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    for (i = 0; i < pages_to_allocate; i++) {
@@ -986,7 +974,7 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
+   rc = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));

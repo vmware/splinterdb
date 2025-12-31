@@ -6,9 +6,9 @@
  *
  *     This file contains the test interfaces for Alex's B-tree.
  */
-#include "platform.h"
 
 #include "splinterdb/data.h"
+#include "platform_time.h"
 #include "btree.h"
 #include "merge.h"
 #include "test.h"
@@ -245,19 +245,18 @@ test_btree_perf(cache             *cc,
    }
 
    for (uint64 thread_no = 0; thread_no < num_threads; thread_no++) {
-      ret = task_thread_create("insert thread",
-                               test_btree_insert_thread,
-                               &params[thread_no],
-                               ts,
-                               hid,
-                               &params[thread_no].thread);
+      ret = platform_thread_create(&params[thread_no].thread,
+                                   FALSE,
+                                   test_btree_insert_thread,
+                                   &params[thread_no],
+                                   hid);
       if (!SUCCESS(ret)) {
          return ret;
       }
    }
 
    for (uint64 thread_no = 0; thread_no < num_threads; thread_no++) {
-      platform_thread_join(params[thread_no].thread);
+      platform_thread_join(&params[thread_no].thread);
    }
 
    for (uint64 thread_no = 0; thread_no < num_threads; thread_no++) {
@@ -1606,7 +1605,7 @@ btree_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
+   rc = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));

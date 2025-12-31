@@ -6,8 +6,7 @@
  *
  *     This file contains tests for Alex's log
  */
-#include "platform.h"
-
+#include "platform_time.h"
 #include "log.h"
 #include "shard_log.h"
 #include "platform_io.h"
@@ -181,18 +180,18 @@ test_log_perf(cache                  *cc,
 
    start_time = platform_get_timestamp();
    for (uint64 i = 0; i < num_threads; i++) {
-      ret = task_thread_create(
-         "log_thread", test_log_thread, &params[i], ts, hid, &params[i].thread);
+      ret = platform_thread_create(
+         &params[i].thread, FALSE, test_log_thread, &params[i], hid);
       if (!SUCCESS(ret)) {
          // Wait for existing threads to quit
          for (uint64 j = 0; j < i; j++) {
-            platform_thread_join(params[i].thread);
+            platform_thread_join(&params[j].thread);
          }
          goto cleanup;
       }
    }
    for (uint64 i = 0; i < num_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    platform_default_log("log insertion rate: %luM insertions/second\n",
@@ -291,7 +290,7 @@ log_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   status = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
+   status = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));

@@ -28,9 +28,9 @@
 #include <string.h>
 #include <errno.h>
 
+#include "platform_threads.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/data.h"
-#include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "unit_tests.h"
 #include "util.h"
@@ -115,7 +115,7 @@ CTEST_SETUP(splinterdb_quick)
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(TEST_MAX_VALUE_SIZE
-               < MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE));
+               < MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE));
 }
 
 // Optional teardown function for suite, called after every test in suite
@@ -272,7 +272,7 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
    size_t too_large_value_len =
-      MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE) + 1;
+      MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE) + 1;
    char *too_large_value_data;
    too_large_value_data = TYPED_ARRAY_MALLOC(
       data->cfg.heap_id, too_large_value_data, too_large_value_len);

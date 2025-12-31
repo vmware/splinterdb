@@ -19,6 +19,7 @@
  * task_system_test.c etc.
  * -----------------------------------------------------------------------------
  */
+#include "platform_units.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
 #include "config.h"

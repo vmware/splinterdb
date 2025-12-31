@@ -9,8 +9,8 @@
  *-----------------------------------------------------------------------------
  */
 
-#include "platform.h"
 #include "memtable.h"
+#include "platform_sleep.h"
 
 #include "poison.h"
 
@@ -58,8 +58,7 @@ memtable_end_insert(memtable_context *ctxt)
 static inline bool32
 memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
-   if (!batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX))
-   {
+   if (!batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX)) {
       return FALSE;
    }
    batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);

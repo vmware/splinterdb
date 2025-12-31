@@ -9,14 +9,13 @@
  *  files. Validates correctness of variable key-value size support in BTree.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #include "test_data.h"
 #include "splinterdb/data.h"
 #include "platform_io.h"
-#include "rc_allocator.h"
+#include "platform_units.h"
 #include "clockcache.h"
 #include "btree_private.h"
 #include "btree_test_common.h"

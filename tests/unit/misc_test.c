@@ -9,10 +9,10 @@
  * -----------------------------------------------------------------------------
  */
 #include <stdarg.h>
-#include "platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
-#include "util.h"
+#include "platform_log.h"
+#include "platform_units.h"
 
 #define ASSERT_OUTBUF_LEN 200
 

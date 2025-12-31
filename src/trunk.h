@@ -7,7 +7,6 @@
  *     This file contains the interface of the SplinterDB trunk.
  */
 
-#include "platform.h"
 #include "vector.h"
 #include "cache.h"
 #include "allocator.h"

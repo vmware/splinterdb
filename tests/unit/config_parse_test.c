@@ -14,15 +14,8 @@
  *    checking for the result of the config-parsing routines.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "core.h"
-#include "clockcache.h"
-#include "allocator.h"
-#include "rc_allocator.h"
-#include "shard_log.h"
-#include "task.h"
 #include "functional/test.h"
-#include "functional/test_async.h"
 #include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.

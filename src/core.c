@@ -8,6 +8,8 @@
  */
 
 #include "core.h"
+#include "platform_sleep.h"
+#include "platform_time.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15

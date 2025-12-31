@@ -10,7 +10,6 @@
  */
 #pragma once
 
-#include "splinterdb/public_platform.h"
 #include "splinterdb/data.h"
 #include "util.h"
 #include "btree.h"

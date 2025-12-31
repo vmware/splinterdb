@@ -4,7 +4,6 @@
 #pragma once
 
 #include "data_internal.h"
-#include "util.h"
 #include "vector.h"
 
 typedef struct iterator iterator;

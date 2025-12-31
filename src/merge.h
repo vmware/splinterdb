@@ -11,7 +11,6 @@
 
 #include "data_internal.h"
 #include "iterator.h"
-#include "platform.h"
 
 // Hard limit tall tree range query?
 #define MAX_MERGE_ARITY (1024)

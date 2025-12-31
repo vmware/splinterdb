@@ -6,18 +6,17 @@
  *
  *     This file contains the test interfaces for Alex's filter
  */
-#include "platform.h"
-
 #include "splinterdb/data.h"
 #include "test.h"
 #include "routing_filter.h"
 #include "allocator.h"
 #include "rc_allocator.h"
-#include "shard_log.h"
 #include "cache.h"
 #include "clockcache.h"
 #include "util.h"
-
+#include "platform_time.h"
+#include "platform_typed_alloc.h"
+#include "platform_assert.h"
 #include "poison.h"
 
 static platform_status
@@ -334,11 +333,12 @@ filter_test(int argc, char *argv[])
    if (io == NULL) {
       platform_error_log("Failed to create IO handle\n");
       rc = STATUS_NO_MEMORY;
+      r  = -1;
       goto cleanup;
    }
 
    task_system *ts = NULL;
-   rc              = task_system_create(hid, io, &ts, &system_cfg.task_cfg);
+   rc              = task_system_create(hid, &ts, &system_cfg.task_cfg);
    platform_assert_status_ok(rc);
 
    rc = rc_allocator_init(

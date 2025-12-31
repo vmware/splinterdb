@@ -9,8 +9,7 @@
 
 #pragma once
 
-#include "platform.h"
-
+#include "platform_log.h"
 #include "platform_io.h"
 
 typedef uint64 allocator_root_id;

@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "platform_hash.h"
+#include "platform_typed_alloc.h"
 #include "async.h"
 #include "mini_allocator.h"
 #include "iterator.h"

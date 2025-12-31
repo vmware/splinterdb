@@ -6,11 +6,9 @@
 //
 // This data_config does not support blind mutation operations
 
-#include "platform.h"
-
 #include "splinterdb/default_data_config.h"
-#include "splinterdb/splinterdb.h"
 #include "util.h"
+#include "platform_hash.h"
 
 #include "poison.h"
 

@@ -12,3 +12,9 @@ io_handle_destroy(io_handle *ioh)
 {
    laio_handle_destroy(ioh);
 }
+
+platform_status
+io_config_valid(io_config *cfg)
+{
+   return laio_config_valid(cfg);
+}

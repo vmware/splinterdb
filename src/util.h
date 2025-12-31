@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "platform.h"
 #include "splinterdb/public_util.h"
+#include "platform_heap.h"
 
 #define bitsizeof(x) (8 * sizeof(x))
 

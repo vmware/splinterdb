@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "platform.h"
+#include "platform_mutex.h"
 #include "task.h"
 #include "cache.h"
 #include "btree.h"

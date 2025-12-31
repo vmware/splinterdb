@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "batch_rwlock.h"
-#include "platform_linux/platform.h"
+#include "platform_sleep.h"
 
 /*
  *-----------------------------------------------------------------------------
@@ -158,4 +158,3 @@ batch_rwlock_unget(batch_rwlock *lock, uint64 lock_idx)
       __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
    debug_assert(old_counter == 1);
 }
-

@@ -57,7 +57,7 @@ platform_assert_msg(platform_log_handle *log_handle,
                                   "Assertion failed at %s:%d:%s(): \"%s\". ";
    platform_log(log_handle,
                 assert_msg_fmt,
-                platform_getpid(),
+                platform_get_os_pid(),
                 gettid(),
                 platform_get_tid(),
                 filename,

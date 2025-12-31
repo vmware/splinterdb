@@ -10,6 +10,8 @@
 #pragma once
 
 #include "log.h"
+#include "platform_threads.h"
+#include "platform_hash.h"
 #include "cache.h"
 #include "iterator.h"
 #include "splinterdb/data.h"

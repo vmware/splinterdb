@@ -1,10 +1,12 @@
+#pragma once
+
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_assert.h"
 #include "platform_threads.h"
 #include "platform_status.h"
 
 // Thread-specific mutex, with ownership tracking.
-typedef struct {
+typedef struct platform_mutex {
    pthread_mutex_t mutex;
    threadid        owner;
 } platform_mutex;

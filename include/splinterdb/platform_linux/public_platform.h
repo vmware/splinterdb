@@ -90,12 +90,10 @@ platform_set_log_streams(platform_log_handle *info_stream,
 //
 // Returns 0 on success, -1 on error.
 int
-platform_register_thread(const char *file, const int lineno, const char *func);
+platform_register_thread(void);
 
 // Deregister the current thread.
 //
 // Call this function before exiting a registered thread.
 void
-platform_deregister_thread(const char *file,
-                           const int   lineno,
-                           const char *func);
+platform_deregister_thread(void);

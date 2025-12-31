@@ -20,9 +20,9 @@ extern const char *BUILD_VERSION;
  * master_config used to run tests.
  * --------------------------------------------------------------------------
  */
-#define TEST_CONFIG_DEFAULT_PAGE_SIZE LAIO_DEFAULT_PAGE_SIZE // bytes
+#define TEST_CONFIG_DEFAULT_PAGE_SIZE IO_DEFAULT_PAGE_SIZE // bytes
 
-#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT LAIO_DEFAULT_PAGES_PER_EXTENT
+#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT IO_DEFAULT_PAGES_PER_EXTENT
 _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
                "Invalid TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT value");
 

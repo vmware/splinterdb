@@ -8,13 +8,15 @@
  *     This file contains the implementation for a concurrent clock cache.
  *-----------------------------------------------------------------------------
  */
-#include "platform.h"
-
-#include "allocator.h"
 #include "clockcache.h"
+#include "platform_threads.h"
+#include "platform_sleep.h"
+#include "platform_typed_alloc.h"
+#include "platform_time.h"
+#include "platform_buffer.h"
+#include "allocator.h"
 #include "platform_io.h"
 #include <stddef.h>
-#include "util.h"
 
 #include "poison.h"
 

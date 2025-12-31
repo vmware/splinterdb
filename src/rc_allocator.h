@@ -9,8 +9,10 @@
 
 #pragma once
 
+#include "platform_hash.h"
+#include "platform_buffer.h"
+#include "platform_mutex.h"
 #include "allocator.h"
-#include "platform.h"
 #include "util.h"
 
 /*

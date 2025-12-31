@@ -10,11 +10,9 @@
 #include <fcntl.h>
 #include <pthread.h>
 
-#include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "unit_tests.h"
-#include "util.h"
 #include "../functional/random.h"
 #include "config.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -151,8 +149,8 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
 CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
 {
    char         key_str[KEY_SIZE];
-   char        *value_str = "This is the value string\0";
-   const uint32 inserts   = 1 << 25; // 16 million
+   char         value_str[] = "This is the value string\0";
+   const uint32 inserts     = 1 << 25; // 16 million
    for (int i = 0; i < inserts; i++) {
       snprintf(key_str, sizeof(key_str), "key-%08x", i);
       slice key = slice_create(sizeof(key_str), key_str);
@@ -285,7 +283,7 @@ exec_worker_thread(void *w)
    int            random_data = wcfg->random_data;
    splinterdb    *kvsb        = wcfg->kvsb;
 
-   splinterdb_register_thread(kvsb);
+   platform_register_thread();
 
    pthread_t thread_id = pthread_self();
 
@@ -308,7 +306,7 @@ exec_worker_thread(void *w)
       }
    }
 
-   splinterdb_deregister_thread(kvsb);
+   platform_deregister_thread();
    return 0;
 }
 

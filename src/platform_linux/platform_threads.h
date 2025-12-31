@@ -24,8 +24,33 @@ platform_get_tid()
    return xxxtid;
 }
 
+/* This is not part of the platform API.  It is used internally to this platform
+ * implementation. Specifically, it is used in laio.c. */
+static inline threadid
+platform_linux_get_pid()
+{
+   extern threadid xxxpid;
+   return xxxpid;
+}
+
+typedef void (*process_event_callback)(threadid, void *);
+
+typedef struct process_event_callback_list_node {
+   process_event_callback                   termination;
+   void                                    *arg;
+   struct process_event_callback_list_node *next;
+} process_event_callback_list_node;
+
+void
+platform_linux_add_process_event_callback(
+   process_event_callback_list_node *node);
+
+void
+platform_linux_remove_process_event_callback(
+   process_event_callback_list_node *node);
+
 static inline int
-platform_getpid()
+platform_get_os_pid()
 {
    return getpid();
 }
@@ -43,6 +68,3 @@ platform_thread_create(platform_thread       *thread,
 
 platform_status
 platform_thread_join(platform_thread *thread);
-
-platform_thread
-platform_thread_id_self();

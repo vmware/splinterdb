@@ -1,8 +1,6 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#include "platform.h"
-
 #include "core.h"
 #include "task.h"
 #include "rc_allocator.h"
@@ -447,12 +445,8 @@ run_ycsb_phase(core_handle     *spl,
       int j;
       for (j = 0; j < phase->params[i].nthreads; j++) {
          platform_assert(cur_thread < nthreads);
-         ret = task_thread_create("ycsb_thread",
-                                  ycsb_thread,
-                                  &phase->params[i],
-                                  ts,
-                                  hid,
-                                  &threads[cur_thread]);
+         ret = platform_thread_create(
+            &threads[cur_thread], FALSE, ycsb_thread, &phase->params[i], hid);
          if (!SUCCESS(ret)) {
             success = -1;
             goto shutdown;
@@ -463,7 +457,7 @@ run_ycsb_phase(core_handle     *spl,
 
 shutdown:
    while (0 < nthreads) {
-      platform_status result = platform_thread_join(threads[nthreads - 1]);
+      platform_status result = platform_thread_join(&threads[nthreads - 1]);
       if (!SUCCESS(result)) {
          success = -1;
          break;
@@ -757,7 +751,7 @@ load_ycsb_logs(int          argc,
    platform_assert(start_line == num_lines);
 
    for (uint64 i = 0; i < num_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
       if (params[i].ycsb_ops == NULL) {
          platform_error_log("Bad log file: %s\n", params[i].filename);
          goto bad_params;
@@ -1266,7 +1260,7 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &task_cfg);
+   rc = test_init_task_system(hid, &ts, &task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));

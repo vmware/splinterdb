@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "config.h"
+#include "platform_units.h"
+#include "platform_buffer.h"
 #include "util.h"
 
 /*

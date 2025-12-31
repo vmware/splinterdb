@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "btree_private.h"
+#include "platform_sleep.h"
 #include "poison.h"
-
 /*
  * *****************************************************************
  * Structure of a BTree node: Disk-resident structure:
@@ -1211,13 +1211,8 @@ btree_create(cache              *cc,
    cache_unget(cc, root_page);
 
    // set up the mini allocator
-   mini_init(mini,
-             cc,
-             cfg->data_cfg,
-             root.addr + btree_page_size(cfg),
-             0,
-             BTREE_MAX_HEIGHT,
-             type);
+   mini_init(
+      mini, cc, root.addr + btree_page_size(cfg), 0, BTREE_MAX_HEIGHT, type);
 
    return root.addr;
 }
@@ -2123,7 +2118,7 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
          key_is_positive_infinity(state->target)
             ? btree_num_entries(state->node.hdr) - 1
             : btree_find_pivot(
-               state->cfg, state->node.hdr, state->target, &state->found);
+                 state->cfg, state->node.hdr, state->target, &state->found);
       if (child_idx < 0) {
          child_idx = 0;
       }

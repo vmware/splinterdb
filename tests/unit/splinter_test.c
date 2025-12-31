@@ -21,10 +21,10 @@
  * $ bin/unit/splinter_test --memtable-capacity-mib 4 test_lookups
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "core.h"
 #include "clockcache.h"
 #include "allocator.h"
+#include "rc_allocator.h"
 #include "task.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
@@ -162,7 +162,7 @@ CTEST_SETUP(splinter)
    ASSERT_TRUE((data->io != NULL), "Failed to create IO handle\n");
 
    data->tasks = NULL;
-   rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->system_cfg->task_cfg);
+   rc = test_init_task_system(data->hid, &data->tasks, &data->system_cfg->task_cfg);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));

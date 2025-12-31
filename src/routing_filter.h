@@ -13,7 +13,7 @@
 #include "iterator.h"
 #include "splinterdb/data.h"
 #include "util.h"
-#include "platform.h"
+#include "platform_hash.h"
 
 /*
  * In Splinter, there is a strict max number of compacted tuples in a node, so

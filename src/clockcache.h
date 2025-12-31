@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "platform_buffer.h"
+#include "platform_threads.h"
 #include "allocator.h"
 #include "cache.h"
 #include "platform_io.h"

@@ -9,7 +9,6 @@
 
 #include "../config.h"
 #include "platform_io.h"
-#include "rc_allocator.h"
 #include "clockcache.h"
 #include "task.h"
 #include "btree.h"

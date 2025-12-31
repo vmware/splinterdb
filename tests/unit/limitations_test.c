@@ -11,17 +11,15 @@
  * unworkable, or currently unsupported.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
-#include "core.h"
 #include "clockcache.h"
-#include "allocator.h"
+#include "rc_allocator.h"
 #include "task.h"
 #include "functional/test.h"
-#include "functional/test_async.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "platform_units.h"
 
 #define TEST_MAX_KEY_SIZE 13
 

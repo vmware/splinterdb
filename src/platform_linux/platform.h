@@ -27,3 +27,4 @@
 #include "platform_typed_alloc.h"
 #include "platform_sleep.h"
 #include "platform_hash.h"
+#include "platform_spinlock.h"

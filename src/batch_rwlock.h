@@ -1,10 +1,10 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef BATCH_RWLOCK_H
-#define BATCH_RWLOCK_H
+#pragma once
 
-#include "platform_linux/platform.h"
+#include "splinterdb/platform_linux/public_platform.h"
+#include "platform_threads.h"
 
 /*
  *-----------------------------------------------------------------------------
@@ -91,6 +91,3 @@ batch_rwlock_unlock(batch_rwlock *lock, uint64 lock_idx);
 /* exclusive-lock -> unlocked */
 void
 batch_rwlock_full_unlock(batch_rwlock *lock, uint64 lock_idx);
-
-#endif /* BATCH_RWLOCK_H */
-
