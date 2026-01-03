@@ -291,14 +291,14 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    platform_status rc          = STATUS_OK;
 
    ZERO_ARRAY(thread_cfg);
-   ASSERT_EQUAL(task_get_max_tid(data->tasks),
+   ASSERT_EQUAL(platform_num_threads(),
                 1,
-                "Before threads start, task_get_max_tid() = %lu",
-                task_get_max_tid(data->tasks));
+                "Before threads start, platform_num_threads() = %lu",
+                platform_num_threads());
 
    // We may have started some background threads, if this test was so
    // configured. So, start-up all the remaining threads.
-   threadid max_tid_so_far = task_get_max_tid(data->tasks);
+   threadid max_tid_so_far = platform_num_threads();
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
@@ -319,7 +319,7 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    // Complete execution of n-threads. Worker fn does the validation.
    for (tctr = max_tid_so_far; tctr < ARRAY_SIZE(thread_cfg); tctr++) {
       thread_cfgp = &thread_cfg[tctr];
-      rc          = platform_thread_join(thread_cfgp->this_thread_id);
+      rc          = platform_thread_join(&thread_cfgp->this_thread_id);
       ASSERT_TRUE(SUCCESS(rc));
    }
 }
@@ -362,7 +362,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    thread_config_lockstep thread_cfg[2];
    ZERO_ARRAY(thread_cfg);
    thread_cfg[0].tasks          = data->tasks;
-   thread_cfg[0].exp_thread_idx = task_get_max_tid(data->tasks);
+   thread_cfg[0].exp_thread_idx = platform_num_threads();
    thread_cfg[0].exp_max_tid    = MAX_THREADS;
    thread_cfg[0].line           = __LINE__;
 
@@ -381,7 +381,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
       platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
    }
    thread_cfg[1].tasks          = data->tasks;
-   thread_cfg[1].exp_thread_idx = task_get_max_tid(data->tasks);
+   thread_cfg[1].exp_thread_idx = platform_num_threads();
 
    // We've used up all threads. This thread creation should fail.
    rc = platform_thread_create(&new_thread[1],
@@ -391,16 +391,16 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
                                data->hid);
    ASSERT_FALSE(SUCCESS(rc),
                 "Thread should not have been created"
-                ", new_thread=%lu, max_tid=%lu\n",
+                ", new_thread=%lu, num_threads=%lu\n",
                 new_thread[1],
-                task_get_max_tid(data->tasks));
+                platform_num_threads());
 
    // Stop the running user-thread now that our test is done.
    thread_cfg[0].stop_thread = TRUE;
 
    for (uint64 tctr = 0; tctr < ARRAY_SIZE(new_thread); tctr++) {
       if (new_thread[tctr]) {
-         rc = platform_thread_join(new_thread[tctr]);
+         rc = platform_thread_join(&new_thread[tctr]);
          ASSERT_TRUE(SUCCESS(rc));
       }
    }
@@ -423,7 +423,7 @@ create_task_system_without_bg_threads(void *datap)
                                 TRUE, // use stats
                                 num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
-   rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
+   rc = task_system_create(data->hid, &data->tasks, &data->task_cfg);
    return rc;
 }
 
@@ -450,17 +450,17 @@ create_task_system_with_bg_threads(void  *datap,
                                 num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
 
-   rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
+   rc = task_system_create(data->hid, &data->tasks, &data->task_cfg);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    // Wait-for all background threads to startup.
    uint64   nbg_threads   = (num_memtable_bg_threads + num_normal_bg_threads);
-   threadid max_thread_id = task_get_max_tid(data->tasks);
+   threadid max_thread_id = platform_num_threads();
    while (max_thread_id < nbg_threads) {
       platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
-      max_thread_id = task_get_max_tid(data->tasks);
+      max_thread_id = platform_num_threads();
    }
    return rc;
 }
@@ -482,7 +482,7 @@ exec_one_thread_use_lower_apis(void *arg)
    // This is the important call to initialize thread-specific stuff in
    // Splinter's task-system, which sets up the thread-id (index) and records
    // this thread as active with the task system.
-   task_register_this_thread(thread_cfg->tasks);
+   platform_register_thread();
 
    threadid this_threads_idx = platform_get_tid();
    ASSERT_EQUAL(thread_cfg->exp_thread_idx,
@@ -491,12 +491,7 @@ exec_one_thread_use_lower_apis(void *arg)
                 thread_cfg->exp_thread_idx,
                 this_threads_idx);
 
-   // Brain-dead cross-check, to understand what's going on with thread-IDs.
-   platform_thread thread_id = platform_thread_id_self();
-   ASSERT_TRUE((thread_cfg->this_thread_id == thread_id)
-               || (thread_cfg->this_thread_id == 0));
-
-   task_deregister_this_thread(thread_cfg->tasks);
+   platform_deregister_thread();
 
    // Register / de-register of thread with SplinterDB's task system is
    // SplinterDB's jugglery to keep track of resources. get_tid() should
@@ -561,8 +556,8 @@ exec_one_of_n_threads(void *arg)
    // Before registration, thread ID should be in an uninit'ed state
    ASSERT_EQUAL(INVALID_TID, platform_get_tid());
 
-   platform_status rc = task_register_this_thread(thread_cfg->tasks);
-   ASSERT_TRUE(SUCCESS(rc),
+   int rc = platform_register_thread();
+   ASSERT_TRUE(rc == 0,
                "task_register_this_thread() failed: thread idx is %lu",
                platform_get_tid());
 
@@ -575,11 +570,11 @@ exec_one_of_n_threads(void *arg)
 
    // Test case is carefully constructed to fire-up n-threads. Wait for
    // them to all start-up.
-   while (task_get_max_tid(thread_cfg->tasks) < MAX_THREADS) {
+   while (platform_num_threads() < MAX_THREADS) {
       platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
    }
 
-   task_deregister_this_thread(thread_cfg->tasks);
+   platform_deregister_thread();
 
    // Register / de-register of thread with SplinterDB's task system is just
    // SplinterDB's jugglery to keep track of resources. Deregistration should
@@ -608,8 +603,8 @@ exec_user_thread_loop_for_stop(void *arg)
 
    // We should have used up all available threads. Next create should fail.
    ASSERT_EQUAL(thread_cfg->exp_max_tid,
-                task_get_max_tid(thread_cfg->tasks),
-                "Max tid is incorrect for thread created on line=%d\n",
+                platform_num_threads(),
+                "Num threads is incorrect for thread created on line=%d\n",
                 thread_cfg->line);
 
    // The calling interface has already registered this thread. All we do

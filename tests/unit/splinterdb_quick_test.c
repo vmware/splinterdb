@@ -107,12 +107,14 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
+   int rc = platform_register_thread();
+   ASSERT_EQUAL(0, rc);
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
    data->cfg.use_shmem =
       config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(TEST_MAX_VALUE_SIZE
                < MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE));
@@ -124,6 +126,7 @@ CTEST_TEARDOWN(splinterdb_quick)
    if (data->kvsb) {
       splinterdb_close(&data->kvsb);
    }
+   platform_deregister_thread();
 }
 
 /*

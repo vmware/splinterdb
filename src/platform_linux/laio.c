@@ -587,6 +587,8 @@ laio_handle_destroy(io_handle *ioh)
    int          status;
 
    platform_linux_remove_process_event_callback(&io->pecnode);
+   threadid pid = platform_linux_get_pid();
+   laio_process_termination_callback(pid, ioh);
 
    for (int i = 0; i < MAX_THREADS; i++) {
       if (io->ctx[i].state != PROCESS_CONTEXT_STATE_UNINITIALIZED) {

@@ -24,8 +24,8 @@ pid_t    ospid;
 typedef struct threadid_allocator {
    uint64 bitmask_lock;
    uint64 available_tids[(MAX_THREADS + 63) / 64];
-   // max thread id so far.
-   threadid max_tid;
+   // number of threads allocated so far.
+   threadid num_threads;
 } threadid_allocator;
 
 typedef struct pid_allocator {
@@ -71,6 +71,9 @@ id_allocator_init_if_needed(void)
          return;
       }
       memset(my_id_alloc, 0x00, sizeof(id_allocator));
+      memset(my_id_alloc->tid_allocator.available_tids,
+             0xFF,
+             sizeof(my_id_alloc->tid_allocator.available_tids));
       if (!__sync_bool_compare_and_swap(&id_alloc, NULL, my_id_alloc)) {
          munmap(my_id_alloc, sizeof(id_allocator));
       }
@@ -122,12 +125,8 @@ allocate_threadid()
 
    // Invariant: we have successfully allocated tid
 
-   // atomically update the max_tid.
-   threadid *max_tid = &id_alloc->tid_allocator.max_tid;
-   threadid  tmp     = *max_tid;
-   while (tmp < tid && !__sync_bool_compare_and_swap(max_tid, tmp, tid)) {
-      tmp = *max_tid;
-   }
+   // atomically increment the num_threads.
+   __sync_fetch_and_add(&id_alloc->tid_allocator.num_threads, 1);
 
    return tid;
 }
@@ -164,6 +163,9 @@ deallocate_threadid(threadid tid)
    }
 
    __sync_lock_release(&id_alloc->tid_allocator.bitmask_lock);
+
+   // atomically decrement the num_threads.
+   __sync_fetch_and_sub(&id_alloc->tid_allocator.num_threads, 1);
 
    xxxtid = INVALID_TID;
 }
@@ -233,21 +235,11 @@ decref_xxxpid(void)
    __sync_lock_release(&id_alloc->pid_allocator.lock);
 }
 
-/*
- * Return the max thread-index across all active tasks.
- * Mainly intended as a testing hook.
- */
-threadid
-platform_get_max_tid()
-{
-   id_allocator_init_if_needed();
-   return id_alloc->tid_allocator.max_tid + 1;
-}
-
 void
 platform_linux_add_process_event_callback(
    process_event_callback_list_node *node)
 {
+   id_allocator_init_if_needed();
    while (
       __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
    {
@@ -262,6 +254,7 @@ void
 platform_linux_remove_process_event_callback(
    process_event_callback_list_node *node)
 {
+   id_allocator_init_if_needed();
    while (
       __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
    {
@@ -414,4 +407,11 @@ platform_thread_join(platform_thread *thread)
    ret = pthread_join(*thread, &retval);
 
    return CONST_STATUS(ret);
+}
+
+threadid
+platform_num_threads(void)
+{
+   id_allocator_init_if_needed();
+   return id_alloc->tid_allocator.num_threads;
 }

@@ -68,3 +68,6 @@ platform_thread_create(platform_thread       *thread,
 
 platform_status
 platform_thread_join(platform_thread *thread);
+
+threadid
+platform_num_threads(void);
