@@ -4,7 +4,7 @@
 #include <sys/mman.h>
 #include <string.h>
 
-__thread threadid xxxtid;
+__thread threadid xxxtid = INVALID_TID;
 
 // xxxpid is valid iff ospid == getpid()
 threadid xxxpid;
@@ -22,15 +22,15 @@ pid_t    ospid;
  * for use.
  */
 typedef struct threadid_allocator {
-   uint64 bitmask_lock;
-   uint64 available_tids[(MAX_THREADS + 63) / 64];
+   volatile uint64 bitmask_lock;
+   uint64          available_tids[(MAX_THREADS + 63) / 64];
    // number of threads allocated so far.
    threadid num_threads;
 } threadid_allocator;
 
 typedef struct pid_allocator {
-   uint64 lock;
-   uint64 thread_count[MAX_THREADS];
+   volatile uint64 lock;
+   uint64          thread_count[MAX_THREADS];
 } pid_allocator;
 
 typedef struct thread_invocation {
@@ -41,7 +41,7 @@ typedef struct thread_invocation {
 typedef struct id_allocator {
    threadid_allocator                tid_allocator;
    pid_allocator                     pid_allocator;
-   uint64                            process_event_callback_list_lock;
+   volatile uint64                   process_event_callback_list_lock;
    process_event_callback_list_node *process_event_callback_list;
    thread_invocation                 thread_invocations[MAX_THREADS];
 } id_allocator;
@@ -126,7 +126,8 @@ allocate_threadid()
    // Invariant: we have successfully allocated tid
 
    // atomically increment the num_threads.
-   __sync_fetch_and_add(&id_alloc->tid_allocator.num_threads, 1);
+   uint64 tmp = __sync_fetch_and_add(&id_alloc->tid_allocator.num_threads, 1);
+   platform_assert(tmp < MAX_THREADS);
 
    return tid;
 }
@@ -165,7 +166,8 @@ deallocate_threadid(threadid tid)
    __sync_lock_release(&id_alloc->tid_allocator.bitmask_lock);
 
    // atomically decrement the num_threads.
-   __sync_fetch_and_sub(&id_alloc->tid_allocator.num_threads, 1);
+   uint64 tmp = __sync_fetch_and_sub(&id_alloc->tid_allocator.num_threads, 1);
+   platform_assert(0 < tmp);
 
    xxxtid = INVALID_TID;
 }
@@ -180,6 +182,7 @@ ensure_xxxpid_is_setup(void)
    }
 
    if (myospid == ospid) {
+      platform_assert(xxxpid < INVALID_TID);
       id_alloc->pid_allocator.thread_count[xxxpid]++;
       __sync_lock_release(&id_alloc->pid_allocator.lock);
       return STATUS_OK;
@@ -211,6 +214,8 @@ decref_xxxpid(void)
    while (__sync_lock_test_and_set(&id_alloc->pid_allocator.lock, 1)) {
       // spin
    }
+
+   platform_assert(xxxpid < INVALID_TID);
 
    id_alloc->pid_allocator.thread_count[xxxpid]--;
    if (id_alloc->pid_allocator.thread_count[xxxpid] == 0) {
@@ -254,7 +259,6 @@ void
 platform_linux_remove_process_event_callback(
    process_event_callback_list_node *node)
 {
-   id_allocator_init_if_needed();
    while (
       __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
    {
@@ -304,9 +308,11 @@ platform_deregister_thread()
 static void
 thread_registration_cleanup_function(void *arg)
 {
-   if (xxxtid != INVALID_TID) {
-      platform_error_log(
-         "Thread registration cleanup function called for thread %lu", xxxtid);
+   if (xxxtid == INVALID_TID) {
+      platform_error_log("Thread registration cleanup function called for "
+                         "unregistered thread %lu",
+                         xxxtid);
+   } else {
       platform_deregister_thread();
    }
 }
@@ -379,6 +385,12 @@ platform_thread_create(platform_thread       *thread,
 {
    int ret;
 
+   id_allocator_init_if_needed();
+   platform_status rc = ensure_xxxpid_is_setup();
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    // We allocate the threadid here, rather than in the thread_worker_function,
    // so that we can report an error if the threadid allocation fails.
    threadid tid = allocate_threadid();
@@ -392,6 +404,7 @@ platform_thread_create(platform_thread       *thread,
    ret = pthread_create(thread, NULL, thread_worker_function, thread_inv);
    if (ret != 0) {
       deallocate_threadid(tid);
+      decref_xxxpid();
       return STATUS_NO_MEMORY;
    }
 
