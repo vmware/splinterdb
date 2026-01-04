@@ -290,6 +290,8 @@ filter_test(int argc, char *argv[])
    uint64                 seed;
    test_message_generator gen;
 
+   platform_register_thread();
+
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
       config_argc   = argc - 2;
@@ -402,6 +404,6 @@ filter_test(int argc, char *argv[])
    r = 0;
 cleanup:
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return r;
 }

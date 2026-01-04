@@ -106,6 +106,7 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
+   platform_register_thread();
    bool use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    // Defaults: For basic unit-tests, use single threads
@@ -209,6 +210,7 @@ CTEST_TEARDOWN(splinter)
    }
 
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

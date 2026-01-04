@@ -58,6 +58,7 @@ CTEST_DATA(limitations)
  */
 CTEST_SETUP(limitations)
 {
+   platform_register_thread();
    // All test cases in this test usually deal with error handling
    set_log_streams_for_tests(MSG_LEVEL_ERRORS);
 
@@ -76,6 +77,7 @@ CTEST_SETUP(limitations)
 CTEST_TEARDOWN(limitations)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

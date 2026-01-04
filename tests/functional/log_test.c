@@ -234,6 +234,8 @@ log_test(int argc, char *argv[])
    task_system           *ts = NULL;
    test_message_generator gen;
 
+   platform_register_thread();
+
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test  = TRUE;
       run_crash_test = FALSE;
@@ -358,6 +360,6 @@ destroy_iohandle:
 cleanup:
    platform_free(hid, cfg);
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return rc == 0 ? 0 : -1;
 }

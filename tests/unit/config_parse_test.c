@@ -33,6 +33,7 @@ CTEST_DATA(config_parse)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(config_parse)
 {
+   platform_register_thread();
    uint64 heap_capacity = (1024 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
@@ -46,6 +47,7 @@ CTEST_SETUP(config_parse)
 CTEST_TEARDOWN(config_parse)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

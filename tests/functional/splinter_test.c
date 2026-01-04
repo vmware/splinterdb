@@ -2453,6 +2453,8 @@ splinter_test(int argc, char *argv[])
    test_exec_config       test_exec_cfg;
    ZERO_STRUCT(test_exec_cfg);
 
+   platform_register_thread();
+
    // Defaults
    num_insert_threads = num_lookup_threads = num_range_lookup_threads = 1;
    max_async_inflight                                                 = 64;
@@ -2885,6 +2887,6 @@ cfg_free:
    platform_free(hid, test_cfg);
 heap_destroy:
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

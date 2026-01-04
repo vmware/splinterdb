@@ -23,15 +23,11 @@
  * programs must only use the external interfaces listed above.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
 #include "config.h" // Reqd for definition of master_config{}
-#include "core.h"   // Needed for trunk_get_scratch_size()
 #include "task.h"
-#include "splinterdb/splinterdb.h"
-#include "splinterdb/default_data_config.h"
 
 // Configuration for each worker thread
 typedef struct {

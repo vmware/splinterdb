@@ -910,6 +910,8 @@ cache_test(int argc, char *argv[])
    uint64                 seed;
    test_message_generator gen;
 
+   platform_register_thread();
+
    if (argc > 1) {
       if (strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
          benchmark = TRUE;
@@ -1071,6 +1073,6 @@ destroy_iohandle:
 cleanup:
    platform_free(hid, splinter_cfg);
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

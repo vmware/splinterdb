@@ -21,7 +21,7 @@
 #define TEST_VALUE_SIZE 116
 
 // Function Prototypes
-static void *
+static void
 exec_worker_thread(void *w);
 
 static void
@@ -47,6 +47,7 @@ CTEST_DATA(splinterdb_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_stress)
 {
+   platform_register_thread();
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
                                              .cache_size = 1000 * Mega,
                                              .disk_size  = 9000 * Mega,
@@ -67,6 +68,7 @@ CTEST_SETUP(splinterdb_stress)
 CTEST_TEARDOWN(splinterdb_stress)
 {
    splinterdb_close(&data->kvsb);
+   platform_deregister_thread();
 }
 
 // Do random inserts across multiple threads
@@ -85,8 +87,12 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
    pthread_t thread_ids[num_threads];
 
    for (int i = 0; i < num_threads; i++) {
-      int rc = pthread_create(&thread_ids[i], NULL, &exec_worker_thread, &wcfg);
-      ASSERT_EQUAL(0, rc);
+      platform_status rc = platform_thread_create(&thread_ids[i],
+                                                  FALSE,
+                                                  &exec_worker_thread,
+                                                  &wcfg,
+                                                  platform_get_heap_id());
+      platform_assert_status_ok(rc);
    }
 
    CTEST_LOG_INFO("Waiting for %d worker threads ...\n", num_threads);
@@ -95,13 +101,8 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
    }
 
    for (int i = 0; i < num_threads; i++) {
-      void *thread_rc;
-      int   rc = pthread_join(thread_ids[i], &thread_rc);
-      ASSERT_EQUAL(0, rc);
-      if (thread_rc != 0) {
-         CTEST_ERR(
-            "Thread %d [ID=%lu] had error: %p\n", i, thread_ids[i], thread_rc);
-      }
+      platform_status rc = platform_thread_join(&thread_ids[i]);
+      platform_assert_status_ok(rc);
    }
 }
 
@@ -272,7 +273,7 @@ CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
 }
 
 // Per-thread workload
-static void *
+static void
 exec_worker_thread(void *w)
 {
    char key_buf[TEST_KEY_SIZE]     = {0};
@@ -282,8 +283,6 @@ exec_worker_thread(void *w)
    uint32_t       num_inserts = wcfg->num_inserts;
    int            random_data = wcfg->random_data;
    splinterdb    *kvsb        = wcfg->kvsb;
-
-   platform_register_thread();
 
    pthread_t thread_id = pthread_self();
 
@@ -305,9 +304,6 @@ exec_worker_thread(void *w)
          CTEST_LOG_INFO("Thread %lu has completed %u inserts\n", thread_id, i);
       }
    }
-
-   platform_deregister_thread();
-   return 0;
 }
 
 

@@ -129,6 +129,8 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       platform_error_log("fork() of child process failed: pid=%d\n", pid);
       return;
    } else if (pid == 0) {
+      platform_register_thread();
+
       // Verify that child process sees the same handle to a running Splinter
       // as seen by the parent. (We cross-check using the copy saved off in
       // shared memory.)
@@ -165,16 +167,8 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       ASSERT_TRUE(platform_valid_addr_in_heap(
          spl_heap_id, splinterdb_get_memtable_context_handle(spl_handle)));
 
-      // Before registering w/Splinter, child process is still at tid==0.
-      ASSERT_EQUAL(0, platform_get_tid());
-
-      // Perform some inserts through child process
-      platform_register_thread();
-
       // After registering w/Splinter, child process' tid will change.
       ASSERT_EQUAL(1, platform_get_tid());
-
-      platform_deregister_thread();
 
       // After deregistering w/Splinter, child process is back to invalid value
       ASSERT_EQUAL(INVALID_TID, platform_get_tid());
@@ -191,6 +185,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       splinterdb_close(&spl_handle);
    } else {
       // Child should not attempt to run the rest of the tests
+      platform_deregister_thread();
       exit(0);
    }
 }
@@ -266,8 +261,6 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       key     = slice_create(key_len, key_data);
       rc      = splinterdb_insert(spl_handle, key, to_insert);
       ASSERT_EQUAL(0, rc);
-
-      platform_deregister_thread();
    }
 
    // Only parent can close Splinter
@@ -291,6 +284,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       // was not in-place.
       splinterdb_close(&spl_handle);
    } else {
+      platform_deregister_thread();
       // child should not attempt to run the rest of the tests
       exit(0);
    }
@@ -395,28 +389,26 @@ CTEST2(splinterdb_forked_child,
       // completely drained all its pending IOs, and it cannot do
       // any more IOs (which is what the flush below will try to do.)
       // splinterdb_cache_flush(spl_handle);
-   }
 
-   // Only parent can close Splinter
-   if (pid) {
-      platform_default_log("OS-pid=%d, ThreadID=%lu: "
-                           "Waiting for child pid=%d to complete ...\n",
-                           platform_get_os_pid(),
-                           platform_get_tid(),
-                           pid);
-
-      safe_wait();
-
-      platform_default_log("OS-pid=%d, ThreadID=%lu: "
-                           "Child execution wait() completed."
-                           " Resuming parent ...\n",
-                           platform_get_os_pid(),
-                           platform_get_tid());
-      splinterdb_close(&spl_handle);
-   } else {
       // child should not attempt to run the rest of the tests
       exit(0);
    }
+
+   // Only parent gets here
+   platform_default_log("OS-pid=%d, ThreadID=%lu: "
+                        "Waiting for child pid=%d to complete ...\n",
+                        platform_get_os_pid(),
+                        platform_get_tid(),
+                        pid);
+
+   safe_wait();
+
+   platform_default_log("OS-pid=%d, ThreadID=%lu: "
+                        "Child execution wait() completed."
+                        " Resuming parent ...\n",
+                        platform_get_os_pid(),
+                        platform_get_tid());
+   splinterdb_close(&spl_handle);
 }
 
 /*
@@ -512,6 +504,8 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
           *   splinterdb_cache_flush(spl_handle);
           */
          platform_deregister_thread();
+         // child should not attempt to run the rest of the tests
+         exit(0);
       }
    }
 
@@ -541,9 +535,6 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
                            platform_get_tid());
 
       splinterdb_close(&spl_handle);
-   } else {
-      // child should not attempt to run the rest of the tests
-      exit(0);
    }
 }
 

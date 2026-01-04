@@ -1525,6 +1525,8 @@ btree_test(int argc, char *argv[])
    task_system           *ts = NULL;
    test_message_generator gen;
 
+   platform_register_thread();
+
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
       config_argc   = argc - 2;
@@ -1671,6 +1673,6 @@ destroy_iohandle:
    io_handle_destroy(io);
 cleanup:
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

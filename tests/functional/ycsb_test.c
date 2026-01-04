@@ -1153,6 +1153,8 @@ ycsb_test(int argc, char *argv[])
    int                    args_consumed;
    test_message_generator gen;
 
+   platform_register_thread();
+
    uint64 log_size_bytes, memory_bytes;
    rc = load_ycsb_logs(argc,
                        argv,
@@ -1164,6 +1166,7 @@ ycsb_test(int argc, char *argv[])
                        &memory_bytes);
    if (!SUCCESS(rc) || phases == NULL) {
       platform_default_log("Failed to load ycsb logs\n");
+      platform_deregister_thread();
       return -1;
    }
    platform_default_log("Log size: %luMiB\n", B_TO_MiB(log_size_bytes));
@@ -1341,6 +1344,6 @@ destroy_iohandle:
 cleanup:
    platform_free(hid, system_cfg);
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

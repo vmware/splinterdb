@@ -120,6 +120,7 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
+   platform_register_thread();
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
@@ -183,6 +184,7 @@ CTEST_TEARDOWN(btree_stress)
    task_system_destroy(data->hid, &data->ts);
    io_handle_destroy(data->io);
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 CTEST2(btree_stress, iterator_basics)

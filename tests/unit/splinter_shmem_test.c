@@ -61,6 +61,7 @@ CTEST_DATA(splinter_shmem)
 // By default, all test cases will deal with small shared memory segment.
 CTEST_SETUP(splinter_shmem)
 {
+   platform_register_thread();
    data->shmem_capacity = (256 * MiB); // bytes
    platform_status rc   = platform_heap_create(
       platform_get_module_id(), data->shmem_capacity, TRUE, &data->hid);
@@ -74,6 +75,7 @@ CTEST_SETUP(splinter_shmem)
 CTEST_TEARDOWN(splinter_shmem)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*
@@ -601,8 +603,6 @@ exec_thread_memalloc(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
-   platform_register_thread();
-
    // Allocate a new memory fragment and connect head to output variable for
    // thread
    shm_memfrag **fragpp   = &thread_cfg->start;
@@ -619,7 +619,6 @@ exec_thread_memalloc(void *arg)
       fragpp          = &new_frag->next;
       nallocs++;
    }
-   platform_deregister_thread();
 
    platform_default_log(
       "Thread-ID=%lu allocated %lu memory fragments of %lu bytes each.\n",

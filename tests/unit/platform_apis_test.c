@@ -38,6 +38,7 @@ CTEST_DATA(platform_api)
 
 CTEST_SETUP(platform_api)
 {
+   platform_register_thread();
    platform_status rc = STATUS_OK;
    bool use_shmem     = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
@@ -50,6 +51,7 @@ CTEST_SETUP(platform_api)
 CTEST_TEARDOWN(platform_api)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

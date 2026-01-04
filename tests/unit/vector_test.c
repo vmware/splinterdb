@@ -23,6 +23,7 @@ CTEST_DATA(vector)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(vector)
 {
+   platform_register_thread();
    platform_heap_id hid = platform_get_heap_id();
    vector_init(&data->empty, hid);
    vector_init(&data->one, hid);
@@ -41,6 +42,7 @@ CTEST_TEARDOWN(vector)
    vector_deinit(&data->empty);
    vector_deinit(&data->one);
    vector_deinit(&data->ten);
+   platform_deregister_thread();
 }
 
 CTEST2(vector, length)
