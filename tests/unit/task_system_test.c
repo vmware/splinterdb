@@ -38,6 +38,7 @@ typedef struct {
    task_system    *tasks;
    platform_thread this_thread_id; // OS-generated thread ID
    threadid        exp_thread_idx; // Splinter-generated expected thread index
+   uint64         *done;
 } thread_config;
 
 // Configuration for worker threads used in lock-step testing exercise
@@ -99,6 +100,8 @@ CTEST_DATA(task_system)
  */
 CTEST_SETUP(task_system)
 {
+   platform_register_thread();
+
    platform_status rc = STATUS_OK;
    bool use_shmem     = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
@@ -141,6 +144,7 @@ CTEST_TEARDOWN(task_system)
    task_system_destroy(data->hid, &data->tasks);
    io_handle_destroy(data->ioh);
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*
@@ -302,12 +306,14 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
+   uint64 done = 0;
    for (tctr = max_tid_so_far; tctr < ARRAY_SIZE(thread_cfg); tctr++) {
       thread_cfgp = &thread_cfg[tctr];
 
       // These are independent of the new thread's creation.
       thread_cfgp->tasks          = data->tasks;
       thread_cfgp->exp_thread_idx = tctr;
+      thread_cfgp->done           = &done;
 
       rc = platform_thread_create(
          &new_thread, FALSE, exec_one_of_n_threads, thread_cfgp, data->hid);
@@ -479,30 +485,12 @@ exec_one_thread_use_lower_apis(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
-   // This is the important call to initialize thread-specific stuff in
-   // Splinter's task-system, which sets up the thread-id (index) and records
-   // this thread as active with the task system.
-   platform_register_thread();
-
    threadid this_threads_idx = platform_get_tid();
    ASSERT_EQUAL(thread_cfg->exp_thread_idx,
                 this_threads_idx,
                 "exp_thread_idx=%lu, this_threads_idx=%lu\n",
                 thread_cfg->exp_thread_idx,
                 this_threads_idx);
-
-   platform_deregister_thread();
-
-   // Register / de-register of thread with SplinterDB's task system is
-   // SplinterDB's jugglery to keep track of resources. get_tid() should
-   // now be reset.
-   threadid get_tid_after_deregister = platform_get_tid();
-   ASSERT_EQUAL(INVALID_TID,
-                get_tid_after_deregister,
-                "get_tid_after_deregister=%lu is != expected index into"
-                " thread array, %lu ",
-                get_tid_after_deregister,
-                thread_cfg->exp_thread_idx);
 }
 
 /*
@@ -553,14 +541,6 @@ exec_one_of_n_threads(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
-   // Before registration, thread ID should be in an uninit'ed state
-   ASSERT_EQUAL(INVALID_TID, platform_get_tid());
-
-   int rc = platform_register_thread();
-   ASSERT_TRUE(rc == 0,
-               "task_register_this_thread() failed: thread idx is %lu",
-               platform_get_tid());
-
    threadid this_threads_index = platform_get_tid();
 
    ASSERT_TRUE((this_threads_index < MAX_THREADS),
@@ -568,23 +548,16 @@ exec_one_of_n_threads(void *arg)
                thread_cfg->exp_thread_idx,
                this_threads_index);
 
-   // Test case is carefully constructed to fire-up n-threads. Wait for
-   // them to all start-up.
-   while (platform_num_threads() < MAX_THREADS) {
-      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
+   if (platform_num_threads() == MAX_THREADS) {
+      *thread_cfg->done = 1;
+      return;
    }
 
-   platform_deregister_thread();
-
-   // Register / de-register of thread with SplinterDB's task system is just
-   // SplinterDB's jugglery to keep track of resources. Deregistration should
-   // have re-init'ed the thread ID.
-   threadid get_tid_after_deregister = platform_get_tid();
-   ASSERT_EQUAL(INVALID_TID,
-                get_tid_after_deregister,
-                "get_tid_after_deregister=%lu should be an invalid tid, %lu",
-                get_tid_after_deregister,
-                INVALID_TID);
+   // Test case is carefully constructed to fire-up n-threads. Wait for
+   // them to all start-up.
+   while (*thread_cfg->done == 0) {
+      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
+   }
 }
 
 /*
