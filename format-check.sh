@@ -9,7 +9,7 @@ set -eu -o pipefail
 
 # different tool versions yield different results
 # so we standardize on this version
-TOOL="clang-format-16"
+TOOL="clang-format-19"
 
 # Check if TOOL exists
 if ! command -v "$TOOL" &> /dev/null; then

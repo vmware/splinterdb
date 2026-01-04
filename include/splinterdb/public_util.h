@@ -25,7 +25,7 @@ typedef struct slice {
 } slice;
 
 #define NULL_SLICE    ((slice){.length = 0, .data = NULL})
-#define INVALID_SLICE ((slice){.length = (uint64)-1, .data = NULL})
+#define INVALID_SLICE ((slice){.length = (uint64) - 1, .data = NULL})
 
 static inline _Bool
 slice_is_null(const slice b)

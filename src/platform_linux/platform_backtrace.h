@@ -6,4 +6,3 @@ platform_backtrace(void **buffer, int size)
 {
    return backtrace(buffer, size);
 }
-

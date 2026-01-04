@@ -7,9 +7,9 @@ To integrate SplinterDB into another application, see [Usage](usage.md).
 Builds are known to work on Ubuntu using recent versions of GCC and Clang.
 
 ### Tooling
-In CI, we test against GCC 13 and Clang 16.
+In CI, we test against GCC 13 and Clang 19.
 
-We use `clang-format-16` for code formatting.
+We use `clang-format-19` for code formatting.
 
 ### Full build
 Here are the steps to do a full-build of the library, run smoke tests, and to install the shared libraries:

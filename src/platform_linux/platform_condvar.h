@@ -5,11 +5,11 @@
 #include <pthread.h>
 
 typedef struct platform_condvar {
-    pthread_mutex_t lock;
-    pthread_cond_t  cond;
- } platform_condvar;
- 
- platform_status
+   pthread_mutex_t lock;
+   pthread_cond_t  cond;
+} platform_condvar;
+
+platform_status
 platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id);
 
 platform_status
@@ -22,7 +22,7 @@ platform_status
 platform_condvar_broadcast(platform_condvar *cv);
 
 
- static inline platform_status
+static inline platform_status
 platform_condvar_lock(platform_condvar *cv)
 {
    int status;
@@ -46,4 +46,3 @@ platform_condvar_destroy(platform_condvar *cv)
    pthread_mutex_destroy(&cv->lock);
    pthread_cond_destroy(&cv->cond);
 }
-

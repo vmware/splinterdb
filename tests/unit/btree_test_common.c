@@ -58,8 +58,8 @@ init_task_config_from_master_config(task_system_config  *task_cfg,
    num_bg_threads[TASK_TYPE_NORMAL]   = master_cfg->num_normal_bg_threads;
    num_bg_threads[TASK_TYPE_MEMTABLE] = master_cfg->num_memtable_bg_threads;
 
-   rc = task_system_config_init(
-      task_cfg, master_cfg->use_stats, num_bg_threads);
+   rc =
+      task_system_config_init(task_cfg, master_cfg->use_stats, num_bg_threads);
    return SUCCESS(rc);
 }
 
