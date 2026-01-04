@@ -175,6 +175,7 @@ npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
 int
 splinter_io_apis_test(int argc, char *argv[])
 {
+   platform_register_thread();
    uint64 heap_capacity = (HEAP_SIZE_MB * MiB); // small heap is sufficient.
 
    // Move past the 1st arg which will be the driving tag, 'io_apis_test'.
@@ -331,6 +332,9 @@ splinter_io_apis_test(int argc, char *argv[])
    // Exercise R/W tests: Run this block if we are in the main thread
    // (i.e. didn't fork) or if we are a child process created after fork()'ing.
    if (!master_cfg.fork_child || (pid == 0)) {
+      if (pid == 0) {
+         platform_register_thread();
+      }
 
       threadid this_thread_idx = platform_get_tid();
 
@@ -350,7 +354,6 @@ splinter_io_apis_test(int argc, char *argv[])
                                  io_hdl);
          }
 
-         platform_register_thread();
          this_thread_idx = platform_get_tid();
 
          // Reset the handles / variables that have changed in the child
@@ -384,10 +387,6 @@ splinter_io_apis_test(int argc, char *argv[])
       platform_assert_status_ok(rc);
 
       test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
-
-      // The forked child process which uses Splinter masquerading as a
-      // "thread" needs to relinquish its resources before exiting.
-      platform_deregister_thread();
    }
 
 io_free:
@@ -408,6 +407,7 @@ heap_destroy:
                            platform_get_os_pid(),
                            platform_get_tid());
    }
+   platform_deregister_thread();
    return (SUCCESS(rc) ? 0 : -1);
 }
 
