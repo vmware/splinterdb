@@ -60,14 +60,14 @@ laio_cleanup_one(io_process_context *pctx, int mincnt)
       return 0;
    }
 
-   __sync_fetch_and_sub(&pctx->io_count, 1);
-
    // Invoke the callback for the one event that completed.
    io_callback_t callback = (io_callback_t)event.data;
    callback(pctx->ctx, event.obj, event.res, 0);
 
    // Release one waiter if there is one
    async_wait_queue_release_one(&pctx->submit_waiters);
+
+   __sync_fetch_and_sub(&pctx->io_count, 1);
 
    return 1;
 }
