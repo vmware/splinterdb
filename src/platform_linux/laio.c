@@ -44,8 +44,8 @@ laio_cleanup_one(io_process_context *pctx, int mincnt)
 {
    struct io_event event = {0};
    int             status;
-
-   status = io_getevents(pctx->ctx, mincnt, 1, &event, NULL);
+   struct timespec timeout = {.tv_sec = 0, .tv_nsec = 10000000};
+   status = io_getevents(pctx->ctx, mincnt, 1, &event, &timeout);
    if (status < 0 && pctx->state != PROCESS_CONTEXT_STATE_SHUTTING_DOWN) {
       platform_error_log("%s(): OS-pid=%d, "
                          "io_count=%lu,"
@@ -475,12 +475,12 @@ laio_process_termination_callback(threadid pid, void *arg)
       debug_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
 
       pctx->state = PROCESS_CONTEXT_STATE_SHUTTING_DOWN;
-      int status  = io_destroy(pctx->ctx);
+      pthread_join(pctx->io_cleaner, NULL);
+      int status = io_destroy(pctx->ctx);
       platform_assert(status == 0,
                       "io_destroy() failed with error=%d: %s\n",
                       -status,
                       strerror(-status));
-      pthread_join(pctx->io_cleaner, NULL);
       async_wait_queue_deinit(&pctx->submit_waiters);
 
       // subsequent io_setup calls on this ctx will fail if we don't reset it.
