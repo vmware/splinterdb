@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    # - uses: awalsh128/cache-apt-pkgs-action@latest
-    #   with:
-    #     packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
+    - uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: format-check
       run: ./format-check.sh
 
@@ -75,19 +75,19 @@ jobs:
       INCLUDE_SLOW_TESTS: ${{ matrix.include_slow_tests }}
       RUN_NIGHTLY_TESTS: ${{ matrix.run_nightly_tests }}
     steps:
-    # - name: Maximize build space
-    #   uses: easimon/maximize-build-space@master
-    #   with:
-    #     root-reserve-mb: 512
-    #     swap-size-mb: 1
-    #     remove-dotnet: true
-    #     remove-android: true
-    #     remove-haskell: true
-    #     remove-codeql: true
-    #     remove-docker-images: false
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 512
+        swap-size-mb: 1
+        remove-dotnet: true
+        remove-android: true
+        remove-haskell: true
+        remove-codeql: true
+        remove-docker-images: false
     - uses: actions/checkout@v4
-    # - uses: awalsh128/cache-apt-pkgs-action@latest
-    #   with:
-    #     packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
+    - uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: make ${{ matrix.target }}
       run: make ${{ matrix.target }}
