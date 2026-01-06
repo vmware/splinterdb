@@ -107,10 +107,6 @@ CTEST_SETUP(task_system)
       platform_get_module_id(), heap_capacity, use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 
-   // Allocate and initialize the IO sub-system.
-   data->ioh = TYPED_MALLOC(data->hid, data->ioh);
-   ASSERT_TRUE((data->ioh != NULL));
-
    // Do minimal IO config setup, using default IO values.
    master_config master_cfg;
    config_set_defaults(&master_cfg);
