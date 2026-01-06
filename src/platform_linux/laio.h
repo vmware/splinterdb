@@ -48,5 +48,6 @@ laio_config_valid(io_config *cfg);
 io_handle *
 laio_handle_create(io_config *cfg, platform_heap_id hid);
 
+// The IO system must be quiesced before calling this function.
 void
 laio_handle_destroy(io_handle *ioh);

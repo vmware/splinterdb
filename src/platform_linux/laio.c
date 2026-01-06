@@ -17,6 +17,7 @@
  *   members using laio_get_metadata() and laio_get_iovec().
  */
 
+#include "platform_status.h"
 #define POISON_FROM_PLATFORM_IMPLEMENTATION
 
 #include "laio.h"
@@ -35,6 +36,8 @@
 #endif
 #include <string.h>
 
+#define LAIO_CLEANER_TERMINATE_CALLBACK NULL
+
 /*
  * Context management
  */
@@ -44,8 +47,8 @@ laio_cleanup_one(io_process_context *pctx, int mincnt)
 {
    struct io_event event = {0};
    int             status;
-   struct timespec timeout = {.tv_sec = 0, .tv_nsec = 10000000};
-   status = io_getevents(pctx->ctx, mincnt, 1, &event, &timeout);
+
+   status = io_getevents(pctx->ctx, mincnt, 1, &event, NULL);
    if (status < 0 && pctx->state != PROCESS_CONTEXT_STATE_SHUTTING_DOWN) {
       platform_error_log("%s(): OS-pid=%d, "
                          "io_count=%lu,"
@@ -60,8 +63,16 @@ laio_cleanup_one(io_process_context *pctx, int mincnt)
       return 0;
    }
 
-   // Invoke the callback for the one event that completed.
    io_callback_t callback = (io_callback_t)event.data;
+
+   // When we are being shut down, the main thread will set the callback to this
+   // value to indicate that we should exit.
+   if (callback == LAIO_CLEANER_TERMINATE_CALLBACK) {
+      __sync_fetch_and_sub(&pctx->io_count, 1);
+      return 0;
+   }
+
+   // Invoke the callback for the one event that completed.
    callback(pctx->ctx, event.obj, event.res, 0);
 
    // Release one waiter if there is one
@@ -458,6 +469,23 @@ laio_wait_all(io_handle *ioh)
    }
 }
 
+static platform_status
+laio_wakeup_cleaner(io_process_context *pctx,
+                    struct iocb        *iocb,
+                    int                 fd,
+                    char                buf[1])
+{
+   __sync_fetch_and_add(&pctx->io_count, 1);
+   io_prep_pread(iocb, fd, buf, 1, 0);
+   io_set_callback(iocb, LAIO_CLEANER_TERMINATE_CALLBACK);
+   int status = io_submit(pctx->ctx, 1, &iocb);
+   if (status != 1) {
+      return STATUS_IO_ERROR;
+   }
+   return STATUS_OK;
+}
+
+
 static void
 laio_process_termination_callback(threadid pid, void *arg)
 {
@@ -475,6 +503,13 @@ laio_process_termination_callback(threadid pid, void *arg)
       debug_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
 
       pctx->state = PROCESS_CONTEXT_STATE_SHUTTING_DOWN;
+      struct iocb     iocb;
+      char            buf[1];
+      platform_status rc = laio_wakeup_cleaner(pctx, &iocb, io->fd, buf);
+      if (!SUCCESS(rc)) {
+         platform_error_log("laio_wakeup_cleaner() failed: %s\n",
+                            strerror(errno));
+      }
       pthread_join(pctx->io_cleaner, NULL);
       int status = io_destroy(pctx->ctx);
       platform_assert(status == 0,
