@@ -12,7 +12,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-16 clang-format-16
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: format-check
       run: ./format-check.sh
 
@@ -88,6 +88,6 @@ jobs:
     - uses: actions/checkout@v4
     - uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-16 clang-format-16
+        packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: make ${{ matrix.target }}
       run: make ${{ matrix.target }}
