@@ -75,8 +75,8 @@ jobs:
       INCLUDE_SLOW_TESTS: ${{ matrix.include_slow_tests }}
       RUN_NIGHTLY_TESTS: ${{ matrix.run_nightly_tests }}
     steps:
-      -name: Observe build space
-        run: df -h
+    - name: Observe build space
+      run: df -h
     # - name: Maximize build space
     #   uses: easimon/maximize-build-space@master
     #   with:
