@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc. All rights reserved. -- VMware Confidential
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 #include "btree_private.h"

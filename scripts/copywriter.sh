@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Copyright 2018-2021 VMware, Inc.
+# Copyright 2018-2026 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 
-# Copyright 2018-2021 VMware, Inc., Microsoft Inc., Carnegie Mellon University, ETH Zurich, and University of Washington
+# Copyright 2018-2026 VMware, Inc., Microsoft Inc., Carnegie Mellon University, ETH Zurich, and University of Washington
 # SPDX-License-Identifier: BSD-2-Clause
 
 DRY_RUN=
@@ -14,7 +14,7 @@ if [ "$1" == "-d" ]; then
 fi
 
 OLD_COPYRIGHT_NOTICE=""
-COPYRIGHT_NOTICE="Copyright 2018-2021 VMware, Inc."
+COPYRIGHT_NOTICE="Copyright 2018-2026 VMware, Inc."
 COPYING_PERMISSION_STATEMENT="SPDX-License-Identifier: Apache-2.0"
 
 function starts_with_bang_line() {

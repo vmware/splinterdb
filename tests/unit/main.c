@@ -1,5 +1,5 @@
 /* Copyright 2011-2021 Bas van den Berg
- * Copyright 2021 VMware, Inc.
+ * Copyright 2021-2026 VMware, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdio.h>

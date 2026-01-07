@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2018-2021 VMware, Inc.
+# Copyright 2018-2026 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 
