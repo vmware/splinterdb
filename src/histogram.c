@@ -10,7 +10,7 @@
 #include "histogram.h"
 #include "platform_typed_alloc.h"
 #include "platform_log.h"
-#include <string.h>
+#include "poison.h"
 
 platform_status
 histogram_create(platform_heap_id   heap_id,

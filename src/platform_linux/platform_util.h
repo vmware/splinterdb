@@ -1,3 +1,6 @@
+// Copyright 2018-2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /*
  * This file could likely be moved into a platform_common directory that could
  * serve as a common library for all platforms.

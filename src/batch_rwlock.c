@@ -3,6 +3,7 @@
 
 #include "batch_rwlock.h"
 #include "platform_sleep.h"
+#include "poison.h"
 
 /*
  *-----------------------------------------------------------------------------

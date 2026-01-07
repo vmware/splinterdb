@@ -1,4 +1,8 @@
+// Copyright 2018-2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #include "data_internal.h"
+#include "poison.h"
 
 message_type
 merge_accumulator_message_class(const merge_accumulator *ma)

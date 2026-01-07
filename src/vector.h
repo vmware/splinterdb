@@ -1,3 +1,6 @@
+// Copyright 2018-2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /*
  * Type-safe vectors.  Implementation is entirely macros.
  *

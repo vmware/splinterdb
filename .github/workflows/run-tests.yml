@@ -75,8 +75,6 @@ jobs:
       INCLUDE_SLOW_TESTS: ${{ matrix.include_slow_tests }}
       RUN_NIGHTLY_TESTS: ${{ matrix.run_nightly_tests }}
     steps:
-    - name: Observe build space
-      run: df -h
     - name: Maximize build space
       uses: easimon/maximize-build-space@master
       with:
@@ -91,7 +89,5 @@ jobs:
     - uses: awalsh128/cache-apt-pkgs-action@latest
       with:
         packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
-    - name: Observe build space
-      run: df -h
     - name: make ${{ matrix.target }}
       run: pwd; make ${{ matrix.target }}

@@ -16,9 +16,9 @@
 #include "platform_typed_alloc.h"
 #include "platform_assert.h"
 #include "platform_threads.h"
-#include <stdio.h>
-#include <time.h>
-#include <string.h>
+
+// This is used only for log(), which we should figure out how to avoid using,
+// so I'm not going to bother to platformize it.
 #include <math.h>
 
 #include "poison.h"
@@ -1114,17 +1114,20 @@ uint32
 routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
                                                uint64                num_unique)
 {
-   double universe_size = 1UL << cfg->fingerprint_size;
-   double unseen_fp     = universe_size - num_unique;
+   double universe_size   = 1UL << cfg->fingerprint_size;
+   double unseen_fp       = universe_size - num_unique;
+   double universe_size_2 = universe_size * universe_size;
+   double universe_size_4 = universe_size_2 * universe_size_2;
+   double unseen_fp_2     = unseen_fp * unseen_fp;
+   double unseen_fp_4     = unseen_fp_2 * unseen_fp_2;
    /*
     * Compute the difference H_|U| - H_{|U| - #unique_fp}, where U is the fp
     * universe.
     */
-   double harmonic_diff =
-      log(universe_size) - log(unseen_fp)
-      + 1 / 2.0 * (1 / universe_size - 1 / unseen_fp)
-      - 1 / 12.0 * (1 / pow(universe_size, 2) - 1 / pow(unseen_fp, 2))
-      + 1 / 120.0 * (1 / pow(universe_size, 4) - 1 / pow(unseen_fp, 4));
+   double harmonic_diff = log(universe_size) - log(unseen_fp)
+                          + 1 / 2.0 * (1 / universe_size - 1 / unseen_fp)
+                          - 1 / 12.0 * (1 / universe_size_2 - 1 / unseen_fp_2)
+                          + 1 / 120.0 * (1 / universe_size_4 - 1 / unseen_fp_4);
    uint32 estimated_input_keys = universe_size * harmonic_diff;
    return estimated_input_keys;
 }

@@ -16,7 +16,6 @@
 #include "platform_buffer.h"
 #include "allocator.h"
 #include "platform_io.h"
-#include <stddef.h>
 
 #include "poison.h"
 

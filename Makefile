@@ -168,22 +168,6 @@ else ifneq "$(BUILD_MSAN)" "0"
    $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
-# ************************************************************************
-# Thread sanitizer
-#   - Builds will fail with gcc due to compiler error. Use clang instead.
-#   - Tests will run even slower in thread sanitizer builds.
-ifndef BUILD_TSAN
-   BUILD_TSAN=0
-endif
-
-ifeq "$(BUILD_TSAN)" "1"
-   CFLAGS  += -fsanitize=thread
-   LDFLAGS += -fsanitize=thread
-   BUILD_DIR:=$(BUILD_DIR)-tsan
-else ifneq "$(BUILD_TSAN)" "0"
-   $(error Unknown BUILD_TSAN mode "$(BUILD_TSAN)".  Valid values are "0" or "1". Default is "0")
-endif
-
 help::
 	@echo '  BUILD_MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
 	@echo '                    Use clang for MSAN-builds.'
