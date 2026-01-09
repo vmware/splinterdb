@@ -99,15 +99,37 @@ slice_lex_cmp(const slice a, const slice b)
  * buffer you give it during initialization.
  * ----------------------------------------------------------------------
  */
+typedef enum writable_buffer_mode {
+   WRITABLE_BUFFER_BUILTIN  = 0,
+   WRITABLE_BUFFER_PROVIDED = 1,
+   WRITABLE_BUFFER_ALLOCED  = 2
+} writable_buffer_mode;
+
 typedef struct writable_buffer {
+   uint64           length : 62; // Logical length
+   uint64           mode : 2;
    platform_heap_id heap_id;
-   void            *buffer;
-   uint64           buffer_capacity;
-   uint64           length;
-   bool32           can_free;
+   union {
+      struct {
+         uint64 buffer_capacity;
+         void  *buffer;
+      } external;
+      uint8 builtin_buffer[48];
+   } u;
 } writable_buffer;
 
-#define WRITABLE_BUFFER_NULL_LENGTH UINT64_MAX
+_Static_assert(sizeof(writable_buffer) == PLATFORM_CACHELINE_SIZE,
+               "writable_buffer's builtin_buffer should be sized to make the "
+               "whole structure 1 cacheline in size.");
+
+#define WRITABLE_BUFFER_NULL_LENGTH (UINT64_MAX >> 2)
+
+#define NULL_WRITABLE_BUFFER(hid)                                              \
+   (writable_buffer)                                                           \
+   {                                                                           \
+      .length = WRITABLE_BUFFER_NULL_LENGTH, .mode = WRITABLE_BUFFER_BUILTIN,  \
+      .heap_id = hid,                                                          \
+   }
 
 /* Returns 0 if wb is in the null state */
 static inline uint64
@@ -122,7 +144,11 @@ writable_buffer_length(const writable_buffer *wb)
 static inline uint64
 writable_buffer_capacity(const writable_buffer *wb)
 {
-   return wb->buffer_capacity;
+   if (wb->mode == WRITABLE_BUFFER_BUILTIN)
+      return sizeof(wb->u.builtin_buffer);
+   else {
+      return wb->u.external.buffer_capacity;
+   }
 }
 
 /* May allocate memory */
@@ -137,8 +163,13 @@ writable_buffer_data(const writable_buffer *wb)
 {
    if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
       return NULL;
+   } else if (wb->mode == WRITABLE_BUFFER_BUILTIN) {
+      // We need to cast away const -- this function won't change the buffer,
+      // but is intended to give away a pointer that could be used to modify the
+      // data in the buffer.
+      return (void *)wb->u.builtin_buffer;
    } else {
-      return wb->buffer;
+      return wb->u.external.buffer;
    }
 }
 
@@ -155,39 +186,21 @@ writable_buffer_init_with_buffer(writable_buffer *wb,
                                  void            *data,
                                  uint64           logical_size)
 {
-   wb->heap_id         = heap_id;
-   wb->buffer          = data;
-   wb->buffer_capacity = allocation_size;
-   wb->length          = logical_size;
-   wb->can_free        = FALSE;
+   wb->length = logical_size;
+   wb->mode = data == NULL ? WRITABLE_BUFFER_BUILTIN : WRITABLE_BUFFER_PROVIDED;
+   wb->heap_id = heap_id;
+
+   if (data) {
+      wb->u.external.buffer          = data;
+      wb->u.external.buffer_capacity = allocation_size;
+   }
 }
 
 static inline void
 writable_buffer_init(writable_buffer *wb, platform_heap_id heap_id)
 {
-   writable_buffer_init_with_buffer(
-      wb, heap_id, 0, NULL, WRITABLE_BUFFER_NULL_LENGTH);
+   *wb = NULL_WRITABLE_BUFFER(heap_id);
 }
-
-/*
- * Convenience macro for declaring and initializing an automatically
- * destroyed writable buffer with a stack allocated array.  Usage:
- *
- * DECLARE_AUTO_WRITABLE_BUFFER_N(wb, heapid, 128);
- * // wb is now initialized and ready for use, e.g.
- * writable_buffer_copy_slice(&wb, some_slice);
- * ...
- * //writable_buffer_deinit(&wb); // DO NOT CALL writable_buffer_deinit!
- */
-#define DECLARE_AUTO_WRITABLE_BUFFER_N(wb, hid, n)                             \
-   char            wb##_tmp[n];                                                \
-   writable_buffer wb __attribute__((cleanup(writable_buffer_deinit)));        \
-   writable_buffer_init_with_buffer(&wb, hid, n, wb##_tmp, 0)
-
-#define WRITABLE_BUFFER_DEFAULT_AUTO_BUFFER_SIZE (128)
-#define DECLARE_AUTO_WRITABLE_BUFFER(wb, hid)                                  \
-   DECLARE_AUTO_WRITABLE_BUFFER_N(                                             \
-      wb, hid, WRITABLE_BUFFER_DEFAULT_AUTO_BUFFER_SIZE)
 
 static inline void
 writable_buffer_set_to_null(writable_buffer *wb)
@@ -198,20 +211,23 @@ writable_buffer_set_to_null(writable_buffer *wb)
 static inline void
 writable_buffer_deinit(writable_buffer *wb)
 {
-   if (wb->can_free) {
-      platform_free(wb->heap_id, wb->buffer);
+   if (wb->mode == WRITABLE_BUFFER_ALLOCED) {
+      platform_free(wb->heap_id, wb->u.external.buffer);
    }
-   wb->buffer   = NULL;
-   wb->can_free = FALSE;
+   writable_buffer_init(wb, wb->heap_id);
 }
+
+#define auto_writable_buffer                                                   \
+   writable_buffer __attribute__((cleanup(writable_buffer_deinit)))
+
 
 static inline void
 writable_buffer_memset(writable_buffer *wb, int c)
 {
-   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
-      return;
+   void *buffer = writable_buffer_data(wb);
+   if (buffer) {
+      memset(buffer, 0, wb->length);
    }
-   memset(wb->buffer, 0, wb->length);
 }
 
 static inline platform_status
@@ -221,7 +237,8 @@ writable_buffer_copy_slice(writable_buffer *wb, slice src)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   memcpy(wb->buffer, slice_data(src), slice_length(src));
+   void *buffer = writable_buffer_data(wb);
+   memcpy(buffer, slice_data(src), slice_length(src));
    return rc;
 }
 
@@ -240,7 +257,7 @@ writable_buffer_to_slice(const writable_buffer *wb)
    if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
       return NULL_SLICE;
    } else {
-      return slice_create(wb->length, wb->buffer);
+      return slice_create(wb->length, writable_buffer_data(wb));
    }
 }
 
@@ -256,15 +273,6 @@ writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
    }
    return rc;
 }
-
-/*
- * Creates a copy of src in newly declared slice dst.  Everything is
- * automatically cleaned up when dst goes out of scope.
- */
-#define SLICE_CREATE_LOCAL_COPY(dst, hid, src)                                 \
-   WRITABLE_BUFFER_DEFAULT(dst##wb, hid);                                      \
-   writable_buffer_copy_slice(&dst##wb, src);                                  \
-   slice dst = writable_buffer_to_slice(&dst##wb);
 
 /*
  * try_string_to_(u)int64

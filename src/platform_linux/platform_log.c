@@ -3,6 +3,7 @@
 
 #include "platform_log.h"
 #include "platform_assert.h"
+#include "platform_heap.h"
 
 // By default, platform_default_log() messages are sent to /dev/null
 // and platform_error_log() messages go to stderr (see below).
@@ -38,4 +39,15 @@ platform_log_handle *
 platform_get_stdout_stream(void)
 {
    return Platform_default_log_handle;
+}
+
+void
+platform_close_log_stream(platform_stream_handle *stream,
+                          platform_log_handle    *log_handle)
+{
+   fclose(stream->stream);
+   fputs(stream->str, log_handle);
+   fflush(log_handle);
+   platform_free_from_heap(
+      NULL, stream->str, "stream", __func__, __FILE__, __LINE__);
 }

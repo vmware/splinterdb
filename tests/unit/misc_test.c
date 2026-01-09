@@ -13,6 +13,7 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "platform_log.h"
 #include "platform_units.h"
+#include "platform_assert.h"
 
 #define ASSERT_OUTBUF_LEN 200
 

@@ -6,7 +6,6 @@
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_status.h"
 #include "platform_util.h"
-#include "platform_heap.h"
 
 /* Default output file handles for different logging interfaces */
 #define PLATFORM_CR "\r"
@@ -47,16 +46,9 @@ platform_flush_log_stream(platform_stream_handle *stream)
    fflush(stream->stream);
 }
 
-static inline void
+void
 platform_close_log_stream(platform_stream_handle *stream,
-                          platform_log_handle    *log_handle)
-{
-   fclose(stream->stream);
-   fputs(stream->str, log_handle);
-   fflush(log_handle);
-   platform_free_from_heap(
-      NULL, stream->str, "stream", __func__, __FILE__, __LINE__);
-}
+                          platform_log_handle    *log_handle);
 
 static inline platform_log_handle *
 platform_log_stream_to_log_handle(platform_stream_handle *stream)

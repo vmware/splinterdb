@@ -128,7 +128,6 @@ key_copy_contents(void *dst, key k)
 typedef struct {
    key_type        kind;
    writable_buffer wb;
-   char            default_buffer[DEFAULT_KEY_BUFFER_SIZE];
 } key_buffer;
 
 /*
@@ -151,8 +150,7 @@ static inline void
 key_buffer_init(key_buffer *kb, platform_heap_id hid)
 {
    kb->kind = USER_KEY;
-   writable_buffer_init_with_buffer(
-      &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
+   writable_buffer_init(&kb->wb, hid);
 }
 
 static inline platform_status
