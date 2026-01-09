@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,7 +9,6 @@
 
 #include "trunk.h"
 #include "platform.h"
-#include "platform_types.h"
 #include "data_internal.h"
 #include "util.h"
 #include "btree.h"
@@ -2354,13 +2353,13 @@ trunk_branch_merger_deinit(trunk_branch_merger *merger)
 static void
 trunk_read_begin(trunk_context *context)
 {
-   platform_batch_rwlock_get(&context->root_lock, 0);
+   batch_rwlock_get(&context->root_lock, 0);
 }
 
 static void
 trunk_read_end(trunk_context *context)
 {
-   platform_batch_rwlock_unget(&context->root_lock, 0);
+   batch_rwlock_unget(&context->root_lock, 0);
 }
 
 platform_status
@@ -2391,18 +2390,18 @@ trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle)
 void
 trunk_modification_begin(trunk_context *context)
 {
-   platform_batch_rwlock_get(&context->root_lock, 0);
-   platform_batch_rwlock_claim_loop(&context->root_lock, 0);
+   batch_rwlock_get(&context->root_lock, 0);
+   batch_rwlock_claim_loop(&context->root_lock, 0);
 }
 
 static void
 trunk_set_root(trunk_context *context, trunk_ondisk_node_ref *new_root_ref)
 {
    trunk_ondisk_node_ref *old_root_ref;
-   platform_batch_rwlock_lock(&context->root_lock, 0);
+   batch_rwlock_lock(&context->root_lock, 0);
    old_root_ref  = context->root;
    context->root = new_root_ref;
-   platform_batch_rwlock_unlock(&context->root_lock, 0);
+   batch_rwlock_unlock(&context->root_lock, 0);
    if (old_root_ref != NULL) {
       trunk_ondisk_node_ref_destroy(old_root_ref, context, context->hid);
    }
@@ -2433,8 +2432,8 @@ perform_pending_gcs(trunk_context *context)
 void
 trunk_modification_end(trunk_context *context)
 {
-   platform_batch_rwlock_unclaim(&context->root_lock, 0);
-   platform_batch_rwlock_unget(&context->root_lock, 0);
+   batch_rwlock_unclaim(&context->root_lock, 0);
+   batch_rwlock_unget(&context->root_lock, 0);
    perform_pending_gcs(context);
 }
 
@@ -2928,7 +2927,7 @@ trunk_pivot_state_map_create_entry(trunk_context              *context,
    state->maplet  = pivot_bundle->maplet;
    routing_filter_inc_ref(context->cc, &state->maplet);
    state->num_branches = bundle_num_branches(pivot_bundle);
-   platform_spinlock_init(&state->compactions_lock, NULL, context->hid);
+   platform_spinlock_init(&state->compactions_lock);
 
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;
@@ -3152,7 +3151,7 @@ static platform_status
 enqueue_maplet_compaction(trunk_pivot_state *args);
 
 static void
-maplet_compaction_task(void *arg, void *scratch)
+maplet_compaction_task(void *arg)
 {
    platform_status              rc         = STATUS_OK;
    trunk_pivot_state           *state      = (trunk_pivot_state *)arg;
@@ -3373,7 +3372,7 @@ compute_tuple_bound(trunk_context            *context,
 
 
 static void
-bundle_compaction_task(void *arg, void *scratch)
+bundle_compaction_task(void *arg)
 {
    platform_status    rc;
    trunk_pivot_state *state   = (trunk_pivot_state *)arg;
@@ -4945,12 +4944,12 @@ cleanup_vectors:
 void
 trunk_incorporate_commit(trunk_context *context)
 {
-   platform_batch_rwlock_lock(&context->root_lock, 0);
+   batch_rwlock_lock(&context->root_lock, 0);
    platform_assert(context->pre_incorporation_root == NULL);
    context->pre_incorporation_root  = context->root;
    context->root                    = context->post_incorporation_root;
    context->post_incorporation_root = NULL;
-   platform_batch_rwlock_unlock(&context->root_lock, 0);
+   batch_rwlock_unlock(&context->root_lock, 0);
 }
 
 void
@@ -5793,7 +5792,7 @@ trunk_context_init(trunk_context      *context,
    }
 
    trunk_pivot_state_map_init(&context->pivot_states);
-   platform_batch_rwlock_init(&context->root_lock);
+   batch_rwlock_init(&context->root_lock);
 
    return STATUS_OK;
 }
@@ -5852,7 +5851,7 @@ trunk_context_deinit(trunk_context *context)
    perform_pending_gcs(context);
    platform_assert(context->pending_gcs == NULL);
    trunk_pivot_state_map_deinit(&context->pivot_states);
-   platform_batch_rwlock_deinit(&context->root_lock);
+   batch_rwlock_deinit(&context->root_lock);
 }
 
 

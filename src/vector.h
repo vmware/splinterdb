@@ -1,3 +1,6 @@
+// Copyright 2018-2026 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /*
  * Type-safe vectors.  Implementation is entirely macros.
  *
@@ -168,7 +171,7 @@ __vector_replace(writable_buffer       *dst,
       uint64 __start                     = (start);                            \
       vector_elt_ptr_type(src) __srcdata = vector_data(src);                   \
       writable_buffer_append(&(dst)->wb,                                       \
-                             ((end)-__start) * vector_elt_size(src),           \
+                             ((end) - __start) * vector_elt_size(src),         \
                              __srcdata + __start);                             \
    })
 
@@ -186,7 +189,7 @@ __vector_replace(writable_buffer       *dst,
    })
 
 #define vector_ensure_capacity(v, capacity)                                    \
-   (writable_buffer_ensure_space(&(v)->wb, (capacity)*vector_elt_size(v)))
+   (writable_buffer_ensure_space(&(v)->wb, (capacity) * vector_elt_size(v)))
 
 #define vector_copy(v, src)                                                    \
    ({                                                                          \

@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -10,12 +10,11 @@
  *-----------------------------------------------------------------------------
  */
 
-#include "platform.h"
-
 #include "allocator.h"
 #include "cache.h"
 #include "mini_allocator.h"
 #include "util.h"
+#include "platform_sleep.h"
 
 #include "poison.h"
 
@@ -39,7 +38,7 @@ typedef struct ONDISK mini_meta_hdr {
    char   entry_buffer[];
 } mini_meta_hdr;
 
-#define TERMINAL_EXTENT_ADDR ((uint64)-1)
+#define TERMINAL_EXTENT_ADDR ((uint64) - 1)
 
 /*
  *-----------------------------------------------------------------------------
@@ -188,7 +187,6 @@ base_addr(cache *cc, uint64 addr)
 uint64
 mini_init(mini_allocator *mini,
           cache          *cc,
-          data_config    *cfg,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
@@ -202,7 +200,6 @@ mini_init(mini_allocator *mini,
    ZERO_CONTENTS(mini);
    mini->cc          = cc;
    mini->al          = cache_get_allocator(cc);
-   mini->data_cfg    = cfg;
    mini->meta_head   = meta_head;
    mini->num_extents = 1; // for the meta page
    mini->num_batches = num_batches;

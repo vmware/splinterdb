@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,12 +8,15 @@
  *
  *     A data_config must be provided at the time of create/open.
  *     See default_data_config.h for a basic reference implementation.
+ *
+ * Each thread must call splinterdb_register_thread() before making any calls to
+ * SplinterDB. Each thread must call splinterdb_deregister_thread() before
+ * exiting.
  */
 
-#ifndef _SPLINTERDB_H_
-#define _SPLINTERDB_H_
+#pragma once
 
-#include "splinterdb/data.h"
+#include "data.h"
 
 // Get a version string for this build of SplinterDB
 // Currently a git tag
@@ -176,30 +179,6 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 // This will flush all data to disk and release all resources
 void
 splinterdb_close(splinterdb **kvs);
-
-// Register the current thread so that it can be used with splinterdb.
-// This causes scratch space to be allocated for the thread.
-//
-// Any thread that uses a splinterdb must first be registered with it.
-//
-// The only exception is the initial thread which called create or open,
-// as that thread is implicitly registered.  Re-registering it will leak memory.
-//
-// A thread should not be registered more than once; that would leak memory.
-//
-// splinterdb_close will use scratch space, so the thread that calls it must
-// have been registered (or implicitly registered by being the initial thread).
-//
-// Note: There is currently a limit of MAX_THREADS registered at a given time
-void
-splinterdb_register_thread(splinterdb *kvs);
-
-// Deregister the current thread and free its scratch space.
-//
-// Call this function before exiting a registered thread.
-// Otherwise, you'll leak memory.
-void
-splinterdb_deregister_thread(splinterdb *kvs);
 
 // Insert a key and value.
 // Relies on data_config->encode_message
@@ -420,5 +399,3 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
-
-#endif // _SPLINTERDB_H_

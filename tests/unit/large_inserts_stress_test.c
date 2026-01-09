@@ -1,4 +1,4 @@
-// Copyright 2022 VMware, Inc.
+// Copyright 2022-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -14,9 +14,13 @@
 #include <string.h>
 #include <sys/wait.h>
 
-#include "platform.h"
-#include "splinterdb/public_platform.h"
+#include "platform_threads.h"
+#include "platform_units.h"
+#include "platform_typed_alloc.h"
+#include "platform_log.h"
+#include "platform_time.h"
 #include "splinterdb/default_data_config.h"
+#include "splinterdb/platform_linux/public_platform.h"
 #include "splinterdb/splinterdb.h"
 #include "config.h"
 #include "unit_tests.h"
@@ -39,11 +43,10 @@ typedef struct {
    uint64         num_insert_threads;
    int            random_key_fd; // Options to choose the type of key inserted
    int            random_val_fd; // Options to choose the type of value inserted
-   bool           is_thread;     // Is main() or thread executing worker fn
 } worker_config;
 
 // Function Prototypes
-static void *
+static void
 exec_worker_thread(void *w);
 
 static void
@@ -98,9 +101,10 @@ CTEST_DATA(large_inserts_stress)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(large_inserts_stress)
 {
+   platform_register_thread();
    // First, register that main() is being run as a parent process
    data->am_parent = TRUE;
-   data->this_pid  = platform_getpid();
+   data->this_pid  = platform_get_os_pid();
 
    platform_status rc;
    uint64          heap_capacity = (64 * MiB); // small heap is sufficient.
@@ -162,6 +166,7 @@ CTEST_TEARDOWN(large_inserts_stress)
       splinterdb_close(&data->kvsb);
       platform_heap_destroy(&data->hid);
    }
+   platform_deregister_thread();
 }
 
 /*
@@ -314,7 +319,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
    wcfg.master_cfg  = &data->master_cfg;
    wcfg.num_inserts = data->num_inserts;
 
-   int pid = platform_getpid();
+   int pid = platform_get_os_pid();
 
    if (wcfg.master_cfg->fork_child) {
       pid = fork();
@@ -325,7 +330,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
       } else if (pid) {
          platform_default_log("OS-pid=%d, Thread-ID=%lu: "
                               "Waiting for child pid=%d to complete ...\n",
-                              platform_getpid(),
+                              platform_get_os_pid(),
                               platform_get_tid(),
                               pid);
 
@@ -335,20 +340,20 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
                               "Child execution wait() completed."
                               " Resuming parent ...\n",
                               platform_get_tid(),
-                              platform_getpid());
+                              platform_get_os_pid());
       }
    }
    if (pid == 0) {
+      platform_register_thread();
       // Record in global data that we are now running as a child.
       data->am_parent = FALSE;
-      data->this_pid  = platform_getpid();
+      data->this_pid  = platform_get_os_pid();
 
       platform_default_log(
          "OS-pid=%d Running as %s process ...\n",
          data->this_pid,
          (wcfg.master_cfg->fork_child ? "forked child" : "parent"));
 
-      splinterdb_register_thread(wcfg.kvsb);
 
       exec_worker_thread(&wcfg);
 
@@ -356,7 +361,7 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_forked)
                            ", completed inserts.\n",
                            data->this_pid,
                            platform_get_tid());
-      splinterdb_deregister_thread(wcfg.kvsb);
+      platform_deregister_thread();
       exit(0);
       return;
    }
@@ -554,7 +559,6 @@ do_inserts_n_threads(splinterdb      *kvsb,
          ((random_key_fd < 0) ? 0 : (wcfg[ictr].num_inserts * ictr));
       wcfg[ictr].random_key_fd = random_key_fd;
       wcfg[ictr].random_val_fd = random_val_fd;
-      wcfg[ictr].is_thread     = TRUE;
    }
 
    platform_thread *thread_ids =
@@ -562,24 +566,15 @@ do_inserts_n_threads(splinterdb      *kvsb,
 
    // Fire-off the threads to drive inserts ...
    for (int tctr = 0; tctr < num_insert_threads; tctr++) {
-      int rc = pthread_create(
-         &thread_ids[tctr], NULL, &exec_worker_thread, &wcfg[tctr]);
-      ASSERT_EQUAL(0, rc);
+      platform_status rc = platform_thread_create(
+         &thread_ids[tctr], FALSE, &exec_worker_thread, &wcfg[tctr], hid);
+      platform_assert_status_ok(rc);
    }
 
    // Wait for all threads to complete ...
    for (int tctr = 0; tctr < num_insert_threads; tctr++) {
-      void *thread_rc;
-      int   rc = pthread_join(thread_ids[tctr], &thread_rc);
-      ASSERT_EQUAL(0, rc);
-      if (thread_rc != 0) {
-         fprintf(stderr,
-                 "Thread %d [ID=%lu] had error: %p\n",
-                 tctr,
-                 thread_ids[tctr],
-                 thread_rc);
-         ASSERT_TRUE(FALSE);
-      }
+      platform_status rc = platform_thread_join(&thread_ids[tctr]);
+      platform_assert_status_ok(rc);
    }
    platform_free(hid, thread_ids);
    platform_free(hid, wcfg);
@@ -595,13 +590,13 @@ do_inserts_n_threads(splinterdb      *kvsb,
  * to be inserted. Can also choose whether value will be fully-packed.
  * ----------------------------------------------------------------------------
  */
-static void *
+static void
 exec_worker_thread(void *w)
 {
+   worker_config *wcfg = (worker_config *)w;
+
    char key_data[TEST_KEY_SIZE];
    char val_data[TEST_VALUE_SIZE];
-
-   worker_config *wcfg = (worker_config *)w;
 
    splinterdb *kvsb          = wcfg->kvsb;
    uint64      start_key     = wcfg->start_value;
@@ -611,9 +606,6 @@ exec_worker_thread(void *w)
 
    uint64 start_time = platform_get_timestamp();
 
-   if (wcfg->is_thread) {
-      splinterdb_register_thread(kvsb);
-   }
    threadid thread_idx = platform_get_tid();
 
    // Test is written to insert multiples of millions per thread.
@@ -682,7 +674,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert random value of "
                                     "fixed-length=%lu bytes.\n",
-                                    platform_getpid(),
+                                    platform_get_os_pid(),
                                     thread_idx,
                                     val_len);
                val_length_msg_printed = TRUE;
@@ -696,7 +688,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert small-width sequential values of "
                                     "different lengths.\n",
-                                    platform_getpid(),
+                                    platform_get_os_pid(),
                                     thread_idx);
                val_length_msg_printed = TRUE;
             }
@@ -705,7 +697,7 @@ exec_worker_thread(void *w)
                platform_default_log("OS-pid=%d, Thread-ID=%lu"
                                     ", Insert fully-packed fixed value of "
                                     "length=%lu bytes.\n",
-                                    platform_getpid(),
+                                    platform_get_os_pid(),
                                     thread_idx,
                                     val_len);
                val_length_msg_printed = TRUE;
@@ -742,10 +734,4 @@ exec_worker_thread(void *w)
                         ictr, // outer-loop ends at #-of-Millions inserted
                         elapsed_s,
                         (num_inserts / elapsed_s));
-
-   if (wcfg->is_thread) {
-      splinterdb_deregister_thread(kvsb);
-   }
-
-   return 0;
 }

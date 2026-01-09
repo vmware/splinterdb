@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,8 +8,7 @@
  *  Exercises the Writable Buffer interfaces.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
-#include "platform.h"
+#include "platform_units.h"
 #include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -31,6 +30,7 @@ CTEST_DATA(writable_buffer)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(writable_buffer)
 {
+   platform_register_thread();
    data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    platform_status rc = platform_heap_create(
@@ -42,6 +42,7 @@ CTEST_SETUP(writable_buffer)
 CTEST_TEARDOWN(writable_buffer)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

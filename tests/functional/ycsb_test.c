@@ -1,7 +1,5 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
-#include "platform.h"
 
 #include "core.h"
 #include "task.h"
@@ -447,13 +445,8 @@ run_ycsb_phase(core_handle     *spl,
       int j;
       for (j = 0; j < phase->params[i].nthreads; j++) {
          platform_assert(cur_thread < nthreads);
-         ret = task_thread_create("ycsb_thread",
-                                  ycsb_thread,
-                                  &phase->params[i],
-                                  core_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &threads[cur_thread]);
+         ret = platform_thread_create(
+            &threads[cur_thread], FALSE, ycsb_thread, &phase->params[i], hid);
          if (!SUCCESS(ret)) {
             success = -1;
             goto shutdown;
@@ -464,7 +457,7 @@ run_ycsb_phase(core_handle     *spl,
 
 shutdown:
    while (0 < nthreads) {
-      platform_status result = platform_thread_join(threads[nthreads - 1]);
+      platform_status result = platform_thread_join(&threads[nthreads - 1]);
       if (!SUCCESS(result)) {
          success = -1;
          break;
@@ -758,7 +751,7 @@ load_ycsb_logs(int          argc,
    platform_assert(start_line == num_lines);
 
    for (uint64 i = 0; i < num_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
       if (params[i].ycsb_ops == NULL) {
          platform_error_log("Bad log file: %s\n", params[i].filename);
          goto bad_params;
@@ -1160,6 +1153,8 @@ ycsb_test(int argc, char *argv[])
    int                    args_consumed;
    test_message_generator gen;
 
+   platform_register_thread();
+
    uint64 log_size_bytes, memory_bytes;
    rc = load_ycsb_logs(argc,
                        argv,
@@ -1171,6 +1166,7 @@ ycsb_test(int argc, char *argv[])
                        &memory_bytes);
    if (!SUCCESS(rc) || phases == NULL) {
       platform_default_log("Failed to load ycsb logs\n");
+      platform_deregister_thread();
       return -1;
    }
    platform_default_log("Log size: %luMiB\n", B_TO_MiB(log_size_bytes));
@@ -1260,21 +1256,18 @@ ycsb_test(int argc, char *argv[])
    // platform_assert(sys_rc == 0);
    // platform_free(hid, resize_hugetlb_command);
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   if (!SUCCESS(rc)) {
-      goto free_iohandle;
-   }
-   rc = io_handle_init(io, &system_cfg->io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto free_iohandle;
+   io_handle *io = io_handle_create(&system_cfg->io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &task_cfg);
+   rc = test_init_task_system(hid, &ts, &task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_iohandle;
+      goto destroy_iohandle;
    }
 
    rc_allocator al;
@@ -1282,14 +1275,11 @@ ycsb_test(int argc, char *argv[])
    core_handle *spl;
 
    if (use_existing) {
-      rc_allocator_mount(&al,
-                         &system_cfg->allocator_cfg,
-                         (io_handle *)io,
-                         hid,
-                         platform_get_module_id());
+      rc_allocator_mount(
+         &al, &system_cfg->allocator_cfg, io, hid, platform_get_module_id());
       rc = clockcache_init(cc,
                            &system_cfg->cache_cfg,
-                           (io_handle *)io,
+                           io,
                            (allocator *)&al,
                            "test",
                            hid,
@@ -1303,14 +1293,11 @@ ycsb_test(int argc, char *argv[])
                        hid);
       platform_assert(spl);
    } else {
-      rc_allocator_init(&al,
-                        &system_cfg->allocator_cfg,
-                        (io_handle *)io,
-                        hid,
-                        platform_get_module_id());
+      rc_allocator_init(
+         &al, &system_cfg->allocator_cfg, io, hid, platform_get_module_id());
       rc = clockcache_init(cc,
                            &system_cfg->cache_cfg,
-                           (io_handle *)io,
+                           io,
                            (allocator *)&al,
                            "test",
                            hid,
@@ -1352,13 +1339,11 @@ ycsb_test(int argc, char *argv[])
    }
    platform_free(hid, phases);
 
-deinit_iohandle:
-   io_handle_deinit(io);
-free_iohandle:
-   platform_free(hid, io);
+destroy_iohandle:
+   io_handle_destroy(io);
 cleanup:
    platform_free(hid, system_cfg);
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

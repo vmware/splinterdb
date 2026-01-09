@@ -1,4 +1,4 @@
-// Copyright 2018-2022 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -34,10 +34,11 @@
  */
 #include <sys/wait.h>
 
-#include "platform.h"
+#include "platform_units.h"
+#include "platform_typed_alloc.h"
+#include "platform_sleep.h"
 #include "config.h"
-#include "io.h"
-#include "core.h" // Needed for trunk_get_scratch_size()
+#include "platform_io.h"
 #include "task.h"
 
 /*
@@ -47,15 +48,15 @@
  * Most fields are used by all functions receiving this arg. Some are for diags.
  */
 typedef struct io_test_fn_args {
-   platform_heap_id    hid;
-   io_config          *io_cfgp;
-   platform_io_handle *io_hdlp;
-   task_system        *tasks;
-   uint64              start_addr;
-   uint64              end_addr;
-   char                stamp_char;
-   platform_thread     thread;
-   const char         *whoami; // 'Parent' or 'Child'
+   platform_heap_id hid;
+   io_config       *io_cfgp;
+   io_handle       *io_hdlp;
+   task_system     *tasks;
+   uint64           start_addr;
+   uint64           end_addr;
+   char             stamp_char;
+   platform_thread  thread;
+   const char      *whoami; // 'Parent' or 'Child'
 } io_test_fn_args;
 
 /* Whether to display verbose-progress from each thread's activity */
@@ -65,7 +66,7 @@ bool32 Verbose_progress = FALSE;
  * Global to track address of allocated IO-handle allocated in parent process.
  * Used for cross-checking in child's context after fork().
  */
-platform_io_handle *Parent_io_handle = NULL;
+io_handle *Parent_io_handle = NULL;
 
 /*
  * Different test cases in this test drive multiple threads each doing one
@@ -97,20 +98,20 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 
 // Function prototypes
 static platform_status
-test_sync_writes(platform_heap_id    hid,
-                 io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
-                 uint64              start_addr,
-                 uint64              end_addr,
-                 char                stamp_char);
+test_sync_writes(platform_heap_id hid,
+                 io_config       *io_cfgp,
+                 io_handle       *io_hdlp,
+                 uint64           start_addr,
+                 uint64           end_addr,
+                 char             stamp_char);
 
 static platform_status
-test_sync_reads(platform_heap_id    hid,
-                io_config          *io_cfgp,
-                platform_io_handle *io_hdlp,
-                uint64              start_addr,
-                uint64              end_addr,
-                char                stamp_char);
+test_sync_reads(platform_heap_id hid,
+                io_config       *io_cfgp,
+                io_handle       *io_hdlp,
+                uint64           start_addr,
+                uint64           end_addr,
+                char             stamp_char);
 
 static platform_status
 test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
@@ -118,12 +119,12 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
                                  const char      *whoami);
 
 static platform_status
-test_async_reads(platform_heap_id    hid,
-                 io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
-                 uint64              start_addr,
-                 char                stamp_char,
-                 const char         *whoami);
+test_async_reads(platform_heap_id hid,
+                 io_config       *io_cfgp,
+                 io_handle       *io_hdlp,
+                 uint64           start_addr,
+                 char             stamp_char,
+                 const char      *whoami);
 
 static platform_status
 test_async_reads_by_threads(io_test_fn_args *io_test_param,
@@ -174,6 +175,7 @@ npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
 int
 splinter_io_apis_test(int argc, char *argv[])
 {
+   platform_register_thread();
    uint64 heap_capacity = (HEAP_SIZE_MB * MiB); // small heap is sufficient.
 
    // Move past the 1st arg which will be the driving tag, 'io_apis_test'.
@@ -222,7 +224,7 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.io_async_queue_depth,
                   "splinterdb_io_apis_test_db");
 
-   int pid = platform_getpid();
+   int pid = platform_get_os_pid();
    platform_default_log("Parent OS-pid=%d, Exercise IO sub-system test on"
                         " device '%s'"
                         ", page_size=%lu, extent_size=%lu"
@@ -235,20 +237,13 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // For this test, we allocate this structure. In a running Splinter
    // instance, this struct is nested inside the splinterdb{} handle.
-   platform_io_handle *io_hdl = TYPED_ZALLOC(hid, io_hdl);
-   if (!io_hdl) {
+   io_handle *io_hdl = io_handle_create(&io_cfg, hid);
+   if (io_hdl == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
       goto heap_destroy;
    }
    Parent_io_handle = io_hdl;
-
-   // Initialize the handle to the IO sub-system. A device with a small initial
-   // size gets created here.
-   rc = io_handle_init(io_hdl, &io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      platform_error_log("Failed to initialize IO handle: %s\n",
-                         platform_status_to_string(rc));
-      goto io_free;
-   }
 
    uint64 disk_size_MB = DEVICE_SIZE_MB;
    uint64 disk_size    = (disk_size_MB * MiB); // bytes
@@ -268,12 +263,12 @@ splinter_io_apis_test(int argc, char *argv[])
     */
    uint64             num_bg_threads[NUM_TASK_TYPES] = {0};
    task_system_config task_cfg;
-   rc = task_system_config_init(
-      &task_cfg, TRUE /* use stats */, num_bg_threads, core_get_scratch_size());
+   rc =
+      task_system_config_init(&task_cfg, TRUE /* use stats */, num_bg_threads);
    platform_assert(SUCCESS(rc));
 
    task_system *tasks = NULL;
-   rc                 = task_system_create(hid, io_hdl, &tasks, &task_cfg);
+   rc                 = task_system_create(hid, &tasks, &task_cfg);
    platform_assert(SUCCESS(rc));
 
    threadid    main_thread_idx = platform_get_tid();
@@ -329,7 +324,7 @@ splinter_io_apis_test(int argc, char *argv[])
                                  "Child execution wait() completed."
                                  " Resuming parent ...\n",
                                  platform_get_tid(),
-                                 platform_getpid());
+                                 platform_get_os_pid());
          }
       }
    }
@@ -337,6 +332,9 @@ splinter_io_apis_test(int argc, char *argv[])
    // Exercise R/W tests: Run this block if we are in the main thread
    // (i.e. didn't fork) or if we are a child process created after fork()'ing.
    if (!master_cfg.fork_child || (pid == 0)) {
+      if (pid == 0) {
+         platform_register_thread();
+      }
 
       threadid this_thread_idx = platform_get_tid();
 
@@ -349,14 +347,13 @@ splinter_io_apis_test(int argc, char *argv[])
                                  ", ThreadID=%lu (%s)"
                                  ", before thread registration"
                                  ", Parent io_handle=%p, io_hdl=%p\n",
-                                 platform_getpid(),
+                                 platform_get_os_pid(),
                                  this_thread_idx,
                                  whoami,
                                  Parent_io_handle,
                                  io_hdl);
          }
 
-         task_register_this_thread(tasks, core_get_scratch_size());
          this_thread_idx = platform_get_tid();
 
          // Reset the handles / variables that have changed in the child
@@ -368,7 +365,7 @@ splinter_io_apis_test(int argc, char *argv[])
          platform_default_log("After  fork()'ing: %s OS-pid=%d"
                               ", ThreadID=%lu",
                               whoami,
-                              platform_getpid(),
+                              platform_get_os_pid(),
                               this_thread_idx);
 
          if (Verbose_progress) {
@@ -390,22 +387,16 @@ splinter_io_apis_test(int argc, char *argv[])
       platform_assert_status_ok(rc);
 
       test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
-
-      // The forked child process which uses Splinter masquerading as a
-      // "thread" needs to relinquish its resources before exiting.
-      task_deregister_this_thread(tasks);
-   }
-
-   // Only the parent process should dismantle stuff
-   if (pid > 0) {
-      task_system_destroy(hid, &tasks);
-      io_handle_deinit(io_hdl);
    }
 
 io_free:
-   if (pid > 0) {
-      platform_free(hid, io_hdl);
+   // Only the parent process should dismantle stuff
+   if (pid != 0) {
+      task_system_destroy(hid, &tasks);
+      io_handle_destroy(io_hdl);
    }
+
+
 heap_destroy:
    if (pid > 0) {
       platform_heap_destroy(&hid);
@@ -413,9 +404,10 @@ heap_destroy:
       platform_default_log("%s: OS-pid=%d, Thread-ID=%lu"
                            " execution completed.\n",
                            whoami,
-                           platform_getpid(),
+                           platform_get_os_pid(),
                            platform_get_tid());
    }
+   platform_deregister_thread();
    return (SUCCESS(rc) ? 0 : -1);
 }
 
@@ -437,12 +429,12 @@ heap_destroy:
  * -----------------------------------------------------------------------------
  */
 static platform_status
-test_sync_writes(platform_heap_id    hid,
-                 io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
-                 uint64              start_addr,
-                 uint64              end_addr,
-                 char                stamp_char)
+test_sync_writes(platform_heap_id hid,
+                 io_config       *io_cfgp,
+                 io_handle       *io_hdlp,
+                 uint64           start_addr,
+                 uint64           end_addr,
+                 char             stamp_char)
 {
    platform_thread this_thread = platform_get_tid();
    platform_status rc          = STATUS_NO_MEMORY;
@@ -479,7 +471,7 @@ test_sync_writes(platform_heap_id    hid,
          "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page write IOs "
          "from start addr=%lu through end addr=%lu\n",
          __func__,
-         platform_getpid(),
+         platform_get_os_pid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -529,12 +521,12 @@ test_sync_writes_worker(void *arg)
  * -----------------------------------------------------------------------------
  */
 static platform_status
-test_sync_reads(platform_heap_id    hid,
-                io_config          *io_cfgp,
-                platform_io_handle *io_hdlp,
-                uint64              start_addr,
-                uint64              end_addr,
-                char                stamp_char)
+test_sync_reads(platform_heap_id hid,
+                io_config       *io_cfgp,
+                io_handle       *io_hdlp,
+                uint64           start_addr,
+                uint64           end_addr,
+                char             stamp_char)
 {
    platform_thread this_thread = platform_get_tid();
 
@@ -578,7 +570,7 @@ test_sync_reads(platform_heap_id    hid,
          "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page read  IOs "
          "from start addr=%lu through end addr=%lu\n",
          __func__,
-         platform_getpid(),
+         platform_get_os_pid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -640,7 +632,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
       "\n%s(): %s process, OS-pid=%d, creates %d threads, %lu pages/thread \n",
       __func__,
       whoami,
-      platform_getpid(),
+      platform_get_os_pid(),
       nthreads,
       npages);
 
@@ -656,7 +648,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
    }
 
    for (int i = 0; i < nthreads; i++) {
-      platform_thread_join(thread_params[i].thread);
+      platform_thread_join(&thread_params[i].thread);
    }
 
    platform_default_log(
@@ -674,7 +666,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
    }
 
    for (int i = 0; i < nthreads; i++) {
-      platform_thread_join(thread_params[i].thread);
+      platform_thread_join(&thread_params[i].thread);
    }
 
    platform_default_log(
@@ -814,12 +806,12 @@ read_async_callback(void *arg)
 }
 
 static platform_status
-test_async_reads(platform_heap_id    hid,
-                 io_config          *io_cfgp,
-                 platform_io_handle *io_hdlp,
-                 uint64              start_addr,
-                 char                stamp_char,
-                 const char         *whoami)
+test_async_reads(platform_heap_id hid,
+                 io_config       *io_cfgp,
+                 io_handle       *io_hdlp,
+                 uint64           start_addr,
+                 char             stamp_char,
+                 const char      *whoami)
 {
    platform_thread this_thread = platform_get_tid();
    platform_status rc          = STATUS_OK;
@@ -933,7 +925,7 @@ test_async_reads_by_threads(io_test_fn_args *io_test_param,
    }
 
    for (int i = 0; i < nthreads; i++) {
-      platform_thread_join(thread_params[i].thread);
+      platform_thread_join(&thread_params[i].thread);
    }
 
    platform_default_log(
@@ -976,13 +968,8 @@ do_n_thread_creates(const char         *thread_type,
 {
    platform_status ret;
    for (uint64 i = 0; i < num_threads; i++) {
-      ret = task_thread_create(thread_type,
-                               thread_hdlr,
-                               &params[i],
-                               core_get_scratch_size(),
-                               params[i].tasks,
-                               params[i].hid,
-                               &params[i].thread);
+      ret = platform_thread_create(
+         &params[i].thread, FALSE, thread_hdlr, &params[i], params[i].hid);
       if (!SUCCESS(ret)) {
          return ret;
       }

@@ -1,4 +1,4 @@
-# Copyright 2018-2021 VMware, Inc.
+# Copyright 2018-2026 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 .DEFAULT_GOAL := all
@@ -387,10 +387,16 @@ $(foreach unit,$(UNIT_TESTBINS),$(eval $(call unit_test_self_dependency,$(unit))
 #
 # These will need to be fleshed out for filters, io subsystem, trunk,
 # etc. as we create mini unit test executables for those subsystems.
-PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o \
+PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_assert.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_buffer.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_condvar.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_heap.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_log.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_mutex.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_threads.o \
                $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/shmem.o
-
-PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
+PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_io.o \
+                  $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 

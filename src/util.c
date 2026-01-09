@@ -1,9 +1,15 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#include "platform.h"
-
 #include "util.h"
+#include "splinterdb/platform_linux/public_platform.h"
+#include "platform_status.h"
+#include "platform_log.h"
+#include "platform_assert.h"
+#include "platform_util.h"
+#include "platform_typed_alloc.h"
+#include "platform_units.h"
+#include "platform_string.h"
 
 #include "poison.h"
 

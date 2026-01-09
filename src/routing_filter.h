@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -13,7 +13,7 @@
 #include "iterator.h"
 #include "splinterdb/data.h"
 #include "util.h"
-#include "platform.h"
+#include "platform_hash.h"
 
 /*
  * In Splinter, there is a strict max number of compacted tuples in a node, so

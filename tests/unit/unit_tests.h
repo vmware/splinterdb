@@ -1,11 +1,10 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 /*
  * unit_tests.h: SplinterDB Unit tests common header file.
  *  Define things in here that are going to be needed across most unit tests.
  */
 
-#include "splinterdb/public_platform.h"
 #include "ctest.h"
 
 /* Name of SplinterDB device created for unit-tests */

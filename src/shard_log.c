@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,11 +9,14 @@
  *-----------------------------------------------------------------------------
  */
 
-#include "platform.h"
-
 #include "shard_log.h"
 #include "data_internal.h"
-
+#include "platform_sleep.h"
+#include "platform_hash.h"
+#include "platform_typed_alloc.h"
+#include "platform_assert.h"
+#include "platform_threads.h"
+#include "platform_sort.h"
 #include "poison.h"
 
 #define SHARD_WAIT     1
@@ -109,8 +112,7 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
       thread_data->offset = 0;
    }
 
-   log->addr = mini_init(
-      &log->mini, cc, log->cfg->data_cfg, log->meta_head, 0, 1, PAGE_TYPE_LOG);
+   log->addr = mini_init(&log->mini, cc, log->meta_head, 0, 1, PAGE_TYPE_LOG);
    // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
    // log->meta_head);
 
@@ -142,7 +144,7 @@ struct ONDISK log_entry {
    ondisk_tuple tuple;
 };
 
-#define INVALID_GENERATION ((uint64)-1)
+#define INVALID_GENERATION ((uint64) - 1)
 
 static key
 log_entry_key(log_entry *le)

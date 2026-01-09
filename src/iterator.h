@@ -1,10 +1,9 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
 #include "data_internal.h"
-#include "util.h"
 #include "vector.h"
 
 typedef struct iterator iterator;

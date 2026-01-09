@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -13,6 +13,7 @@
 #include "memtable.h"
 #include "log.h"
 #include "trunk.h"
+#include "histogram.h"
 
 /*
  * Upper-bound on most number of branches that we can find our lookup-key in.
@@ -52,9 +53,9 @@ typedef struct core_stats {
    uint64 updates;
    uint64 deletions;
 
-   platform_histo_handle insert_latency_histo;
-   platform_histo_handle update_latency_histo;
-   platform_histo_handle delete_latency_histo;
+   histogram_handle insert_latency_histo;
+   histogram_handle update_latency_histo;
+   histogram_handle delete_latency_histo;
 
    uint64 memtable_flushes;
    uint64 memtable_flush_time_ns;
@@ -273,5 +274,3 @@ core_config_init(core_config         *trunk_cfg,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle);
-size_t
-core_get_scratch_size();

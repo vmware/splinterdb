@@ -1,12 +1,12 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
-#include "platform.h"
 
 #include "merge.h"
 #include "iterator.h"
 #include "util.h"
-
+#include "platform_sort.h"
+#include "platform_log.h"
+#include "platform_typed_alloc.h"
 #include "poison.h"
 
 /* This struct is just used to define type-safe flags. */

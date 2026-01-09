@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,9 +9,7 @@
 
 #pragma once
 
-#include "platform.h"
 #include "allocator.h"
-#include "io.h"
 #include "async.h"
 
 typedef struct page_handle {

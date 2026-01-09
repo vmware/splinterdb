@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,8 +9,8 @@
  *-----------------------------------------------------------------------------
  */
 
-#include "platform.h"
 #include "memtable.h"
+#include "platform_sleep.h"
 
 #include "poison.h"
 
@@ -46,71 +46,70 @@ memtable_process(memtable_context *ctxt, uint64 generation)
 static inline void
 memtable_begin_insert(memtable_context *ctxt)
 {
-   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
 memtable_end_insert(memtable_context *ctxt)
 {
-   platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 static inline bool32
 memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
-   if (!platform_batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX))
-   {
+   if (!batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX)) {
       return FALSE;
    }
-   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
    return TRUE;
 }
 
 static inline void
 memtable_end_insert_rotation(memtable_context *ctxt)
 {
-   platform_batch_rwlock_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   platform_batch_rwlock_unclaim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_unclaim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 static inline void
 memtable_begin_raw_rotation(memtable_context *ctxt)
 {
-   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   platform_batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 static inline void
 memtable_end_raw_rotation(memtable_context *ctxt)
 {
-   platform_batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
 memtable_begin_lookup(memtable_context *ctxt)
 {
-   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
 memtable_end_lookup(memtable_context *ctxt)
 {
-   platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_unget(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
 memtable_block_lookups(memtable_context *ctxt)
 {
-   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
-   platform_batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
-   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_lock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
 memtable_unblock_lookups(memtable_context *ctxt)
 {
-   platform_batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 
@@ -315,7 +314,7 @@ memtable_context_create(platform_heap_id hid,
    platform_mutex_init(
       &ctxt->incorporation_mutex, platform_get_module_id(), hid);
    ctxt->rwlock = TYPED_MALLOC(hid, ctxt->rwlock);
-   platform_batch_rwlock_init(ctxt->rwlock);
+   batch_rwlock_init(ctxt->rwlock);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
       uint64 generation = mt_no;

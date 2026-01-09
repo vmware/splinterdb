@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,9 +9,8 @@
 
 #pragma once
 
-#include "platform.h"
-
-#include "io.h"
+#include "platform_log.h"
+#include "platform_io.h"
 
 typedef uint64 allocator_root_id;
 #define INVALID_ALLOCATOR_ROOT_ID (0)

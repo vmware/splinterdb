@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,8 +8,7 @@
  *    splinter tests.
  */
 
-#ifndef _SPLINTER_TEST_H_
-#define _SPLINTER_TEST_H_
+#pragma once
 
 #include "../config.h"
 #include "test.h"
@@ -141,5 +140,3 @@ test_config_parse(test_config *cfg,
       platform_error_log("\t--key-type (rand, seq, semiseq)\n");
       platform_error_log("\t--semiseq-freq\n");
    }
-
-#endif /* _SPLINTER_TEST_H_ */

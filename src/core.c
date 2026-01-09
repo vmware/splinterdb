@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,6 +8,8 @@
  */
 
 #include "core.h"
+#include "platform_sleep.h"
+#include "platform_time.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
@@ -627,7 +629,7 @@ out:
 }
 
 static void
-core_memtable_flush_internal_virtual(void *arg, void *scratch)
+core_memtable_flush_internal_virtual(void *arg)
 {
    core_memtable_args *mt_args = arg;
    core_memtable_flush_internal(mt_args->spl, mt_args->generation);
@@ -1201,18 +1203,18 @@ core_insert(core_handle *spl, key tuple_key, message data)
       switch (message_class(data)) {
          case MESSAGE_TYPE_INSERT:
             spl->stats[tid].insertions++;
-            platform_histo_insert(spl->stats[tid].insert_latency_histo,
-                                  platform_timestamp_elapsed(ts));
+            histogram_insert(spl->stats[tid].insert_latency_histo,
+                             platform_timestamp_elapsed(ts));
             break;
          case MESSAGE_TYPE_UPDATE:
             spl->stats[tid].updates++;
-            platform_histo_insert(spl->stats[tid].update_latency_histo,
-                                  platform_timestamp_elapsed(ts));
+            histogram_insert(spl->stats[tid].update_latency_histo,
+                             platform_timestamp_elapsed(ts));
             break;
          case MESSAGE_TYPE_DELETE:
             spl->stats[tid].deletions++;
-            platform_histo_insert(spl->stats[tid].delete_latency_histo,
-                                  platform_timestamp_elapsed(ts));
+            histogram_insert(spl->stats[tid].delete_latency_histo,
+                             platform_timestamp_elapsed(ts));
             break;
          default:
             platform_assert(0);
@@ -1462,20 +1464,20 @@ core_create(core_config      *cfg,
       platform_assert(spl->stats);
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[i].insert_latency_histo);
          platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[i].update_latency_histo);
          platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[i].delete_latency_histo);
          platform_assert_status_ok(rc);
       }
    }
@@ -1536,20 +1538,20 @@ core_mount(core_config      *cfg,
       platform_assert(spl->stats);
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[i].insert_latency_histo);
          platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[i].update_latency_histo);
          platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[i].delete_latency_histo);
          platform_assert_status_ok(rc);
       }
    }
@@ -1604,12 +1606,9 @@ core_destroy(core_handle *spl)
 
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
       }
       platform_free(spl->heap_id, spl->stats);
    }
@@ -1629,12 +1628,9 @@ core_unmount(core_handle **spl_in)
    trunk_context_deinit(&spl->trunk_context);
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
       }
       platform_free(spl->heap_id, spl->stats);
    }
@@ -1715,26 +1711,26 @@ core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
       return;
    }
 
-   platform_histo_handle insert_lat_accum, update_lat_accum, delete_lat_accum;
-   platform_histo_create(spl->heap_id,
+   histogram_handle insert_lat_accum, update_lat_accum, delete_lat_accum;
+   histogram_create(spl->heap_id,
                          LATENCYHISTO_SIZE + 1,
                          latency_histo_buckets,
                          &insert_lat_accum);
-   platform_histo_create(spl->heap_id,
+   histogram_create(spl->heap_id,
                          LATENCYHISTO_SIZE + 1,
                          latency_histo_buckets,
                          &update_lat_accum);
-   platform_histo_create(spl->heap_id,
+   histogram_create(spl->heap_id,
                          LATENCYHISTO_SIZE + 1,
                          latency_histo_buckets,
                          &delete_lat_accum);
 
    for (thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      platform_histo_merge_in(insert_lat_accum,
+      histogram_merge_in(insert_lat_accum,
                               spl->stats[thr_i].insert_latency_histo);
-      platform_histo_merge_in(update_lat_accum,
+      histogram_merge_in(update_lat_accum,
                               spl->stats[thr_i].update_latency_histo);
-      platform_histo_merge_in(delete_lat_accum,
+      histogram_merge_in(delete_lat_accum,
                               spl->stats[thr_i].delete_latency_histo);
 
           global->root_compactions                    += spl->stats[thr_i].root_compactions;
@@ -1780,12 +1776,12 @@ core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
    platform_log(log_handle, "\n");
 
    platform_log(log_handle, "Latency Histogram Statistics\n");
-   platform_histo_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
-   platform_histo_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
-   platform_histo_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
-   platform_histo_destroy(spl->heap_id, &insert_lat_accum);
-   platform_histo_destroy(spl->heap_id, &update_lat_accum);
-   platform_histo_destroy(spl->heap_id, &delete_lat_accum);
+   histogram_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
+   histogram_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
+   histogram_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
+   histogram_destroy(spl->heap_id, &insert_lat_accum);
+   histogram_destroy(spl->heap_id, &update_lat_accum);
+   histogram_destroy(spl->heap_id, &delete_lat_accum);
 
 
    platform_log(log_handle, "Flush Statistics\n");
@@ -1921,30 +1917,30 @@ core_reset_stats(core_handle *spl)
 {
    if (spl->cfg.use_stats) {
       for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[thr_i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[thr_i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[thr_i].delete_latency_histo);
+         histogram_destroy(spl->heap_id,
+                           &spl->stats[thr_i].insert_latency_histo);
+         histogram_destroy(spl->heap_id,
+                           &spl->stats[thr_i].update_latency_histo);
+         histogram_destroy(spl->heap_id,
+                           &spl->stats[thr_i].delete_latency_histo);
 
          memset(&spl->stats[thr_i], 0, sizeof(spl->stats[thr_i]));
 
          platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[thr_i].insert_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[thr_i].insert_latency_histo);
          platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[thr_i].update_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[thr_i].update_latency_histo);
          platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[thr_i].delete_latency_histo);
+         rc = histogram_create(spl->heap_id,
+                               LATENCYHISTO_SIZE + 1,
+                               latency_histo_buckets,
+                               &spl->stats[thr_i].delete_latency_histo);
          platform_assert_status_ok(rc);
       }
    }
@@ -2001,10 +1997,4 @@ core_config_init(core_config         *core_cfg,
 
    // When everything succeeds, return success.
    return STATUS_OK;
-}
-
-size_t
-core_get_scratch_size()
-{
-   return 0;
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,8 +8,10 @@
  *  Exercises the interfaces in SplinterDB shared memory allocation module.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
-#include "platform.h"
+#include "platform_threads.h"
+#include "platform_units.h"
+#include "platform_typed_alloc.h"
+#include "platform_log.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "shmem.h"
@@ -59,6 +61,7 @@ CTEST_DATA(splinter_shmem)
 // By default, all test cases will deal with small shared memory segment.
 CTEST_SETUP(splinter_shmem)
 {
+   platform_register_thread();
    data->shmem_capacity = (256 * MiB); // bytes
    platform_status rc   = platform_heap_create(
       platform_get_module_id(), data->shmem_capacity, TRUE, &data->hid);
@@ -72,6 +75,7 @@ CTEST_SETUP(splinter_shmem)
 CTEST_TEARDOWN(splinter_shmem)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*
@@ -96,7 +100,7 @@ CTEST2(splinter_shmem, test_create_destroy_shmem)
                 (requested - platform_shm_ctrlblock_size()));
 
    // Destroy shared memory and release memory.
-   platform_shmdestroy(&hid);
+   platform_shmdestroy((shmem_heap **)&hid);
    ASSERT_TRUE(hid == NULL);
 }
 
@@ -381,7 +385,7 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
-      rc = platform_thread_join(thread_cfgp->this_thread_id);
+      rc = platform_thread_join(&thread_cfgp->this_thread_id);
       ASSERT_TRUE(SUCCESS(rc));
    }
 
@@ -598,9 +602,6 @@ static void
 exec_thread_memalloc(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
-   splinterdb    *kvs        = thread_cfg->splinter;
-
-   splinterdb_register_thread(kvs);
 
    // Allocate a new memory fragment and connect head to output variable for
    // thread
@@ -618,7 +619,6 @@ exec_thread_memalloc(void *arg)
       fragpp          = &new_frag->next;
       nallocs++;
    }
-   splinterdb_deregister_thread(kvs);
 
    platform_default_log(
       "Thread-ID=%lu allocated %lu memory fragments of %lu bytes each.\n",

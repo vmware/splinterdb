@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -7,10 +7,7 @@
  *     This file contains the test interfaces for SplinterDB.
  */
 
-#include "platform.h"
-
 #include "core.h"
-#include "merge.h"
 #include "test.h"
 #include "allocator.h"
 #include "rc_allocator.h"
@@ -900,13 +897,8 @@ do_n_thread_creates(const char                  *thread_type,
 {
    platform_status ret;
    for (uint64 i = 0; i < num_threads; i++) {
-      ret = task_thread_create(thread_type,
-                               thread_hdlr,
-                               &params[i],
-                               core_get_scratch_size(),
-                               ts,
-                               hid,
-                               &params[i].thread);
+      ret = platform_thread_create(
+         &params[i].thread, FALSE, thread_hdlr, &params[i], hid);
       if (!SUCCESS(ret)) {
          return ret;
       }
@@ -1024,7 +1016,7 @@ splinter_perf_inserts(platform_heap_id             hid,
    }
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    task_perform_until_quiescent(ts);
@@ -1125,7 +1117,7 @@ splinter_perf_lookups(platform_heap_id             hid,
    }
 
    for (uint64 i = 0; i < num_lookup_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    uint64 total_time = platform_timestamp_elapsed(start_time);
@@ -1270,7 +1262,7 @@ splinter_perf_range_lookups(platform_heap_id             hid,
    }
 
    for (uint64 i = 0; i < num_range_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    uint64 total_time = platform_timestamp_elapsed(start_time);
@@ -1533,19 +1525,14 @@ test_splinter_periodic(system_config   *cfg,
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
-      ret = task_thread_create("insert_thread",
-                               test_trunk_insert_thread,
-                               &params[i],
-                               core_get_scratch_size(),
-                               ts,
-                               hid,
-                               &params[i].thread);
+      ret = platform_thread_create(
+         &params[i].thread, FALSE, test_trunk_insert_thread, &params[i], hid);
       if (!SUCCESS(ret)) {
          return ret;
       }
    }
    for (uint64 i = 0; i < num_insert_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    task_perform_until_quiescent(ts);
@@ -1601,19 +1588,17 @@ test_splinter_periodic(system_config   *cfg,
        */
       for (uint64 i = 0; i < num_insert_threads; i++) {
          platform_status ret;
-         ret = task_thread_create("insert_thread",
-                                  test_trunk_insert_thread,
-                                  &params[i],
-                                  core_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
+         ret = platform_thread_create(&params[i].thread,
+                                      FALSE,
+                                      test_trunk_insert_thread,
+                                      &params[i],
+                                      hid);
          if (!SUCCESS(ret)) {
             return ret;
          }
       }
       for (uint64 i = 0; i < num_insert_threads; i++) {
-         platform_thread_join(params[i].thread);
+         platform_thread_join(&params[i].thread);
       }
 
       task_perform_until_quiescent(ts);
@@ -1675,19 +1660,17 @@ test_splinter_periodic(system_config   *cfg,
             async_ctxt_init(
                hid, max_async_inflight, &params[i].async_lookup[j]);
          }
-         ret = task_thread_create("lookup thread",
-                                  test_trunk_lookup_thread,
-                                  &params[i],
-                                  core_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
+         ret = platform_thread_create(&params[i].thread,
+                                      FALSE,
+                                      test_trunk_lookup_thread,
+                                      &params[i],
+                                      hid);
          if (!SUCCESS(ret)) {
             return ret;
          }
       }
       for (uint64 i = 0; i < num_lookup_threads; i++) {
-         platform_thread_join(params[i].thread);
+         platform_thread_join(&params[i].thread);
       }
 
       total_time = platform_timestamp_elapsed(start_time);
@@ -1761,19 +1744,14 @@ test_splinter_periodic(system_config   *cfg,
 
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
-         ret = task_thread_create("range thread",
-                                  test_trunk_range_thread,
-                                  &params[i],
-                                  core_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
+         ret = platform_thread_create(
+            &params[i].thread, FALSE, test_trunk_range_thread, &params[i], hid);
          if (!SUCCESS(ret)) {
             return ret;
          }
       }
       for (uint64 i = 0; i < num_range_threads; i++) {
-         platform_thread_join(params[i].thread);
+         platform_thread_join(&params[i].thread);
       }
 
       total_time = platform_timestamp_elapsed(start_time);
@@ -1818,19 +1796,14 @@ test_splinter_periodic(system_config   *cfg,
 
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
-         ret = task_thread_create("range thread",
-                                  test_trunk_range_thread,
-                                  &params[i],
-                                  core_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
+         ret = platform_thread_create(
+            &params[i].thread, FALSE, test_trunk_range_thread, &params[i], hid);
          if (!SUCCESS(ret)) {
             return ret;
          }
       }
       for (uint64 i = 0; i < num_range_threads; i++)
-         platform_thread_join(params[i].thread);
+         platform_thread_join(&params[i].thread);
 
       total_time = platform_timestamp_elapsed(start_time);
 
@@ -1874,19 +1847,14 @@ test_splinter_periodic(system_config   *cfg,
 
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
-         ret = task_thread_create("range thread",
-                                  test_trunk_range_thread,
-                                  &params[i],
-                                  core_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
+         ret = platform_thread_create(
+            &params[i].thread, FALSE, test_trunk_range_thread, &params[i], hid);
          if (!SUCCESS(ret)) {
             return ret;
          }
       }
       for (uint64 i = 0; i < num_range_threads; i++)
-         platform_thread_join(params[i].thread);
+         platform_thread_join(&params[i].thread);
 
       total_time = platform_timestamp_elapsed(start_time);
 
@@ -2034,7 +2002,7 @@ test_splinter_parallel_perf(system_config   *cfg,
 
    // Wait-for threads to finish ...
    for (uint64 i = 0; i < num_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    uint64    total_time                = platform_timestamp_elapsed(start_time);
@@ -2203,19 +2171,14 @@ test_splinter_delete(system_config   *cfg,
    // Insert: round 1
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
-      ret = task_thread_create("insert thread",
-                               test_trunk_insert_thread,
-                               &params[i],
-                               core_get_scratch_size(),
-                               ts,
-                               hid,
-                               &params[i].thread);
+      ret = platform_thread_create(
+         &params[i].thread, FALSE, test_trunk_insert_thread, &params[i], hid);
       if (!SUCCESS(ret)) {
          return ret;
       }
    }
    for (uint64 i = 0; i < num_insert_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    total_time = platform_timestamp_elapsed(start_time);
@@ -2247,19 +2210,14 @@ test_splinter_delete(system_config   *cfg,
    start_time = platform_get_timestamp();
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
-      ret = task_thread_create("delete thread",
-                               test_trunk_insert_thread,
-                               &params[i],
-                               core_get_scratch_size(),
-                               ts,
-                               hid,
-                               &params[i].thread);
+      ret = platform_thread_create(
+         &params[i].thread, FALSE, test_trunk_insert_thread, &params[i], hid);
       if (!SUCCESS(ret)) {
          return ret;
       }
    }
    for (uint64 i = 0; i < num_insert_threads; i++)
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
 
    total_time = platform_timestamp_elapsed(start_time);
    platform_default_log(
@@ -2294,22 +2252,17 @@ test_splinter_delete(system_config   *cfg,
       for (uint8 j = 0; j < num_tables; j++) {
          async_ctxt_init(hid, max_async_inflight, &params[i].async_lookup[j]);
       }
-      rc = task_thread_create("lookup thread",
-                              test_trunk_lookup_thread,
-                              &params[i],
-                              core_get_scratch_size(),
-                              ts,
-                              hid,
-                              &params[i].thread);
+      rc = platform_thread_create(
+         &params[i].thread, FALSE, test_trunk_lookup_thread, &params[i], hid);
       if (!SUCCESS(rc)) {
          for (uint64 j = 0; j < i; j++) {
-            platform_thread_join(params[i].thread);
+            platform_thread_join(&params[i].thread);
          }
          goto destroy_splinter;
       }
    }
    for (uint64 i = 0; i < num_lookup_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    total_time = platform_timestamp_elapsed(start_time);
@@ -2499,6 +2452,8 @@ splinter_test(int argc, char *argv[])
    test_message_generator gen;
    test_exec_config       test_exec_cfg;
    ZERO_STRUCT(test_exec_cfg);
+
+   platform_register_thread();
 
    // Defaults
    num_insert_threads = num_lookup_threads = num_range_lookup_threads = 1;
@@ -2742,26 +2697,23 @@ splinter_test(int argc, char *argv[])
                            system_cfg[0].io_cfg.kernel_queue_size);
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   rc = io_handle_init(io, &system_cfg[0].io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto io_free;
+   io_handle *io = io_handle_create(&system_cfg[0].io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto cfg_free;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &system_cfg[0].task_cfg);
+   rc = test_init_task_system(hid, &ts, &system_cfg[0].task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
-      goto handle_deinit;
+      goto handle_destroy;
    }
 
    rc_allocator al;
-   rc_allocator_init(&al,
-                     &system_cfg[0].allocator_cfg,
-                     (io_handle *)io,
-                     hid,
-                     platform_get_module_id());
+   rc_allocator_init(
+      &al, &system_cfg[0].allocator_cfg, io, hid, platform_get_module_id());
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
@@ -2769,7 +2721,7 @@ splinter_test(int argc, char *argv[])
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&cc[idx],
                            &system_cfg[idx].cache_cfg,
-                           (io_handle *)io,
+                           io,
                            (allocator *)&al,
                            "test",
                            hid,
@@ -2894,7 +2846,7 @@ splinter_test(int argc, char *argv[])
                test_data_config->key_to_string;
          }
          rc = test_functionality(alp,
-                                 (io_handle *)io,
+                                 io,
                                  caches,
                                  system_cfg,
                                  seed,
@@ -2928,15 +2880,13 @@ splinter_test(int argc, char *argv[])
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
-handle_deinit:
-   io_handle_deinit(io);
-io_free:
-   platform_free(hid, io);
+handle_destroy:
+   io_handle_destroy(io);
 cfg_free:
    platform_free(hid, system_cfg);
    platform_free(hid, test_cfg);
 heap_destroy:
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

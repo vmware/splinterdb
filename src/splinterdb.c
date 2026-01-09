@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -14,14 +14,14 @@
  */
 
 #include "splinterdb/splinterdb.h"
-#include "platform.h"
 #include "clockcache.h"
-#include "platform_linux/platform.h"
 #include "rc_allocator.h"
 #include "core.h"
-#include "btree_private.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
+#include "platform_typed_alloc.h"
+#include "platform_assert.h"
+#include "platform_units.h"
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
@@ -40,7 +40,7 @@ splinterdb_get_version()
 typedef struct splinterdb {
    task_system       *task_sys;
    io_config          io_cfg;
-   platform_io_handle io_handle;
+   io_handle         *io_handle;
    allocator_config   allocator_cfg;
    rc_allocator       allocator_handle;
    clockcache_config  cache_cfg;
@@ -75,20 +75,20 @@ static void
 splinterdb_config_set_defaults(splinterdb_config *cfg)
 {
    if (!cfg->page_size) {
-      cfg->page_size = LAIO_DEFAULT_PAGE_SIZE;
+      cfg->page_size = IO_DEFAULT_PAGE_SIZE;
    }
    if (!cfg->extent_size) {
-      cfg->extent_size = LAIO_DEFAULT_EXTENT_SIZE;
+      cfg->extent_size = IO_DEFAULT_EXTENT_SIZE;
    }
    if (!cfg->io_flags) {
-      cfg->io_flags = O_RDWR | O_CREAT;
+      cfg->io_flags = IO_DEFAULT_FLAGS;
    }
    if (!cfg->io_perms) {
-      cfg->io_perms = 0755;
+      cfg->io_perms = IO_DEFAULT_PERMS;
    }
 
    if (!cfg->io_async_queue_depth) {
-      cfg->io_async_queue_depth = 256;
+      cfg->io_async_queue_depth = IO_DEFAULT_ASYNC_QUEUE_DEPTH;
    }
 
    if (!cfg->btree_rough_count_height) {
@@ -176,7 +176,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                   cfg.filename);
 
    // Validate IO-configuration parameters
-   rc = laio_config_valid(&kvs->io_cfg);
+   rc = io_config_valid(&kvs->io_cfg);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -195,8 +195,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
    num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
 
-   rc = task_system_config_init(
-      &kvs->task_cfg, cfg.use_stats, num_bg_threads, core_get_scratch_size());
+   rc = task_system_config_init(&kvs->task_cfg, cfg.use_stats, num_bg_threads);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -305,15 +304,14 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       platform_shm_set_splinterdb_handle(use_this_heap_id, (void *)kvs);
    }
 
-   status = io_handle_init(&kvs->io_handle, &kvs->io_cfg, kvs->heap_id);
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to initialize IO handle: %s\n",
-                         platform_status_to_string(status));
-      goto io_handle_init_failed;
+   kvs->io_handle = io_handle_create(&kvs->io_cfg, kvs->heap_id);
+   if (kvs->io_handle == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      status = STATUS_NO_MEMORY;
+      goto io_handle_create_failed;
    }
 
-   status = task_system_create(
-      kvs->heap_id, &kvs->io_handle, &kvs->task_sys, &kvs->task_cfg);
+   status = task_system_create(kvs->heap_id, &kvs->task_sys, &kvs->task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log(
          "Failed to initialize SplinterDB task system state: %s\n",
@@ -324,13 +322,13 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    if (open_existing) {
       status = rc_allocator_mount(&kvs->allocator_handle,
                                   &kvs->allocator_cfg,
-                                  (io_handle *)&kvs->io_handle,
+                                  kvs->io_handle,
                                   kvs->heap_id,
                                   platform_get_module_id());
    } else {
       status = rc_allocator_init(&kvs->allocator_handle,
                                  &kvs->allocator_cfg,
-                                 (io_handle *)&kvs->io_handle,
+                                 kvs->io_handle,
                                  kvs->heap_id,
                                  platform_get_module_id());
    }
@@ -343,7 +341,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    status = clockcache_init(&kvs->cache_handle,
                             &kvs->cache_cfg,
-                            (io_handle *)&kvs->io_handle,
+                            kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "splinterdb",
                             kvs->heap_id,
@@ -389,8 +387,8 @@ deinit_allocator:
 deinit_system:
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
 deinit_iohandle:
-   io_handle_deinit(&kvs->io_handle);
-io_handle_init_failed:
+   io_handle_destroy(kvs->io_handle);
+io_handle_create_failed:
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
    // us to here via a 'goto', heap_id handle, if in use, may be in a
@@ -461,7 +459,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
-   io_handle_deinit(&kvs->io_handle);
+   io_handle_destroy(kvs->io_handle);
 
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_id heap_id         = kvs->heap_id;
@@ -473,58 +471,6 @@ splinterdb_close(splinterdb **kvs_in) // IN
    *kvs_in = (splinterdb *)NULL;
 }
 
-
-/*
- *-----------------------------------------------------------------------------
- * splinterdb_register_thread --
- *
- *      Allocate scratch space and register the current thread.
- *
- *      Any thread, other than the initializing thread, must call this function
- *      exactly once before using the splinterdb.
- *
- *      Notes:
- *      - The task system imposes a limit of MAX_THREADS live at any time
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      Allocates memory
- *-----------------------------------------------------------------------------
- */
-void
-splinterdb_register_thread(splinterdb *kvs) // IN
-{
-   platform_assert(kvs != NULL);
-
-   size_t          scratch_size = core_get_scratch_size();
-   platform_status rc = task_register_this_thread(kvs->task_sys, scratch_size);
-   platform_assert_status_ok(rc);
-}
-
-/*
- *-----------------------------------------------------------------------------
- * splinterdb_deregister_thread --
- *
- *      Free scratch space.
- *      Call this function before exiting a registered thread.
- *      Otherwise, you'll leak memory.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      Frees memory
- *-----------------------------------------------------------------------------
- */
-void
-splinterdb_deregister_thread(splinterdb *kvs)
-{
-   platform_assert(kvs != NULL);
-
-   task_deregister_this_thread(kvs->task_sys);
-}
 
 /*
  *-----------------------------------------------------------------------------
@@ -837,10 +783,10 @@ splinterdb_get_task_system_handle(const splinterdb *kvs)
    return kvs->task_sys;
 }
 
-const platform_io_handle *
+const io_handle *
 splinterdb_get_io_handle(const splinterdb *kvs)
 {
-   return &kvs->io_handle;
+   return kvs->io_handle;
 }
 
 const allocator *

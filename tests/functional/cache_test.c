@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -7,16 +7,12 @@
  *     This file contains the tests for clockcache.
  */
 
-#include "platform.h"
-
 #include "test.h"
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
-#include "splinterdb/data.h"
 #include "task.h"
-#include "util.h"
 #include "random.h"
 #include "test_common.h"
 #include "poison.h"
@@ -852,21 +848,11 @@ test_cache_async(cache             *cc,
        */
       params[i].mt_reader = total_threads > 1 ? TRUE : FALSE;
       if (is_reader) {
-         rc = task_thread_create("cache_reader",
-                                 test_reader_thread,
-                                 &params[i],
-                                 0,
-                                 ts,
-                                 hid,
-                                 &params[i].thread);
+         rc = platform_thread_create(
+            &params[i].thread, FALSE, test_reader_thread, &params[i], hid);
       } else {
-         rc = task_thread_create("cache_writer",
-                                 test_writer_thread,
-                                 &params[i],
-                                 0,
-                                 ts,
-                                 hid,
-                                 &params[i].thread);
+         rc = platform_thread_create(
+            &params[i].thread, FALSE, test_writer_thread, &params[i], hid);
       }
       if (!SUCCESS(rc)) {
          total_threads = i;
@@ -875,7 +861,7 @@ test_cache_async(cache             *cc,
    }
    // Wait for test threads
    for (i = 0; i < total_threads; i++) {
-      platform_thread_join(params[i].thread);
+      platform_thread_join(&params[i].thread);
    }
 
    for (i = 0; i < pages_to_allocate; i++) {
@@ -923,6 +909,8 @@ cache_test(int argc, char *argv[])
    bool32                 benchmark = FALSE, async = FALSE;
    uint64                 seed;
    test_message_generator gen;
+
+   platform_register_thread();
 
    if (argc > 1) {
       if (strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -981,31 +969,28 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto free_iohandle;
+   io_handle *io = io_handle_create(&system_cfg.io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
+   rc = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_iohandle;
+      goto destroy_iohandle;
    }
 
    rc_allocator al;
-   rc_allocator_init(&al,
-                     &system_cfg.allocator_cfg,
-                     (io_handle *)io,
-                     hid,
-                     platform_get_module_id());
+   rc_allocator_init(
+      &al, &system_cfg.allocator_cfg, io, hid, platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
                         &system_cfg.cache_cfg,
-                        (io_handle *)io,
+                        io,
                         (allocator *)&al,
                         "test",
                         hid,
@@ -1083,13 +1068,11 @@ cache_test(int argc, char *argv[])
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
-deinit_iohandle:
-   io_handle_deinit(io);
-free_iohandle:
-   platform_free(hid, io);
+destroy_iohandle:
+   io_handle_destroy(io);
 cleanup:
    platform_free(hid, splinter_cfg);
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 VMware, Inc.
+// Copyright 2023-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -19,6 +19,7 @@
  * task_system_test.c etc.
  * -----------------------------------------------------------------------------
  */
+#include "platform_units.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
 #include "config.h"
@@ -47,6 +48,8 @@ CTEST_SETUP(splinterdb_heap_id_mgmt)
 {
    platform_status rc = STATUS_OK;
 
+   platform_register_thread();
+
    bool use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
@@ -71,6 +74,7 @@ CTEST_SETUP(splinterdb_heap_id_mgmt)
 CTEST_TEARDOWN(splinterdb_heap_id_mgmt)
 {
    platform_heap_destroy(&data->kvs_cfg.heap_id);
+   platform_deregister_thread();
 }
 
 /*

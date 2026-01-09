@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -10,7 +10,10 @@
 
 #pragma once
 
-#include "platform.h"
+#include "splinterdb/public_platform.h"
+#include "platform_machine.h"
+#include "platform_heap.h"
+#include "platform_typed_alloc.h"
 
 typedef struct {
    uint32               num_elems;

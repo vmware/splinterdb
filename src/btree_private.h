@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -10,7 +10,6 @@
  */
 #pragma once
 
-#include "splinterdb/public_platform.h"
 #include "splinterdb/data.h"
 #include "util.h"
 #include "btree.h"

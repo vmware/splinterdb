@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -10,6 +10,8 @@
 #pragma once
 
 #include "log.h"
+#include "platform_threads.h"
+#include "platform_hash.h"
 #include "cache.h"
 #include "iterator.h"
 #include "splinterdb/data.h"

@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /* **********************************************************
@@ -69,18 +69,18 @@
  * prama GCC poison does not allow poisoning existing macros.
  */
 #if 0 // Cannot poison existing macros
-#   pragma GCC poison                             alloca
-#   pragma GCC poison                             assert
+#   pragma GCC poison alloca
+#   pragma GCC poison assert
 #   pragma GCC poison EINVAL ENOMEM EINVAL ENOSPC ETIMEDOUT
-#   pragma GCC poison                             pthread_cleanup_pop
-#   pragma GCC poison                             pthread_cleanup_push
+#   pragma GCC poison pthread_cleanup_pop
+#   pragma GCC poison pthread_cleanup_push
 
 // macros on some systems.
-#   pragma GCC poison                             strncat
-#   pragma GCC poison                             strcmp
+#   pragma GCC poison strncat
+#   pragma GCC poison strcmp
 #endif // Cannot poison existing macros
 
-#pragma GCC        poison __thread
+#pragma GCC poison __thread
 #pragma GCC poison laio_handle
 #pragma GCC poison mmap
 #pragma GCC poison pthread_attr_destroy

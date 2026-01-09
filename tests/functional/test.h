@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,11 +9,9 @@
 
 #pragma once
 
-#include "cache.h"
 #include "clockcache.h"
 #include "../config.h"
 #include "splinterdb/data.h"
-#include "rc_allocator.h"
 #include "shard_log.h"
 #include "core.h"
 #include "../test_data.h"
@@ -57,12 +55,11 @@ splinter_io_apis_test(int argc, char *argv[]);
  */
 static inline platform_status
 test_init_task_system(platform_heap_id          hid,
-                      platform_io_handle       *ioh,
                       task_system             **system,
                       const task_system_config *cfg)
 {
    // splinter initialization
-   return task_system_create(hid, ioh, system, cfg);
+   return task_system_create(hid, system, cfg);
 }
 
 static inline void
@@ -253,10 +250,8 @@ test_config_init(system_config          *system_cfg, // OUT
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
    num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
-   platform_status rc = task_system_config_init(&system_cfg->task_cfg,
-                                                master_cfg->use_stats,
-                                                num_bg_threads,
-                                                core_get_scratch_size());
+   platform_status rc                    = task_system_config_init(
+      &system_cfg->task_cfg, master_cfg->use_stats, num_bg_threads);
    platform_assert_status_ok(rc);
 
    rc = routing_config_init(&system_cfg->filter_cfg,

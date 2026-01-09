@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 /*
  * btree_test_common.c:
@@ -51,16 +51,15 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
 
 int
 init_task_config_from_master_config(task_system_config  *task_cfg,
-                                    const master_config *master_cfg,
-                                    uint64               scratch_size)
+                                    const master_config *master_cfg)
 {
    platform_status rc;
    uint64          num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_NORMAL]   = master_cfg->num_normal_bg_threads;
    num_bg_threads[TASK_TYPE_MEMTABLE] = master_cfg->num_memtable_bg_threads;
 
-   rc = task_system_config_init(
-      task_cfg, master_cfg->use_stats, num_bg_threads, scratch_size);
+   rc =
+      task_system_config_init(task_cfg, master_cfg->use_stats, num_bg_threads);
    return SUCCESS(rc);
 }
 

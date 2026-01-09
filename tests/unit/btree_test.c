@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,14 +9,13 @@
  *  files. Validates correctness of variable key-value size support in BTree.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #include "test_data.h"
 #include "splinterdb/data.h"
-#include "io.h"
-#include "rc_allocator.h"
+#include "platform_io.h"
+#include "platform_units.h"
 #include "clockcache.h"
 #include "btree_private.h"
 #include "btree_test_common.h"
@@ -75,6 +74,7 @@ CTEST_DATA(btree)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(btree)
 {
+   platform_register_thread();
    config_set_defaults(&data->master_cfg);
    uint64 heap_capacity = (1 * GiB);
 
@@ -112,6 +112,7 @@ CTEST_SETUP(btree)
 CTEST_TEARDOWN(btree)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

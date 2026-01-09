@@ -1,4 +1,4 @@
-// Copyright 2023 VMware, Inc.
+// Copyright 2023-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -10,6 +10,7 @@
  */
 #include "ctest.h" // This is required for all test-case files.
 #include "unit_tests.h"
+#include "splinterdb/public_platform.h"
 
 /*
  * Setup function is provided to manage output log streams from (unit) tests.

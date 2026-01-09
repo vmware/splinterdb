@@ -1,4 +1,4 @@
-// Copyright 2022 VMware, Inc.
+// Copyright 2022-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,7 +8,6 @@
  * Module contains functions shared between functional/ and unit/ test sources.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "core.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
@@ -158,7 +157,7 @@ trace_wait_for_gdb(void)
       if (!gdb_msg_printed) {
          platform_default_log(
             "Looping ... Attach gdb to OS-pid=%d; Set breakpoint in %s_hook\n",
-            platform_getpid(),
+            platform_get_os_pid(),
             __func__);
          gdb_msg_printed = TRUE;
       }

@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -6,18 +6,17 @@
  *
  *     This file contains the test interfaces for Alex's filter
  */
-#include "platform.h"
-
 #include "splinterdb/data.h"
 #include "test.h"
 #include "routing_filter.h"
 #include "allocator.h"
 #include "rc_allocator.h"
-#include "shard_log.h"
 #include "cache.h"
 #include "clockcache.h"
 #include "util.h"
-
+#include "platform_time.h"
+#include "platform_typed_alloc.h"
+#include "platform_assert.h"
 #include "poison.h"
 
 static platform_status
@@ -291,6 +290,8 @@ filter_test(int argc, char *argv[])
    uint64                 seed;
    test_message_generator gen;
 
+   platform_register_thread();
+
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
       config_argc   = argc - 2;
@@ -330,29 +331,27 @@ filter_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto free_iohandle;
+   io_handle *io = io_handle_create(&system_cfg.io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      r  = -1;
+      goto cleanup;
    }
 
    task_system *ts = NULL;
-   rc              = task_system_create(hid, io, &ts, &system_cfg.task_cfg);
+   rc              = task_system_create(hid, &ts, &system_cfg.task_cfg);
    platform_assert_status_ok(rc);
 
-   rc = rc_allocator_init(&al,
-                          &system_cfg.allocator_cfg,
-                          (io_handle *)io,
-                          hid,
-                          platform_get_module_id());
+   rc = rc_allocator_init(
+      &al, &system_cfg.allocator_cfg, io, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
    cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc);
    rc = clockcache_init(cc,
                         &system_cfg.cache_cfg,
-                        (io_handle *)io,
+                        io,
                         (allocator *)&al,
                         "test",
                         hid,
@@ -401,12 +400,10 @@ filter_test(int argc, char *argv[])
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
    task_system_destroy(hid, &ts);
-   io_handle_deinit(io);
-free_iohandle:
-   platform_free(hid, io);
+   io_handle_destroy(io);
    r = 0;
 cleanup:
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return r;
 }

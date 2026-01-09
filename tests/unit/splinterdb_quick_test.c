@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -28,9 +28,9 @@
 #include <string.h>
 #include <errno.h>
 
+#include "platform_threads.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/data.h"
-#include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "unit_tests.h"
 #include "util.h"
@@ -107,15 +107,17 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
+   int rc = platform_register_thread();
+   ASSERT_EQUAL(0, rc);
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
    data->cfg.use_shmem =
       config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(TEST_MAX_VALUE_SIZE
-               < MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE));
+               < MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE));
 }
 
 // Optional teardown function for suite, called after every test in suite
@@ -124,6 +126,7 @@ CTEST_TEARDOWN(splinterdb_quick)
    if (data->kvsb) {
       splinterdb_close(&data->kvsb);
    }
+   platform_deregister_thread();
 }
 
 /*
@@ -272,7 +275,7 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
    size_t too_large_value_len =
-      MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE) + 1;
+      MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE) + 1;
    char *too_large_value_data;
    too_large_value_data = TYPED_ARRAY_MALLOC(
       data->cfg.heap_id, too_large_value_data, too_large_value_len);

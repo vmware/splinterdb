@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -43,6 +43,8 @@ typedef uint64_t      uint64;
 typedef uint64        timestamp;
 typedef uint64        threadid;
 
+typedef int32 bool32;
+
 #include <assert.h>
 static_assert(sizeof(int8) == 1, "incorrect type");
 static_assert(sizeof(uint8) == 1, "incorrect type");
@@ -74,3 +76,24 @@ typedef FILE platform_log_handle;
 void
 platform_set_log_streams(platform_log_handle *info_stream,
                          platform_log_handle *error_stream);
+
+// Register the current thread so that it can be used with splinterdb.
+//
+// Any thread that uses a splinterdb must first be registered with it.
+//
+// The only exception is the initial thread which called create or open,
+// as that thread is implicitly registered.  Re-registering it is an error.
+//
+// A thread should not be registered more than once; that is an error.
+//
+// Note: There is currently a limit of MAX_THREADS registered at a given time
+//
+// Returns 0 on success, -1 on error.
+int
+platform_register_thread(void);
+
+// Deregister the current thread.
+//
+// Call this function before exiting a registered thread.
+void
+platform_deregister_thread(void);

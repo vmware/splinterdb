@@ -1,4 +1,4 @@
-// Copyright 2022 VMware, Inc.
+// Copyright 2022-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -14,15 +14,8 @@
  *    checking for the result of the config-parsing routines.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/public_platform.h"
 #include "core.h"
-#include "clockcache.h"
-#include "allocator.h"
-#include "rc_allocator.h"
-#include "shard_log.h"
-#include "task.h"
 #include "functional/test.h"
-#include "functional/test_async.h"
 #include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -40,6 +33,7 @@ CTEST_DATA(config_parse)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(config_parse)
 {
+   platform_register_thread();
    uint64 heap_capacity = (1024 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
@@ -53,6 +47,7 @@ CTEST_SETUP(config_parse)
 CTEST_TEARDOWN(config_parse)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*

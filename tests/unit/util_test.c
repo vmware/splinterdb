@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -25,10 +25,16 @@ check_one_debug_hex_encode(size_t      dst_len,
 CTEST_DATA(util){};
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(util) {}
+CTEST_SETUP(util)
+{
+   platform_register_thread();
+}
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(util) {}
+CTEST_TEARDOWN(util)
+{
+   platform_deregister_thread();
+}
 
 /*
  * Test debug_hex_encode() in all its variations.

@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -12,14 +12,14 @@
 #include <fcntl.h>
 #include <pthread.h>
 
-#include "splinterdb/public_platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #include "functional/test.h"
 #include "splinterdb/data.h"
 #include "../config.h"
-#include "io.h"
+#include "platform_io.h"
+#include "platform_units.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
 #include "btree_private.h"
@@ -111,15 +111,16 @@ CTEST_DATA(btree_stress)
    platform_heap_id hid;
 
    // Stuff needed to setup and exercise multiple threads.
-   platform_io_handle io;
-   task_system       *ts;
-   rc_allocator       al;
-   clockcache         cc;
+   io_handle   *io;
+   task_system *ts;
+   rc_allocator al;
+   clockcache   cc;
 };
 
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
+   platform_register_thread();
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
@@ -137,8 +138,8 @@ CTEST_SETUP(btree_stress)
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
                                                 data->data_cfg)
-       || !init_task_config_from_master_config(
-          &data->task_cfg, &data->master_cfg, sizeof(btree_scratch)))
+       || !init_task_config_from_master_config(&data->task_cfg,
+                                               &data->master_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -153,25 +154,25 @@ CTEST_SETUP(btree_stress)
    }
    // Setup execution of concurrent threads
    data->ts = NULL;
-   if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hid))
-       || !SUCCESS(
-          task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg))
+   data->io = io_handle_create(&data->io_cfg, data->hid);
+   if (data->io == NULL
+       || !SUCCESS(task_system_create(data->hid, &data->ts, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
-                                     (io_handle *)&data->io,
+                                     data->io,
                                      data->hid,
                                      platform_get_module_id()))
        || !SUCCESS(clockcache_init(&data->cc,
                                    &data->cache_cfg,
-                                   (io_handle *)&data->io,
+                                   data->io,
                                    (allocator *)&data->al,
                                    "test",
                                    data->hid,
                                    platform_get_module_id())))
    {
-      ASSERT_TRUE(
-         FALSE,
-         "Failed to init io or task system or rc_allocator or clockcache\n");
+      ASSERT_TRUE(FALSE,
+                  "Failed to create io or init task system or rc_allocator or "
+                  "clockcache\n");
    }
 }
 
@@ -181,8 +182,9 @@ CTEST_TEARDOWN(btree_stress)
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
-   io_handle_deinit(&data->io);
+   io_handle_destroy(data->io);
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 CTEST2(btree_stress, iterator_basics)
@@ -262,20 +264,15 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    }
 
    for (uint64 i = 0; i < nthreads; i++) {
-      platform_status ret = task_thread_create("insert thread",
-                                               insert_thread,
-                                               &params[i],
-                                               0,
-                                               data->ts,
-                                               data->hid,
-                                               &threads[i]);
+      platform_status ret = platform_thread_create(
+         &threads[i], FALSE, insert_thread, &params[i], data->hid);
       ASSERT_TRUE(SUCCESS(ret));
       // insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, &mini,
       // root_addr, 0, nkvs);
    }
 
    for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
-      platform_thread_join(threads[thread_no]);
+      platform_thread_join(&threads[thread_no]);
    }
 
    int rc = query_tests((cache *)&data->cc,

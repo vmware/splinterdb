@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -6,13 +6,13 @@
  *
  *     This file contains the test interfaces for Alex's B-tree.
  */
-#include "platform.h"
 
 #include "splinterdb/data.h"
+#include "platform_time.h"
 #include "btree.h"
 #include "merge.h"
 #include "test.h"
-#include "io.h"
+#include "platform_io.h"
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "cache.h"
@@ -245,20 +245,18 @@ test_btree_perf(cache             *cc,
    }
 
    for (uint64 thread_no = 0; thread_no < num_threads; thread_no++) {
-      ret = task_thread_create("insert thread",
-                               test_btree_insert_thread,
-                               &params[thread_no],
-                               0,
-                               ts,
-                               hid,
-                               &params[thread_no].thread);
+      ret = platform_thread_create(&params[thread_no].thread,
+                                   FALSE,
+                                   test_btree_insert_thread,
+                                   &params[thread_no],
+                                   hid);
       if (!SUCCESS(ret)) {
          return ret;
       }
    }
 
    for (uint64 thread_no = 0; thread_no < num_threads; thread_no++) {
-      platform_thread_join(params[thread_no].thread);
+      platform_thread_join(&params[thread_no].thread);
    }
 
    for (uint64 thread_no = 0; thread_no < num_threads; thread_no++) {
@@ -1527,6 +1525,8 @@ btree_test(int argc, char *argv[])
    task_system           *ts = NULL;
    test_message_generator gen;
 
+   platform_register_thread();
+
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
       config_argc   = argc - 2;
@@ -1600,31 +1600,28 @@ btree_test(int argc, char *argv[])
       }
    }
 
-   platform_io_handle *io = TYPED_MALLOC(hid, io);
-   platform_assert(io != NULL);
-   rc = io_handle_init(io, &system_cfg.io_cfg, hid);
-   if (!SUCCESS(rc)) {
-      goto free_iohandle;
+   io_handle *io = io_handle_create(&system_cfg.io_cfg, hid);
+   if (io == NULL) {
+      platform_error_log("Failed to create IO handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
    }
 
-   rc = test_init_task_system(hid, io, &ts, &system_cfg.task_cfg);
+   rc = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_iohandle;
+      goto destroy_iohandle;
    }
 
    rc_allocator al;
-   rc_allocator_init(&al,
-                     &system_cfg.allocator_cfg,
-                     (io_handle *)io,
-                     hid,
-                     platform_get_module_id());
+   rc_allocator_init(
+      &al, &system_cfg.allocator_cfg, io, hid, platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
                         &system_cfg.cache_cfg,
-                        (io_handle *)io,
+                        io,
                         (allocator *)&al,
                         "test",
                         hid,
@@ -1672,12 +1669,10 @@ btree_test(int argc, char *argv[])
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
-deinit_iohandle:
-   io_handle_deinit(io);
-free_iohandle:
-   platform_free(hid, io);
+destroy_iohandle:
+   io_handle_destroy(io);
 cleanup:
    platform_heap_destroy(&hid);
-
+   platform_deregister_thread();
    return SUCCESS(rc) ? 0 : -1;
 }

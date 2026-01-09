@@ -1,4 +1,4 @@
-// Copyright 2023 VMware, Inc.
+// Copyright 2023-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -16,9 +16,15 @@
 #include <sys/mman.h>
 
 #include "ctest.h" // This is required for all test-case files.
-#include "platform.h"
 #include "config.h"
 #include "unit_tests.h"
+#include "platform_semaphore.h"
+#include "platform_threads.h"
+#include "platform_units.h"
+#include "platform_buffer.h"
+#include "platform_spinlock.h"
+#include "platform_mutex.h"
+#include "platform_condvar.h"
 
 /*
  * Global data declaration macro:
@@ -32,6 +38,7 @@ CTEST_DATA(platform_api)
 
 CTEST_SETUP(platform_api)
 {
+   platform_register_thread();
    platform_status rc = STATUS_OK;
    bool use_shmem     = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
@@ -44,6 +51,7 @@ CTEST_SETUP(platform_api)
 CTEST_TEARDOWN(platform_api)
 {
    platform_heap_destroy(&data->hid);
+   platform_deregister_thread();
 }
 
 /*
@@ -114,10 +122,9 @@ CTEST2(platform_api, test_platform_semaphore_init_destroy)
  */
 CTEST2(platform_api, test_platform_spinlock_init_destroy)
 {
-   platform_spinlock  slock;
-   platform_module_id unused = 0;
+   platform_spinlock slock;
 
-   platform_status rc = platform_spinlock_init(&slock, unused, data->hid);
+   platform_status rc = platform_spinlock_init(&slock);
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = platform_spinlock_destroy(&slock);

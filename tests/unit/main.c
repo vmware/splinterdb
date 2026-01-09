@@ -1,5 +1,5 @@
 /* Copyright 2011-2021 Bas van den Berg
- * Copyright 2021 VMware, Inc.
+ * Copyright 2021-2026 VMware, Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdio.h>
@@ -22,6 +22,7 @@
 #include "util.h"
 #include "ctest.h"
 #include "unit_tests.h"
+#include "platform_threads.h"
 
 #define MSG_SIZE 4096
 
@@ -143,7 +144,7 @@ sighandler(int signum)
     * so it can terminate as expected
     */
    signal(signum, SIG_DFL);
-   kill(platform_getpid(), signum);
+   kill(platform_get_os_pid(), signum);
 }
 #endif // CTEST_SEGFAULT
 
@@ -329,7 +330,7 @@ ctest_main(int argc, const char *argv[])
                }
                if (test->teardown && *test->teardown)
                   (*test->teardown)(test->data);
-                  // if we got here it's ok
+               // if we got here it's ok
 #ifdef CTEST_COLOR_OK
                color_print(ANSI_BGREEN, "[OK]");
 #else

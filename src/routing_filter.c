@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -8,14 +8,17 @@
  *     This file contains the implementation for a routing filter
  *----------------------------------------------------------------------
  */
-#include "platform.h"
 #include "routing_filter.h"
 #include "PackedArray.h"
 #include "mini_allocator.h"
 #include "iterator.h"
-#include <stdio.h>
-#include <time.h>
-#include <string.h>
+#include "platform_hash.h"
+#include "platform_typed_alloc.h"
+#include "platform_assert.h"
+#include "platform_threads.h"
+
+// This is used only for log(), which we should figure out how to avoid using,
+// so I'm not going to bother to platformize it.
 #include <math.h>
 
 #include "poison.h"
@@ -108,7 +111,7 @@ RadixSort(uint32 *pData,
          platform_assert((mIndex[j][c] < count),
                          "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
                          ", mIndex[j][c]=%d, count=%u pData=%p pTemp=%p\n",
-                         platform_getpid(),
+                         platform_get_os_pid(),
                          platform_get_tid(),
                          i,
                          j,
@@ -431,7 +434,7 @@ routing_filter_add(cache                *cc,
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
    mini_allocator mini;
-   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER);
+   mini_init(&mini, cc, filter->meta_head, 0, 1, PAGE_TYPE_FILTER);
 
    // set up the index pages
    uint64       addrs_per_page = page_size / sizeof(uint64);
@@ -708,8 +711,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
    for (uint64 i = 0; i != num_filters; i++) {
       total_num_fp += filter[i].num_fingerprints;
    }
-   uint32  buffer_size = total_num_fp / 12;
-   uint32  alloc_size  = buffer_size + cfg->index_size;
+   uint32 buffer_size = total_num_fp / 12;
+   uint32 alloc_size  = buffer_size + cfg->index_size;
+   // NOLINTNEXTLINE(bugprone-sizeof-expression)
    uint32 *local  = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
    uint32 *fp_arr = local;
    uint32 *count  = local + buffer_size;
@@ -1110,17 +1114,20 @@ uint32
 routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
                                                uint64                num_unique)
 {
-   double universe_size = 1UL << cfg->fingerprint_size;
-   double unseen_fp     = universe_size - num_unique;
+   double universe_size   = 1UL << cfg->fingerprint_size;
+   double unseen_fp       = universe_size - num_unique;
+   double universe_size_2 = universe_size * universe_size;
+   double universe_size_4 = universe_size_2 * universe_size_2;
+   double unseen_fp_2     = unseen_fp * unseen_fp;
+   double unseen_fp_4     = unseen_fp_2 * unseen_fp_2;
    /*
     * Compute the difference H_|U| - H_{|U| - #unique_fp}, where U is the fp
     * universe.
     */
-   double harmonic_diff =
-      log(universe_size) - log(unseen_fp)
-      + 1 / 2.0 * (1 / universe_size - 1 / unseen_fp)
-      - 1 / 12.0 * (1 / pow(universe_size, 2) - 1 / pow(unseen_fp, 2))
-      + 1 / 120.0 * (1 / pow(universe_size, 4) - 1 / pow(unseen_fp, 4));
+   double harmonic_diff = log(universe_size) - log(unseen_fp)
+                          + 1 / 2.0 * (1 / universe_size - 1 / unseen_fp)
+                          - 1 / 12.0 * (1 / universe_size_2 - 1 / unseen_fp_2)
+                          + 1 / 120.0 * (1 / universe_size_4 - 1 / unseen_fp_4);
    uint32 estimated_input_keys = universe_size * harmonic_diff;
    return estimated_input_keys;
 }

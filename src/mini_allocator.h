@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -16,10 +16,8 @@
 
 #pragma once
 
-#include "platform.h"
 #include "allocator.h"
 #include "cache.h"
-#include "data_internal.h"
 
 /*
  * Mini-allocator breaks extents into pages. The pages are fed out of separate
@@ -36,7 +34,6 @@
 typedef struct mini_allocator {
    allocator      *al;
    cache          *cc;
-   data_config    *data_cfg;
    bool32          pinned;
    uint64          meta_head;
    volatile uint64 meta_tail;
@@ -51,7 +48,6 @@ typedef struct mini_allocator {
 uint64
 mini_init(mini_allocator *mini,
           cache          *cc,
-          data_config    *cfg,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,

@@ -1,4 +1,4 @@
-// Copyright 2021 VMware, Inc.
+// Copyright 2021-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "platform_hash.h"
+#include "platform_typed_alloc.h"
 #include "async.h"
 #include "mini_allocator.h"
 #include "iterator.h"

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2018-2022 VMware, Inc.
+# Copyright 2018-2026 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 # Checks that C source files follow our formatting conventions
@@ -9,7 +9,7 @@ set -eu -o pipefail
 
 # different tool versions yield different results
 # so we standardize on this version
-TOOL="clang-format-16"
+TOOL="clang-format-19"
 
 # Check if TOOL exists
 if ! command -v "$TOOL" &> /dev/null; then

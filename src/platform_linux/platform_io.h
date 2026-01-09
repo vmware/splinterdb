@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -10,11 +10,35 @@
 #pragma once
 
 #include "async.h"
-#include "platform.h"
+#include "platform_status.h"
+#include "platform_string.h"
+#include "platform_util.h"
+#include "platform_heap.h"
+#include <fcntl.h>
 
 typedef struct io_handle      io_handle;
 typedef struct io_async_req   io_async_req;
 typedef struct io_async_state io_async_state;
+
+struct iovec;
+
+/*
+ * SplinterDB can be configured with different page-sizes, given by these
+ * min & max values.
+ */
+#define IO_MIN_PAGE_SIZE (4096)
+#define IO_MAX_PAGE_SIZE (8192)
+
+#define IO_DEFAULT_PAGE_SIZE        IO_MIN_PAGE_SIZE
+#define IO_DEFAULT_PAGES_PER_EXTENT 32
+#define IO_DEFAULT_EXTENT_SIZE                                                 \
+   (IO_DEFAULT_PAGES_PER_EXTENT * IO_DEFAULT_PAGE_SIZE)
+
+#define IO_DEFAULT_FLAGS             (O_RDWR | O_CREAT)
+#define IO_DEFAULT_PERMS             (0755)
+#define IO_DEFAULT_KERNEL_QUEUE_SIZE (256)
+#define IO_DEFAULT_FILENAME          "db"
+#define IO_DEFAULT_ASYNC_QUEUE_DEPTH (256)
 
 /*
  * IO Configuration structure - used to setup the run-time IO system.
@@ -102,12 +126,6 @@ typedef struct io_async_state_ops {
 struct io_async_state {
    const io_async_state_ops *ops;
 };
-
-platform_status
-io_handle_init(platform_io_handle *ioh, io_config *cfg, platform_heap_id hid);
-
-void
-io_handle_deinit(platform_io_handle *ioh);
 
 static inline platform_status
 io_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
@@ -217,6 +235,7 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
  *  deallocate io_filename once this returns)
  *-----------------------------------------------------------------------------
  */
+
 static inline void
 io_config_init(io_config  *io_cfg,
                uint64      page_size,
@@ -238,3 +257,13 @@ io_config_init(io_config  *io_cfg,
    io_cfg->perms             = perms;
    io_cfg->kernel_queue_size = async_queue_depth;
 }
+
+platform_status
+io_config_valid(io_config *cfg);
+
+
+io_handle *
+io_handle_create(io_config *cfg, platform_heap_id hid);
+
+void
+io_handle_destroy(io_handle *ioh);

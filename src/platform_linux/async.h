@@ -1,4 +1,4 @@
-// Copyright 2024 VMware, Inc.
+// Copyright 2024-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -126,6 +126,8 @@
  */
 
 #pragma once
+
+#include "platform_assert.h"
 
 /* Async functions return async_status.  ASYNC_STATUS_RUNNING means that the
  * function has not yet completed.  ASYNC_STATUS_DONE means that the function

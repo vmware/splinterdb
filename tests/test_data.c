@@ -1,8 +1,8 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2026 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 #include "test_data.h"
-#include "data_internal.h"
+#include "platform_hash.h"
 
 typedef struct data_test_config {
    data_config super;
