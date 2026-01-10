@@ -214,7 +214,12 @@ writable_buffer_deinit(writable_buffer *wb)
    if (wb->mode == WRITABLE_BUFFER_ALLOCED) {
       platform_free(wb->heap_id, wb->u.external.buffer);
    }
-   writable_buffer_init(wb, wb->heap_id);
+   // Put the buffer in a state that should cause a crash if anyone tries to use
+   // it.
+   wb->mode                       = WRITABLE_BUFFER_ALLOCED;
+   wb->length                     = 1;
+   wb->u.external.buffer          = NULL;
+   wb->u.external.buffer_capacity = 1;
 }
 
 #define auto_writable_buffer                                                   \

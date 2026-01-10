@@ -151,6 +151,7 @@ key_buffer_init(key_buffer *kb, platform_heap_id hid)
 {
    kb->kind = USER_KEY;
    writable_buffer_init(&kb->wb, hid);
+   writable_buffer_resize(&kb->wb, 0);
 }
 
 static inline platform_status

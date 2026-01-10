@@ -329,20 +329,6 @@ CTEST2(writable_buffer, test_copy_slice_causing_resize_larger)
 }
 
 /*
- * Test APIs after deinit is done.
- */
-CTEST2(writable_buffer, test_basic_length_after_deinit)
-{
-   writable_buffer  wb_data;
-   writable_buffer *wb = &wb_data;
-
-   writable_buffer_init(wb, data->hid);
-   writable_buffer_deinit(wb);
-   ASSERT_EQUAL(0, writable_buffer_length(wb));
-   ASSERT_NULL(writable_buffer_data(wb));
-}
-
-/*
  * This test case is interesting as the append interfaces calls realloc
  * below. For default heap-segment, 'realloc()' is a system-call, so stuff
  * works ok. When we run with shared memory enabled, there were some bugs in
