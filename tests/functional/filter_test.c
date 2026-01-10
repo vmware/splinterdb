@@ -45,7 +45,7 @@ test_filter_basic(cache           *cc,
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
-   DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
+   auto_writable_buffer keywb = NULL_WRITABLE_BUFFER(hid);
    writable_buffer_resize(&keywb, key_size);
    writable_buffer_memset(&keywb, 0);
    uint64 *keybuf = writable_buffer_data(&keywb);
@@ -162,7 +162,7 @@ test_filter_perf(cache           *cc,
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
    }
-   DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
+   auto_writable_buffer keywb = NULL_WRITABLE_BUFFER(hid);
    writable_buffer_resize(&keywb, key_size);
    writable_buffer_memset(&keywb, 0);
    uint64 *keybuf = writable_buffer_data(&keywb);

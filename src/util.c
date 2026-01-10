@@ -16,22 +16,25 @@
 platform_status
 writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 {
-   if (minspace <= wb->buffer_capacity) {
+   uint64 old_capacity = writable_buffer_capacity(wb);
+   if (minspace <= old_capacity) {
       return STATUS_OK;
    }
 
-   if (minspace < 2 * wb->buffer_capacity) {
-      minspace = 2 * wb->buffer_capacity;
+   if (minspace < 2 * old_capacity) {
+      minspace = 2 * old_capacity;
    }
 
    void *newdata = NULL;
-   if (wb->can_free) {
-      newdata = platform_realloc(
-         wb->heap_id, wb->buffer_capacity, wb->buffer, minspace);
+   if (wb->mode == WRITABLE_BUFFER_ALLOCED) {
+      newdata = platform_realloc(wb->heap_id,
+                                 wb->u.external.buffer_capacity,
+                                 wb->u.external.buffer,
+                                 minspace);
    } else {
       char *newbuf = TYPED_MANUAL_MALLOC(wb->heap_id, newbuf, minspace);
       if (newbuf && writable_buffer_data(wb)) {
-         memcpy(newbuf, wb->buffer, wb->length);
+         memcpy(newbuf, writable_buffer_data(wb), wb->length);
       }
       newdata = (void *)newbuf;
    }
@@ -39,9 +42,9 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
       return STATUS_NO_MEMORY;
    }
 
-   wb->buffer_capacity = minspace;
-   wb->buffer          = newdata;
-   wb->can_free        = TRUE;
+   wb->mode                       = WRITABLE_BUFFER_ALLOCED;
+   wb->u.external.buffer_capacity = minspace;
+   wb->u.external.buffer          = newdata;
    return STATUS_OK;
 }
 

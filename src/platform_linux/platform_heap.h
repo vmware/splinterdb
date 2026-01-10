@@ -7,6 +7,7 @@
 #include "platform_status.h"
 #include "platform_util.h"
 #include "platform_machine.h"
+#include "platform_log.h"
 #include "shmem.h"
 #include <stddef.h>
 #include <stdlib.h>

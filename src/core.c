@@ -8,6 +8,7 @@
  */
 
 #include "core.h"
+#include "data_internal.h"
 #include "platform_sleep.h"
 #include "platform_time.h"
 #include "poison.h"
@@ -803,6 +804,8 @@ core_range_iterator_init(core_handle         *spl,
                          comparison           start_type,
                          uint64               num_tuples)
 {
+   platform_status rc;
+
    debug_assert(!key_is_null(min_key));
    debug_assert(!key_is_null(max_key));
    debug_assert(!key_is_null(start_key));
@@ -815,6 +818,11 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->can_prev     = TRUE;
    range_itor->can_next     = TRUE;
 
+   key_buffer_init(&range_itor->min_key, spl->heap_id);
+   key_buffer_init(&range_itor->max_key, spl->heap_id);
+   key_buffer_init(&range_itor->local_min_key, spl->heap_id);
+   key_buffer_init(&range_itor->local_max_key, spl->heap_id);
+
    if (core_key_compare(spl, min_key, start_key) > 0) {
       // in bounds, start at min
       start_key = min_key;
@@ -825,8 +833,17 @@ core_range_iterator_init(core_handle         *spl,
    }
 
    // copy over global min and max
-   key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);
-   key_buffer_init_from_key(&range_itor->max_key, spl->heap_id, max_key);
+   rc = key_buffer_copy_key(&range_itor->min_key, min_key);
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+      return rc;
+   }
+   rc = key_buffer_copy_key(&range_itor->max_key, max_key);
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+      return rc;
+   }
+
 
    ZERO_ARRAY(range_itor->compacted);
 
@@ -868,16 +885,15 @@ core_range_iterator_init(core_handle         *spl,
    }
 
    trunk_ondisk_node_handle root_handle;
-   trunk_init_root_handle(&spl->trunk_context, &root_handle);
-
+   rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
    memtable_end_lookup(spl->mt_ctxt);
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+      return rc;
+   }
 
-   key_buffer_init(&range_itor->local_min_key, spl->heap_id);
-   key_buffer_init(&range_itor->local_max_key, spl->heap_id);
-
-   platform_status rc;
-   uint64          old_num_branches = range_itor->num_branches;
-   rc = trunk_collect_branches(&spl->trunk_context,
+   uint64 old_num_branches = range_itor->num_branches;
+   rc                      = trunk_collect_branches(&spl->trunk_context,
                                &root_handle,
                                start_key,
                                start_type,
@@ -887,7 +903,10 @@ core_range_iterator_init(core_handle         *spl,
                                &range_itor->local_min_key,
                                &range_itor->local_max_key);
    trunk_ondisk_node_handle_deinit(&root_handle);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+      return rc;
+   }
 
    for (uint64 i = old_num_branches; i < range_itor->num_branches; i++) {
       range_itor->compacted[i] = TRUE;
@@ -899,14 +918,20 @@ core_range_iterator_init(core_handle         *spl,
        <= 0)
    {
       rc = key_buffer_copy_key(&range_itor->local_min_key, min_key);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         core_range_iterator_deinit(range_itor);
+         return rc;
+      }
    }
    if (core_key_compare(
           spl, key_buffer_key(&range_itor->local_max_key), max_key)
        >= 0)
    {
       rc = key_buffer_copy_key(&range_itor->local_max_key, max_key);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         core_range_iterator_deinit(range_itor);
+         return rc;
+      }
    }
 
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
@@ -949,7 +974,10 @@ core_range_iterator_init(core_handle         *spl,
                               MERGE_FULL,
                               greater_than <= start_type,
                               &range_itor->merge_itor);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+      return rc;
+   }
 
    bool32 in_range = iterator_can_curr(&range_itor->merge_itor->super);
 
@@ -960,15 +988,26 @@ core_range_iterator_init(core_handle         *spl,
    if (!in_range && start_type >= greater_than) {
       key local_max = key_buffer_key(&range_itor->local_max_key);
       if (core_key_compare(spl, local_max, max_key) < 0) {
+         key_buffer local_max_buffer;
+         rc = key_buffer_init_from_key(
+            &local_max_buffer, spl->heap_id, local_max);
          core_range_iterator_deinit(range_itor);
-         rc = core_range_iterator_init(spl,
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         local_max = key_buffer_key(&local_max_buffer);
+         rc        = core_range_iterator_init(spl,
                                        range_itor,
                                        min_key,
                                        max_key,
                                        local_max,
                                        start_type,
                                        range_itor->num_tuples);
-         platform_assert_status_ok(rc);
+         key_buffer_deinit(&local_max_buffer);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+
       } else {
          range_itor->can_next = FALSE;
          range_itor->can_prev =
@@ -978,15 +1017,26 @@ core_range_iterator_init(core_handle         *spl,
    if (!in_range && start_type <= less_than_or_equal) {
       key local_min = key_buffer_key(&range_itor->local_min_key);
       if (core_key_compare(spl, local_min, min_key) > 0) {
+         key_buffer local_min_buffer;
+         rc = key_buffer_init_from_key(
+            &local_min_buffer, spl->heap_id, local_min);
          core_range_iterator_deinit(range_itor);
-         rc = core_range_iterator_init(spl,
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         local_min = key_buffer_key(&local_min_buffer);
+         rc        = core_range_iterator_init(spl,
                                        range_itor,
                                        min_key,
                                        max_key,
                                        local_min,
                                        start_type,
                                        range_itor->num_tuples);
-         platform_assert_status_ok(rc);
+         key_buffer_deinit(&local_min_buffer);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+
       } else {
          range_itor->can_prev = FALSE;
          range_itor->can_next =
@@ -1158,11 +1208,11 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
             core_memtable_dec_ref(spl, mt_gen);
          }
       }
-      key_buffer_deinit(&range_itor->min_key);
-      key_buffer_deinit(&range_itor->max_key);
-      key_buffer_deinit(&range_itor->local_min_key);
-      key_buffer_deinit(&range_itor->local_max_key);
    }
+   key_buffer_deinit(&range_itor->min_key);
+   key_buffer_deinit(&range_itor->max_key);
+   key_buffer_deinit(&range_itor->local_min_key);
+   key_buffer_deinit(&range_itor->local_max_key);
 }
 
 /*

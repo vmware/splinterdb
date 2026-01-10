@@ -54,6 +54,7 @@ CTEST2(writable_buffer, test_basic_empty_buffer)
    writable_buffer *wb = &wb_data;
 
    writable_buffer_init(wb, data->hid);
+   ASSERT_TRUE(writable_buffer_is_null(wb));
    ASSERT_EQUAL(0, writable_buffer_length(wb));
    ASSERT_NULL(writable_buffer_data(wb));
    writable_buffer_deinit(wb);
@@ -72,9 +73,6 @@ CTEST2(writable_buffer, test_resize_empty_buffer)
    writable_buffer_resize(wb, new_length);
 
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
-
-   // We should have done some memory allocation.
-   ASSERT_TRUE(wb->can_free);
    ASSERT_NOT_NULL(writable_buffer_data(wb));
    writable_buffer_deinit(wb);
 }
@@ -114,8 +112,6 @@ CTEST2(writable_buffer, test_resize_empty_buffer_to_larger)
    uint64 new_length = 20;
    writable_buffer_resize(wb, new_length);
 
-   // void * vdatap = writable_buffer_data(wb);
-
    new_length = (new_length + 50);
    writable_buffer_resize(wb, new_length);
 
@@ -128,7 +124,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer_to_larger)
 
    // But we can assert just these two ...
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
-   ASSERT_TRUE(writable_buffer_length(wb) <= wb->buffer_capacity);
+   ASSERT_TRUE(writable_buffer_length(wb) <= writable_buffer_capacity(wb));
    writable_buffer_deinit(wb);
 }
 
@@ -148,24 +144,38 @@ CTEST2(writable_buffer, test_basic_user_buffer)
    uint64 buf_len = writable_buffer_length(wb);
    ASSERT_EQUAL(0, buf_len, "Unexpected buffer length=%lu", buf_len);
    ASSERT_EQUAL(sizeof(buf),
-                wb->buffer_capacity,
+                writable_buffer_capacity(wb),
                 "Expected size=%lu, received buffer_size=%lu ",
                 sizeof(buf),
-                wb->buffer_capacity);
-
-   // RESOLVE - This I find very odd. We just init'ed a buffer, and provided
-   // on-stack buffer. I would naturally want to write stuff to the address
-   // returned by writable_buffer_data(); like a snprintf(). But that is coming
-   // out as NULL. Unexpected.
-   // ASSERT_NOT_NULL(writable_buffer_data(wb)); // ... is failing; RESOLVE
-
-   // We will be writing to the user-provided on-stack buffer.
+                writable_buffer_capacity(wb));
    ASSERT_NULL(writable_buffer_data(wb));
 
-   // But as no memory allocation has happened, yet, the "length" of
-   // the 'allocated' portion of the writable buffer should still == 0.
-   ASSERT_EQUAL(0, writable_buffer_length(wb));
-   ASSERT_EQUAL(WB_ONSTACK_BUFSIZE, wb->buffer_capacity);
+   writable_buffer_deinit(wb);
+}
+
+/*
+ * Test basic usage, initializing to a user-provided on-stack buffer.
+ */
+CTEST2(writable_buffer, test_basic_user_buffer_with_length)
+{
+   writable_buffer  wb_data;
+   writable_buffer *wb = &wb_data;
+
+   char buf[WB_ONSTACK_BUFSIZE];
+   writable_buffer_init_with_buffer(
+      wb, data->hid, sizeof(buf), (void *)buf, WB_ONSTACK_BUFSIZE);
+
+   // Validate internals
+   uint64 buf_len = writable_buffer_length(wb);
+   ASSERT_EQUAL(
+      WB_ONSTACK_BUFSIZE, buf_len, "Unexpected buffer length=%lu", buf_len);
+   ASSERT_EQUAL(sizeof(buf),
+                writable_buffer_capacity(wb),
+                "Expected size=%lu, received buffer_size=%lu ",
+                sizeof(buf),
+                writable_buffer_capacity(wb));
+   ASSERT_TRUE(buf == writable_buffer_data(wb));
+
    writable_buffer_deinit(wb);
 }
 
@@ -184,25 +194,10 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_same_length)
    uint64 new_length = sizeof(buf);
    writable_buffer_resize(wb, new_length);
 
-   // This is fine ... BUT RESOLVE: It's odd that writable_buffer_length()
-   // immediately after an init() will return 0. But the same interface
-   // returns a non-zero length, -even- when I just resized to the size of
-   // the originally provided buffer. In other words, even w/o any new
-   // memory allocation occurring, writable_buffer_length() now returns a
-   // non-zero value.
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
-
-   // Nothing has changed, so data handle should still be an un-allocated one.
-   // RESOLVE: This is failing; It's unexpected that if we resize to the same
-   // length, return from here is non-NULL. This is not right.
-   // ASSERT_NULL(writable_buffer_data(wb));
-
-   // Rework ... to move test along ...
-   ASSERT_NOT_NULL(writable_buffer_data(wb));
    ASSERT_TRUE((void *)buf == writable_buffer_data(wb));
 
    // No allocation was done, so nothing to free
-   ASSERT_FALSE(wb->can_free);
    writable_buffer_deinit(wb);
 }
 
@@ -222,11 +217,8 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_smaller)
    writable_buffer_resize(wb, new_length);
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
 
-   // RESOLVE - Again, odd; just do this to keep test moving along ...
    ASSERT_TRUE((void *)buf == writable_buffer_data(wb));
 
-   ASSERT_NOT_NULL(writable_buffer_data(wb));
-   ASSERT_FALSE(wb->can_free);
    writable_buffer_deinit(wb);
 }
 
@@ -249,14 +241,10 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_larger)
 
    writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
 
-   // Increase buffer beyond its current length.
-   // RESOLVE: This is odd. I am expecting this to change to 35, but because
-   // the length() returns 0, this results in 5. Unexpected!
    uint64 new_length = (writable_buffer_length(wb) + 5);
    writable_buffer_resize(wb, new_length);
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
 
-   // RESOLVE - Again, odd; just do this to keep test moving along ...
    void *old_datap_before_resize = writable_buffer_data(wb);
    ASSERT_TRUE((void *)buf == old_datap_before_resize);
 
@@ -269,7 +257,6 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_larger)
    ASSERT_TRUE(old_datap_before_resize != writable_buffer_data(wb));
 
    ASSERT_NOT_NULL(writable_buffer_data(wb));
-   ASSERT_TRUE(wb->can_free);
    writable_buffer_deinit(wb);
 }
 
@@ -338,50 +325,7 @@ CTEST2(writable_buffer, test_copy_slice_causing_resize_larger)
    ASSERT_EQUAL(
       exp_len, act_len, "exp_len=%lu, act_len=%lu ", exp_len, act_len);
 
-   // Memory allocation should have occurred!
-   ASSERT_TRUE(wb->can_free);
-
    writable_buffer_deinit(wb);
-}
-
-/*
- * Test APIs after deinit is done.
- */
-CTEST2(writable_buffer, test_basic_length_after_deinit)
-{
-   writable_buffer  wb_data;
-   writable_buffer *wb = &wb_data;
-
-   writable_buffer_init(wb, data->hid);
-   writable_buffer_deinit(wb);
-   ASSERT_EQUAL(0, writable_buffer_length(wb));
-   ASSERT_NULL(writable_buffer_data(wb));
-}
-
-
-CTEST2(writable_buffer, test_resize_empty_buffer_then_check_apis_after_deinit)
-{
-   writable_buffer  wb_data;
-   writable_buffer *wb = &wb_data;
-
-   writable_buffer_init(wb, data->hid);
-   uint64 new_length = 20;
-   writable_buffer_resize(wb, new_length);
-
-   writable_buffer_deinit(wb);
-
-   // RESOLVE - This seems wrong that we are getting a non-zero length, which
-   // is set upon resize(), but we get this non-zero -after- deinit.
-   ASSERT_EQUAL(new_length, writable_buffer_length(wb));
-   // ASSERT_EQUAL(0, writable_buffer_length(wb)); // is expected assertion.
-
-   // RESOLVE - This seems wrong, too, that datap is non-NULL after deinit!
-   // ASSERT_NOT_NULL(writable_buffer_data(wb)); // is expected assertion.
-
-   ASSERT_NULL(wb->buffer);
-
-   // RESOLVE - It's wrong that we still think something can be freed!
-   ASSERT_FALSE(wb->can_free);
 }
 
 /*
@@ -397,34 +341,22 @@ CTEST2(writable_buffer, test_writable_buffer_append)
    writable_buffer *wb = &wb_data;
 
    writable_buffer_init(wb, data->hid);
-   const void *old_data = writable_buffer_data(wb);
 
    const char *input_str = "Hello World!";
    writable_buffer_append(wb, strlen(input_str), (const void *)input_str);
+   ASSERT_EQUAL(writable_buffer_length(wb), strlen(input_str));
    ASSERT_STREQN(writable_buffer_data(wb), input_str, strlen(input_str));
-
-   // append() should have reallocated new buffer space
-   const void *new_data = writable_buffer_data(wb);
-   ASSERT_TRUE((old_data != new_data));
 
    input_str = "Another Hello World!";
    writable_buffer_append(wb, strlen(input_str), (const void *)input_str);
 
    const char *exp_str = "Hello World!Another Hello World!";
+   ASSERT_EQUAL(writable_buffer_length(wb), strlen(exp_str));
    ASSERT_STREQN(writable_buffer_data(wb),
                  exp_str,
                  strlen(exp_str),
                  "Unexpected data: '%s'\n",
                  (char *)writable_buffer_data(wb));
-
-   // Currently, reallocation from shared-memory will not reuse the existing
-   // memory fragment, even if there is some room in it for the append. (That's
-   // an optimization which needs additional memory fragment-size info which
-   // is currently not available to the allocator.)
-   if (data->use_shmem) {
-      const void *new_data2 = writable_buffer_data(wb);
-      ASSERT_TRUE((new_data != new_data2));
-   }
 
    writable_buffer_deinit(wb);
 }
@@ -459,6 +391,7 @@ CTEST2(writable_buffer, test_writable_buffer_append_beyond_orig_length)
 
    const char *exp_str =
       "Hello World! And, Another Hello World to create long string.";
+   ASSERT_EQUAL(writable_buffer_length(wb), strlen(exp_str));
    ASSERT_STREQN(writable_buffer_data(wb),
                  exp_str,
                  strlen(exp_str),
