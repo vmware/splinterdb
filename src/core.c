@@ -630,9 +630,9 @@ out:
 }
 
 static void
-core_memtable_flush_internal_virtual(void *arg)
+core_memtable_flush_internal_virtual(task *arg)
 {
-   core_memtable_args *mt_args = arg;
+   core_memtable_args *mt_args = container_of(arg, core_memtable_args, tsk);
    core_memtable_flush_internal(mt_args->spl, mt_args->generation);
 }
 
@@ -653,8 +653,8 @@ core_memtable_flush(core_handle *spl, uint64 generation)
    cmt->mt_args.generation      = generation;
    task_enqueue(spl->ts,
                 TASK_TYPE_MEMTABLE,
+                &cmt->mt_args.tsk,
                 core_memtable_flush_internal_virtual,
-                &cmt->mt_args,
                 FALSE);
 }
 

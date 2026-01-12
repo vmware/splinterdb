@@ -2446,8 +2446,8 @@ splinter_test(int argc, char *argv[])
    uint8                  num_tables      = 1;
    bool32                 cache_per_table = FALSE;
    uint64                 insert_rate     = 0; // no rate throttling by default.
-   task_system           *ts              = NULL;
-   bool                   use_shmem       = FALSE;
+   task_system            ts;
+   bool                   use_shmem           = FALSE;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
    test_exec_config       test_exec_cfg;
@@ -2704,7 +2704,7 @@ splinter_test(int argc, char *argv[])
       goto cfg_free;
    }
 
-   rc = test_init_task_system(hid, &ts, &system_cfg[0].task_cfg);
+   rc = test_init_task_system(&ts, hid, &system_cfg[0].task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -2747,7 +2747,7 @@ splinter_test(int argc, char *argv[])
                                  num_lookup_threads,
                                  num_range_lookup_threads,
                                  max_async_inflight,
-                                 ts,
+                                 &ts,
                                  hid,
                                  num_tables,
                                  num_caches,
@@ -2762,7 +2762,7 @@ splinter_test(int argc, char *argv[])
                                    num_insert_threads,
                                    num_lookup_threads,
                                    max_async_inflight,
-                                   ts,
+                                   &ts,
                                    hid,
                                    num_tables,
                                    num_caches,
@@ -2778,7 +2778,7 @@ splinter_test(int argc, char *argv[])
                                  num_lookup_threads,
                                  num_range_lookup_threads,
                                  max_async_inflight,
-                                 ts,
+                                 &ts,
                                  hid,
                                  num_tables,
                                  num_caches,
@@ -2794,7 +2794,7 @@ splinter_test(int argc, char *argv[])
                                  num_lookup_threads,
                                  num_range_lookup_threads,
                                  max_async_inflight,
-                                 ts,
+                                 &ts,
                                  hid,
                                  num_tables,
                                  num_caches,
@@ -2818,7 +2818,7 @@ splinter_test(int argc, char *argv[])
                                           7,
                                           max_async_inflight,
                                           lookup_positive_pct,
-                                          ts,
+                                          &ts,
                                           hid,
                                           num_tables,
                                           num_caches);
@@ -2833,7 +2833,7 @@ splinter_test(int argc, char *argv[])
                                      num_lookup_threads,
                                      num_range_lookup_threads,
                                      max_async_inflight,
-                                     ts,
+                                     &ts,
                                      hid,
                                      num_tables,
                                      num_caches,
@@ -2852,7 +2852,7 @@ splinter_test(int argc, char *argv[])
                                  seed,
                                  test_ops,
                                  correctness_check_frequency,
-                                 ts,
+                                 &ts,
                                  hid,
                                  num_tables,
                                  num_caches,
@@ -2879,7 +2879,7 @@ splinter_test(int argc, char *argv[])
    platform_free(hid, cc);
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, &ts);
+   test_deinit_task_system(&ts);
 handle_destroy:
    io_handle_destroy(io);
 cfg_free:

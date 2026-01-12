@@ -339,8 +339,8 @@ filter_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   task_system *ts = NULL;
-   rc              = task_system_create(hid, &ts, &system_cfg.task_cfg);
+   task_system ts;
+   rc = task_system_init(&ts, hid, &system_cfg.task_cfg);
    platform_assert_status_ok(rc);
 
    rc = rc_allocator_init(
@@ -399,7 +399,7 @@ filter_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   task_system_destroy(hid, &ts);
+   task_system_deinit(&ts);
    io_handle_destroy(io);
    r = 0;
 cleanup:

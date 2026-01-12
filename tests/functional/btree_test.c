@@ -1522,7 +1522,7 @@ btree_test(int argc, char *argv[])
    bool32                 run_perf_test;
    platform_status        rc;
    uint64                 seed;
-   task_system           *ts = NULL;
+   task_system            ts;
    test_message_generator gen;
 
    platform_register_thread();
@@ -1607,7 +1607,7 @@ btree_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   rc = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
+   rc = test_init_task_system(&ts, hid, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -1637,7 +1637,7 @@ btree_test(int argc, char *argv[])
    if (run_perf_test) {
       uint64 total_inserts = 64 * max_tuples_per_memtable;
 
-      rc = test_btree_perf(ccp, &test_cfg, total_inserts, 10, 128, ts, hid);
+      rc = test_btree_perf(ccp, &test_cfg, total_inserts, 10, 128, &ts, hid);
       platform_assert_status_ok(rc);
 
       rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
@@ -1667,7 +1667,7 @@ btree_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, &ts);
+   test_deinit_task_system(&ts);
    rc = STATUS_OK;
 destroy_iohandle:
    io_handle_destroy(io);

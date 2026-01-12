@@ -72,6 +72,8 @@ typedef VECTOR(trunk_branch_info) trunk_branch_info_vector;
 
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
+   task                      tsk;
+   trunk_pivot_state        *pivot_state;
    uint64                    num_bundles;
    trunk_pivot_stats         input_stats;
    bundle_compaction_state   state;
@@ -87,6 +89,7 @@ typedef struct trunk_context trunk_context;
 
 struct trunk_pivot_state {
    struct trunk_pivot_state *next;
+   task                      tsk;
    uint64                    refcount;
    bool32                    maplet_compaction_initiated;
    bool32                    abandoned;
@@ -2630,6 +2633,7 @@ bundle_compaction_create(trunk_context     *context,
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
       return NULL;
    }
+   result->pivot_state = state;
    result->state       = BUNDLE_COMPACTION_NOT_STARTED;
    result->input_stats = trunk_pivot_received_bundles_stats(pvt);
 
@@ -3151,12 +3155,12 @@ static platform_status
 enqueue_maplet_compaction(trunk_pivot_state *args);
 
 static void
-maplet_compaction_task(void *arg)
+maplet_compaction_task(task *arg)
 {
-   platform_status              rc         = STATUS_OK;
-   trunk_pivot_state           *state      = (trunk_pivot_state *)arg;
-   trunk_context               *context    = state->context;
-   routing_filter               new_maplet = state->maplet;
+   platform_status    rc         = STATUS_OK;
+   trunk_pivot_state *state      = container_of(arg, trunk_pivot_state, tsk);
+   trunk_context     *context    = state->context;
+   routing_filter     new_maplet = state->maplet;
    maplet_compaction_apply_args apply_args;
    threadid                     tid;
 
@@ -3338,8 +3342,11 @@ enqueue_maplet_compaction(trunk_pivot_state *args)
       return STATUS_OK;
    }
    trunk_pivot_state_incref(args);
-   platform_status rc = task_enqueue(
-      args->context->ts, TASK_TYPE_NORMAL, maplet_compaction_task, args, FALSE);
+   platform_status rc = task_enqueue(args->context->ts,
+                                     TASK_TYPE_NORMAL,
+                                     &args->tsk,
+                                     maplet_compaction_task,
+                                     TRUE);
    if (!SUCCESS(rc)) {
       platform_error_log("enqueue_maplet_compaction: task_enqueue failed: %d\n",
                          rc.r);
@@ -3372,10 +3379,11 @@ compute_tuple_bound(trunk_context            *context,
 
 
 static void
-bundle_compaction_task(void *arg)
+bundle_compaction_task(task *arg)
 {
    platform_status    rc;
-   trunk_pivot_state *state   = (trunk_pivot_state *)arg;
+   bundle_compaction *bc      = container_of(arg, bundle_compaction, tsk);
+   trunk_pivot_state *state   = bc->pivot_state;
    trunk_context     *context = state->context;
    threadid           tid     = platform_get_tid();
 
@@ -3397,16 +3405,10 @@ bundle_compaction_task(void *arg)
 
    // Find a bundle compaction that needs doing for this pivot
    trunk_pivot_state_lock_compactions(state);
-   bundle_compaction *bc = state->bundle_compactions;
-   while (bc != NULL
-          && !__sync_bool_compare_and_swap(&bc->state,
-                                           BUNDLE_COMPACTION_NOT_STARTED,
-                                           BUNDLE_COMPACTION_IN_PROGRESS))
-   {
-      bc = bc->next;
-   }
+   platform_assert(__sync_bool_compare_and_swap(&bc->state,
+                                                BUNDLE_COMPACTION_NOT_STARTED,
+                                                BUNDLE_COMPACTION_IN_PROGRESS));
    trunk_pivot_state_unlock_compactions(state);
-   platform_assert(bc != NULL);
    platform_assert(0 < vector_length(&bc->input_branches));
 
    trunk_branch_merger merger;
@@ -3571,8 +3573,8 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
          trunk_pivot_state_incref(state);
          rc = task_enqueue(context->ts,
                            TASK_TYPE_NORMAL,
+                           &bc->tsk,
                            bundle_compaction_task,
-                           state,
                            FALSE);
          if (!SUCCESS(rc)) {
             trunk_pivot_state_decref(state);

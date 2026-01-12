@@ -80,13 +80,14 @@ task_group_run_task(task_group *group, task *assigned_task)
       }
    }
 
-   assigned_task->func(assigned_task->arg);
+   task_fn func = assigned_task->func;
+   func(assigned_task);
 
    if (group->use_stats) {
       current = platform_timestamp_elapsed(current);
       if (current > group->stats[tid].max_runtime_ns) {
          group->stats[tid].max_runtime_ns   = current;
-         group->stats[tid].max_runtime_func = assigned_task->func;
+         group->stats[tid].max_runtime_func = func;
       }
    }
 
@@ -119,7 +120,6 @@ task_worker_thread(void *arg)
          const threadid tid = platform_get_tid();
          group->stats[tid].total_bg_task_executions++;
          task_group_run_task(group, task_to_run);
-         platform_free(group->ts->heap_id, task_to_run);
          rc = task_group_lock(group);
          platform_assert(SUCCESS(rc));
          __sync_fetch_and_sub(&group->current_executing_tasks, 1);
@@ -210,16 +210,11 @@ out:
 platform_status
 task_enqueue(task_system *ts,
              task_type    type,
+             task        *new_task,
              task_fn      func,
-             void        *arg,
              bool32       at_head)
 {
-   task *new_task = TYPED_ZALLOC(ts->heap_id, new_task);
-   if (new_task == NULL) {
-      return STATUS_NO_MEMORY;
-   }
    new_task->func = func;
-   new_task->arg  = arg;
    new_task->ts   = ts;
 
    task_group     *group = &ts->group[type];
@@ -228,7 +223,6 @@ task_enqueue(task_system *ts,
 
    rc = task_group_lock(group);
    if (!SUCCESS(rc)) {
-      platform_free(ts->heap_id, new_task);
       return rc;
    }
 
@@ -309,7 +303,6 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
       group->stats[tid].total_fg_task_executions++;
       task_group_run_task(group, assigned_task);
       __sync_fetch_and_sub(&group->current_executing_tasks, 1);
-      platform_free(group->ts->heap_id, assigned_task);
    } else {
       rc = STATUS_TIMEDOUT;
    }
@@ -446,20 +439,16 @@ task_system_config_init(task_system_config *task_cfg,
  * -----------------------------------------------------------------------------
  */
 platform_status
-task_system_create(platform_heap_id          hid,
-                   task_system             **system,
-                   const task_system_config *cfg)
+task_system_init(task_system              *ts,
+                 platform_heap_id          hid,
+                 const task_system_config *cfg)
 {
    platform_status rc = task_config_valid(cfg->num_background_threads);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   task_system *ts = TYPED_ZALLOC(hid, ts);
-   if (ts == NULL) {
-      *system = NULL;
-      return STATUS_NO_MEMORY;
-   }
+   ZERO_CONTENTS(ts);
    ts->cfg     = cfg;
    ts->heap_id = hid;
 
@@ -469,8 +458,7 @@ task_system_create(platform_heap_id          hid,
                                            cfg->use_stats,
                                            cfg->num_background_threads[type]);
       if (!SUCCESS(rc)) {
-         task_system_destroy(hid, &ts);
-         *system = NULL;
+         task_system_deinit(ts);
          return rc;
       }
       uint64 nbg_threads = cfg->num_background_threads[type];
@@ -482,29 +470,22 @@ task_system_create(platform_heap_id          hid,
                               task_type_name[type]);
       }
    }
-   debug_assert((*system == NULL),
-                "Task system handle, %p, is expected to be NULL.\n",
-                *system);
-   *system = ts;
    return STATUS_OK;
 }
 
 /*
  * -----------------------------------------------------------------------------
- * task_system_destroy() : Task system de-initializer.
+ * task_system_deinit() : Task system de-initializer.
  *
- * Tear down task system structures, free allocated memory.
+ * Tear down task system structures.
  * -----------------------------------------------------------------------------
  */
 void
-task_system_destroy(platform_heap_id hid, task_system **ts_in)
+task_system_deinit(task_system *ts)
 {
-   task_system *ts = *ts_in;
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group_deinit(&ts->group[type]);
    }
-   platform_free(hid, ts);
-   *ts_in = (task_system *)NULL;
 }
 
 static void
