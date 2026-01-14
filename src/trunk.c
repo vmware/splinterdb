@@ -65,7 +65,8 @@ typedef enum bundle_compaction_state {
    BUNDLE_COMPACTION_IN_PROGRESS = 1,
    BUNDLE_COMPACTION_MIN_ENDED   = 2,
    BUNDLE_COMPACTION_FAILED      = 2,
-   BUNDLE_COMPACTION_SUCCEEDED   = 3
+   BUNDLE_COMPACTION_ABORTED     = 3,
+   BUNDLE_COMPACTION_SUCCEEDED   = 4
 } bundle_compaction_state;
 
 typedef VECTOR(trunk_branch_info) trunk_branch_info_vector;
@@ -2595,6 +2596,7 @@ bundle_compaction_destroy(bundle_compaction *compaction, trunk_context *context)
    // bundle_compaction_print_table_header(Platform_default_log_handle, 4);
    // bundle_compaction_print_table_entry(
    //    compaction, Platform_default_log_handle, 4);
+   platform_assert(compaction->state >= BUNDLE_COMPACTION_MIN_ENDED);
 
    for (uint64 i = 0; i < vector_length(&compaction->input_branches); i++) {
       trunk_branch_info bi = vector_get(&compaction->input_branches, i);
@@ -2663,6 +2665,7 @@ bundle_compaction_create(trunk_context     *context,
                             __func__,
                             __LINE__,
                             platform_status_to_string(rc));
+         result->state = BUNDLE_COMPACTION_FAILED;
          bundle_compaction_destroy(result, context);
          return NULL;
       }
@@ -2707,7 +2710,7 @@ trunk_pivot_state_map_aquire_lock(pivot_state_map_lock  *lock,
    *lock =
       trunk_pivot_state_map_hash(context->cfg->data_cfg, pivot_key, height);
    uint64 wait = 1;
-   while (__sync_val_compare_and_swap(&map->locks[*lock], 0, 1) != 0) {
+   while (__sync_lock_test_and_set(&map->locks[*lock], 1)) {
       platform_sleep_ns(wait);
       wait = MIN(2 * wait, 2048);
    }
@@ -3268,21 +3271,13 @@ maplet_compaction_task(task *arg)
 
    if (!apply_args.found_match) {
       if (!state->abandoned) {
-         platform_error_log("Failed to find matching pivot for non-abandoned "
-                            "compaction state\n");
          trunk_pivot_state_print(
             state, Platform_error_log_handle, context->cfg->data_cfg, 4);
+         platform_assert(!state->abandoned,
+                         "Failed to find matching pivot for non-abandoned "
+                         "compaction state\n");
       }
 
-      pivot_state_map_lock lock;
-      trunk_pivot_state_map_aquire_lock(&lock,
-                                        context,
-                                        &context->pivot_states,
-                                        key_buffer_key(&state->key),
-                                        state->height);
-      trunk_pivot_state_map_remove(
-         &context->pivot_states, &lock, apply_args.state);
-      trunk_pivot_state_map_release_lock(&lock, &context->pivot_states);
       trunk_modification_end(context);
 
       if (context->stats) {
@@ -3300,24 +3295,28 @@ maplet_compaction_task(task *arg)
       state->maplet = new_maplet;
    }
    state->num_branches += vector_length(&apply_args.branches);
+
+
    trunk_pivot_state_lock_compactions(state);
-   while (state->bundle_compactions != last) {
-      bundle_compaction *next = state->bundle_compactions->next;
-      state->total_bundles -= state->bundle_compactions->num_bundles;
-      bundle_compaction_destroy(state->bundle_compactions, context);
-      state->bundle_compactions = next;
-   }
-   platform_assert(state->bundle_compactions == last);
-   state->bundle_compactions = last->next;
-   state->total_bundles -= last->num_bundles;
-   bundle_compaction_destroy(last, context);
-
-   __sync_lock_release(&state->maplet_compaction_initiated);
-
-   if (state->bundle_compactions
-       && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
    {
-      enqueue_maplet_compaction(state);
+      while (state->bundle_compactions != last) {
+         bundle_compaction *next = state->bundle_compactions->next;
+         state->total_bundles -= state->bundle_compactions->num_bundles;
+         bundle_compaction_destroy(state->bundle_compactions, context);
+         state->bundle_compactions = next;
+      }
+      platform_assert(state->bundle_compactions == last);
+      state->bundle_compactions = last->next;
+      state->total_bundles -= last->num_bundles;
+      bundle_compaction_destroy(last, context);
+
+      __sync_lock_release(&state->maplet_compaction_initiated);
+
+      if (state->bundle_compactions
+          && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
+      {
+         enqueue_maplet_compaction(state);
+      }
    }
    trunk_pivot_state_unlock_compactions(state);
 
@@ -3387,28 +3386,31 @@ bundle_compaction_task(task *arg)
    trunk_context     *context = state->context;
    threadid           tid     = platform_get_tid();
 
+   platform_assert(__sync_bool_compare_and_swap(&bc->state,
+                                                BUNDLE_COMPACTION_NOT_STARTED,
+                                                BUNDLE_COMPACTION_IN_PROGRESS));
+
    if (context->stats) {
       context->stats[tid].compactions[state->height]++;
    }
 
    if (state->abandoned) {
-      trunk_pivot_state_map_release_entry(
-         context, &context->pivot_states, state);
-
       if (context->stats) {
          context->stats[tid].compactions_aborted[state->height]++;
       }
+
+      platform_assert(__sync_bool_compare_and_swap(
+         &bc->state, BUNDLE_COMPACTION_IN_PROGRESS, BUNDLE_COMPACTION_ABORTED));
+
+
+      trunk_pivot_state_map_release_entry(
+         context, &context->pivot_states, state);
+
       return;
    }
 
    uint64 compaction_start = platform_get_timestamp();
 
-   // Find a bundle compaction that needs doing for this pivot
-   trunk_pivot_state_lock_compactions(state);
-   platform_assert(__sync_bool_compare_and_swap(&bc->state,
-                                                BUNDLE_COMPACTION_NOT_STARTED,
-                                                BUNDLE_COMPACTION_IN_PROGRESS));
-   trunk_pivot_state_unlock_compactions(state);
    platform_assert(0 < vector_length(&bc->input_branches));
 
    trunk_branch_merger merger;
@@ -3517,12 +3519,16 @@ cleanup:
    btree_pack_req_deinit(&pack_req, context->hid);
    trunk_branch_merger_deinit(&merger);
 
-   if (SUCCESS(rc)) {
-      bc->state = BUNDLE_COMPACTION_SUCCEEDED;
-   } else {
-      bc->state = BUNDLE_COMPACTION_FAILED;
-   }
    trunk_pivot_state_lock_compactions(state);
+   if (SUCCESS(rc)) {
+      platform_assert(
+         __sync_bool_compare_and_swap(&bc->state,
+                                      BUNDLE_COMPACTION_IN_PROGRESS,
+                                      BUNDLE_COMPACTION_SUCCEEDED));
+   } else {
+      platform_assert(__sync_bool_compare_and_swap(
+         &bc->state, BUNDLE_COMPACTION_IN_PROGRESS, BUNDLE_COMPACTION_FAILED));
+   }
    if (bc->state == BUNDLE_COMPACTION_SUCCEEDED
        && state->bundle_compactions == bc)
    {
@@ -3568,9 +3574,10 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
             goto next;
          }
 
+         trunk_pivot_state_incref(state);
+
          trunk_pivot_state_append_compaction(state, bc);
 
-         trunk_pivot_state_incref(state);
          rc = task_enqueue(context->ts,
                            TASK_TYPE_NORMAL,
                            &bc->tsk,

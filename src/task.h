@@ -42,7 +42,6 @@ typedef void (*task_fn)(task *arg);
 
 struct task {
    struct task *next;
-   struct task *prev;
    task_fn      func;
    task_system *ts;
    timestamp    enqueue_time;

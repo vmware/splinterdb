@@ -80,7 +80,8 @@ task_group_run_task(task_group *group, task *assigned_task)
       }
    }
 
-   task_fn func = assigned_task->func;
+   task_fn func        = assigned_task->func;
+   assigned_task->func = (task_fn)(void *)0xdeadbeef;
    func(assigned_task);
 
    if (group->use_stats) {
@@ -214,6 +215,7 @@ task_enqueue(task_system *ts,
              task_fn      func,
              bool32       at_head)
 {
+   memset(new_task, 0, sizeof(*new_task));
    new_task->func = func;
    new_task->ts   = ts;
 
@@ -228,12 +230,10 @@ task_enqueue(task_system *ts,
 
    if (tq->tail) {
       if (at_head) {
-         tq->head->prev = new_task;
          new_task->next = tq->head;
          tq->head       = new_task;
       } else {
          tq->tail->next = new_task;
-         new_task->prev = tq->tail;
          tq->tail       = new_task;
       }
    } else {
