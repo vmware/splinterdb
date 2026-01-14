@@ -117,22 +117,26 @@ struct clockcache {
    allocator         *al;
    io_handle         *io;
 
-   uint32              *lookup;
-   clockcache_entry    *entry;
-   buffer_handle        bh;   // actual memory for pages
-   char                *data; // convenience pointer for bh
+   buffer_handle        lookup_bh;
+   uint32              *lookup; // Convenience pointer for lookup_bh
+   buffer_handle        entry_bh;
+   clockcache_entry    *entry;   // Convenience pointer for entry_bh
+   buffer_handle        data_bh; // actual memory for pages
+   char                *data;    // convenience pointer for bh
    platform_log_handle *logfile;
    platform_heap_id     heap_id;
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
    buffer_handle    rc_bh;
    volatile uint16 *refcount;
-   volatile uint8  *pincount;
+   buffer_handle    pincount_bh;
+   volatile uint8  *pincount; // Convenience pointer for pincount_bh
 
    // Clock hands and related metadata
    volatile uint32  evict_hand;
    volatile uint32  free_hand;
-   volatile bool32 *batch_busy;
+   buffer_handle    batch_bh;
+   volatile bool32 *batch_busy; // Convenience pointer for batch_bh
    uint64           cleaner_gap;
 
    volatile struct {

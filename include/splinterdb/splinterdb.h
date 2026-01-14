@@ -183,16 +183,16 @@ splinterdb_close(splinterdb **kvs);
 // Insert a key and value.
 // Relies on data_config->encode_message
 int
-splinterdb_insert(const splinterdb *kvsb, slice key, slice value);
+splinterdb_insert(splinterdb *kvsb, slice key, slice value);
 
 // Delete a given key and any associated value / messages
 int
-splinterdb_delete(const splinterdb *kvsb, slice key);
+splinterdb_delete(splinterdb *kvsb, slice key);
 
 // Insert a key and value.
 // Relies on data_config->encode_message
 int
-splinterdb_update(const splinterdb *kvsb, slice key, slice delta);
+splinterdb_update(splinterdb *kvsb, slice key, slice delta);
 
 // Lookups
 
@@ -254,7 +254,7 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
 //
 // result must have first been initialized using splinterdb_lookup_result_init
 int
-splinterdb_lookup(const splinterdb         *kvs,   // IN
+splinterdb_lookup(splinterdb               *kvs,   // IN
                   slice                     key,   // IN
                   splinterdb_lookup_result *result // IN/OUT
 );
@@ -318,7 +318,7 @@ typedef struct splinterdb_iterator splinterdb_iterator;
 //
 // If start_key is NULL_SLICE, the iterator will start before the minimum key
 int
-splinterdb_iterator_init(const splinterdb     *kvs,      // IN
+splinterdb_iterator_init(splinterdb           *kvs,      // IN
                          splinterdb_iterator **iter,     // OUT
                          slice                 start_key // IN
 );
@@ -395,7 +395,7 @@ void
 splinterdb_stats_print_insertion(const splinterdb *kvs);
 
 void
-splinterdb_stats_print_lookup(const splinterdb *kvs);
+splinterdb_stats_print_lookup(splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);

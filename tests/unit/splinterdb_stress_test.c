@@ -25,7 +25,7 @@ static void
 exec_worker_thread(void *w);
 
 static void
-naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count);
+naive_range_delete(splinterdb *kvsb, slice start_key, uint32 count);
 
 // Configuration for each worker thread
 typedef struct {
@@ -309,7 +309,7 @@ exec_worker_thread(void *w)
 
 // Do a "range delete" by collecting keys and then deleting them one at a time
 static void
-naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
+naive_range_delete(splinterdb *kvsb, slice start_key, uint32 count)
 {
    CTEST_LOG_INFO("\tcollecting keys to delete...\n");
    char *keys_to_delete = calloc(count, TEST_KEY_SIZE);

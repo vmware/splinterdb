@@ -192,30 +192,38 @@ core_apply_to_range(core_handle   *spl,
                     tuple_function func,
                     void          *arg);
 
-core_handle *
-core_create(core_config      *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid);
-void
-core_destroy(core_handle *spl);
-core_handle *
-core_mount(core_config      *cfg,
+/* Format the disk and mount the database */
+platform_status
+core_mkfs(core_handle      *spl,
+          core_config      *cfg,
+          allocator        *al,
+          cache            *cc,
+          task_system      *ts,
+          allocator_root_id id,
+          platform_heap_id  hid);
+
+platform_status
+core_mount(core_handle      *spl,
+           core_config      *cfg,
            allocator        *al,
            cache            *cc,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid);
+
+platform_status
+core_unmount(core_handle *spl);
+
+/* Unmount the database and erase it from the disk */
 void
-core_unmount(core_handle **spl);
+core_destroy(core_handle *spl);
 
 void
 core_perform_tasks(core_handle *spl);
 
 void
-core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl);
+core_print_insertion_stats(platform_log_handle *log_handle,
+                           const core_handle   *spl);
 
 void
 core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl);

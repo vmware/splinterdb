@@ -3127,29 +3127,29 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->heap_id = hid;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
-   cc->lookup =
-      TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup, allocator_page_capacity);
-   if (!cc->lookup) {
+   platform_status rc = platform_buffer_init(
+      &cc->lookup_bh, allocator_page_capacity * sizeof(cc->lookup[0]));
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
+   cc->lookup = platform_buffer_getaddr(&cc->lookup_bh);
    for (i = 0; i < allocator_page_capacity; i++) {
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
-   cc->entry =
-      TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry, cc->cfg->page_capacity);
-   if (!cc->entry) {
-      goto alloc_error;
-   }
-
-   platform_status rc = STATUS_NO_MEMORY;
-
-   /* data must be aligned because of O_DIRECT */
-   rc = platform_buffer_init(&cc->bh, cc->cfg->capacity);
+   rc = platform_buffer_init(&cc->entry_bh,
+                             cc->cfg->page_capacity * sizeof(cc->entry[0]));
    if (!SUCCESS(rc)) {
       goto alloc_error;
    }
-   cc->data = platform_buffer_getaddr(&cc->bh);
+   cc->entry = platform_buffer_getaddr(&cc->entry_bh);
+
+   /* data must be aligned because of O_DIRECT */
+   rc = platform_buffer_init(&cc->data_bh, cc->cfg->capacity);
+   if (!SUCCESS(rc)) {
+      goto alloc_error;
+   }
+   cc->data = platform_buffer_getaddr(&cc->data_bh);
 
    /* Set up the entries */
    for (i = 0; i < cc->cfg->page_capacity; i++) {
@@ -3172,11 +3172,12 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->refcount = platform_buffer_getaddr(&cc->rc_bh);
 
    /* Separate ref counts for pins */
-   cc->pincount =
-      TYPED_ARRAY_ZALLOC(cc->heap_id, cc->pincount, cc->cfg->page_capacity);
-   if (!cc->pincount) {
+   rc = platform_buffer_init(&cc->pincount_bh,
+                             cc->cfg->page_capacity * sizeof(cc->pincount[0]));
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
+   cc->pincount = platform_buffer_getaddr(&cc->pincount_bh);
 
    /* The hands and associated page */
    cc->free_hand  = 0;
@@ -3185,13 +3186,14 @@ clockcache_init(clockcache        *cc,   // OUT
       cc->per_thread[thr_i].free_hand       = CC_UNMAPPED_ENTRY;
       cc->per_thread[thr_i].enable_sync_get = TRUE;
    }
-   cc->batch_busy =
-      TYPED_ARRAY_ZALLOC(cc->heap_id,
-                         cc->batch_busy,
-                         cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
-   if (!cc->batch_busy) {
+
+   rc = platform_buffer_init(&cc->batch_bh,
+                             cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH
+                                * sizeof(cc->batch_busy[0]));
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
+   cc->batch_busy = platform_buffer_getaddr(&cc->batch_bh);
 
    return STATUS_OK;
 
@@ -3209,6 +3211,7 @@ alloc_error:
 void
 clockcache_deinit(clockcache *cc) // IN/OUT
 {
+   platform_status rc;
    platform_assert(cc != NULL);
 
    if (cc->logfile) {
@@ -3219,35 +3222,61 @@ clockcache_deinit(clockcache *cc) // IN/OUT
    }
 
    if (cc->lookup) {
-      platform_free(cc->heap_id, cc->lookup);
+      rc = platform_buffer_deinit(&cc->lookup_bh);
+      if (!SUCCESS(rc)) {
+         platform_error_log("platform_buffer_deinit(&cc->lookup_bh) failed: %s",
+                            platform_status_to_string(rc));
+      }
+      cc->lookup = NULL;
    }
    if (cc->entry) {
       for (int i = 0; i < cc->cfg->page_capacity; i++) {
          async_wait_queue_deinit(&cc->entry[i].waiters);
       }
-      platform_free(cc->heap_id, cc->entry);
+      rc = platform_buffer_deinit(&cc->entry_bh);
+      if (!SUCCESS(rc)) {
+         platform_error_log("platform_buffer_deinit(&cc->entry_bh) failed: %s",
+                            platform_status_to_string(rc));
+      }
+      cc->entry = NULL;
    }
 
-   debug_only platform_status rc = STATUS_TEST_FAILED;
    if (cc->data) {
-      rc = platform_buffer_deinit(&cc->bh);
+      rc = platform_buffer_deinit(&cc->data_bh);
 
       // We expect above to succeed. Anyway, we are in the process of
       // dismantling the clockcache, hence, for now, can't do much by way
       // of reporting errors further upstream.
-      debug_assert(SUCCESS(rc), "rc=%s", platform_status_to_string(rc));
+      if (!SUCCESS(rc)) {
+         platform_error_log("platform_buffer_deinit(&cc->data_bh) failed: %s",
+                            platform_status_to_string(rc));
+      }
       cc->data = NULL;
    }
    if (cc->refcount) {
       rc = platform_buffer_deinit(&cc->rc_bh);
-      debug_assert(SUCCESS(rc), "rc=%s", platform_status_to_string(rc));
+      if (!SUCCESS(rc)) {
+         platform_error_log("platform_buffer_deinit(&cc->rc_bh) failed: %s",
+                            platform_status_to_string(rc));
+      }
       cc->refcount = NULL;
    }
 
    if (cc->pincount) {
-      platform_free_volatile(cc->heap_id, cc->pincount);
+      rc = platform_buffer_deinit(&cc->pincount_bh);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "platform_buffer_deinit(&cc->pincount_bh) failed: %s",
+            platform_status_to_string(rc));
+      }
+      cc->pincount = NULL;
    }
    if (cc->batch_busy) {
-      platform_free_volatile(cc->heap_id, cc->batch_busy);
+      rc = platform_buffer_deinit(&cc->batch_bh);
+      if (!SUCCESS(rc)) {
+         platform_error_log("platform_buffer_deinit(&cc->batch_bh) failed: %s",
+                            platform_status_to_string(rc));
+      }
+      cc->batch_busy = NULL;
    }
 }

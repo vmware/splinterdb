@@ -11,6 +11,7 @@
 #include "data_internal.h"
 #include "platform_sleep.h"
 #include "platform_time.h"
+#include "platform_util.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
@@ -1471,22 +1472,17 @@ destroy_range_itor:
 }
 
 
-/*
- *-----------------------------------------------------------------------------
- * Create/destroy
- * XXX Fix this api to return platform_status
- *-----------------------------------------------------------------------------
- */
-core_handle *
-core_create(core_config      *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid)
+/* Format the disk and mount the database */
+platform_status
+core_mkfs(core_handle      *spl,
+          core_config      *cfg,
+          allocator        *al,
+          cache            *cc,
+          task_system      *ts,
+          allocator_root_id id,
+          platform_heap_id  hid)
 {
-   core_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
+   ZERO_CONTENTS(spl);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    spl->al = al;
@@ -1505,8 +1501,7 @@ core_create(core_config      *cfg,
                                               core_memtable_flush_virtual,
                                               spl);
    if (!SUCCESS(rc)) {
-      platform_free(spl->heap_id, spl);
-      return NULL;
+      return rc;
    }
 
    // set up the log
@@ -1543,22 +1538,22 @@ core_create(core_config      *cfg,
       }
    }
 
-   return spl;
+   return STATUS_OK;
 }
 
 /*
  * Open (mount) an existing splinter database
  */
-core_handle *
-core_mount(core_config      *cfg,
+platform_status
+core_mount(core_handle      *spl,
+           core_config      *cfg,
            allocator        *al,
            cache            *cc,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid)
 {
-   core_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
+   ZERO_CONTENTS(spl);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    spl->al = al;
@@ -1589,8 +1584,7 @@ core_mount(core_config      *cfg,
                                               core_memtable_flush_virtual,
                                               spl);
    if (!SUCCESS(rc)) {
-      platform_free(spl->heap_id, spl);
-      return NULL;
+      return rc;
    }
 
    if (spl->cfg.use_log) {
@@ -1624,7 +1618,7 @@ core_mount(core_config      *cfg,
          platform_assert_status_ok(rc);
       }
    }
-   return spl;
+   return STATUS_OK;
 }
 
 /*
@@ -1663,6 +1657,27 @@ core_prepare_for_shutdown(core_handle *spl)
 }
 
 /*
+ * Close (unmount) a database without destroying it.
+ * It can be re-opened later with core_mount().
+ */
+platform_status
+core_unmount(core_handle *spl)
+{
+   core_prepare_for_shutdown(spl);
+   core_set_super_block(spl, FALSE, TRUE, FALSE);
+   trunk_context_deinit(&spl->trunk_context);
+   if (spl->cfg.use_stats) {
+      for (uint64 i = 0; i < MAX_THREADS; i++) {
+         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
+      }
+      platform_free(spl->heap_id, spl->stats);
+   }
+   return STATUS_OK;
+}
+
+/*
  * Destroy a database such that it cannot be re-opened later
  */
 void
@@ -1681,31 +1696,8 @@ core_destroy(core_handle *spl)
       }
       platform_free(spl->heap_id, spl->stats);
    }
-   platform_free(spl->heap_id, spl);
 }
 
-/*
- * Close (unmount) a database without destroying it.
- * It can be re-opened later with core_mount().
- */
-void
-core_unmount(core_handle **spl_in)
-{
-   core_handle *spl = *spl_in;
-   core_prepare_for_shutdown(spl);
-   core_set_super_block(spl, FALSE, TRUE, FALSE);
-   trunk_context_deinit(&spl->trunk_context);
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
-   }
-   platform_free(spl->heap_id, spl);
-   *spl_in = (core_handle *)NULL;
-}
 
 /*
  *-----------------------------------------------------------------------------
@@ -1761,7 +1753,7 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 
 // clang-format off
 void
-core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
+core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *spl)
 {
    if (!spl->cfg.use_stats) {
       platform_log(log_handle, "Statistics are not enabled\n");

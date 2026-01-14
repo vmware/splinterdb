@@ -648,7 +648,7 @@ test_functionality(allocator       *al,
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
 
-   core_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
+   core_handle *spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
    test_splinter_shadow_tree **shadows =
@@ -683,18 +683,24 @@ test_functionality(allocator       *al,
       }
       splinters[idx] = test_generate_allocator_root_id();
 
-      spl_tables[idx] = core_create(
-         &cfg[idx].splinter_cfg, al, cache_to_use, state, splinters[idx], hid);
-      if (spl_tables[idx] == NULL) {
-         status = STATUS_NO_MEMORY;
-         platform_error_log("splinter_create() failed for index=%d.\n", idx);
+      status = core_mkfs(&spl_tables[idx],
+                         &cfg[idx].splinter_cfg,
+                         al,
+                         cache_to_use,
+                         state,
+                         splinters[idx],
+                         hid);
+      if (!SUCCESS(status)) {
+         platform_error_log("core_mkfs() failed for index=%d: %s\n",
+                            idx,
+                            platform_status_to_string(status));
          goto cleanup;
       }
    }
 
    // Validate each tree against an empty shadow.
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      core_handle               *spl    = spl_tables[idx];
+      core_handle               *spl    = &spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       status                            = validate_tree_against_shadow(
          spl, &prg, shadow, hid, TRUE, async_lookup);
@@ -770,7 +776,7 @@ test_functionality(allocator       *al,
       // Run the main test loop for each table.
       for (uint8 idx = 0; idx < num_tables; idx++) {
          // cache *cache_to_use = num_caches > 1 ? cc[idx] : *cc;
-         core_handle               *spl    = spl_tables[idx];
+         core_handle               *spl    = &spl_tables[idx];
          test_splinter_shadow_tree *shadow = shadows[idx];
          // allocator_root_id spl_id = splinters[idx];
 
@@ -832,7 +838,7 @@ test_functionality(allocator       *al,
 
    // Validate each tree against the shadow one last time.
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      core_handle               *spl    = spl_tables[idx];
+      core_handle               *spl    = &spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
 
       status = validate_tree_against_shadow(
@@ -853,8 +859,8 @@ test_functionality(allocator       *al,
 
 cleanup:
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      if (spl_tables[idx] != NULL) {
-         core_destroy(spl_tables[idx]);
+      if (spl_tables[idx].cc != NULL) {
+         core_destroy(&spl_tables[idx]);
       }
       if (shadows[idx] != NULL) {
          test_splinter_shadow_destroy(hid, shadows[idx]);
