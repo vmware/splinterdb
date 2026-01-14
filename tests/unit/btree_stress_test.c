@@ -112,7 +112,7 @@ CTEST_DATA(btree_stress)
 
    // Stuff needed to setup and exercise multiple threads.
    io_handle   *io;
-   task_system *ts;
+   task_system  ts;
    rc_allocator al;
    clockcache   cc;
 };
@@ -153,10 +153,9 @@ CTEST_SETUP(btree_stress)
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
-   data->ts = NULL;
    data->io = io_handle_create(&data->io_cfg, data->hid);
    if (data->io == NULL
-       || !SUCCESS(task_system_create(data->hid, &data->ts, &data->task_cfg))
+       || !SUCCESS(task_system_init(&data->ts, data->hid, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
                                      data->io,
@@ -181,7 +180,7 @@ CTEST_TEARDOWN(btree_stress)
 {
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
-   task_system_destroy(data->hid, &data->ts);
+   task_system_deinit(&data->ts);
    io_handle_destroy(data->io);
    platform_heap_destroy(&data->hid);
    platform_deregister_thread();

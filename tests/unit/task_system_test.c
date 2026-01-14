@@ -83,8 +83,8 @@ CTEST_DATA(task_system)
    task_system_config task_cfg;
 
    // Following get setup pointing to allocated memory
-   io_handle   *ioh; // Only prerequisite needed to setup task system
-   task_system *tasks;
+   io_handle  *ioh; // Only prerequisite needed to setup task system
+   task_system tasks;
 };
 
 /*
@@ -133,7 +133,7 @@ CTEST_SETUP(task_system)
 // Teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(task_system)
 {
-   task_system_destroy(data->hid, &data->tasks);
+   task_system_deinit(&data->tasks);
    io_handle_destroy(data->ioh);
    platform_heap_destroy(&data->hid);
    platform_deregister_thread();
@@ -181,7 +181,7 @@ CTEST2(task_system, test_one_thread_using_lower_apis)
    ASSERT_EQUAL(main_thread_idx, 0, "main_thread_idx=%lu", main_thread_idx);
 
    // Setup thread-specific struct, needed for validation in thread's worker fn
-   thread_cfg.tasks = data->tasks;
+   thread_cfg.tasks = &data->tasks;
 
    // Main thread is at index 0
    thread_cfg.exp_thread_idx = 1;
@@ -235,7 +235,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
    ASSERT_EQUAL(main_thread_idx, 0, "main_thread_idx=%lu", main_thread_idx);
 
    // Setup thread-specific struct, needed for validation in thread's worker fn
-   thread_cfg.tasks = data->tasks;
+   thread_cfg.tasks = &data->tasks;
 
    // Main thread is at index 0
    thread_cfg.exp_thread_idx = 1;
@@ -303,7 +303,7 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
       thread_cfgp = &thread_cfg[tctr];
 
       // These are independent of the new thread's creation.
-      thread_cfgp->tasks          = data->tasks;
+      thread_cfgp->tasks          = &data->tasks;
       thread_cfgp->exp_thread_idx = tctr;
       thread_cfgp->done           = &done;
 
@@ -330,7 +330,7 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
 CTEST2(task_system, test_task_system_creation_with_bg_threads)
 {
    // Destroy the task system setup by the harness, by default, w/o bg threads.
-   task_system_destroy(data->hid, &data->tasks);
+   task_system_deinit(&data->tasks);
    platform_status rc = create_task_system_with_bg_threads(data, 2, 4);
    ASSERT_TRUE(SUCCESS(rc));
 }
@@ -348,7 +348,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    set_log_streams_for_tests(MSG_LEVEL_ERRORS);
 
    // Destroy the task system setup by the harness, by default, w/o bg threads.
-   task_system_destroy(data->hid, &data->tasks);
+   task_system_deinit(&data->tasks);
 
    // Consume all-but-one available threads with background threads.
    rc = create_task_system_with_bg_threads(data, 1, (MAX_THREADS - 3));
@@ -359,7 +359,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
 
    thread_config_lockstep thread_cfg[2];
    ZERO_ARRAY(thread_cfg);
-   thread_cfg[0].tasks          = data->tasks;
+   thread_cfg[0].tasks          = &data->tasks;
    thread_cfg[0].exp_thread_idx = platform_num_threads();
    thread_cfg[0].exp_max_tid    = MAX_THREADS;
    thread_cfg[0].line           = __LINE__;
@@ -378,7 +378,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    while (!thread_cfg[0].waitfor_stop_signal) {
       platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
    }
-   thread_cfg[1].tasks          = data->tasks;
+   thread_cfg[1].tasks          = &data->tasks;
    thread_cfg[1].exp_thread_idx = platform_num_threads();
 
    // We've used up all threads. This thread creation should fail.
@@ -421,7 +421,7 @@ create_task_system_without_bg_threads(void *datap)
                                 TRUE, // use stats
                                 num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
-   rc = task_system_create(data->hid, &data->tasks, &data->task_cfg);
+   rc = task_system_init(&data->tasks, data->hid, &data->task_cfg);
    return rc;
 }
 
@@ -448,7 +448,7 @@ create_task_system_with_bg_threads(void  *datap,
                                 num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc));
 
-   rc = task_system_create(data->hid, &data->tasks, &data->task_cfg);
+   rc = task_system_init(&data->tasks, data->hid, &data->task_cfg);
    if (!SUCCESS(rc)) {
       return rc;
    }

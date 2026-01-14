@@ -267,8 +267,8 @@ splinter_io_apis_test(int argc, char *argv[])
       task_system_config_init(&task_cfg, TRUE /* use stats */, num_bg_threads);
    platform_assert(SUCCESS(rc));
 
-   task_system *tasks = NULL;
-   rc                 = task_system_create(hid, &tasks, &task_cfg);
+   task_system tasks;
+   rc = task_system_init(&tasks, hid, &task_cfg);
    platform_assert(SUCCESS(rc));
 
    threadid    main_thread_idx = platform_get_tid();
@@ -297,7 +297,7 @@ splinter_io_apis_test(int argc, char *argv[])
    io_test_fn_args io_test_fn_arg = {.hid        = hid,
                                      .io_cfgp    = &io_cfg,
                                      .io_hdlp    = io_hdl,
-                                     .tasks      = tasks,
+                                     .tasks      = &tasks,
                                      .start_addr = start_addr,
                                      .end_addr   = end_addr,
                                      .stamp_char = 'A',
@@ -392,7 +392,7 @@ splinter_io_apis_test(int argc, char *argv[])
 io_free:
    // Only the parent process should dismantle stuff
    if (pid != 0) {
-      task_system_destroy(hid, &tasks);
+      task_system_deinit(&tasks);
       io_handle_destroy(io_hdl);
    }
 

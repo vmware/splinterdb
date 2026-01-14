@@ -87,6 +87,7 @@ typedef struct core_handle core_handle;
 typedef struct core_memtable_args {
    core_handle *spl;
    uint64       generation;
+   task         tsk;
 } core_memtable_args;
 
 typedef struct core_compacted_memtable {

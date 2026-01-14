@@ -91,7 +91,7 @@ CTEST_DATA(splinter)
    system_config         *system_cfg;
    io_handle             *io;
    clockcache            *clock_cache;
-   task_system           *tasks;
+   task_system            tasks;
    test_message_generator gen;
 
    // Test execution related configuration
@@ -162,8 +162,7 @@ CTEST_SETUP(splinter)
    data->io = io_handle_create(&data->system_cfg->io_cfg, data->hid);
    ASSERT_TRUE((data->io != NULL), "Failed to create IO handle\n");
 
-   data->tasks = NULL;
-   rc = test_init_task_system(data->hid, &data->tasks, &data->system_cfg->task_cfg);
+   rc = test_init_task_system(&data->tasks, data->hid, &data->system_cfg->task_cfg);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));
@@ -201,7 +200,7 @@ CTEST_TEARDOWN(splinter)
    allocator_assert_noleaks(alp);
 
    rc_allocator_deinit(&data->al);
-   test_deinit_task_system(data->hid, &data->tasks);
+   test_deinit_task_system(&data->tasks);
 
    io_handle_destroy(data->io);
 
@@ -228,7 +227,7 @@ CTEST2(splinter, test_inserts)
    core_handle *spl = core_create(&data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
-                                  data->tasks,
+                                  &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
    ASSERT_TRUE(spl != NULL);
@@ -399,7 +398,7 @@ CTEST2(splinter, test_lookups)
    core_handle *spl = core_create(&data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
-                                  data->tasks,
+                                  &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
    ASSERT_TRUE(spl != NULL);
@@ -621,7 +620,7 @@ CTEST2(splinter, test_splinter_print_diags)
    core_handle *spl = core_create(&data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
-                                  data->tasks,
+                                  &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
    ASSERT_TRUE(spl != NULL);

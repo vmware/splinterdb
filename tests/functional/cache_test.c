@@ -905,7 +905,7 @@ cache_test(int argc, char *argv[])
    int                    config_argc = argc - 1;
    char                 **config_argv = argv + 1;
    platform_status        rc;
-   task_system           *ts        = NULL;
+   task_system            ts;
    bool32                 benchmark = FALSE, async = FALSE;
    uint64                 seed;
    test_message_generator gen;
@@ -976,7 +976,7 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   rc = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
+   rc = test_init_task_system(&ts, hid, &system_cfg.task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -1009,7 +1009,7 @@ cache_test(int argc, char *argv[])
       rc = test_cache_async(ccp,
                             &system_cfg.cache_cfg,
                             hid,
-                            ts,
+                            &ts,
                             1,   // num readers
                             0,   // num writers
                             10); // per-thread working set
@@ -1018,7 +1018,7 @@ cache_test(int argc, char *argv[])
       rc = test_cache_async(ccp,
                             &system_cfg.cache_cfg,
                             hid,
-                            ts,
+                            &ts,
                             8,   // num reader
                             0,   // num writers
                             10); // per-thread working set
@@ -1027,7 +1027,7 @@ cache_test(int argc, char *argv[])
       rc = test_cache_async(ccp,
                             &system_cfg.cache_cfg,
                             hid,
-                            ts,
+                            &ts,
                             8,   // num reader
                             2,   // num writers
                             10); // per-thread working set
@@ -1036,7 +1036,7 @@ cache_test(int argc, char *argv[])
       rc = test_cache_async(ccp,
                             &system_cfg.cache_cfg,
                             hid,
-                            ts,
+                            &ts,
                             1,   // num readers
                             0,   // num writers
                             80); // per-thread working set
@@ -1045,7 +1045,7 @@ cache_test(int argc, char *argv[])
       rc = test_cache_async(ccp,
                             &system_cfg.cache_cfg,
                             hid,
-                            ts,
+                            &ts,
                             8,   // num readers
                             0,   // num writers
                             80); // per-thread working set
@@ -1053,7 +1053,7 @@ cache_test(int argc, char *argv[])
       rc = test_cache_async(ccp,
                             &system_cfg.cache_cfg,
                             hid,
-                            ts,
+                            &ts,
                             8,   // num readers
                             0,   // num writers
                             96); // per-thread working set
@@ -1066,7 +1066,7 @@ cache_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, &ts);
+   test_deinit_task_system(&ts);
    rc = STATUS_OK;
 destroy_iohandle:
    io_handle_destroy(io);

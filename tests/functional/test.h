@@ -54,18 +54,18 @@ splinter_io_apis_test(int argc, char *argv[]);
  * main function. This initializes SplinterDB's task sub-system.
  */
 static inline platform_status
-test_init_task_system(platform_heap_id          hid,
-                      task_system             **system,
+test_init_task_system(task_system              *system,
+                      platform_heap_id          hid,
                       const task_system_config *cfg)
 {
    // splinter initialization
-   return task_system_create(hid, system, cfg);
+   return task_system_init(system, hid, cfg);
 }
 
 static inline void
-test_deinit_task_system(platform_heap_id hid, task_system **ts)
+test_deinit_task_system(task_system *ts)
 {
-   task_system_destroy(hid, ts);
+   task_system_deinit(ts);
 }
 
 static inline key

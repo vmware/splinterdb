@@ -231,7 +231,7 @@ log_test(int argc, char *argv[])
    bool32                 run_crash_test;
    int                    rc;
    uint64                 seed;
-   task_system           *ts = NULL;
+   task_system            ts;
    test_message_generator gen;
 
    platform_register_thread();
@@ -292,7 +292,7 @@ log_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   status = test_init_task_system(hid, &ts, &system_cfg.task_cfg);
+   status = test_init_task_system(&ts, hid, &system_cfg.task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));
@@ -319,7 +319,7 @@ log_test(int argc, char *argv[])
    platform_assert(log != NULL);
    if (run_perf_test) {
       ret = test_log_perf(
-         (cache *)cc, &system_cfg.log_cfg, log, 200000000, &gen, 16, ts, hid);
+         (cache *)cc, &system_cfg.log_cfg, log, 200000000, &gen, 16, &ts, hid);
       rc = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
@@ -329,7 +329,7 @@ log_test(int argc, char *argv[])
                           (allocator *)&al,
                           &system_cfg.log_cfg,
                           log,
-                          ts,
+                          &ts,
                           hid,
                           &gen,
                           500000,
@@ -342,7 +342,7 @@ log_test(int argc, char *argv[])
                           (allocator *)&al,
                           &system_cfg.log_cfg,
                           log,
-                          ts,
+                          &ts,
                           hid,
                           &gen,
                           500000,
@@ -354,7 +354,7 @@ log_test(int argc, char *argv[])
    platform_free(hid, log);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, &ts);
+   test_deinit_task_system(&ts);
 destroy_iohandle:
    io_handle_destroy(io);
 cleanup:

@@ -36,16 +36,16 @@ task_system_config_init(task_system_config *task_cfg,
 
 typedef struct task_system task_system;
 
-typedef void (*task_fn)(void *arg);
+typedef struct task task;
 
-typedef struct task {
+typedef void (*task_fn)(task *arg);
+
+struct task {
    struct task *next;
-   struct task *prev;
    task_fn      func;
-   void        *arg;
    task_system *ts;
    timestamp    enqueue_time;
-} task;
+};
 
 /*
  * Run-time task-specific execution metrics structure.
@@ -111,35 +111,35 @@ struct task_system {
 };
 
 /*
- * Create a task system and register the calling thread.
+ * Initialize a task system and register the calling thread.
  */
 platform_status
-task_system_create(platform_heap_id          hid,
-                   task_system             **system,
-                   const task_system_config *cfg);
+task_system_init(task_system              *system,
+                 platform_heap_id          hid,
+                 const task_system_config *cfg);
 
 /*
- * Deregister the calling thread (if it is registered) and destroy the
- * task system.  It is recommended to not destroy the task system
+ * Deregister the calling thread (if it is registered) and deinitialize the
+ * task system.  It is recommended to not deinitialize the task system
  * until all registered threads have deregistered.
  *
- * task_system_destroy() waits for currently executing background
+ * task_system_deinit() waits for currently executing background
  * tasks and cleanly shuts down all background threads, but it
  * abandons tasks that are still waiting to execute.  To ensure that
  * no enqueued tasks are abandoned by a shutdown,
  *
  * 1. Ensure that your application will not enqueue any more tasks.
  * 2. Call task_perform_until_quiescent().
- * 3. Then call task_system_destroy().
+ * 3. Then call task_system_deinit().
  */
 void
-task_system_destroy(platform_heap_id hid, task_system **ts);
+task_system_deinit(task_system *ts);
 
 platform_status
 task_enqueue(task_system *ts,
              task_type    type,
+             task        *arg,
              task_fn      func,
-             void        *arg,
              bool32       at_head);
 
 /*

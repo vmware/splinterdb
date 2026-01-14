@@ -38,7 +38,7 @@ splinterdb_get_version()
 }
 
 typedef struct splinterdb {
-   task_system       *task_sys;
+   task_system        task_sys;
    io_config          io_cfg;
    io_handle         *io_handle;
    allocator_config   allocator_cfg;
@@ -311,7 +311,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto io_handle_create_failed;
    }
 
-   status = task_system_create(kvs->heap_id, &kvs->task_sys, &kvs->task_cfg);
+   status = task_system_init(&kvs->task_sys, kvs->heap_id, &kvs->task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log(
          "Failed to initialize SplinterDB task system state: %s\n",
@@ -357,14 +357,14 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       kvs->spl = core_mount(&kvs->trunk_cfg,
                             (allocator *)&kvs->allocator_handle,
                             (cache *)&kvs->cache_handle,
-                            kvs->task_sys,
+                            &kvs->task_sys,
                             kvs->trunk_id,
                             kvs->heap_id);
    } else {
       kvs->spl = core_create(&kvs->trunk_cfg,
                              (allocator *)&kvs->allocator_handle,
                              (cache *)&kvs->cache_handle,
-                             kvs->task_sys,
+                             &kvs->task_sys,
                              kvs->trunk_id,
                              kvs->heap_id);
    }
@@ -385,7 +385,7 @@ deinit_cache:
 deinit_allocator:
    rc_allocator_unmount(&kvs->allocator_handle);
 deinit_system:
-   task_system_destroy(kvs->heap_id, &kvs->task_sys);
+   task_system_deinit(&kvs->task_sys);
 deinit_iohandle:
    io_handle_destroy(kvs->io_handle);
 io_handle_create_failed:
@@ -458,7 +458,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    core_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
-   task_system_destroy(kvs->heap_id, &kvs->task_sys);
+   task_system_deinit(&kvs->task_sys);
    io_handle_destroy(kvs->io_handle);
 
    // Free resources carefully to avoid ASAN-test failures
@@ -755,7 +755,7 @@ splinterdb_stats_reset(splinterdb *kvs)
 static void
 splinterdb_close_print_stats(splinterdb *kvs)
 {
-   task_print_stats(kvs->task_sys);
+   task_print_stats(&kvs->task_sys);
    splinterdb_stats_print_insertion(kvs);
 }
 
@@ -780,7 +780,7 @@ splinterdb_get_heap_id(const splinterdb *kvs)
 const task_system *
 splinterdb_get_task_system_handle(const splinterdb *kvs)
 {
-   return kvs->task_sys;
+   return &kvs->task_sys;
 }
 
 const io_handle *
