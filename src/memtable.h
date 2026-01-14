@@ -15,6 +15,7 @@
 #include "btree.h"
 #include "batch_rwlock.h"
 
+#define MAX_MEMTABLES                  128
 #define MEMTABLE_SPACE_OVERHEAD_FACTOR (2)
 
 typedef enum memtable_state {
@@ -118,7 +119,7 @@ typedef struct memtable_context {
 
    // batch distributed read/write locks protect the generation and
    // generation_retired counters
-   batch_rwlock *rwlock;
+   batch_rwlock rwlock;
 
    // Protected by the MEMTABLE_INSERT_LOCK_IDX'th lock of rwlock. Can read
    // without lock. Must get read lock to freeze and write lock to modify.
@@ -137,7 +138,7 @@ typedef struct memtable_context {
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];
 
-   memtable mt[];
+   memtable mt[MAX_MEMTABLES];
 } memtable_context;
 
 platform_status
@@ -179,15 +180,16 @@ memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation);
 void
 memtable_deinit(cache *cc, memtable *mt);
 
-memtable_context *
-memtable_context_create(platform_heap_id hid,
-                        cache           *cc,
-                        memtable_config *cfg,
-                        process_fn       process,
-                        void            *process_ctxt);
+platform_status
+memtable_context_init(memtable_context *ctxt,
+                      platform_heap_id  hid,
+                      cache            *cc,
+                      memtable_config  *cfg,
+                      process_fn        process,
+                      void             *process_ctxt);
 
 void
-memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt);
+memtable_context_deinit(memtable_context *ctxt);
 
 void
 memtable_config_init(memtable_config *cfg,

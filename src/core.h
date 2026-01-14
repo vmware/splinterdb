@@ -103,16 +103,16 @@ struct core_handle {
    uint64            super_block_idx;
    allocator_root_id id;
 
-   allocator        *al;
-   cache            *cc;
-   task_system      *ts;
-   log_handle       *log;
-   trunk_context     trunk_context;
-   memtable_context *mt_ctxt;
+   allocator       *al;
+   cache           *cc;
+   task_system     *ts;
+   log_handle      *log;
+   trunk_context    trunk_context;
+   memtable_context mt_ctxt;
 
    core_stats *stats;
 
-   core_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
+   core_compacted_memtable compacted_memtable[MAX_MEMTABLES];
 };
 
 typedef struct core_range_iterator {

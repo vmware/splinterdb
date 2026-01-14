@@ -810,5 +810,5 @@ splinterdb_get_trunk_handle(const splinterdb *kvs)
 const memtable_context *
 splinterdb_get_memtable_context_handle(const splinterdb *kvs)
 {
-   return kvs->spl->mt_ctxt;
+   return &kvs->spl->mt_ctxt;
 }

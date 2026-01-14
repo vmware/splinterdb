@@ -46,70 +46,70 @@ memtable_process(memtable_context *ctxt, uint64 generation)
 static inline void
 memtable_begin_insert(memtable_context *ctxt)
 {
-   batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
 memtable_end_insert(memtable_context *ctxt)
 {
-   batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_unget(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 static inline bool32
 memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
-   if (!batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX)) {
+   if (!batch_rwlock_try_claim(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX)) {
       return FALSE;
    }
-   batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_lock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
    return TRUE;
 }
 
 static inline void
 memtable_end_insert_rotation(memtable_context *ctxt)
 {
-   batch_rwlock_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   batch_rwlock_unclaim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_unclaim(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 static inline void
 memtable_begin_raw_rotation(memtable_context *ctxt)
 {
-   batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_claim_loop(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_lock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 static inline void
 memtable_end_raw_rotation(memtable_context *ctxt)
 {
-   batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_full_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
 memtable_begin_lookup(memtable_context *ctxt)
 {
-   batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_get(&ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
 memtable_end_lookup(memtable_context *ctxt)
 {
-   batch_rwlock_unget(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_unget(&ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
 memtable_block_lookups(memtable_context *ctxt)
 {
-   batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
-   batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
-   batch_rwlock_lock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_get(&ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_claim_loop(&ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_lock(&ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
 memtable_unblock_lookups(memtable_context *ctxt)
 {
-   batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   batch_rwlock_full_unlock(&ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 
@@ -299,22 +299,27 @@ memtable_deinit(cache *cc, memtable *mt)
    debug_assert(freed);
 }
 
-memtable_context *
-memtable_context_create(platform_heap_id hid,
-                        cache           *cc,
-                        memtable_config *cfg,
-                        process_fn       process,
-                        void            *process_ctxt)
+platform_status
+memtable_context_init(memtable_context *ctxt,
+                      platform_heap_id  hid,
+                      cache            *cc,
+                      memtable_config  *cfg,
+                      process_fn        process,
+                      void             *process_ctxt)
 {
-   memtable_context *ctxt =
-      TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ctxt, mt, cfg->max_memtables);
+   platform_status rc;
+   ZERO_CONTENTS(ctxt);
    ctxt->cc  = cc;
    ctxt->cfg = *cfg;
 
-   platform_mutex_init(
+   rc = platform_mutex_init(
       &ctxt->incorporation_mutex, platform_get_module_id(), hid);
-   ctxt->rwlock = TYPED_MALLOC(hid, ctxt->rwlock);
-   batch_rwlock_init(ctxt->rwlock);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   batch_rwlock_init(&ctxt->rwlock);
+
+   platform_assert(cfg->max_memtables <= MAX_MEMTABLES);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
       uint64 generation = mt_no;
@@ -330,11 +335,11 @@ memtable_context_create(platform_heap_id hid,
    ctxt->process      = process;
    ctxt->process_ctxt = process_ctxt;
 
-   return ctxt;
+   return STATUS_OK;
 }
 
 void
-memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
+memtable_context_deinit(memtable_context *ctxt)
 {
    cache *cc = ctxt->cc;
    for (uint64 mt_no = 0; mt_no < ctxt->cfg.max_memtables; mt_no++) {
@@ -342,9 +347,7 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
    }
 
    platform_mutex_destroy(&ctxt->incorporation_mutex);
-   platform_free(hid, ctxt->rwlock);
-
-   platform_free(hid, ctxt);
+   batch_rwlock_deinit(&ctxt->rwlock);
 }
 
 void
@@ -354,6 +357,7 @@ memtable_config_init(memtable_config *cfg,
                      uint64           memtable_capacity)
 {
    ZERO_CONTENTS(cfg);
+   platform_assert(max_memtables <= MAX_MEMTABLES);
    cfg->btree_cfg     = btree_cfg;
    cfg->max_memtables = max_memtables;
    cfg->max_extents_per_memtable =
