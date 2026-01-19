@@ -19,7 +19,7 @@
 
 // External APIs provided -ONLY- for use as a testing hook.
 void
-splinterdb_cache_flush(const splinterdb *kvs);
+splinterdb_cache_flush(splinterdb *kvs);
 
 platform_heap_id
 splinterdb_get_heap_id(const splinterdb *kvs);

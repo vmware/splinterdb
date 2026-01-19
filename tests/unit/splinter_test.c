@@ -224,22 +224,24 @@ CTEST2(splinter, test_inserts)
 {
    allocator *alp = (allocator *)&data->al;
 
-   core_handle *spl = core_create(&data->system_cfg->splinter_cfg,
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
                                   &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
-   ASSERT_TRUE(spl != NULL);
+   ASSERT_TRUE(SUCCESS(rc));
 
    // TRUE : Also do verification-after-inserts
-   uint64 num_inserts = splinter_do_inserts(data, spl, TRUE, NULL);
+   uint64 num_inserts = splinter_do_inserts(data, &spl, TRUE, NULL);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
                     num_inserts);
 
-   core_destroy(spl);
+   core_destroy(&spl);
 }
 
 static void
@@ -395,29 +397,31 @@ CTEST2(splinter, test_lookups)
 {
    allocator *alp = (allocator *)&data->al;
 
-   core_handle *spl = core_create(&data->system_cfg->splinter_cfg,
-                                  alp,
-                                  (cache *)data->clock_cache,
-                                  &data->tasks,
-                                  test_generate_allocator_root_id(),
-                                  data->hid);
-   ASSERT_TRUE(spl != NULL);
+   core_handle     spl;
+   platform_status rc_init = core_mkfs(&spl,
+                                       &data->system_cfg->splinter_cfg,
+                                       alp,
+                                       (cache *)data->clock_cache,
+                                       &data->tasks,
+                                       test_generate_allocator_root_id(),
+                                       data->hid);
+   ASSERT_TRUE(SUCCESS(rc_init));
 
    trunk_shadow shadow;
    trunk_shadow_init(&shadow, data->system_cfg->data_cfg, data->hid);
 
    // FALSE : No need to do verification-after-inserts, as that functionality
    // has been tested earlier in test_inserts() case.
-   uint64 num_inserts = splinter_do_inserts(data, spl, FALSE, &shadow);
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, &shadow);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
                     num_inserts);
 
    merge_accumulator qdata;
-   merge_accumulator_init(&qdata, spl->heap_id);
+   merge_accumulator_init(&qdata, spl.heap_id);
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
-   const size_t key_size = core_max_key_size(spl);
+   const size_t key_size = core_max_key_size(&spl);
 
    platform_status rc;
 
@@ -437,13 +441,13 @@ CTEST2(splinter, test_lookups)
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       merge_accumulator_set_to_null(&qdata);
 
-      rc = core_lookup(spl, key_buffer_key(&keybuf), &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(spl,
+      verify_tuple(&spl,
                    &data->gen,
                    insert_num,
                    key_buffer_key(&keybuf),
@@ -474,13 +478,13 @@ CTEST2(splinter, test_lookups)
 
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
 
-      rc = core_lookup(spl, key_buffer_key(&keybuf), &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(spl,
+      verify_tuple(&spl,
                    &data->gen,
                    insert_num,
                    key_buffer_key(&keybuf),
@@ -513,7 +517,7 @@ CTEST2(splinter, test_lookups)
       // Range search uses the shadow-copy of the rows previously inserted while
       // doing a binary-search.
       rc = test_lookup_by_range(
-         (void *)data, spl, num_inserts, &shadow, num_ranges);
+         (void *)data, &spl, num_inserts, &shadow, num_ranges);
       ASSERT_TRUE(SUCCESS(rc),
                   "test_lookup_by_range() FAILURE, num_ranges=%d: %s\n",
                   num_ranges,
@@ -547,14 +551,14 @@ CTEST2(splinter, test_lookups)
                         num_inserts,
                         "Verify async positive lookups %3lu%% complete");
 
-      ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_true);
+      ctxt = test_async_ctxt_get(&spl, async_lookup, &vtarg_true);
 
       test_key(&ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       ctxt->lookup_num = insert_num;
       async_ctxt_submit(
-         spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_true);
+         &spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_true);
    }
-   test_wait_for_inflight(spl, async_lookup, &vtarg_true);
+   test_wait_for_inflight(&spl, async_lookup, &vtarg_true);
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
    CTEST_LOG_INFO(
@@ -579,13 +583,13 @@ CTEST2(splinter, test_lookups)
                         num_inserts,
                         "Verify async negative lookups %3lu%% complete");
 
-      ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_false);
+      ctxt = test_async_ctxt_get(&spl, async_lookup, &vtarg_false);
       test_key(&ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       ctxt->lookup_num = insert_num;
       async_ctxt_submit(
-         spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_false);
+         &spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_false);
    }
-   test_wait_for_inflight(spl, async_lookup, &vtarg_false);
+   test_wait_for_inflight(&spl, async_lookup, &vtarg_false);
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
    CTEST_LOG_INFO(
@@ -598,7 +602,7 @@ CTEST2(splinter, test_lookups)
       async_ctxt_deinit(data->hid, async_lookup);
    }
 
-   core_destroy(spl);
+   core_destroy(&spl);
    trunk_shadow_deinit(&shadow);
 }
 
@@ -617,15 +621,17 @@ CTEST2(splinter, test_splinter_print_diags)
 
    allocator *alp = (allocator *)&data->al;
 
-   core_handle *spl = core_create(&data->system_cfg->splinter_cfg,
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
                                   &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
-   ASSERT_TRUE(spl != NULL);
+   ASSERT_TRUE(SUCCESS(rc));
 
-   uint64 num_inserts = splinter_do_inserts(data, spl, FALSE, NULL);
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
                     "Expected to have inserted non-zero rows, num_inserts=%lu",
@@ -637,16 +643,16 @@ CTEST2(splinter, test_splinter_print_diags)
                   __LINE__,
                   __func__);
 
-   core_print_super_block(Platform_default_log_handle, spl);
+   core_print_super_block(Platform_default_log_handle, &spl);
 
-   core_print_space_use(Platform_default_log_handle, spl);
+   core_print_space_use(Platform_default_log_handle, &spl);
 
    CTEST_LOG_INFO("\n** Allocator stats **\n");
    allocator_print_stats(alp);
    allocator_print_allocated(alp);
 
    set_log_streams_for_tests(MSG_LEVEL_INFO);
-   core_destroy(spl);
+   core_destroy(&spl);
 }
 
 /*

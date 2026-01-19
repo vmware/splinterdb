@@ -11,6 +11,7 @@
 #include "data_internal.h"
 #include "platform_sleep.h"
 #include "platform_time.h"
+#include "platform_util.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
@@ -40,6 +41,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * limit.
  */
 #define CORE_NUM_MEMTABLES (4)
+_Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
+               "CORE_NUM_MEMTABLES <= MAX_MEMTABLES");
 
 /*
  * For a "small" range query, you don't want to prefetch pages.
@@ -252,7 +255,7 @@ static memtable *
 core_try_get_memtable(core_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % CORE_NUM_MEMTABLES;
-   memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
+   memtable *mt           = &spl->mt_ctxt.mt[memtable_idx];
    if (mt->generation != generation) {
       mt = NULL;
    }
@@ -267,13 +270,13 @@ static memtable *
 core_get_memtable(core_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % CORE_NUM_MEMTABLES;
-   memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
+   memtable *mt           = &spl->mt_ctxt.mt[memtable_idx];
    platform_assert(mt->generation == generation,
                    "mt->generation=%lu, mt_ctxt->generation=%lu, "
                    "mt_ctxt->generation_retired=%lu, generation=%lu\n",
                    mt->generation,
-                   spl->mt_ctxt->generation,
-                   spl->mt_ctxt->generation_retired,
+                   spl->mt_ctxt.generation,
+                   spl->mt_ctxt.generation_retired,
                    generation);
    return mt;
 }
@@ -302,7 +305,7 @@ static void
 core_memtable_dec_ref(core_handle *spl, uint64 generation)
 {
    memtable *mt = core_get_memtable(spl, generation);
-   memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
+   memtable_dec_ref_maybe_recycle(&spl->mt_ctxt, mt);
 
    // the branch in the compacted memtable is now in the tree, so don't zap it,
    // we don't try to zero out the cmt because that would introduce a race.
@@ -367,12 +370,12 @@ core_memtable_insert(core_handle *spl, key tuple_key, message msg)
    uint64 generation;
 
    platform_status rc =
-      memtable_maybe_rotate_and_begin_insert(spl->mt_ctxt, &generation);
+      memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, &generation);
    while (STATUS_IS_EQ(rc, STATUS_BUSY)) {
       // Memtable isn't ready, do a task if available; may be required to
       // incorporate memtable that we're waiting on
       task_perform_one_if_needed(spl->ts, 0);
-      rc = memtable_maybe_rotate_and_begin_insert(spl->mt_ctxt, &generation);
+      rc = memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, &generation);
    }
    if (!SUCCESS(rc)) {
       goto out;
@@ -382,7 +385,7 @@ core_memtable_insert(core_handle *spl, key tuple_key, message msg)
    memtable *mt = core_get_memtable(spl, generation);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(
-      spl->mt_ctxt, mt, spl->heap_id, tuple_key, msg, &leaf_generation);
+      &spl->mt_ctxt, mt, spl->heap_id, tuple_key, msg, &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
@@ -395,7 +398,7 @@ core_memtable_insert(core_handle *spl, key tuple_key, message msg)
    }
 
 unlock_insert_lock:
-   memtable_end_insert(spl->mt_ctxt);
+   memtable_end_insert(&spl->mt_ctxt);
 out:
    return rc;
 }
@@ -494,10 +497,10 @@ core_try_start_incorporate(core_handle *spl, uint64 generation)
 {
    bool32 should_start = FALSE;
 
-   memtable_lock_incorporation_lock(spl->mt_ctxt);
+   memtable_lock_incorporation_lock(&spl->mt_ctxt);
    memtable *mt = core_try_get_memtable(spl, generation);
    if ((mt == NULL)
-       || (generation != memtable_generation_to_incorporate(spl->mt_ctxt)))
+       || (generation != memtable_generation_to_incorporate(&spl->mt_ctxt)))
    {
       should_start = FALSE;
       goto unlock_incorp_lock;
@@ -506,7 +509,7 @@ core_try_start_incorporate(core_handle *spl, uint64 generation)
       mt, MEMTABLE_STATE_COMPACTED, MEMTABLE_STATE_INCORPORATION_ASSIGNED);
 
 unlock_incorp_lock:
-   memtable_unlock_incorporation_lock(spl->mt_ctxt);
+   memtable_unlock_incorporation_lock(&spl->mt_ctxt);
    return should_start;
 }
 
@@ -515,7 +518,7 @@ core_try_continue_incorporate(core_handle *spl, uint64 next_generation)
 {
    bool32 should_continue = FALSE;
 
-   memtable_lock_incorporation_lock(spl->mt_ctxt);
+   memtable_lock_incorporation_lock(&spl->mt_ctxt);
    memtable *mt = core_try_get_memtable(spl, next_generation);
    if (mt == NULL) {
       should_continue = FALSE;
@@ -523,11 +526,11 @@ core_try_continue_incorporate(core_handle *spl, uint64 next_generation)
    }
    should_continue = memtable_try_transition(
       mt, MEMTABLE_STATE_COMPACTED, MEMTABLE_STATE_INCORPORATION_ASSIGNED);
-   memtable_increment_to_generation_to_incorporate(spl->mt_ctxt,
+   memtable_increment_to_generation_to_incorporate(&spl->mt_ctxt,
                                                    next_generation);
 
 unlock_incorp_lock:
-   memtable_unlock_incorporation_lock(spl->mt_ctxt);
+   memtable_unlock_incorporation_lock(&spl->mt_ctxt);
    return should_continue;
 }
 
@@ -569,18 +572,19 @@ core_memtable_incorporate(core_handle   *spl,
     * lookups from accessing the memtable that's being incorporated).
     * And switch to the new root of the trunk.
     */
-   memtable_block_lookups(spl->mt_ctxt);
+   memtable_block_lookups(&spl->mt_ctxt);
    memtable *mt = core_get_memtable(spl, generation);
    // Normally need to hold incorp_mutex, but debug code and also guaranteed no
    // one is changing gen_to_incorp (we are the only thread that would try)
-   debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
+   debug_assert(generation
+                == memtable_generation_to_incorporate(&spl->mt_ctxt));
    memtable_transition(
       mt, MEMTABLE_STATE_INCORPORATION_ASSIGNED, MEMTABLE_STATE_INCORPORATING);
    memtable_transition(
       mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
-   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
+   memtable_increment_to_generation_retired(&spl->mt_ctxt, generation);
    trunk_incorporate_commit(&spl->trunk_context);
-   memtable_unblock_lookups(spl->mt_ctxt);
+   memtable_unblock_lookups(&spl->mt_ctxt);
 
    trunk_incorporate_cleanup(&spl->trunk_context);
 
@@ -590,7 +594,7 @@ core_memtable_incorporate(core_handle   *spl,
     * Decrement the now-incorporated memtable ref count and recycle if no
     * references
     */
-   memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
+   memtable_dec_ref_maybe_recycle(&spl->mt_ctxt, mt);
 
    if (spl->cfg.use_stats) {
       const threadid tid = platform_get_tid();
@@ -848,13 +852,13 @@ core_range_iterator_init(core_handle         *spl,
    ZERO_ARRAY(range_itor->compacted);
 
    // grab the lookup lock
-   memtable_begin_lookup(spl->mt_ctxt);
+   memtable_begin_lookup(&spl->mt_ctxt);
 
    // memtables
    ZERO_ARRAY(range_itor->branch);
    // Note this iteration is in descending generation order
-   range_itor->memtable_start_gen = memtable_generation(spl->mt_ctxt);
-   range_itor->memtable_end_gen   = memtable_generation_retired(spl->mt_ctxt);
+   range_itor->memtable_start_gen = memtable_generation(&spl->mt_ctxt);
+   range_itor->memtable_end_gen   = memtable_generation_retired(&spl->mt_ctxt);
    range_itor->num_memtable_branches =
       range_itor->memtable_start_gen - range_itor->memtable_end_gen;
    for (uint64 mt_gen = range_itor->memtable_start_gen;
@@ -886,7 +890,7 @@ core_range_iterator_init(core_handle         *spl,
 
    trunk_ondisk_node_handle root_handle;
    rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
-   memtable_end_lookup(spl->mt_ctxt);
+   memtable_end_lookup(&spl->mt_ctxt);
    if (!SUCCESS(rc)) {
       core_range_iterator_deinit(range_itor);
       return rc;
@@ -1289,9 +1293,9 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
 
    merge_accumulator_set_to_null(result);
 
-   memtable_begin_lookup(spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+   memtable_begin_lookup(&spl->mt_ctxt);
+   uint64 mt_gen_start = memtable_generation(&spl->mt_ctxt);
+   uint64 mt_gen_end   = memtable_generation_retired(&spl->mt_ctxt);
    platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -1299,7 +1303,7 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
       rc = core_memtable_lookup(spl, mt_gen, target, result);
       platform_assert_status_ok(rc);
       if (merge_accumulator_is_definitive(result)) {
-         memtable_end_lookup(spl->mt_ctxt);
+         memtable_end_lookup(&spl->mt_ctxt);
          goto found_final_answer_early;
       }
    }
@@ -1308,7 +1312,7 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
    platform_status          rc;
    rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
    // release memtable lookup lock before we handle any errors
-   memtable_end_lookup(spl->mt_ctxt);
+   memtable_end_lookup(&spl->mt_ctxt);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1361,9 +1365,9 @@ core_lookup_async(core_lookup_async_state *state)
 
    merge_accumulator_set_to_null(state->result);
 
-   memtable_begin_lookup(state->spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(state->spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(state->spl->mt_ctxt);
+   memtable_begin_lookup(&state->spl->mt_ctxt);
+   uint64 mt_gen_start = memtable_generation(&state->spl->mt_ctxt);
+   uint64 mt_gen_end   = memtable_generation_retired(&state->spl->mt_ctxt);
    platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -1372,7 +1376,7 @@ core_lookup_async(core_lookup_async_state *state)
          core_memtable_lookup(state->spl, mt_gen, state->target, state->result);
       platform_assert_status_ok(rc);
       if (merge_accumulator_is_definitive(state->result)) {
-         memtable_end_lookup(state->spl->mt_ctxt);
+         memtable_end_lookup(&state->spl->mt_ctxt);
          goto found_final_answer_early;
       }
    }
@@ -1380,7 +1384,7 @@ core_lookup_async(core_lookup_async_state *state)
    platform_status rc;
    rc = trunk_init_root_handle(&state->spl->trunk_context, &state->root_handle);
    // release memtable lookup lock before we handle any errors
-   memtable_end_lookup(state->spl->mt_ctxt);
+   memtable_end_lookup(&state->spl->mt_ctxt);
    if (!SUCCESS(rc)) {
       async_return(state, rc);
    }
@@ -1468,22 +1472,17 @@ destroy_range_itor:
 }
 
 
-/*
- *-----------------------------------------------------------------------------
- * Create/destroy
- * XXX Fix this api to return platform_status
- *-----------------------------------------------------------------------------
- */
-core_handle *
-core_create(core_config      *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid)
+/* Format the disk and mount the database */
+platform_status
+core_mkfs(core_handle      *spl,
+          core_config      *cfg,
+          allocator        *al,
+          cache            *cc,
+          task_system      *ts,
+          allocator_root_id id,
+          platform_heap_id  hid)
 {
-   core_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
+   ZERO_CONTENTS(spl);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    spl->al = al;
@@ -1495,8 +1494,15 @@ core_create(core_config      *cfg,
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   spl->mt_ctxt            = memtable_context_create(
-      spl->heap_id, cc, mt_cfg, core_memtable_flush_virtual, spl);
+   platform_status  rc     = memtable_context_init(&spl->mt_ctxt,
+                                              spl->heap_id,
+                                              cc,
+                                              mt_cfg,
+                                              core_memtable_flush_virtual,
+                                              spl);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    // set up the log
    if (spl->cfg.use_log) {
@@ -1532,22 +1538,22 @@ core_create(core_config      *cfg,
       }
    }
 
-   return spl;
+   return STATUS_OK;
 }
 
 /*
  * Open (mount) an existing splinter database
  */
-core_handle *
-core_mount(core_config      *cfg,
+platform_status
+core_mount(core_handle      *spl,
+           core_config      *cfg,
            allocator        *al,
            cache            *cc,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid)
 {
-   core_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, CORE_NUM_MEMTABLES);
+   ZERO_CONTENTS(spl);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    spl->al = al;
@@ -1571,8 +1577,15 @@ core_mount(core_config      *cfg,
    }
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   spl->mt_ctxt            = memtable_context_create(
-      spl->heap_id, cc, mt_cfg, core_memtable_flush_virtual, spl);
+   platform_status  rc     = memtable_context_init(&spl->mt_ctxt,
+                                              spl->heap_id,
+                                              cc,
+                                              mt_cfg,
+                                              core_memtable_flush_virtual,
+                                              spl);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -1605,7 +1618,7 @@ core_mount(core_config      *cfg,
          platform_assert_status_ok(rc);
       }
    }
-   return spl;
+   return STATUS_OK;
 }
 
 /*
@@ -1617,13 +1630,13 @@ core_prepare_for_shutdown(core_handle *spl)
    // write current memtable to disk
    // (any others must already be flushing/flushed)
 
-   if (!memtable_is_empty(spl->mt_ctxt)) {
+   if (!memtable_is_empty(&spl->mt_ctxt)) {
       /*
        * memtable_force_finalize is not thread safe. Note also, we do not hold
        * the insert lock or rotate while flushing the memtable.
        */
 
-      uint64 generation = memtable_force_finalize(spl->mt_ctxt);
+      uint64 generation = memtable_force_finalize(&spl->mt_ctxt);
       core_memtable_flush(spl, generation);
    }
 
@@ -1632,7 +1645,7 @@ core_prepare_for_shutdown(core_handle *spl)
    platform_assert_status_ok(rc);
 
    // destroy memtable context (and its memtables)
-   memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
+   memtable_context_deinit(&spl->mt_ctxt);
 
    // release the log
    if (spl->cfg.use_log) {
@@ -1641,6 +1654,27 @@ core_prepare_for_shutdown(core_handle *spl)
 
    // flush all dirty pages in the cache
    cache_flush(spl->cc);
+}
+
+/*
+ * Close (unmount) a database without destroying it.
+ * It can be re-opened later with core_mount().
+ */
+platform_status
+core_unmount(core_handle *spl)
+{
+   core_prepare_for_shutdown(spl);
+   core_set_super_block(spl, FALSE, TRUE, FALSE);
+   trunk_context_deinit(&spl->trunk_context);
+   if (spl->cfg.use_stats) {
+      for (uint64 i = 0; i < MAX_THREADS; i++) {
+         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
+         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
+      }
+      platform_free(spl->heap_id, spl->stats);
+   }
+   return STATUS_OK;
 }
 
 /*
@@ -1662,31 +1696,8 @@ core_destroy(core_handle *spl)
       }
       platform_free(spl->heap_id, spl->stats);
    }
-   platform_free(spl->heap_id, spl);
 }
 
-/*
- * Close (unmount) a database without destroying it.
- * It can be re-opened later with core_mount().
- */
-void
-core_unmount(core_handle **spl_in)
-{
-   core_handle *spl = *spl_in;
-   core_prepare_for_shutdown(spl);
-   core_set_super_block(spl, FALSE, TRUE, FALSE);
-   trunk_context_deinit(&spl->trunk_context);
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
-   }
-   platform_free(spl->heap_id, spl);
-   *spl_in = (core_handle *)NULL;
-}
 
 /*
  *-----------------------------------------------------------------------------
@@ -1742,7 +1753,7 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 
 // clang-format off
 void
-core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
+core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *spl)
 {
    if (!spl->cfg.use_stats) {
       platform_log(log_handle, "Statistics are not enabled\n");
@@ -1922,8 +1933,8 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
 
    platform_stream_handle stream;
    platform_open_log_stream(&stream);
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+   uint64 mt_gen_start = memtable_generation(&spl->mt_ctxt);
+   uint64 mt_gen_end   = memtable_generation_retired(&spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       bool32 memtable_is_compacted;
       uint64 root_addr = core_memtable_root_addr_for_lookup(

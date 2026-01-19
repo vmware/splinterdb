@@ -280,7 +280,7 @@ typedef struct ycsb_log_params {
 
    // State
    uint64       next_op;
-   core_handle *spl;
+   core_handle *spl; // pointer to spl in main function
 
    // Coordination
    uint64 *threads_complete;
@@ -1272,7 +1272,7 @@ ycsb_test(int argc, char *argv[])
 
    rc_allocator al;
    clockcache  *cc = TYPED_MALLOC(hid, cc);
-   core_handle *spl;
+   core_handle  spl;
 
    if (use_existing) {
       rc_allocator_mount(
@@ -1285,13 +1285,14 @@ ycsb_test(int argc, char *argv[])
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = core_mount(&system_cfg->splinter_cfg,
-                       (allocator *)&al,
-                       (cache *)cc,
-                       &ts,
-                       test_generate_allocator_root_id(),
-                       hid);
-      platform_assert(spl);
+      rc = core_mount(&spl,
+                      &system_cfg->splinter_cfg,
+                      (allocator *)&al,
+                      (cache *)cc,
+                      &ts,
+                      test_generate_allocator_root_id(),
+                      hid);
+      platform_assert_status_ok(rc);
    } else {
       rc_allocator_init(
          &al, &system_cfg->allocator_cfg, io, hid, platform_get_module_id());
@@ -1303,16 +1304,17 @@ ycsb_test(int argc, char *argv[])
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = core_create(&system_cfg->splinter_cfg,
-                        (allocator *)&al,
-                        (cache *)cc,
-                        &ts,
-                        test_generate_allocator_root_id(),
-                        hid);
-      platform_assert(spl);
+      rc = core_mkfs(&spl,
+                     &system_cfg->splinter_cfg,
+                     (allocator *)&al,
+                     (cache *)cc,
+                     &ts,
+                     test_generate_allocator_root_id(),
+                     hid);
+      platform_assert_status_ok(rc);
    }
 
-   run_all_ycsb_phases(spl, phases, nphases, &ts, hid);
+   run_all_ycsb_phases(&spl, phases, nphases, &ts, hid);
 
    core_unmount(&spl);
    clockcache_deinit(cc);

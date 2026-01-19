@@ -103,16 +103,16 @@ struct core_handle {
    uint64            super_block_idx;
    allocator_root_id id;
 
-   allocator        *al;
-   cache            *cc;
-   task_system      *ts;
-   log_handle       *log;
-   trunk_context     trunk_context;
-   memtable_context *mt_ctxt;
+   allocator       *al;
+   cache           *cc;
+   task_system     *ts;
+   log_handle      *log;
+   trunk_context    trunk_context;
+   memtable_context mt_ctxt;
 
    core_stats *stats;
 
-   core_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
+   core_compacted_memtable compacted_memtable[MAX_MEMTABLES];
 };
 
 typedef struct core_range_iterator {
@@ -192,30 +192,38 @@ core_apply_to_range(core_handle   *spl,
                     tuple_function func,
                     void          *arg);
 
-core_handle *
-core_create(core_config      *cfg,
-            allocator        *al,
-            cache            *cc,
-            task_system      *ts,
-            allocator_root_id id,
-            platform_heap_id  hid);
-void
-core_destroy(core_handle *spl);
-core_handle *
-core_mount(core_config      *cfg,
+/* Format the disk and mount the database */
+platform_status
+core_mkfs(core_handle      *spl,
+          core_config      *cfg,
+          allocator        *al,
+          cache            *cc,
+          task_system      *ts,
+          allocator_root_id id,
+          platform_heap_id  hid);
+
+platform_status
+core_mount(core_handle      *spl,
+           core_config      *cfg,
            allocator        *al,
            cache            *cc,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid);
+
+platform_status
+core_unmount(core_handle *spl);
+
+/* Unmount the database and erase it from the disk */
 void
-core_unmount(core_handle **spl);
+core_destroy(core_handle *spl);
 
 void
 core_perform_tasks(core_handle *spl);
 
 void
-core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl);
+core_print_insertion_stats(platform_log_handle *log_handle,
+                           const core_handle   *spl);
 
 void
 core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl);
