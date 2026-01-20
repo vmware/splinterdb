@@ -62,7 +62,7 @@ CTEST_SETUP(limitations)
    // All test cases in this test usually deal with error handling
    set_log_streams_for_tests(MSG_LEVEL_ERRORS);
 
-   uint64 heap_capacity = (1 * GiB);
+   uint64 heap_capacity = (512 * MiB);
 
    data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
    // Create a heap for io, allocator, cache and splinter

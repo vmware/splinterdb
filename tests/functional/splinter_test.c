@@ -1411,9 +1411,9 @@ test_splinter_perf(system_config   *cfg,
       // Define a set of parameters to drive trunk range query perf
       trunk_range_perf_params perf_ranges[] = {
          //                number     min                max
-         {"Small range"  , 2048     , 1                , 100    },
+         {"Small range"  , 128      , 1                , 100    },
          {"Medium range" , 512      , 512              , 1024   },
-         {"Large range"  , 128      , (131072 - 16384) , 131072 }
+         {"Large range"  , 8192     , (131072 - 16384) , 131072 }
       };
       // clang-format on
 
@@ -2611,10 +2611,10 @@ splinter_test(int argc, char *argv[])
     * whichever is greater.
     * Heap capacity should be within [2 * GiB, UINT32_MAX].
     */
-   uint8  num_caches    = cache_per_table ? num_tables : 1;
-   uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB * num_tables);
-   heap_capacity        = MIN(heap_capacity, UINT32_MAX);
-   heap_capacity        = MAX(heap_capacity, 8 * GiB);
+   uint8 num_caches = cache_per_table ? num_tables : 1;
+   // uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB *
+   // num_tables); heap_capacity        = MIN(heap_capacity, UINT32_MAX);
+   uint64 heap_capacity = 512 * MiB;
    if (use_shmem) {
       platform_default_log(
          "Attempt to create shared segment of size %lu bytes.\n",

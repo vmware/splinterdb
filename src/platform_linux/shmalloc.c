@@ -249,7 +249,6 @@ chunk_remove_tail(shmallocator *shm, chunk *chnk, size_t size)
 static void
 chunks_merge(shmallocator *shm, chunk *chnk, chunk *psucc)
 {
-   assert(chnk->state == CHUNK_STATE_FREE);
    assert(psucc->state == CHUNK_STATE_FREE);
 
    chunk *ppsucc = chunk_get_physical_successor(shm, psucc);
@@ -595,16 +594,33 @@ shrealloc(shmallocator *shm, void *ptr, size_t size)
       pthread_spin_unlock(&shm->lock);
       return chnk->ptr;
    } else if (size > chnk->size) {
-      pthread_spin_unlock(&shm->lock);
-      if (size < 2 * chnk->size) {
-         size = 2 * chnk->size;
+      chunk *next_chunk = chunk_get_physical_successor(shm, chnk);
+      if (next_chunk && next_chunk->state == CHUNK_STATE_FREE
+          && size <= chnk->size + next_chunk->size)
+      {
+         free_list_remove(shm, next_chunk);
+         chunks_merge(shm, chnk, next_chunk);
+         if (size < chnk->size / 2) {
+            chunk *new_chunk = chunk_remove_tail(shm, chnk, size);
+            if (new_chunk) {
+               free_list_add(shm, new_chunk);
+            }
+         }
+         all_invariants(shm);
+         pthread_spin_unlock(&shm->lock);
+         return chnk->ptr;
+      } else {
+         pthread_spin_unlock(&shm->lock);
+         if (size < 2 * chnk->size) {
+            size = 2 * chnk->size;
+         }
+         void *pnew = shmalloc(shm, 1ULL << chnk->requested_alignment, size);
+         if (pnew) {
+            memcpy(pnew, ptr, chnk->size);
+            shfree(shm, ptr);
+         }
+         return pnew;
       }
-      void *pnew = shmalloc(shm, 1ULL << chnk->requested_alignment, size);
-      if (pnew) {
-         memcpy(pnew, ptr, chnk->size);
-         shfree(shm, ptr);
-      }
-      return pnew;
    } else {
       all_invariants(shm);
       pthread_spin_unlock(&shm->lock);
