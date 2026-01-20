@@ -300,9 +300,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    // All future memory allocation should come from shared memory, if so
    // configured.
    kvs->heap_id = use_this_heap_id;
-   if (we_created_heap) {
-      platform_shm_set_splinterdb_handle(use_this_heap_id, (void *)kvs);
-   }
 
    kvs->io_handle = io_handle_create(&kvs->io_cfg, kvs->heap_id);
    if (kvs->io_handle == NULL) {

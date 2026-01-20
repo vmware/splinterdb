@@ -8,7 +8,7 @@
 #include "platform_util.h"
 #include "platform_machine.h"
 #include "platform_log.h"
-#include "shmem.h"
+#include "shmalloc.h"
 #include <stddef.h>
 #include <stdlib.h>
 
@@ -73,24 +73,13 @@ platform_aligned_malloc(const platform_heap_id heap_id,
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
+   size_t aligned_size = (size + alignment - 1) & ~((uintptr_t)alignment - 1);
 
-   /*
-    * aligned_alloc requires size to be a multiple of alignment
-    * round up to nearest multiple of alignment
-    *
-    * Note that since this is inlined, the compiler will turn the constant
-    * (power of 2) alignment mod operations into bitwise &
-    */
-   // RESOLVE: Delete this padding from caller. Push this down to
-   // platform_shm_alloc().
-   const size_t padding  = platform_align_bytes_reqd(alignment, size);
-   const size_t required = (size + padding);
-
-   void *retptr =
-      (heap_id
-          ? platform_shm_alloc(heap_id, required, objname, func, file, lineno)
-          : aligned_alloc(alignment, required));
-   return retptr;
+   if (heap_id) {
+      return shmalloc(heap_id, alignment, size);
+   } else {
+      return aligned_alloc(alignment, aligned_size);
+   }
 }
 
 /*
@@ -115,16 +104,7 @@ platform_realloc(const platform_heap_id heap_id,
 
    // Farm control off to shared-memory based realloc, if it's configured
    if (heap_id) {
-      // The shmem-based allocator is expecting all memory requests to be of
-      // aligned sizes, as that's what platform_aligned_malloc() does. So, to
-      // keep that allocator happy, align this memory request if needed.
-      // As this is the case of realloc, we assume that it would suffice to
-      // align at platform's natural cacheline boundary.
-      const size_t padding =
-         platform_align_bytes_reqd(PLATFORM_CACHELINE_SIZE, newsize);
-      const size_t required = (newsize + padding);
-      return platform_shm_realloc(
-         heap_id, ptr, oldsize, required, __func__, __FILE__, __LINE__);
+      return shrealloc(heap_id, ptr, newsize);
    } else {
       return realloc(ptr, newsize);
    }
@@ -139,13 +119,11 @@ platform_free_from_heap(platform_heap_id heap_id,
                         int              lineno)
 {
    if (heap_id) {
-      platform_shm_free(heap_id, ptr, objname, func, file, lineno);
+      shfree(heap_id, ptr);
    } else {
       free(ptr);
    }
 }
-
-typedef struct shmem_heap shmem_heap;
 
 platform_status
 platform_heap_create(platform_module_id module_id,
@@ -155,12 +133,6 @@ platform_heap_create(platform_module_id module_id,
 
 void
 platform_heap_destroy(platform_heap_id *heap_id);
-
-void
-platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr);
-
-shmem_heap *
-platform_heap_id_to_shmaddr(platform_heap_id hid);
 
 /*
  * Similar to the TYPED_MALLOC functions, for all the free functions we need to

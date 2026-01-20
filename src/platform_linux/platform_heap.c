@@ -3,6 +3,7 @@
 
 #include "platform_heap.h"
 #include "platform_status.h"
+#include <sys/mman.h>
 
 /*
  * Declare globals to track heap handle/ID that may have been created when
@@ -25,24 +26,28 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
                      bool               use_shmem,
                      platform_heap_id  *heap_id)
 {
-   *heap_id = PROCESS_PRIVATE_HEAP_ID;
-
    if (use_shmem) {
-      platform_status rc = platform_shmcreate(max, (shmem_heap **)heap_id);
-      if (SUCCESS(rc)) {
-         Heap_id = *heap_id;
+      shmallocator *shm = mmap(
+         NULL, max, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+      if (shm == MAP_FAILED) {
+         return STATUS_NO_MEMORY;
       }
-      return rc;
+      shmallocator_init(shm, max / 4096, max);
+      *heap_id = (platform_heap_id)shm;
+
+   } else {
+      *heap_id = PROCESS_PRIVATE_HEAP_ID;
    }
-   *heap_id = NULL;
    return STATUS_OK;
 }
 
 void
 platform_heap_destroy(platform_heap_id *heap_id)
 {
-   // If shared segment was allocated, it's being tracked thru heap ID.
    if (*heap_id) {
-      return platform_shmdestroy((shmem_heap **)heap_id);
+      size_t size = shmallocator_size((shmallocator *)*heap_id);
+      shmallocator_deinit((shmallocator *)*heap_id);
+      munmap((void *)*heap_id, size);
+      *heap_id = NULL;
    }
 }

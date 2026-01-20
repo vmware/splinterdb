@@ -158,7 +158,6 @@ config_usage()
    platform_error_log(
       "\t--use-shmem           **** Experimental feature ****\n");
    // clang-format off
-   platform_error_log("\t       [ --trace-shmem | --trace-shmem-allocs | --trace-shmem-frees ]\n");
    platform_error_log("\t       [ --shmem-capacity-mib <mb> (%lu) | --shmem-capacity-gib <gb> (%d) ]\n",
                       (TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB * KiB),
                       TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB);
@@ -355,19 +354,6 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          }
          config_set_mib("shmem-capacity", cfg, shmem_size) {}
          config_set_gib("shmem-capacity", cfg, shmem_size) {}
-         config_has_option("trace-shmem-allocs")
-         {
-            platform_enable_tracing_shm_allocs();
-         }
-         config_has_option("trace-shmem-frees")
-         {
-            platform_enable_tracing_shm_frees();
-         }
-         config_has_option("trace-shmem")
-         {
-            // Trace both allocations & frees from shared memory segment.
-            platform_enable_tracing_shm_ops();
-         }
          // Parameter should only be used with --use-shmem argument.
          config_has_option("fork-child")
          {
