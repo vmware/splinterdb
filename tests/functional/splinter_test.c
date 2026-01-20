@@ -1410,10 +1410,10 @@ test_splinter_perf(system_config   *cfg,
       // clang-format off
       // Define a set of parameters to drive trunk range query perf
       trunk_range_perf_params perf_ranges[] = {
-         //               number     min                 max
-         {"Small range"  , 128      , 1                , 100    },
+         //                number     min                max
+         {"Small range"  , 2048     , 1                , 100    },
          {"Medium range" , 512      , 512              , 1024   },
-         {"Large range"  , 2048     , (131072 - 16384) , 131072 }
+         {"Large range"  , 128      , (131072 - 16384) , 131072 }
       };
       // clang-format on
 
