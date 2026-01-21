@@ -458,10 +458,10 @@ shmallocator_init(shmallocator *shm, uint64_t max_allocations, size_t size)
 void
 shmallocator_deinit(shmallocator *shm)
 {
-   // printf("shmallocator_deinit: max needed MiBs: %lu (%lu%%)\n",
-   //        B_TO_MiB(shm->max_allocated_end - (void *)shm),
-   //        (uint64_t)(shm->max_allocated_end - (void *)shm) * 100
-   //           / shmallocator_size(shm));
+   printf("shmallocator_deinit: max needed MiBs: %lu (%lu%%)\n",
+          B_TO_MiB(shm->max_allocated_end - (void *)shm),
+          (uint64_t)(shm->max_allocated_end - (void *)shm) * 100
+             / shmallocator_size(shm));
    pthread_spin_destroy(&shm->lock);
 }
 
