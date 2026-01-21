@@ -30,6 +30,7 @@ typedef struct chunk {
    chunk_state   state : 2;
    void         *ptr;
    struct chunk *phys_pred;
+   void         *phys_next;
    struct chunk *size_pred;
    struct chunk *size_next;
 } chunk;
@@ -152,10 +153,7 @@ chunk_table_get_entry(shmallocator *shm, void *ptr)
 static chunk *
 chunk_get_physical_successor(shmallocator *shm, chunk *chnk)
 {
-   if (chnk->ptr + chnk->size == shm->end) {
-      return NULL;
-   }
-   return chunk_table_get_entry(shm, chnk->ptr + chnk->size);
+   return chnk->phys_next;
 }
 
 static uint64_t
@@ -237,12 +235,15 @@ chunk_remove_tail(shmallocator *shm, chunk *chnk, size_t size)
    new_chunk->state     = CHUNK_STATE_FREE;
    new_chunk->ptr       = chnk->ptr + size;
    new_chunk->phys_pred = chnk;
+   new_chunk->phys_next = psucc;
 
    if (psucc) {
       psucc->phys_pred = new_chunk;
    }
 
-   chnk->size = size;
+   chnk->size      = size;
+   chnk->phys_next = new_chunk;
+
    return new_chunk;
 }
 
@@ -254,6 +255,7 @@ chunks_merge(shmallocator *shm, chunk *chnk, chunk *psucc)
    chunk *ppsucc = chunk_get_physical_successor(shm, psucc);
 
    chnk->size += psucc->size;
+   chnk->phys_next = psucc->phys_next;
    chunk_table_free_entry(shm, psucc);
    if (ppsucc) {
       ppsucc->phys_pred = chnk;
