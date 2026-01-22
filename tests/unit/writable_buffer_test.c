@@ -34,7 +34,7 @@ CTEST_SETUP(writable_buffer)
    data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), (1 * GiB), data->use_shmem, &data->hid);
+      platform_get_module_id(), (512 * MiB), data->use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 }
 

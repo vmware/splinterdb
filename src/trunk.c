@@ -10,6 +10,7 @@
 #include "trunk.h"
 #include "platform.h"
 #include "data_internal.h"
+#include "platform_heap.h"
 #include "util.h"
 #include "btree.h"
 #include "routing_filter.h"
@@ -818,7 +819,7 @@ static void
 trunk_node_deinit(trunk_node *node, const trunk_context *context)
 {
    VECTOR_APPLY_TO_ELTS(
-      &node->pivots, vector_apply_platform_free, context->hid);
+      &node->pivots, vector_apply_platform_free, PROCESS_PRIVATE_HEAP_ID);
    VECTOR_APPLY_TO_PTRS(&node->pivot_bundles, bundle_deinit);
    VECTOR_APPLY_TO_PTRS(&node->inflight_bundles, bundle_deinit);
    vector_deinit(&node->pivots);
@@ -1483,9 +1484,9 @@ trunk_node_deserialize(const trunk_context *context,
    trunk_pivot_vector pivots;
    bundle_vector      inflight_bundles;
    bundle_vector      pivot_bundles;
-   vector_init(&pivots, context->hid);
-   vector_init(&inflight_bundles, context->hid);
-   vector_init(&pivot_bundles, context->hid);
+   vector_init(&pivots, PROCESS_PRIVATE_HEAP_ID);
+   vector_init(&inflight_bundles, PROCESS_PRIVATE_HEAP_ID);
+   vector_init(&pivot_bundles, PROCESS_PRIVATE_HEAP_ID);
 
    rc = vector_ensure_capacity(&pivots, header->num_pivots);
    if (!SUCCESS(rc)) {
@@ -1513,7 +1514,8 @@ trunk_node_deserialize(const trunk_context *context,
    }
 
    for (uint64 i = 0; i < header->num_pivots; i++) {
-      trunk_pivot *imp = trunk_pivot_deserialize(context->hid, &handle, i);
+      trunk_pivot *imp =
+         trunk_pivot_deserialize(PROCESS_PRIVATE_HEAP_ID, &handle, i);
       if (imp == NULL) {
          platform_error_log(
             "%s():%d: pivot_deserialize() failed", __func__, __LINE__);
@@ -1526,7 +1528,7 @@ trunk_node_deserialize(const trunk_context *context,
                             __func__,
                             __LINE__,
                             platform_status_to_string(rc));
-         trunk_pivot_destroy(imp, context->hid);
+         trunk_pivot_destroy(imp, PROCESS_PRIVATE_HEAP_ID);
          goto cleanup;
       }
    }
@@ -1541,7 +1543,7 @@ trunk_node_deserialize(const trunk_context *context,
          goto cleanup;
       }
       rc = VECTOR_EMPLACE_APPEND(
-         &pivot_bundles, bundle_deserialize, context->hid, odb);
+         &pivot_bundles, bundle_deserialize, PROCESS_PRIVATE_HEAP_ID, odb);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: VECTOR_EMPLACE_APPEND() failed: %s",
                             __func__,
@@ -1565,8 +1567,10 @@ trunk_node_deserialize(const trunk_context *context,
             rc = STATUS_IO_ERROR;
             goto cleanup;
          }
-         rc = VECTOR_EMPLACE_APPEND(
-            &inflight_bundles, bundle_deserialize, context->hid, odb);
+         rc = VECTOR_EMPLACE_APPEND(&inflight_bundles,
+                                    bundle_deserialize,
+                                    PROCESS_PRIVATE_HEAP_ID,
+                                    odb);
          if (!SUCCESS(rc)) {
             platform_error_log("%s():%d: VECTOR_EMPLACE_APPEND() failed: %s",
                                __func__,
@@ -1602,7 +1606,7 @@ trunk_node_deserialize(const trunk_context *context,
    return STATUS_OK;
 
 cleanup:
-   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, context->hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, PROCESS_PRIVATE_HEAP_ID);
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
    VECTOR_APPLY_TO_PTRS(&inflight_bundles, bundle_deinit);
    vector_deinit(&pivots);
@@ -2472,7 +2476,7 @@ trunk_apply_changes_internal(trunk_context          *context,
    }
 
    trunk_ondisk_node_ref_vector new_child_refs;
-   vector_init(&new_child_refs, context->hid);
+   vector_init(&new_child_refs, PROCESS_PRIVATE_HEAP_ID);
 
    if (trunk_node_height(&node) == height) {
       rc = func(context, addr, &node, arg);
@@ -3171,7 +3175,7 @@ maplet_compaction_task(task *arg)
 
    ZERO_STRUCT(apply_args);
    apply_args.state = state;
-   vector_init(&apply_args.branches, context->hid);
+   vector_init(&apply_args.branches, PROCESS_PRIVATE_HEAP_ID);
 
    if (state->abandoned) {
       if (context->stats) {
@@ -3415,7 +3419,7 @@ bundle_compaction_task(task *arg)
 
    trunk_branch_merger merger;
    trunk_branch_merger_init(&merger,
-                            context->hid,
+                            PROCESS_PRIVATE_HEAP_ID,
                             context->cfg->data_cfg,
                             key_buffer_key(&state->key),
                             key_buffer_key(&state->ubkey),
@@ -3743,8 +3747,10 @@ trunk_node_receive_bundles(trunk_context *context,
    }
 
    if (pivot_bundle && 0 < bundle_num_branches(pivot_bundle)) {
-      rc = VECTOR_EMPLACE_APPEND(
-         &node->inflight_bundles, bundle_init_copy, pivot_bundle, context->hid);
+      rc = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
+                                 bundle_init_copy,
+                                 pivot_bundle,
+                                 PROCESS_PRIVATE_HEAP_ID);
       if (!SUCCESS(rc)) {
          platform_error_log("node_receive_bundles: bundle_init_copy failed: "
                             "%d\n",
@@ -3755,8 +3761,10 @@ trunk_node_receive_bundles(trunk_context *context,
 
    for (uint64 i = inflight_start; i < vector_length(inflight); i++) {
       bundle *bndl = vector_get_ptr(inflight, i);
-      rc           = VECTOR_EMPLACE_APPEND(
-         &node->inflight_bundles, bundle_init_copy, bndl, context->hid);
+      rc           = VECTOR_EMPLACE_APPEND(&node->inflight_bundles,
+                                 bundle_init_copy,
+                                 bndl,
+                                 PROCESS_PRIVATE_HEAP_ID);
       if (!SUCCESS(rc)) {
          platform_error_log("node_receive_bundles: bundle_init_copy failed: "
                             "%d\n",
@@ -3826,7 +3834,7 @@ leaf_estimate_unique_keys(trunk_context *context,
    debug_assert(trunk_node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
    routing_filter_vector maplets;
-   vector_init(&maplets, context->hid);
+   vector_init(&maplets, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_ensure_capacity(&maplets,
                                vector_length(&leaf->inflight_bundles) + 1);
    if (!SUCCESS(rc)) {
@@ -3891,7 +3899,7 @@ leaf_estimate_unique_keys(trunk_context *context,
       uint32 num_globally_unique_fp =
          routing_filter_estimate_unique_fp(context->cc,
                                            context->cfg->filter_cfg,
-                                           context->hid,
+                                           PROCESS_PRIVATE_HEAP_ID,
                                            vector_data(&maplets),
                                            vector_length(&maplets));
 
@@ -3976,7 +3984,7 @@ leaf_split_select_pivots(trunk_context     *context,
    key             max_key = ondisk_key_to_key(&last->key);
 
    rc = VECTOR_EMPLACE_APPEND(
-      pivots, key_buffer_init_from_key, context->hid, min_key);
+      pivots, key_buffer_init_from_key, PROCESS_PRIVATE_HEAP_ID, min_key);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "VECTOR_EMPLACE_APPEND failed: %d\n",
@@ -3986,7 +3994,7 @@ leaf_split_select_pivots(trunk_context     *context,
 
    trunk_branch_merger merger;
    trunk_branch_merger_init(&merger,
-                            context->hid,
+                            PROCESS_PRIVATE_HEAP_ID,
                             context->cfg->data_cfg,
                             min_key,
                             max_key,
@@ -4048,8 +4056,10 @@ leaf_split_select_pivots(trunk_context     *context,
            && next_boundary <= new_cumulative_kv_bytes)
           || rflimit < new_tuples)
       {
-         rc = VECTOR_EMPLACE_APPEND(
-            pivots, key_buffer_init_from_key, context->hid, curr_key);
+         rc = VECTOR_EMPLACE_APPEND(pivots,
+                                    key_buffer_init_from_key,
+                                    PROCESS_PRIVATE_HEAP_ID,
+                                    curr_key);
          if (!SUCCESS(rc)) {
             platform_error_log("leaf_split_select_pivots: "
                                "VECTOR_EMPLACE_APPEND failed: %d\n",
@@ -4066,7 +4076,7 @@ leaf_split_select_pivots(trunk_context     *context,
    }
 
    rc = VECTOR_EMPLACE_APPEND(
-      pivots, key_buffer_init_from_key, context->hid, max_key);
+      pivots, key_buffer_init_from_key, PROCESS_PRIVATE_HEAP_ID, max_key);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "VECTOR_EMPLACE_APPEND failed: %d\n",
@@ -4098,7 +4108,8 @@ leaf_split_init(trunk_node    *new_leaf,
 
    trunk_pivot *pvt = trunk_node_pivot(leaf, 0);
 
-   rc = trunk_node_init_empty_leaf(new_leaf, context->hid, min_key, max_key);
+   rc = trunk_node_init_empty_leaf(
+      new_leaf, PROCESS_PRIVATE_HEAP_ID, min_key, max_key);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_init: node_init_empty_leaf failed: %d\n",
                          rc.r);
@@ -4182,7 +4193,7 @@ leaf_split(trunk_context     *context,
       }
       *abandon_compactions = FALSE;
       return VECTOR_EMPLACE_APPEND(
-         new_leaves, trunk_node_copy_init, leaf, context->hid);
+         new_leaves, trunk_node_copy_init, leaf, PROCESS_PRIVATE_HEAP_ID);
    }
 
    if (context->stats) {
@@ -4193,7 +4204,7 @@ leaf_split(trunk_context     *context,
 
 
    key_buffer_vector pivots;
-   vector_init(&pivots, context->hid);
+   vector_init(&pivots, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_ensure_capacity(&pivots, target_num_leaves + 1);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split: vector_ensure_capacity failed: %d\n",
@@ -4255,7 +4266,7 @@ index_init_split(trunk_node      *new_index,
    platform_status rc;
 
    trunk_pivot_vector pivots;
-   vector_init(&pivots, hid);
+   vector_init(&pivots, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_ensure_capacity(&pivots, end_child_num - start_child_num + 1);
    if (!SUCCESS(rc)) {
       platform_error_log(
@@ -4264,7 +4275,7 @@ index_init_split(trunk_node      *new_index,
    }
    for (uint64 i = start_child_num; i < end_child_num + 1; i++) {
       trunk_pivot *pvt  = vector_get(&index->pivots, i);
-      trunk_pivot *copy = trunk_pivot_copy(pvt, hid);
+      trunk_pivot *copy = trunk_pivot_copy(pvt, PROCESS_PRIVATE_HEAP_ID);
       if (copy == NULL) {
          platform_error_log("index_init_split: pivot_copy failed\n");
          rc = STATUS_NO_MEMORY;
@@ -4275,7 +4286,7 @@ index_init_split(trunk_node      *new_index,
    }
 
    bundle_vector pivot_bundles;
-   vector_init(&pivot_bundles, hid);
+   vector_init(&pivot_bundles, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_ensure_capacity(&pivot_bundles, end_child_num - start_child_num);
    if (!SUCCESS(rc)) {
       platform_error_log(
@@ -4286,7 +4297,7 @@ index_init_split(trunk_node      *new_index,
       rc = VECTOR_EMPLACE_APPEND(&pivot_bundles,
                                  bundle_init_copy,
                                  vector_get_ptr(&index->pivot_bundles, i),
-                                 hid);
+                                 PROCESS_PRIVATE_HEAP_ID);
       if (!SUCCESS(rc)) {
          platform_error_log("index_init_split: bundle_init_copy failed: %d\n",
                             rc.r);
@@ -4295,9 +4306,11 @@ index_init_split(trunk_node      *new_index,
    }
 
    bundle_vector inflight_bundles;
-   vector_init(&inflight_bundles, hid);
-   rc = VECTOR_EMPLACE_MAP_PTRS(
-      &inflight_bundles, bundle_init_copy, &index->inflight_bundles, hid);
+   vector_init(&inflight_bundles, PROCESS_PRIVATE_HEAP_ID);
+   rc = VECTOR_EMPLACE_MAP_PTRS(&inflight_bundles,
+                                bundle_init_copy,
+                                &index->inflight_bundles,
+                                PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
       platform_error_log("index_init_split: VECTOR_EMPLACE_MAP_PTRS failed: "
                          "%d\n",
@@ -4321,7 +4334,7 @@ cleanup_pivot_bundles:
    VECTOR_APPLY_TO_PTRS(&pivot_bundles, bundle_deinit);
    vector_deinit(&pivot_bundles);
 cleanup_pivots:
-   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, PROCESS_PRIVATE_HEAP_ID);
    vector_deinit(&pivots);
    return rc;
 }
@@ -4349,7 +4362,7 @@ index_split(trunk_context     *context,
    for (uint64 i = 0; i < num_nodes; i++) {
       rc = VECTOR_EMPLACE_APPEND(new_indexes,
                                  index_init_split,
-                                 context->hid,
+                                 PROCESS_PRIVATE_HEAP_ID,
                                  index,
                                  i * num_children / num_nodes,
                                  (i + 1) * num_children / num_nodes);
@@ -4385,7 +4398,7 @@ restore_balance_leaf(trunk_context                *context,
                      incorporation_tasks          *itasks)
 {
    trunk_node_vector new_nodes;
-   vector_init(&new_nodes, context->hid);
+   vector_init(&new_nodes, PROCESS_PRIVATE_HEAP_ID);
 
    bool32          abandon_compactions = FALSE;
    platform_status rc =
@@ -4482,7 +4495,7 @@ flush_to_one_child(trunk_context                *context,
 
    // Perform the flush, getting back the new children
    trunk_ondisk_node_ref_vector new_childrefs;
-   vector_init(&new_childrefs, context->hid);
+   vector_init(&new_childrefs, PROCESS_PRIVATE_HEAP_ID);
    rc = flush_then_compact(context,
                            &child,
                            trunk_node_pivot_bundle(index, pivot_num),
@@ -4499,7 +4512,7 @@ flush_to_one_child(trunk_context                *context,
 
    // Construct our new pivots for the new children
    trunk_pivot_vector new_pivots;
-   vector_init(&new_pivots, context->hid);
+   vector_init(&new_pivots, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_ensure_capacity(&new_pivots, vector_length(&new_childrefs));
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: vector_ensure_capacity failed: "
@@ -4510,7 +4523,7 @@ flush_to_one_child(trunk_context                *context,
    rc = VECTOR_MAP_ELTS(&new_pivots,
                         trunk_pivot_create_from_ondisk_node_ref,
                         &new_childrefs,
-                        context->hid);
+                        PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: VECTOR_MAP_ELTS failed: %d\n",
                          rc.r);
@@ -4525,7 +4538,7 @@ flush_to_one_child(trunk_context                *context,
    // Construct the new empty pivot bundles for the new children
    bundle_vector new_pivot_bundles;
    rc = bundle_vector_init_empty(
-      &new_pivot_bundles, vector_length(&new_pivots), context->hid);
+      &new_pivot_bundles, vector_length(&new_pivots), PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: bundle_vector_init_empty failed: "
                          "%d\n",
@@ -4571,7 +4584,7 @@ flush_to_one_child(trunk_context                *context,
       context, trunk_pivot_key(pvt), trunk_node_height(index));
 
    // Replace the old pivot and pivot bundles with the new ones
-   trunk_pivot_destroy(pvt, context->hid);
+   trunk_pivot_destroy(pvt, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_replace(
       &index->pivots, pivot_num, 1, &new_pivots, 0, vector_length(&new_pivots));
    platform_assert_status_ok(rc);
@@ -4617,7 +4630,7 @@ restore_balance_index(trunk_context                *context,
    debug_assert(trunk_node_is_well_formed_index(context->cfg->data_cfg, index));
 
    trunk_ondisk_node_ref_vector all_new_childrefs;
-   vector_init(&all_new_childrefs, context->hid);
+   vector_init(&all_new_childrefs, PROCESS_PRIVATE_HEAP_ID);
 
    uint64 fullest_child    = 0;
    uint64 fullest_kv_bytes = 0;
@@ -4660,7 +4673,7 @@ restore_balance_index(trunk_context                *context,
    }
 
    trunk_node_vector new_nodes;
-   vector_init(&new_nodes, context->hid);
+   vector_init(&new_nodes, PROCESS_PRIVATE_HEAP_ID);
    rc = index_split(context, index, &new_nodes);
    if (!SUCCESS(rc)) {
       platform_error_log("restore_balance_index: index_split failed: %d\n",
@@ -4752,7 +4765,7 @@ build_new_roots(trunk_context                *context,
 
    // Create the pivots vector for the new root
    trunk_pivot_vector pivots;
-   vector_init(&pivots, context->hid);
+   vector_init(&pivots, PROCESS_PRIVATE_HEAP_ID);
    rc = vector_ensure_capacity(&pivots, vector_length(node_refs) + 1);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: vector_ensure_capacity failed: %d\n",
@@ -4762,12 +4775,12 @@ build_new_roots(trunk_context                *context,
    rc = VECTOR_MAP_ELTS(&pivots,
                         trunk_pivot_create_from_ondisk_node_ref,
                         node_refs,
-                        context->hid);
+                        PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
       platform_error_log("build_new_roots: VECTOR_MAP_ELTS failed: %d\n", rc.r);
       goto cleanup_pivots;
    }
-   trunk_pivot *ub_pivot = trunk_pivot_create(context->hid,
+   trunk_pivot *ub_pivot = trunk_pivot_create(PROCESS_PRIVATE_HEAP_ID,
                                               POSITIVE_INFINITY_KEY,
                                               0,
                                               0,
@@ -4784,7 +4797,7 @@ build_new_roots(trunk_context                *context,
    // Build a new vector of empty pivot bundles.
    bundle_vector pivot_bundles;
    rc = bundle_vector_init_empty(
-      &pivot_bundles, vector_length(&pivots) - 1, context->hid);
+      &pivot_bundles, vector_length(&pivots) - 1, PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "build_new_roots: bundle_vector_init_empty failed: %d\n", rc.r);
@@ -4793,7 +4806,7 @@ build_new_roots(trunk_context                *context,
 
    // Build a new empty inflight bundle vector
    bundle_vector inflight;
-   vector_init(&inflight, context->hid);
+   vector_init(&inflight, PROCESS_PRIVATE_HEAP_ID);
 
    // Build the new root
    trunk_node new_root;
@@ -4805,7 +4818,7 @@ build_new_roots(trunk_context                *context,
    // into the new root.
 
    trunk_node_vector new_nodes;
-   vector_init(&new_nodes, context->hid);
+   vector_init(&new_nodes, PROCESS_PRIVATE_HEAP_ID);
    rc = index_split(context, &new_root, &new_nodes);
    trunk_node_deinit(&new_root, context);
    if (!SUCCESS(rc)) {
@@ -4816,7 +4829,7 @@ build_new_roots(trunk_context                *context,
    }
 
    trunk_ondisk_node_ref_vector new_ondisk_node_refs;
-   vector_init(&new_ondisk_node_refs, context->hid);
+   vector_init(&new_ondisk_node_refs, PROCESS_PRIVATE_HEAP_ID);
    rc = serialize_nodes(context, &new_nodes, &new_ondisk_node_refs);
    VECTOR_APPLY_TO_PTRS(&new_nodes, trunk_node_deinit, context);
    vector_deinit(&new_nodes);
@@ -4841,7 +4854,7 @@ cleanup_new_ondisk_node_refs:
                         context->hid);
    vector_deinit(&new_ondisk_node_refs);
 cleanup_pivots:
-   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, context->hid);
+   VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, PROCESS_PRIVATE_HEAP_ID);
    vector_deinit(&pivots);
 
    return rc;
@@ -4860,18 +4873,21 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
    branch_ref branch = create_branch_ref(branch_addr);
 
    bundle_vector inflight;
-   vector_init(&inflight, context->hid);
+   vector_init(&inflight, PROCESS_PRIVATE_HEAP_ID);
 
    trunk_ondisk_node_ref_vector new_node_refs;
-   vector_init(&new_node_refs, context->hid);
+   vector_init(&new_node_refs, PROCESS_PRIVATE_HEAP_ID);
 
    trunk_pivot_vector new_pivot;
-   vector_init(&new_pivot, context->hid);
+   vector_init(&new_pivot, PROCESS_PRIVATE_HEAP_ID);
 
    // Construct a vector of inflight bundles with one singleton bundle for
    // the new branch.
-   rc = VECTOR_EMPLACE_APPEND(
-      &inflight, bundle_init_single, context->hid, NULL_ROUTING_FILTER, branch);
+   rc = VECTOR_EMPLACE_APPEND(&inflight,
+                              bundle_init_single,
+                              PROCESS_PRIVATE_HEAP_ID,
+                              NULL_ROUTING_FILTER,
+                              branch);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "trunk_incorporate: VECTOR_EMPLACE_APPEND failed: %d\n", rc.r);
@@ -4889,8 +4905,10 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
       }
    } else {
       // If there is no root, create an empty one.
-      rc = trunk_node_init_empty_leaf(
-         &root, context->hid, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY);
+      rc = trunk_node_init_empty_leaf(&root,
+                                      PROCESS_PRIVATE_HEAP_ID,
+                                      NEGATIVE_INFINITY_KEY,
+                                      POSITIVE_INFINITY_KEY);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "trunk_incorporate: node_init_empty_leaf failed: %d\n", rc.r);
@@ -5174,7 +5192,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
 
       if (log) {
          merge_accumulator ma;
-         merge_accumulator_init(&ma, context->hid);
+         merge_accumulator_init(&ma, PROCESS_PRIVATE_HEAP_ID);
          rc = btree_lookup_and_merge(context->cc,
                                      context->cfg->btree_cfg,
                                      branch_ref_addr(bndl->branches[idx]),

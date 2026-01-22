@@ -76,7 +76,7 @@ CTEST_SETUP(btree)
 {
    platform_register_thread();
    config_set_defaults(&data->master_cfg);
-   uint64 heap_capacity = (1 * GiB);
+   uint64 heap_capacity = (512 * MiB);
 
    if (!SUCCESS(
           config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv)))

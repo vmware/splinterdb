@@ -1176,7 +1176,7 @@ ycsb_test(int argc, char *argv[])
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_id hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hid);
+   rc = platform_heap_create(platform_get_module_id(), 512 * MiB, FALSE, &hid);
    platform_assert_status_ok(rc);
 
    system_config *system_cfg = TYPED_MALLOC(hid, system_cfg);

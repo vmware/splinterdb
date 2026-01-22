@@ -118,9 +118,7 @@ CTEST_SETUP(splinter)
    bool32 cache_per_table = FALSE;
    int num_tables       = data->spl_num_tables; // Cache, for re-use below
    uint8 num_caches     = (cache_per_table ? num_tables : 1);
-   uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB * num_tables);
-   heap_capacity        = MIN(heap_capacity, UINT32_MAX);
-   heap_capacity        = MAX(heap_capacity, 2 * GiB);
+   uint64 heap_capacity = 512 * MiB;
 
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),

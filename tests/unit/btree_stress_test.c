@@ -146,7 +146,7 @@ CTEST_SETUP(btree_stress)
 
    // Create a heap for io, allocator, cache and splinter
    if (!SUCCESS(platform_heap_create(platform_get_module_id(),
-                                     1 * GiB,
+                                     512 * MiB,
                                      data->master_cfg.use_shmem,
                                      &data->hid)))
    {

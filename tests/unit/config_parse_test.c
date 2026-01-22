@@ -34,7 +34,7 @@ CTEST_DATA(config_parse)
 CTEST_SETUP(config_parse)
 {
    platform_register_thread();
-   uint64 heap_capacity = (1024 * MiB);
+   uint64 heap_capacity = (512 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
       platform_get_module_id(), heap_capacity, FALSE, &data->hid);

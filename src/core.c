@@ -168,7 +168,7 @@ core_set_super_block(core_handle *spl,
    if (root_addr != 0) {
       super->root_addr = root_addr;
       rc               = trunk_inc_ref(spl->cfg.trunk_node_cfg,
-                         spl->heap_id,
+                         PROCESS_PRIVATE_HEAP_ID,
                          spl->cc,
                          spl->al,
                          spl->ts,
@@ -205,7 +205,7 @@ core_set_super_block(core_handle *spl,
 
    if (old_root_addr != 0 && !is_create) {
       rc = trunk_dec_ref(spl->cfg.trunk_node_cfg,
-                         spl->heap_id,
+                         PROCESS_PRIVATE_HEAP_ID,
                          spl->cc,
                          spl->al,
                          spl->ts,
@@ -384,8 +384,12 @@ core_memtable_insert(core_handle *spl, key tuple_key, message msg)
    // this call is safe because we hold the insert lock
    memtable *mt = core_get_memtable(spl, generation);
    uint64    leaf_generation; // used for ordering the log
-   rc = memtable_insert(
-      &spl->mt_ctxt, mt, spl->heap_id, tuple_key, msg, &leaf_generation);
+   rc = memtable_insert(&spl->mt_ctxt,
+                        mt,
+                        PROCESS_PRIVATE_HEAP_ID,
+                        tuple_key,
+                        msg,
+                        &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
@@ -822,10 +826,10 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->can_prev     = TRUE;
    range_itor->can_next     = TRUE;
 
-   key_buffer_init(&range_itor->min_key, spl->heap_id);
-   key_buffer_init(&range_itor->max_key, spl->heap_id);
-   key_buffer_init(&range_itor->local_min_key, spl->heap_id);
-   key_buffer_init(&range_itor->local_max_key, spl->heap_id);
+   key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
+   key_buffer_init(&range_itor->max_key, PROCESS_PRIVATE_HEAP_ID);
+   key_buffer_init(&range_itor->local_min_key, PROCESS_PRIVATE_HEAP_ID);
+   key_buffer_init(&range_itor->local_max_key, PROCESS_PRIVATE_HEAP_ID);
 
    if (core_key_compare(spl, min_key, start_key) > 0) {
       // in bounds, start at min
@@ -971,7 +975,7 @@ core_range_iterator_init(core_handle         *spl,
       range_itor->itor[i] = &btree_itor->super;
    }
 
-   rc = merge_iterator_create(spl->heap_id,
+   rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
                               spl->cfg.data_cfg,
                               range_itor->num_branches,
                               range_itor->itor,
@@ -994,7 +998,7 @@ core_range_iterator_init(core_handle         *spl,
       if (core_key_compare(spl, local_max, max_key) < 0) {
          key_buffer local_max_buffer;
          rc = key_buffer_init_from_key(
-            &local_max_buffer, spl->heap_id, local_max);
+            &local_max_buffer, PROCESS_PRIVATE_HEAP_ID, local_max);
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1023,7 +1027,7 @@ core_range_iterator_init(core_handle         *spl,
       if (core_key_compare(spl, local_min, min_key) > 0) {
          key_buffer local_min_buffer;
          rc = key_buffer_init_from_key(
-            &local_min_buffer, spl->heap_id, local_min);
+            &local_min_buffer, PROCESS_PRIVATE_HEAP_ID, local_min);
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1075,21 +1079,21 @@ core_range_iterator_next(iterator *itor)
    if (!range_itor->can_next) {
       KEY_CREATE_LOCAL_COPY(rc,
                             min_key,
-                            range_itor->spl->heap_id,
+                            PROCESS_PRIVATE_HEAP_ID,
                             key_buffer_key(&range_itor->min_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
       KEY_CREATE_LOCAL_COPY(rc,
                             max_key,
-                            range_itor->spl->heap_id,
+                            PROCESS_PRIVATE_HEAP_ID,
                             key_buffer_key(&range_itor->max_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
       KEY_CREATE_LOCAL_COPY(rc,
                             local_max_key,
-                            range_itor->spl->heap_id,
+                            PROCESS_PRIVATE_HEAP_ID,
                             key_buffer_key(&range_itor->local_max_key));
       if (!SUCCESS(rc)) {
          return rc;
@@ -1134,21 +1138,21 @@ core_range_iterator_prev(iterator *itor)
    if (!range_itor->can_prev) {
       KEY_CREATE_LOCAL_COPY(rc,
                             min_key,
-                            range_itor->spl->heap_id,
+                            PROCESS_PRIVATE_HEAP_ID,
                             key_buffer_key(&range_itor->min_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
       KEY_CREATE_LOCAL_COPY(rc,
                             max_key,
-                            range_itor->spl->heap_id,
+                            PROCESS_PRIVATE_HEAP_ID,
                             key_buffer_key(&range_itor->max_key));
       if (!SUCCESS(rc)) {
          return rc;
       }
       KEY_CREATE_LOCAL_COPY(rc,
                             local_min_key,
-                            range_itor->spl->heap_id,
+                            PROCESS_PRIVATE_HEAP_ID,
                             key_buffer_key(&range_itor->local_min_key));
       if (!SUCCESS(rc)) {
          return rc;
@@ -1198,7 +1202,7 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
 {
    core_handle *spl = range_itor->spl;
    if (range_itor->merge_itor != NULL) {
-      merge_iterator_destroy(range_itor->spl->heap_id, &range_itor->merge_itor);
+      merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &range_itor->merge_itor);
       for (uint64 i = 0; i < range_itor->num_branches; i++) {
          btree_iterator *btree_itor = &range_itor->btree_itor[i];
          if (range_itor->compacted[i]) {
@@ -1766,22 +1770,22 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
 
    core_stats *global;
 
-   global = TYPED_ZALLOC(spl->heap_id, global);
+   global = TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, global);
    if (global == NULL) {
       platform_error_log("Out of memory for statistics");
       return;
    }
 
    histogram_handle insert_lat_accum, update_lat_accum, delete_lat_accum;
-   histogram_create(spl->heap_id,
+   histogram_create(PROCESS_PRIVATE_HEAP_ID,
                          LATENCYHISTO_SIZE + 1,
                          latency_histo_buckets,
                          &insert_lat_accum);
-   histogram_create(spl->heap_id,
+   histogram_create(PROCESS_PRIVATE_HEAP_ID,
                          LATENCYHISTO_SIZE + 1,
                          latency_histo_buckets,
                          &update_lat_accum);
-   histogram_create(spl->heap_id,
+   histogram_create(PROCESS_PRIVATE_HEAP_ID,
                          LATENCYHISTO_SIZE + 1,
                          latency_histo_buckets,
                          &delete_lat_accum);
@@ -1840,9 +1844,9 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
    histogram_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
    histogram_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
    histogram_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
-   histogram_destroy(spl->heap_id, &insert_lat_accum);
-   histogram_destroy(spl->heap_id, &update_lat_accum);
-   histogram_destroy(spl->heap_id, &delete_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &insert_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &update_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &delete_lat_accum);
 
 
    platform_log(log_handle, "Flush Statistics\n");
@@ -1892,7 +1896,7 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, global);
 }
 
 void
@@ -1929,7 +1933,7 @@ void
 core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
 {
    merge_accumulator data;
-   merge_accumulator_init(&data, spl->heap_id);
+   merge_accumulator_init(&data, PROCESS_PRIVATE_HEAP_ID);
 
    platform_stream_handle stream;
    platform_open_log_stream(&stream);

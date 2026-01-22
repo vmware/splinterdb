@@ -259,8 +259,9 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    // (Some tests externally create the platform_heap, so we should
    // only create one if it does not already exist.)
    if (kvs_cfg->use_shmem && (use_this_heap_id == NULL)) {
-      size_t shmem_size = (kvs_cfg->shmem_size ? kvs_cfg->shmem_size : 2 * GiB);
-      status            = platform_heap_create(
+      size_t shmem_size =
+         (kvs_cfg->shmem_size ? kvs_cfg->shmem_size : 512 * MiB);
+      status = platform_heap_create(
          platform_get_module_id(), shmem_size, TRUE, &use_this_heap_id);
       if (!SUCCESS(status)) {
          platform_error_log(
@@ -300,9 +301,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    // All future memory allocation should come from shared memory, if so
    // configured.
    kvs->heap_id = use_this_heap_id;
-   if (we_created_heap) {
-      platform_shm_set_splinterdb_handle(use_this_heap_id, (void *)kvs);
-   }
 
    kvs->io_handle = io_handle_create(&kvs->io_cfg, kvs->heap_id);
    if (kvs->io_handle == NULL) {

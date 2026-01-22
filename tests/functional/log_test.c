@@ -259,8 +259,8 @@ log_test(int argc, char *argv[])
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_id hid = NULL;
-   status =
-      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
+   status               = platform_heap_create(
+      platform_get_module_id(), 512 * MiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
    core_config *cfg                            = TYPED_MALLOC(hid, cfg);
