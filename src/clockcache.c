@@ -810,8 +810,6 @@ clockcache_try_set_writeback(clockcache *cc,
                 entry_number,
                 cc->cfg->page_capacity);
 
-   platform_assert(cc->entry[entry_number].waiters.head == NULL);
-
    volatile uint32 *status = &cc->entry[entry_number].status;
    if (__sync_bool_compare_and_swap(
           status, CC_CLEANABLE1_STATUS, CC_WRITEBACK1_STATUS))
