@@ -2340,8 +2340,6 @@ usage(const char *argv0)
       argv0);
    platform_error_log("\nNOTE: splinter_basic basic has been refactored"
                       " to run as a stand-alone unit-test.\n");
-   platform_error_log("     --use-shmem is an experimental feature."
-                      " Use with care.\n");
    platform_error_log("\n");
    test_config_usage();
    config_usage();

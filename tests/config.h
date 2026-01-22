@@ -87,7 +87,7 @@ typedef struct master_config {
    bool   verbose_logging_enabled;
    bool   verbose_progress;
 
-   // Shared memory support      **** Experimental feature ****
+   // Shared memory support
    uint64 shmem_size;
    bool   use_shmem;  // Memory allocation done from shared segment
    bool   fork_child; // Default is FALSE

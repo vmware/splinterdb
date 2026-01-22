@@ -155,8 +155,7 @@ config_usage()
    platform_error_log("\t--no-verbose-logging\n");
    platform_error_log("\t--verbose-progress\n");
 
-   platform_error_log(
-      "\t--use-shmem           **** Experimental feature ****\n");
+   platform_error_log("\t--use-shmem\n");
    // clang-format off
    platform_error_log("\t       [ --shmem-capacity-mib <mb> (%lu) | --shmem-capacity-gib <gb> (%d) ]\n",
                       (TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB * KiB),
@@ -414,11 +413,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].max_key_size < TEST_CONFIG_MIN_KEY_SIZE) {
-            platform_error_log("Configured key-size, %lu, should be at least "
-                               "%d bytes. Support for smaller key-sizes is "
-                               "experimental.\n",
-                               cfg[cfg_idx].max_key_size,
-                               TEST_CONFIG_MIN_KEY_SIZE);
+            platform_error_log("Configured key-size, %lu.\n",
+                               cfg[cfg_idx].max_key_size);
             return STATUS_BAD_PARAM;
          }
       }

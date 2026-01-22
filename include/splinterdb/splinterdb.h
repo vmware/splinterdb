@@ -34,16 +34,6 @@ splinterdb_get_version();
  * for all structures (default), or choose to setup a shared segment
  * which will be used for shared structures.
  *
- * ******************* EXPERIMENTAL FEATURES ********************
- *
- * - use_shmem: Support for shared memory segments:
- *   This flag will configure a shared memory segment. All (most) run-time
- *   memory allocation will be done from this shared segment. Currently,
- *   we do not support free(), so you will likely run out of shared memory
- *   and run into shared-memory OOM errors. This functionality is
- *   solely meant for internal development uses.
- *
- * ******************* EXPERIMENTAL FEATURES ********************
  */
 typedef struct splinterdb_config {
    // required configuration
