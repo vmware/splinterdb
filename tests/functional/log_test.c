@@ -350,6 +350,7 @@ log_test(int argc, char *argv[])
       platform_assert(rc == 0);
    }
 
+   io_wait_all(io);
    clockcache_deinit(cc);
    platform_free(hid, log);
    platform_free(hid, cc);

@@ -21,50 +21,9 @@ jobs:
       matrix:
         compiler_mode: [gcc, clang, gcc-asan, clang-msan]
         build_mode: [release, debug]
-        target: [all] # Just compile most configs
-        include_slow_tests: ['true']
-        run_nightly_tests: ['false']
-        exclude:
-          # Don't do a compile job on these, since we will do run-tests on them below
-          - compiler_mode: gcc-asan
-            build_mode: release
-            target: all
-          - compiler_mode: clang-msan
-            build_mode: release
-            target: all
-          - compiler_mode: clang
-            build_mode: debug
-            target: all
-          - compiler_mode: gcc
-            build_mode: release
-            target: all
-        include:
-          # Compile and run tests on these configs
-          - compiler_mode: gcc-asan
-            build_mode: release
-            target: run-tests
-            include_slow_tests: 'true'
-            run_nightly_tests: 'false'
-          - compiler_mode: clang-msan
-            build_mode: release
-            target: run-tests
-            include_slow_tests: 'true'
-            run_nightly_tests: 'false'
-          - compiler_mode: clang
-            build_mode: debug
-            target: run-tests
-            include_slow_tests: 'true'
-            run_nightly_tests: 'false'
-          - compiler_mode: gcc
-            build_mode: release
-            target: run-tests
-            include_slow_tests: 'false'
-            run_nightly_tests: 'true'
-    name: >
-          ${{ matrix.target == 'all' && 'Compile' || 'Run' }}
-          ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
-          ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == 'true' && '(slow tests)' || '' }}
-          ${{ matrix.target == 'run-tests' && matrix.run_nightly_tests == 'true' && '(nightly tests)' || '' }}
+        target: [newtests]
+        newtests_function: [cache_tests, functionality_tests, parallel_perf_tests, perf_tests, splinter_misc_tests, large_insert_stress_tests, misc_tests]
+    name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.newtests_function }}
     runs-on: ubuntu-latest
     env:
       CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
@@ -72,8 +31,7 @@ jobs:
       BUILD_MODE: ${{ matrix.build_mode }}
       BUILD_ASAN: ${{ endsWith(matrix.compiler_mode, 'asan') && 1 || 0 }}
       BUILD_MSAN: ${{ endsWith(matrix.compiler_mode, 'msan') && 1 || 0 }}
-      INCLUDE_SLOW_TESTS: ${{ matrix.include_slow_tests }}
-      RUN_NIGHTLY_TESTS: ${{ matrix.run_nightly_tests }}
+      NEWTESTS_FUNCTION: ${{ matrix.newtests_function }}
     steps:
     - name: Maximize build space
       uses: easimon/maximize-build-space@master

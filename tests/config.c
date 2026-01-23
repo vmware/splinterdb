@@ -69,7 +69,7 @@ void
 config_set_defaults(master_config *cfg)
 {
    *cfg = (master_config){
-      .io_filename              = "db",
+      .io_filename              = TEST_CONFIG_DEFAULT_IO_FILENAME,
       .cache_logfile            = "cache_log",
       .page_size                = TEST_CONFIG_DEFAULT_PAGE_SIZE,
       .extent_size              = TEST_CONFIG_DEFAULT_EXTENT_SIZE,

@@ -119,7 +119,7 @@ function run_with_timing() {
    start_seconds=$SECONDS
    echo " "
    set -x
-   "$@"
+   echo "$@"
    set +x
    record_elapsed_time $start_seconds "${test_tag}"
 }
@@ -158,80 +158,37 @@ function cat_exec_log_file() {
 # We exercise large'ish # of inserts, 100 million, with different cache sizes,
 # to get some coverage on core functionality in stress workloads.
 # #############################################################################
-function nightly_functionality_stress_tests() {
+function run_functionality_stress_test() {
+    local n_mills=$1
+    local ntables=$2
+    local cache_size_mb=$3
 
-    # Future: We want to crank this up to 100 mil rows, but assertions around
-    # trunk bundle mgmt prevent that.
-    local n_mills=10
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
 
-    local ntables=1
     local test_name="splinter_test --functionality"
-
-    # ----
-    local cache_size=4  # GB
-    local test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} GiB cache"
+    local test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size_mb} MiB cache"
     local dbname="splinter_test.functionality.db"
-    echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
+
+
+    echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size_mb} MiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
             "$BINDIR"/driver_test splinter_test --functionality  ${num_rows} 1000 \
                                                 --num-tables ${ntables} \
-                                                --cache-capacity-gib ${cache_size} \
+                                                --cache-capacity-mib ${cache_size_mb} \
                                                 --db-location ${dbname}
-    rm ${dbname}
+    rm -f ${dbname}
+}
 
-    # ----
-    ntables=2
-    local test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} GiB cache"
-    local dbname="splinter_test.functionality.db"
-    echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
-    run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality  ${num_rows} 1000 \
-                                                --num-tables ${ntables} \
-                                                --cache-capacity-gib ${cache_size} \
-                                                --db-location ${dbname}
-    rm ${dbname}
-
-    # ----
-    cache_size=1        # GiB
-
-    # Remove this block once issue #322 is fixed.
-    n_mills=1
-    num_rows=$((n_mills * 1000 * 1000))
-    nrows_h="${n_mills} mil"
-
-    test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
-    echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
-    run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
-                                                --num-tables ${ntables} \
-                                                --cache-capacity-gib ${cache_size} \
-                                                --db-location ${dbname}
-    rm ${dbname}
-
-    # ----
-    ntables=4
-    cache_size=1        # GiB
-    test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
-    echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
-    run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
-                                                --num-tables ${ntables} \
-                                                --cache-capacity-gib ${cache_size} \
-                                                --db-location ${dbname}
-    rm ${dbname}
-
-    # ----
-    cache_size=512      # MiB
-    test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
-    # echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with small ${cache_size} MiB cache"
-    run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
-                                                --num-tables ${ntables} \
-                                                --cache-capacity-mib ${cache_size} \
-                                                --db-location ${dbname}
-    rm ${dbname}
+function nightly_functionality_stress_tests() {
+    # Future: We want to crank this up to 100 mil rows, but assertions around
+    # trunk bundle mgmt prevent that.
+    #                             millions_of_rows   num_tables cache_size_mb
+    run_functionality_stress_test 10                 1          4096
+    run_functionality_stress_test 10                 2          4096
+    run_functionality_stress_test  1                 2          1024
+    run_functionality_stress_test  1                 4          1024
+    run_functionality_stress_test  1                 4           512 
 }
 
 # #############################################################################
@@ -240,6 +197,11 @@ function nightly_functionality_stress_tests() {
 # of execution, especially to shake out AIO / thread registration issues.
 # #############################################################################
 function nightly_unit_stress_tests() {
+    local use_msg=
+    if [ "$Use_shmem" != "" ]; then
+        use_msg=", using shared memory"
+   fi
+
     local n_mills=10
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
@@ -251,14 +213,14 @@ function nightly_unit_stress_tests() {
     local test_name=large_inserts_stress_test
 
     echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
-    run_with_timing "Large Inserts Stress test ${test_descr}" \
+    run_with_timing "Large Inserts Stress test ${test_descr}${use_msg}" \
             "$BINDIR"/unit/${test_name} \
                                $Use_shmem \
                                --shmem-capacity-gib 8 \
                                --num-inserts ${num_rows} \
                                --num-memtable-bg-threads 8 \
                                --num-normal-bg-threads 20
-    rm ${dbname}
+    rm -f ${dbname}
 
 }
 
@@ -308,7 +270,7 @@ function nightly_sync_perf_tests() {
                                                 --db-location ${dbname} \
                                                 --verbose-progress \
                                                 ${Use_shmem}
-    rm ${dbname}
+    rm -f ${dbname}
 
     local npthreads=8
     local tree_size=8 # GiB
@@ -325,7 +287,7 @@ function nightly_sync_perf_tests() {
                                                 --db-capacity-gib 60 \
                                                 --db-location ${dbname} \
                                                 ${Use_shmem}
-    rm ${dbname}
+    rm -f ${dbname}
 
     # Exercise a case with max # of insert-threads which tripped an assertion
     # This isn't really a 'perf' test but a regression / stability test exec
@@ -342,7 +304,7 @@ function nightly_sync_perf_tests() {
                                                 --tree-size-gib 1 \
                                                 --db-location ${dbname} \
                                                 ${Use_shmem}
-    rm ${dbname}
+    rm -f ${dbname}
 }
 
 # #############################################################################
@@ -361,7 +323,7 @@ function nightly_cache_perf_tests() {
             "$BINDIR"/driver_test cache_test --perf \
                                              --db-location ${dbname} \
                                              ${Use_shmem}
-    rm ${dbname}
+    rm -f ${dbname}
 
     cache_size=6  # GiB
     test_descr="${cache_size} GiB cache"
@@ -372,7 +334,7 @@ function nightly_cache_perf_tests() {
                                              --cache-capacity-gib ${cache_size} \
                                              --db-capacity-gib 60 \
                                              ${Use_shmem}
-    rm ${dbname}
+    rm -f ${dbname}
 }
 
 # #############################################################################
@@ -398,7 +360,7 @@ function nightly_async_perf_tests() {
                                                 --num-memtable-bg-threads 2 \
                                                 --db-capacity-gib 60 \
                                                 --db-location ${dbname}
-    rm ${dbname}
+    rm -f ${dbname}
 }
 
 # #############################################################################
@@ -611,12 +573,12 @@ function run_fast_unit_tests() {
    # shellcheck disable=SC2086
    "$BINDIR"/unit/task_system_test $Use_shmem
 
-   rm splinterdb_unit_tests_db
+   rm -f splinterdb_unit_tests_db
    
    echo " "
    # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $Use_shmem
-   rm db
+   rm -f db
 }
 
 # ##################################################################
@@ -643,7 +605,7 @@ function run_slower_unit_tests() {
     # in the program to cough-up an error.
     # shellcheck disable=SC2086
     run_with_timing "${msg}" "$BINDIR"/unit/splinter_test ${Use_shmem} test_inserts
-    rm db
+    rm -f db
 
     # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
     msg="Splinter lookups test ${use_msg}"
@@ -652,7 +614,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
           "$BINDIR"/unit/splinter_test ${Use_shmem} --num-inserts ${num_rows} test_lookups
-    rm db
+    rm -f db
 
     unset VERBOSE
 
@@ -660,7 +622,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
           "$BINDIR"/unit/splinter_test ${Use_shmem} test_splinter_print_diags
-    rm db
+    rm -f db
 
     # Test runs w/ default of 1M rows for --num-inserts
     n_mills=1
@@ -670,7 +632,7 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
             "$BINDIR"/unit/large_inserts_stress_test ${Use_shmem} --num-inserts ${num_rows}
-    rm splinterdb_unit_tests_db
+    rm -f splinterdb_unit_tests_db
 
     # Test runs w/ more inserts and enable bg-threads
     n_mills=2
@@ -683,7 +645,7 @@ function run_slower_unit_tests() {
                                                         --num-inserts ${num_rows} \
                                                         --num-normal-bg-threads 4 \
                                                         --num-memtable-bg-threads 3
-    rm splinterdb_unit_tests_db
+    rm -f splinterdb_unit_tests_db
 }
 
 # ##################################################################
@@ -698,13 +660,13 @@ function run_slower_forked_process_tests() {
 
     local msg="Splinter tests using default number of forked child processes"
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
-    rm splinterdb_forked_child_test_db
+    rm -f splinterdb_forked_child_test_db
     
     num_forked_procs=4
     msg="Splinter tests using ${num_forked_procs} forked child processes"
     run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
                                         --num-processes ${num_forked_procs}
-    rm splinterdb_unit_tests_db
+    rm -f splinterdb_unit_tests_db
 
     # ---- Run large_inserts_stress_test with small configuration as a quick check
     # using forked child process execution.
@@ -716,7 +678,7 @@ function run_slower_forked_process_tests() {
                                         --fork-child \
                                         --num-inserts ${num_rows} \
                                         test_seq_key_seq_values_inserts_forked
-    rm splinterdb_unit_tests_db
+    rm -f splinterdb_unit_tests_db
 }
 
 # ##################################################################
@@ -736,14 +698,14 @@ function run_splinter_functionality_tests() {
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             $Use_shmem \
                                             --key-size ${key_size} --seed "$SEED"
-    rm db
+    rm -f db
 
     # shellcheck disable=SC2086
     run_with_timing "Functionality test, with default key size${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             $Use_shmem \
                                             --seed "$SEED"
-    rm db
+    rm -f db
 
     # shellcheck disable=SC2086
     run_with_timing "Functionality test, default key size, with background threads${use_msg}" \
@@ -751,7 +713,7 @@ function run_splinter_functionality_tests() {
                                             $Use_shmem \
                                             --num-normal-bg-threads 4 --num-memtable-bg-threads 2 \
                                             --seed "$SEED"
-    rm db
+    rm -f db
 
     max_key_size=102
     # shellcheck disable=SC2086
@@ -759,7 +721,7 @@ function run_splinter_functionality_tests() {
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             $Use_shmem \
                                             --key-size ${max_key_size} --seed "$SEED"
-    rm db
+    rm -f db
 }
 
 # ##################################################################
@@ -785,7 +747,7 @@ function run_splinter_perf_tests() {
                                             --num-inserts 10000 \
                                             --cache-capacity-mib 512 \
                                             --verbose-progress
-    rm db
+    rm -f db
 
    # Re-run small perf test configuring background threads. This scenario
    # validates that we can configure bg- and user-threads in one go.
@@ -799,7 +761,7 @@ function run_splinter_perf_tests() {
                                             --cache-capacity-mib 512 \
                                             --num-normal-bg-threads 1 \
                                             --num-memtable-bg-threads 1
-    rm db
+    rm -f db
 
    # shellcheck disable=SC2086
    run_with_timing "Performance test${use_msg}" \
@@ -811,7 +773,7 @@ function run_splinter_perf_tests() {
                                             --num-range-lookup-threads 0 \
                                             --tree-size-gib 2 \
                                             --cache-capacity-mib 512
-    rm db
+    rm -f db
 }
 
 # ##################################################################
@@ -828,19 +790,19 @@ function run_btree_tests() {
         "$BINDIR"/driver_test btree_test --key-size ${key_size} \
                                          $Use_shmem \
                                          --seed "$SEED"
-    rm db
+    rm -f db
 
     # shellcheck disable=SC2086
     run_with_timing "BTree test, with default key size${use_msg}" \
         "$BINDIR"/driver_test btree_test $Use_shmem --seed "$SEED"
-    rm db
+    rm -f db
 
     key_size=100
     # shellcheck disable=SC2086
     run_with_timing "BTree test, key size=${key_size} bytes${use_msg}" \
         "$BINDIR"/driver_test btree_test $Use_shmem \
                                           --key-size ${key_size} --seed "$SEED"
-    rm db
+    rm -f db
 
     # shellcheck disable=SC2086
     run_with_timing "BTree Perf test${use_msg}" \
@@ -848,7 +810,7 @@ function run_btree_tests() {
                                          --cache-capacity-gib 4 \
                                          --seed "$SEED" \
                                          $Use_shmem
-    rm db
+    rm -f db
 }
 
 # ##################################################################
@@ -862,17 +824,17 @@ function run_other_driver_tests() {
     # shellcheck disable=SC2086
     run_with_timing "Cache test${use_msg}" \
         "$BINDIR"/driver_test cache_test --seed "$SEED" $Use_shmem
-    rm db
+    rm -f db
 
     # shellcheck disable=SC2086
     run_with_timing "Log test${use_msg}" \
         "$BINDIR"/driver_test log_test --seed "$SEED" $Use_shmem
-    rm db
+    rm -f db
 
     # shellcheck disable=SC2086
     run_with_timing "Filter test${use_msg}" \
         "$BINDIR"/driver_test filter_test --seed "$SEED" $Use_shmem
-    rm db
+    rm -f db
 }
 
 # #######################################################################
@@ -893,7 +855,7 @@ function run_tests_with_shared_memory() {
 
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
-   rm splinterdb_unit_tests_db
+   rm -f splinterdb_unit_tests_db
 
    # Additional case exercised while developing shared memory support for multi
    # process execution to verify management of IO-contexts under forked processes
@@ -903,7 +865,7 @@ function run_tests_with_shared_memory() {
 #    rm splinterdb_io_apis_test_db
 
    Use_shmem="--use-shmem" run_slower_unit_tests
-   if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
+   if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm -f "${UNIT_TESTS_DB_DEV}"; fi
 
    Use_shmem="--use-shmem"
    run_splinter_functionality_tests
@@ -917,6 +879,59 @@ function run_tests_with_shared_memory() {
    #run_slower_forked_process_tests
 
    record_elapsed_time ${shmem_tests_run_start} "Tests with shared memory configured"
+}
+
+
+function all_tests()
+{
+    run_functionality_stress_test 10                 1          4096
+    run_functionality_stress_test 10                 2          4096
+    run_functionality_stress_test  1                 2          1024
+    run_functionality_stress_test  1                 4          1024
+    run_functionality_stress_test  1                 4           512 
+
+    Use_shmem=""            nightly_unit_stress_tests
+    Use_shmem="--use-shmem" nightly_unit_stress_tests
+
+    Use_shmem=""            nightly_sync_perf_tests
+    Use_shmem="--use-shmem" nightly_sync_perf_tests
+
+    Use_shmem=""            nightly_cache_perf_tests
+    Use_shmem="--use-shmem" nightly_cache_perf_tests
+
+    Use_shmem=""            nightly_async_perf_tests
+    Use_shmem="--use-shmem" nightly_async_perf_tests
+
+    set +e
+    run_with_timing "Check limits, error conditions." nightly_test_limitations
+    set -e
+
+    run_with_timing "Basic build-and-test tests" test_make_run_tests
+
+    run_with_timing "Smoke tests" run_fast_unit_tests ""
+
+    Use_shmem="--use-shmem"
+    run_with_timing "Smoke tests using shared memory" run_fast_unit_tests
+
+    Use_shmem="--use-shmem" run_slower_unit_tests
+    Use_shmem=""            run_slower_unit_tests
+
+    Use_shmem="" run_splinter_functionality_tests
+
+    Use_shmem="" run_splinter_perf_tests
+
+    Use_shmem="" run_btree_tests
+
+    Use_shmem="" run_other_driver_tests
+
+    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
+
+    Use_shmem="--use-shmem" run_slower_unit_tests
+
+    Use_shmem="--use-shmem" run_splinter_functionality_tests
+    Use_shmem="--use-shmem" run_splinter_perf_tests
+    Use_shmem="--use-shmem" run_btree_tests
+    Use_shmem="--use-shmem" run_other_driver_tests
 }
 
 # ##################################################################
@@ -1040,7 +1055,7 @@ if [ "$INCLUDE_SLOW_TESTS" == "true" ]; then
     Use_shmem=""
     run_slower_unit_tests
 
-    if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
+    if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm -f ${UNIT_TESTS_DB_DEV}; fi
 
     run_splinter_functionality_tests
 

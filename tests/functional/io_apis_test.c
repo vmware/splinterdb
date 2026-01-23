@@ -222,7 +222,7 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.io_flags,
                   master_cfg.io_perms,
                   master_cfg.io_async_queue_depth,
-                  "splinterdb_io_apis_test_db");
+                  TEST_CONFIG_DEFAULT_IO_FILENAME);
 
    int pid = platform_get_os_pid();
    platform_default_log("Parent OS-pid=%d, Exercise IO sub-system test on"
