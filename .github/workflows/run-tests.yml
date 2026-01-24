@@ -48,4 +48,4 @@ jobs:
       with:
         packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: make ${{ matrix.target }}
-      run: pwd; make ${{ matrix.target }}
+      run: df -h; make ${{ matrix.target }}
