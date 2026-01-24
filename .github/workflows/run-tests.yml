@@ -34,7 +34,7 @@ jobs:
       NEWTESTS_FUNCTION: ${{ matrix.newtests_function }}
     steps:
     - name: Maximize build space
-      uses: easimon/maximize-build-space@master
+      uses: rtjohnso/maximize-build-space@master
       with:
         root-reserve-mb: 4096
         temp-reserve-mb: 4096
