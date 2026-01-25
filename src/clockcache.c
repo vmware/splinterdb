@@ -1223,9 +1223,7 @@ clockcache_get_free_page(clockcache *cc,
     * not give up after 3 passes on the cache. At least wait for the
     * max latency of an IO and keep making passes.
     */
-   while (num_passes < 3
-          || (blocking && !io_max_latency_elapsed(cc->io, wait_start)))
-   {
+   while (num_passes < 3 || blocking) {
       uint64 start_entry = cc->per_thread[tid].free_hand * CC_ENTRIES_PER_BATCH;
       uint64 end_entry   = start_entry + CC_ENTRIES_PER_BATCH;
       for (entry_no = start_entry; entry_no < end_entry; entry_no++) {
