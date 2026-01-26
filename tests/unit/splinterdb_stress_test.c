@@ -48,12 +48,12 @@ CTEST_DATA(splinterdb_stress)
 CTEST_SETUP(splinterdb_stress)
 {
    platform_register_thread();
-   data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
-                                             .cache_size = 1000 * Mega,
-                                             .disk_size  = 9000 * Mega,
-                                             .data_cfg   = &data->default_data_config,
-                                             .num_memtable_bg_threads = 2,
-                                             .num_normal_bg_threads   = 2};
+   data->cfg = (splinterdb_config){.filename = TEST_CONFIG_DEFAULT_IO_FILENAME,
+                                   .cache_size = 1000 * Mega,
+                                   .disk_size  = 9000 * Mega,
+                                   .data_cfg   = &data->default_data_config,
+                                   .num_memtable_bg_threads = 2,
+                                   .num_normal_bg_threads   = 2};
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
 

@@ -57,8 +57,6 @@ config:
   run:
     path: sh
     args: ["-c", "cd /splinterdb && ./test.sh"]
-  params:
-    INCLUDE_SLOW_TESTS: "true"
 #@ end
 
 ---
@@ -96,8 +94,6 @@ config:
   params:
     CC: #@ compiler
     LD: #@ compiler
-    INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
-    RUN_NIGHTLY_TESTS: #@ str(test_nightly).lower()
     BUILD_VERBOSE: "1"
     VERBOSE: "3"
 

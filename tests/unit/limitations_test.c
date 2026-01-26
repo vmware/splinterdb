@@ -391,7 +391,7 @@ create_default_cfg(splinterdb_config *out_cfg,
                    bool               use_shmem)
 {
    *out_cfg =
-      (splinterdb_config){.filename    = TEST_DB_NAME,
+      (splinterdb_config){.filename    = TEST_CONFIG_DEFAULT_IO_FILENAME,
                           .cache_size  = 64 * Mega,
                           .disk_size   = 127 * Mega,
                           .page_size   = TEST_CONFIG_DEFAULT_PAGE_SIZE,

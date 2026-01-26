@@ -7,9 +7,6 @@
 
 #include "ctest.h"
 
-/* Name of SplinterDB device created for unit-tests */
-#define TEST_DB_NAME "splinterdb_unit_tests_db"
-
 #define Kilo (1024UL)
 #define Mega (1024UL * Kilo)
 #define Giga (1024UL * Mega)

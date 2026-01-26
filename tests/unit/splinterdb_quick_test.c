@@ -967,7 +967,7 @@ CTEST2(splinterdb_quick, test_splinterdb_create_w_all_background_threads)
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
-   *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
+   *out_cfg = (splinterdb_config){.filename   = TEST_CONFIG_DEFAULT_IO_FILENAME,
                                   .cache_size = 64 * Mega,
                                   .disk_size  = 127 * Mega,
                                   .use_shmem  = FALSE,

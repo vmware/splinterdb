@@ -73,14 +73,6 @@ unit-test binary with the `--list` argument.
 ----
 ## How To Run unit-tests
 
-Quick **smoke-tests** run of unit tests: `$ make run-tests`
-
-This runs a small subset of unit tests, which execute very quickly, so that you
-get a quick turnaround on the overall stability of your changes.
-
-You can achieve the same result by executing the following test driver script
-[test.sh](../test.sh#:~:text=if%20\[%20"$INCLUDE%5FSLOW%5FTESTS"%20!=%20"true"%20\]): `$ ./test.sh`
-
 To **run** all the unit-test suites: `$ bin/unit_test`
 
 To run a specific suite, optionally filtering on a specific test case:

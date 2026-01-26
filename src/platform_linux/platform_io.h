@@ -37,7 +37,6 @@ struct iovec;
 #define IO_DEFAULT_FLAGS             (O_RDWR | O_CREAT)
 #define IO_DEFAULT_PERMS             (0755)
 #define IO_DEFAULT_KERNEL_QUEUE_SIZE (256)
-#define IO_DEFAULT_FILENAME          "db"
 #define IO_DEFAULT_ASYNC_QUEUE_DEPTH (256)
 
 /*

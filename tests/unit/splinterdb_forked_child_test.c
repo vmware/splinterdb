@@ -109,8 +109,6 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
-
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
    ASSERT_EQUAL(0, rc);
@@ -181,8 +179,6 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
    memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
-
-   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -301,8 +297,6 @@ CTEST2(splinterdb_forked_child,
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
-
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
    ASSERT_EQUAL(0, rc);
@@ -404,8 +398,6 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
    // We want larger cache as multiple child processes will be
    // hammering at it with large #s of inserts.
    splinterdb_cfg.cache_size = (1 * Giga);
-
-   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -512,7 +504,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
-   *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
+   *out_cfg = (splinterdb_config){.filename   = TEST_CONFIG_DEFAULT_IO_FILENAME,
                                   .cache_size = 64 * Mega,
                                   .disk_size  = 10 * Giga,
                                   .use_shmem  = TRUE,

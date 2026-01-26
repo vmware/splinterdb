@@ -19,52 +19,38 @@ jobs:
   run-test-matrix:
     strategy:
       matrix:
-        compiler_mode: [gcc, clang, gcc-asan, clang-msan]
-        build_mode: [release, debug]
-        target: [all] # Just compile most configs
-        include_slow_tests: ['true']
-        run_nightly_tests: ['false']
+        compiler_mode: [clang-msan, gcc-asan, clang, gcc]
+        build_mode: [debug, release]
+        target: [run-tests]
+        tests_function: [cache_tests_1, cache_tests_2, cache_tests_3, functionality_tests, parallel_perf_test_1, parallel_perf_test_2, parallel_perf_test_3, parallel_perf_test_4, perf_tests_1, perf_tests_2, splinter_misc_tests_1, splinter_misc_tests_2, large_insert_stress_tests_1, large_insert_stress_tests_2, large_insert_stress_tests_3, misc_tests, filter_tests, unit_tests]
         exclude:
-          # Don't do a compile job on these, since we will do run-tests on them below
           - compiler_mode: gcc-asan
-            build_mode: release
-            target: all
-          - compiler_mode: clang-msan
-            build_mode: release
-            target: all
-          - compiler_mode: clang
             build_mode: debug
-            target: all
-          - compiler_mode: gcc
-            build_mode: release
-            target: all
+            target: run-tests
+          - compiler_mode: clang-msan
+            build_mode: debug
+            target: run-tests
+          # The following tests are excluded because they take too long to run with sanitizers
+          - build_mode: debug
+            tests_function: large_insert_stress_tests_2
+          - build_mode: debug
+            tests_function: large_insert_stress_tests_3
+          - compiler_mode: gcc-asan
+            tests_function: large_insert_stress_tests_2
+          - compiler_mode: gcc-asan
+            tests_function: large_insert_stress_tests_3
+          - compiler_mode: clang-msan
+            tests_function: large_insert_stress_tests_2
+          - compiler_mode: clang-msan
+            tests_function: large_insert_stress_tests_3
         include:
-          # Compile and run tests on these configs
           - compiler_mode: gcc-asan
-            build_mode: release
-            target: run-tests
-            include_slow_tests: 'true'
-            run_nightly_tests: 'false'
-          - compiler_mode: clang-msan
-            build_mode: release
-            target: run-tests
-            include_slow_tests: 'true'
-            run_nightly_tests: 'false'
-          - compiler_mode: clang
             build_mode: debug
-            target: run-tests
-            include_slow_tests: 'true'
-            run_nightly_tests: 'false'
-          - compiler_mode: gcc
-            build_mode: release
-            target: run-tests
-            include_slow_tests: 'false'
-            run_nightly_tests: 'true'
-    name: >
-          ${{ matrix.target == 'all' && 'Compile' || 'Run' }}
-          ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }}
-          ${{ matrix.target == 'run-tests' && matrix.include_slow_tests == 'true' && '(slow tests)' || '' }}
-          ${{ matrix.target == 'run-tests' && matrix.run_nightly_tests == 'true' && '(nightly tests)' || '' }}
+            target: all
+          - compiler_mode: clang-msan
+            build_mode: debug
+            target: all
+    name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }} ${{ matrix.tests_function }}
     runs-on: ubuntu-latest
     env:
       CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
@@ -72,13 +58,13 @@ jobs:
       BUILD_MODE: ${{ matrix.build_mode }}
       BUILD_ASAN: ${{ endsWith(matrix.compiler_mode, 'asan') && 1 || 0 }}
       BUILD_MSAN: ${{ endsWith(matrix.compiler_mode, 'msan') && 1 || 0 }}
-      INCLUDE_SLOW_TESTS: ${{ matrix.include_slow_tests }}
-      RUN_NIGHTLY_TESTS: ${{ matrix.run_nightly_tests }}
+      TESTS_FUNCTION: ${{ matrix.tests_function }}
     steps:
     - name: Maximize build space
-      uses: easimon/maximize-build-space@master
+      uses: rtjohnso/maximize-build-space@master
       with:
-        root-reserve-mb: 2048
+        root-reserve-mb: 4096
+        temp-reserve-mb: 4096
         swap-size-mb: 1
         remove-dotnet: true
         remove-android: true
@@ -90,4 +76,4 @@ jobs:
       with:
         packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: make ${{ matrix.target }}
-      run: pwd; make ${{ matrix.target }}
+      run: df -h; make ${{ matrix.target }}

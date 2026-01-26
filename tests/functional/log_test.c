@@ -320,8 +320,8 @@ log_test(int argc, char *argv[])
    if (run_perf_test) {
       ret = test_log_perf(
          (cache *)cc, &system_cfg.log_cfg, log, 200000000, &gen, 16, &ts, hid);
-      rc = -1;
       platform_assert_status_ok(ret);
+      rc = 0;
    } else if (run_crash_test) {
       rc = test_log_crash(cc,
                           &system_cfg.cache_cfg,
@@ -350,6 +350,7 @@ log_test(int argc, char *argv[])
       platform_assert(rc == 0);
    }
 
+   io_wait_all(io);
    clockcache_deinit(cc);
    platform_free(hid, log);
    platform_free(hid, cc);

@@ -29,6 +29,8 @@ _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
 #define TEST_CONFIG_DEFAULT_EXTENT_SIZE                                        \
    (TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT * TEST_CONFIG_DEFAULT_PAGE_SIZE)
 
+#define TEST_CONFIG_DEFAULT_IO_FILENAME "db"
+
 /*
  * --------------------------------------------------------------------------
  * Convenience structure to hold configuration options for all sub-systems.
@@ -87,7 +89,7 @@ typedef struct master_config {
    bool   verbose_logging_enabled;
    bool   verbose_progress;
 
-   // Shared memory support      **** Experimental feature ****
+   // Shared memory support
    uint64 shmem_size;
    bool   use_shmem;  // Memory allocation done from shared segment
    bool   fork_child; // Default is FALSE
