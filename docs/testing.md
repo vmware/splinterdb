@@ -7,28 +7,16 @@ _Audience: All users and contributors._
 
 
 ## Testing Overview
-In CI, we execute these tests against the following build modes
-- All tests on optimized and debug builds using clang
-- All tests on optimized and debug builds using gcc
-- All tests using address-sanitizer debug builds using the clang compiler
-- All tests using memory-sanitizer debug builds using the gcc compiler
-- clang-format checks
-- [shellcheck](https://www.shellcheck.net) and shfmt checks run against shell scripts
-
-To run a small collection of unit-tests to give you a very quick
-baseline stability of the library, do: `$ make run-tests`
+To run the full test-suite, do: `$ make run-tests` or `$make test-results`.  The former runs the tests and outputs the results to the terminal.  The `test-results` target generates a file with the test results.
 
 The [`make run-tests`](../Makefile#:~:text=run%2Dtests) target invokes the
 underlying [`test.sh`](../test.sh) script to run quick tests.
 
-To execute a larger set of tests, including functional and performance tests,
-you can do one of the following:
-
+To execute a smaller set of tests, you can do the following:
 ```shell
-$ make test-results
-$ INCLUDE_SLOW_TESTS=true make run-tests
-$ INCLUDE_SLOW_TESTS=true ./test.sh
+$ TESTS_FUNCTION=<func> make <test-results | run-tests>
 ```
+See `test.sh` for valid values for `TESTS_FUNCTION`.
 
 In CI, all test execution is driven by the top-level [test.sh](../test.sh)
 script, which exercises individual build artifacts produced for testing, as

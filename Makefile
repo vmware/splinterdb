@@ -558,10 +558,7 @@ run-tests: all-tests
 	BINDIR=$(BINDIR) ./test.sh
 
 test-results: all-tests
-	INCLUDE_SLOW_TESTS=true BINDIR=$(BINDIR) ./test.sh 2>&1 | tee ./test-results
-
-newtests: all-tests
-	BINDIR=$(BINDIR) ./newtests.sh
+	BINDIR=$(BINDIR) ./test.sh 2>&1 | tee ./test-results
 
 run-examples: all-examples
 		for i in $(EXAMPLES_BINS); do $$i || exit; done

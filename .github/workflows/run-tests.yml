@@ -21,28 +21,28 @@ jobs:
       matrix:
         compiler_mode: [clang-msan, gcc-asan, clang, gcc]
         build_mode: [debug, release]
-        target: [newtests]
-        newtests_function: [cache_tests_1, cache_tests_2, cache_tests_3, functionality_tests, parallel_perf_test_1, parallel_perf_test_2, parallel_perf_test_3, parallel_perf_test_4, perf_tests_1, perf_tests_2, splinter_misc_tests_1, splinter_misc_tests_2, large_insert_stress_tests_1, large_insert_stress_tests_2, large_insert_stress_tests_3, misc_tests, filter_tests, unit_tests]
+        target: [run-tests]
+        tests_function: [cache_tests_1, cache_tests_2, cache_tests_3, functionality_tests, parallel_perf_test_1, parallel_perf_test_2, parallel_perf_test_3, parallel_perf_test_4, perf_tests_1, perf_tests_2, splinter_misc_tests_1, splinter_misc_tests_2, large_insert_stress_tests_1, large_insert_stress_tests_2, large_insert_stress_tests_3, misc_tests, filter_tests, unit_tests]
         exclude:
           - compiler_mode: gcc-asan
             build_mode: debug
-            target: newtests
+            target: run-tests
           - compiler_mode: clang-msan
             build_mode: debug
-            target: newtests
+            target: run-tests
           # The following tests are excluded because they take too long to run with sanitizers
           - build_mode: debug
-            newtests_function: large_insert_stress_tests_2
+            tests_function: large_insert_stress_tests_2
           - build_mode: debug
-            newtests_function: large_insert_stress_tests_3
+            tests_function: large_insert_stress_tests_3
           - compiler_mode: gcc-asan
-            newtests_function: large_insert_stress_tests_2
+            tests_function: large_insert_stress_tests_2
           - compiler_mode: gcc-asan
-            newtests_function: large_insert_stress_tests_3
+            tests_function: large_insert_stress_tests_3
           - compiler_mode: clang-msan
-            newtests_function: large_insert_stress_tests_2
+            tests_function: large_insert_stress_tests_2
           - compiler_mode: clang-msan
-            newtests_function: large_insert_stress_tests_3
+            tests_function: large_insert_stress_tests_3
         include:
           - compiler_mode: gcc-asan
             build_mode: debug
@@ -50,7 +50,7 @@ jobs:
           - compiler_mode: clang-msan
             build_mode: debug
             target: all
-    name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }} ${{ matrix.newtests_function }}
+    name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }} ${{ matrix.tests_function }}
     runs-on: ubuntu-latest
     env:
       CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
@@ -58,7 +58,7 @@ jobs:
       BUILD_MODE: ${{ matrix.build_mode }}
       BUILD_ASAN: ${{ endsWith(matrix.compiler_mode, 'asan') && 1 || 0 }}
       BUILD_MSAN: ${{ endsWith(matrix.compiler_mode, 'msan') && 1 || 0 }}
-      NEWTESTS_FUNCTION: ${{ matrix.newtests_function }}
+      TESTS_FUNCTION: ${{ matrix.tests_function }}
     steps:
     - name: Maximize build space
       uses: rtjohnso/maximize-build-space@master
