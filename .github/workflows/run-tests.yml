@@ -22,8 +22,22 @@ jobs:
         compiler_mode: [gcc, clang, gcc-asan, clang-msan]
         build_mode: [release, debug]
         target: [newtests]
-        newtests_function: [cache_tests, functionality_tests, parallel_perf_tests, perf_tests, splinter_misc_tests, large_insert_stress_tests, misc_tests]
-    name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.newtests_function }}
+        newtests_function: [cache_tests_1, cache_tests_2, cache_tests_3, functionality_tests, parallel_perf_test_1, parallel_perf_test_2, parallel_perf_test_3, parallel_perf_test_4, perf_tests_1, perf_tests_2, splinter_misc_tests_1, splinter_misc_tests_2, large_insert_stress_tests_1, large_insert_stress_tests_2, large_insert_stress_tests_3, misc_tests, filter_tests, unit_tests]
+        exclude:
+          - compiler_mode: gcc-asan
+            build_mode: debug
+            target: newtests
+          - compiler_mode: clang-msan
+            build_mode: debug
+            target: newtests
+        include:
+          - compiler_mode: gcc-asan
+            build_mode: debug
+            target: all
+          - compiler_mode: clang-msan
+            build_mode: debug
+            target: all
+    name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }} ${{ matrix.newtests_function }}
     runs-on: ubuntu-latest
     env:
       CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
