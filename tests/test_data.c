@@ -10,9 +10,9 @@ typedef struct data_test_config {
 } data_test_config;
 
 static int
-test_data_key_cmp(const data_config *cfg, slice key1, slice key2)
+test_data_key_cmp(const data_config *cfg, user_key key1, user_key key2)
 {
-   return slice_lex_cmp(key1, key2);
+   return slice_lex_cmp(key1.key, key2.key);
 }
 
 void
@@ -107,11 +107,11 @@ test_data_merge_tuples_final(const data_config *cfg,
 
 static void
 test_data_key_to_string(const data_config *cfg,
-                        slice              key,
+                        user_key           key,
                         char              *str,
                         size_t             len)
 {
-   debug_hex_encode(str, len, slice_data(key), slice_length(key));
+   debug_hex_encode(str, len, slice_data(key.key), slice_length(key.key));
 }
 
 static void

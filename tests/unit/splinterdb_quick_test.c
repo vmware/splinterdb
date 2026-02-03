@@ -75,7 +75,7 @@ test_two_step_iterator(splinterdb *kvsb,
                        int         hop_i);
 
 static int
-custom_key_comparator(const data_config *cfg, slice key1, slice key2);
+custom_key_comparator(const data_config *cfg, user_key key1, user_key key2);
 
 typedef struct {
    data_config super;
@@ -1135,12 +1135,12 @@ test_two_step_iterator(splinterdb *kvsb,
 
 // A user-specified spy comparator
 static int
-custom_key_comparator(const data_config *cfg, slice key1, slice key2)
+custom_key_comparator(const data_config *cfg, user_key key1, user_key key2)
 {
-   platform_assert(slice_data(key1) != NULL);
-   platform_assert(slice_data(key2) != NULL);
+   platform_assert(slice_data(key1.key) != NULL);
+   platform_assert(slice_data(key2.key) != NULL);
 
-   int r = slice_lex_cmp(key1, key2);
+   int r = slice_lex_cmp(key1.key, key2.key);
 
    // record that this spy was called
    comparison_counting_data_config *ccfg =

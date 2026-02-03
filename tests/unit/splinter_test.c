@@ -295,7 +295,7 @@ trunk_shadow_append(trunk_shadow *shadow, key tuple_key, message value)
 static key
 shadow_entry_key(const shadow_entry *entry, char *data)
 {
-   return key_create(entry->key_length, data + entry->key_offset);
+   return key_create(FALSE, entry->key_length, data + entry->key_offset);
 }
 
 static message

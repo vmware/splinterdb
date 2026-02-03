@@ -19,19 +19,19 @@ typedef struct ONDISK {
 } message_encoding;
 
 static int
-key_compare(const data_config *cfg, slice key1, slice key2)
+key_compare(const data_config *cfg, user_key key1, user_key key2)
 {
-   platform_assert(slice_data(key1) != NULL);
-   platform_assert(slice_data(key2) != NULL);
+   platform_assert(slice_data(key1.key) != NULL);
+   platform_assert(slice_data(key2.key) != NULL);
 
-   return slice_lex_cmp(key1, key2);
+   return slice_lex_cmp(key1.key, key2.key);
 }
 
 
 static void
-key_to_string(const data_config *cfg, slice key, char *str, size_t max_len)
+key_to_string(const data_config *cfg, user_key key, char *str, size_t max_len)
 {
-   debug_hex_encode(str, max_len, slice_data(key), slice_length(key));
+   debug_hex_encode(str, max_len, slice_data(key.key), slice_length(key.key));
 }
 
 static void

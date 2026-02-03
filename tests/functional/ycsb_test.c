@@ -339,8 +339,8 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               rc =
-                  core_lookup(spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
+               rc = core_lookup(
+                  spl, key_create(TRUE, YCSB_KEY_SIZE, ops->key), &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -358,17 +358,19 @@ ycsb_thread(void *arg)
                message val =
                   message_create(MESSAGE_TYPE_INSERT,
                                  slice_create(YCSB_DATA_SIZE, ops->value));
-               rc = core_insert(spl, key_create(YCSB_KEY_SIZE, ops->key), val);
+               rc = core_insert(
+                  spl, key_create(FALSE, YCSB_KEY_SIZE, ops->key), val);
                platform_assert_status_ok(rc);
                break;
             }
             case 's':
             {
-               rc = core_apply_to_range(spl,
-                                        key_create(YCSB_KEY_SIZE, ops->key),
-                                        ops->range_len,
-                                        nop_tuple_func,
-                                        NULL);
+               rc =
+                  core_apply_to_range(spl,
+                                      key_create(TRUE, YCSB_KEY_SIZE, ops->key),
+                                      ops->range_len,
+                                      nop_tuple_func,
+                                      NULL);
                platform_assert_status_ok(rc);
                break;
             }

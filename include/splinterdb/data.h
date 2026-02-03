@@ -105,7 +105,14 @@ merge_accumulator_set_class(merge_accumulator *ma, message_type type);
 
 typedef struct data_config data_config;
 
-typedef int (*key_compare_fn)(const data_config *cfg, slice key1, slice key2);
+typedef struct user_key {
+   slice  key;
+   bool32 is_query_key;
+} user_key;
+
+typedef int (*key_compare_fn)(const data_config *cfg,
+                              user_key           key1,
+                              user_key           key2);
 
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
@@ -133,7 +140,7 @@ typedef int (*merge_tuple_final_fn)(const data_config *cfg,
                                     merge_accumulator *oldest_message);
 
 typedef void (*key_to_str_fn)(const data_config *cfg,
-                              slice              key,
+                              user_key           key,
                               char              *str,
                               uint64             max_len);
 

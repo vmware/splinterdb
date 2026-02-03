@@ -365,7 +365,7 @@ choose_key(data_config                *cfg,         // IN
       case VERIFY_RANGE_ENDPOINT_EQUAL:
          platform_assert(!is_start && !key_is_null(startkey));
          *index = start_index;
-         key_buffer_copy_slice(keybuf, key_slice(startkey));
+         key_buffer_copy_slice(keybuf, FALSE, key_slice(startkey));
          break;
       case VERIFY_RANGE_ENDPOINT_LESS:
          platform_assert(!is_start && !key_is_null(startkey));

@@ -416,7 +416,7 @@ gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    memset(buffer, 0, keylen);
    uint64 j = i * 23232323731ULL + 99382474567ULL;
    memcpy(buffer, &j, sizeof(j));
-   return key_create(keylen, buffer);
+   return key_create(FALSE, keylen, buffer);
 }
 
 static uint64
@@ -521,7 +521,7 @@ iterator_test(platform_heap_id hid,
       }
 
       seen++;
-      prev = key_create(key_length(curr_key), prevbuf);
+      prev = key_create(FALSE, key_length(curr_key), prevbuf);
       key_copy_contents(prevbuf, curr_key);
 
       if (forwards) {

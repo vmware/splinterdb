@@ -491,7 +491,7 @@ splinterdb_insert_message(splinterdb *kvs,      // IN
                           message     msg       // IN
 )
 {
-   key tuple_key = key_create_from_slice(user_key);
+   key tuple_key = key_create_from_slice(FALSE, user_key);
    platform_assert(kvs != NULL);
    platform_status status = core_insert(&kvs->spl, tuple_key, msg);
    return platform_status_to_int(status);
@@ -606,7 +606,7 @@ splinterdb_lookup(splinterdb               *kvs, // IN
 {
    platform_status            status;
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   key                        target  = key_create_from_slice(user_key);
+   key                        target  = key_create_from_slice(TRUE, user_key);
 
    platform_assert(kvs != NULL);
    status = core_lookup(&kvs->spl, target, &_result->value);
@@ -639,7 +639,7 @@ splinterdb_iterator_init(splinterdb           *kvs,           // IN
    if (slice_is_null(user_start_key)) {
       start_key = NEGATIVE_INFINITY_KEY;
    } else {
-      start_key = key_create_from_slice(user_start_key);
+      start_key = key_create_from_slice(TRUE, user_start_key);
    }
 
    platform_status rc = core_range_iterator_init(&kvs->spl,
