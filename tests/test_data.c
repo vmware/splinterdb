@@ -15,6 +15,12 @@ test_data_key_cmp(const data_config *cfg, user_key key1, user_key key2)
    return slice_lex_cmp(key1.key, key2.key);
 }
 
+static uint32
+test_data_key_hash(const data_config *cfg, user_key key, uint32 seed)
+{
+   return platform_hash32(slice_data(key.key), slice_length(key.key), seed);
+}
+
 void
 test_data_generate_message(const data_config *cfg,
                            message_type       type,
@@ -128,7 +134,7 @@ static data_test_config data_test_config_internal = {
       {
          .max_key_size       = 24,
          .key_compare        = test_data_key_cmp,
-         .key_hash           = platform_hash32,
+         .key_hash           = test_data_key_hash,
          .key_to_string      = test_data_key_to_string,
          .message_to_string  = test_data_message_to_string,
          .merge_tuples       = test_data_merge_tuples,

@@ -439,7 +439,7 @@ CTEST2(splinter, test_lookups)
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       merge_accumulator_set_to_null(&qdata);
 
-      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), NULL, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
@@ -476,7 +476,7 @@ CTEST2(splinter, test_lookups)
 
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
 
-      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), NULL, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,

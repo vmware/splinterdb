@@ -114,7 +114,9 @@ typedef int (*key_compare_fn)(const data_config *cfg,
                               user_key           key1,
                               user_key           key2);
 
-typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
+typedef uint32 (*key_hash_fn)(const data_config *cfg,
+                              user_key           key,
+                              uint32             seed);
 
 // Given two messages, old_message and new_message, merge them
 // and return the result in new_message.

@@ -293,7 +293,7 @@ test_trunk_lookup_thread(void *arg)
                         core_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = core_lookup(spl, key_buffer_key(&keybuf), &data);
+               rc = core_lookup(spl, key_buffer_key(&keybuf), NULL, &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -622,7 +622,7 @@ do_operation(test_splinter_thread_params *params,
                         core_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = core_lookup(spl, key_buffer_key(&keybuf), &msg);
+               rc = core_lookup(spl, key_buffer_key(&keybuf), NULL, &msg);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {

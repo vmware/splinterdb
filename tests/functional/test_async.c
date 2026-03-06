@@ -149,6 +149,7 @@ async_ctxt_submit(core_handle          *spl,
    core_lookup_async_state_init(&ctxt->state,
                                 spl,
                                 key_buffer_key(&ctxt->key),
+                                NULL,
                                 &ctxt->data,
                                 test_async_callback,
                                 ctxt);

@@ -181,7 +181,7 @@ verify_against_shadow(core_handle                *spl,
       if (ctxt == NULL) {
          test_int_to_key(&keybuf, keynum, key_size);
          key target = key_buffer_key(&keybuf);
-         rc         = core_lookup(spl, target, &merge_acc);
+         rc         = core_lookup(spl, target, NULL, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }

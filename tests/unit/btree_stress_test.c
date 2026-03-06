@@ -467,6 +467,7 @@ query_tests(cache           *cc,
                    root_addr,
                    type,
                    gen_key(cfg, i, keybuf, bt_page_size),
+                   NULL,
                    &result);
       if (!btree_found(&result)
           || message_lex_cmp(merge_accumulator_to_message(&result),
@@ -665,7 +666,7 @@ pack_tests(cache           *cc,
 
    platform_status rc = STATUS_TEST_FAILED;
    btree_pack_req  req;
-   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
@@ -674,7 +675,8 @@ pack_tests(cache           *cc,
       CTEST_LOG_INFO("Packed %lu items ", req.num_tuples);
    }
 
+   uint64 packed_root_addr = req.root_addr;
    btree_pack_req_deinit(&req, hid);
 
-   return req.root_addr;
+   return packed_root_addr;
 }

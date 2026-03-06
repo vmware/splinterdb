@@ -2186,8 +2186,10 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
    int64 idx = btree_find_tuple(
       state->cfg, state->node.hdr, state->target, &state->found);
    if (state->found) {
-      state->msg = leaf_entry_message(
-         btree_get_leaf_entry(state->cfg, state->node.hdr, idx));
+      leaf_entry *entry =
+         btree_get_leaf_entry(state->cfg, state->node.hdr, idx);
+      state->found_key = leaf_entry_key(entry);
+      state->msg       = leaf_entry_message(entry);
    } else {
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
@@ -2195,24 +2197,28 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
 }
 
 
-static inline void
+static inline platform_status
 btree_lookup_with_ref(cache              *cc,        // IN
                       const btree_config *cfg,       // IN
                       uint64              root_addr, // IN
                       page_type           type,      // IN
                       key                 target,    // IN
                       btree_node         *node,      // OUT
+                      key                *found_key, // OUT
                       message            *msg,       // OUT
                       bool32             *found)                 // OUT
 {
+   platform_status rc = STATUS_OK;
    btree_lookup_node(cc, cfg, root_addr, target, 0, type, node, NULL);
    int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
    if (*found) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, node->hdr, idx);
+      *found_key        = leaf_entry_key(entry);
       *msg              = leaf_entry_message(entry);
    } else {
       btree_node_unget(cc, cfg, node);
    }
+   return rc;
 }
 
 async_status
@@ -2221,12 +2227,20 @@ btree_lookup_async(btree_lookup_async_state *state)
    async_begin(state, 0);
 
    async_await_subroutine(state, btree_lookup_with_ref_async);
-   bool32 success = TRUE;
+
+   platform_status rc = STATUS_OK;
    if (state->found) {
-      success = merge_accumulator_copy_message(state->result, state->msg);
+      if (state->keybuf != NULL) {
+         rc = key_buffer_copy_key(state->keybuf, state->found_key);
+      }
+      bool32 success =
+         merge_accumulator_copy_message(state->result, state->msg);
+      if (!success) {
+         rc = STATUS_NO_MEMORY;
+      }
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
-   async_return(state, success ? STATUS_OK : STATUS_NO_MEMORY);
+   async_return(state, rc);
 }
 
 
@@ -2236,18 +2250,25 @@ btree_lookup(cache             *cc,        // IN
              uint64             root_addr, // IN
              page_type          type,      // IN
              key                target,    // IN
+             key_buffer        *keybuf,    // OUT
              merge_accumulator *result)    // OUT
 {
    btree_node      node;
+   key             found_key;
    message         data;
    platform_status rc = STATUS_OK;
    bool32          local_found;
 
    btree_lookup_with_ref(
-      cc, cfg, root_addr, type, target, &node, &data, &local_found);
+      cc, cfg, root_addr, type, target, &node, &found_key, &data, &local_found);
    if (local_found) {
+      if (keybuf != NULL) {
+         rc = key_buffer_copy_key(keybuf, found_key);
+      }
       bool32 success = merge_accumulator_copy_message(result, data);
-      rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
+      if (!success) {
+         rc = STATUS_NO_MEMORY;
+      }
       btree_node_unget(cc, cfg, &node);
    }
    return rc;
@@ -2259,21 +2280,35 @@ btree_lookup_and_merge(cache              *cc,        // IN
                        uint64              root_addr, // IN
                        page_type           type,      // IN
                        key                 target,    // IN
+                       key_buffer         *keybuf,    // OUT
                        merge_accumulator  *data,      // OUT
                        bool32             *local_found)           // OUT
 {
    btree_node      node;
+   key             found_key;
    message         local_data;
    platform_status rc = STATUS_OK;
 
    log_trace_key(target, "btree_lookup");
 
-   btree_lookup_with_ref(
-      cc, cfg, root_addr, type, target, &node, &local_data, local_found);
+   btree_lookup_with_ref(cc,
+                         cfg,
+                         root_addr,
+                         type,
+                         target,
+                         &node,
+                         &found_key,
+                         &local_data,
+                         local_found);
    if (*local_found) {
+      if (keybuf != NULL) {
+         rc = key_buffer_copy_key(keybuf, found_key);
+      }
       if (merge_accumulator_is_null(data)) {
          bool32 success = merge_accumulator_copy_message(data, local_data);
-         rc             = success ? STATUS_OK : STATUS_NO_MEMORY;
+         if (!success) {
+            rc = STATUS_NO_MEMORY;
+         }
       } else if (btree_merge_tuples(cfg, target, local_data, data)) {
          rc = STATUS_NO_MEMORY;
       }
@@ -2313,10 +2348,15 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state)
 
    platform_status rc = STATUS_OK;
    if (state->found) {
+      if (state->keybuf != NULL) {
+         rc = key_buffer_copy_key(state->keybuf, state->found_key);
+      }
       if (merge_accumulator_is_null(state->result)) {
          bool32 success =
             merge_accumulator_copy_message(state->result, state->msg);
-         rc = success ? STATUS_OK : STATUS_NO_MEMORY;
+         if (!success) {
+            rc = STATUS_NO_MEMORY;
+         }
       } else if (btree_merge_tuples(
                     state->cfg, state->target, state->msg, state->result))
       {
@@ -3057,10 +3097,10 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    log_trace_key(tuple_key, "btree_pack_loop (bottom)");
 
-   if (req->hash) {
+   if (req->cfg->data_cfg->key_hash != NULL) {
       platform_assert(req->num_tuples < req->max_tuples);
       req->fingerprint_arr[req->num_tuples] =
-         req->hash(key_data(tuple_key), key_length(tuple_key), req->seed);
+         data_key_hash(req->cfg->data_cfg, tuple_key, req->seed);
    }
 
    req->num_tuples++;

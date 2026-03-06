@@ -60,7 +60,7 @@ test_filter_basic(cache           *cc,
             num_input_keys[i]++;
          }
          *keybuf      = (i + 1) * j;
-         fp_arr[i][j] = cfg->hash(keybuf, key_size, cfg->seed);
+         fp_arr[i][j] = data_key_hash(cfg->data_cfg, target, cfg->seed);
       }
    }
 
@@ -171,7 +171,7 @@ test_filter_perf(cache           *cc,
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx  = k * num_values * num_fingerprints + i;
          *keybuf     = idx;
-         fp_arr[idx] = cfg->hash(keybuf, key_size, cfg->seed);
+         fp_arr[idx] = data_key_hash(cfg->data_cfg, target, cfg->seed);
       }
    }
 

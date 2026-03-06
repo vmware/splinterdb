@@ -36,7 +36,6 @@ typedef struct routing_config {
    uint32        index_size;
    uint32        log_index_size;
 
-   hash_fn      hash;
    unsigned int seed;
 } routing_config;
 
@@ -46,7 +45,7 @@ routing_config_init(routing_config *cfg,
                     data_config    *data_cfg,
                     uint32          fingerprint_size,
                     uint32          log_index_size,
-                    hash_fn         hash,
+                    key_hash_fn     hash,
                     unsigned int    seed)
 {
    cfg->cache_cfg        = cache_cfg;
@@ -54,7 +53,6 @@ routing_config_init(routing_config *cfg,
    cfg->fingerprint_size = fingerprint_size;
    cfg->index_size       = 1UL << log_index_size;
    cfg->log_index_size   = log_index_size;
-   cfg->hash             = hash;
    cfg->seed             = seed;
    return STATUS_OK;
 }

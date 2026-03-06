@@ -27,6 +27,12 @@ key_compare(const data_config *cfg, user_key key1, user_key key2)
    return slice_lex_cmp(key1.key, key2.key);
 }
 
+static uint32
+key_hash(const data_config *cfg, user_key key, uint32 seed)
+{
+   platform_assert(slice_data(key.key) != NULL);
+   return platform_hash32(slice_data(key.key), slice_length(key.key), seed);
+}
 
 static void
 key_to_string(const data_config *cfg, user_key key, char *str, size_t max_len)
@@ -56,7 +62,7 @@ default_data_config_init(const size_t max_key_size, // IN
    data_config cfg = {
       .max_key_size       = max_key_size,
       .key_compare        = key_compare,
-      .key_hash           = platform_hash32,
+      .key_hash           = key_hash,
       .merge_tuples       = NULL,
       .merge_tuples_final = NULL,
       .key_to_string      = key_to_string,

@@ -340,7 +340,7 @@ ycsb_thread(void *arg)
             case 'r':
             {
                rc = core_lookup(
-                  spl, key_create(TRUE, YCSB_KEY_SIZE, ops->key), &value);
+                  spl, key_create(TRUE, YCSB_KEY_SIZE, ops->key), NULL, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];

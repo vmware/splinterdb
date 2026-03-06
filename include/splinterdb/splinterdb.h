@@ -187,7 +187,7 @@ splinterdb_update(splinterdb *kvsb, slice key, slice delta);
 // Lookups
 
 // Size of opaque data required to hold a lookup result
-#define SPLINTERDB_LOOKUP_BUFSIZE (10 * sizeof(void *))
+#define SPLINTERDB_LOOKUP_BUFSIZE (18 * sizeof(void *))
 
 // A lookup result is stored and parsed from here
 //
@@ -239,6 +239,10 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
                                slice                          *value   // OUT
 );
 
+int
+splinterdb_lookup_result_key(const splinterdb_lookup_result *result, // IN
+                             slice                          *key     // OUT
+);
 
 // Lookup the message for a given key
 //

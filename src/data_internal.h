@@ -163,6 +163,12 @@ key_buffer_key(const key_buffer *kb)
    }
 }
 
+static inline bool32
+key_buffer_is_null(key_buffer *kb)
+{
+   return kb->kind == USER_KEY && writable_buffer_is_null(&kb->wb);
+}
+
 static inline void
 key_buffer_init(key_buffer *kb, platform_heap_id hid)
 {
@@ -582,7 +588,8 @@ static inline uint32
 data_key_hash(const data_config *cfg, key k, uint32 seed)
 {
    if (key_is_user_key(k)) {
-      return cfg->key_hash(key_data(k), key_length(k), seed);
+      user_key arg = {.key = k.user_slice, .is_query_key = k.is_query_key};
+      return cfg->key_hash(cfg, arg, seed);
    } else {
       return seed * (uint32)k.kind;
    }
