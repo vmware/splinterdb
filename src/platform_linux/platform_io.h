@@ -35,7 +35,7 @@ struct iovec;
    (IO_DEFAULT_PAGES_PER_EXTENT * IO_DEFAULT_PAGE_SIZE)
 
 #define IO_DEFAULT_FLAGS             (O_RDWR | O_CREAT)
-#define IO_DEFAULT_PERMS             (0755)
+#define IO_DEFAULT_PERMS             (0600)
 #define IO_DEFAULT_KERNEL_QUEUE_SIZE (256)
 #define IO_DEFAULT_ASYNC_QUEUE_DEPTH (256)
 
