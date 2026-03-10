@@ -3097,7 +3097,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    log_trace_key(tuple_key, "btree_pack_loop (bottom)");
 
-   if (req->cfg->data_cfg->key_hash != NULL) {
+   if (req->max_tuples > 0 && req->cfg->data_cfg->key_hash != NULL) {
       platform_assert(req->num_tuples < req->max_tuples);
       req->fingerprint_arr[req->num_tuples] =
          data_key_hash(req->cfg->data_cfg, tuple_key, req->seed);
@@ -3153,7 +3153,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
 static bool32
 btree_pack_can_fit_tuple(btree_pack_req *req, key tuple_key, message data)
 {
-   return req->num_tuples < req->max_tuples;
+   return req->max_tuples == 0 || req->num_tuples < req->max_tuples;
 }
 
 static void

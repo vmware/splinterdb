@@ -73,6 +73,7 @@ platform_aligned_malloc(const platform_heap_id heap_id,
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
+   platform_assert(size <= size + alignment - 1);
    size_t aligned_size = (size + alignment - 1) & ~((uintptr_t)alignment - 1);
 
    if (heap_id) {
