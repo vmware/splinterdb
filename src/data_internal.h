@@ -172,7 +172,8 @@ key_buffer_is_null(key_buffer *kb)
 static inline void
 key_buffer_init(key_buffer *kb, platform_heap_id hid)
 {
-   kb->kind = USER_KEY;
+   kb->kind         = USER_KEY;
+   kb->is_query_key = FALSE;
    writable_buffer_init(&kb->wb, hid);
    writable_buffer_resize(&kb->wb, 0);
 }
