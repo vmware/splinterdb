@@ -446,7 +446,6 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
                        spl->cfg.btree_cfg,
                        itor,
                        rflimit,
-                       rfcfg->hash,
                        rfcfg->seed,
                        spl->heap_id);
    uint64 pack_start;
@@ -708,6 +707,7 @@ static platform_status
 core_memtable_lookup(core_handle       *spl,
                      uint64             generation,
                      key                target,
+                     key_buffer        *keybuf,
                      merge_accumulator *data)
 {
    cache *const        cc  = spl->cc;
@@ -721,7 +721,7 @@ core_memtable_lookup(core_handle       *spl,
    bool32          local_found;
 
    rc = btree_lookup_and_merge(
-      cc, cfg, root_addr, type, target, data, &local_found);
+      cc, cfg, root_addr, type, target, keybuf, data, &local_found);
    return rc;
 }
 
@@ -1286,7 +1286,10 @@ out:
 // If any change is made in here, please make similar change in
 // core_lookup_async
 platform_status
-core_lookup(core_handle *spl, key target, merge_accumulator *result)
+core_lookup(core_handle       *spl,
+            key                target,
+            key_buffer        *keybuf,
+            merge_accumulator *result)
 {
    // look in memtables
 
@@ -1294,6 +1297,11 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
    //     --- 2. for [mt_no = mt->generation..mt->gen_to_incorp]
    // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
    //                also handles switch to READY ^^^^^
+
+   if (keybuf != NULL) {
+      platform_status rc = key_buffer_copy_key(keybuf, NULL_KEY);
+      platform_assert_status_ok(rc); // should never fail
+   }
 
    merge_accumulator_set_to_null(result);
 
@@ -1304,8 +1312,14 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
-      rc = core_memtable_lookup(spl, mt_gen, target, result);
+      rc = core_memtable_lookup(spl, mt_gen, target, keybuf, result);
       platform_assert_status_ok(rc);
+      if (keybuf != NULL && !key_buffer_is_null(keybuf)) {
+         // Once we find a matching message, that is the key that we will
+         // return, so NULL out our reference to the key buffer so that we don't
+         // modify it further.
+         keybuf = NULL;
+      }
       if (merge_accumulator_is_definitive(result)) {
          memtable_end_lookup(&spl->mt_ctxt);
          goto found_final_answer_early;
@@ -1323,7 +1337,7 @@ core_lookup(core_handle *spl, key target, merge_accumulator *result)
 
 
    rc = trunk_merge_lookup(
-      &spl->trunk_context, &root_handle, target, result, NULL);
+      &spl->trunk_context, &root_handle, target, keybuf, result, NULL);
    trunk_ondisk_node_handle_deinit(&root_handle);
    if (!SUCCESS(rc)) {
       return rc;
@@ -1376,9 +1390,15 @@ core_lookup_async(core_lookup_async_state *state)
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
-      rc =
-         core_memtable_lookup(state->spl, mt_gen, state->target, state->result);
+      rc = core_memtable_lookup(
+         state->spl, mt_gen, state->target, state->keybuf, state->result);
       platform_assert_status_ok(rc);
+      if (state->keybuf != NULL && !key_buffer_is_null(state->keybuf)) {
+         // Once we find a matching message, that is the key that we will
+         // return, so NULL out our reference to the key buffer so that we don't
+         // modify it further.
+         state->keybuf = NULL;
+      }
       if (merge_accumulator_is_definitive(state->result)) {
          memtable_end_lookup(&state->spl->mt_ctxt);
          goto found_final_answer_early;
@@ -1399,6 +1419,7 @@ core_lookup_async(core_lookup_async_state *state)
                     &state->spl->trunk_context,
                     &state->root_handle,
                     state->target,
+                    state->keybuf,
                     state->result,
                     NULL,
                     state->callback,
@@ -1513,11 +1534,10 @@ core_mkfs(core_handle      *spl,
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }
 
-   // ALEX: For now we assume an init means destroying any present super blocks
-   core_set_super_block(spl, FALSE, FALSE, TRUE);
-
    trunk_context_init(
       &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
+
+   core_set_super_block(spl, FALSE, FALSE, TRUE);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -1932,6 +1952,8 @@ core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl)
 void
 core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
 {
+   key_buffer keybuf;
+   key_buffer_init(&keybuf, PROCESS_PRIVATE_HEAP_ID);
    merge_accumulator data;
    merge_accumulator_init(&data, PROCESS_PRIVATE_HEAP_ID);
 
@@ -1950,13 +1972,14 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
                         root_addr,
                         PAGE_TYPE_MEMTABLE,
                         target,
+                        &keybuf,
                         &data);
       platform_assert_status_ok(rc);
       if (!merge_accumulator_is_null(&data)) {
          char    key_str[128];
          char    message_str[128];
          message msg = merge_accumulator_to_message(&data);
-         core_key_to_string(spl, target, key_str);
+         core_key_to_string(spl, key_buffer_key(&keybuf), key_str);
          core_message_to_string(spl, msg, message_str);
          platform_log_stream(
             &stream,
@@ -1973,7 +1996,8 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
 
    trunk_ondisk_node_handle handle;
    trunk_init_root_handle(&spl->trunk_context, &handle);
-   trunk_merge_lookup(&spl->trunk_context, &handle, target, &data, log_handle);
+   trunk_merge_lookup(
+      &spl->trunk_context, &handle, target, &keybuf, &data, log_handle);
    trunk_ondisk_node_handle_deinit(&handle);
 }
 

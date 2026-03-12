@@ -49,7 +49,7 @@ test_filter_basic(cache           *cc,
    writable_buffer_resize(&keywb, key_size);
    writable_buffer_memset(&keywb, 0);
    uint64 *keybuf = writable_buffer_data(&keywb);
-   key     target = key_create(key_size, keybuf);
+   key     target = key_create(TRUE, key_size, keybuf);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
          num_input_keys[i] = num_input_keys[i - 1];
@@ -60,7 +60,7 @@ test_filter_basic(cache           *cc,
             num_input_keys[i]++;
          }
          *keybuf      = (i + 1) * j;
-         fp_arr[i][j] = cfg->hash(keybuf, key_size, cfg->seed);
+         fp_arr[i][j] = data_key_hash(cfg->data_cfg, target, cfg->seed);
       }
    }
 
@@ -166,12 +166,12 @@ test_filter_perf(cache           *cc,
    writable_buffer_resize(&keywb, key_size);
    writable_buffer_memset(&keywb, 0);
    uint64 *keybuf = writable_buffer_data(&keywb);
-   key     target = key_create(key_size, keybuf);
+   key     target = key_create(TRUE, key_size, keybuf);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx  = k * num_values * num_fingerprints + i;
          *keybuf     = idx;
-         fp_arr[idx] = cfg->hash(keybuf, key_size, cfg->seed);
+         fp_arr[idx] = data_key_hash(cfg->data_cfg, target, cfg->seed);
       }
    }
 

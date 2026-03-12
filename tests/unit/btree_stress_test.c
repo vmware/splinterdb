@@ -416,7 +416,7 @@ gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    memset(buffer, 0, keylen);
    uint64 j = i * 23232323731ULL + 99382474567ULL;
    memcpy(buffer, &j, sizeof(j));
-   return key_create(keylen, buffer);
+   return key_create(FALSE, keylen, buffer);
 }
 
 static uint64
@@ -467,6 +467,7 @@ query_tests(cache           *cc,
                    root_addr,
                    type,
                    gen_key(cfg, i, keybuf, bt_page_size),
+                   NULL,
                    &result);
       if (!btree_found(&result)
           || message_lex_cmp(merge_accumulator_to_message(&result),
@@ -521,7 +522,7 @@ iterator_test(platform_heap_id hid,
       }
 
       seen++;
-      prev = key_create(key_length(curr_key), prevbuf);
+      prev = key_create(FALSE, key_length(curr_key), prevbuf);
       key_copy_contents(prevbuf, curr_key);
 
       if (forwards) {
@@ -665,7 +666,7 @@ pack_tests(cache           *cc,
 
    platform_status rc = STATUS_TEST_FAILED;
    btree_pack_req  req;
-   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
@@ -674,7 +675,8 @@ pack_tests(cache           *cc,
       CTEST_LOG_INFO("Packed %lu items ", req.num_tuples);
    }
 
+   uint64 packed_root_addr = req.root_addr;
    btree_pack_req_deinit(&req, hid);
 
-   return req.root_addr;
+   return packed_root_addr;
 }

@@ -897,8 +897,8 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
       async_return(state, STATUS_OK);
    }
 
-   state->fp = state->cfg->hash(
-      key_data(state->target), key_length(state->target), state->cfg->seed);
+   state->fp =
+      data_key_hash(state->cfg->data_cfg, state->target, state->cfg->seed);
    state->fp >>= 32 - state->cfg->fingerprint_size;
    uint32 log_num_buckets = 31 - __builtin_clz(state->filter.num_fingerprints);
    if (log_num_buckets < state->cfg->log_index_size) {
@@ -998,11 +998,10 @@ routing_filter_lookup(cache                *cc,
       return STATUS_OK;
    }
 
-   hash_fn hash       = cfg->hash;
-   uint64  seed       = cfg->seed;
-   uint64  index_size = cfg->index_size;
+   uint64 seed       = cfg->seed;
+   uint64 index_size = cfg->index_size;
 
-   uint32 fp = hash(key_data(target), key_length(target), seed);
+   uint32 fp = data_key_hash(cfg->data_cfg, target, seed);
    fp >>= 32 - cfg->fingerprint_size;
    size_t value_size      = filter->value_size;
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);

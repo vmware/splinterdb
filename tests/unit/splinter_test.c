@@ -295,7 +295,7 @@ trunk_shadow_append(trunk_shadow *shadow, key tuple_key, message value)
 static key
 shadow_entry_key(const shadow_entry *entry, char *data)
 {
-   return key_create(entry->key_length, data + entry->key_offset);
+   return key_create(FALSE, entry->key_length, data + entry->key_offset);
 }
 
 static message
@@ -439,7 +439,7 @@ CTEST2(splinter, test_lookups)
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       merge_accumulator_set_to_null(&qdata);
 
-      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), NULL, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
@@ -476,7 +476,7 @@ CTEST2(splinter, test_lookups)
 
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
 
-      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), NULL, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,

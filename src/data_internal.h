@@ -35,14 +35,20 @@ typedef enum {
 
 typedef struct key {
    key_type kind;
+   bool32   is_query_key;
    slice    user_slice;
 } key;
 
 #define NEGATIVE_INFINITY_KEY                                                  \
-   ((key){.kind = NEGATIVE_INFINITY, .user_slice = INVALID_SLICE})
+   ((key){.kind         = NEGATIVE_INFINITY,                                   \
+          .is_query_key = FALSE,                                               \
+          .user_slice   = INVALID_SLICE})
 #define POSITIVE_INFINITY_KEY                                                  \
-   ((key){.kind = POSITIVE_INFINITY, .user_slice = INVALID_SLICE})
-#define NULL_KEY ((key){.kind = USER_KEY, .user_slice = NULL_SLICE})
+   ((key){.kind         = POSITIVE_INFINITY,                                   \
+          .is_query_key = FALSE,                                               \
+          .user_slice   = INVALID_SLICE})
+#define NULL_KEY                                                               \
+   ((key){.kind = USER_KEY, .is_query_key = FALSE, .user_slice = NULL_SLICE})
 
 static inline bool32
 key_is_negative_infinity(key k)
@@ -62,6 +68,12 @@ key_is_user_key(key k)
    return k.kind == USER_KEY;
 }
 
+static inline bool32
+key_is_query_key(key k)
+{
+   return k.is_query_key;
+}
+
 static inline slice
 key_slice(key k)
 {
@@ -70,15 +82,18 @@ key_slice(key k)
 }
 
 static inline key
-key_create_from_slice(slice user_slice)
+key_create_from_slice(bool32 is_query_key, slice user_slice)
 {
-   return (key){.kind = USER_KEY, .user_slice = user_slice};
+   return (key){
+      .kind = USER_KEY, .is_query_key = is_query_key, .user_slice = user_slice};
 }
 
 static inline key
-key_create(uint64 length, const void *data)
+key_create(bool32 is_query_key, uint64 length, const void *data)
 {
-   return (key){.kind = USER_KEY, .user_slice = slice_create(length, data)};
+   return (key){.kind         = USER_KEY,
+                .is_query_key = is_query_key,
+                .user_slice   = slice_create(length, data)};
 }
 
 static inline bool32
@@ -127,6 +142,7 @@ key_copy_contents(void *dst, key k)
 #define DEFAULT_KEY_BUFFER_SIZE (128)
 typedef struct {
    key_type        kind;
+   bool32          is_query_key;
    writable_buffer wb;
 } key_buffer;
 
@@ -142,22 +158,31 @@ key_buffer_key(const key_buffer *kb)
    } else if (kb->kind == POSITIVE_INFINITY) {
       return POSITIVE_INFINITY_KEY;
    } else {
-      return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
+      return key_create_from_slice(kb->is_query_key,
+                                   writable_buffer_to_slice(&kb->wb));
    }
+}
+
+static inline bool32
+key_buffer_is_null(key_buffer *kb)
+{
+   return kb->kind == USER_KEY && writable_buffer_is_null(&kb->wb);
 }
 
 static inline void
 key_buffer_init(key_buffer *kb, platform_heap_id hid)
 {
-   kb->kind = USER_KEY;
+   kb->kind         = USER_KEY;
+   kb->is_query_key = FALSE;
    writable_buffer_init(&kb->wb, hid);
    writable_buffer_resize(&kb->wb, 0);
 }
 
 static inline platform_status
-key_buffer_copy_slice(key_buffer *kb, slice src)
+key_buffer_copy_slice(key_buffer *kb, bool32 is_query_key, slice src)
 {
-   kb->kind = USER_KEY;
+   kb->kind         = USER_KEY;
+   kb->is_query_key = is_query_key;
    return writable_buffer_copy_slice(&kb->wb, src);
 }
 
@@ -169,7 +194,7 @@ key_buffer_copy_key(key_buffer *kb, key src)
    } else if (key_is_positive_infinity(src)) {
       kb->kind = POSITIVE_INFINITY;
    } else {
-      return key_buffer_copy_slice(kb, key_slice(src));
+      return key_buffer_copy_slice(kb, src.is_query_key, key_slice(src));
    }
    return STATUS_OK;
 }
@@ -270,7 +295,7 @@ ondisk_key_to_key(const ondisk_key *odk)
    } else if (odk->length == ONDISK_KEY_POSITIVE_INFINITY) {
       return POSITIVE_INFINITY_KEY;
    } else {
-      return key_create(odk->length, odk->bytes);
+      return key_create(FALSE, odk->length, odk->bytes);
    }
 }
 
@@ -417,7 +442,7 @@ ondisk_tuple_required_data_capacity(key k, message msg)
 static inline key
 ondisk_tuple_key(const ondisk_tuple *odt)
 {
-   return key_create(odt->key_length, odt->key_and_message);
+   return key_create(FALSE, odt->key_length, odt->key_and_message);
 }
 
 static inline message_type
@@ -550,7 +575,11 @@ static inline int
 data_key_compare(const data_config *cfg, key key1, key key2)
 {
    if (key_is_user_key(key1) && key_is_user_key(key2)) {
-      return cfg->key_compare(cfg, key1.user_slice, key2.user_slice);
+      user_key user_key1 = {.key          = key1.user_slice,
+                            .is_query_key = key1.is_query_key};
+      user_key user_key2 = {.key          = key2.user_slice,
+                            .is_query_key = key2.is_query_key};
+      return cfg->key_compare(cfg, user_key1, user_key2);
    } else {
       return (int)key1.kind - (int)key2.kind;
    }
@@ -560,7 +589,8 @@ static inline uint32
 data_key_hash(const data_config *cfg, key k, uint32 seed)
 {
    if (key_is_user_key(k)) {
-      return cfg->key_hash(key_data(k), key_length(k), seed);
+      user_key arg = {.key = k.user_slice, .is_query_key = k.is_query_key};
+      return cfg->key_hash(cfg, arg, seed);
    } else {
       return seed * (uint32)k.kind;
    }
@@ -573,6 +603,7 @@ data_merge_tuples(const data_config *cfg,
                   merge_accumulator *new_message)
 {
    debug_assert(key_is_user_key(tuple_key));
+   debug_assert(!key_is_query_key(tuple_key));
 
    if (merge_accumulator_is_definitive(new_message)) {
       return 0;
@@ -600,6 +631,7 @@ data_merge_tuples_final(const data_config *cfg,
                         merge_accumulator *oldest_message)
 {
    debug_assert(key_is_user_key(tuple_key));
+   debug_assert(!key_is_query_key(tuple_key));
 
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
@@ -623,7 +655,8 @@ data_key_to_string(const data_config *cfg, key k, char *str, size_t size)
    } else if (key_is_positive_infinity(k)) {
       snprintf(str, size, "(positive_infinity)");
    } else {
-      cfg->key_to_string(cfg, k.user_slice, str, size);
+      user_key user_key = {.key = k.user_slice, .is_query_key = k.is_query_key};
+      cfg->key_to_string(cfg, user_key, str, size);
    }
 }
 

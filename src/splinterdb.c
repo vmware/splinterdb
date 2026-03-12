@@ -491,7 +491,7 @@ splinterdb_insert_message(splinterdb *kvs,      // IN
                           message     msg       // IN
 )
 {
-   key tuple_key = key_create_from_slice(user_key);
+   key tuple_key = key_create_from_slice(FALSE, user_key);
    platform_assert(kvs != NULL);
    platform_status status = core_insert(&kvs->spl, tuple_key, msg);
    return platform_status_to_int(status);
@@ -524,6 +524,7 @@ splinterdb_update(splinterdb *kvsb, slice user_key, slice update)
  *-----------------------------------------------------------------------------
  */
 typedef struct {
+   key_buffer        keybuf;
    merge_accumulator value;
 } _splinterdb_lookup_result;
 
@@ -543,8 +544,9 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
 )
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
+   key_buffer_init(&_result->keybuf, PROCESS_PRIVATE_HEAP_ID);
    merge_accumulator_init_with_buffer(&_result->value,
-                                      NULL,
+                                      PROCESS_PRIVATE_HEAP_ID,
                                       buffer_len,
                                       buffer,
                                       WRITABLE_BUFFER_NULL_LENGTH,
@@ -579,6 +581,20 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
    return 0;
 }
 
+int
+splinterdb_lookup_result_key(const splinterdb_lookup_result *result, // IN
+                             slice                          *key)
+{
+   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
+
+   if (!splinterdb_lookup_found(result)) {
+      return EINVAL;
+   }
+
+   *key = key_slice(key_buffer_key(&_result->keybuf));
+   return 0;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * splinterdb_lookup --
@@ -606,10 +622,10 @@ splinterdb_lookup(splinterdb               *kvs, // IN
 {
    platform_status            status;
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   key                        target  = key_create_from_slice(user_key);
+   key                        target  = key_create_from_slice(TRUE, user_key);
 
    platform_assert(kvs != NULL);
-   status = core_lookup(&kvs->spl, target, &_result->value);
+   status = core_lookup(&kvs->spl, target, &_result->keybuf, &_result->value);
    return platform_status_to_int(status);
 }
 
@@ -639,7 +655,7 @@ splinterdb_iterator_init(splinterdb           *kvs,           // IN
    if (slice_is_null(user_start_key)) {
       start_key = NEGATIVE_INFINITY_KEY;
    } else {
-      start_key = key_create_from_slice(user_start_key);
+      start_key = key_create_from_slice(TRUE, user_start_key);
    }
 
    platform_status rc = core_range_iterator_init(&kvs->spl,

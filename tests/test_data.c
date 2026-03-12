@@ -10,9 +10,15 @@ typedef struct data_test_config {
 } data_test_config;
 
 static int
-test_data_key_cmp(const data_config *cfg, slice key1, slice key2)
+test_data_key_cmp(const data_config *cfg, user_key key1, user_key key2)
 {
-   return slice_lex_cmp(key1, key2);
+   return slice_lex_cmp(key1.key, key2.key);
+}
+
+static uint32
+test_data_key_hash(const data_config *cfg, user_key key, uint32 seed)
+{
+   return platform_hash32(slice_data(key.key), slice_length(key.key), seed);
 }
 
 void
@@ -107,11 +113,11 @@ test_data_merge_tuples_final(const data_config *cfg,
 
 static void
 test_data_key_to_string(const data_config *cfg,
-                        slice              key,
+                        user_key           key,
                         char              *str,
                         size_t             len)
 {
-   debug_hex_encode(str, len, slice_data(key), slice_length(key));
+   debug_hex_encode(str, len, slice_data(key.key), slice_length(key.key));
 }
 
 static void
@@ -128,7 +134,7 @@ static data_test_config data_test_config_internal = {
       {
          .max_key_size       = 24,
          .key_compare        = test_data_key_cmp,
-         .key_hash           = platform_hash32,
+         .key_hash           = test_data_key_hash,
          .key_to_string      = test_data_key_to_string,
          .message_to_string  = test_data_message_to_string,
          .merge_tuples       = test_data_merge_tuples,

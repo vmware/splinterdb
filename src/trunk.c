@@ -3469,7 +3469,6 @@ bundle_compaction_task(task *arg)
                        context->cfg->btree_cfg,
                        &merger.merge_itor->super,
                        tuple_bound,
-                       context->cfg->filter_cfg->hash,
                        context->cfg->filter_cfg->seed,
                        context->hid);
 
@@ -5123,6 +5122,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
                                  uint64               height,
                                  trunk_ondisk_bundle *bndl,
                                  key                  tgt,
+                                 key_buffer          *keybuf,
                                  merge_accumulator   *result,
                                  platform_log_handle *log)
 {
@@ -5169,6 +5169,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
                                   branch_ref_addr(bndl->branches[idx]),
                                   trunk_ondisk_bundle_branch_type(bndl),
                                   tgt,
+                                  keybuf,
                                   result,
                                   &local_found);
       if (!SUCCESS(rc)) {
@@ -5185,6 +5186,9 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
          }
       }
 
+      if (keybuf != NULL && !key_buffer_is_null(keybuf)) {
+         keybuf = NULL;
+      }
 
       if (!log && merge_accumulator_is_definitive(result)) {
          return STATUS_OK;
@@ -5192,12 +5196,15 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
 
       if (log) {
          merge_accumulator ma;
+         key_buffer        kb;
+         key_buffer_init(&kb, PROCESS_PRIVATE_HEAP_ID);
          merge_accumulator_init(&ma, PROCESS_PRIVATE_HEAP_ID);
          rc = btree_lookup_and_merge(context->cc,
                                      context->cfg->btree_cfg,
                                      branch_ref_addr(bndl->branches[idx]),
                                      trunk_ondisk_bundle_branch_type(bndl),
                                      tgt,
+                                     &kb,
                                      &ma,
                                      &local_found);
          platform_log(log,
@@ -5205,11 +5212,15 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
                       branch_ref_addr(bndl->branches[idx]),
                       local_found);
          if (local_found) {
+            key     ky  = key_buffer_key(&kb);
             message msg = merge_accumulator_to_message(&ma);
-            platform_log(
-               log, "msg: %s\n", message_string(context->cfg->data_cfg, msg));
+            platform_log(log,
+                         "key: %s msg: %s\n",
+                         key_string(context->cfg->data_cfg, ky),
+                         message_string(context->cfg->data_cfg, msg));
          }
          merge_accumulator_deinit(&ma);
+         key_buffer_deinit(&kb);
       }
    }
 
@@ -5272,6 +5283,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
                        branch_ref_addr(state->bndl->branches[state->idx]),
                        trunk_ondisk_bundle_branch_type(state->bndl),
                        state->tgt,
+                       state->keybuf,
                        state->result,
                        state->callback,
                        state->callback_arg);
@@ -5290,14 +5302,18 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
          }
       }
 
-
+      if (state->keybuf != NULL && !key_buffer_is_null(state->keybuf)) {
+         state->keybuf = NULL;
+      }
       if (!state->log && merge_accumulator_is_definitive(state->result)) {
          async_return(state);
       }
 
       if (state->log) {
          merge_accumulator ma;
-         merge_accumulator_init(&ma, state->context->hid);
+         key_buffer        kb;
+         key_buffer_init(&kb, PROCESS_PRIVATE_HEAP_ID);
+         merge_accumulator_init(&ma, PROCESS_PRIVATE_HEAP_ID);
          // Not bothering to make the logging paths async
          platform_status rc = btree_lookup_and_merge(
             state->context->cc,
@@ -5305,6 +5321,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
             branch_ref_addr(state->bndl->branches[state->idx]),
             trunk_ondisk_bundle_branch_type(state->bndl),
             state->tgt,
+            &kb,
             &ma,
             &state->btree_state.found);
          platform_assert_status_ok(rc);
@@ -5313,12 +5330,15 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
                       branch_ref_addr(state->bndl->branches[state->idx]),
                       state->btree_state.found);
          if (state->btree_state.found) {
+            key     ky  = key_buffer_key(&kb);
             message msg = merge_accumulator_to_message(&ma);
             platform_log(state->log,
-                         "msg: %s\n",
+                         "key: %s msg: %s\n",
+                         key_string(state->context->cfg->data_cfg, ky),
                          message_string(state->context->cfg->data_cfg, msg));
          }
          merge_accumulator_deinit(&ma);
+         key_buffer_deinit(&kb);
       }
    }
 
@@ -5329,6 +5349,7 @@ platform_status
 trunk_merge_lookup(trunk_context            *context,
                    trunk_ondisk_node_handle *inhandle,
                    key                       tgt,
+                   key_buffer               *keybuf,
                    merge_accumulator        *result,
                    platform_log_handle      *log)
 {
@@ -5384,12 +5405,15 @@ trunk_merge_lookup(trunk_context            *context,
       }
       for (uint64 i = 0; i < pivot->num_live_inflight_bundles; i++) {
          rc = trunk_ondisk_bundle_merge_lookup(
-            context, height, bndl, tgt, result, log);
+            context, height, bndl, tgt, keybuf, result, log);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "ondisk_bundle_merge_lookup failed: %d\n",
                                rc.r);
             goto cleanup;
+         }
+         if (keybuf != NULL && !key_buffer_is_null(keybuf)) {
+            keybuf = NULL;
          }
          if (merge_accumulator_is_definitive(result)) {
             goto cleanup;
@@ -5402,12 +5426,15 @@ trunk_merge_lookup(trunk_context            *context,
       // Search the pivot bundle
       bndl = trunk_ondisk_pivot_bundle(pivot);
       rc   = trunk_ondisk_bundle_merge_lookup(
-         context, height, bndl, tgt, result, log);
+         context, height, bndl, tgt, keybuf, result, log);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
                             "ondisk_bundle_merge_lookup failed: %d\n",
                             rc.r);
          goto cleanup;
+      }
+      if (keybuf != NULL && !key_buffer_is_null(keybuf)) {
+         keybuf = NULL;
       }
       if (!log && merge_accumulator_is_definitive(result)) {
          goto cleanup;
@@ -5510,6 +5537,9 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
                                state->rc.r);
             goto cleanup;
          }
+         if (state->keybuf != NULL && !key_buffer_is_null(state->keybuf)) {
+            state->keybuf = NULL;
+         }
          if (merge_accumulator_is_definitive(state->result)) {
             goto cleanup;
          }
@@ -5536,6 +5566,9 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
                             "ondisk_bundle_merge_lookup_async failed: %d\n",
                             state->rc.r);
          goto cleanup;
+      }
+      if (state->keybuf != NULL && !key_buffer_is_null(state->keybuf)) {
+         state->keybuf = NULL;
       }
       if (!state->log && merge_accumulator_is_definitive(state->result)) {
          goto cleanup;

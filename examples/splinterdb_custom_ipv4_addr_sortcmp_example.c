@@ -100,7 +100,7 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
                             uint64             cache_size);
 
 int
-custom_key_compare(const data_config *cfg, slice key1, slice key2);
+custom_key_compare(const data_config *cfg, user_key key1, user_key key2);
 
 int
 ip4_ipaddr_keycmp(const char  *key1,
@@ -208,12 +208,12 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
  * -----------------------------------------------------------------------------
  */
 int
-custom_key_compare(const data_config *cfg, slice key1, slice key2)
+custom_key_compare(const data_config *cfg, user_key key1, user_key key2)
 {
-   return ip4_ipaddr_keycmp((const char *)slice_data(key1),
-                            slice_length(key1),
-                            (const char *)slice_data(key2),
-                            slice_length(key2));
+   return ip4_ipaddr_keycmp((const char *)slice_data(key1.key),
+                            slice_length(key1.key),
+                            (const char *)slice_data(key2.key),
+                            slice_length(key2.key));
 }
 
 /*

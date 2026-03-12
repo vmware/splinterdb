@@ -154,7 +154,6 @@ typedef struct btree_pack_req {
    const btree_config *cfg;
    iterator           *itor; // the itor which is being packed
    uint64              max_tuples;
-   hash_fn             hash; // hash function used for calculating filter_hash
    unsigned int        seed; // seed used for calculating filter_hash
    uint32 *fingerprint_arr;  // IN/OUT: hashes of the keys in the tree
 
@@ -208,6 +207,7 @@ btree_lookup(cache             *cc,
              uint64             root_addr,
              page_type          type,
              key                target,
+             key_buffer        *keybuf,
              merge_accumulator *result);
 
 static inline bool32
@@ -222,6 +222,7 @@ btree_lookup_and_merge(cache              *cc,
                        uint64              root_addr,
                        page_type           type,
                        key                 target,
+                       key_buffer         *keybuf,
                        merge_accumulator  *data,
                        bool32             *local_found);
 
@@ -232,6 +233,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, uint64,                       root_addr,
    param, page_type,                    type,
    param, key,                          target,
+   param, key_buffer *,                 keybuf,
    param, merge_accumulator *,          result,
    param, async_callback_fn,            callback,
    param, void *,                       callback_arg,
@@ -242,6 +244,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    local, btree_node,                   child_node,
    local, uint32,                       h,
    local, bool32,                       found,
+   local, key,                          found_key,
    local, message,                      msg,
    local, page_get_async_state_buffer, cache_get_state)
 // clang-format on
@@ -253,12 +256,21 @@ btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
                                         uint64                    root_addr,
                                         page_type                 type,
                                         key                       target,
+                                        key_buffer               *keybuf,
                                         merge_accumulator        *result,
                                         async_callback_fn         callback,
                                         void                     *callback_arg)
 {
-   btree_lookup_async_state_init(
-      state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
+   btree_lookup_async_state_init(state,
+                                 cc,
+                                 cfg,
+                                 root_addr,
+                                 type,
+                                 target,
+                                 keybuf,
+                                 result,
+                                 callback,
+                                 callback_arg);
 }
 
 async_status
@@ -289,7 +301,6 @@ btree_pack_req_init(btree_pack_req     *req,
                     const btree_config *cfg,
                     iterator           *itor,
                     uint64              max_tuples,
-                    hash_fn             hash,
                     unsigned int        seed,
                     platform_heap_id    hid)
 {
@@ -298,9 +309,8 @@ btree_pack_req_init(btree_pack_req     *req,
    req->cfg        = cfg;
    req->itor       = itor;
    req->max_tuples = max_tuples;
-   req->hash       = hash;
    req->seed       = seed;
-   if (hash != NULL && max_tuples > 0) {
+   if (cfg->data_cfg->key_hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
          TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
 
