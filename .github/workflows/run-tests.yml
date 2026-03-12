@@ -64,7 +64,7 @@ jobs:
       TESTS_FUNCTION: ${{ matrix.tests_function }}
     steps:
     - name: Maximize build space
-      uses: rtjohnso/maximize-build-space@master
+      uses: rtjohnso/maximize-build-space@v1
       with:
         root-reserve-mb: 4096
         temp-reserve-mb: 4096
