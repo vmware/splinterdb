@@ -77,3 +77,11 @@ jobs:
         packages: libxxhash-dev libaio-dev libconfig-dev gcc clang-19 clang-format-19
     - name: make ${{ matrix.target }}
       run: df -h; make ${{ matrix.target }}
+
+  all-tests-passed:
+    runs-on: ubuntu-latest
+    name: All tests passed
+    needs: [format-check, run-test-matrix]
+    steps:
+    - name: All tests passed
+      run: echo "All tests passed"
