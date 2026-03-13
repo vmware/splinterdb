@@ -15,6 +15,7 @@
 
 #include "splinterdb/splinterdb.h"
 #include "clockcache.h"
+#include "data_internal.h"
 #include "rc_allocator.h"
 #include "core.h"
 #include "lookup_result.h"
@@ -608,9 +609,10 @@ struct splinterdb_iterator {
 };
 
 int
-splinterdb_iterator_init(splinterdb           *kvs,           // IN
-                         splinterdb_iterator **iter,          // OUT
-                         slice                 user_start_key // IN
+splinterdb_iterator_init(splinterdb           *kvs,            // IN
+                         splinterdb_iterator **iter,           // OUT
+                         slice                 user_start_key, // IN
+                         comparison            start_type      // IN
 )
 {
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl.heap_id, it);
@@ -624,7 +626,11 @@ splinterdb_iterator_init(splinterdb           *kvs,           // IN
    key                  start_key;
 
    if (slice_is_null(user_start_key)) {
-      start_key = NEGATIVE_INFINITY_KEY;
+      if (start_type <= less_than_or_equal) {
+         start_key = POSITIVE_INFINITY_KEY;
+      } else {
+         start_key = NEGATIVE_INFINITY_KEY;
+      }
    } else {
       start_key = key_create_from_slice(TRUE, user_start_key);
    }
@@ -634,7 +640,7 @@ splinterdb_iterator_init(splinterdb           *kvs,           // IN
                                                  NEGATIVE_INFINITY_KEY,
                                                  POSITIVE_INFINITY_KEY,
                                                  start_key,
-                                                 greater_than_or_equal,
+                                                 start_type,
                                                  UINT64_MAX);
    if (!SUCCESS(rc)) {
       platform_free(kvs->spl.heap_id, *iter);

@@ -300,8 +300,8 @@ Known issue: a live iterator may block inserts and deletes from the same thread.
 Sample application code:
 
    splinterdb_iterator* it;
-   int rc = splinterdb_iterator_init(kvs, &it, NULL_SLICE);
-   if (rc != 0) { ... handle error ... }
+   int rc = splinterdb_iterator_init(kvs, &it, NULL_SLICE,
+greater_than_or_equal); if (rc != 0) { ... handle error ... }
 
    slice key, value;
 
@@ -321,13 +321,26 @@ Sample application code:
 
 typedef struct splinterdb_iterator splinterdb_iterator;
 
+// should the iterator start at the first key that is <, <=, >, or >= than the
+// start_key?
+typedef enum comparison {
+   less_than,
+   less_than_or_equal,
+   greater_than,
+   greater_than_or_equal,
+} comparison;
+
+
 // Initialize a new iterator, starting at the given key
 //
-// If start_key is NULL_SLICE, the iterator will start before the minimum key
+// If start_key is NULL_SLICE, the iterator will start at:
+// - greater_than_or_equal: the minimum key
+// - less_than_or_equal: the maximum key
 int
-splinterdb_iterator_init(splinterdb           *kvs,      // IN
-                         splinterdb_iterator **iter,     // OUT
-                         slice                 start_key // IN
+splinterdb_iterator_init(splinterdb           *kvs,       // IN
+                         splinterdb_iterator **iter,      // OUT
+                         slice                 start_key, // IN
+                         comparison            start_type // IN
 );
 
 // Deinitialize an iterator
