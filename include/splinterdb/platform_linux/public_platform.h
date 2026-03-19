@@ -30,6 +30,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Types
 typedef unsigned char uchar;
 typedef int8_t        int8;
@@ -97,3 +101,7 @@ platform_register_thread(void);
 // Call this function before exiting a registered thread.
 void
 platform_deregister_thread(void);
+
+#ifdef __cplusplus
+}
+#endif

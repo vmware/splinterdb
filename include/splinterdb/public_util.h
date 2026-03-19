@@ -5,6 +5,10 @@
 
 #include "splinterdb/public_platform.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * A slice is just a const pointer with a length.  Slices do not
  * manage the memory to which they point, i.e. slices do not allocate,
@@ -50,3 +54,7 @@ slice_data(const slice b)
 {
    return b.data;
 }
+
+#ifdef __cplusplus
+}
+#endif

@@ -22,6 +22,10 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * Message type up to MESSAGE_TYPE_MAX_VALID_USER_TYPE is a
  * disk-resident value (not including MESSAGE_TYPE_INVALID).
@@ -180,3 +184,7 @@ struct data_config {
    key_to_str_fn        key_to_string;
    message_to_str_fn    message_to_string;
 };
+
+#ifdef __cplusplus
+}
+#endif
