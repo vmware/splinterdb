@@ -18,6 +18,10 @@
 
 #include "data.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Get a version string for this build of SplinterDB
 // Currently a git tag
 const char *
@@ -393,3 +397,7 @@ splinterdb_stats_print_lookup(splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
+
+#ifdef __cplusplus
+}
+#endif
