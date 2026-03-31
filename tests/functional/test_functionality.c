@@ -128,12 +128,12 @@ verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    platform_status *result = arg;
 
-   verify_tuple(spl,
-                key_buffer_key(&ctxt->key),
-                merge_accumulator_to_message(
-                   lookup_result_accumulator(&ctxt->data)),
-                ctxt->refcount,
-                result);
+   verify_tuple(
+      spl,
+      key_buffer_key(&ctxt->key),
+      merge_accumulator_to_message(lookup_result_accumulator(&ctxt->data)),
+      ctxt->refcount,
+      result);
 }
 
 

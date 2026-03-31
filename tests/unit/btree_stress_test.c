@@ -470,8 +470,8 @@ query_tests(cache           *cc,
                    &result);
       if (!btree_found(&result)
           || message_lex_cmp(
-                merge_accumulator_to_message(lookup_result_accumulator(&result)),
-                             gen_msg(cfg, i, msgbuf, bt_page_size)))
+             merge_accumulator_to_message(lookup_result_accumulator(&result)),
+             gen_msg(cfg, i, msgbuf, bt_page_size)))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }

@@ -311,14 +311,14 @@ nop_tuple_func(key tuple_key, message value, void *arg)
 static void
 ycsb_thread(void *arg)
 {
-   platform_status   rc;
-   uint64            i;
-   ycsb_log_params  *params     = (ycsb_log_params *)arg;
-   core_handle      *spl        = params->spl;
-   uint64            num_ops    = params->total_ops;
-   uint64            batch_size = params->batch_size;
-   uint64            my_batch;
-   lookup_result value;
+   platform_status  rc;
+   uint64           i;
+   ycsb_log_params *params     = (ycsb_log_params *)arg;
+   core_handle     *spl        = params->spl;
+   uint64           num_ops    = params->total_ops;
+   uint64           batch_size = params->batch_size;
+   uint64           my_batch;
+   lookup_result    value;
    lookup_result_init(
       &value, spl->cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 

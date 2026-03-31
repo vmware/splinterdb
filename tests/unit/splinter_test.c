@@ -417,7 +417,8 @@ CTEST2(splinter, test_lookups)
                     num_inserts);
 
    lookup_result qdata;
-   lookup_result_init(&qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
    const size_t key_size = core_max_key_size(&spl);
 
@@ -443,13 +444,13 @@ CTEST2(splinter, test_lookups)
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(&spl,
-                   &data->gen,
-                   insert_num,
-                   key_buffer_key(&keybuf),
-                   merge_accumulator_to_message(
-                      lookup_result_accumulator(&qdata)),
-                   TRUE);
+      verify_tuple(
+         &spl,
+         &data->gen,
+         insert_num,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         TRUE);
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -481,13 +482,13 @@ CTEST2(splinter, test_lookups)
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(&spl,
-                   &data->gen,
-                   insert_num,
-                   key_buffer_key(&keybuf),
-                   merge_accumulator_to_message(
-                      lookup_result_accumulator(&qdata)),
-                   FALSE);
+      verify_tuple(
+         &spl,
+         &data->gen,
+         insert_num,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         FALSE);
    }
 
    elapsed_ns = platform_timestamp_elapsed(start_time);

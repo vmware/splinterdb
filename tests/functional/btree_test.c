@@ -110,12 +110,12 @@ out:
 }
 
 bool32
-test_btree_lookup(cache           *cc,
-                  btree_config    *cfg,
-                  uint64           root_addr,
-                  page_type        type,
-                  key              target,
-                  message          expected_data)
+test_btree_lookup(cache        *cc,
+                  btree_config *cfg,
+                  uint64        root_addr,
+                  page_type     type,
+                  key           target,
+                  message       expected_data)
 {
    platform_status rc;
    lookup_result   result;
@@ -126,7 +126,8 @@ test_btree_lookup(cache           *cc,
    rc = btree_lookup(cc, cfg, root_addr, type, target, &result);
    platform_assert_status_ok(rc);
 
-   message data = merge_accumulator_to_message(lookup_result_accumulator(&result));
+   message data =
+      merge_accumulator_to_message(lookup_result_accumulator(&result));
 
    if (message_is_null(data) || message_is_null(expected_data)) {
       ret = message_is_null(data) == message_is_null(expected_data);
@@ -147,12 +148,8 @@ test_memtable_lookup(test_memtable_context *ctxt,
    btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    uint64        root_addr = ctxt->mt_ctxt.mt[mt_no].root_addr;
    cache        *cc        = ctxt->cc;
-   return test_btree_lookup(cc,
-                            btree_cfg,
-                            root_addr,
-                            PAGE_TYPE_MEMTABLE,
-                            target,
-                            expected_data);
+   return test_btree_lookup(
+      cc, btree_cfg, root_addr, PAGE_TYPE_MEMTABLE, target, expected_data);
 }
 
 void

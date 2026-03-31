@@ -528,7 +528,8 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
 )
 {
    lookup_result *_result = lookup_result_from_splinterdb(result);
-   lookup_result_init(_result, kvs->spl.cfg.data_cfg, flags, buffer_len, buffer);
+   lookup_result_init(
+      _result, kvs->spl.cfg.data_cfg, flags, buffer_len, buffer);
 }
 
 void
@@ -559,7 +560,8 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
       return EINVAL;
    }
 
-   *value = merge_accumulator_to_value(lookup_result_const_accumulator(_result));
+   *value =
+      merge_accumulator_to_value(lookup_result_const_accumulator(_result));
    return 0;
 }
 
@@ -588,9 +590,9 @@ splinterdb_lookup(splinterdb               *kvs, // IN
                   slice                     user_key,
                   splinterdb_lookup_result *result) // IN/OUT
 {
-   platform_status            status;
-   lookup_result             *_result = lookup_result_from_splinterdb(result);
-   key                        target  = key_create_from_slice(TRUE, user_key);
+   platform_status status;
+   lookup_result  *_result = lookup_result_from_splinterdb(result);
+   key             target  = key_create_from_slice(TRUE, user_key);
 
    platform_assert(kvs != NULL);
    status = core_lookup(&kvs->spl, target, _result);

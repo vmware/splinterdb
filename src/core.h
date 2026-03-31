@@ -150,9 +150,7 @@ platform_status
 core_insert(core_handle *spl, key tuple_key, message data);
 
 platform_status
-core_lookup(core_handle   *spl,
-            key            target,
-            lookup_result *result);
+core_lookup(core_handle *spl, key target, lookup_result *result);
 
 static inline bool32
 core_lookup_found(merge_accumulator *result)

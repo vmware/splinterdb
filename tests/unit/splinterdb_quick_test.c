@@ -1077,8 +1077,8 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 static uint64
 sum_branch_lookups(const splinterdb *kvsb)
 {
-   const core_handle *core = splinterdb_get_trunk_handle(kvsb);
-   threadid           tid  = platform_get_tid();
+   const core_handle *core  = splinterdb_get_trunk_handle(kvsb);
+   threadid           tid   = platform_get_tid();
    uint64             total = 0;
 
    for (uint64 height = 0; height < TRUNK_MAX_HEIGHT; height++) {
