@@ -1754,9 +1754,15 @@ trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
 }
 
 static void
+trunk_addr_inc_ref(allocator *al, uint64 addr)
+{
+   allocator_inc_ref(al, addr);
+}
+
+static void
 trunk_ondisk_node_inc_ref(trunk_context *context, uint64 addr)
 {
-   allocator_inc_ref(context->al, addr);
+   trunk_addr_inc_ref(context->al, addr);
 }
 
 static void
@@ -5854,24 +5860,9 @@ trunk_context_init(trunk_context      *context,
 }
 
 platform_status
-trunk_inc_ref(const trunk_config *cfg,
-              platform_heap_id    hid,
-              cache              *cc,
-              allocator          *al,
-              task_system        *ts,
-              uint64              root_addr)
+trunk_inc_ref(allocator *al, uint64 root_addr)
 {
-   trunk_context   context;
-   platform_status rc =
-      trunk_context_init(&context, cfg, hid, cc, al, ts, root_addr);
-   if (!SUCCESS(rc)) {
-      platform_error_log("trunk_node_inc_ref: trunk_node_context_init failed: "
-                         "%d\n",
-                         rc.r);
-      return rc;
-   }
-   trunk_ondisk_node_inc_ref(&context, root_addr);
-   trunk_context_deinit(&context);
+   trunk_addr_inc_ref(al, root_addr);
    return STATUS_OK;
 }
 
@@ -5908,6 +5899,9 @@ trunk_context_deinit(trunk_context *context)
    platform_assert(context->pending_gcs == NULL);
    trunk_pivot_state_map_deinit(&context->pivot_states);
    batch_rwlock_deinit(&context->root_lock);
+   if (context->stats) {
+      platform_free(context->hid, context->stats);
+   }
 }
 
 

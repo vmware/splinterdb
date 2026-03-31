@@ -167,12 +167,7 @@ core_set_super_block(core_handle *spl,
    uint64 root_addr = trunk_ondisk_node_handle_addr(&root_handle);
    if (root_addr != 0) {
       super->root_addr = root_addr;
-      rc               = trunk_inc_ref(spl->cfg.trunk_node_cfg,
-                         PROCESS_PRIVATE_HEAP_ID,
-                         spl->cc,
-                         spl->al,
-                         spl->ts,
-                         super->root_addr);
+      rc               = trunk_inc_ref(spl->al, super->root_addr);
       platform_assert_status_ok(rc);
 
    } else {

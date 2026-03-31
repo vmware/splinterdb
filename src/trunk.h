@@ -214,12 +214,7 @@ trunk_context_init(trunk_context      *context,
                    uint64              root_addr);
 
 platform_status
-trunk_inc_ref(const trunk_config *cfg,
-              platform_heap_id    hid,
-              cache              *cc,
-              allocator          *al,
-              task_system        *ts,
-              uint64              root_addr);
+trunk_inc_ref(allocator *al, uint64 root_addr);
 
 platform_status
 trunk_dec_ref(const trunk_config *cfg,
