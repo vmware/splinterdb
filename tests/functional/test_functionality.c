@@ -130,7 +130,8 @@ verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg)
 
    verify_tuple(spl,
                 key_buffer_key(&ctxt->key),
-                merge_accumulator_to_message(&ctxt->data),
+                merge_accumulator_to_message(
+                   lookup_result_accumulator(&ctxt->data)),
                 ctxt->refcount,
                 result);
 }
@@ -164,9 +165,10 @@ verify_against_shadow(core_handle                *spl,
 
    DECLARE_AUTO_KEY_BUFFER(keybuf, spl->heap_id);
 
-   uint64            i;
-   merge_accumulator merge_acc;
-   merge_accumulator_init(&merge_acc, spl->heap_id);
+   uint64        i;
+   lookup_result lookup;
+   lookup_result_init(
+      &lookup, spl->cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    for (i = 0; i < sharr->nkeys; i++) {
       uint64           keynum   = sharr->keys[i];
@@ -181,11 +183,12 @@ verify_against_shadow(core_handle                *spl,
       if (ctxt == NULL) {
          test_int_to_key(&keybuf, keynum, key_size);
          key target = key_buffer_key(&keybuf);
-         rc         = core_lookup(spl, target, NULL, &merge_acc);
+         rc         = core_lookup(spl, target, &lookup);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         message msg = merge_accumulator_to_message(&merge_acc);
+         message msg =
+            merge_accumulator_to_message(lookup_result_accumulator(&lookup));
          verify_tuple(spl, target, msg, refcount, &result);
       } else {
          test_int_to_key(&ctxt->key, keynum, key_size);
@@ -193,7 +196,6 @@ verify_against_shadow(core_handle                *spl,
          async_ctxt_submit(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
-      merge_accumulator_set_to_null(&merge_acc);
    }
 
    if (async_lookup) {
@@ -208,7 +210,7 @@ verify_against_shadow(core_handle                *spl,
       }
    }
 
-   merge_accumulator_deinit(&merge_acc);
+   lookup_result_deinit(&lookup);
 
    return result;
 }

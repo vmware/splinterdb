@@ -704,11 +704,10 @@ core_memtable_root_addr_for_lookup(core_handle *spl,
  *    if *found, the data can be found in `data`.
  */
 static platform_status
-core_memtable_lookup(core_handle       *spl,
-                     uint64             generation,
-                     key                target,
-                     key_buffer        *keybuf,
-                     merge_accumulator *data)
+core_memtable_lookup(core_handle   *spl,
+                     uint64         generation,
+                     key            target,
+                     lookup_result *result)
 {
    cache *const        cc  = spl->cc;
    btree_config *const cfg = spl->cfg.btree_cfg;
@@ -717,12 +716,9 @@ core_memtable_lookup(core_handle       *spl,
       spl, generation, &memtable_is_compacted);
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
-   platform_status rc;
-   bool32          local_found;
 
-   rc = btree_lookup_and_merge(
-      cc, cfg, root_addr, type, target, keybuf, data, &local_found);
-   return rc;
+   return btree_lookup_and_merge(
+      cc, cfg, root_addr, type, target, result, NULL);
 }
 
 /*
@@ -1286,10 +1282,7 @@ out:
 // If any change is made in here, please make similar change in
 // core_lookup_async
 platform_status
-core_lookup(core_handle       *spl,
-            key                target,
-            key_buffer        *keybuf,
-            merge_accumulator *result)
+core_lookup(core_handle *spl, key target, lookup_result *result)
 {
    // look in memtables
 
@@ -1298,12 +1291,7 @@ core_lookup(core_handle       *spl,
    // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
    //                also handles switch to READY ^^^^^
 
-   if (keybuf != NULL) {
-      platform_status rc = key_buffer_copy_key(keybuf, NULL_KEY);
-      platform_assert_status_ok(rc); // should never fail
-   }
-
-   merge_accumulator_set_to_null(result);
+   lookup_result_reset(result);
 
    memtable_begin_lookup(&spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(&spl->mt_ctxt);
@@ -1311,18 +1299,11 @@ core_lookup(core_handle       *spl,
    platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      platform_status rc;
-      rc = core_memtable_lookup(spl, mt_gen, target, keybuf, result);
+      platform_status rc = core_memtable_lookup(spl, mt_gen, target, result);
       platform_assert_status_ok(rc);
-      if (keybuf != NULL && !key_buffer_is_null(keybuf)) {
-         // Once we find a matching message, that is the key that we will
-         // return, so NULL out our reference to the key buffer so that we don't
-         // modify it further.
-         keybuf = NULL;
-      }
-      if (merge_accumulator_is_definitive(result)) {
+      if (!lookup_result_should_continue(result)) {
          memtable_end_lookup(&spl->mt_ctxt);
-         goto found_final_answer_early;
+         goto found_final_answer;
       }
    }
 
@@ -1337,35 +1318,25 @@ core_lookup(core_handle       *spl,
 
 
    rc = trunk_merge_lookup(
-      &spl->trunk_context, &root_handle, target, keybuf, result, NULL);
+      &spl->trunk_context, &root_handle, target, result, NULL);
    trunk_ondisk_node_handle_deinit(&root_handle);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   if (!merge_accumulator_is_null(result)
-       && !merge_accumulator_is_definitive(result))
-   {
-      data_merge_tuples_final(spl->cfg.data_cfg, target, result);
-   }
+found_final_answer:
 
-found_final_answer_early:
+   lookup_result_finalize(result, target);
 
    if (spl->cfg.use_stats) {
       threadid tid = platform_get_tid();
-      if (!merge_accumulator_is_null(result)) {
+      if (lookup_result_found(result)) {
          spl->stats[tid].lookups_found++;
       } else {
          spl->stats[tid].lookups_not_found++;
       }
    }
 
-   /* Normalize DELETE messages to return a null merge_accumulator */
-   if (!merge_accumulator_is_null(result)
-       && merge_accumulator_message_class(result) == MESSAGE_TYPE_DELETE)
-   {
-      merge_accumulator_set_to_null(result);
-   }
 
    return STATUS_OK;
 }
@@ -1381,7 +1352,7 @@ core_lookup_async(core_lookup_async_state *state)
    // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
    //                also handles switch to READY ^^^^^
 
-   merge_accumulator_set_to_null(state->result);
+   lookup_result_reset(state->result);
 
    memtable_begin_lookup(&state->spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(&state->spl->mt_ctxt);
@@ -1390,18 +1361,13 @@ core_lookup_async(core_lookup_async_state *state)
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
-      rc = core_memtable_lookup(
-         state->spl, mt_gen, state->target, state->keybuf, state->result);
+
+      rc =
+         core_memtable_lookup(state->spl, mt_gen, state->target, state->result);
       platform_assert_status_ok(rc);
-      if (state->keybuf != NULL && !key_buffer_is_null(state->keybuf)) {
-         // Once we find a matching message, that is the key that we will
-         // return, so NULL out our reference to the key buffer so that we don't
-         // modify it further.
-         state->keybuf = NULL;
-      }
-      if (merge_accumulator_is_definitive(state->result)) {
+      if (!lookup_result_should_continue(state->result)) {
          memtable_end_lookup(&state->spl->mt_ctxt);
-         goto found_final_answer_early;
+         goto found_final_answer;
       }
    }
 
@@ -1419,7 +1385,6 @@ core_lookup_async(core_lookup_async_state *state)
                     &state->spl->trunk_context,
                     &state->root_handle,
                     state->target,
-                    state->keybuf,
                     state->result,
                     NULL,
                     state->callback,
@@ -1430,30 +1395,19 @@ core_lookup_async(core_lookup_async_state *state)
       async_return(state, rc);
    }
 
-   if (!merge_accumulator_is_null(state->result)
-       && !merge_accumulator_is_definitive(state->result))
-   {
-      data_merge_tuples_final(
-         state->spl->cfg.data_cfg, state->target, state->result);
-   }
+found_final_answer:
 
-found_final_answer_early:
+   lookup_result_finalize(state->result, state->target);
 
    if (state->spl->cfg.use_stats) {
       threadid tid = platform_get_tid();
-      if (!merge_accumulator_is_null(state->result)) {
+      if (lookup_result_found(state->result)) {
          state->spl->stats[tid].lookups_found++;
       } else {
          state->spl->stats[tid].lookups_not_found++;
       }
    }
 
-   /* Normalize DELETE messages to return a null merge_accumulator */
-   if (!merge_accumulator_is_null(state->result)
-       && merge_accumulator_message_class(state->result) == MESSAGE_TYPE_DELETE)
-   {
-      merge_accumulator_set_to_null(state->result);
-   }
 
    async_return(state, STATUS_OK);
 }
@@ -1952,10 +1906,9 @@ core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl)
 void
 core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
 {
-   key_buffer keybuf;
-   key_buffer_init(&keybuf, PROCESS_PRIVATE_HEAP_ID);
-   merge_accumulator data;
-   merge_accumulator_init(&data, PROCESS_PRIVATE_HEAP_ID);
+   lookup_result lookup;
+   lookup_result_init(
+      &lookup, spl->cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    platform_stream_handle stream;
    platform_open_log_stream(&stream);
@@ -1972,14 +1925,14 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
                         root_addr,
                         PAGE_TYPE_MEMTABLE,
                         target,
-                        &keybuf,
-                        &data);
+                        &lookup);
       platform_assert_status_ok(rc);
-      if (!merge_accumulator_is_null(&data)) {
+      if (lookup_result_found(&lookup)) {
          char    key_str[128];
          char    message_str[128];
-         message msg = merge_accumulator_to_message(&data);
-         core_key_to_string(spl, key_buffer_key(&keybuf), key_str);
+         message msg =
+            merge_accumulator_to_message(lookup_result_accumulator(&lookup));
+         core_key_to_string(spl, target, key_str);
          core_message_to_string(spl, msg, message_str);
          platform_log_stream(
             &stream,
@@ -1997,8 +1950,9 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
    trunk_ondisk_node_handle handle;
    trunk_init_root_handle(&spl->trunk_context, &handle);
    trunk_merge_lookup(
-      &spl->trunk_context, &handle, target, &keybuf, &data, log_handle);
+      &spl->trunk_context, &handle, target, &lookup, log_handle);
    trunk_ondisk_node_handle_deinit(&handle);
+   lookup_result_deinit(&lookup);
 }
 
 void

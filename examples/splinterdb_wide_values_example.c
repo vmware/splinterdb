@@ -75,7 +75,11 @@ main()
    char outbuf[USER_AVG_VALUE_SIZE];
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(spl_handle, &result, sizeof(outbuf), outbuf);
+   splinterdb_lookup_result_init(spl_handle,
+                                 &result,
+                                 SPLINTERDB_LOOKUP_VALUE,
+                                 sizeof(outbuf),
+                                 outbuf);
 
    printf("Retrieve values of different lengths using output buffer of"
           " fixed size=%lu bytes:\n",

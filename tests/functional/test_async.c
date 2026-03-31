@@ -79,7 +79,8 @@ async_ctxt_init(platform_heap_id    hid,                // IN
    platform_assert(async_lookup->ready_q);
    for (uint64 i = 0; i < max_async_inflight; i++) {
       key_buffer_init(&async_lookup->ctxt[i].key, hid);
-      merge_accumulator_init(&async_lookup->ctxt[i].data, hid);
+      lookup_result_init(
+         &async_lookup->ctxt[i].data, NULL, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
       async_lookup->ctxt[i].ready_q = async_lookup->ready_q;
       // All ctxts start out as available
       pcq_enqueue(async_lookup->avail_q, &async_lookup->ctxt[i]);
@@ -99,7 +100,7 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
    pcq_free(hid, async_lookup->ready_q);
    for (uint64 i = 0; i < async_lookup->max_async_inflight; i++) {
       key_buffer_deinit(&async_lookup->ctxt[i].key);
-      merge_accumulator_deinit(&async_lookup->ctxt[i].data);
+      lookup_result_deinit(&async_lookup->ctxt[i].data);
    }
    platform_free(hid, async_lookup);
 }
@@ -146,10 +147,10 @@ async_ctxt_submit(core_handle          *spl,
                   async_ctxt_process_cb process_cb,
                   void                 *process_arg)
 {
+   lookup_result_set_data_config(&ctxt->data, spl->cfg.data_cfg);
    core_lookup_async_state_init(&ctxt->state,
                                 spl,
                                 key_buffer_key(&ctxt->key),
-                                NULL,
                                 &ctxt->data,
                                 test_async_callback,
                                 ctxt);

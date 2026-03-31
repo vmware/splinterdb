@@ -14,6 +14,7 @@
 #include "async.h"
 #include "mini_allocator.h"
 #include "iterator.h"
+#include "lookup_result.h"
 #include "util.h"
 
 /*
@@ -201,19 +202,19 @@ btree_dec_ref(cache              *cc,
 
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);
+
 platform_status
-btree_lookup(cache             *cc,
-             btree_config      *cfg,
-             uint64             root_addr,
-             page_type          type,
-             key                target,
-             key_buffer        *keybuf,
-             merge_accumulator *result);
+btree_lookup(cache         *cc,
+             btree_config  *cfg,
+             uint64         root_addr,
+             page_type      type,
+             key            target,
+             lookup_result *result);
 
 static inline bool32
-btree_found(merge_accumulator *result)
+btree_found(const lookup_result *result)
 {
-   return !merge_accumulator_is_null(result);
+   return lookup_result_found(result);
 }
 
 platform_status
@@ -222,8 +223,7 @@ btree_lookup_and_merge(cache              *cc,
                        uint64              root_addr,
                        page_type           type,
                        key                 target,
-                       key_buffer         *keybuf,
-                       merge_accumulator  *data,
+                       lookup_result      *result,
                        bool32             *local_found);
 
 // clang-format off
@@ -233,8 +233,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, uint64,                       root_addr,
    param, page_type,                    type,
    param, key,                          target,
-   param, key_buffer *,                 keybuf,
-   param, merge_accumulator *,          result,
+   param, lookup_result *,              result,
    param, async_callback_fn,            callback,
    param, void *,                       callback_arg,
    local, platform_status,              __async_result,
@@ -243,7 +242,6 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    local, btree_node,                   node,
    local, btree_node,                   child_node,
    local, uint32,                       h,
-   local, bool32,                       found,
    local, key,                          found_key,
    local, message,                      msg,
    local, page_get_async_state_buffer, cache_get_state)
@@ -256,28 +254,19 @@ btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
                                         uint64                    root_addr,
                                         page_type                 type,
                                         key                       target,
-                                        key_buffer               *keybuf,
-                                        merge_accumulator        *result,
+                                        lookup_result            *result,
                                         async_callback_fn         callback,
                                         void                     *callback_arg)
 {
-   btree_lookup_async_state_init(state,
-                                 cc,
-                                 cfg,
-                                 root_addr,
-                                 type,
-                                 target,
-                                 keybuf,
-                                 result,
-                                 callback,
-                                 callback_arg);
+   btree_lookup_async_state_init(
+      state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
 }
 
 async_status
-btree_lookup_async(btree_lookup_async_state *state);
+btree_lookup_and_merge_async(btree_lookup_async_state *state);
 
 async_status
-btree_lookup_and_merge_async(btree_lookup_async_state *state);
+btree_lookup_async(btree_lookup_async_state *state);
 
 void
 btree_iterator_init(cache              *cc,

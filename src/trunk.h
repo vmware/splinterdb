@@ -286,8 +286,7 @@ platform_status
 trunk_merge_lookup(trunk_context            *context,
                    trunk_ondisk_node_handle *handle,
                    key                       tgt,
-                   key_buffer               *keybuf,
-                   merge_accumulator        *result,
+                   lookup_result            *result,
                    platform_log_handle      *log);
 
 typedef struct trunk_branch_info {
@@ -314,8 +313,7 @@ DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    param, trunk_context *,            context,
    param, trunk_ondisk_node_handle *, inhandle,
    param, key,                        tgt,
-   param, key_buffer *,               keybuf,
-   param, merge_accumulator *,        result,
+   param, lookup_result *,            result,
    param, platform_log_handle *,      log,
    param, async_callback_fn,          callback,
    param, void *,                     callback_arg,

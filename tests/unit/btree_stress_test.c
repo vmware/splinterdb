@@ -458,8 +458,8 @@ query_tests(cache           *cc,
    uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
    memset(msgbuf, 0, bt_page_size);
 
-   merge_accumulator result;
-   merge_accumulator_init(&result, hid);
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    for (uint64 i = 0; i < nkvs; i++) {
       btree_lookup(cc,
@@ -467,17 +467,17 @@ query_tests(cache           *cc,
                    root_addr,
                    type,
                    gen_key(cfg, i, keybuf, bt_page_size),
-                   NULL,
                    &result);
       if (!btree_found(&result)
-          || message_lex_cmp(merge_accumulator_to_message(&result),
+          || message_lex_cmp(
+                merge_accumulator_to_message(lookup_result_accumulator(&result)),
                              gen_msg(cfg, i, msgbuf, bt_page_size)))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
    }
 
-   merge_accumulator_deinit(&result);
+   lookup_result_deinit(&result);
    platform_free(hid, keybuf);
    platform_free(hid, msgbuf);
    return 1;

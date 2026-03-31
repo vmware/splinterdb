@@ -318,8 +318,9 @@ ycsb_thread(void *arg)
    uint64            num_ops    = params->total_ops;
    uint64            batch_size = params->batch_size;
    uint64            my_batch;
-   merge_accumulator value;
-   merge_accumulator_init(&value, spl->heap_id);
+   lookup_result value;
+   lookup_result_init(
+      &value, spl->cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(
@@ -340,7 +341,7 @@ ycsb_thread(void *arg)
             case 'r':
             {
                rc = core_lookup(
-                  spl, key_create(TRUE, YCSB_KEY_SIZE, ops->key), NULL, &value);
+                  spl, key_create(TRUE, YCSB_KEY_SIZE, ops->key), &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -411,7 +412,7 @@ ycsb_thread(void *arg)
       SEC_TO_NSEC(end_thread_cputime.tv_sec) + end_thread_cputime.tv_nsec
       - SEC_TO_NSEC(start_thread_cputime.tv_sec) - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
-   merge_accumulator_deinit(&value);
+   lookup_result_deinit(&value);
 }
 
 static int

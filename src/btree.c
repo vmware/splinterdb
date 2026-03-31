@@ -2079,7 +2079,6 @@ btree_lookup_node(cache              *cc,             // IN
  *
  * LOCAL Variables:
  * - state->h: the height of the current node
- * - state->found: whether the target was found
  * - state->child_node: the child node
  */
 static inline async_status
@@ -2114,11 +2113,12 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
         state->h > state->stop_at_height;
         state->h--)
    {
-      int64 child_idx =
+      bool32 found;
+      int64  child_idx =
          key_is_positive_infinity(state->target)
-            ? btree_num_entries(state->node.hdr) - 1
-            : btree_find_pivot(
-                 state->cfg, state->node.hdr, state->target, &state->found);
+             ? btree_num_entries(state->node.hdr) - 1
+             : btree_find_pivot(
+                 state->cfg, state->node.hdr, state->target, &found);
       if (child_idx < 0) {
          child_idx = 0;
       }
@@ -2165,7 +2165,7 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
  *
  * OUT Parameters:
  * - state->node: the node found
- * - state->found: whether the target was found in the leaf
+ * - state->found_key: the key found in the leaf, or NULL_KEY otherwise.
  * - state->msg: the message of the target
  *
  * LOCAL Variables:
@@ -2183,9 +2183,11 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
    state->stats          = NULL;
    async_await_subroutine(state, btree_lookup_node_async);
 
-   int64 idx = btree_find_tuple(
-      state->cfg, state->node.hdr, state->target, &state->found);
-   if (state->found) {
+   state->found_key = NULL_KEY;
+   bool32 found;
+   int64  idx =
+      btree_find_tuple(state->cfg, state->node.hdr, state->target, &found);
+   if (found) {
       leaf_entry *entry =
          btree_get_leaf_entry(state->cfg, state->node.hdr, idx);
       state->found_key = leaf_entry_key(entry);
@@ -2205,13 +2207,15 @@ btree_lookup_with_ref(cache              *cc,        // IN
                       key                 target,    // IN
                       btree_node         *node,      // OUT
                       key                *found_key, // OUT
-                      message            *msg,       // OUT
-                      bool32             *found)                 // OUT
+                      message            *msg)                  // OUT
 {
-   platform_status rc = STATUS_OK;
+   platform_status rc    = STATUS_OK;
+   bool32          found = FALSE;
+
+   *found_key = NULL_KEY;
    btree_lookup_node(cc, cfg, root_addr, target, 0, type, node, NULL);
-   int64 idx = btree_find_tuple(cfg, node->hdr, target, found);
-   if (*found) {
+   int64 idx = btree_find_tuple(cfg, node->hdr, target, &found);
+   if (found) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, node->hdr, idx);
       *found_key        = leaf_entry_key(entry);
       *msg              = leaf_entry_message(entry);
@@ -2221,57 +2225,17 @@ btree_lookup_with_ref(cache              *cc,        // IN
    return rc;
 }
 
-async_status
-btree_lookup_async(btree_lookup_async_state *state)
-{
-   async_begin(state, 0);
-
-   async_await_subroutine(state, btree_lookup_with_ref_async);
-
-   platform_status rc = STATUS_OK;
-   if (state->found) {
-      if (state->keybuf != NULL) {
-         rc = key_buffer_copy_key(state->keybuf, state->found_key);
-      }
-      bool32 success =
-         merge_accumulator_copy_message(state->result, state->msg);
-      if (!success) {
-         rc = STATUS_NO_MEMORY;
-      }
-      btree_node_unget(state->cc, state->cfg, &state->node);
-   }
-   async_return(state, rc);
-}
-
-
 platform_status
-btree_lookup(cache             *cc,        // IN
-             btree_config      *cfg,       // IN
-             uint64             root_addr, // IN
-             page_type          type,      // IN
-             key                target,    // IN
-             key_buffer        *keybuf,    // OUT
-             merge_accumulator *result)    // OUT
+btree_lookup(cache         *cc,        // IN
+             btree_config  *cfg,       // IN
+             uint64         root_addr, // IN
+             page_type      type,      // IN
+             key            target,    // IN
+             lookup_result *result)    // OUT
 {
-   btree_node      node;
-   key             found_key;
-   message         data;
-   platform_status rc = STATUS_OK;
-   bool32          local_found;
-
-   btree_lookup_with_ref(
-      cc, cfg, root_addr, type, target, &node, &found_key, &data, &local_found);
-   if (local_found) {
-      if (keybuf != NULL) {
-         rc = key_buffer_copy_key(keybuf, found_key);
-      }
-      bool32 success = merge_accumulator_copy_message(result, data);
-      if (!success) {
-         rc = STATUS_NO_MEMORY;
-      }
-      btree_node_unget(cc, cfg, &node);
-   }
-   return rc;
+   lookup_result_reset(result);
+   return btree_lookup_and_merge(
+      cc, cfg, root_addr, type, target, result, NULL);
 }
 
 platform_status
@@ -2280,8 +2244,7 @@ btree_lookup_and_merge(cache              *cc,        // IN
                        uint64              root_addr, // IN
                        page_type           type,      // IN
                        key                 target,    // IN
-                       key_buffer         *keybuf,    // OUT
-                       merge_accumulator  *data,      // OUT
+                       lookup_result      *result,    // IN/OUT
                        bool32             *local_found)           // OUT
 {
    btree_node      node;
@@ -2291,27 +2254,17 @@ btree_lookup_and_merge(cache              *cc,        // IN
 
    log_trace_key(target, "btree_lookup");
 
-   btree_lookup_with_ref(cc,
-                         cfg,
-                         root_addr,
-                         type,
-                         target,
-                         &node,
-                         &found_key,
-                         &local_data,
-                         local_found);
-   if (*local_found) {
-      if (keybuf != NULL) {
-         rc = key_buffer_copy_key(keybuf, found_key);
+   if (local_found != NULL) {
+      *local_found = FALSE;
+   }
+
+   btree_lookup_with_ref(
+      cc, cfg, root_addr, type, target, &node, &found_key, &local_data);
+   if (!key_is_null(found_key)) {
+      if (local_found != NULL) {
+         *local_found = TRUE;
       }
-      if (merge_accumulator_is_null(data)) {
-         bool32 success = merge_accumulator_copy_message(data, local_data);
-         if (!success) {
-            rc = STATUS_NO_MEMORY;
-         }
-      } else if (btree_merge_tuples(cfg, target, local_data, data)) {
-         rc = STATUS_NO_MEMORY;
-      }
+      rc = lookup_result_update(result, found_key, local_data);
       btree_node_unget(cc, cfg, &node);
    }
    return rc;
@@ -2325,11 +2278,8 @@ btree_lookup_and_merge(cache              *cc,        // IN
  * - state->type: the type of the root node
  * - state->target: the key to look up
  *
- * IN/OUT Parameters:
- * - state->result: the result of the lookup
- *
  * OUT Parameters:
- * - state->found: whether the target was found in the leaf
+ * - state->found_key: the key found in the leaf, or NULL_KEY otherwise.
  *
  * LOCAL Variables:
  * - state->node: the node found
@@ -2347,24 +2297,18 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state)
    async_await_subroutine(state, btree_lookup_with_ref_async);
 
    platform_status rc = STATUS_OK;
-   if (state->found) {
-      if (state->keybuf != NULL) {
-         rc = key_buffer_copy_key(state->keybuf, state->found_key);
-      }
-      if (merge_accumulator_is_null(state->result)) {
-         bool32 success =
-            merge_accumulator_copy_message(state->result, state->msg);
-         if (!success) {
-            rc = STATUS_NO_MEMORY;
-         }
-      } else if (btree_merge_tuples(
-                    state->cfg, state->target, state->msg, state->result))
-      {
-         rc = STATUS_NO_MEMORY;
-      }
+   if (!key_is_null(state->found_key)) {
+      rc = lookup_result_update(state->result, state->found_key, state->msg);
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
    async_return(state, rc);
+}
+
+async_status
+btree_lookup_async(btree_lookup_async_state *state)
+{
+   lookup_result_reset(state->result);
+   return btree_lookup_and_merge_async(state);
 }
 
 /*

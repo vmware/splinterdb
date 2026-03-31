@@ -243,8 +243,8 @@ test_trunk_lookup_thread(void *arg)
    uint64 *lookup_base = TYPED_ARRAY_ZALLOC(heap_id, lookup_base, num_tables);
    uint8   done        = 0;
 
-   merge_accumulator data;
-   merge_accumulator_init(&data, heap_id);
+   lookup_result data;
+   lookup_result_init(&data, NULL, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -293,7 +293,8 @@ test_trunk_lookup_thread(void *arg)
                         core_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = core_lookup(spl, key_buffer_key(&keybuf), NULL, &data);
+               lookup_result_set_data_config(&data, spl->cfg.data_cfg);
+               rc = core_lookup(spl, key_buffer_key(&keybuf), &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -303,7 +304,8 @@ test_trunk_lookup_thread(void *arg)
                             test_cfg->gen,
                             lookup_num,
                             key_buffer_key(&keybuf),
-                            merge_accumulator_to_message(&data),
+                            merge_accumulator_to_message(
+                               lookup_result_accumulator(&data)),
                             expected_found);
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
@@ -334,7 +336,7 @@ test_trunk_lookup_thread(void *arg)
       }
    }
 out:
-   merge_accumulator_deinit(&data);
+   lookup_result_deinit(&data);
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), lookup_base);
 }
@@ -573,6 +575,8 @@ do_operation(test_splinter_thread_params *params,
    DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
    merge_accumulator msg;
    merge_accumulator_init(&msg, heap_id);
+   lookup_result lookup;
+   lookup_result_init(&lookup, NULL, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
       if (op_idx >= op_granularity) {
@@ -622,13 +626,14 @@ do_operation(test_splinter_thread_params *params,
                         core_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = core_lookup(spl, key_buffer_key(&keybuf), NULL, &msg);
+               lookup_result_set_data_config(&lookup, spl->cfg.data_cfg);
+               rc = core_lookup(spl, key_buffer_key(&keybuf), &lookup);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-               bool32 found = core_lookup_found(&msg);
+               bool32 found = lookup_result_found(&lookup);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
@@ -655,6 +660,7 @@ do_operation(test_splinter_thread_params *params,
       }
    }
 
+   lookup_result_deinit(&lookup);
    merge_accumulator_deinit(&msg);
 }
 

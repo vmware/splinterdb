@@ -99,7 +99,7 @@ void
 verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    verify_tuple_arg *vta   = arg;
-   bool32            found = core_lookup_found(&ctxt->data);
+   bool32            found = lookup_result_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {
