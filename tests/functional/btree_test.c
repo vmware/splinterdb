@@ -110,24 +110,24 @@ out:
 }
 
 bool32
-test_btree_lookup(cache           *cc,
-                  btree_config    *cfg,
-                  platform_heap_id hid,
-                  uint64           root_addr,
-                  page_type        type,
-                  key              target,
-                  message          expected_data)
+test_btree_lookup(cache        *cc,
+                  btree_config *cfg,
+                  uint64        root_addr,
+                  page_type     type,
+                  key           target,
+                  message       expected_data)
 {
-   platform_status   rc;
-   merge_accumulator result;
-   bool32            ret;
+   platform_status rc;
+   lookup_result   result;
+   bool32          ret;
 
-   merge_accumulator_init(&result, hid);
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
-   rc = btree_lookup(cc, cfg, root_addr, type, target, NULL, &result);
+   rc = btree_lookup(cc, cfg, root_addr, type, target, &result);
    platform_assert_status_ok(rc);
 
-   message data = merge_accumulator_to_message(&result);
+   message data =
+      merge_accumulator_to_message(lookup_result_accumulator(&result));
 
    if (message_is_null(data) || message_is_null(expected_data)) {
       ret = message_is_null(data) == message_is_null(expected_data);
@@ -135,7 +135,7 @@ test_btree_lookup(cache           *cc,
       ret = message_lex_cmp(data, expected_data) == 0;
    }
 
-   merge_accumulator_deinit(&result);
+   lookup_result_deinit(&result);
    return ret;
 }
 
@@ -148,13 +148,8 @@ test_memtable_lookup(test_memtable_context *ctxt,
    btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    uint64        root_addr = ctxt->mt_ctxt.mt[mt_no].root_addr;
    cache        *cc        = ctxt->cc;
-   return test_btree_lookup(cc,
-                            btree_cfg,
-                            ctxt->heap_id,
-                            root_addr,
-                            PAGE_TYPE_MEMTABLE,
-                            target,
-                            expected_data);
+   return test_btree_lookup(
+      cc, btree_cfg, root_addr, PAGE_TYPE_MEMTABLE, target, expected_data);
 }
 
 void
@@ -317,7 +312,7 @@ typedef struct {
    btree_lookup_async_state ctxt;
    bool32                   ready;
    key_buffer               keybuf;
-   merge_accumulator        result;
+   lookup_result            result;
 } btree_test_async_ctxt;
 
 // Per-table array of async contexts
@@ -361,7 +356,8 @@ btree_test_get_async_ctxt(btree_config            *cfg,
    ctxt                      = &async_lookup->ctxt[idx];
    ctxt->ready               = FALSE;
    key_buffer_init(&ctxt->keybuf, hid);
-   merge_accumulator_init(&ctxt->result, hid);
+   lookup_result_init(
+      &ctxt->result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    return ctxt;
 }
@@ -374,7 +370,7 @@ btree_test_put_async_ctxt(btree_test_async_lookup *async_lookup,
 
    debug_assert(idx >= 0 && idx < max_async_inflight);
    key_buffer_deinit(&ctxt->keybuf);
-   merge_accumulator_deinit(&ctxt->result);
+   lookup_result_deinit(&ctxt->result);
    async_lookup->ctxt_bitmap |= (1UL << idx);
 }
 
@@ -429,7 +425,7 @@ btree_test_run_pending(cache                   *cc,
       ctxt->ready = FALSE;
       res         = btree_lookup_async(&ctxt->ctxt);
       if (res == ASYNC_STATUS_DONE) {
-         bool32 local_found = btree_found(&ctxt->result);
+         bool32 local_found = lookup_result_found(&ctxt->result);
          if (local_found ^ expected_found) {
             btree_print_tree(Platform_default_log_handle,
                              cc,
@@ -488,7 +484,6 @@ test_btree_async_lookup(cache                   *cc,
                                  root_addr,
                                  type,
                                  target,
-                                 NULL,
                                  &async_ctxt->result,
                                  btree_test_async_callback,
                                  async_ctxt);
@@ -496,7 +491,7 @@ test_btree_async_lookup(cache                   *cc,
    async_ctxt->ready = FALSE;
    res               = btree_lookup_async(&async_ctxt->ctxt);
    if (res == ASYNC_STATUS_DONE) {
-      *correct = btree_found(&async_ctxt->result) == expected_found;
+      *correct = lookup_result_found(&async_ctxt->result) == expected_found;
       btree_test_put_async_ctxt(async_lookup, async_ctxt);
    }
 
@@ -689,7 +684,6 @@ test_btree_basic(cache             *cc,
          bool32 correct =
             test_btree_lookup(cc,
                               btree_cfg,
-                              hid,
                               packed_root_addr,
                               PAGE_TYPE_BRANCH,
                               key_buffer_key(&keybuf),
@@ -752,7 +746,6 @@ test_btree_basic(cache             *cc,
       test_btree_tuple(ctxt, &keybuf, &expected_data, insert_num, 0);
       bool32 correct = test_btree_lookup(cc,
                                          btree_cfg,
-                                         hid,
                                          packed_root_addr,
                                          PAGE_TYPE_BRANCH,
                                          key_buffer_key(&keybuf),

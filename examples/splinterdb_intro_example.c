@@ -72,7 +72,8 @@ main()
 
    // Retrieve a key-value pair.
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      spl_handle, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    fruit = "Orange";
    key   = slice_create((size_t)strlen(fruit), fruit);

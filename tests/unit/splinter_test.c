@@ -416,8 +416,9 @@ CTEST2(splinter, test_lookups)
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
                     num_inserts);
 
-   merge_accumulator qdata;
-   merge_accumulator_init(&qdata, spl.heap_id);
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
    const size_t key_size = core_max_key_size(&spl);
 
@@ -437,20 +438,19 @@ CTEST2(splinter, test_lookups)
          insert_num, num_inserts, "Verify positive lookups %3lu%% complete");
 
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-      merge_accumulator_set_to_null(&qdata);
-
-      rc = core_lookup(&spl, key_buffer_key(&keybuf), NULL, &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(&spl,
-                   &data->gen,
-                   insert_num,
-                   key_buffer_key(&keybuf),
-                   merge_accumulator_to_message(&qdata),
-                   TRUE);
+      verify_tuple(
+         &spl,
+         &data->gen,
+         insert_num,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         TRUE);
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -476,18 +476,19 @@ CTEST2(splinter, test_lookups)
 
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
 
-      rc = core_lookup(&spl, key_buffer_key(&keybuf), NULL, &qdata);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(&spl,
-                   &data->gen,
-                   insert_num,
-                   key_buffer_key(&keybuf),
-                   merge_accumulator_to_message(&qdata),
-                   FALSE);
+      verify_tuple(
+         &spl,
+         &data->gen,
+         insert_num,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         FALSE);
    }
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -496,7 +497,7 @@ CTEST2(splinter, test_lookups)
       NSEC_TO_SEC(elapsed_ns),
       (elapsed_ns / num_inserts));
 
-   merge_accumulator_deinit(&qdata);
+   lookup_result_deinit(&qdata);
 
    // **************************************************************************
    // Test sub-case 3: Validate using binary searches across ranges for the

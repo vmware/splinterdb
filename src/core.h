@@ -150,10 +150,7 @@ platform_status
 core_insert(core_handle *spl, key tuple_key, message data);
 
 platform_status
-core_lookup(core_handle       *spl,
-            key                target,
-            key_buffer        *keybuf,
-            merge_accumulator *result);
+core_lookup(core_handle *spl, key target, lookup_result *result);
 
 static inline bool32
 core_lookup_found(merge_accumulator *result)
@@ -165,8 +162,7 @@ core_lookup_found(merge_accumulator *result)
 DEFINE_ASYNC_STATE(core_lookup_async_state, 1,
    param, core_handle *,                  spl,
    param, key,                            target,
-   param, key_buffer *,                   keybuf,
-   param, merge_accumulator *,            result,
+   param, lookup_result *,                result,
    param, async_callback_fn,              callback,
    param, void *,                         callback_arg,
    local, platform_status,                __async_result,

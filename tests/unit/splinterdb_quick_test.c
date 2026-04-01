@@ -38,6 +38,7 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
 #include "config.h"
+#include "splinterdb_tests_private.h"
 
 #define TEST_MAX_KEY_SIZE 13
 
@@ -76,6 +77,9 @@ test_two_step_iterator(splinterdb *kvsb,
 
 static int
 custom_key_comparator(const data_config *cfg, user_key key1, user_key key2);
+
+static uint64
+sum_branch_lookups(const splinterdb *kvsb);
 
 typedef struct {
    data_config super;
@@ -156,7 +160,8 @@ CTEST2(splinterdb_quick, test_basic_flow)
    slice  user_key = slice_create(key_len, key_data);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    int rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
@@ -215,7 +220,8 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    // **** Lookup of max-size key should return correct value
    rc = splinterdb_lookup(data->kvsb, large_key, &result);
@@ -258,7 +264,8 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
    ASSERT_EQUAL(EINVAL, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    rc = splinterdb_delete(data->kvsb, too_large_key);
    ASSERT_EQUAL(EINVAL, rc);
@@ -342,8 +349,11 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    slice                    value;
 
    // allocate a result that has full access to the buffer
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, sizeof(big_buffer), big_buffer);
+   splinterdb_lookup_result_init(data->kvsb,
+                                 &result,
+                                 SPLINTERDB_LOOKUP_VALUE,
+                                 sizeof(big_buffer),
+                                 big_buffer);
 
    // look up a 0-length value
    rc = splinterdb_lookup(data->kvsb, key_empty, &result);
@@ -389,8 +399,11 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    memcpy(saved_big_buffer, big_buffer, sizeof(big_buffer));
 
    // init the result again, but pretend the buffer is small
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, sizeof(big_buffer) / 2, big_buffer);
+   splinterdb_lookup_result_init(data->kvsb,
+                                 &result,
+                                 SPLINTERDB_LOOKUP_VALUE,
+                                 sizeof(big_buffer) / 2,
+                                 big_buffer);
 
    // lookup tuple with max-sized-value, passing it the short buffer
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
@@ -410,7 +423,8 @@ CTEST2(splinterdb_quick, test_variable_length_values)
 
 
    // init another result, but don't give it a buffer
-   splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    // lookup, see we get the full result back
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
    ASSERT_EQUAL(0, rc);
@@ -713,7 +727,8 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    slice value;
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
@@ -779,7 +794,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 
    // confirm its there
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
@@ -824,6 +840,90 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    splinterdb_lookup_result_deinit(&result);
+}
+
+CTEST2(splinterdb_quick, test_existence_only_memtable_lookup)
+{
+   slice user_key = slice_create(strlen("existence-key"), "existence-key");
+   slice value    = slice_create(strlen("some-value"), "some-value");
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_MIGHT_EXIST, 0, NULL);
+
+   int rc = splinterdb_lookup(data->kvsb, user_key, &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
+
+   rc = splinterdb_insert(data->kvsb, user_key, value);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+
+   slice looked_up_value;
+   rc = splinterdb_lookup_result_value(&result, &looked_up_value);
+   ASSERT_EQUAL(EINVAL, rc);
+
+   rc = splinterdb_delete(data->kvsb, user_key);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
+
+   splinterdb_lookup_result_deinit(&result);
+}
+
+CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
+{
+   splinterdb_close(&data->kvsb);
+   create_default_cfg(&data->cfg, &data->default_data_cfg.super);
+   data->cfg.use_stats = 1;
+
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   slice user_key = slice_create(strlen("trunk-key"), "trunk-key");
+   slice value    = slice_create(strlen("trunk-value"), "trunk-value");
+
+   rc = splinterdb_insert(data->kvsb, user_key, value);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_close(&data->kvsb);
+   rc = splinterdb_open(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   ASSERT_NOT_NULL(core->trunk_context.stats);
+   core_reset_stats(core);
+
+   splinterdb_lookup_result existence_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &existence_result, SPLINTERDB_LOOKUP_MIGHT_EXIST, 0, NULL);
+
+   rc = splinterdb_lookup(data->kvsb, user_key, &existence_result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&existence_result));
+   ASSERT_EQUAL(0, sum_branch_lookups(data->kvsb));
+
+   slice looked_up_value;
+   rc = splinterdb_lookup_result_value(&existence_result, &looked_up_value);
+   ASSERT_EQUAL(EINVAL, rc);
+   splinterdb_lookup_result_deinit(&existence_result);
+
+   core_reset_stats(core);
+
+   splinterdb_lookup_result normal_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &normal_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   rc = splinterdb_lookup(data->kvsb, user_key, &normal_result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&normal_result));
+   ASSERT_TRUE(sum_branch_lookups(data->kvsb) > 0);
+   splinterdb_lookup_result_deinit(&normal_result);
 }
 
 CTEST2(splinterdb_quick, test_iterator_custom_comparator)
@@ -972,6 +1072,20 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
                                   .disk_size  = 127 * Mega,
                                   .use_shmem  = FALSE,
                                   .data_cfg   = default_data_cfg};
+}
+
+static uint64
+sum_branch_lookups(const splinterdb *kvsb)
+{
+   const core_handle *core  = splinterdb_get_trunk_handle(kvsb);
+   threadid           tid   = platform_get_tid();
+   uint64             total = 0;
+
+   for (uint64 height = 0; height < TRUNK_MAX_HEIGHT; height++) {
+      total += core->trunk_context.stats[tid].branch_lookups[height];
+   }
+
+   return total;
 }
 
 /*

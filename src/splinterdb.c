@@ -17,6 +17,7 @@
 #include "clockcache.h"
 #include "rc_allocator.h"
 #include "core.h"
+#include "lookup_result.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
 #include "platform_typed_alloc.h"
@@ -518,80 +519,49 @@ splinterdb_update(splinterdb *kvsb, slice user_key, slice update)
    return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
-/*
- *-----------------------------------------------------------------------------
- * _splinterdb_lookup_result structure --
- *-----------------------------------------------------------------------------
- */
-typedef struct {
-   key_buffer        keybuf;
-   merge_accumulator value;
-} _splinterdb_lookup_result;
-
-_Static_assert(sizeof(_splinterdb_lookup_result)
-                  <= sizeof(splinterdb_lookup_result),
-               "sizeof(splinterdb_lookup_result) is too small");
-
-_Static_assert(__alignof__(splinterdb_lookup_result)
-                  == __alignof__(_splinterdb_lookup_result),
-               "mismatched alignment for splinterdb_lookup_result");
-
 void
 splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
                               splinterdb_lookup_result *result,     // IN/OUT
+                              splinterdb_lookup_flags   flags,      // IN
                               uint64                    buffer_len, // IN
                               char                     *buffer      // IN
 )
 {
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   key_buffer_init(&_result->keybuf, PROCESS_PRIVATE_HEAP_ID);
-   merge_accumulator_init_with_buffer(&_result->value,
-                                      PROCESS_PRIVATE_HEAP_ID,
-                                      buffer_len,
-                                      buffer,
-                                      WRITABLE_BUFFER_NULL_LENGTH,
-                                      MESSAGE_TYPE_INVALID);
+   lookup_result *_result = lookup_result_from_splinterdb(result);
+   lookup_result_init(
+      _result, kvs->spl.cfg.data_cfg, flags, buffer_len, buffer);
 }
 
 void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
 {
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   merge_accumulator_deinit(&_result->value);
+   lookup_result *_result = lookup_result_from_splinterdb(result);
+   lookup_result_deinit(_result);
 }
 
 _Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result) // IN
 {
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   return core_lookup_found(&_result->value);
+   const lookup_result *_result = lookup_result_from_const_splinterdb(result);
+   return lookup_result_found(_result);
 }
 
 int
 splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
                                slice                          *value)
 {
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
+   const lookup_result *_result = lookup_result_from_const_splinterdb(result);
+
+   if (lookup_result_is_existence(_result)) {
+      return EINVAL;
+   }
 
    if (!splinterdb_lookup_found(result)) {
       return EINVAL;
    }
 
-   *value = merge_accumulator_to_value(&_result->value);
-   return 0;
-}
-
-int
-splinterdb_lookup_result_key(const splinterdb_lookup_result *result, // IN
-                             slice                          *key)
-{
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-
-   if (!splinterdb_lookup_found(result)) {
-      return EINVAL;
-   }
-
-   *key = key_slice(key_buffer_key(&_result->keybuf));
+   *value =
+      merge_accumulator_to_value(lookup_result_const_accumulator(_result));
    return 0;
 }
 
@@ -620,12 +590,12 @@ splinterdb_lookup(splinterdb               *kvs, // IN
                   slice                     user_key,
                   splinterdb_lookup_result *result) // IN/OUT
 {
-   platform_status            status;
-   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   key                        target  = key_create_from_slice(TRUE, user_key);
+   platform_status status;
+   lookup_result  *_result = lookup_result_from_splinterdb(result);
+   key             target  = key_create_from_slice(TRUE, user_key);
 
    platform_assert(kvs != NULL);
-   status = core_lookup(&kvs->spl, target, &_result->keybuf, &_result->value);
+   status = core_lookup(&kvs->spl, target, _result);
    return platform_status_to_int(status);
 }
 

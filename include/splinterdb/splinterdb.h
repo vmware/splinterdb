@@ -174,8 +174,8 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 void
 splinterdb_close(splinterdb **kvs);
 
-// Insert a key and value.
-// Relies on data_config->encode_message
+// Insert a key and value.  Overwrites any previous value associated with the
+// key.
 int
 splinterdb_insert(splinterdb *kvsb, slice key, slice value);
 
@@ -183,15 +183,19 @@ splinterdb_insert(splinterdb *kvsb, slice key, slice value);
 int
 splinterdb_delete(splinterdb *kvsb, slice key);
 
-// Insert a key and value.
-// Relies on data_config->encode_message
+// Update the value associated with key.
 int
 splinterdb_update(splinterdb *kvsb, slice key, slice delta);
 
 // Lookups
 
+typedef uint64 splinterdb_lookup_flags;
+
+#define SPLINTERDB_LOOKUP_VALUE       ((splinterdb_lookup_flags)0)
+#define SPLINTERDB_LOOKUP_MIGHT_EXIST ((splinterdb_lookup_flags)1 << 0)
+
 // Size of opaque data required to hold a lookup result
-#define SPLINTERDB_LOOKUP_BUFSIZE (18 * sizeof(void *))
+#define SPLINTERDB_LOOKUP_BUFSIZE (20 * sizeof(void *))
 
 // A lookup result is stored and parsed from here
 //
@@ -203,6 +207,12 @@ typedef struct {
 
 // Initialize a lookup result object.
 //
+// flags may be SPLINTERDB_LOOKUP_VALUE or SPLINTERDB_LOOKUP_MIGHT_EXIST.
+//
+// When SPLINTERDB_LOOKUP_MIGHT_EXIST is set, splinterdb_lookup_found() reports
+// true if the key might exist, and false if the key definitely does not exist.
+// splinterdb_lookup_result_value() will return EINVAL for such results.
+//
 // If buffer is NULL, then the library will allocate and manage memory.
 //
 // If the caller provides a buffer, that will be used, unless a lookup
@@ -212,15 +222,16 @@ typedef struct {
 // After this function returns, the caller must ensure that
 // 1. *result is only used in conjunction with the kvs
 //    Attempting to use one lookup_result with multiple instances of splinterdb
-//    may cause problems in future versions of splinterdb
+//    will cause problems
 // 2. The lifetime of *result must not exceed the lifetime of kvs
 //    The result should be deinit'ed before calling splinterdb_close on kvs
 //
-// While the current version of SplinterDB does not rely on these rules, future
+// While the current version of SplinterDB does not rely on Rule 2, future
 // versions may store pointers to Splinter's own memory in the lookup_result.
 void
 splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
                               splinterdb_lookup_result *result,     // IN/OUT
+                              splinterdb_lookup_flags   flags,      // IN
                               uint64                    buffer_len, // IN
                               char                     *buffer      // IN
 );
@@ -231,7 +242,10 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
 void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 
-// Returns true if the result was found
+// Returns true if the result was found.
+//
+// For existence-only lookups, this returns true when the key exists or might
+// exist.
 _Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 
@@ -241,11 +255,6 @@ splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 int
 splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
                                slice                          *value   // OUT
-);
-
-int
-splinterdb_lookup_result_key(const splinterdb_lookup_result *result, // IN
-                             slice                          *key     // OUT
 );
 
 // Lookup the message for a given key
