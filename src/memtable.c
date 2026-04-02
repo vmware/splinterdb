@@ -336,7 +336,7 @@ memtable_context_init(memtable_context *ctxt,
    }
 
    ctxt->btree_scratch_sz = btree_scratch_size(cfg->btree_cfg);
-   ctxt->btree_scratches  = TYPED_ARRAY_ZALLOC(
+   ctxt->btree_scratches  = TYPED_MANUAL_ZALLOC(
       hid, ctxt->btree_scratches, ctxt->btree_scratch_sz * MAX_THREADS);
    if (ctxt->btree_scratches == NULL) {
       platform_mutex_destroy(&ctxt->incorporation_mutex);

@@ -104,7 +104,7 @@ CTEST_DATA(btree_stress)
    allocator_config   allocator_cfg;
    clockcache_config  cache_cfg;
    task_system_config task_cfg;
-   btree_scratch      test_scratch;
+   btree_scratch     *test_scratch;
    btree_config       dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
@@ -152,6 +152,11 @@ CTEST_SETUP(btree_stress)
    {
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
+
+   data->test_scratch = TYPED_MANUAL_ZALLOC(
+      data->hid, data->test_scratch, btree_scratch_size(&data->dbtree_cfg));
+   ASSERT_NOT_NULL(data->test_scratch);
+
    // Setup execution of concurrent threads
    data->io = io_handle_create(&data->io_cfg, data->hid);
    if (data->io == NULL
@@ -217,7 +222,7 @@ CTEST2(btree_stress, iterator_basics)
              btree_insert((cache *)&data->cc,
                           &data->dbtree_cfg,
                           data->hid,
-                          &data->test_scratch,
+                          data->test_scratch,
                           root_addr,
                           &mini,
                           gen_key(&data->dbtree_cfg, i, keybuf, sizeof(keybuf)),
@@ -251,11 +256,13 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
    platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
+   uint64 bt_sc_sz = btree_scratch_size(&data->dbtree_cfg);
    for (uint64 i = 0; i < nthreads; i++) {
-      params[i].cc        = (cache *)&data->cc;
-      params[i].cfg       = &data->dbtree_cfg;
-      params[i].hid       = data->hid;
-      params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
+      params[i].cc  = (cache *)&data->cc;
+      params[i].cfg = &data->dbtree_cfg;
+      params[i].hid = data->hid;
+      params[i].scratch =
+         TYPED_MANUAL_MALLOC(data->hid, params[i].scratch, bt_sc_sz);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
       params[i].start     = i * (nkvs / nthreads);
