@@ -66,7 +66,7 @@ CTEST_DATA(btree)
    io_config         io_cfg;
    allocator_config  allocator_cfg;
    clockcache_config cache_cfg;
-   btree_scratch     test_scratch;
+   btree_scratch    *test_scratch;
    btree_config      dbtree_cfg;
    platform_heap_id  hid;
 };
@@ -106,6 +106,9 @@ CTEST_SETUP(btree)
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
+
+   data->test_scratch = TYPED_MANUAL_ZALLOC(
+      data->hid, data->test_scratch, btree_scratch_size(&data->dbtree_cfg));
 }
 
 // Optional teardown function for suite, called after every test in suite
@@ -120,7 +123,7 @@ CTEST_TEARDOWN(btree)
  */
 CTEST2(btree, test_leaf_hdr)
 {
-   int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch, data->hid);
+   int rc = leaf_hdr_tests(&data->dbtree_cfg, data->test_scratch, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -138,7 +141,7 @@ CTEST2(btree, test_leaf_hdr_search)
  */
 CTEST2(btree, test_index_hdr)
 {
-   int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch, data->hid);
+   int rc = index_hdr_tests(&data->dbtree_cfg, data->test_scratch, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -158,7 +161,7 @@ CTEST2(btree, test_leaf_split)
 {
    for (int nkvs = 2; nkvs < 100; nkvs++) {
       int rc = leaf_split_tests(
-         &data->dbtree_cfg, &data->test_scratch, nkvs, data->hid);
+         &data->dbtree_cfg, data->test_scratch, nkvs, data->hid);
       ASSERT_EQUAL(0, rc);
    }
 }
