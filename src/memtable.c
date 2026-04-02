@@ -207,6 +207,13 @@ memtable_add_tuple(memtable_context *ctxt)
    ctxt->is_empty = FALSE;
 }
 
+static btree_scratch *
+get_btree_scratch(memtable_context *ctxt, uint64 tid)
+{
+   return (btree_scratch *)(ctxt->btree_scratches
+                            + tid * ctxt->btree_scratch_sz);
+}
+
 platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
@@ -218,10 +225,11 @@ memtable_insert(memtable_context *ctxt,
    const threadid tid = platform_get_tid();
    bool32         was_unique;
 
-   platform_status rc = btree_insert(ctxt->cc,
+   btree_scratch  *scratch = get_btree_scratch(ctxt, tid);
+   platform_status rc      = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,
                                      heap_id,
-                                     &ctxt->scratch[tid],
+                                     scratch,
                                      mt->root_addr,
                                      &mt->mini,
                                      tuple_key,
@@ -311,15 +319,31 @@ memtable_context_init(memtable_context *ctxt,
    ZERO_CONTENTS(ctxt);
    ctxt->cc  = cc;
    ctxt->cfg = *cfg;
+   ctxt->hid = hid;
+
+   if (MAX_MEMTABLES < cfg->max_memtables) {
+      platform_error_log("Configured number of memtables (%lu) exceeds max "
+                         "supported memtables (%d)\n",
+                         cfg->max_memtables,
+                         MAX_MEMTABLES);
+      return STATUS_BAD_PARAM;
+   }
 
    rc = platform_mutex_init(
       &ctxt->incorporation_mutex, platform_get_module_id(), hid);
    if (!SUCCESS(rc)) {
       return rc;
    }
-   batch_rwlock_init(&ctxt->rwlock);
 
-   platform_assert(cfg->max_memtables <= MAX_MEMTABLES);
+   ctxt->btree_scratch_sz = btree_scratch_size(cfg->btree_cfg);
+   ctxt->btree_scratches  = TYPED_ARRAY_ZALLOC(
+      hid, ctxt->btree_scratches, ctxt->btree_scratch_sz * MAX_THREADS);
+   if (ctxt->btree_scratches == NULL) {
+      platform_mutex_destroy(&ctxt->incorporation_mutex);
+      return STATUS_NO_MEMORY;
+   }
+
+   batch_rwlock_init(&ctxt->rwlock);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
       uint64 generation = mt_no;
@@ -348,6 +372,8 @@ memtable_context_deinit(memtable_context *ctxt)
 
    platform_mutex_destroy(&ctxt->incorporation_mutex);
    batch_rwlock_deinit(&ctxt->rwlock);
+
+   platform_free(ctxt->hid, ctxt->btree_scratches);
 }
 
 void

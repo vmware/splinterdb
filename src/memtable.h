@@ -110,9 +110,10 @@ typedef struct memtable_config {
 } memtable_config;
 
 typedef struct memtable_context {
-   cache          *cc;
-   memtable_config cfg;
-   task_system    *ts;
+   cache            *cc;
+   memtable_config   cfg;
+   task_system      *ts;
+   platform_heap_id *hid;
 
    process_fn process;
    void      *process_ctxt;
@@ -136,7 +137,8 @@ typedef struct memtable_context {
    bool32 is_empty;
 
    // Effectively thread local, no locking at all:
-   btree_scratch scratch[MAX_THREADS];
+   uint64 btree_scratch_sz;
+   char  *btree_scratches;
 
    memtable mt[MAX_MEMTABLES];
 } memtable_context;

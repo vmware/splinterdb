@@ -93,17 +93,18 @@ typedef struct btree_node {
 } btree_node;
 
 typedef struct {
-   char merged_data[MAX_INLINE_MESSAGE_SIZE(MAX_PAGE_SIZE)];
-} scratch_btree_add_tuple;
-
-typedef struct {
-   char scratch_node[MAX_PAGE_SIZE];
+   char scratch_node[1]; // Actual size is btree_scratch_size(cfg)
 } scratch_btree_defragment_node;
 
 typedef struct { // Note: not a union
-   scratch_btree_add_tuple       add_tuple;
    scratch_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED btree_scratch;
+
+static inline uint64
+btree_scratch_size(const btree_config *cfg)
+{
+   return cache_config_page_size(cfg->cache_cfg);
+}
 
 /*
  * *************************************************************************
