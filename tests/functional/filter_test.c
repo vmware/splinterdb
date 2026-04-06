@@ -396,6 +396,7 @@ filter_test(int argc, char *argv[])
       platform_assert(SUCCESS(rc));
    }
 
+   io_wait_all(io);
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
