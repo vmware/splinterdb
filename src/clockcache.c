@@ -1777,6 +1777,7 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    local, refcount, extent_ref_count,
    local, platform_status, rc,
    local, io_async_state_buffer, iostate,
+   local, uint64, io_start_time,
    local, async_waiter, wait_node)
 // clang-format on
 
@@ -1885,11 +1886,22 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
       io_async_state_append_page(state->iostate, state->entry->page.data);
    platform_assert_status_ok(state->rc);
 
+   if (state->cc->cfg->use_stats) {
+      state->io_start_time = platform_get_timestamp();
+   }
+
    while (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
       async_yield(state);
    }
    platform_assert_status_ok(io_async_state_get_result(state->iostate));
    io_async_state_deinit(state->iostate);
+
+   if (state->cc->cfg->use_stats) {
+      uint64 elapsed = platform_timestamp_elapsed(state->io_start_time);
+      state->cc->stats[state->tid].cache_misses[state->type]++;
+      state->cc->stats[state->tid].page_reads[state->type]++;
+      state->cc->stats[state->tid].cache_miss_time_ns[state->type] += elapsed;
+   }
 
    state->__async_result = &state->entry->page;
    state->succeeded      = TRUE;

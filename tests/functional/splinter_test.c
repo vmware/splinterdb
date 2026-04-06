@@ -1168,6 +1168,7 @@ splinter_perf_lookups(platform_heap_id             hid,
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       core_handle *spl = &spl_tables[spl_idx];
       cache_assert_free(spl->cc);
+      core_print_insertion_stats(Platform_default_log_handle, spl);
       core_print_lookup_stats(Platform_default_log_handle, spl);
       cache_print_stats(Platform_default_log_handle, spl->cc);
       cache_reset_stats(spl->cc);
