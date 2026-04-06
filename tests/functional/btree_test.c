@@ -1664,6 +1664,8 @@ btree_test(int argc, char *argv[])
       }
    }
 
+   task_perform_until_quiescent(&ts);
+   io_wait_all(io);
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);

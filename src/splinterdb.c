@@ -457,6 +457,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
     * created or re-opened. Otherwise, asserts will trip.
     */
    core_unmount(&kvs->spl);
+   io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
    task_system_deinit(&kvs->task_sys);
