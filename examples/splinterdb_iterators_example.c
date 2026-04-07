@@ -145,7 +145,8 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key)
    // Initialize start key if initial search key was provided.
    slice start_key =
       (from_key ? slice_create(strlen(from_key), from_key) : NULL_SLICE);
-   int rc = splinterdb_iterator_init(spl_handle, &it, start_key, greater_than_or_equal);
+   int rc = splinterdb_iterator_init(
+      spl_handle, &it, start_key, greater_than_or_equal);
 
    int i = 0;
 
