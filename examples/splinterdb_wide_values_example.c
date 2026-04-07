@@ -62,7 +62,7 @@ main()
 
       slice key   = slice_create(strlen(key_buf), key_buf);
       slice value = slice_create(val_len, val_buf);
-      rc          = splinterdb_insert(spl_handle, key, value);
+      rc          = splinterdb_insert(spl_handle, key, value, NULL);
       if (rc) {
          break;
       }

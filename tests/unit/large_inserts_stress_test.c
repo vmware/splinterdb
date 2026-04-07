@@ -194,7 +194,7 @@ CTEST2_SKIP(large_inserts_stress,
          slice key = slice_create(strlen(key_data), key_data);
          slice val = slice_create(strlen(val_data), val_data);
 
-         int rc = splinterdb_insert(data->kvsb, key, val);
+         int rc = splinterdb_insert(data->kvsb, key, val, NULL);
          ASSERT_EQUAL(0, rc);
       }
       uint64 elapsed_ns      = platform_timestamp_elapsed(start_time);
@@ -707,7 +707,7 @@ exec_worker_thread(void *w)
          slice key = slice_create(key_len, key_data);
          slice val = slice_create(val_len, val_data);
 
-         int rc = splinterdb_insert(kvsb, key, val);
+         int rc = splinterdb_insert(kvsb, key, val, NULL);
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {

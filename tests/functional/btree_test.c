@@ -102,6 +102,7 @@ test_btree_insert(test_memtable_context *ctxt, key tuple_key, message data)
                         ctxt->heap_id,
                         tuple_key,
                         data,
+                        NULL,
                         &dummy_leaf_generation);
 
 out:

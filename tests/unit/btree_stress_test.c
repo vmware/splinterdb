@@ -202,7 +202,6 @@ CTEST2(btree_stress, iterator_basics)
 
    for (int i = 0; i < 1000; i++) {
       uint64 generation;
-      bool32 was_unique;
       iterator_tests((cache *)&data->cc,
                      &data->dbtree_cfg,
                      root_addr,
@@ -227,8 +226,8 @@ CTEST2(btree_stress, iterator_basics)
                           &mini,
                           gen_key(&data->dbtree_cfg, i, keybuf, sizeof(keybuf)),
                           gen_msg(&data->dbtree_cfg, i, msgbuf, sizeof(msgbuf)),
-                          &generation,
-                          &was_unique)))
+                          NULL,
+                          &generation)))
       {
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %d\n", i);
       }
@@ -358,6 +357,133 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    platform_free(hid, threads);
 }
 
+CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
+{
+   btree_scratch *scratch = TYPED_MANUAL_ZALLOC(
+      data->hid, scratch, btree_scratch_size(&data->dbtree_cfg));
+   ASSERT_NOT_NULL(scratch);
+
+   mini_allocator mini;
+   uint64         root_addr = btree_create(
+      (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+
+   uint64 bt_page_size = btree_page_size(&data->dbtree_cfg);
+   uint8 *keybuf       = TYPED_MANUAL_MALLOC(data->hid, keybuf, bt_page_size);
+   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(data->hid, msgbuf, bt_page_size);
+   ASSERT_NOT_NULL(keybuf);
+   ASSERT_NOT_NULL(msgbuf);
+
+   lookup_result uniqueness_result;
+   lookup_result_init(&uniqueness_result,
+                      data->dbtree_cfg.data_cfg,
+                      SPLINTERDB_LOOKUP_MIGHT_EXIST,
+                      0,
+                      NULL);
+
+   for (uint64 i = 0; i < 2048; i++) {
+      uint64 generation;
+
+      platform_status rc =
+         btree_insert((cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      data->hid,
+                      scratch,
+                      root_addr,
+                      &mini,
+                      gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
+                      gen_msg(&data->dbtree_cfg, i, msgbuf, bt_page_size),
+                      &uniqueness_result,
+                      &generation);
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_FALSE(lookup_result_found(&uniqueness_result));
+   }
+
+   lookup_result old_result;
+   lookup_result verify_result;
+   lookup_result_init(
+      &old_result, data->dbtree_cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   lookup_result_init(&verify_result,
+                      data->dbtree_cfg.data_cfg,
+                      SPLINTERDB_LOOKUP_VALUE,
+                      0,
+                      NULL);
+
+   merge_accumulator update_msg;
+   merge_accumulator expected_new_msg;
+   merge_accumulator probe_msg;
+   merge_accumulator_init(&update_msg, PROCESS_PRIVATE_HEAP_ID);
+   merge_accumulator_init(&expected_new_msg, PROCESS_PRIVATE_HEAP_ID);
+   merge_accumulator_init(&probe_msg, PROCESS_PRIVATE_HEAP_ID);
+
+   uint8  merged_ref_count = 2;
+   uint64 merged_msg_len   = 0;
+   for (uint8 ref_count = 2; ref_count < 127; ref_count++) {
+      test_data_generate_message(
+         data->dbtree_cfg.data_cfg, MESSAGE_TYPE_INSERT, ref_count, &probe_msg);
+      if (merged_msg_len < merge_accumulator_length(&probe_msg)) {
+         merged_msg_len   = merge_accumulator_length(&probe_msg);
+         merged_ref_count = ref_count;
+      }
+   }
+   ASSERT_TRUE(merged_msg_len > sizeof(data_handle));
+
+   test_data_generate_message(data->dbtree_cfg.data_cfg,
+                              MESSAGE_TYPE_UPDATE,
+                              merged_ref_count - 1,
+                              &update_msg);
+   test_data_generate_message(data->dbtree_cfg.data_cfg,
+                              MESSAGE_TYPE_INSERT,
+                              merged_ref_count,
+                              &expected_new_msg);
+
+   for (uint64 i = 0; i < 2048; i += 257) {
+      uint64 generation;
+
+      platform_status rc =
+         btree_insert((cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      data->hid,
+                      scratch,
+                      root_addr,
+                      &mini,
+                      gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
+                      merge_accumulator_to_message(&update_msg),
+                      &old_result,
+                      &generation);
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_TRUE(lookup_result_found(&old_result));
+      ASSERT_EQUAL(
+         0,
+         message_lex_cmp(merge_accumulator_to_message(
+                            lookup_result_accumulator(&old_result)),
+                         gen_msg(&data->dbtree_cfg, i, msgbuf, bt_page_size)));
+
+      rc = btree_lookup((cache *)&data->cc,
+                        &data->dbtree_cfg,
+                        root_addr,
+                        PAGE_TYPE_MEMTABLE,
+                        gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
+                        &verify_result);
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_TRUE(lookup_result_found(&verify_result));
+      ASSERT_EQUAL(
+         0,
+         message_lex_cmp(merge_accumulator_to_message(
+                            lookup_result_accumulator(&verify_result)),
+                         merge_accumulator_to_message(&expected_new_msg)));
+   }
+
+   merge_accumulator_deinit(&probe_msg);
+   merge_accumulator_deinit(&expected_new_msg);
+   merge_accumulator_deinit(&update_msg);
+   lookup_result_deinit(&verify_result);
+   lookup_result_deinit(&old_result);
+   lookup_result_deinit(&uniqueness_result);
+   platform_free(data->hid, msgbuf);
+   platform_free(data->hid, keybuf);
+   platform_free(data->hid, scratch);
+}
+
 /*
  * ********************************************************************************
  * Define minions and helper functions used by this test suite.
@@ -388,7 +514,6 @@ insert_tests(cache           *cc,
              int              end)
 {
    uint64 generation;
-   bool32 was_unique;
 
    uint64 bt_page_size = btree_page_size(cfg);
    int    keybuf_size  = bt_page_size;
@@ -405,8 +530,8 @@ insert_tests(cache           *cc,
                                 mini,
                                 gen_key(cfg, i, keybuf, keybuf_size),
                                 gen_msg(cfg, i, msgbuf, msgbuf_size),
-                                &generation,
-                                &was_unique)))
+                                NULL,
+                                &generation)))
       {
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }

@@ -474,53 +474,6 @@ splinterdb_close(splinterdb **kvs_in) // IN
    *kvs_in = (splinterdb *)NULL;
 }
 
-
-/*
- *-----------------------------------------------------------------------------
- * splinterdb_insert_raw_message --
- *
- *      Insert a key and a raw message into splinter
- *
- * Results:
- *      0 on success, otherwise an errno
- *
- * Side effects:
- *      None.
- *-----------------------------------------------------------------------------
- */
-static int
-splinterdb_insert_message(splinterdb *kvs,      // IN
-                          slice       user_key, // IN
-                          message     msg       // IN
-)
-{
-   key tuple_key = key_create_from_slice(FALSE, user_key);
-   platform_assert(kvs != NULL);
-   platform_status status = core_insert(&kvs->spl, tuple_key, msg);
-   return platform_status_to_int(status);
-}
-
-int
-splinterdb_insert(splinterdb *kvsb, slice user_key, slice value)
-{
-   message msg = message_create(MESSAGE_TYPE_INSERT, value);
-   return splinterdb_insert_message(kvsb, user_key, msg);
-}
-
-int
-splinterdb_delete(splinterdb *kvsb, slice user_key)
-{
-   return splinterdb_insert_message(kvsb, user_key, DELETE_MESSAGE);
-}
-
-int
-splinterdb_update(splinterdb *kvsb, slice user_key, slice update)
-{
-   message msg = message_create(MESSAGE_TYPE_UPDATE, update);
-   platform_assert(kvsb->data_cfg->merge_tuples);
-   return splinterdb_insert_message(kvsb, user_key, msg);
-}
-
 void
 splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
                               splinterdb_lookup_result *result,     // IN/OUT
@@ -601,6 +554,68 @@ splinterdb_lookup(splinterdb               *kvs, // IN
    return platform_status_to_int(status);
 }
 
+
+/*
+ *-----------------------------------------------------------------------------
+ * splinterdb_insert_raw_message --
+ *
+ *      Insert a key and a raw message into splinter
+ *
+ * Results:
+ *      0 on success, otherwise an errno
+ *
+ * Side effects:
+ *      None.
+ *-----------------------------------------------------------------------------
+ */
+static int
+splinterdb_insert_message(splinterdb    *kvs,       // IN
+                          slice          user_key,  // IN
+                          message        msg,       // IN
+                          lookup_result *old_result // IN/OUT
+)
+{
+   key tuple_key = key_create_from_slice(FALSE, user_key);
+   platform_assert(kvs != NULL);
+   platform_status status = core_insert(&kvs->spl, tuple_key, msg, old_result);
+   return platform_status_to_int(status);
+}
+
+int
+splinterdb_insert(splinterdb               *kvsb,
+                  slice                     user_key,
+                  slice                     value,
+                  splinterdb_lookup_result *old_result)
+{
+   message        msg = message_create(MESSAGE_TYPE_INSERT, value);
+   lookup_result *_old_result =
+      old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
+   return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
+}
+
+int
+splinterdb_delete(splinterdb               *kvsb,
+                  slice                     user_key,
+                  splinterdb_lookup_result *old_result)
+{
+   lookup_result *_old_result =
+      old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
+   return splinterdb_insert_message(
+      kvsb, user_key, DELETE_MESSAGE, _old_result);
+}
+
+int
+splinterdb_update(splinterdb               *kvsb,
+                  slice                     user_key,
+                  slice                     update,
+                  splinterdb_lookup_result *old_result)
+{
+   message        msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   lookup_result *_old_result =
+      old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
+   platform_assert(kvsb->data_cfg->merge_tuples);
+   return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
+}
 
 struct splinterdb_iterator {
    core_range_iterator sri;

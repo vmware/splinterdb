@@ -729,8 +729,10 @@ splinter_do_inserts(void         *datap,
 
       test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       generate_test_message(&data->gen, insert_num, &msg);
-      rc = core_insert(
-         spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg));
+      rc = core_insert(spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_insert() FAILURE: %s\n",
                   platform_status_to_string(rc));

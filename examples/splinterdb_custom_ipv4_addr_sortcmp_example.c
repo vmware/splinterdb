@@ -317,7 +317,7 @@ do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs)
          slice_create(strlen(kv_pairs[ictr].kv_key), kv_pairs[ictr].kv_key);
       slice value = slice_create(WWW_PING_SIZE(&kv_pairs[ictr].kv_val),
                                  (const char *)&kv_pairs[ictr].kv_val);
-      int   rc    = splinterdb_insert(spl_handle, key, value);
+      int   rc    = splinterdb_insert(spl_handle, key, value, NULL);
       if (rc) {
          printf(
             "Insert of key '%s' failed; rc=%d\n", kv_pairs[ictr].kv_key, rc);

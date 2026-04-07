@@ -213,12 +213,12 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       size_t       to_insert_len  = strlen(to_insert_data);
       slice        to_insert      = slice_create(to_insert_len, to_insert_data);
 
-      rc = splinterdb_insert(spl_handle, key, to_insert);
+      rc = splinterdb_insert(spl_handle, key, to_insert, NULL);
       ASSERT_EQUAL(0, rc);
 
       key_len = snprintf(key_data, sizeof(key_data), "%d", 2);
       key     = slice_create(key_len, key_data);
-      rc      = splinterdb_insert(spl_handle, key, to_insert);
+      rc      = splinterdb_insert(spl_handle, key, to_insert, NULL);
       ASSERT_EQUAL(0, rc);
    }
 
@@ -559,7 +559,7 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
          slice key = slice_create(key_len, key_data);
          slice val = slice_create(val_len, val_data);
 
-         int rc = splinterdb_insert(kvsb, key, val);
+         int rc = splinterdb_insert(kvsb, key, val, NULL);
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {

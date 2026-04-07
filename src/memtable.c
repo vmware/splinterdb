@@ -14,8 +14,6 @@
 
 #include "poison.h"
 
-#define MEMTABLE_COUNT_GRANULARITY 128
-
 #define MEMTABLE_INSERT_LOCK_IDX 0
 #define MEMTABLE_LOOKUP_LOCK_IDX 1
 
@@ -183,24 +181,6 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
    }
 }
 
-/*
- *-----------------------------------------------------------------------------
- * Increments the distributed tuple counter.  Must hold a read lock on
- * insert_lock.
- *
- * Add to local num_tuple counter. If at granularity, then increment the
- * global counter.
- *
- * There is no race because thread_num_tuples is never accessed by another
- * thread, it is only used by the current thread to determine when to change
- * the global counter.
- *
- * each thread pads num_tuples by MEMTABLE_COUNT_GRANULARITY whenever it
- * adds a tuple which takes its local count to
- * k * MEMTABLE_COUNT_GRANULARITY + 1. Therefore, num_tuples is an upper
- * bound except that each thread may still add 1 more tuple.
- *-----------------------------------------------------------------------------
- */
 static inline void
 memtable_add_tuple(memtable_context *ctxt)
 {
@@ -220,10 +200,10 @@ memtable_insert(memtable_context *ctxt,
                 platform_heap_id  heap_id,
                 key               tuple_key,
                 message           msg,
+                lookup_result    *old_result,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
-   bool32         was_unique;
 
    btree_scratch  *scratch = get_btree_scratch(ctxt, tid);
    platform_status rc      = btree_insert(ctxt->cc,
@@ -234,15 +214,13 @@ memtable_insert(memtable_context *ctxt,
                                      &mt->mini,
                                      tuple_key,
                                      msg,
-                                     leaf_generation,
-                                     &was_unique);
+                                     old_result,
+                                     leaf_generation);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   if (was_unique) {
-      memtable_add_tuple(ctxt);
-   }
+   memtable_add_tuple(ctxt);
 
    return rc;
 }

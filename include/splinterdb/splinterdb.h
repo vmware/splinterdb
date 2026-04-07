@@ -143,6 +143,10 @@ typedef struct splinterdb_config {
    uint64 queue_scale_percent;
 } splinterdb_config;
 
+///////////////////////////////////////
+// Lifecycle
+///////////////////////////////////////
+
 // Opaque handle to an opened instance of SplinterDB
 typedef struct splinterdb splinterdb;
 
@@ -174,20 +178,10 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 void
 splinterdb_close(splinterdb **kvs);
 
-// Insert a key and value.  Overwrites any previous value associated with the
-// key.
-int
-splinterdb_insert(splinterdb *kvsb, slice key, slice value);
 
-// Delete a given key and any associated value / messages
-int
-splinterdb_delete(splinterdb *kvsb, slice key);
-
-// Update the value associated with key.
-int
-splinterdb_update(splinterdb *kvsb, slice key, slice delta);
-
+////////////////////////////////////
 // Lookups
+////////////////////////////////////
 
 typedef uint64 splinterdb_lookup_flags;
 
@@ -201,7 +195,7 @@ typedef uint64 splinterdb_lookup_flags;
 //
 // Once initialized, a splinterdb_lookup_result may be used for multiple
 // lookups. It is not safe to use from multiple threads.
-typedef struct {
+typedef struct splinterdb_lookup_result {
    char opaque[SPLINTERDB_LOOKUP_BUFSIZE];
 } __attribute__((__aligned__(8))) splinterdb_lookup_result;
 
@@ -266,6 +260,36 @@ splinterdb_lookup(splinterdb               *kvs,   // IN
                   splinterdb_lookup_result *result // IN/OUT
 );
 
+
+/////////////////////////////////
+// Updates
+/////////////////////////////////
+
+
+// Insert a key and value.  Overwrites any previous value associated with the
+// key.
+//
+// If old_result is non-NULL, it must have been initialized using
+// splinterdb_lookup_result_init() and will receive the value previously
+// associated with key.
+int
+splinterdb_insert(splinterdb               *kvsb,
+                  slice                     key,
+                  slice                     value,
+                  splinterdb_lookup_result *old_result);
+
+// Delete a given key and any associated value / messages
+int
+splinterdb_delete(splinterdb               *kvsb,
+                  slice                     key,
+                  splinterdb_lookup_result *old_result);
+
+// Update the value associated with key.
+int
+splinterdb_update(splinterdb               *kvsb,
+                  slice                     key,
+                  slice                     delta,
+                  splinterdb_lookup_result *old_result);
 
 /*
 Iterator API (range query)
