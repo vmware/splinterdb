@@ -3,18 +3,11 @@
 
 #pragma once
 
+#include "splinterdb/splinterdb.h"
 #include "data_internal.h"
 #include "vector.h"
 
 typedef struct iterator iterator;
-
-// for seek
-typedef enum comparison {
-   less_than,
-   less_than_or_equal,
-   greater_than,
-   greater_than_or_equal,
-} comparison;
 
 typedef void (*iterator_curr_fn)(iterator *itor, key *curr_key, message *msg);
 typedef bool32 (*iterator_bound_fn)(iterator *itor);

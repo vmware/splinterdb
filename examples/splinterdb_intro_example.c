@@ -112,7 +112,8 @@ main()
           " returning keys in lexicographic sort order:\n");
 
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(spl_handle, &it, NULL_SLICE);
+   rc                      = splinterdb_iterator_init(
+      spl_handle, &it, NULL_SLICE, greater_than_or_equal);
 
    int i = 0;
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
