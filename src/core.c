@@ -355,46 +355,56 @@ core_memtable_iterator_deinit(core_handle    *spl,
  *
  * Returns:
  *    success if succeeded
- *    locked if the current memtable is full
- *    lock_acquired if the current memtable is full and this thread is
- *       responsible for flushing it.
+ *    locked if successful
  */
 static platform_status
-core_memtable_insert(core_handle *spl, key tuple_key, message msg)
+core_memtable_insert(core_handle   *spl,
+                     key            tuple_key,
+                     message        msg,
+                     lookup_result *old_result,
+                     uint64        *generation)
 {
-   uint64 generation;
-
    platform_status rc =
-      memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, &generation);
+      memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, generation);
    while (STATUS_IS_EQ(rc, STATUS_BUSY)) {
       // Memtable isn't ready, do a task if available; may be required to
       // incorporate memtable that we're waiting on
       task_perform_one_if_needed(spl->ts, 0);
-      rc = memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, &generation);
+      rc = memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, generation);
    }
    if (!SUCCESS(rc)) {
       goto out;
    }
 
    // this call is safe because we hold the insert lock
-   memtable *mt = core_get_memtable(spl, generation);
+   memtable *mt = core_get_memtable(spl, *generation);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(&spl->mt_ctxt,
                         mt,
                         PROCESS_PRIVATE_HEAP_ID,
                         tuple_key,
                         msg,
+                        old_result,
                         &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
 
+   /* TODO: FIXME: One way we could get stuck in a fetch-and-update is if the
+    * insert succeeds but the lookup fails (e.g. due to an I/O error while
+    * traversing the trunk).  I think the promise we should make in that case is
+    * that we will preserve enough information in the log to enable the user
+    * to recover the old value. One way to do this might be to insert a
+    * reference to the trunk into the log. */
    if (spl->cfg.use_log) {
       int crappy_rc = log_write(spl->log, tuple_key, msg, leaf_generation);
       if (crappy_rc != 0) {
+         rc = (platform_status){.r = crappy_rc};
          goto unlock_insert_lock;
       }
    }
+
+   return STATUS_OK;
 
 unlock_insert_lock:
    memtable_end_insert(&spl->mt_ctxt);
@@ -714,6 +724,63 @@ core_memtable_lookup(core_handle   *spl,
 
    return btree_lookup_and_merge(
       cc, cfg, root_addr, type, target, result, NULL);
+}
+
+static platform_status
+core_lookup_memtables_locked(core_handle   *spl,
+                             uint64         mt_gen_start,
+                             key            target,
+                             lookup_result *result,
+                             bool32        *found_final)
+{
+   uint64 mt_gen_end = memtable_generation_retired(&spl->mt_ctxt);
+   platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
+
+   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
+      platform_status rc = core_memtable_lookup(spl, mt_gen, target, result);
+      platform_assert_status_ok(rc);
+      if (!lookup_result_should_continue(result)) {
+         *found_final = TRUE;
+         return STATUS_OK;
+      }
+   }
+
+   *found_final = FALSE;
+   return STATUS_OK;
+}
+
+static platform_status
+core_lookup_from_memtable_generation_locked(core_handle   *spl,
+                                            uint64         mt_gen_start,
+                                            key            target,
+                                            lookup_result *result)
+{
+   bool32                   found_final = FALSE;
+   trunk_ondisk_node_handle root_handle;
+
+   platform_status rc = core_lookup_memtables_locked(
+      spl, mt_gen_start, target, result, &found_final);
+   if (found_final) {
+      memtable_end_lookup(&spl->mt_ctxt);
+      lookup_result_finalize(result, target);
+      return STATUS_OK;
+   }
+
+   rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
+   memtable_end_lookup(&spl->mt_ctxt);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = trunk_merge_lookup(
+      &spl->trunk_context, &root_handle, target, result, NULL);
+   trunk_ondisk_node_handle_deinit(&root_handle);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   lookup_result_finalize(result, target);
+   return STATUS_OK;
 }
 
 /*
@@ -1225,7 +1292,10 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
  */
 
 platform_status
-core_insert(core_handle *spl, key tuple_key, message data)
+core_insert(core_handle   *spl,
+            key            tuple_key,
+            message        data,
+            lookup_result *old_result)
 {
    timestamp      ts;
    const threadid tid = platform_get_tid();
@@ -1241,10 +1311,35 @@ core_insert(core_handle *spl, key tuple_key, message data)
       data = DELETE_MESSAGE;
    }
 
-   platform_status rc = core_memtable_insert(spl, tuple_key, data);
+   if (old_result != NULL) {
+      lookup_result_reset(old_result);
+   }
+
+   uint64          generation;
+   platform_status rc =
+      core_memtable_insert(spl, tuple_key, data, old_result, &generation);
    if (!SUCCESS(rc)) {
       goto out;
    }
+
+   if (old_result != NULL) {
+      if (lookup_result_should_continue(old_result) && 0 < generation) {
+         memtable_begin_lookup(&spl->mt_ctxt);
+         memtable_end_insert(&spl->mt_ctxt);
+         rc = core_lookup_from_memtable_generation_locked(
+            spl, generation - 1, tuple_key, old_result);
+         if (!SUCCESS(rc)) {
+            goto lookup_failed;
+         }
+      } else {
+         memtable_end_insert(&spl->mt_ctxt);
+         lookup_result_finalize(old_result, tuple_key);
+      }
+   } else {
+      memtable_end_insert(&spl->mt_ctxt);
+   }
+
+lookup_failed:
 
    task_perform_one_if_needed(spl->ts, spl->cfg.queue_scale_percent);
 
@@ -1279,49 +1374,15 @@ out:
 platform_status
 core_lookup(core_handle *spl, key target, lookup_result *result)
 {
-   // look in memtables
-
-   // 1. get read lock on lookup lock
-   //     --- 2. for [mt_no = mt->generation..mt->gen_to_incorp]
-   // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
-   //                also handles switch to READY ^^^^^
-
    lookup_result_reset(result);
 
    memtable_begin_lookup(&spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(&spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(&spl->mt_ctxt);
-   platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
-
-   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      platform_status rc = core_memtable_lookup(spl, mt_gen, target, result);
-      platform_assert_status_ok(rc);
-      if (!lookup_result_should_continue(result)) {
-         memtable_end_lookup(&spl->mt_ctxt);
-         goto found_final_answer;
-      }
-   }
-
-   trunk_ondisk_node_handle root_handle;
-   platform_status          rc;
-   rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
-   // release memtable lookup lock before we handle any errors
-   memtable_end_lookup(&spl->mt_ctxt);
+   uint64          mt_gen_start = memtable_generation(&spl->mt_ctxt);
+   platform_status rc           = core_lookup_from_memtable_generation_locked(
+      spl, mt_gen_start, target, result);
    if (!SUCCESS(rc)) {
       return rc;
    }
-
-
-   rc = trunk_merge_lookup(
-      &spl->trunk_context, &root_handle, target, result, NULL);
-   trunk_ondisk_node_handle_deinit(&root_handle);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-found_final_answer:
-
-   lookup_result_finalize(result, target);
 
    if (spl->cfg.use_stats) {
       threadid tid = platform_get_tid();
@@ -1350,23 +1411,16 @@ core_lookup_async(core_lookup_async_state *state)
    lookup_result_reset(state->result);
 
    memtable_begin_lookup(&state->spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(&state->spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(&state->spl->mt_ctxt);
-   platform_assert(mt_gen_start - mt_gen_end <= CORE_NUM_MEMTABLES);
-
-   for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      platform_status rc;
-
-      rc =
-         core_memtable_lookup(state->spl, mt_gen, state->target, state->result);
-      platform_assert_status_ok(rc);
-      if (!lookup_result_should_continue(state->result)) {
-         memtable_end_lookup(&state->spl->mt_ctxt);
-         goto found_final_answer;
-      }
+   uint64          mt_gen_start = memtable_generation(&state->spl->mt_ctxt);
+   bool32          found_final;
+   platform_status rc = core_lookup_memtables_locked(
+      state->spl, mt_gen_start, state->target, state->result, &found_final);
+   platform_assert_status_ok(rc);
+   if (found_final) {
+      memtable_end_lookup(&state->spl->mt_ctxt);
+      goto found_final_answer;
    }
 
-   platform_status rc;
    rc = trunk_init_root_handle(&state->spl->trunk_context, &state->root_handle);
    // release memtable lookup lock before we handle any errors
    memtable_end_lookup(&state->spl->mt_ctxt);

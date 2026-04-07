@@ -53,21 +53,21 @@ main()
    slice       key   = slice_create((size_t)strlen(fruit), fruit);
    slice       value = slice_create((size_t)strlen(descr), descr);
 
-   rc = splinterdb_insert(spl_handle, key, value);
+   rc = splinterdb_insert(spl_handle, key, value, NULL);
    printf("Inserted key '%s'\n", fruit);
 
    fruit = "Orange";
    descr = "Is a good source of vitamin-C.";
    key   = slice_create((size_t)strlen(fruit), fruit);
    value = slice_create((size_t)strlen(descr), descr);
-   rc    = splinterdb_insert(spl_handle, key, value);
+   rc    = splinterdb_insert(spl_handle, key, value, NULL);
    printf("Inserted key '%s'\n", fruit);
 
    fruit = "Mango";
    descr = "Mango is the king of fruits.";
    key   = slice_create((size_t)strlen(fruit), fruit);
    value = slice_create((size_t)strlen(descr), descr);
-   rc    = splinterdb_insert(spl_handle, key, value);
+   rc    = splinterdb_insert(spl_handle, key, value, NULL);
    printf("Inserted key '%s'\n", fruit);
 
    // Retrieve a key-value pair.

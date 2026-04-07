@@ -123,7 +123,8 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
       random_bytes(&rand_state, value_buffer, TEST_VALUE_SIZE);
       int rc = splinterdb_insert(data->kvsb,
                                  slice_create(TEST_KEY_SIZE, key_buffer),
-                                 slice_create(TEST_VALUE_SIZE, value_buffer));
+                                 slice_create(TEST_VALUE_SIZE, value_buffer),
+                                 NULL);
       ASSERT_EQUAL(0, rc);
    }
 
@@ -156,7 +157,7 @@ CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
       snprintf(key_str, sizeof(key_str), "key-%08x", i);
       slice key = slice_create(sizeof(key_str), key_str);
       slice val = slice_create(sizeof(value_str), value_str);
-      ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, val));
+      ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, val, NULL));
    }
 
    // create an iterator at end of keys
@@ -247,7 +248,7 @@ CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
          slice key = slice_create(strlen(key_data), key_data);
          slice val = slice_create(strlen(val_data), val_data);
 
-         int rc = splinterdb_insert(data->kvsb, key, val);
+         int rc = splinterdb_insert(data->kvsb, key, val, NULL);
          ASSERT_EQUAL(0, rc);
       }
       uint64 elapsed_ns      = platform_timestamp_elapsed(start_time);
@@ -299,7 +300,8 @@ exec_worker_thread(void *w)
 
       rc = splinterdb_insert(kvsb,
                              slice_create(TEST_KEY_SIZE, key_buf),
-                             slice_create(TEST_VALUE_SIZE, value_buf));
+                             slice_create(TEST_VALUE_SIZE, value_buf),
+                             NULL);
       ASSERT_EQUAL(0, rc);
 
       if (i && (i % 100000 == 0)) {
@@ -344,7 +346,7 @@ naive_range_delete(splinterdb *kvsb, slice start_key, uint32 count)
    for (uint32 i = 0; i < num_found; i++) {
       slice key_to_delete =
          slice_create(TEST_KEY_SIZE, keys_to_delete + i * TEST_KEY_SIZE);
-      splinterdb_delete(kvsb, key_to_delete);
+      splinterdb_delete(kvsb, key_to_delete, NULL);
    }
 
    free(keys_to_delete);

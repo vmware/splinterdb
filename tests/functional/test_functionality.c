@@ -581,7 +581,8 @@ insert_random_messages(core_handle               *spl,
       }
       test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      rc = core_insert(spl, tuple_key, merge_accumulator_to_message(&msg));
+      rc =
+         core_insert(spl, tuple_key, merge_accumulator_to_message(&msg), NULL);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }

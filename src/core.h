@@ -147,7 +147,10 @@ typedef struct core_range_iterator {
  */
 
 platform_status
-core_insert(core_handle *spl, key tuple_key, message data);
+core_insert(core_handle   *spl,
+            key            tuple_key,
+            message        data,
+            lookup_result *old_result);
 
 platform_status
 core_lookup(core_handle *spl, key target, lookup_result *result);

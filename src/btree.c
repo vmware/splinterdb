@@ -572,6 +572,21 @@ spec_message(const leaf_incorporate_spec *spec)
    }
 }
 
+static inline platform_status
+btree_record_old_result(const btree_config          *cfg,
+                        const btree_hdr             *hdr,
+                        const leaf_incorporate_spec *spec,
+                        lookup_result               *old_result)
+{
+   if (old_result == NULL || spec->old_entry_state != ENTRY_STILL_EXISTS) {
+      return STATUS_OK;
+   }
+
+   leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, spec->idx);
+   return lookup_result_update(
+      old_result, leaf_entry_key(entry), leaf_entry_message(entry));
+}
+
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    platform_heap_id       heap_id,
@@ -1276,7 +1291,7 @@ btree_dec_ref(cache              *cc,
  *
  * This function violates our locking rules. See comment at top of file.
  */
-static inline int
+static inline platform_status
 btree_split_child_leaf(cache                 *cc,
                        const btree_config    *cfg,
                        mini_allocator        *mini,
@@ -1285,6 +1300,7 @@ btree_split_child_leaf(cache                 *cc,
                        uint64                 index_of_child_in_parent,
                        btree_node            *child,
                        leaf_incorporate_spec *spec,
+                       lookup_result         *old_result,
                        uint64                *generation) // OUT
 {
    btree_node right_child;
@@ -1329,7 +1345,7 @@ btree_split_child_leaf(cache                 *cc,
             btree_node_full_unlock(cc, cfg, parent);
             btree_node_unclaim(cc, cfg, child);
             btree_node_unget(cc, cfg, child);
-            return -1;
+            return STATUS_BUSY;
          }
          platform_sleep_ns(child_next_wait);
          child_next_wait =
@@ -1342,6 +1358,18 @@ btree_split_child_leaf(cache                 *cc,
 
    btree_node_lock(cc, cfg, child);
    /* p: write, c: write, rc: write, cn: write if exists */
+
+   platform_status rc =
+      btree_record_old_result(cfg, child->hdr, spec, old_result);
+   if (!SUCCESS(rc)) {
+      if (child_next.addr != 0) {
+         btree_node_full_unlock(cc, cfg, &child_next);
+      }
+      btree_node_full_unlock(cc, cfg, &right_child);
+      btree_node_full_unlock(cc, cfg, parent);
+      btree_node_full_unlock(cc, cfg, child);
+      return rc;
+   }
 
    {
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
@@ -1381,7 +1409,7 @@ btree_split_child_leaf(cache                 *cc,
    btree_node_full_unlock(cc, cfg, child);
    /* p: unlocked, c: unlocked, rc: unlocked, cn: unlocked */
 
-   return 0;
+   return STATUS_OK;
 }
 
 /*
@@ -1393,7 +1421,7 @@ btree_split_child_leaf(cache                 *cc,
  * - all nodes fully unlocked
  * - insertion is complete
  */
-static inline int
+static inline platform_status
 btree_defragment_or_split_child_leaf(cache              *cc,
                                      const btree_config *cfg,
                                      mini_allocator     *mini,
@@ -1402,6 +1430,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
                                      uint64      index_of_child_in_parent,
                                      btree_node *child,
                                      leaf_incorporate_spec *spec,
+                                     lookup_result         *old_result,
                                      uint64                *generation) // OUT
 {
    uint64 nentries   = btree_num_entries(child->hdr);
@@ -1425,6 +1454,12 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       btree_node_unclaim(cc, cfg, parent);
       btree_node_unget(cc, cfg, parent);
       btree_node_lock(cc, cfg, child);
+      platform_status rc =
+         btree_record_old_result(cfg, child->hdr, spec, old_result);
+      if (!SUCCESS(rc)) {
+         btree_node_full_unlock(cc, cfg, child);
+         return rc;
+      }
       btree_defragment_leaf(cfg, scratch, child->hdr, spec);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, generation);
@@ -1439,10 +1474,11 @@ btree_defragment_or_split_child_leaf(cache              *cc,
                                     index_of_child_in_parent,
                                     child,
                                     spec,
+                                    old_result,
                                     generation);
    }
 
-   return 0;
+   return STATUS_OK;
 }
 
 /*
@@ -1698,8 +1734,8 @@ btree_insert(cache              *cc,         // IN
              mini_allocator     *mini,       // IN
              key                 tuple_key,  // IN
              message             msg,        // IN
-             uint64             *generation, // OUT
-             bool32             *was_unique)             // OUT
+             lookup_result      *old_result, // IN/OUT
+             uint64             *generation)             // OUT
 {
    platform_status       rc;
    leaf_incorporate_spec spec;
@@ -1721,6 +1757,10 @@ btree_insert(cache              *cc,         // IN
 
    log_trace_key(tuple_key, "btree_insert");
 
+   if (old_result != NULL) {
+      lookup_result_reset(old_result);
+   }
+
 start_over:
    btree_node_get(cc, cfg, &root_node, PAGE_TYPE_MEMTABLE);
    uint64 leaf_wait = 1;
@@ -1738,10 +1778,16 @@ start_over:
          goto start_over;
       }
       btree_node_lock(cc, cfg, &root_node);
-      if (btree_try_perform_leaf_incorporate_spec(
-             cfg, root_node.hdr, &spec, generation))
-      {
-         *was_unique = spec.old_entry_state == ENTRY_DID_NOT_EXIST;
+      if (btree_can_perform_leaf_incorporate_spec(cfg, root_node.hdr, &spec)) {
+         rc = btree_record_old_result(cfg, root_node.hdr, &spec, old_result);
+         if (!SUCCESS(rc)) {
+            btree_node_full_unlock(cc, cfg, &root_node);
+            destroy_leaf_incorporate_spec(&spec);
+            return rc;
+         }
+         bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
+            cfg, root_node.hdr, &spec, generation);
+         platform_assert(incorporated);
          btree_node_full_unlock(cc, cfg, &root_node);
          destroy_leaf_incorporate_spec(&spec);
          return STATUS_OK;
@@ -1946,12 +1992,17 @@ start_over:
          goto start_over;
       }
       btree_node_lock(cc, cfg, &child_node);
+      rc = btree_record_old_result(cfg, child_node.hdr, &spec, old_result);
+      if (!SUCCESS(rc)) {
+         btree_node_full_unlock(cc, cfg, &child_node);
+         destroy_leaf_incorporate_spec(&spec);
+         return rc;
+      }
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child_node.hdr, &spec, generation);
       platform_assert(incorporated);
       btree_node_full_unlock(cc, cfg, &child_node);
       destroy_leaf_incorporate_spec(&spec);
-      *was_unique = spec.old_entry_state == ENTRY_DID_NOT_EXIST;
       return STATUS_OK;
    }
 
@@ -1984,20 +2035,23 @@ start_over:
          return rc;
       }
    }
-   int result = btree_defragment_or_split_child_leaf(cc,
-                                                     cfg,
-                                                     mini,
-                                                     scratch,
-                                                     &parent_node,
-                                                     child_idx,
-                                                     &child_node,
-                                                     &spec,
-                                                     generation);
+   rc = btree_defragment_or_split_child_leaf(cc,
+                                             cfg,
+                                             mini,
+                                             scratch,
+                                             &parent_node,
+                                             child_idx,
+                                             &child_node,
+                                             &spec,
+                                             old_result,
+                                             generation);
    destroy_leaf_incorporate_spec(&spec);
-   if (result < 0) {
+   if (STATUS_IS_EQ(rc, STATUS_BUSY)) {
       goto start_over;
    }
-   *was_unique = spec.old_entry_state == ENTRY_DID_NOT_EXIST;
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    return STATUS_OK;
 }
 

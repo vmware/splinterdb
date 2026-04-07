@@ -183,8 +183,8 @@ btree_insert(cache              *cc,         // IN
              mini_allocator     *mini,       // IN
              key                 tuple_key,  // IN
              message             data,       // IN
-             uint64             *generation, // OUT
-             bool32             *was_unique);            // OUT
+             lookup_result      *old_result, // IN/OUT
+             uint64             *generation);            // OUT
 
 uint64
 btree_create(cache              *cc,

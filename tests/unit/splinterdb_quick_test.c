@@ -81,6 +81,13 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2);
 static uint64
 sum_branch_lookups(const splinterdb *kvsb);
 
+static void
+assert_lookup_result_not_found(const splinterdb_lookup_result *result);
+
+static void
+assert_lookup_result_matches_slice(const splinterdb_lookup_result *result,
+                                   slice                           expected);
+
 typedef struct {
    data_config super;
    uint64      num_comparisons;
@@ -174,7 +181,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    slice        to_insert      = slice_create(to_insert_len, to_insert_data);
 
    // Basic insert of new key should succeed.
-   rc = splinterdb_insert(data->kvsb, user_key, to_insert);
+   rc = splinterdb_insert(data->kvsb, user_key, to_insert, NULL);
    ASSERT_EQUAL(0, rc);
 
    // Lookup of inserted key should succeed.
@@ -189,7 +196,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    ASSERT_STREQN(to_insert_data, slice_data(value), slice_length(value));
 
    // Delete key
-   rc = splinterdb_delete(data->kvsb, user_key);
+   rc = splinterdb_delete(data->kvsb, user_key, NULL);
    ASSERT_EQUAL(0, rc);
 
    // Deleted key should not be found
@@ -216,7 +223,7 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    slice        to_insert      = slice_create(to_insert_len, to_insert_data);
 
    // **** Insert of a max-size key should succeed.
-   int rc = splinterdb_insert(data->kvsb, large_key, to_insert);
+   int rc = splinterdb_insert(data->kvsb, large_key, to_insert, NULL);
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
@@ -238,7 +245,7 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
                  slice_length(value),
                  "Large key-value did not match as expected.");
 
-   rc = splinterdb_delete(data->kvsb, large_key);
+   rc = splinterdb_delete(data->kvsb, large_key, NULL);
    ASSERT_EQUAL(0, rc);
 
    // **** Should not find this large-key once it's deleted
@@ -260,14 +267,14 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
    slice too_large_key = slice_create(too_large_key_len, too_large_key_data);
 
    int rc = splinterdb_insert(
-      data->kvsb, too_large_key, slice_create(sizeof("foo"), "foo"));
+      data->kvsb, too_large_key, slice_create(sizeof("foo"), "foo"), NULL);
    ASSERT_EQUAL(EINVAL, rc);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
-   rc = splinterdb_delete(data->kvsb, too_large_key);
+   rc = splinterdb_delete(data->kvsb, too_large_key, NULL);
    ASSERT_EQUAL(EINVAL, rc);
 
    splinterdb_lookup_result_deinit(&result);
@@ -291,7 +298,7 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
       slice_create(too_large_value_len, too_large_value_data);
 
    int rc = splinterdb_insert(
-      data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value);
+      data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value, NULL);
 
    ASSERT_EQUAL(EINVAL, rc);
    platform_free(data->cfg.heap_id, too_large_value_data);
@@ -320,24 +327,30 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    memset(max_length_string, 'b', TEST_MAX_VALUE_SIZE);
 
    // Insert keys with different value (lengths)
-   int rc = splinterdb_insert(
-      data->kvsb, key_empty, slice_create(sizeof(empty_string), empty_string));
+   int rc = splinterdb_insert(data->kvsb,
+                              key_empty,
+                              slice_create(sizeof(empty_string), empty_string),
+                              NULL);
    ASSERT_EQUAL(0, rc);
 
-   rc = splinterdb_insert(
-      data->kvsb, key_short, slice_create(sizeof(short_string), short_string));
+   rc = splinterdb_insert(data->kvsb,
+                          key_short,
+                          slice_create(sizeof(short_string), short_string),
+                          NULL);
    ASSERT_EQUAL(0, rc);
 
    rc = splinterdb_insert(
       data->kvsb,
       key_long,
-      slice_create(sizeof(almost_max_length_string), almost_max_length_string));
+      slice_create(sizeof(almost_max_length_string), almost_max_length_string),
+      NULL);
    ASSERT_EQUAL(0, rc);
 
    rc = splinterdb_insert(
       data->kvsb,
       key_max,
-      slice_create(sizeof(max_length_string), max_length_string));
+      slice_create(sizeof(max_length_string), max_length_string),
+      NULL);
    ASSERT_EQUAL(0, rc);
 
 
@@ -725,7 +738,8 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    const char  *val      = "some-value";
    const size_t val_len  = strlen(val);
 
-   int rc = splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val));
+   int rc =
+      splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val), NULL);
    ASSERT_EQUAL(0, rc);
 
    // Close and re-open the database
@@ -770,7 +784,8 @@ CTEST2(splinterdb_quick, test_repeated_insert_close_reopen)
    for (int i = 0; i < 20; i++) {
       int rc = splinterdb_insert(data->kvsb,
                                  slice_create(key_len, keystring),
-                                 slice_create(val_len, val));
+                                 slice_create(val_len, val),
+                                 NULL);
       ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
       splinterdb_close(&data->kvsb);
@@ -799,7 +814,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    slice        msg_slice = slice_create(sizeof(msg), &msg);
 
    ASSERT_EQUAL(0, rc);
-   rc = splinterdb_insert(data->kvsb, user_key, msg_slice);
+   rc = splinterdb_insert(data->kvsb, user_key, msg_slice, NULL);
 
    // confirm its there
    splinterdb_lookup_result result;
@@ -816,7 +831,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 
    // insert a message that adds to the refcount
    msg.ref_count = 5;
-   rc            = splinterdb_update(data->kvsb, user_key, msg_slice);
+   rc            = splinterdb_update(data->kvsb, user_key, msg_slice, NULL);
    ASSERT_EQUAL(0, rc);
 
    // check still found
@@ -826,7 +841,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 
    // insert a message that drops the refcount to zero
    msg.ref_count = -6;
-   rc            = splinterdb_update(data->kvsb, user_key, msg_slice);
+   rc            = splinterdb_update(data->kvsb, user_key, msg_slice, NULL);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, merge will decide the tuple is deleted
@@ -836,11 +851,11 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 
    // add it back as a value
    msg.ref_count = 12;
-   rc            = splinterdb_insert(data->kvsb, user_key, msg_slice);
+   rc            = splinterdb_insert(data->kvsb, user_key, msg_slice, NULL);
    ASSERT_EQUAL(0, rc);
 
    // delete it using a raw message
-   rc = splinterdb_delete(data->kvsb, user_key);
+   rc = splinterdb_delete(data->kvsb, user_key, NULL);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, it should not be found
@@ -864,7 +879,7 @@ CTEST2(splinterdb_quick, test_existence_only_memtable_lookup)
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
-   rc = splinterdb_insert(data->kvsb, user_key, value);
+   rc = splinterdb_insert(data->kvsb, user_key, value, NULL);
    ASSERT_EQUAL(0, rc);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
@@ -875,7 +890,7 @@ CTEST2(splinterdb_quick, test_existence_only_memtable_lookup)
    rc = splinterdb_lookup_result_value(&result, &looked_up_value);
    ASSERT_EQUAL(EINVAL, rc);
 
-   rc = splinterdb_delete(data->kvsb, user_key);
+   rc = splinterdb_delete(data->kvsb, user_key, NULL);
    ASSERT_EQUAL(0, rc);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
@@ -897,7 +912,7 @@ CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
    slice user_key = slice_create(strlen("trunk-key"), "trunk-key");
    slice value    = slice_create(strlen("trunk-value"), "trunk-value");
 
-   rc = splinterdb_insert(data->kvsb, user_key, value);
+   rc = splinterdb_insert(data->kvsb, user_key, value, NULL);
    ASSERT_EQUAL(0, rc);
 
    splinterdb_close(&data->kvsb);
@@ -933,6 +948,189 @@ CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
    ASSERT_TRUE(splinterdb_lookup_found(&normal_result));
    ASSERT_TRUE(sum_branch_lookups(data->kvsb) > 0);
    splinterdb_lookup_result_deinit(&normal_result);
+}
+
+CTEST2(splinterdb_quick, test_write_api_returns_old_value)
+{
+   slice user_key = slice_create(strlen("old-value-key"), "old-value-key");
+   slice value0   = slice_create(strlen("old-value-0"), "old-value-0");
+   slice value1   = slice_create(strlen("old-value-1"), "old-value-1");
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   int rc = splinterdb_insert(data->kvsb, user_key, value0, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_not_found(&old_result);
+
+   rc = splinterdb_insert(data->kvsb, user_key, value1, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_matches_slice(&old_result, value0);
+
+   rc = splinterdb_delete(data->kvsb, user_key, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_matches_slice(&old_result, value1);
+
+   rc = splinterdb_insert(data->kvsb, user_key, value0, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_not_found(&old_result);
+
+   splinterdb_lookup_result_deinit(&old_result);
+}
+
+CTEST2(splinterdb_quick, test_write_api_old_result_existence_only)
+{
+   slice user_key = slice_create(strlen("exist-old"), "exist-old");
+   slice value0   = slice_create(strlen("existence-old-0"), "existence-old-0");
+   slice value1   = slice_create(strlen("existence-old-1"), "existence-old-1");
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_MIGHT_EXIST, 0, NULL);
+
+   int rc = splinterdb_insert(data->kvsb, user_key, value0, &old_result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(splinterdb_lookup_found(&old_result));
+
+   rc = splinterdb_insert(data->kvsb, user_key, value1, &old_result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&old_result));
+
+   slice looked_up_value;
+   rc = splinterdb_lookup_result_value(&old_result, &looked_up_value);
+   ASSERT_EQUAL(EINVAL, rc);
+
+   rc = splinterdb_delete(data->kvsb, user_key, &old_result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&old_result));
+
+   rc = splinterdb_insert(data->kvsb, user_key, value0, &old_result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(splinterdb_lookup_found(&old_result));
+
+   splinterdb_lookup_result_deinit(&old_result);
+}
+
+CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
+{
+   splinterdb_close(&data->kvsb);
+   data->cfg.data_cfg               = test_data_config;
+   data->cfg.data_cfg->max_key_size = 20;
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   slice       user_key  = slice_create(strlen("merge-key"), "merge-key");
+   data_handle msg       = {.ref_count = 1};
+   slice       msg_slice = slice_create(sizeof(msg), &msg);
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   rc = splinterdb_insert(data->kvsb, user_key, msg_slice, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_not_found(&old_result);
+
+   msg.ref_count = 5;
+   msg_slice     = slice_create(sizeof(msg), &msg);
+   rc = splinterdb_update(data->kvsb, user_key, msg_slice, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_matches_slice(
+      &old_result, slice_create(sizeof(msg), &(data_handle){.ref_count = 1}));
+
+   merge_accumulator expected;
+   merge_accumulator_init(&expected, PROCESS_PRIVATE_HEAP_ID);
+   test_data_generate_message(
+      test_data_config, MESSAGE_TYPE_INSERT, 6, &expected);
+
+   msg.ref_count = -6;
+   msg_slice     = slice_create(sizeof(msg), &msg);
+   rc = splinterdb_update(data->kvsb, user_key, msg_slice, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_matches_slice(&old_result,
+                                      merge_accumulator_to_value(&expected));
+
+   merge_accumulator_deinit(&expected);
+
+   msg.ref_count = 12;
+   msg_slice     = slice_create(sizeof(msg), &msg);
+   rc = splinterdb_insert(data->kvsb, user_key, msg_slice, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_not_found(&old_result);
+
+   splinterdb_lookup_result_deinit(&old_result);
+}
+
+CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
+{
+   splinterdb_close(&data->kvsb);
+   data->cfg.data_cfg               = test_data_config;
+   data->cfg.data_cfg->max_key_size = 20;
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   slice user_key  = slice_create(strlen("trunk-merge-key"), "trunk-merge-key");
+   data_handle msg = {.ref_count = 3};
+   slice       msg_slice = slice_create(sizeof(msg), &msg);
+
+   rc = splinterdb_insert(data->kvsb, user_key, msg_slice, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_close(&data->kvsb);
+   rc = splinterdb_open(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   msg.ref_count = 4;
+   msg_slice     = slice_create(sizeof(msg), &msg);
+   rc            = splinterdb_update(data->kvsb, user_key, msg_slice, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   merge_accumulator expected;
+   merge_accumulator_init(&expected, PROCESS_PRIVATE_HEAP_ID);
+   test_data_generate_message(
+      test_data_config, MESSAGE_TYPE_INSERT, 7, &expected);
+
+   msg.ref_count = 2;
+   msg_slice     = slice_create(sizeof(msg), &msg);
+   rc = splinterdb_update(data->kvsb, user_key, msg_slice, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_matches_slice(&old_result,
+                                      merge_accumulator_to_value(&expected));
+
+   merge_accumulator_deinit(&expected);
+   splinterdb_lookup_result_deinit(&old_result);
+}
+
+CTEST2(splinterdb_quick, test_write_api_old_result_respects_trunk_delete_shadow)
+{
+   slice user_key = slice_create(strlen("shadow-key"), "shadow-key");
+   slice value0   = slice_create(strlen("shadow-old"), "shadow-old");
+   slice value1   = slice_create(strlen("shadow-new"), "shadow-new");
+
+   int rc = splinterdb_insert(data->kvsb, user_key, value0, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_close(&data->kvsb);
+   rc = splinterdb_open(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_delete(data->kvsb, user_key, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   rc = splinterdb_insert(data->kvsb, user_key, value1, &old_result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_not_found(&old_result);
+
+   splinterdb_lookup_result_deinit(&old_result);
 }
 
 CTEST2(splinterdb_quick, test_iterator_custom_comparator)
@@ -1100,6 +1298,24 @@ sum_branch_lookups(const splinterdb *kvsb)
    return total;
 }
 
+static void
+assert_lookup_result_not_found(const splinterdb_lookup_result *result)
+{
+   ASSERT_FALSE(splinterdb_lookup_found(result));
+}
+
+static void
+assert_lookup_result_matches_slice(const splinterdb_lookup_result *result,
+                                   slice                           expected)
+{
+   slice value;
+
+   ASSERT_TRUE(splinterdb_lookup_found(result));
+   ASSERT_EQUAL(0, splinterdb_lookup_result_value(result, &value));
+   ASSERT_EQUAL(slice_length(expected), slice_length(value));
+   ASSERT_EQUAL(0, slice_lex_cmp(value, expected));
+}
+
 /*
  * Helper function to insert n-keys (num_inserts), using pre-formatted
  * key and value strings.
@@ -1118,8 +1334,10 @@ insert_some_keys(const int num_inserts, splinterdb *kvsb)
       ASSERT_EQUAL(KEY_FMT_LENGTH, snprintf(key, sizeof(key), key_fmt, i));
       ASSERT_EQUAL(VAL_FMT_LENGTH, snprintf(val, sizeof(val), val_fmt, i));
 
-      rc = splinterdb_insert(
-         kvsb, slice_create(sizeof(key), key), slice_create(sizeof(val), val));
+      rc = splinterdb_insert(kvsb,
+                             slice_create(sizeof(key), key),
+                             slice_create(sizeof(val), val),
+                             NULL);
       ASSERT_EQUAL(0, rc);
    }
 
@@ -1157,8 +1375,10 @@ insert_keys(splinterdb *kvsb, const int minkey, int numkeys, const int incr)
       snprintf(key, sizeof(key), key_fmt, kctr);
       snprintf(val, sizeof(val), val_fmt, kctr);
 
-      rc = splinterdb_insert(
-         kvsb, slice_create(sizeof(key), key), slice_create(sizeof(val), val));
+      rc = splinterdb_insert(kvsb,
+                             slice_create(sizeof(key), key),
+                             slice_create(sizeof(val), val),
+                             NULL);
       ASSERT_EQUAL(0, rc);
    }
    return rc;

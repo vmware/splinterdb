@@ -180,10 +180,10 @@ test_trunk_insert_thread(void *arg)
                      core_max_key_size(spl),
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, insert_num, &msg);
-            platform_status rc =
-               core_insert(spl,
-                           key_buffer_key(&keybuf),
-                           merge_accumulator_to_message(&msg));
+            platform_status rc = core_insert(spl,
+                                             key_buffer_key(&keybuf),
+                                             merge_accumulator_to_message(&msg),
+                                             NULL);
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
                ts = platform_timestamp_elapsed(ts);
@@ -600,11 +600,11 @@ do_operation(test_splinter_thread_params *params,
                      core_max_key_size(spl),
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, op_num, &msg);
-            ts = platform_get_timestamp();
-            platform_status rc =
-               core_insert(spl,
-                           key_buffer_key(&keybuf),
-                           merge_accumulator_to_message(&msg));
+            ts                 = platform_get_timestamp();
+            platform_status rc = core_insert(spl,
+                                             key_buffer_key(&keybuf),
+                                             merge_accumulator_to_message(&msg),
+                                             NULL);
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
