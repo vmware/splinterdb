@@ -758,12 +758,16 @@ core_lookup_from_memtable_generation_locked(core_handle   *spl,
    bool32                   found_final = FALSE;
    trunk_ondisk_node_handle root_handle;
 
-   platform_status rc = core_lookup_memtables_locked(
-      spl, mt_gen_start, target, result, &found_final);
-   if (found_final) {
-      memtable_end_lookup(&spl->mt_ctxt);
-      lookup_result_finalize(result, target);
-      return STATUS_OK;
+   platform_status rc;
+
+   if (mt_gen_start != (uint64)-1) {
+      rc = core_lookup_memtables_locked(
+         spl, mt_gen_start, target, result, &found_final);
+      if (found_final) {
+         memtable_end_lookup(&spl->mt_ctxt);
+         lookup_result_finalize(result, target);
+         return STATUS_OK;
+      }
    }
 
    rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
@@ -1323,9 +1327,10 @@ core_insert(core_handle   *spl,
    }
 
    if (old_result != NULL) {
-      if (lookup_result_should_continue(old_result) && 0 < generation) {
+      if (lookup_result_should_continue(old_result)) {
          memtable_begin_lookup(&spl->mt_ctxt);
          memtable_end_insert(&spl->mt_ctxt);
+         // Passing generation - 1 is allowed here
          rc = core_lookup_from_memtable_generation_locked(
             spl, generation - 1, tuple_key, old_result);
          if (!SUCCESS(rc)) {
