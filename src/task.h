@@ -8,6 +8,7 @@
 #include "platform_heap.h"
 #include "platform_threads.h"
 #include "platform_condvar.h"
+#include "platform_time.h"
 
 /*
  * We maintain separate task groups for the memtable because memtable
