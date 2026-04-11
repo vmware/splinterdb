@@ -9,6 +9,8 @@
 
 #pragma once
 
+typedef uint64 timestamp;
+
 static inline timestamp
 platform_get_timestamp(void)
 {

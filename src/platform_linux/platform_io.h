@@ -14,6 +14,7 @@
 #include "platform_string.h"
 #include "platform_util.h"
 #include "platform_heap.h"
+#include "platform_time.h"
 #include <fcntl.h>
 
 typedef struct io_handle      io_handle;
