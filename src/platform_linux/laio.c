@@ -596,11 +596,33 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
 
    if (S_ISREG(statbuf.st_mode) && statbuf.st_size < 128 * 1024) {
       r = fallocate(io->fd, 0, 0, 128 * 1024);
-      if (r) {
+      if (r == EOPNOTSUPP) {
+         if (statbuf.st_size == 0) {
+            uint8_t zeroes[128 * 1024] = {0};
+            r                          = pwrite(io->fd, &zeroes, 128 * 1024, 0);
+            if (r) {
+               platform_error_log("fallocate not supported by filesystem and "
+                                  "fallback write failed: %s\n",
+                                  strerror(errno));
+               goto write_failed;
+            }
+            r = lseek(io->fd, 0, SEEK_SET);
+            if (r != 0) {
+               platform_error_log("fallocate not supported by filesystem and "
+                                  "seek back to 0 failed: %s\n",
+                                  strerror(errno));
+               goto seek_failed;
+            }
+         } else {
+            platform_error_log(
+               "database file has non-zero length (%ld) less than "
+               "size of superblock and filesystem does not support fallocate",
+               statbuf.st_size);
+            goto no_fallocate_and_bad_size;
+         }
+      } else if (r) {
          platform_error_log("fallocate failed: %s\n", strerror(errno));
-         close(io->fd);
-         platform_free(hid, io);
-         return NULL;
+         goto fallocate_failed;
       }
    }
 
@@ -610,6 +632,14 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
 
    // leave req_hand set to 0
    return (io_handle *)io;
+
+write_failed:
+seek_failed:
+no_fallocate_and_bad_size:
+fallocate_failed:
+   close(io->fd);
+   platform_free(hid, io);
+   return NULL;
 }
 
 /*
