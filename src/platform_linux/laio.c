@@ -594,13 +594,17 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
       return NULL;
    }
 
-   if (S_ISREG(statbuf.st_mode) && statbuf.st_size < 128 * 1024) {
-      r = fallocate(io->fd, 0, 0, 128 * 1024);
-      if (r == EOPNOTSUPP) {
+
+// 32 4KB pages
+#define EXTENT_SIZE (32 * 4 * 1024)
+
+   if (S_ISREG(statbuf.st_mode) && statbuf.st_size < EXTENT_SIZE) {
+      r = fallocate(io->fd, 0, 0, EXTENT_SIZE);
+      if (r && errno == EOPNOTSUPP) {
          if (statbuf.st_size == 0) {
-            uint8_t zeroes[128 * 1024] = {0};
-            r                          = pwrite(io->fd, &zeroes, 128 * 1024, 0);
-            if (r) {
+            uint8_t zeroes[EXTENT_SIZE] = {0};
+            r = pwrite(io->fd, &zeroes, EXTENT_SIZE, 0);
+            if (r != EXTENT_SIZE) {
                platform_error_log("fallocate not supported by filesystem and "
                                   "fallback write failed: %s\n",
                                   strerror(errno));
@@ -625,6 +629,8 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
          goto fallocate_failed;
       }
    }
+
+#undef EXTENT_SIZE
 
    io->pecnode.termination = laio_process_termination_callback;
    io->pecnode.arg         = io;
