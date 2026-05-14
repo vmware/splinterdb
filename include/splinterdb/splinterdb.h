@@ -324,8 +324,9 @@ Known issue: a live iterator may block inserts and deletes from the same thread.
 Sample application code:
 
    splinterdb_iterator* it;
-   int rc = splinterdb_iterator_init(kvs, &it, NULL_SLICE,
-greater_than_or_equal); if (rc != 0) { ... handle error ... }
+   int rc = splinterdb_iterator_init(kvs, &it, greater_than_or_equal,
+                                     NULL_SLICE);
+   if (rc != 0) { ... handle error ... }
 
    slice key, value;
 
@@ -363,8 +364,31 @@ typedef enum comparison {
 int
 splinterdb_iterator_init(splinterdb           *kvs,       // IN
                          splinterdb_iterator **iter,      // OUT
-                         slice                 start_key, // IN
-                         comparison            start_type // IN
+                         comparison            start_type, // IN
+                         slice                 start_key   // IN
+);
+
+// Initialize a new iterator with lower and upper bounds.
+//
+// If min_key is NULL_SLICE, the iterator has no lower bound.
+// min_key_comparison must be greater_than or greater_than_or_equal.
+//
+// If max_key is NULL_SLICE, the iterator has no upper bound.
+// max_key_comparison must be less_than or less_than_or_equal.
+//
+// If start_key is NULL_SLICE, the iterator will start at:
+// - greater_than_or_equal / greater_than: the first key in bounds
+// - less_than_or_equal / less_than: the last key in bounds
+int
+splinterdb_iterator_init_with_bounds(
+   splinterdb           *kvs,                // IN
+   splinterdb_iterator **iter,               // OUT
+   comparison            min_key_comparison, // IN
+   slice                 min_key,            // IN
+   comparison            max_key_comparison, // IN
+   slice                 max_key,            // IN
+   comparison            start_type,         // IN
+   slice                 start_key           // IN
 );
 
 // Deinitialize an iterator

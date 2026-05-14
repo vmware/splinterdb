@@ -315,10 +315,12 @@ static void
 core_memtable_iterator_init(core_handle    *spl,
                             btree_iterator *itor,
                             uint64          root_addr,
+                            comparison      min_key_comparison,
                             key             min_key,
+                            comparison      max_key_comparison,
                             key             max_key,
+                            comparison      start_key_comparison,
                             key             start_key,
-                            comparison      start_type,
                             bool32          is_live,
                             bool32          inc_ref)
 {
@@ -330,10 +332,12 @@ core_memtable_iterator_init(core_handle    *spl,
                        itor,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
+                       min_key_comparison,
                        min_key,
+                       max_key_comparison,
                        max_key,
+                       start_key_comparison,
                        start_key,
-                       start_type,
                        FALSE,
                        0);
 }
@@ -437,10 +441,12 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    core_memtable_iterator_init(spl,
                                &btree_itor,
                                memtable_root_addr,
-                               NEGATIVE_INFINITY_KEY,
-                               POSITIVE_INFINITY_KEY,
-                               NEGATIVE_INFINITY_KEY,
                                greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               less_than,
+                               POSITIVE_INFINITY_KEY,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
                                FALSE,
                                FALSE);
    const routing_config *rfcfg = spl->cfg.trunk_node_cfg->filter_cfg;
@@ -795,10 +801,12 @@ static void
 core_branch_iterator_init(core_handle    *spl,
                           btree_iterator *itor,
                           uint64          branch_addr,
+                          comparison      min_key_comparison,
                           key             min_key,
+                          comparison      max_key_comparison,
                           key             max_key,
+                          comparison      start_key_comparison,
                           key             start_key,
-                          comparison      start_type,
                           bool32          do_prefetch,
                           bool32          should_inc_ref)
 {
@@ -812,10 +820,12 @@ core_branch_iterator_init(core_handle    *spl,
                        itor,
                        branch_addr,
                        PAGE_TYPE_BRANCH,
+                       min_key_comparison,
                        min_key,
+                       max_key_comparison,
                        max_key,
+                       start_key_comparison,
                        start_key,
-                       start_type,
                        do_prefetch,
                        0);
 }
@@ -865,13 +875,28 @@ const static iterator_ops core_range_iterator_ops = {
    .prev     = core_range_iterator_prev,
 };
 
+static inline bool32
+core_range_iterator_has_next_leaf(core_range_iterator *range_itor)
+{
+   key    local_max_key = key_buffer_key(&range_itor->local_max_key);
+   key    max_key       = key_buffer_key(&range_itor->max_key);
+   int    cmp = core_key_compare(range_itor->spl, local_max_key, max_key);
+   bool32 max_is_finite = !key_is_positive_infinity(max_key);
+
+   return cmp < 0
+          || (cmp == 0 && max_is_finite && !range_itor->local_max_key_truncated
+              && range_itor->max_key_comparison == less_than_or_equal);
+}
+
 platform_status
 core_range_iterator_init(core_handle         *spl,
                          core_range_iterator *range_itor,
+                         comparison           min_key_comparison,
                          key                  min_key,
+                         comparison           max_key_comparison,
                          key                  max_key,
+                         comparison           start_key_comparison,
                          key                  start_key,
-                         comparison           start_type,
                          uint64               num_tuples)
 {
    platform_status rc;
@@ -879,27 +904,52 @@ core_range_iterator_init(core_handle         *spl,
    debug_assert(!key_is_null(min_key));
    debug_assert(!key_is_null(max_key));
    debug_assert(!key_is_null(start_key));
+   debug_assert(min_key_comparison == greater_than
+                || min_key_comparison == greater_than_or_equal);
+   debug_assert(max_key_comparison == less_than
+                || max_key_comparison == less_than_or_equal);
 
-   range_itor->spl          = spl;
-   range_itor->super.ops    = &core_range_iterator_ops;
-   range_itor->num_branches = 0;
-   range_itor->num_tuples   = num_tuples;
-   range_itor->merge_itor   = NULL;
-   range_itor->can_prev     = TRUE;
-   range_itor->can_next     = TRUE;
+   range_itor->spl                = spl;
+   range_itor->super.ops          = &core_range_iterator_ops;
+   range_itor->num_branches       = 0;
+   range_itor->num_tuples         = num_tuples;
+   range_itor->merge_itor         = NULL;
+   range_itor->can_prev           = TRUE;
+   range_itor->can_next           = TRUE;
+   range_itor->min_key_comparison = min_key_comparison;
+   range_itor->max_key_comparison = max_key_comparison;
 
    key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->max_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->local_min_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->local_max_key, PROCESS_PRIVATE_HEAP_ID);
 
-   if (core_key_compare(spl, min_key, start_key) > 0) {
-      // in bounds, start at min
-      start_key = min_key;
+   bool32 forward_start = comparison_is_forward(start_key_comparison);
+   int    min_start_cmp = core_key_compare(spl, min_key, start_key);
+   if (min_start_cmp > 0) {
+      start_key            = min_key;
+      start_key_comparison = forward_start
+                                ? min_key_comparison
+                                : comparison_invert(min_key_comparison);
+   } else if (min_start_cmp == 0) {
+      if (forward_start && min_key_comparison == greater_than) {
+         start_key_comparison = greater_than;
+      } else if (!forward_start && min_key_comparison == greater_than) {
+         start_key_comparison = less_than_or_equal;
+      }
    }
-   if (core_key_compare(spl, max_key, start_key) <= 0) {
-      // out of bounds, start at max
-      start_key = max_key;
+   int max_start_cmp = core_key_compare(spl, max_key, start_key);
+   if (max_start_cmp < 0) {
+      start_key            = max_key;
+      start_key_comparison = forward_start
+                                ? comparison_invert(max_key_comparison)
+                                : max_key_comparison;
+   } else if (max_start_cmp == 0) {
+      if (!forward_start && max_key_comparison == less_than) {
+         start_key_comparison = less_than;
+      } else if (forward_start && max_key_comparison == less_than) {
+         start_key_comparison = greater_than_or_equal;
+      }
    }
 
    // copy over global min and max
@@ -966,7 +1016,7 @@ core_range_iterator_init(core_handle         *spl,
    rc                      = trunk_collect_branches(&spl->trunk_context,
                                &root_handle,
                                start_key,
-                               start_type,
+                               start_key_comparison,
                                CORE_RANGE_ITOR_MAX_BRANCHES,
                                &range_itor->num_branches,
                                range_itor->branch,
@@ -982,12 +1032,17 @@ core_range_iterator_init(core_handle         *spl,
       range_itor->compacted[i] = TRUE;
    }
 
+   range_itor->local_min_key_comparison = greater_than_or_equal;
+   range_itor->local_max_key_comparison = less_than;
+   range_itor->local_max_key_truncated  = FALSE;
+
    // have a leaf, use to establish local bounds
    if (core_key_compare(
           spl, key_buffer_key(&range_itor->local_min_key), min_key)
        <= 0)
    {
       rc = key_buffer_copy_key(&range_itor->local_min_key, min_key);
+      range_itor->local_min_key_comparison = min_key_comparison;
       if (!SUCCESS(rc)) {
          core_range_iterator_deinit(range_itor);
          return rc;
@@ -995,9 +1050,11 @@ core_range_iterator_init(core_handle         *spl,
    }
    if (core_key_compare(
           spl, key_buffer_key(&range_itor->local_max_key), max_key)
-       >= 0)
+       > 0)
    {
       rc = key_buffer_copy_key(&range_itor->local_max_key, max_key);
+      range_itor->local_max_key_comparison = max_key_comparison;
+      range_itor->local_max_key_truncated  = TRUE;
       if (!SUCCESS(rc)) {
          core_range_iterator_deinit(range_itor);
          return rc;
@@ -1016,10 +1073,12 @@ core_range_iterator_init(core_handle         *spl,
          core_branch_iterator_init(spl,
                                    btree_itor,
                                    branch_addr,
+                                   range_itor->local_min_key_comparison,
                                    key_buffer_key(&range_itor->local_min_key),
+                                   range_itor->local_max_key_comparison,
                                    key_buffer_key(&range_itor->local_max_key),
+                                   start_key_comparison,
                                    start_key,
-                                   start_type,
                                    do_prefetch,
                                    FALSE);
       } else {
@@ -1027,10 +1086,12 @@ core_range_iterator_init(core_handle         *spl,
          core_memtable_iterator_init(spl,
                                      btree_itor,
                                      branch_addr,
+                                     range_itor->local_min_key_comparison,
                                      key_buffer_key(&range_itor->local_min_key),
+                                     range_itor->local_max_key_comparison,
                                      key_buffer_key(&range_itor->local_max_key),
+                                     start_key_comparison,
                                      start_key,
-                                     start_type,
                                      is_live,
                                      FALSE);
       }
@@ -1042,7 +1103,7 @@ core_range_iterator_init(core_handle         *spl,
                               range_itor->num_branches,
                               range_itor->itor,
                               MERGE_FULL,
-                              greater_than <= start_type,
+                              greater_than <= start_key_comparison,
                               &range_itor->merge_itor);
    if (!SUCCESS(rc)) {
       core_range_iterator_deinit(range_itor);
@@ -1055,12 +1116,13 @@ core_range_iterator_init(core_handle         *spl,
     * if the merge itor is already exhausted, and there are more keys in the
     * db/range, move to prev/next leaf
     */
-   if (!in_range && start_type >= greater_than) {
-      key local_max = key_buffer_key(&range_itor->local_max_key);
-      if (core_key_compare(spl, local_max, max_key) < 0) {
+   if (!in_range && start_key_comparison >= greater_than) {
+      if (core_range_iterator_has_next_leaf(range_itor)) {
+         key        local_max = key_buffer_key(&range_itor->local_max_key);
          key_buffer local_max_buffer;
          rc = key_buffer_init_from_key(
             &local_max_buffer, PROCESS_PRIVATE_HEAP_ID, local_max);
+         uint64 num_tuples = range_itor->num_tuples;
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1068,11 +1130,13 @@ core_range_iterator_init(core_handle         *spl,
          local_max = key_buffer_key(&local_max_buffer);
          rc        = core_range_iterator_init(spl,
                                        range_itor,
+                                       min_key_comparison,
                                        min_key,
+                                       max_key_comparison,
                                        max_key,
+                                       greater_than_or_equal,
                                        local_max,
-                                       start_type,
-                                       range_itor->num_tuples);
+                                       num_tuples);
          key_buffer_deinit(&local_max_buffer);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1084,12 +1148,13 @@ core_range_iterator_init(core_handle         *spl,
             iterator_can_prev(&range_itor->merge_itor->super);
       }
    }
-   if (!in_range && start_type <= less_than_or_equal) {
+   if (!in_range && start_key_comparison <= less_than_or_equal) {
       key local_min = key_buffer_key(&range_itor->local_min_key);
       if (core_key_compare(spl, local_min, min_key) > 0) {
          key_buffer local_min_buffer;
          rc = key_buffer_init_from_key(
             &local_min_buffer, PROCESS_PRIVATE_HEAP_ID, local_min);
+         uint64 num_tuples = range_itor->num_tuples;
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1097,11 +1162,13 @@ core_range_iterator_init(core_handle         *spl,
          local_min = key_buffer_key(&local_min_buffer);
          rc        = core_range_iterator_init(spl,
                                        range_itor,
+                                       min_key_comparison,
                                        min_key,
+                                       max_key_comparison,
                                        max_key,
+                                       less_than,
                                        local_min,
-                                       start_type,
-                                       range_itor->num_tuples);
+                                       num_tuples);
          key_buffer_deinit(&local_min_buffer);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1162,15 +1229,20 @@ core_range_iterator_next(iterator *itor)
       }
 
       // if there is more data to get, rebuild the iterator for next leaf
-      if (core_key_compare(range_itor->spl, local_max_key, max_key) < 0) {
-         uint64 temp_tuples = range_itor->num_tuples;
+      if (core_range_iterator_has_next_leaf(range_itor)) {
+         core_handle *spl                = range_itor->spl;
+         uint64       temp_tuples        = range_itor->num_tuples;
+         comparison   min_key_comparison = range_itor->min_key_comparison;
+         comparison   max_key_comparison = range_itor->max_key_comparison;
          core_range_iterator_deinit(range_itor);
-         rc = core_range_iterator_init(range_itor->spl,
+         rc = core_range_iterator_init(spl,
                                        range_itor,
+                                       min_key_comparison,
                                        min_key,
+                                       max_key_comparison,
                                        max_key,
-                                       local_max_key,
                                        greater_than_or_equal,
+                                       local_max_key,
                                        temp_tuples);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1222,14 +1294,20 @@ core_range_iterator_prev(iterator *itor)
 
       // if there is more data to get, rebuild the iterator for prev leaf
       if (core_key_compare(range_itor->spl, local_min_key, min_key) > 0) {
+         core_handle *spl                = range_itor->spl;
+         uint64       temp_tuples        = range_itor->num_tuples;
+         comparison   min_key_comparison = range_itor->min_key_comparison;
+         comparison   max_key_comparison = range_itor->max_key_comparison;
          core_range_iterator_deinit(range_itor);
-         rc = core_range_iterator_init(range_itor->spl,
+         rc = core_range_iterator_init(spl,
                                        range_itor,
+                                       min_key_comparison,
                                        min_key,
+                                       max_key_comparison,
                                        max_key,
-                                       local_min_key,
                                        less_than,
-                                       range_itor->num_tuples);
+                                       local_min_key,
+                                       temp_tuples);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1477,10 +1555,12 @@ core_apply_to_range(core_handle   *spl,
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
    platform_status rc = core_range_iterator_init(spl,
                                                  range_itor,
-                                                 start_key,
-                                                 POSITIVE_INFINITY_KEY,
-                                                 start_key,
                                                  greater_than_or_equal,
+                                                 start_key,
+                                                 less_than,
+                                                 POSITIVE_INFINITY_KEY,
+                                                 greater_than_or_equal,
+                                                 start_key,
                                                  num_tuples);
    if (!SUCCESS(rc)) {
       goto destroy_range_itor;

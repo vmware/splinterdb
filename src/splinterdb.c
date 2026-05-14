@@ -623,13 +623,52 @@ struct splinterdb_iterator {
    const splinterdb   *parent;
 };
 
+static inline bool32
+splinterdb_iterator_min_comparison_is_valid(comparison cmp)
+{
+   return cmp == greater_than || cmp == greater_than_or_equal;
+}
+
+static inline bool32
+splinterdb_iterator_max_comparison_is_valid(comparison cmp)
+{
+   return cmp == less_than || cmp == less_than_or_equal;
+}
+
 int
-splinterdb_iterator_init(splinterdb           *kvs,            // IN
-                         splinterdb_iterator **iter,           // OUT
-                         slice                 user_start_key, // IN
-                         comparison            start_type      // IN
+splinterdb_iterator_init(splinterdb           *kvs,                  // IN
+                         splinterdb_iterator **iter,                 // OUT
+                         comparison            start_key_comparison, // IN
+                         slice                 user_start_key        // IN
 )
 {
+   return splinterdb_iterator_init_with_bounds(kvs,
+                                               iter,
+                                               greater_than_or_equal,
+                                               NULL_SLICE,
+                                               less_than,
+                                               NULL_SLICE,
+                                               start_key_comparison,
+                                               user_start_key);
+}
+
+int
+splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
+                                     splinterdb_iterator **iter,      // OUT
+                                     comparison min_key_comparison,   // IN
+                                     slice      user_min_key,         // IN
+                                     comparison max_key_comparison,   // IN
+                                     slice      user_max_key,         // IN
+                                     comparison start_key_comparison, // IN
+                                     slice      user_start_key        // IN
+)
+{
+   if (!splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
+       || !splinterdb_iterator_max_comparison_is_valid(max_key_comparison))
+   {
+      return platform_status_to_int(STATUS_BAD_PARAM);
+   }
+
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl.heap_id, it);
    if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
@@ -638,10 +677,19 @@ splinterdb_iterator_init(splinterdb           *kvs,            // IN
    it->last_rc = STATUS_OK;
 
    core_range_iterator *range_itor = &(it->sri);
+   key                  min_key;
+   key                  max_key;
    key                  start_key;
 
+   min_key = slice_is_null(user_min_key)
+                ? NEGATIVE_INFINITY_KEY
+                : key_create_from_slice(TRUE, user_min_key);
+   max_key = slice_is_null(user_max_key)
+                ? POSITIVE_INFINITY_KEY
+                : key_create_from_slice(TRUE, user_max_key);
+
    if (slice_is_null(user_start_key)) {
-      if (start_type <= less_than_or_equal) {
+      if (start_key_comparison <= less_than_or_equal) {
          start_key = POSITIVE_INFINITY_KEY;
       } else {
          start_key = NEGATIVE_INFINITY_KEY;
@@ -652,13 +700,15 @@ splinterdb_iterator_init(splinterdb           *kvs,            // IN
 
    platform_status rc = core_range_iterator_init(&kvs->spl,
                                                  range_itor,
-                                                 NEGATIVE_INFINITY_KEY,
-                                                 POSITIVE_INFINITY_KEY,
+                                                 min_key_comparison,
+                                                 min_key,
+                                                 max_key_comparison,
+                                                 max_key,
+                                                 start_key_comparison,
                                                  start_key,
-                                                 start_type,
                                                  UINT64_MAX);
    if (!SUCCESS(rc)) {
-      platform_free(kvs->spl.heap_id, *iter);
+      platform_free(kvs->spl.heap_id, it);
       return platform_status_to_int(rc);
    }
    it->parent = kvs;

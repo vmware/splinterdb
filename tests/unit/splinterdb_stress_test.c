@@ -166,7 +166,7 @@ CTEST2(splinterdb_stress, test_iterator_over_many_kvs)
    slice start_key = slice_create(sizeof(key_str), key_str);
    ASSERT_EQUAL(0,
                 splinterdb_iterator_init(
-                   data->kvsb, &it, start_key, greater_than_or_equal));
+                   data->kvsb, &it, greater_than_or_equal, start_key));
 
    // assert that the iterator is in the state we expect
    ASSERT_FALSE(splinterdb_iterator_valid(it));
@@ -321,7 +321,7 @@ naive_range_delete(splinterdb *kvsb, slice start_key, uint32 count)
    splinterdb_iterator *it;
 
    int rc =
-      splinterdb_iterator_init(kvsb, &it, start_key, greater_than_or_equal);
+      splinterdb_iterator_init(kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    slice key, value;

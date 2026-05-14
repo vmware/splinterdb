@@ -13,8 +13,8 @@ typedef void (*iterator_curr_fn)(iterator *itor, key *curr_key, message *msg);
 typedef bool32 (*iterator_bound_fn)(iterator *itor);
 typedef platform_status (*iterator_step_fn)(iterator *itor);
 typedef platform_status (*iterator_seek_fn)(iterator  *itor,
-                                            key        seek_key,
-                                            comparison from_above);
+                                            comparison seek_type,
+                                            key        seek_key);
 typedef void (*iterator_print_fn)(iterator *itor);
 
 typedef struct iterator_ops {
@@ -34,6 +34,29 @@ struct iterator {
 };
 
 typedef VECTOR(iterator *) iterator_vector;
+
+static inline bool32
+comparison_is_forward(comparison c)
+{
+   return c == greater_than || c == greater_than_or_equal;
+}
+
+static inline comparison
+comparison_invert(comparison c)
+{
+   switch (c) {
+      case less_than:
+         return greater_than_or_equal;
+      case less_than_or_equal:
+         return greater_than;
+      case greater_than_or_equal:
+         return less_than;
+      case greater_than:
+         return less_than_or_equal;
+      default:
+         platform_assert(FALSE, "Invalid comparison %d", c);
+   }
+}
 
 // It is safe to call curr whenever iterator_in_range() returns true
 // otherwise the behavior of iterator_curr is undefined
@@ -74,9 +97,9 @@ iterator_prev(iterator *itor)
 }
 
 static inline platform_status
-iterator_seek(iterator *itor, key seek_key, comparison seek_type)
+iterator_seek(iterator *itor, comparison seek_type, key seek_key)
 {
-   return itor->ops->seek(itor, seek_key, seek_type);
+   return itor->ops->seek(itor, seek_type, seek_key);
 }
 
 static inline void

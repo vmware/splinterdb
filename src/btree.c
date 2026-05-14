@@ -2374,9 +2374,9 @@ btree_lookup_async(btree_lookup_async_state *state)
  * btree_iterator_can_prev --
  * btree_iterator_can_next --
  *
- * This iterator implementation supports an upper bound key ub.  Given
- * an upper bound, the iterator will return only keys strictly less
- * than ub.
+ * This iterator implementation supports lower and upper bound keys. The lower
+ * bound may be exclusive or inclusive, and the upper bound may be exclusive or
+ * inclusive.
  *
  * In order to avoid comparing every key with ub, it precomputes,
  * during initialization, the end leaf and end_idx of ub within that
@@ -2473,7 +2473,7 @@ find_key_in_node(btree_iterator *itor,
       *found       = FALSE;
       return 0; // this iterator is invalid, so return 0 for all lookups
    } else {
-      tmp = btree_find_pivot(itor->cfg, hdr, itor->min_key, found);
+      tmp = btree_find_pivot(itor->cfg, hdr, target, found);
    }
 
    switch (position_rule) {
@@ -2515,8 +2515,12 @@ btree_iterator_find_end(btree_iterator *itor)
    if (key_is_positive_infinity(itor->max_key)) {
       itor->end_idx = btree_num_entries(end.hdr);
    } else {
-      itor->end_idx = find_key_in_node(
-         itor, end.hdr, itor->max_key, greater_than_or_equal, NULL);
+      itor->end_idx =
+         find_key_in_node(itor,
+                          end.hdr,
+                          itor->max_key,
+                          comparison_invert(itor->max_key_comparison),
+                          NULL);
    }
 
    btree_node_unget(itor->cc, itor->cfg, &end);
@@ -2624,14 +2628,8 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    if (btree_key_compare(cfg, itor->min_key, first_key) < 0) {
       itor->curr_min_idx = -1;
    } else {
-      bool32 found;
-      itor->curr_min_idx =
-         itor->height
-            ? btree_find_pivot(cfg, itor->curr.hdr, itor->min_key, &found)
-            : btree_find_tuple(cfg, itor->curr.hdr, itor->min_key, &found);
-      if (!found) {
-         itor->curr_min_idx++;
-      }
+      itor->curr_min_idx = find_key_in_node(
+         itor, itor->curr.hdr, itor->min_key, itor->min_key_comparison, NULL);
    }
    if (itor->curr.hdr->prev_addr == 0 && itor->curr_min_idx == -1) {
       itor->curr_min_idx = 0;
@@ -2700,7 +2698,35 @@ btree_iterator_prev(iterator *base_itor)
    return STATUS_OK;
 }
 
-// This function voilates our locking rules. See comment at top of file.
+static inline void
+btree_iterator_bound_idx(btree_iterator *itor, comparison position_rule)
+{
+   bool32 forward = comparison_is_forward(position_rule);
+
+   if (itor->idx < itor->curr_min_idx) {
+      itor->idx = forward ? itor->curr_min_idx : itor->curr_min_idx - 1;
+   }
+
+   if (itor->curr.addr == itor->end_addr && itor->idx >= itor->end_idx) {
+      itor->idx = forward ? itor->end_idx : itor->end_idx - 1;
+   }
+}
+
+static inline void
+btree_iterator_move_leaf_if_needed(btree_iterator *itor)
+{
+   if (itor->curr.addr != itor->end_addr
+       && itor->idx == btree_num_entries(itor->curr.hdr))
+   {
+      btree_iterator_next_leaf(itor);
+      itor->curr_min_idx = 0; // we came from an irrelevant leaf
+   }
+   if (itor->curr_min_idx == -1 && itor->idx == -1) {
+      btree_iterator_prev_leaf(itor);
+   }
+}
+
+// This function violates our locking rules. See comment at top of file.
 static inline void
 find_btree_node_and_get_idx_bounds(btree_iterator *itor,
                                    key             target,
@@ -2755,9 +2781,9 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    // find the index of the minimum key
    bool32 found;
    int64  tmp = find_key_in_node(
-      itor, itor->curr.hdr, itor->min_key, greater_than_or_equal, &found);
+      itor, itor->curr.hdr, itor->min_key, itor->min_key_comparison, &found);
    // If min key doesn't exist in current node, but is:
-   // 1) in range:     Min idx = smallest key > min_key
+   // 1) in range:     Min idx = first key satisfying min_key_comparison
    // 2) out of range: Min idx = -1
    itor->curr_min_idx = !found && tmp == 0 ? tmp - 1 : tmp;
    // if min_key is not within the current node but there is no previous node
@@ -2769,17 +2795,10 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    // find the index of the actual target
    itor->idx =
       find_key_in_node(itor, itor->curr.hdr, target, position_rule, &found);
+   btree_iterator_bound_idx(itor, position_rule);
 
    // check if we already need to move to the prev/next leaf
-   if (itor->curr.addr != itor->end_addr
-       && itor->idx == btree_num_entries(itor->curr.hdr))
-   {
-      btree_iterator_next_leaf(itor);
-      itor->curr_min_idx = 0; // we came from an irrelevant leaf
-   }
-   if (itor->curr_min_idx == -1 && itor->idx == -1) {
-      btree_iterator_prev_leaf(itor);
-   }
+   btree_iterator_move_leaf_if_needed(itor);
 }
 
 /*
@@ -2788,7 +2807,7 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
  * key.
  */
 platform_status
-btree_iterator_seek(iterator *base_itor, key seek_key, comparison seek_type)
+btree_iterator_seek(iterator *base_itor, comparison seek_type, key seek_key)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
@@ -2800,13 +2819,14 @@ btree_iterator_seek(iterator *base_itor, key seek_key, comparison seek_type)
    }
 
    // check if seek_key is within our current node
-   key first_key = itor->height
-                      ? btree_get_pivot(itor->cfg, itor->curr.hdr, 0)
-                      : btree_get_tuple_key(itor->cfg, itor->curr.hdr, 0);
-   key last_key =
+   key    first_key   = itor->height
+                           ? btree_get_pivot(itor->cfg, itor->curr.hdr, 0)
+                           : btree_get_tuple_key(itor->cfg, itor->curr.hdr, 0);
+   uint64 num_entries = btree_num_entries(itor->curr.hdr);
+   key    last_key =
       itor->height
-         ? btree_get_pivot(itor->cfg, itor->curr.hdr, itor->end_idx - 1)
-         : btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->end_idx - 1);
+            ? btree_get_pivot(itor->cfg, itor->curr.hdr, num_entries - 1)
+            : btree_get_tuple_key(itor->cfg, itor->curr.hdr, num_entries - 1);
 
    if (btree_key_compare(itor->cfg, seek_key, first_key) >= 0
        && btree_key_compare(itor->cfg, seek_key, last_key) <= 0)
@@ -2815,7 +2835,9 @@ btree_iterator_seek(iterator *base_itor, key seek_key, comparison seek_type)
       bool32 found;
       itor->idx =
          find_key_in_node(itor, itor->curr.hdr, seek_key, seek_type, &found);
-      platform_assert(0 <= itor->idx);
+      btree_iterator_bound_idx(itor, seek_type);
+      btree_iterator_move_leaf_if_needed(itor);
+      platform_assert(-1 <= itor->idx);
    } else {
       // seek key is not within our current leaf. So find the correct leaf
       find_btree_node_and_get_idx_bounds(itor, seek_key, seek_type);
@@ -2869,10 +2891,12 @@ btree_iterator_init(cache              *cc,
                     btree_iterator     *itor,
                     uint64              root_addr,
                     page_type           page_type,
+                    comparison          min_key_comparison,
                     key                 min_key,
+                    comparison          max_key_comparison,
                     key                 max_key,
-                    key                 start_key,
                     comparison          start_type,
+                    key                 start_key,
                     bool32              do_prefetch,
                     uint32              height)
 {
@@ -2882,9 +2906,15 @@ btree_iterator_init(cache              *cc,
 
    debug_assert(!key_is_null(min_key) && !key_is_null(max_key)
                 && !key_is_null(start_key));
+   debug_assert(min_key_comparison == greater_than
+                || min_key_comparison == greater_than_or_equal);
+   debug_assert(max_key_comparison == less_than
+                || max_key_comparison == less_than_or_equal);
 
    if (btree_key_compare(cfg, min_key, max_key) > 0) {
-      max_key = min_key;
+      max_key            = min_key;
+      min_key_comparison = greater_than_or_equal;
+      max_key_comparison = less_than;
    }
    if (btree_key_compare(cfg, start_key, min_key) < 0) {
       start_key = min_key;
@@ -2894,15 +2924,17 @@ btree_iterator_init(cache              *cc,
    }
 
    ZERO_CONTENTS(itor);
-   itor->cc          = cc;
-   itor->cfg         = cfg;
-   itor->root_addr   = root_addr;
-   itor->do_prefetch = do_prefetch;
-   itor->height      = height;
-   itor->min_key     = min_key;
-   itor->max_key     = max_key;
-   itor->page_type   = page_type;
-   itor->super.ops   = &btree_iterator_ops;
+   itor->cc                 = cc;
+   itor->cfg                = cfg;
+   itor->root_addr          = root_addr;
+   itor->do_prefetch        = do_prefetch;
+   itor->height             = height;
+   itor->min_key_comparison = min_key_comparison;
+   itor->min_key            = min_key;
+   itor->max_key_comparison = max_key_comparison;
+   itor->max_key            = max_key;
+   itor->page_type          = page_type;
+   itor->super.ops          = &btree_iterator_ops;
 
    find_btree_node_and_get_idx_bounds(itor, start_key, start_type);
 
@@ -3286,10 +3318,12 @@ btree_count_in_range_by_iterator(cache             *cc,
                        &btree_itor,
                        root_addr,
                        PAGE_TYPE_BRANCH,
+                       greater_than_or_equal,
                        min_key,
+                       less_than,
                        max_key,
+                       greater_than_or_equal,
                        min_key,
-                       TRUE,
                        TRUE,
                        0);
 
