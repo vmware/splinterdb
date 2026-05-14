@@ -76,6 +76,37 @@ test_two_step_iterator(splinterdb *kvsb,
                        int         hop_i);
 
 static int
+check_bounded_iterator_sequence(splinterdb *kvsb,
+                                comparison  min_key_comparison,
+                                slice       min_key,
+                                comparison  max_key_comparison,
+                                slice       max_key,
+                                comparison  start_type,
+                                const int  *expected,
+                                uint64      expected_count);
+
+static int
+check_bounded_iterator_current_from_start(splinterdb *kvsb,
+                                          comparison  min_key_comparison,
+                                          slice       min_key,
+                                          comparison  max_key_comparison,
+                                          slice       max_key,
+                                          comparison  start_key_comparison,
+                                          slice       start_key,
+                                          int         expected_i);
+
+static int
+check_bounded_iterator_boundary_from_start(splinterdb *kvsb,
+                                           comparison  min_key_comparison,
+                                           slice       min_key,
+                                           comparison  max_key_comparison,
+                                           slice       max_key,
+                                           comparison  start_key_comparison,
+                                           slice       start_key,
+                                           bool32      step_next,
+                                           int         expected_i);
+
+static int
 custom_key_comparator(const data_config *cfg, user_key key1, user_key key2);
 
 static uint64
@@ -467,7 +498,7 @@ CTEST2(splinterdb_quick, test_basic_iterator)
    splinterdb_iterator *it = NULL;
 
    rc = splinterdb_iterator_init(
-      data->kvsb, &it, NULL_SLICE, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
@@ -490,7 +521,7 @@ CTEST2(splinterdb_quick, test_empty_iterator)
 {
    splinterdb_iterator *it = NULL;
    int                  rc = splinterdb_iterator_init(
-      data->kvsb, &it, NULL_SLICE, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
    ASSERT_FALSE(splinterdb_iterator_valid(it));
@@ -500,6 +531,271 @@ CTEST2(splinterdb_quick, test_empty_iterator)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_iterator_deinit(it);
+}
+
+CTEST2(splinterdb_quick, test_bounded_iterator)
+{
+   const int num_inserts = 10;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   char min_key[TEST_INSERT_KEY_LENGTH] = {0};
+   char max_key[TEST_INSERT_KEY_LENGTH] = {0};
+
+   snprintf(min_key, sizeof(min_key), key_fmt, 3);
+   snprintf(max_key, sizeof(max_key), key_fmt, 6);
+
+   slice min = slice_create(sizeof(min_key), min_key);
+   slice max = slice_create(sizeof(max_key), max_key);
+
+   const int forward_exclusive_max[] = {3, 4, 5};
+   rc = check_bounded_iterator_sequence(data->kvsb,
+                                        greater_than_or_equal,
+                                        min,
+                                        less_than,
+                                        max,
+                                        greater_than_or_equal,
+                                        forward_exclusive_max,
+                                        ARRAY_SIZE(forward_exclusive_max));
+   ASSERT_EQUAL(0, rc);
+
+   const int forward_exclusive_min[] = {4, 5, 6};
+   rc = check_bounded_iterator_sequence(data->kvsb,
+                                        greater_than,
+                                        min,
+                                        less_than_or_equal,
+                                        max,
+                                        greater_than_or_equal,
+                                        forward_exclusive_min,
+                                        ARRAY_SIZE(forward_exclusive_min));
+   ASSERT_EQUAL(0, rc);
+
+   const int reverse_exclusive_max[] = {5, 4, 3};
+   rc = check_bounded_iterator_sequence(data->kvsb,
+                                        greater_than_or_equal,
+                                        min,
+                                        less_than,
+                                        max,
+                                        less_than_or_equal,
+                                        reverse_exclusive_max,
+                                        ARRAY_SIZE(reverse_exclusive_max));
+   ASSERT_EQUAL(0, rc);
+
+   snprintf(min_key, sizeof(min_key), key_fmt, 5);
+   snprintf(max_key, sizeof(max_key), key_fmt, 5);
+   min = slice_create(sizeof(min_key), min_key);
+   max = slice_create(sizeof(max_key), max_key);
+
+   const int singleton[] = {5};
+   rc                    = check_bounded_iterator_sequence(data->kvsb,
+                                        greater_than_or_equal,
+                                        min,
+                                        less_than_or_equal,
+                                        max,
+                                        greater_than_or_equal,
+                                        singleton,
+                                        ARRAY_SIZE(singleton));
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_iterator_init_with_bounds(data->kvsb,
+                                             NULL,
+                                             less_than,
+                                             min,
+                                             less_than_or_equal,
+                                             max,
+                                             greater_than_or_equal,
+                                             NULL_SLICE);
+   ASSERT_EQUAL(EINVAL, rc);
+}
+
+CTEST2(splinterdb_quick, test_bounded_iterator_start_normalization)
+{
+   const int num_inserts = 10;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   char min_key[TEST_INSERT_KEY_LENGTH]       = {0};
+   char max_key[TEST_INSERT_KEY_LENGTH]       = {0};
+   char below_min_key[TEST_INSERT_KEY_LENGTH] = {0};
+   char above_max_key[TEST_INSERT_KEY_LENGTH] = {0};
+
+   snprintf(min_key, sizeof(min_key), key_fmt, 3);
+   snprintf(max_key, sizeof(max_key), key_fmt, 6);
+   snprintf(below_min_key, sizeof(below_min_key), key_fmt, 1);
+   snprintf(above_max_key, sizeof(above_max_key), key_fmt, 8);
+
+   slice min       = slice_create(sizeof(min_key), min_key);
+   slice max       = slice_create(sizeof(max_key), max_key);
+   slice below_min = slice_create(sizeof(below_min_key), below_min_key);
+   slice above_max = slice_create(sizeof(above_max_key), above_max_key);
+
+   // start_key < min_key: forward starts at the lower bound.
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than,
+                                                  max,
+                                                  greater_than_or_equal,
+                                                  below_min,
+                                                  3);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than,
+                                                  min,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  greater_than_or_equal,
+                                                  below_min,
+                                                  4);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key < min_key: backward starts just before the lower bound.
+   rc = check_bounded_iterator_boundary_from_start(data->kvsb,
+                                                   greater_than_or_equal,
+                                                   min,
+                                                   less_than,
+                                                   max,
+                                                   less_than_or_equal,
+                                                   below_min,
+                                                   TRUE,
+                                                   3);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_boundary_from_start(data->kvsb,
+                                                   greater_than,
+                                                   min,
+                                                   less_than_or_equal,
+                                                   max,
+                                                   less_than_or_equal,
+                                                   below_min,
+                                                   TRUE,
+                                                   4);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key == min_key: an exclusive lower bound moves forward starts above
+   // min_key and backward starts to the invalid low-side boundary.
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than,
+                                                  min,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  4);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_boundary_from_start(data->kvsb,
+                                                   greater_than,
+                                                   min,
+                                                   less_than_or_equal,
+                                                   max,
+                                                   less_than_or_equal,
+                                                   min,
+                                                   TRUE,
+                                                   4);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key == min_key: an inclusive lower bound remains on min_key.
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than,
+                                                  max,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  3);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than,
+                                                  max,
+                                                  less_than_or_equal,
+                                                  min,
+                                                  3);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key > max_key: backward starts at the upper bound.
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than,
+                                                  max,
+                                                  less_than_or_equal,
+                                                  above_max,
+                                                  5);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  less_than_or_equal,
+                                                  above_max,
+                                                  6);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key > max_key: forward starts just after the upper bound.
+   rc = check_bounded_iterator_boundary_from_start(data->kvsb,
+                                                   greater_than_or_equal,
+                                                   min,
+                                                   less_than,
+                                                   max,
+                                                   greater_than_or_equal,
+                                                   above_max,
+                                                   FALSE,
+                                                   5);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_boundary_from_start(data->kvsb,
+                                                   greater_than_or_equal,
+                                                   min,
+                                                   less_than_or_equal,
+                                                   max,
+                                                   greater_than_or_equal,
+                                                   above_max,
+                                                   FALSE,
+                                                   6);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key == max_key: an exclusive upper bound moves backward starts below
+   // max_key and forward starts to the invalid high-side boundary.
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than,
+                                                  max,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  5);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_boundary_from_start(data->kvsb,
+                                                   greater_than_or_equal,
+                                                   min,
+                                                   less_than,
+                                                   max,
+                                                   greater_than_or_equal,
+                                                   max,
+                                                   FALSE,
+                                                   5);
+   ASSERT_EQUAL(0, rc);
+
+   // start_key == max_key: an inclusive upper bound remains on max_key.
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  greater_than_or_equal,
+                                                  max,
+                                                  6);
+   ASSERT_EQUAL(0, rc);
+   rc = check_bounded_iterator_current_from_start(data->kvsb,
+                                                  greater_than_or_equal,
+                                                  min,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  less_than_or_equal,
+                                                  max,
+                                                  6);
+   ASSERT_EQUAL(0, rc);
 }
 
 /*
@@ -522,7 +818,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_startkey)
       snprintf(key, sizeof(key), key_fmt, ictr);
       slice start_key = slice_create(strlen(key), key);
       rc              = splinterdb_iterator_init(
-         data->kvsb, &it, start_key, greater_than_or_equal);
+         data->kvsb, &it, greater_than_or_equal, start_key);
       ASSERT_EQUAL(0, rc);
 
       bool32 is_valid = splinterdb_iterator_valid(it);
@@ -557,7 +853,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
 
    slice start_key = slice_create(strlen(keystring), keystring);
    rc              = splinterdb_iterator_init(
-      data->kvsb, &it, start_key, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, start_key);
 
    // Iterator should be invalid, as lookup key is non-existent.
    bool32 is_valid = splinterdb_iterator_valid(it);
@@ -571,7 +867,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    keystring = "UnknownKey";
    start_key = slice_create(strlen(keystring), keystring);
    rc        = splinterdb_iterator_init(
-      data->kvsb, &it, start_key, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    int ictr = 0;
@@ -625,7 +921,7 @@ CTEST2(splinterdb_quick,
    splinterdb_iterator *it        = NULL;
    slice                start_key = slice_create(strlen(key), key);
    rc                             = splinterdb_iterator_init(
-      data->kvsb, &it, start_key, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    bool32 is_valid = splinterdb_iterator_valid(it);
@@ -645,7 +941,7 @@ CTEST2(splinterdb_quick,
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
    rc        = splinterdb_iterator_init(
-      data->kvsb, &it, start_key, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    is_valid = splinterdb_iterator_valid(it);
@@ -664,7 +960,7 @@ CTEST2(splinterdb_quick,
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
    rc        = splinterdb_iterator_init(
-      data->kvsb, &it, start_key, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    is_valid = splinterdb_iterator_valid(it);
@@ -683,7 +979,7 @@ CTEST2(splinterdb_quick,
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
    rc        = splinterdb_iterator_init(
-      data->kvsb, &it, start_key, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    is_valid = splinterdb_iterator_valid(it);
@@ -1152,7 +1448,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 
    splinterdb_iterator *it = NULL;
    rc                      = splinterdb_iterator_init(
-      data->kvsb, &it, NULL_SLICE, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
    int i = 0;
@@ -1195,7 +1491,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    // Iterator init should find nothing when no keys were inserted, yet.
    splinterdb_iterator *it = NULL;
    rc                      = splinterdb_iterator_init(
-      data->kvsb, &it, NULL_SLICE, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
    bool32 iter_valid = splinterdb_iterator_valid(it);
@@ -1210,7 +1506,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
 
    it = NULL;
    rc = splinterdb_iterator_init(
-      data->kvsb, &it, NULL_SLICE, greater_than_or_equal);
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
    iter_valid = splinterdb_iterator_valid(it);
@@ -1421,6 +1717,122 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
    return rc;
 }
 
+static int
+check_bounded_iterator_sequence(splinterdb *kvsb,
+                                comparison  min_key_comparison,
+                                slice       min_key,
+                                comparison  max_key_comparison,
+                                slice       max_key,
+                                comparison  start_type,
+                                const int  *expected,
+                                uint64      expected_count)
+{
+   splinterdb_iterator *it = NULL;
+   int                  rc = splinterdb_iterator_init_with_bounds(kvsb,
+                                                 &it,
+                                                 min_key_comparison,
+                                                 min_key,
+                                                 max_key_comparison,
+                                                 max_key,
+                                                 start_type,
+                                                 NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+
+   for (uint64 i = 0; i < expected_count; i++) {
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      rc = check_current_tuple(it, expected[i]);
+      ASSERT_EQUAL(0, rc);
+      if (start_type <= less_than_or_equal) {
+         splinterdb_iterator_prev(it);
+      } else {
+         splinterdb_iterator_next(it);
+      }
+   }
+
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_iterator_deinit(it);
+   return rc;
+}
+
+static int
+check_bounded_iterator_current_from_start(splinterdb *kvsb,
+                                          comparison  min_key_comparison,
+                                          slice       min_key,
+                                          comparison  max_key_comparison,
+                                          slice       max_key,
+                                          comparison  start_key_comparison,
+                                          slice       start_key,
+                                          int         expected_i)
+{
+   splinterdb_iterator *it = NULL;
+   int                  rc = splinterdb_iterator_init_with_bounds(kvsb,
+                                                 &it,
+                                                 min_key_comparison,
+                                                 min_key,
+                                                 max_key_comparison,
+                                                 max_key,
+                                                 start_key_comparison,
+                                                 start_key);
+   ASSERT_EQUAL(0, rc);
+
+   ASSERT_TRUE(splinterdb_iterator_valid(it));
+   rc = check_current_tuple(it, expected_i);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_iterator_deinit(it);
+   return rc;
+}
+
+static int
+check_bounded_iterator_boundary_from_start(splinterdb *kvsb,
+                                           comparison  min_key_comparison,
+                                           slice       min_key,
+                                           comparison  max_key_comparison,
+                                           slice       max_key,
+                                           comparison  start_key_comparison,
+                                           slice       start_key,
+                                           bool32      step_next,
+                                           int         expected_i)
+{
+   splinterdb_iterator *it = NULL;
+   int                  rc = splinterdb_iterator_init_with_bounds(kvsb,
+                                                 &it,
+                                                 min_key_comparison,
+                                                 min_key,
+                                                 max_key_comparison,
+                                                 max_key,
+                                                 start_key_comparison,
+                                                 start_key);
+   ASSERT_EQUAL(0, rc);
+
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+
+   if (step_next) {
+      ASSERT_TRUE(splinterdb_iterator_can_next(it));
+      ASSERT_FALSE(splinterdb_iterator_can_prev(it));
+      splinterdb_iterator_next(it);
+   } else {
+      ASSERT_FALSE(splinterdb_iterator_can_next(it));
+      ASSERT_TRUE(splinterdb_iterator_can_prev(it));
+      splinterdb_iterator_prev(it);
+   }
+
+   ASSERT_TRUE(splinterdb_iterator_valid(it));
+   rc = check_current_tuple(it, expected_i);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_iterator_deinit(it);
+   return rc;
+}
+
 // Test moving iterator 2 steps up, 1 step back and then all the way back down
 static int
 test_two_step_iterator(splinterdb *kvsb,
@@ -1432,7 +1844,7 @@ test_two_step_iterator(splinterdb *kvsb,
 {
    int                  rc;
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(kvsb, &it, start_key, greater_than_or_equal);
+   rc = splinterdb_iterator_init(kvsb, &it, greater_than_or_equal, start_key);
    ASSERT_EQUAL(0, rc);
 
    for (int i = start_i; i < num_keys; i++) {

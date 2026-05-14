@@ -146,7 +146,7 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key)
    slice start_key =
       (from_key ? slice_create(strlen(from_key), from_key) : NULL_SLICE);
    int rc = splinterdb_iterator_init(
-      spl_handle, &it, start_key, greater_than_or_equal);
+      spl_handle, &it, greater_than_or_equal, start_key);
 
    int i = 0;
 
