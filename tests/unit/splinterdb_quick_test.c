@@ -587,7 +587,7 @@ CTEST2(splinterdb_quick, test_bounded_iterator)
    max = slice_create(sizeof(max_key), max_key);
 
    const int singleton[] = {5};
-   rc = check_bounded_iterator_sequence(data->kvsb,
+   rc                    = check_bounded_iterator_sequence(data->kvsb,
                                         greater_than_or_equal,
                                         min,
                                         less_than_or_equal,
@@ -614,8 +614,8 @@ CTEST2(splinterdb_quick, test_bounded_iterator_start_normalization)
    int       rc          = insert_some_keys(num_inserts, data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   char min_key[TEST_INSERT_KEY_LENGTH] = {0};
-   char max_key[TEST_INSERT_KEY_LENGTH] = {0};
+   char min_key[TEST_INSERT_KEY_LENGTH]       = {0};
+   char max_key[TEST_INSERT_KEY_LENGTH]       = {0};
    char below_min_key[TEST_INSERT_KEY_LENGTH] = {0};
    char above_max_key[TEST_INSERT_KEY_LENGTH] = {0};
 
@@ -1728,7 +1728,7 @@ check_bounded_iterator_sequence(splinterdb *kvsb,
                                 uint64      expected_count)
 {
    splinterdb_iterator *it = NULL;
-   int rc = splinterdb_iterator_init_with_bounds(kvsb,
+   int                  rc = splinterdb_iterator_init_with_bounds(kvsb,
                                                  &it,
                                                  min_key_comparison,
                                                  min_key,
@@ -1767,7 +1767,7 @@ check_bounded_iterator_current_from_start(splinterdb *kvsb,
                                           int         expected_i)
 {
    splinterdb_iterator *it = NULL;
-   int rc = splinterdb_iterator_init_with_bounds(kvsb,
+   int                  rc = splinterdb_iterator_init_with_bounds(kvsb,
                                                  &it,
                                                  min_key_comparison,
                                                  min_key,
@@ -1799,7 +1799,7 @@ check_bounded_iterator_boundary_from_start(splinterdb *kvsb,
                                            int         expected_i)
 {
    splinterdb_iterator *it = NULL;
-   int rc = splinterdb_iterator_init_with_bounds(kvsb,
+   int                  rc = splinterdb_iterator_init_with_bounds(kvsb,
                                                  &it,
                                                  min_key_comparison,
                                                  min_key,

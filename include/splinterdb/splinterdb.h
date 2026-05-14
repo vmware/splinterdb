@@ -362,8 +362,8 @@ typedef enum comparison {
 // - greater_than_or_equal: the minimum key
 // - less_than_or_equal: the maximum key
 int
-splinterdb_iterator_init(splinterdb           *kvs,       // IN
-                         splinterdb_iterator **iter,      // OUT
+splinterdb_iterator_init(splinterdb           *kvs,        // IN
+                         splinterdb_iterator **iter,       // OUT
                          comparison            start_type, // IN
                          slice                 start_key   // IN
 );
@@ -380,15 +380,14 @@ splinterdb_iterator_init(splinterdb           *kvs,       // IN
 // - greater_than_or_equal / greater_than: the first key in bounds
 // - less_than_or_equal / less_than: the last key in bounds
 int
-splinterdb_iterator_init_with_bounds(
-   splinterdb           *kvs,                // IN
-   splinterdb_iterator **iter,               // OUT
-   comparison            min_key_comparison, // IN
-   slice                 min_key,            // IN
-   comparison            max_key_comparison, // IN
-   slice                 max_key,            // IN
-   comparison            start_type,         // IN
-   slice                 start_key           // IN
+splinterdb_iterator_init_with_bounds(splinterdb           *kvs,     // IN
+                                     splinterdb_iterator **iter,    // OUT
+                                     comparison min_key_comparison, // IN
+                                     slice      min_key,            // IN
+                                     comparison max_key_comparison, // IN
+                                     slice      max_key,            // IN
+                                     comparison start_type,         // IN
+                                     slice      start_key           // IN
 );
 
 // Deinitialize an iterator
