@@ -696,10 +696,12 @@ iterator_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        type,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY,
-                       start_key,
                        greater_than_or_equal,
+                       NEGATIVE_INFINITY_KEY,
+                       less_than,
+                       POSITIVE_INFINITY_KEY,
+                       greater_than_or_equal,
+                       start_key,
                        FALSE,
                        0);
 
@@ -745,10 +747,12 @@ iterator_seek_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY,
-                       start_key,
                        greater_than_or_equal,
+                       NEGATIVE_INFINITY_KEY,
+                       less_than,
+                       POSITIVE_INFINITY_KEY,
+                       greater_than_or_equal,
+                       start_key,
                        FALSE,
                        0);
    iterator *iter = (iterator *)&dbiter;
@@ -757,7 +761,7 @@ iterator_seek_tests(cache           *cc,
    uint64 found_down = iterator_test(hid, cfg, nkvs, iter, FALSE);
 
    // seek back to start_key
-   iterator_seek(iter, start_key, TRUE);
+   iterator_seek(iter, greater_than_or_equal, start_key);
 
    // skip start_key
    iterator_next(iter);
@@ -789,10 +793,12 @@ pack_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NEGATIVE_INFINITY_KEY,
-                       POSITIVE_INFINITY_KEY,
-                       NEGATIVE_INFINITY_KEY,
                        greater_than_or_equal,
+                       NEGATIVE_INFINITY_KEY,
+                       less_than,
+                       POSITIVE_INFINITY_KEY,
+                       greater_than_or_equal,
+                       NEGATIVE_INFINITY_KEY,
                        FALSE,
                        0);
 

@@ -138,7 +138,9 @@ typedef struct btree_iterator {
    bool32              do_prefetch;
    uint32              height;
    page_type           page_type;
+   comparison          min_key_comparison;
    key                 min_key;
+   comparison          max_key_comparison;
    key                 max_key;
 
    uint64     root_addr;
@@ -275,10 +277,12 @@ btree_iterator_init(cache              *cc,
                     btree_iterator     *itor,
                     uint64              root_addr,
                     page_type           page_type,
+                    comparison          min_key_comparison,
                     key                 min_key,
+                    comparison          max_key_comparison,
                     key                 max_key,
-                    key                 start_key,
                     comparison          start_type,
+                    key                 start_key,
                     bool32              do_prefetch,
                     uint32              height);
 
