@@ -445,11 +445,12 @@ test_trunk_range_thread(void *arg)
                      test_cfg[spl_idx].period);
             uint64 range_tuples =
                test_range(range_num, min_range_length, max_range_length);
-            platform_status rc = core_apply_to_range(spl,
-                                                     key_buffer_key(&start_key),
-                                                     range_tuples,
-                                                     count_range_tuple_func,
-                                                     &params->range_tuples_returned);
+            platform_status rc =
+               core_apply_to_range(spl,
+                                   key_buffer_key(&start_key),
+                                   range_tuples,
+                                   count_range_tuple_func,
+                                   &params->range_tuples_returned);
             platform_assert_status_ok(rc);
 
             params->range_lookups_done++;
@@ -1238,10 +1239,10 @@ splinter_perf_range_lookups(platform_heap_id             hid,
    }
 
    for (uint64 i = 0; i < num_range_threads; i++) {
-      params[i].total_ops        = per_table_ranges;
-      params[i].op_granularity   = TEST_RANGE_GRANULARITY;
-      params[i].min_range_length = min_range_length;
-      params[i].max_range_length = max_range_length;
+      params[i].total_ops             = per_table_ranges;
+      params[i].op_granularity        = TEST_RANGE_GRANULARITY;
+      params[i].min_range_length      = min_range_length;
+      params[i].max_range_length      = max_range_length;
       params[i].range_lookups_done    = 0;
       params[i].range_tuples_returned = 0;
 
@@ -1292,7 +1293,7 @@ splinter_perf_range_lookups(platform_heap_id             hid,
 
    rc = STATUS_OK;
 
-   uint64 num_range_lookups = 0;
+   uint64 num_range_lookups     = 0;
    uint64 total_returned_tuples = 0;
    for (uint64 i = 0; i < num_range_threads; i++) {
       if (verbose_progress) {

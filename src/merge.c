@@ -110,8 +110,7 @@ bsearch_insert(register const ordered_iterator *key,
 
    size_t nrel = 1;
 
-   while (nrel <= nmemb && nrel < 4)
-   {
+   while (nrel <= nmemb && nrel < 4) {
       cmp = bsearch_comp(key, base[nrel - 1], forwards, cfg, &keys_equal);
       if (cmp <= 0) {
          *prev_equal_out = prev_equal;

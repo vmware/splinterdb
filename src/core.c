@@ -803,12 +803,12 @@ static void
 core_btree_iterator_init_async_callback(void *arg)
 {
    core_btree_iterator_init_async_context *ctxt = arg;
-   ctxt->ready = TRUE;
+   ctxt->ready                                  = TRUE;
 }
 
 static platform_status
 core_start_btree_iterator_init_async(
-   core_handle                             *spl,
+   core_handle                            *spl,
    core_btree_iterator_init_async_context *ctxt,
    btree_iterator                         *itor,
    uint64                                  root_addr,
@@ -854,8 +854,8 @@ core_drain_btree_iterator_init_async(
    core_btree_iterator_init_async_context *ctxt,
    uint64                                  num_inits)
 {
-   platform_status result = STATUS_OK;
-   uint64 done_count = 0;
+   platform_status result     = STATUS_OK;
+   uint64          done_count = 0;
    for (uint64 i = 0; i < num_inits; i++) {
       if (ctxt[i].done) {
          done_count++;
@@ -1109,9 +1109,8 @@ core_range_iterator_init(core_handle         *spl,
 
    core_btree_iterator_init_async_context *init_ctxt = NULL;
    if (range_itor->num_branches != 0) {
-      init_ctxt = TYPED_ARRAY_ZALLOC(PROCESS_PRIVATE_HEAP_ID,
-                                     init_ctxt,
-                                     range_itor->num_branches);
+      init_ctxt = TYPED_ARRAY_ZALLOC(
+         PROCESS_PRIVATE_HEAP_ID, init_ctxt, range_itor->num_branches);
    }
    if (range_itor->num_branches != 0 && init_ctxt == NULL) {
       core_range_iterator_deinit(range_itor);

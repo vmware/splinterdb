@@ -11,7 +11,7 @@
 #include "random.h"
 #include "poison.h"
 
-#define SCAN_BENCHMARK_KEY_SIZE 8
+#define SCAN_BENCHMARK_KEY_SIZE       8
 #define SCAN_BENCHMARK_MAX_MILESTONES 32
 
 typedef enum scan_benchmark_mode {
@@ -47,51 +47,50 @@ static void
 scan_benchmark_usage(const char *prog)
 {
    platform_error_log("Usage:\n");
-   platform_error_log(
-      "\t%s [--init-only | --scan-only] [--random-load-order] [--splinter-random-keys]\n",
-      prog);
-   platform_error_log(
-      "\t   [--scan-length <count>] [--scan-count <count>] [--random-scan-starts]\n");
-   platform_error_log(
-      "\t   [--backwards-scan]\n");
-   platform_error_log(
-      "\t   --num-inserts <count> [generic config options]\n");
+   platform_error_log("\t%s [--init-only | --scan-only] [--random-load-order] "
+                      "[--splinter-random-keys]\n",
+                      prog);
+   platform_error_log("\t   [--scan-length <count>] [--scan-count <count>] "
+                      "[--random-scan-starts]\n");
+   platform_error_log("\t   [--backwards-scan]\n");
+   platform_error_log("\t   --num-inserts <count> [generic config options]\n");
    platform_error_log("\n");
    platform_error_log("Modes:\n");
-   platform_error_log(
-      "\t(default) create/load database, close it, reopen it, then scan once\n");
+   platform_error_log("\t(default) create/load database, close it, reopen it, "
+                      "then scan once\n");
    platform_error_log("\t--init-only  create/load database and exit\n");
    platform_error_log("\t--scan-only  open existing database and scan once\n");
    platform_error_log("\n");
    platform_error_log("Benchmark options:\n");
-   platform_error_log("\t--random-load-order   insert keys using a deterministic permutation\n");
-   platform_error_log("\t--splinter-random-keys use the same TEST_RANDOM key mapping as splinter_test\n");
-   platform_error_log(
-      "\t--scan-length         limit each scan to this many returned tuples (0 = full scan)\n");
+   platform_error_log("\t--random-load-order   insert keys using a "
+                      "deterministic permutation\n");
+   platform_error_log("\t--splinter-random-keys use the same TEST_RANDOM key "
+                      "mapping as splinter_test\n");
+   platform_error_log("\t--scan-length         limit each scan to this many "
+                      "returned tuples (0 = full scan)\n");
    platform_error_log(
       "\t--scan-count          number of scans to run (default 1)\n");
-   platform_error_log(
-      "\t--random-scan-starts  choose a fresh random start key for each scan\n");
-   platform_error_log(
-      "\t--backwards-scan      scan toward smaller keys\n");
+   platform_error_log("\t--random-scan-starts  choose a fresh random start key "
+                      "for each scan\n");
+   platform_error_log("\t--backwards-scan      scan toward smaller keys\n");
    config_usage();
 }
 
 static platform_status
-scan_benchmark_parse_args(int                  argc,
-                          char                *argv[],
+scan_benchmark_parse_args(int                     argc,
+                          char                   *argv[],
                           scan_benchmark_options *options,
-                          int                 *config_argc,
-                          char              ***config_argv)
+                          int                    *config_argc,
+                          char                 ***config_argv)
 {
    *options = (scan_benchmark_options){
-      .mode               = SCAN_BENCHMARK_LOAD_AND_SCAN,
-      .random_load_order  = FALSE,
+      .mode                 = SCAN_BENCHMARK_LOAD_AND_SCAN,
+      .random_load_order    = FALSE,
       .splinter_random_keys = FALSE,
-      .random_scan_starts = FALSE,
-      .backwards_scan     = FALSE,
-      .scan_length        = 0,
-      .scan_count         = 1,
+      .random_scan_starts   = FALSE,
+      .backwards_scan       = FALSE,
+      .scan_length          = 0,
+      .scan_count           = 1,
    };
 
    char **filtered =
@@ -130,7 +129,8 @@ scan_benchmark_parse_args(int                  argc,
          if (i + 1 == argc
              || !try_string_to_uint64(argv[++i], &options->scan_length))
          {
-            platform_error_log("scan_benchmark: failed to parse --scan-length\n");
+            platform_error_log(
+               "scan_benchmark: failed to parse --scan-length\n");
             platform_free(platform_get_heap_id(), filtered);
             return STATUS_BAD_PARAM;
          }
@@ -139,7 +139,8 @@ scan_benchmark_parse_args(int                  argc,
              || !try_string_to_uint64(argv[++i], &options->scan_count)
              || options->scan_count == 0)
          {
-            platform_error_log("scan_benchmark: failed to parse --scan-count\n");
+            platform_error_log(
+               "scan_benchmark: failed to parse --scan-count\n");
             platform_free(platform_get_heap_id(), filtered);
             return STATUS_BAD_PARAM;
          }
@@ -179,29 +180,27 @@ scan_benchmark_iterator_advance(splinterdb_iterator *iter,
 }
 
 static inline void
-scan_benchmark_encode_key(uint64 record_no, uint8 keybuf[SCAN_BENCHMARK_KEY_SIZE])
+scan_benchmark_encode_key(uint64 record_no,
+                          uint8  keybuf[SCAN_BENCHMARK_KEY_SIZE])
 {
    for (uint64 byte_no = 0; byte_no < SCAN_BENCHMARK_KEY_SIZE; byte_no++) {
-      uint64 shift =
-         8 * (SCAN_BENCHMARK_KEY_SIZE - 1 - byte_no);
+      uint64 shift    = 8 * (SCAN_BENCHMARK_KEY_SIZE - 1 - byte_no);
       keybuf[byte_no] = (record_no >> shift) & 0xFF;
    }
 }
 
 static inline void
-scan_benchmark_encode_splinter_random_key(
-   uint64 record_no,
-   uint8  keybuf[SCAN_BENCHMARK_KEY_SIZE])
+scan_benchmark_encode_splinter_random_key(uint64 record_no,
+                                          uint8 keybuf[SCAN_BENCHMARK_KEY_SIZE])
 {
    uint64 encoded = platform_checksum64(&record_no, sizeof(record_no), 42);
    memcpy(keybuf, &encoded, sizeof(encoded));
 }
 
 static inline void
-scan_benchmark_encode_record_key(
-   uint64 record_no,
-   bool32 splinter_random_keys,
-   uint8  keybuf[SCAN_BENCHMARK_KEY_SIZE])
+scan_benchmark_encode_record_key(uint64 record_no,
+                                 bool32 splinter_random_keys,
+                                 uint8  keybuf[SCAN_BENCHMARK_KEY_SIZE])
 {
    if (splinter_random_keys) {
       scan_benchmark_encode_splinter_random_key(record_no, keybuf);
@@ -266,25 +265,26 @@ scan_benchmark_print_progress(const char *label,
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
    double elapsed_s  = (double)elapsed_ns / BILLION;
    double pct        = total == 0 ? 100.0 : (100.0 * completed) / total;
-   double rate = elapsed_ns == 0 ? 0.0 : ((double)completed * BILLION) / elapsed_ns;
+   double rate =
+      elapsed_ns == 0 ? 0.0 : ((double)completed * BILLION) / elapsed_ns;
 
-   platform_default_log("%s progress: %lu / %lu (%.1f%%), %.2fs elapsed, %.2f ops/s\n",
-                        label,
-                        completed,
-                        total,
-                        pct,
-                        elapsed_s,
-                        rate);
+   platform_default_log(
+      "%s progress: %lu / %lu (%.1f%%), %.2fs elapsed, %.2f ops/s\n",
+      label,
+      completed,
+      total,
+      pct,
+      elapsed_s,
+      rate);
 }
 
 static inline double
 scan_benchmark_logical_mib_per_sec(uint64 logical_bytes_scanned,
                                    uint64 elapsed_ns)
 {
-   return elapsed_ns == 0
-             ? 0.0
-             : ((double)logical_bytes_scanned * BILLION) / elapsed_ns
-                  / MiB_TO_B(1);
+   return elapsed_ns == 0 ? 0.0
+                          : ((double)logical_bytes_scanned * BILLION)
+                               / elapsed_ns / MiB_TO_B(1);
 }
 
 static void
@@ -300,19 +300,21 @@ scan_benchmark_print_milestone(uint64 tuples_scanned,
    double ns_per_tuple =
       tuples_scanned == 0 ? 0.0 : (double)elapsed_ns / tuples_scanned;
 
-   platform_default_log("scan milestone: %10lu tuples, %8.3fs elapsed, "
-                        "%8.2f ns/tuple, %10.2f tuples/s, %8.2f MiB/s logical\n",
-                        tuples_scanned,
-                        elapsed_s,
-                        ns_per_tuple,
-                        tuples_per_sec,
-                        mib_per_sec);
+   platform_default_log(
+      "scan milestone: %10lu tuples, %8.3fs elapsed, "
+      "%8.2f ns/tuple, %10.2f tuples/s, %8.2f MiB/s logical\n",
+      tuples_scanned,
+      elapsed_s,
+      ns_per_tuple,
+      tuples_per_sec,
+      mib_per_sec);
 }
 
 static void
-scan_benchmark_build_milestones(uint64 max_tuples,
-                                uint64 milestones[SCAN_BENCHMARK_MAX_MILESTONES],
-                                uint64 *milestone_count)
+scan_benchmark_build_milestones(
+   uint64  max_tuples,
+   uint64  milestones[SCAN_BENCHMARK_MAX_MILESTONES],
+   uint64 *milestone_count)
 {
    *milestone_count = 0;
    if (max_tuples == 0) {
@@ -330,8 +332,7 @@ scan_benchmark_build_milestones(uint64 max_tuples,
       milestone *= 10;
    }
 
-   if (*milestone_count == 0
-       || milestones[*milestone_count - 1] != max_tuples)
+   if (*milestone_count == 0 || milestones[*milestone_count - 1] != max_tuples)
    {
       platform_assert(*milestone_count < SCAN_BENCHMARK_MAX_MILESTONES);
       milestones[(*milestone_count)++] = max_tuples;
@@ -358,9 +359,8 @@ scan_benchmark_print_average_milestones(
             ? 0.0
             : ((double)stats->tuples * stats->samples * BILLION)
                  / stats->elapsed_ns_sum;
-      double mib_per_sec =
-         scan_benchmark_logical_mib_per_sec(stats->logical_bytes_sum,
-                                            stats->elapsed_ns_sum);
+      double mib_per_sec = scan_benchmark_logical_mib_per_sec(
+         stats->logical_bytes_sum, stats->elapsed_ns_sum);
       double ns_per_tuple =
          (stats->tuples == 0 || stats->samples == 0)
             ? 0.0
@@ -378,10 +378,10 @@ scan_benchmark_print_average_milestones(
 }
 
 static void
-scan_benchmark_make_config(const master_config   *master_cfg,
-                           data_config           *data_cfg,
-                           splinterdb_config     *cfg,
-                           bool                   open_existing)
+scan_benchmark_make_config(const master_config *master_cfg,
+                           data_config         *data_cfg,
+                           splinterdb_config   *cfg,
+                           bool                 open_existing)
 {
    *cfg = (splinterdb_config){
       .filename                 = master_cfg->io_filename,
@@ -437,15 +437,17 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
    }
 
    uint8     keybuf[SCAN_BENCHMARK_KEY_SIZE];
-   slice     value            = slice_create(value_size, value_buf);
-   timestamp start_time       = platform_get_timestamp();
-   uint64    progress_interval = MAX(num_records / 10, 1);
+   slice     value                  = slice_create(value_size, value_buf);
+   timestamp start_time             = platform_get_timestamp();
+   uint64    progress_interval      = MAX(num_records / 10, 1);
    uint64    permutation_multiplier = 1;
    uint64    permutation_offset     = 0;
 
    if (random_load_order) {
-      scan_benchmark_choose_permutation(
-         num_records, seed ^ 0x9e3779b97f4a7c15ULL, &permutation_multiplier, &permutation_offset);
+      scan_benchmark_choose_permutation(num_records,
+                                        seed ^ 0x9e3779b97f4a7c15ULL,
+                                        &permutation_multiplier,
+                                        &permutation_offset);
       platform_default_log("scan_benchmark: random load order enabled "
                            "(multiplier=%lu offset=%lu)\n",
                            permutation_multiplier,
@@ -467,13 +469,14 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
       slice key = slice_create(sizeof(keybuf), keybuf);
       rc        = splinterdb_insert(kvs, key, value, NULL);
       if (rc != 0) {
-         platform_error_log("scan_benchmark: insert failed at record %lu: %d\n",
-                            record_no,
-                            rc);
+         platform_error_log(
+            "scan_benchmark: insert failed at record %lu: %d\n", record_no, rc);
          break;
       }
 
-      if ((record_no + 1) % progress_interval == 0 || record_no + 1 == num_records) {
+      if ((record_no + 1) % progress_interval == 0
+          || record_no + 1 == num_records)
+      {
          scan_benchmark_print_progress(
             "load", record_no + 1, num_records, start_time);
       }
@@ -500,15 +503,15 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
 
    splinterdb_iterator *iter       = NULL;
    timestamp            start_time = platform_get_timestamp();
-   rc = splinterdb_iterator_init(
+   rc                              = splinterdb_iterator_init(
       kvs, &iter, scan_benchmark_start_comparison(backwards_scan), NULL_SLICE);
    if (rc != 0) {
       splinterdb_close(&kvs);
       return rc;
    }
 
-   uint64 next_milestone       = 1;
-   uint64 tuples_scanned       = 0;
+   uint64 next_milestone        = 1;
+   uint64 tuples_scanned        = 0;
    uint64 logical_bytes_scanned = 0;
 
    while (splinterdb_iterator_valid(iter)) {
@@ -519,10 +522,9 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
       logical_bytes_scanned += slice_length(key) + slice_length(value);
 
       if (tuples_scanned == next_milestone) {
-         scan_benchmark_print_milestone(
-            tuples_scanned,
-            logical_bytes_scanned,
-            platform_timestamp_elapsed(start_time));
+         scan_benchmark_print_milestone(tuples_scanned,
+                                        logical_bytes_scanned,
+                                        platform_timestamp_elapsed(start_time));
          if (next_milestone <= UINT64_MAX / 10) {
             next_milestone *= 10;
          }
@@ -538,10 +540,9 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
    if (rc == 0
        && (tuples_scanned == 0 || tuples_scanned != next_milestone / 10))
    {
-      scan_benchmark_print_milestone(
-         tuples_scanned,
-         logical_bytes_scanned,
-         platform_timestamp_elapsed(start_time));
+      scan_benchmark_print_milestone(tuples_scanned,
+                                     logical_bytes_scanned,
+                                     platform_timestamp_elapsed(start_time));
    }
 
    uint64 total_elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -551,9 +552,10 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
                            logical_bytes_scanned, total_elapsed_ns));
 
    if (expected_records != 0 && expected_records != tuples_scanned) {
-      platform_error_log("scan_benchmark: expected %lu tuples but scanned %lu\n",
-                         expected_records,
-                         tuples_scanned);
+      platform_error_log(
+         "scan_benchmark: expected %lu tuples but scanned %lu\n",
+         expected_records,
+         tuples_scanned);
       rc = EINVAL;
    }
 
@@ -599,7 +601,8 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
    scan_benchmark_build_milestones(
       effective_scan_length, milestones, &milestone_count);
 
-   scan_benchmark_milestone_stats milestone_stats[SCAN_BENCHMARK_MAX_MILESTONES];
+   scan_benchmark_milestone_stats
+      milestone_stats[SCAN_BENCHMARK_MAX_MILESTONES];
    ZERO_ARRAY(milestone_stats);
    for (uint64 i = 0; i < milestone_count; i++) {
       milestone_stats[i].tuples = milestones[i];
@@ -608,22 +611,23 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
    random_state rs;
    random_init(&rs, seed ^ 0xd1b54a32d192ed03ULL, 0);
 
-   uint64 report_interval = MAX(scan_count / 10, 1);
-   uint64 total_elapsed_ns = 0;
-   uint64 total_tuples_scanned = 0;
+   uint64 report_interval             = MAX(scan_count / 10, 1);
+   uint64 total_elapsed_ns            = 0;
+   uint64 total_tuples_scanned        = 0;
    uint64 total_logical_bytes_scanned = 0;
    uint8  keybuf[SCAN_BENCHMARK_KEY_SIZE];
 
-   platform_default_log("scan_benchmark: running %lu %s scan%s of up to %lu tuple%s%s\n",
-                        scan_count,
-                        backwards_scan ? "backwards" : "forward",
-                        scan_count == 1 ? "" : "s",
-                        effective_scan_length,
-                        effective_scan_length == 1 ? "" : "s",
-                        random_scan_starts ? " from random starting points" : "");
+   platform_default_log(
+      "scan_benchmark: running %lu %s scan%s of up to %lu tuple%s%s\n",
+      scan_count,
+      backwards_scan ? "backwards" : "forward",
+      scan_count == 1 ? "" : "s",
+      effective_scan_length,
+      effective_scan_length == 1 ? "" : "s",
+      random_scan_starts ? " from random starting points" : "");
 
    for (uint64 scan_no = 0; scan_no < scan_count; scan_no++) {
-      slice start_key = NULL_SLICE;
+      slice  start_key       = NULL_SLICE;
       uint64 start_record_no = 0;
       if (random_scan_starts) {
          platform_assert(expected_records > 0);
@@ -635,19 +639,23 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
 
       splinterdb_iterator *iter       = NULL;
       timestamp            start_time = platform_get_timestamp();
-      rc = splinterdb_iterator_init(
-         kvs, &iter, scan_benchmark_start_comparison(backwards_scan), start_key);
+      rc                              = splinterdb_iterator_init(
+         kvs,
+         &iter,
+         scan_benchmark_start_comparison(backwards_scan),
+         start_key);
       if (rc != 0) {
          splinterdb_close(&kvs);
          return rc;
       }
 
-      uint64 tuples_scanned = 0;
+      uint64 tuples_scanned        = 0;
       uint64 logical_bytes_scanned = 0;
-      uint64 milestone_idx = 0;
-      uint64 target_tuples = effective_scan_length;
+      uint64 milestone_idx         = 0;
+      uint64 target_tuples         = effective_scan_length;
 
-      while (splinterdb_iterator_valid(iter) && tuples_scanned < target_tuples) {
+      while (splinterdb_iterator_valid(iter) && tuples_scanned < target_tuples)
+      {
          slice key;
          slice value;
          splinterdb_iterator_get_current(iter, &key, &value);
@@ -687,8 +695,7 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
 
       splinterdb_iterator_deinit(iter);
 
-      bool32 should_report = (scan_no + 1 <= 3)
-                             || (scan_no + 1 == scan_count)
+      bool32 should_report = (scan_no + 1 <= 3) || (scan_no + 1 == scan_count)
                              || ((scan_no + 1) % report_interval == 0);
       if (should_report) {
          double avg_ns_per_tuple =
@@ -730,14 +737,14 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
 int
 scan_benchmark(int argc, char *argv[])
 {
-   platform_status       status;
+   platform_status        status;
    scan_benchmark_options options;
-   int                   config_argc = 0;
-   char                **config_argv = NULL;
-   master_config         master_cfg;
-   data_config           default_data_cfg;
-   splinterdb_config     cfg;
-   int                   rc = 0;
+   int                    config_argc = 0;
+   char                 **config_argv = NULL;
+   master_config          master_cfg;
+   data_config            default_data_cfg;
+   splinterdb_config      cfg;
+   int                    rc = 0;
 
    if (argc > 1 && STRING_EQUALS_LITERAL(argv[1], "--help")) {
       scan_benchmark_usage(argv[0]);
@@ -767,8 +774,10 @@ scan_benchmark(int argc, char *argv[])
       goto out;
    }
 
-   if (options.mode != SCAN_BENCHMARK_SCAN_ONLY && master_cfg.num_inserts == 0) {
-      platform_error_log("scan_benchmark: --num-inserts must be set for load modes\n");
+   if (options.mode != SCAN_BENCHMARK_SCAN_ONLY && master_cfg.num_inserts == 0)
+   {
+      platform_error_log(
+         "scan_benchmark: --num-inserts must be set for load modes\n");
       rc = EINVAL;
       goto out;
    }
@@ -782,33 +791,33 @@ scan_benchmark(int argc, char *argv[])
 
    default_data_config_init(master_cfg.max_key_size, &default_data_cfg);
 
-   platform_default_log("scan_benchmark: db=%s mode=%d num_inserts=%lu "
-                        "cache=%lu extent=%lu value=%lu "
-                        "random_load=%d splinter_random_keys=%d scan_length=%lu scan_count=%lu "
-                        "random_starts=%d backwards_scan=%d seed=%lu\n",
-                        master_cfg.io_filename,
-                        options.mode,
-                        master_cfg.num_inserts,
-                        master_cfg.cache_capacity,
-                        master_cfg.extent_size,
-                        master_cfg.message_size,
-                        options.random_load_order,
-                        options.splinter_random_keys,
-                        options.scan_length,
-                        options.scan_count,
-                        options.random_scan_starts,
-                        options.backwards_scan,
-                        master_cfg.seed);
+   platform_default_log(
+      "scan_benchmark: db=%s mode=%d num_inserts=%lu "
+      "cache=%lu extent=%lu value=%lu "
+      "random_load=%d splinter_random_keys=%d scan_length=%lu scan_count=%lu "
+      "random_starts=%d backwards_scan=%d seed=%lu\n",
+      master_cfg.io_filename,
+      options.mode,
+      master_cfg.num_inserts,
+      master_cfg.cache_capacity,
+      master_cfg.extent_size,
+      master_cfg.message_size,
+      options.random_load_order,
+      options.splinter_random_keys,
+      options.scan_length,
+      options.scan_count,
+      options.random_scan_starts,
+      options.backwards_scan,
+      master_cfg.seed);
 
    if (options.mode != SCAN_BENCHMARK_SCAN_ONLY) {
       scan_benchmark_make_config(&master_cfg, &default_data_cfg, &cfg, FALSE);
-      rc = scan_benchmark_load_database(
-         &cfg,
-         master_cfg.num_inserts,
-         master_cfg.message_size,
-         options.random_load_order,
-         options.splinter_random_keys,
-         master_cfg.seed);
+      rc = scan_benchmark_load_database(&cfg,
+                                        master_cfg.num_inserts,
+                                        master_cfg.message_size,
+                                        options.random_load_order,
+                                        options.splinter_random_keys,
+                                        master_cfg.seed);
       if (rc != 0 || options.mode == SCAN_BENCHMARK_INIT_ONLY) {
          goto out;
       }
@@ -818,11 +827,10 @@ scan_benchmark(int argc, char *argv[])
    if (options.scan_count == 1 && options.scan_length == 0
        && !options.random_scan_starts)
    {
-      rc = scan_benchmark_run_scan(
-         &cfg,
-         master_cfg.use_stats,
-         master_cfg.num_inserts,
-         options.backwards_scan);
+      rc = scan_benchmark_run_scan(&cfg,
+                                   master_cfg.use_stats,
+                                   master_cfg.num_inserts,
+                                   options.backwards_scan);
    } else {
       rc = scan_benchmark_run_repeated_scans(&cfg,
                                              master_cfg.use_stats,

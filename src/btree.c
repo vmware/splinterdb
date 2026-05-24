@@ -2545,9 +2545,9 @@ btree_iterator_find_end_async(btree_iterator_async_state *state, uint64 depth)
    async_await(state,
                btree_lookup_node_async(&state->lookup_state, 0)
                   == ASYNC_STATUS_DONE);
-   state->end                   = state->lookup_state.node;
-   state->itor->end_addr        = state->end.addr;
-   state->itor->end_generation  = state->end.hdr->generation;
+   state->end                  = state->lookup_state.node;
+   state->itor->end_addr       = state->end.addr;
+   state->itor->end_generation = state->end.hdr->generation;
 
    if (key_is_positive_infinity(state->itor->max_key)) {
       state->itor->end_idx = btree_num_entries(state->end.hdr);
@@ -2658,8 +2658,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
    state->itor->curr_min_idx = -1;
 
    while (state->itor->curr.addr == state->itor->end_addr
-          && state->itor->curr.hdr->generation
-                != state->itor->end_generation)
+          && state->itor->curr.hdr->generation != state->itor->end_generation)
    {
       /*
        * We need to recompute the end node and end_idx. (see
@@ -2685,8 +2684,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
        * curr while we've released it, we will still want to
        * continue at curr (since we're at the 0th entry).
        */
-      btree_node_unget(
-         state->itor->cc, state->itor->cfg, &state->itor->curr);
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
       async_await_subroutine(state, btree_iterator_find_end_async);
 
       cache_get_async_state_init(state->cache_get_state,
@@ -2712,9 +2710,8 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
        && !btree_addrs_share_extent(
           state->itor->cc, state->last_addr, state->itor->curr.addr)
        && state->itor->curr.hdr->next_extent_addr != 0
-       && !btree_addrs_share_extent(state->itor->cc,
-                                    state->itor->curr.addr,
-                                    state->itor->end_addr))
+       && !btree_addrs_share_extent(
+          state->itor->cc, state->itor->curr.addr, state->itor->end_addr))
    {
       // IO prefetch the next extent
       cache_prefetch(state->itor->cc,
@@ -2817,8 +2814,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
     */
    while (state->itor->curr.hdr->next_addr != state->curr_addr) {
       state->next_addr = state->itor->curr.hdr->next_addr;
-      btree_node_unget(
-         state->itor->cc, state->itor->cfg, &state->itor->curr);
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
       state->itor->curr.addr = state->next_addr;
 
       cache_get_async_state_init(state->cache_get_state,
@@ -2857,8 +2853,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                           state->itor->min_key_comparison,
                           NULL);
    }
-   if (state->itor->curr.hdr->prev_addr == 0
-       && state->itor->curr_min_idx == -1)
+   if (state->itor->curr.hdr->prev_addr == 0 && state->itor->curr_min_idx == -1)
    {
       state->itor->curr_min_idx = 0;
    }
@@ -3093,11 +3088,10 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
     *
     * So we take a claim on curr instead.
     */
-   while (!btree_node_claim(
-      state->itor->cc, state->itor->cfg, &state->itor->curr))
+   while (
+      !btree_node_claim(state->itor->cc, state->itor->cfg, &state->itor->curr))
    {
-      btree_node_unget(
-         state->itor->cc, state->itor->cfg, &state->itor->curr);
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
       btree_lookup_async_state_init(&state->lookup_state,
                                     state->itor->cc,
                                     state->itor->cfg,
@@ -3121,12 +3115,11 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
    btree_node_unclaim(state->itor->cc, state->itor->cfg, &state->itor->curr);
 
    // find the index of the minimum key
-   state->tmp =
-      find_key_in_node(state->itor,
-                       state->itor->curr.hdr,
-                       state->itor->min_key,
-                       state->itor->min_key_comparison,
-                       &state->found);
+   state->tmp = find_key_in_node(state->itor,
+                                 state->itor->curr.hdr,
+                                 state->itor->min_key,
+                                 state->itor->min_key_comparison,
+                                 &state->found);
    // If min key doesn't exist in current node, but is:
    // 1) in range:     Min idx = first key satisfying min_key_comparison
    // 2) out of range: Min idx = -1
@@ -3134,19 +3127,17 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
       !state->found && state->tmp == 0 ? state->tmp - 1 : state->tmp;
    // if min_key is not within the current node but there is no previous node
    // then set curr_min_idx to 0
-   if (state->itor->curr_min_idx == -1
-       && state->itor->curr.hdr->prev_addr == 0)
+   if (state->itor->curr_min_idx == -1 && state->itor->curr.hdr->prev_addr == 0)
    {
       state->itor->curr_min_idx = 0;
    }
 
    // find the index of the actual target
-   state->itor->idx =
-      find_key_in_node(state->itor,
-                       state->itor->curr.hdr,
-                       state->target,
-                       state->position_rule,
-                       &state->found);
+   state->itor->idx = find_key_in_node(state->itor,
+                                       state->itor->curr.hdr,
+                                       state->target,
+                                       state->position_rule,
+                                       &state->found);
    btree_iterator_bound_idx(state->itor, state->position_rule);
 
    // check if we already need to move to the prev/next leaf
@@ -3348,8 +3339,7 @@ btree_iterator_init_async(btree_iterator_async_state *state)
    state->position_rule = state->start_type;
    async_await_subroutine(state, find_btree_node_and_get_idx_bounds_async);
 
-   if (state->itor->do_prefetch
-       && state->itor->curr.hdr->next_extent_addr != 0
+   if (state->itor->do_prefetch && state->itor->curr.hdr->next_extent_addr != 0
        && !btree_addrs_share_extent(
           state->cc, state->itor->curr.addr, state->itor->end_addr))
    {
@@ -3360,8 +3350,7 @@ btree_iterator_init_async(btree_iterator_async_state *state)
    }
 
    debug_assert(!iterator_can_curr((iterator *)state->itor)
-                || state->itor->idx
-                      < btree_num_entries(state->itor->curr.hdr));
+                || state->itor->idx < btree_num_entries(state->itor->curr.hdr));
 
    async_return(state, STATUS_OK);
 }
