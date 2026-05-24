@@ -69,6 +69,7 @@ typedef struct test_splinter_thread_params {
    uint8              lookup_positive_pct; // parallel lookup positive %
    uint64             seed;
    uint64             range_lookups_done;
+   uint64             range_tuples_returned;
    uint64             progress;
 } test_splinter_thread_params;
 
@@ -342,8 +343,13 @@ out:
 }
 
 static void
-nop_tuple_func(key tuple_key, message value, void *arg)
+count_range_tuple_func(key tuple_key, message value, void *arg)
 {
+   uint64 *range_tuples_returned = arg;
+
+   (void)tuple_key;
+   (void)value;
+   *range_tuples_returned += 1;
 }
 
 /*
@@ -439,11 +445,12 @@ test_trunk_range_thread(void *arg)
                      test_cfg[spl_idx].period);
             uint64 range_tuples =
                test_range(range_num, min_range_length, max_range_length);
-            platform_status rc = core_apply_to_range(spl,
-                                                     key_buffer_key(&start_key),
-                                                     range_tuples,
-                                                     nop_tuple_func,
-                                                     NULL);
+            platform_status rc =
+               core_apply_to_range(spl,
+                                   key_buffer_key(&start_key),
+                                   range_tuples,
+                                   count_range_tuple_func,
+                                   &params->range_tuples_returned);
             platform_assert_status_ok(rc);
 
             params->range_lookups_done++;
@@ -1232,10 +1239,12 @@ splinter_perf_range_lookups(platform_heap_id             hid,
    }
 
    for (uint64 i = 0; i < num_range_threads; i++) {
-      params[i].total_ops        = per_table_ranges;
-      params[i].op_granularity   = TEST_RANGE_GRANULARITY;
-      params[i].min_range_length = min_range_length;
-      params[i].max_range_length = max_range_length;
+      params[i].total_ops             = per_table_ranges;
+      params[i].op_granularity        = TEST_RANGE_GRANULARITY;
+      params[i].min_range_length      = min_range_length;
+      params[i].max_range_length      = max_range_length;
+      params[i].range_lookups_done    = 0;
+      params[i].range_tuples_returned = 0;
 
       if (verbose_progress) {
          platform_default_log(" Range thread[%lu] "
@@ -1284,26 +1293,37 @@ splinter_perf_range_lookups(platform_heap_id             hid,
 
    rc = STATUS_OK;
 
-   platform_default_log("\nTotal time=%lus for %s lookup, per-splinter "
-                        "per-thread range time per tuple %lu ns\n",
-                        NSEC_TO_SEC(total_time),
-                        range_descr,
-                        total_time * num_range_threads / total_ranges);
-
-   uint64 num_range_lookups = 0;
+   uint64 num_range_lookups     = 0;
+   uint64 total_returned_tuples = 0;
    for (uint64 i = 0; i < num_range_threads; i++) {
       if (verbose_progress) {
-         platform_default_log("  Range thread %lu, range lookups = %lu\n",
+         platform_default_log("  Range thread %lu, range lookups = %lu"
+                              ", returned tuples = %lu\n",
                               i,
-                              params[i].range_lookups_done);
+                              params[i].range_lookups_done,
+                              params[i].range_tuples_returned);
       }
       num_range_lookups += params[i].range_lookups_done;
+      total_returned_tuples += params[i].range_tuples_returned;
    }
    platform_default_log(
+      "\nTotal time=%lus for %s lookup, per-splinter per-thread "
+      "range time per range op %lu ns, per returned tuple %lu ns\n",
+      NSEC_TO_SEC(total_time),
+      range_descr,
+      (num_range_lookups ? total_time * num_range_threads / num_range_lookups
+                         : 0),
+      (total_returned_tuples
+          ? total_time * num_range_threads / total_returned_tuples
+          : 0));
+   platform_default_log(
       "splinter total range lookups: %lu"
-      ", range rate: %lu ops/second\n",
+      ", total returned tuples: %lu"
+      ", range rate: %lu ops/second, tuple rate: %lu tuples/second\n",
       num_range_lookups,
-      (total_time ? SEC_TO_NSEC(total_ranges) / total_time : 0));
+      total_returned_tuples,
+      (total_time ? SEC_TO_NSEC(num_range_lookups) / total_time : 0),
+      (total_time ? SEC_TO_NSEC(total_returned_tuples) / total_time : 0));
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       core_handle *spl = &spl_tables[spl_idx];

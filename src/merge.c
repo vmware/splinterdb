@@ -100,11 +100,48 @@ bsearch_insert(register const ordered_iterator *key,
    register ordered_iterator **p;
    bool32                      prev_equal = FALSE;
    bool32                      next_equal = FALSE;
+   bool32                      keys_equal = FALSE;
 
+   if (nmemb == 0) {
+      *prev_equal_out = FALSE;
+      *next_equal_out = FALSE;
+      return -1;
+   }
 
-   for (lim = nmemb; lim != 0; lim >>= 1) {
-      p = base + (lim >> 1);
-      bool32 keys_equal;
+   size_t nrel = 1;
+
+   while (nrel <= nmemb && nrel < 4) {
+      cmp = bsearch_comp(key, base[nrel - 1], forwards, cfg, &keys_equal);
+      if (cmp <= 0) {
+         *prev_equal_out = prev_equal;
+         *next_equal_out = keys_equal;
+         return nrel - 2;
+      }
+      prev_equal |= keys_equal;
+      nrel++;
+   }
+
+   if (nrel > nmemb) {
+      *prev_equal_out = prev_equal;
+      *next_equal_out = FALSE;
+      return nmemb - 1;
+   }
+
+   if (4 <= nrel) {
+      while (nrel <= nmemb
+             && bsearch_comp(key, base[nrel - 1], forwards, cfg, &keys_equal)
+                   > 0)
+      {
+         nrel *= 2;
+      }
+   }
+
+   if (nmemb < nrel) {
+      nrel = nmemb;
+   }
+
+   for (lim = nrel; lim != 0; lim >>= 1) {
+      p   = base + (lim >> 1);
       cmp = bsearch_comp(key, *p, forwards, cfg, &keys_equal);
       debug_assert(cmp != 0);
 

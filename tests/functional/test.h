@@ -38,6 +38,9 @@ int
 splinter_test(int argc, char *argv[]);
 
 int
+scan_benchmark(int argc, char *argv[]);
+
+int
 log_test(int argc, char *argv[]);
 
 int

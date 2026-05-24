@@ -15,6 +15,7 @@ usage(void)
    platform_error_log("\tbtree_test\n");
    platform_error_log("\tfilter_test\n");
    platform_error_log("\tsplinter_test\n");
+   platform_error_log("\tscan_benchmark\n");
    platform_error_log("\tlog_test\n");
    platform_error_log("\tcache_test\n");
    platform_error_log("\tio_apis_test\n");
@@ -42,6 +43,8 @@ test_dispatcher(int argc, char *argv[])
          return filter_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "splinter_test")) {
          return splinter_test(argc - 1, &argv[1]);
+      } else if (STRING_EQUALS_LITERAL(test_name, "scan_benchmark")) {
+         return scan_benchmark(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "log_test")) {
          return log_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "cache_test")) {

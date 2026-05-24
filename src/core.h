@@ -137,6 +137,7 @@ typedef struct core_range_iterator {
    comparison        local_max_key_comparison;
    bool32            local_max_key_truncated;
    btree_iterator    btree_itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+   bool32            btree_itor_initialized[CORE_RANGE_ITOR_MAX_BRANCHES];
    trunk_branch_info branch[CORE_RANGE_ITOR_MAX_BRANCHES];
 
    // used for merge iterator construction

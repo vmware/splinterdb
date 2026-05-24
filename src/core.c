@@ -793,57 +793,104 @@ core_lookup_from_memtable_generation_locked(core_handle   *spl,
    return STATUS_OK;
 }
 
-/*
- * Branch iterator wrapper functions
- */
+typedef struct core_btree_iterator_init_async_context {
+   btree_iterator_async_state state;
+   bool32                     ready;
+   bool32                     done;
+} core_btree_iterator_init_async_context;
 
 static void
-core_branch_iterator_init(core_handle    *spl,
-                          btree_iterator *itor,
-                          uint64          branch_addr,
-                          comparison      min_key_comparison,
-                          key             min_key,
-                          comparison      max_key_comparison,
-                          key             max_key,
-                          comparison      start_key_comparison,
-                          key             start_key,
-                          bool32          do_prefetch,
-                          bool32          should_inc_ref)
+core_btree_iterator_init_async_callback(void *arg)
 {
-   cache        *cc        = spl->cc;
-   btree_config *btree_cfg = spl->cfg.btree_cfg;
-   if (branch_addr != 0 && should_inc_ref) {
-      btree_inc_ref(cc, btree_cfg, branch_addr);
-   }
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       itor,
-                       branch_addr,
-                       PAGE_TYPE_BRANCH,
-                       min_key_comparison,
-                       min_key,
-                       max_key_comparison,
-                       max_key,
-                       start_key_comparison,
-                       start_key,
-                       do_prefetch,
-                       0);
+   core_btree_iterator_init_async_context *ctxt = arg;
+   ctxt->ready                                  = TRUE;
 }
 
-static void
-core_branch_iterator_deinit(core_handle    *spl,
-                            btree_iterator *itor,
-                            bool32          should_dec_ref)
+static platform_status
+core_start_btree_iterator_init_async(
+   core_handle                            *spl,
+   core_btree_iterator_init_async_context *ctxt,
+   btree_iterator                         *itor,
+   uint64                                  root_addr,
+   page_type                               page_type,
+   comparison                              min_key_comparison,
+   key                                     min_key,
+   comparison                              max_key_comparison,
+   key                                     max_key,
+   comparison                              start_key_comparison,
+   key                                     start_key,
+   bool32                                  do_prefetch)
 {
-   if (itor->root_addr == 0) {
-      return;
+   btree_iterator_async_state_init(&ctxt->state,
+                                   spl->cc,
+                                   spl->cfg.btree_cfg,
+                                   itor,
+                                   root_addr,
+                                   page_type,
+                                   min_key_comparison,
+                                   min_key,
+                                   max_key_comparison,
+                                   max_key,
+                                   start_key_comparison,
+                                   start_key,
+                                   do_prefetch,
+                                   0,
+                                   core_btree_iterator_init_async_callback,
+                                   ctxt);
+   ctxt->ready = FALSE;
+   ctxt->done  = FALSE;
+
+   if (btree_iterator_init_async(&ctxt->state) == ASYNC_STATUS_DONE) {
+      ctxt->done = TRUE;
+      return async_result(&ctxt->state);
    }
-   cache        *cc        = spl->cc;
-   btree_config *btree_cfg = spl->cfg.btree_cfg;
-   btree_iterator_deinit(itor);
-   if (should_dec_ref) {
-      btree_dec_ref(cc, btree_cfg, itor->root_addr, PAGE_TYPE_BRANCH);
+
+   return STATUS_OK;
+}
+
+static platform_status
+core_drain_btree_iterator_init_async(
+   cache                                  *cc,
+   core_btree_iterator_init_async_context *ctxt,
+   uint64                                  num_inits)
+{
+   platform_status result     = STATUS_OK;
+   uint64          done_count = 0;
+   for (uint64 i = 0; i < num_inits; i++) {
+      if (ctxt[i].done) {
+         done_count++;
+         platform_status rc = async_result(&ctxt[i].state);
+         if (!SUCCESS(rc) && SUCCESS(result)) {
+            result = rc;
+         }
+      }
    }
+
+   while (done_count < num_inits) {
+      bool32 made_progress = FALSE;
+      for (uint64 i = 0; i < num_inits; i++) {
+         if (ctxt[i].done || !ctxt[i].ready) {
+            continue;
+         }
+
+         ctxt[i].ready = FALSE;
+         made_progress = TRUE;
+         if (btree_iterator_init_async(&ctxt[i].state) == ASYNC_STATUS_DONE) {
+            ctxt[i].done = TRUE;
+            done_count++;
+            platform_status rc = async_result(&ctxt[i].state);
+            if (!SUCCESS(rc) && SUCCESS(result)) {
+               result = rc;
+            }
+         }
+      }
+
+      if (!made_progress) {
+         cache_cleanup(cc);
+      }
+   }
+
+   return result;
 }
 
 /*
@@ -918,6 +965,8 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->can_next           = TRUE;
    range_itor->min_key_comparison = min_key_comparison;
    range_itor->max_key_comparison = max_key_comparison;
+   ZERO_ARRAY(range_itor->compacted);
+   ZERO_ARRAY(range_itor->btree_itor_initialized);
 
    key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->max_key, PROCESS_PRIVATE_HEAP_ID);
@@ -963,9 +1012,6 @@ core_range_iterator_init(core_handle         *spl,
       core_range_iterator_deinit(range_itor);
       return rc;
    }
-
-
-   ZERO_ARRAY(range_itor->compacted);
 
    // grab the lookup lock
    memtable_begin_lookup(&spl->mt_ctxt);
@@ -1061,41 +1107,66 @@ core_range_iterator_init(core_handle         *spl,
       }
    }
 
+   core_btree_iterator_init_async_context *init_ctxt = NULL;
+   if (range_itor->num_branches != 0) {
+      init_ctxt = TYPED_ARRAY_ZALLOC(
+         PROCESS_PRIVATE_HEAP_ID, init_ctxt, range_itor->num_branches);
+   }
+   if (range_itor->num_branches != 0 && init_ctxt == NULL) {
+      core_range_iterator_deinit(range_itor);
+      return STATUS_NO_MEMORY;
+   }
+
+   uint64 started_inits = 0;
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
       uint64          branch_no   = range_itor->num_branches - i - 1;
       btree_iterator *btree_itor  = &range_itor->btree_itor[branch_no];
       uint64          branch_addr = range_itor->branch[branch_no].addr;
+      page_type       page_type   = range_itor->branch[branch_no].type;
+      bool32          do_prefetch = FALSE;
       if (range_itor->compacted[branch_no]) {
-         bool32 do_prefetch =
+         do_prefetch =
             range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN
                ? TRUE
                : FALSE;
-         core_branch_iterator_init(spl,
-                                   btree_itor,
-                                   branch_addr,
-                                   range_itor->local_min_key_comparison,
-                                   key_buffer_key(&range_itor->local_min_key),
-                                   range_itor->local_max_key_comparison,
-                                   key_buffer_key(&range_itor->local_max_key),
-                                   start_key_comparison,
-                                   start_key,
-                                   do_prefetch,
-                                   FALSE);
-      } else {
-         bool32 is_live = branch_no == 0;
-         core_memtable_iterator_init(spl,
-                                     btree_itor,
-                                     branch_addr,
-                                     range_itor->local_min_key_comparison,
-                                     key_buffer_key(&range_itor->local_min_key),
-                                     range_itor->local_max_key_comparison,
-                                     key_buffer_key(&range_itor->local_max_key),
-                                     start_key_comparison,
-                                     start_key,
-                                     is_live,
-                                     FALSE);
+      }
+      rc = core_start_btree_iterator_init_async(
+         spl,
+         &init_ctxt[i],
+         btree_itor,
+         branch_addr,
+         page_type,
+         range_itor->local_min_key_comparison,
+         key_buffer_key(&range_itor->local_min_key),
+         range_itor->local_max_key_comparison,
+         key_buffer_key(&range_itor->local_max_key),
+         start_key_comparison,
+         start_key,
+         do_prefetch);
+      started_inits++;
+      if (!SUCCESS(rc)) {
+         break;
       }
       range_itor->itor[i] = &btree_itor->super;
+   }
+
+   platform_status drain_rc =
+      core_drain_btree_iterator_init_async(spl->cc, init_ctxt, started_inits);
+   if (SUCCESS(rc)) {
+      rc = drain_rc;
+   }
+   for (uint64 i = 0; i < started_inits; i++) {
+      if (init_ctxt[i].done) {
+         uint64 branch_no = range_itor->num_branches - i - 1;
+         range_itor->btree_itor_initialized[branch_no] = TRUE;
+      }
+   }
+   if (init_ctxt != NULL) {
+      platform_free(PROCESS_PRIVATE_HEAP_ID, init_ctxt);
+   }
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+      return rc;
    }
 
    rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
@@ -1343,18 +1414,21 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
    core_handle *spl = range_itor->spl;
    if (range_itor->merge_itor != NULL) {
       merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &range_itor->merge_itor);
-      for (uint64 i = 0; i < range_itor->num_branches; i++) {
-         btree_iterator *btree_itor = &range_itor->btree_itor[i];
-         if (range_itor->compacted[i]) {
-            uint64 root_addr = btree_itor->root_addr;
-            core_branch_iterator_deinit(spl, btree_itor, FALSE);
-            btree_dec_ref(
-               spl->cc, spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
-         } else {
-            uint64 mt_gen = range_itor->memtable_start_gen - i;
-            core_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
-            core_memtable_dec_ref(spl, mt_gen);
-         }
+   }
+   for (uint64 i = 0; i < range_itor->num_branches; i++) {
+      btree_iterator *btree_itor = &range_itor->btree_itor[i];
+      if (range_itor->btree_itor_initialized[i]) {
+         btree_iterator_deinit(btree_itor);
+         range_itor->btree_itor_initialized[i] = FALSE;
+      }
+      if (range_itor->compacted[i]) {
+         btree_dec_ref(spl->cc,
+                       spl->cfg.btree_cfg,
+                       range_itor->branch[i].addr,
+                       PAGE_TYPE_BRANCH);
+      } else {
+         uint64 mt_gen = range_itor->memtable_start_gen - i;
+         core_memtable_dec_ref(spl, mt_gen);
       }
    }
    key_buffer_deinit(&range_itor->min_key);
