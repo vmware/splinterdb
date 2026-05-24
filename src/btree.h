@@ -286,6 +286,44 @@ btree_iterator_init(cache              *cc,
                     bool32              do_prefetch,
                     uint32              height);
 
+// clang-format off
+DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
+   param, cache *,                      cc,
+   param, const btree_config *,         cfg,
+   param, btree_iterator *,             itor,
+   param, uint64,                       root_addr,
+   param, page_type,                    type,
+   param, comparison,                   min_key_comparison,
+   param, key,                          min_key,
+   param, comparison,                   max_key_comparison,
+   param, key,                          max_key,
+   param, comparison,                   start_type,
+   param, key,                          start_key,
+   param, bool32,                       do_prefetch,
+   param, uint32,                       height,
+   param, async_callback_fn,            callback,
+   param, void *,                       callback_arg,
+   local, platform_status,              __async_result,
+   local, btree_lookup_async_state,     lookup_state,
+   local, page_get_async_state_buffer,  cache_get_state,
+   local, btree_node,                   end,
+   local, key,                          target,
+   local, comparison,                   position_rule,
+   local, bool32,                       found,
+   local, bool32,                       forward,
+   local, int64,                        tmp,
+   local, uint64,                       curr_addr,
+   local, uint64,                       last_addr,
+   local, uint64,                       next_addr,
+   local, uint64,                       prev_addr,
+   local, uint64,                       num_entries,
+   local, key,                          first_key,
+   local, key,                          last_key)
+// clang-format on
+
+async_status
+btree_iterator_init_async(btree_iterator_async_state *state);
+
 void
 btree_iterator_deinit(btree_iterator *itor);
 
