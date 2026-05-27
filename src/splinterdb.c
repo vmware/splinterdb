@@ -24,6 +24,7 @@
 #include "platform_typed_alloc.h"
 #include "platform_assert.h"
 #include "platform_units.h"
+#include "platform_threads.h"
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
@@ -71,6 +72,19 @@ static inline int
 platform_status_to_int(const platform_status status) // IN
 {
    return status.r;
+}
+
+static inline int
+splinterdb_ensure_thread_registered(void)
+{
+   return platform_status_to_int(platform_ensure_thread_registered());
+}
+
+static inline void
+splinterdb_assert_thread_registered(void)
+{
+   platform_status rc = platform_ensure_thread_registered();
+   platform_assert_status_ok(rc);
 }
 
 static void
@@ -254,6 +268,11 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    bool             we_created_heap  = FALSE;
    platform_heap_id use_this_heap_id = kvs_cfg->heap_id;
+
+   status = platform_ensure_thread_registered();
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
 
    // Allocate a shared segment if so requested. For now, we hard-code
    // the required size big enough to run most tests. Eventually this
@@ -447,6 +466,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
 {
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
+   splinterdb_assert_thread_registered();
 
    // Print stats if shared memory is enabled.
    if (kvs->heap_id) {
@@ -550,6 +570,11 @@ splinterdb_lookup(splinterdb               *kvs, // IN
    key             target  = key_create_from_slice(TRUE, user_key);
 
    platform_assert(kvs != NULL);
+   status = platform_ensure_thread_registered();
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+
    status = core_lookup(&kvs->spl, target, _result);
    return platform_status_to_int(status);
 }
@@ -575,6 +600,11 @@ splinterdb_insert_message(splinterdb    *kvs,       // IN
                           lookup_result *old_result // IN/OUT
 )
 {
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
    key tuple_key = key_create_from_slice(FALSE, user_key);
    platform_assert(kvs != NULL);
    platform_status status = core_insert(&kvs->spl, tuple_key, msg, old_result);
@@ -669,6 +699,11 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
       return platform_status_to_int(STATUS_BAD_PARAM);
    }
 
+   int auto_register_rc = splinterdb_ensure_thread_registered();
+   if (auto_register_rc != 0) {
+      return auto_register_rc;
+   }
+
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl.heap_id, it);
    if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
@@ -720,6 +755,8 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
 void
 splinterdb_iterator_deinit(splinterdb_iterator *iter)
 {
+   splinterdb_assert_thread_registered();
+
    core_range_iterator *range_itor = &(iter->sri);
    core_range_iterator_deinit(range_itor);
 
@@ -760,6 +797,11 @@ splinterdb_iterator_can_next(splinterdb_iterator *kvi)
 void
 splinterdb_iterator_next(splinterdb_iterator *kvi)
 {
+   kvi->last_rc = platform_ensure_thread_registered();
+   if (!SUCCESS(kvi->last_rc)) {
+      return;
+   }
+
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_next(itor);
 }
@@ -767,6 +809,11 @@ splinterdb_iterator_next(splinterdb_iterator *kvi)
 void
 splinterdb_iterator_prev(splinterdb_iterator *kvi)
 {
+   kvi->last_rc = platform_ensure_thread_registered();
+   if (!SUCCESS(kvi->last_rc)) {
+      return;
+   }
+
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_prev(itor);
 }
@@ -783,6 +830,8 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
                                 slice               *value   // OUT
 )
 {
+   splinterdb_assert_thread_registered();
+
    key       result_key;
    message   msg;
    iterator *itor = &(iter->sri.super);
@@ -795,18 +844,21 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs)
 {
+   splinterdb_assert_thread_registered();
    core_print_insertion_stats(Platform_default_log_handle, &kvs->spl);
 }
 
 void
 splinterdb_stats_print_lookup(splinterdb *kvs)
 {
+   splinterdb_assert_thread_registered();
    core_print_lookup_stats(Platform_default_log_handle, &kvs->spl);
 }
 
 void
 splinterdb_stats_reset(splinterdb *kvs)
 {
+   splinterdb_assert_thread_registered();
    core_reset_stats(&kvs->spl);
 }
 
@@ -826,6 +878,7 @@ splinterdb_close_print_stats(splinterdb *kvs)
 void
 splinterdb_cache_flush(splinterdb *kvs)
 {
+   splinterdb_assert_thread_registered();
    cache_flush(kvs->spl.cc);
 }
 

@@ -6,6 +6,7 @@
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_status.h"
 #include "platform_heap.h"
+#include "platform_util.h"
 #include <unistd.h>
 #include <pthread.h>
 
@@ -25,6 +26,21 @@ platform_get_tid()
 {
    extern __thread threadid xxxtid;
    return xxxtid;
+}
+
+platform_status
+platform_register_thread_auto(void);
+
+static inline platform_status
+platform_ensure_thread_registered()
+{
+   extern __thread threadid xxxtid;
+
+   if (LIKELY(xxxtid != INVALID_TID)) {
+      return STATUS_OK;
+   }
+
+   return platform_register_thread_auto();
 }
 
 /* This is not part of the platform API.  It is used internally to this platform

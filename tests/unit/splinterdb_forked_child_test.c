@@ -132,6 +132,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       ASSERT_EQUAL(1, platform_get_tid());
 
       // After deregistering w/Splinter, child process is back to invalid value
+      platform_deregister_thread();
       ASSERT_EQUAL(INVALID_TID, platform_get_tid());
    }
 
@@ -146,7 +147,6 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       splinterdb_close(&spl_handle);
    } else {
       // Child should not attempt to run the rest of the tests
-      platform_deregister_thread();
       exit(0);
    }
 }

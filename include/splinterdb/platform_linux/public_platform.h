@@ -82,10 +82,9 @@ platform_set_log_streams(platform_log_handle *info_stream,
 
 // Register the current thread so that it can be used with splinterdb.
 //
-// Any thread that uses a splinterdb must first be registered with it.
-//
-// The only exception is the initial thread which called create or open,
-// as that thread is implicitly registered.  Re-registering it is an error.
+// SplinterDB public APIs register threads automatically on first use, so most
+// callers do not need this function. It remains available for lower-level tests
+// and callers that want to reserve a thread ID before using lower-level APIs.
 //
 // A thread should not be registered more than once; that is an error.
 //
@@ -97,7 +96,8 @@ platform_register_thread(void);
 
 // Deregister the current thread.
 //
-// Call this function before exiting a registered thread.
+// Registered threads are deregistered automatically when they exit. This
+// function remains available for callers that want to release a thread ID early.
 void
 platform_deregister_thread(void);
 

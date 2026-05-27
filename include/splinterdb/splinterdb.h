@@ -9,9 +9,8 @@
  *     A data_config must be provided at the time of create/open.
  *     See default_data_config.h for a basic reference implementation.
  *
- * Each thread must call splinterdb_register_thread() before making any calls to
- * SplinterDB. Each thread must call splinterdb_deregister_thread() before
- * exiting.
+ * Threads are registered with SplinterDB automatically on first use and are
+ * deregistered automatically when they exit.
  */
 
 #pragma once
