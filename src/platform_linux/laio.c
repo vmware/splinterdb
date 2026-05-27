@@ -53,9 +53,9 @@ laio_reset_stats(io_handle *ioh)
    laio_handle *io = (laio_handle *)ioh;
 
    for (uint64 i = 0; i < MAX_THREADS; i++) {
-      io_process_context *pctx = &io->ctx[i];
-      pctx->io_submit_count     = 0;
-      pctx->io_submit_eagain    = 0;
+      io_process_context *pctx    = &io->ctx[i];
+      pctx->io_submit_count       = 0;
+      pctx->io_submit_eagain      = 0;
       pctx->max_observed_io_count = pctx->io_count;
       memset(pctx->io_submit_hist, 0, sizeof(pctx->io_submit_hist));
    }
@@ -64,10 +64,10 @@ laio_reset_stats(io_handle *ioh)
 static void
 laio_print_stats(io_handle *ioh, platform_log_handle *log_handle)
 {
-   laio_handle *io = (laio_handle *)ioh;
-   uint64       total_submit_count = 0;
-   uint64       total_submit_eagain = 0;
-   uint64       max_observed_depth = 0;
+   laio_handle *io                         = (laio_handle *)ioh;
+   uint64       total_submit_count         = 0;
+   uint64       total_submit_eagain        = 0;
+   uint64       max_observed_depth         = 0;
    uint64       hist[LAIO_QD_HIST_BUCKETS] = {0};
 
    for (uint64 i = 0; i < MAX_THREADS; i++) {
@@ -81,8 +81,9 @@ laio_print_stats(io_handle *ioh, platform_log_handle *log_handle)
    }
 
    platform_log(log_handle, "LAIO Queue Depth Histogram\n");
-   platform_log(log_handle,
-                "------------------------------------------------------------\n");
+   platform_log(
+      log_handle,
+      "------------------------------------------------------------\n");
    platform_log(log_handle, "successful submits: %lu\n", total_submit_count);
    platform_log(log_handle, "EAGAIN retries:     %lu\n", total_submit_eagain);
    platform_log(log_handle, "max observed depth: %lu\n", max_observed_depth);
@@ -100,8 +101,9 @@ laio_print_stats(io_handle *ioh, platform_log_handle *log_handle)
          platform_log(log_handle, "  %-5lu: %lu\n", bucket, hist[bucket]);
       }
    }
-   platform_log(log_handle,
-                "------------------------------------------------------------\n");
+   platform_log(
+      log_handle,
+      "------------------------------------------------------------\n");
 }
 
 /*
@@ -219,9 +221,8 @@ laio_get_thread_context(laio_handle *io)
       io->ctx[pid].io_submit_count       = 0;
       io->ctx[pid].io_submit_eagain      = 0;
       io->ctx[pid].max_observed_io_count = 0;
-      memset(io->ctx[pid].io_submit_hist,
-             0,
-             sizeof(io->ctx[pid].io_submit_hist));
+      memset(
+         io->ctx[pid].io_submit_hist, 0, sizeof(io->ctx[pid].io_submit_hist));
       int status = io_setup(io->cfg->kernel_queue_size, &io->ctx[pid].ctx);
       if (status != 0) {
          platform_error_log(
