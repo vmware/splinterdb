@@ -380,13 +380,15 @@ laio_async_run(io_async_state *gios)
          async_wait_queue_lock(queue);
       }
 
-      submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
+      io_process_context *pctx = ios->pctx;
+
+      submit_status = io_submit(pctx->ctx, 1, ios->reqs);
 
       if (submit_status == 1) {
          // Successfully submitted, which means that our state was stored on the
          // kernel's wait queue for this io, which means we have "given away"
          // our state and therefore must not touch it again before returning.
-         laio_record_submit_depth(ios->pctx, ios->pctx->io_count);
+         laio_record_submit_depth(pctx, pctx->io_count);
          if (queue != NULL) {
             async_wait_queue_unlock(queue);
          }
