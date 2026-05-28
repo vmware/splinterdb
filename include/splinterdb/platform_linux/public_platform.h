@@ -97,7 +97,8 @@ platform_register_thread(void);
 // Deregister the current thread.
 //
 // Registered threads are deregistered automatically when they exit. This
-// function remains available for callers that want to release a thread ID early.
+// function remains available for callers that want to release a thread ID
+// early.
 void
 platform_deregister_thread(void);
 

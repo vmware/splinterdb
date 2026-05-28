@@ -82,9 +82,8 @@ thread_registration_destructor(void *arg)
 static void
 thread_registration_key_init(void)
 {
-   int ret =
-      pthread_key_create(&thread_registration_key,
-                         thread_registration_destructor);
+   int ret = pthread_key_create(&thread_registration_key,
+                                thread_registration_destructor);
    platform_assert(ret == 0);
 
    ret = pthread_atfork(NULL, NULL, thread_registration_after_fork_child);
@@ -96,8 +95,8 @@ thread_registration_cleanup_set(void *value)
 {
    int ret;
 
-   ret = pthread_once(&thread_registration_key_once,
-                      thread_registration_key_init);
+   ret =
+      pthread_once(&thread_registration_key_once, thread_registration_key_init);
    if (ret != 0) {
       return CONST_STATUS(ret);
    }

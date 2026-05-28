@@ -1640,10 +1640,9 @@ assert_lookup_result_matches_slice(const splinterdb_lookup_result *result,
 static void *
 auto_registered_lookup_thread(void *arg)
 {
-   auto_registration_thread_args *args =
-      (auto_registration_thread_args *)arg;
-   char  key_data[] = "thread-key";
-   slice user_key   = slice_create(sizeof(key_data), key_data);
+   auto_registration_thread_args *args = (auto_registration_thread_args *)arg;
+   char                           key_data[] = "thread-key";
+   slice user_key = slice_create(sizeof(key_data), key_data);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
