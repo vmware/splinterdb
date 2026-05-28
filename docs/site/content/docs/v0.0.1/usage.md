@@ -54,17 +54,12 @@ looks out-of-date, please open an issue or pull request.
   - The initial thread should be the one to call `splinterdb_close()` when
     the `splinterdb` instance is no longer needed.
 
-  - Threads (other than the initial thread) that will use the `splinterdb`
-    must be registered before use and unregistered before exiting:
+  - Threads are registered automatically the first time they call a SplinterDB
+    public API, and are deregistered automatically when they exit. Internally,
+    SplinterDB allocates per-thread scratch space at registration time.
 
-    - From a non-initial thread, call `splinterdb_register_thread()`.
-      Internally, SplinterDB will allocate scratch space for use by that thread.
-
-    - To avoid leaking memory, a non-initial thread should call
-      `splinterdb_deregister_thread()` before it exits.
-
-  - Known issue: In a pinch, non-initial, registered threads may call
-    `splinterdb_close()`, but their scratch memory would be leaked.
+  - The low-level thread registration APIs remain available for tests and
+    callers that want to reserve or release a thread ID explicitly.
 
   - Note these rules apply to system threads, not [runtime-managed threading](https://en.wikipedia.org/wiki/Green_threads)
     available in higher-level languages.

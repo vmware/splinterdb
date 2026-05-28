@@ -13,6 +13,10 @@ __thread threadid xxxtid = INVALID_TID;
 threadid xxxpid;
 pid_t    ospid;
 
+static pthread_key_t  thread_registration_key;
+static pthread_once_t thread_registration_key_once = PTHREAD_ONCE_INIT;
+static char           thread_registration_key_value;
+
 
 /****************************************
  * Thread ID allocation and management  *
@@ -52,6 +56,67 @@ typedef struct id_allocator {
 // This will be allocated in shared memory so that it is shared by all
 // processes.
 static id_allocator *id_alloc = NULL;
+
+static void
+thread_registration_after_fork_child(void)
+{
+   /*
+    * The child inherits TLS values, but the parent's thread ID still belongs to
+    * the parent in the shared allocator. Force the child through registration.
+    */
+   xxxtid = INVALID_TID;
+   xxxpid = INVALID_TID;
+   ospid  = 0;
+}
+
+static void
+thread_registration_destructor(void *arg)
+{
+   (void)arg;
+
+   if (xxxtid != INVALID_TID) {
+      platform_deregister_thread();
+   }
+}
+
+static void
+thread_registration_key_init(void)
+{
+   int ret = pthread_key_create(&thread_registration_key,
+                                thread_registration_destructor);
+   platform_assert(ret == 0);
+
+   ret = pthread_atfork(NULL, NULL, thread_registration_after_fork_child);
+   platform_assert(ret == 0);
+}
+
+static platform_status
+thread_registration_cleanup_set(void *value)
+{
+   int ret;
+
+   ret =
+      pthread_once(&thread_registration_key_once, thread_registration_key_init);
+   if (ret != 0) {
+      return CONST_STATUS(ret);
+   }
+
+   ret = pthread_setspecific(thread_registration_key, value);
+   return CONST_STATUS(ret);
+}
+
+static platform_status
+thread_registration_cleanup_arm(void)
+{
+   return thread_registration_cleanup_set(&thread_registration_key_value);
+}
+
+static void
+thread_registration_cleanup_disarm(void)
+{
+   platform_status rc = thread_registration_cleanup_set(NULL);
+   platform_assert_status_ok(rc);
+}
 
 /*
  * task_init_tid_bitmask() - Initialize the global bitmask of active threads
@@ -304,6 +369,7 @@ platform_deregister_thread()
    platform_assert(tid != INVALID_TID,
                    "Error! Attempt to deregister unregistered thread.\n");
 
+   thread_registration_cleanup_disarm();
    deallocate_threadid(tid);
    decref_xxxpid();
 }
@@ -311,6 +377,8 @@ platform_deregister_thread()
 static void
 thread_registration_cleanup_function(void *arg)
 {
+   (void)arg;
+
    if (xxxtid == INVALID_TID) {
       platform_error_log("Thread registration cleanup function called for "
                          "unregistered thread %lu",
@@ -320,6 +388,38 @@ thread_registration_cleanup_function(void *arg)
    }
 }
 
+static platform_status
+register_thread_common(void)
+{
+   platform_status status;
+   threadid        thread_tid;
+
+   id_allocator_init_if_needed();
+
+   status = ensure_xxxpid_is_setup();
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   thread_tid = allocate_threadid();
+   // Unavailable threads is a temporary state that could go away.
+   if (thread_tid == INVALID_TID) {
+      decref_xxxpid();
+      return STATUS_BUSY;
+   }
+
+   platform_assert(thread_tid < MAX_THREADS);
+   xxxtid = thread_tid;
+
+   status = thread_registration_cleanup_arm();
+   if (!SUCCESS(status)) {
+      deallocate_threadid(thread_tid);
+      decref_xxxpid();
+      return status;
+   }
+
+   return STATUS_OK;
+}
 
 /*
  * platform_register_thread(): Register this new thread.
@@ -330,13 +430,6 @@ thread_registration_cleanup_function(void *arg)
 int
 platform_register_thread(void)
 {
-   id_allocator_init_if_needed();
-
-   platform_status status = ensure_xxxpid_is_setup();
-   if (!SUCCESS(status)) {
-      return -1;
-   }
-
    threadid thread_tid = xxxtid;
 
    // Before registration, all SplinterDB threads' tid will be its default
@@ -346,17 +439,17 @@ platform_register_thread(void)
                    "registered as thread %lu\n",
                    thread_tid);
 
-   thread_tid = allocate_threadid();
-   // Unavailable threads is a temporary state that could go away.
-   if (thread_tid == INVALID_TID) {
-      decref_xxxpid();
-      return -1;
+   return SUCCESS(register_thread_common()) ? 0 : -1;
+}
+
+platform_status
+platform_register_thread_auto(void)
+{
+   if (xxxtid != INVALID_TID) {
+      return STATUS_OK;
    }
 
-   platform_assert(thread_tid < MAX_THREADS);
-   xxxtid = thread_tid;
-
-   return 0;
+   return register_thread_common();
 }
 
 
@@ -371,6 +464,8 @@ thread_worker_function(void *arg)
    thread_invocation *thread_inv = (thread_invocation *)arg;
    threadid           tid        = thread_inv - id_alloc->thread_invocations;
    xxxtid                        = tid;
+   platform_status rc            = thread_registration_cleanup_arm();
+   platform_assert_status_ok(rc);
    thread_inv->worker(thread_inv->arg);
    pthread_cleanup_pop(1);
    return NULL;
@@ -398,6 +493,7 @@ platform_thread_create(platform_thread       *thread,
    // so that we can report an error if the threadid allocation fails.
    threadid tid = allocate_threadid();
    if (tid == INVALID_TID) {
+      decref_xxxpid();
       return STATUS_BUSY;
    }
    thread_invocation *thread_inv = &id_alloc->thread_invocations[tid];

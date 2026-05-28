@@ -27,6 +27,7 @@
 #include <stdlib.h> // Needed for system calls; e.g. free
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "platform_threads.h"
 #include "splinterdb/splinterdb.h"
@@ -119,10 +120,20 @@ static void
 assert_lookup_result_matches_slice(const splinterdb_lookup_result *result,
                                    slice                           expected);
 
+static void *
+auto_registered_lookup_thread(void *arg);
+
 typedef struct {
    data_config super;
    uint64      num_comparisons;
 } comparison_counting_data_config;
+
+typedef struct {
+   splinterdb *kvsb;
+   int         rc;
+   threadid    tid_before;
+   threadid    tid_after;
+} auto_registration_thread_args;
 
 /*
  * Global data declaration macro:
@@ -149,14 +160,12 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   int rc = platform_register_thread();
-   ASSERT_EQUAL(0, rc);
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
    data->cfg.use_shmem =
       config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
-   rc = splinterdb_create(&data->cfg, &data->kvsb);
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(TEST_MAX_VALUE_SIZE
                < MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE));
@@ -236,6 +245,22 @@ CTEST2(splinterdb_quick, test_basic_flow)
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    splinterdb_lookup_result_deinit(&result);
+}
+
+CTEST2(splinterdb_quick, test_pthread_auto_registration)
+{
+   pthread_t                     thread;
+   auto_registration_thread_args args = {.kvsb = data->kvsb};
+
+   int rc = pthread_create(&thread, NULL, auto_registered_lookup_thread, &args);
+   ASSERT_EQUAL(0, rc);
+
+   rc = pthread_join(thread, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   ASSERT_EQUAL(0, args.rc);
+   ASSERT_EQUAL(INVALID_TID, args.tid_before);
+   ASSERT_TRUE(args.tid_after < MAX_THREADS);
 }
 
 /*
@@ -1610,6 +1635,25 @@ assert_lookup_result_matches_slice(const splinterdb_lookup_result *result,
    ASSERT_EQUAL(0, splinterdb_lookup_result_value(result, &value));
    ASSERT_EQUAL(slice_length(expected), slice_length(value));
    ASSERT_EQUAL(0, slice_lex_cmp(value, expected));
+}
+
+static void *
+auto_registered_lookup_thread(void *arg)
+{
+   auto_registration_thread_args *args = (auto_registration_thread_args *)arg;
+   char                           key_data[] = "thread-key";
+   slice user_key = slice_create(sizeof(key_data), key_data);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      args->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   args->tid_before = platform_get_tid();
+   args->rc         = splinterdb_lookup(args->kvsb, user_key, &result);
+   args->tid_after  = platform_get_tid();
+
+   splinterdb_lookup_result_deinit(&result);
+   return NULL;
 }
 
 /*
