@@ -7,6 +7,10 @@
 
 #define MIN_LIVE_PERCENTAGE (90ULL)
 
+/* If the data is large enough (or close enough to a whole number of
+ * rounded_size pieces), then we just put it entirely into
+ * rounded_size pieces, since this won't waste too much space.
+ */
 bool
 can_round_up(uint64 rounded_size, uint64 length)
 {
@@ -156,6 +160,21 @@ blob_page_iterator_init(cache                  *cc,
 
    return STATUS_OK;
 }
+
+/*
+ * This function must be kept in sync with the code that decides
+ * whether to call cache_alloc in blob_build.c.
+ *
+ * The current policy is: The blob_build thread that gets the first
+ * byte of any page is reponsible for calling cache_alloc on that
+ * page.  If the thread gets only part of the page, then it calls
+ * cache_alloc before calling mini_alloc_bytes_finish
+ * (i.e. immediately after getting the page from the mini_allocator).
+ *
+ * Thus we need to call cache_alloc now only if we got the entire
+ * page.  Any partial page that we got will have already been
+ * cache_alloced by us (in blob_build) or by some other thread.
+ */
 
 static bool
 should_alloc(blob_page_iterator *iter)
