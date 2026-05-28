@@ -231,10 +231,10 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 {
    debug_assert(key_is_user_key(tuple_key));
 
-   shard_log             *log = (shard_log *)logh;
-   cache                 *cc  = log->cc;
-   merge_accumulator      log_blob;
-   bool32                 log_blob_inited = FALSE;
+   shard_log        *log = (shard_log *)logh;
+   cache            *cc  = log->cc;
+   merge_accumulator log_blob;
+   bool32            log_blob_inited = FALSE;
 
    uint64 max_entry_size =
       shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
@@ -244,8 +244,8 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
       merge_accumulator_init(&log_blob, platform_get_heap_id());
       platform_status rc;
       if (message_isblob(msg)) {
-         rc = message_clone(
-            &log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
+         rc =
+            message_clone(&log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
       } else {
          rc = message_to_blob(
             &log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
@@ -254,7 +254,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
          merge_accumulator_deinit(&log_blob);
          return rc.r;
       }
-      msg              = merge_accumulator_to_message(&log_blob);
+      msg             = merge_accumulator_to_message(&log_blob);
       log_blob_inited = TRUE;
    }
 
@@ -491,7 +491,7 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *curr_key                = log_entry_key(itor->entries[itor->pos]);
-   *msg                     = log_entry_message(itor->cc, itor->entries[itor->pos]);
+   *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
 }
 
 bool32
@@ -533,10 +533,10 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->data_cfg  = data_cfg;
    log_cfg->seed      = HASH_SEED;
    log_cfg->blob_cfg  = (blob_build_config){
-      .extent_batch  = 1,
-      .page_batch    = 2,
-      .subpage_batch = 3,
-      .alignment     = cache_config_page_size(cache_cfg),
+       .extent_batch  = 1,
+       .page_batch    = 2,
+       .subpage_batch = 3,
+       .alignment     = cache_config_page_size(cache_cfg),
    };
 }
 
@@ -563,11 +563,12 @@ shard_log_print(shard_log *log)
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
-               platform_default_log("%s -- %s%s : %lu\n",
-                                    key_string(dcfg, log_entry_key(le)),
-                                    log_entry_message_isblob(le) ? "(blob) " : "",
-                                    message_string(dcfg, log_entry_message(cc, le)),
-                                    le->generation);
+               platform_default_log(
+                  "%s -- %s%s : %lu\n",
+                  key_string(dcfg, log_entry_key(le)),
+                  log_entry_message_isblob(le) ? "(blob) " : "",
+                  message_string(dcfg, log_entry_message(cc, le)),
+                  le->generation);
             }
          }
          cache_unget(cc, page);

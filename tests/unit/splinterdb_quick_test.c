@@ -342,7 +342,7 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
    size_t too_large_value_len = 3 * IO_DEFAULT_PAGE_SIZE + 123;
-   char *too_large_value_data;
+   char  *too_large_value_data;
    too_large_value_data = TYPED_ARRAY_MALLOC(
       data->cfg.heap_id, too_large_value_data, too_large_value_len);
    memset(too_large_value_data, 'z', too_large_value_len);
@@ -357,7 +357,8 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
    splinterdb_lookup_result_init(
       data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
-   rc = splinterdb_lookup(data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
+   rc = splinterdb_lookup(
+      data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
@@ -375,7 +376,8 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 
    splinterdb_lookup_result_init(
       data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-   rc = splinterdb_lookup(data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
+   rc = splinterdb_lookup(
+      data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 

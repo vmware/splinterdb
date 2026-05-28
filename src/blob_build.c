@@ -114,8 +114,8 @@ build_blob_table(const blob_build_config *cfg,
       remainder   = data_len - num_extents * extent_size;
    }
 
-   platform_status rc =
-      writable_buffer_resize(result, sizeof(blob) + num_extents * sizeof(uint64));
+   platform_status rc = writable_buffer_resize(
+      result, sizeof(blob) + num_extents * sizeof(uint64));
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -269,7 +269,8 @@ blob_clone(const blob_build_config *cfg,
          }
 
          platform_assert(src_offset == dst_offset);
-         uint64 amount_to_copy = MIN(slice_length(src_data), slice_length(dst_data));
+         uint64 amount_to_copy =
+            MIN(slice_length(src_data), slice_length(dst_data));
          memcpy(dst_iter.page->data + dst_iter.fragment.offset,
                 slice_data(src_data),
                 amount_to_copy);

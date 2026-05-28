@@ -17,8 +17,8 @@ typedef struct parsed_blob_entry {
 } parsed_blob_entry;
 
 typedef struct parsed_blob {
-   const blob *base;
-   uint64      num_extents;
+   const blob       *base;
+   uint64            num_extents;
    parsed_blob_entry leftovers[3];
 } parsed_blob;
 
@@ -50,7 +50,10 @@ bool
 can_round_up(uint64 rounded_size, uint64 length);
 
 void
-parse_blob(uint64 extent_size, uint64 page_size, const blob *blobby, parsed_blob *pblobby);
+parse_blob(uint64       extent_size,
+           uint64       page_size,
+           const blob  *blobby,
+           parsed_blob *pblobby);
 
 uint64
 blob_length(slice sblob);
@@ -80,7 +83,11 @@ void
 blob_page_iterator_advance_page(blob_page_iterator *iter);
 
 platform_status
-blob_materialize(cache *cc, slice sblob, uint64 start, uint64 end, writable_buffer *result);
+blob_materialize(cache           *cc,
+                 slice            sblob,
+                 uint64           start,
+                 uint64           end,
+                 writable_buffer *result);
 
 static inline platform_status
 blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)

@@ -50,8 +50,8 @@ typedef enum message_type {
 typedef struct message {
    message_type type;
    // Internal: non-NULL means data is a blob descriptor.
-   void        *cc;
-   slice        data;
+   void *cc;
+   slice data;
 } message;
 
 static inline message_type

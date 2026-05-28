@@ -172,9 +172,8 @@ leaf_entry_message_size(const leaf_entry *entry)
    if (!ondisk_tuple_message_isblob(entry)) {
       return entry->message_length;
    }
-   slice sblob =
-      slice_create(entry->message_length,
-                   entry->key_and_message + entry->key_length);
+   slice sblob = slice_create(entry->message_length,
+                              entry->key_and_message + entry->key_length);
    return blob_length(sblob);
 }
 
@@ -412,10 +411,9 @@ btree_copy_leaf_entry(const btree_config *cfg,
                       table_index         k,
                       const leaf_entry   *entry)
 {
-   key entry_key = ondisk_tuple_key(entry);
-   message entry_msg =
-      ondisk_tuple_message(ondisk_tuple_message_isblob(entry) ? (cache *)1 : NULL,
-                           entry);
+   key     entry_key = ondisk_tuple_key(entry);
+   message entry_msg = ondisk_tuple_message(
+      ondisk_tuple_message_isblob(entry) ? (cache *)1 : NULL, entry);
    return btree_set_leaf_entry(cfg, hdr, k, entry_key, entry_msg);
 }
 
@@ -652,8 +650,8 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
       message     oldmessage = leaf_entry_message(cc, entry);
       bool32      success;
       spec->use_msg = FALSE;
-      success = merge_accumulator_init_from_message(
-         &spec->msg.ma, heap_id, msg);
+      success =
+         merge_accumulator_init_from_message(&spec->msg.ma, heap_id, msg);
       if (!success) {
          return STATUS_NO_MEMORY;
       }
@@ -688,11 +686,8 @@ btree_can_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         const leaf_incorporate_spec *spec)
 {
    if (spec->old_entry_state == ENTRY_DID_NOT_EXIST) {
-      return btree_can_set_leaf_entry(cfg,
-                                      hdr,
-                                      btree_num_entries(hdr),
-                                      spec->tuple_key,
-                                      spec_message(spec));
+      return btree_can_set_leaf_entry(
+         cfg, hdr, btree_num_entries(hdr), spec->tuple_key, spec_message(spec));
    } else if (spec->old_entry_state == ENTRY_STILL_EXISTS) {
       return btree_can_set_leaf_entry(
          cfg, hdr, spec->idx, spec->tuple_key, spec_message(spec));
@@ -709,7 +704,7 @@ btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         const leaf_incorporate_spec *spec,
                                         uint64                      *generation)
 {
-   bool32 success;
+   bool32  success;
    message msg = spec_message(spec);
    switch (spec->old_entry_state) {
       case ENTRY_DID_NOT_EXIST:
@@ -1232,13 +1227,13 @@ btree_root_to_meta_addr(const btree_config *cfg,
 #define BTREE_NUM_MINI_BATCHES (NUM_BLOB_BATCHES + BTREE_MAX_HEIGHT)
 
 static const page_type memtable_page_type_table[BTREE_NUM_MINI_BATCHES] = {
-   [0 ... NUM_BLOB_BATCHES - 1] = PAGE_TYPE_BLOB,
-   [NUM_BLOB_BATCHES ... BTREE_NUM_MINI_BATCHES - 1] = PAGE_TYPE_MEMTABLE,
+   [0 ... NUM_BLOB_BATCHES - 1]                     = PAGE_TYPE_BLOB,
+   [NUM_BLOB_BATCHES... BTREE_NUM_MINI_BATCHES - 1] = PAGE_TYPE_MEMTABLE,
 };
 
 static const page_type branch_page_type_table[BTREE_NUM_MINI_BATCHES] = {
-   [0 ... NUM_BLOB_BATCHES - 1] = PAGE_TYPE_BLOB,
-   [NUM_BLOB_BATCHES ... BTREE_NUM_MINI_BATCHES - 1] = PAGE_TYPE_BRANCH,
+   [0 ... NUM_BLOB_BATCHES - 1]                     = PAGE_TYPE_BLOB,
+   [NUM_BLOB_BATCHES... BTREE_NUM_MINI_BATCHES - 1] = PAGE_TYPE_BRANCH,
 };
 
 uint64
@@ -1833,7 +1828,8 @@ start_over:
       }
       btree_node_lock(cc, cfg, &root_node);
       if (btree_can_perform_leaf_incorporate_spec(cfg, root_node.hdr, &spec)) {
-         rc = btree_record_old_result(cfg, cc, root_node.hdr, &spec, old_result);
+         rc =
+            btree_record_old_result(cfg, cc, root_node.hdr, &spec, old_result);
          if (!SUCCESS(rc)) {
             btree_node_full_unlock(cc, cfg, &root_node);
             destroy_leaf_incorporate_spec(&spec);
@@ -2492,8 +2488,8 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
    cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
    if (itor->curr.hdr->height == 0) {
       *curr_key = btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
-      *data =
-         btree_get_tuple_message(itor->cfg, itor->cc, itor->curr.hdr, itor->idx);
+      *data     = btree_get_tuple_message(
+         itor->cfg, itor->cc, itor->curr.hdr, itor->idx);
       log_trace_key(*curr_key, "btree_iterator_get_curr");
    } else {
       index_entry *entry =
@@ -4213,8 +4209,12 @@ btree_verify_node(cache        *cc,
                platform_error_log("child tuple larger than parent bound\n");
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
-               btree_print_locked_node(
-                  Platform_error_log_handle, cfg, cc, node.addr, node.hdr, type);
+               btree_print_locked_node(Platform_error_log_handle,
+                                       cfg,
+                                       cc,
+                                       node.addr,
+                                       node.hdr,
+                                       type);
                btree_print_locked_node(Platform_error_log_handle,
                                        cfg,
                                        cc,
@@ -4239,8 +4239,12 @@ btree_verify_node(cache        *cc,
                platform_error_log("child pivot larger than parent bound\n");
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
-               btree_print_locked_node(
-                  Platform_error_log_handle, cfg, cc, node.addr, node.hdr, type);
+               btree_print_locked_node(Platform_error_log_handle,
+                                       cfg,
+                                       cc,
+                                       node.addr,
+                                       node.hdr,
+                                       type);
                btree_print_locked_node(Platform_error_log_handle,
                                        cfg,
                                        cc,

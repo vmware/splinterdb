@@ -583,9 +583,8 @@ merge_accumulator_isblob(const merge_accumulator *ma)
 static inline message
 merge_accumulator_to_message(const merge_accumulator *ma)
 {
-   return message_create_blob(ma->type,
-                              ma->cc,
-                              writable_buffer_to_slice(&ma->data));
+   return message_create_blob(
+      ma->type, ma->cc, writable_buffer_to_slice(&ma->data));
 }
 
 static inline slice
@@ -641,9 +640,8 @@ merge_accumulator_ensure_materialized(merge_accumulator *ma)
 
    writable_buffer materialized;
    writable_buffer_init(&materialized, ma->data.heap_id);
-   platform_status rc = blob_materialize_full(ma->cc,
-                                              writable_buffer_to_slice(&ma->data),
-                                              &materialized);
+   platform_status rc = blob_materialize_full(
+      ma->cc, writable_buffer_to_slice(&ma->data), &materialized);
    if (!SUCCESS(rc)) {
       writable_buffer_deinit(&materialized);
       return rc;

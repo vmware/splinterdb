@@ -20,13 +20,16 @@ can_round_up(uint64 rounded_size, uint64 length)
 }
 
 void
-parse_blob(uint64 extent_size, uint64 page_size, const blob *blobby, parsed_blob *pblobby)
+parse_blob(uint64       extent_size,
+           uint64       page_size,
+           const blob  *blobby,
+           parsed_blob *pblobby)
 {
    pblobby->base    = blobby;
    uint64 remainder = blobby->length;
 
    if (can_round_up(extent_size, remainder)) {
-      pblobby->num_extents       = (remainder + extent_size - 1) / extent_size;
+      pblobby->num_extents = (remainder + extent_size - 1) / extent_size;
       pblobby->leftovers[0].length = 0;
       return;
    }
@@ -75,7 +78,7 @@ fragment_for_offset(uint64             extent_size,
                     uint64             offset,
                     page_fragment     *fragment)
 {
-   uint64 byte_addr = 0;
+   uint64 byte_addr       = 0;
    uint64 entry_remainder = 0;
    debug_assert(offset < pblobby->base->length);
 
@@ -189,17 +192,19 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
 {
    if (iter->page == NULL) {
       if (should_alloc(iter)) {
-         iter->page = cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
+         iter->page =
+            cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
       } else {
-         iter->page = cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+         iter->page =
+            cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
          if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
             uint64 wait = 1;
             while (!cache_try_claim(iter->cc, iter->page)) {
                cache_unget(iter->cc, iter->page);
                platform_sleep_ns(wait);
                wait       = MIN(2 * wait, 2048);
-               iter->page =
-                  cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+               iter->page = cache_get(
+                  iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
             }
             cache_lock(iter->cc, iter->page);
             cache_mark_dirty(iter->cc, iter->page);
@@ -242,7 +247,11 @@ blob_page_iterator_advance_page(blob_page_iterator *iter)
 }
 
 platform_status
-blob_materialize(cache *cc, slice sblobby, uint64 start, uint64 end, writable_buffer *result)
+blob_materialize(cache           *cc,
+                 slice            sblobby,
+                 uint64           start,
+                 uint64           end,
+                 writable_buffer *result)
 {
    const blob *blobby = slice_data(sblobby);
 

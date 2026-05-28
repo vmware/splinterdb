@@ -156,7 +156,9 @@ mini_full_unlock_meta_page(mini_allocator *mini, page_handle *meta_page)
  * update our bookkeeping.
  */
 static platform_status
-mini_allocator_get_new_extent(mini_allocator *mini, page_type type, uint64 *addr)
+mini_allocator_get_new_extent(mini_allocator *mini,
+                              page_type       type,
+                              uint64         *addr)
 {
    platform_status rc = allocator_alloc(mini->al, addr, type);
    if (SUCCESS(rc)) {
@@ -404,8 +406,8 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
       mini_full_unlock_meta_page(mini, last_meta_page);
       mini_init_meta_page(mini, meta_page);
 
-      success =
-         mini_append_entry_to_page(mini, meta_page, next_addr, mini->types[batch]);
+      success = mini_append_entry_to_page(
+         mini, meta_page, next_addr, mini->types[batch]);
 
       if (mini->pinned) {
          cache_pin(mini->cc, meta_page);
@@ -443,7 +445,7 @@ mini_alloc(mini_allocator *mini, uint64 batch, uint64 *next_extent)
       // need to allocate the next extent
 
       uint64          extent_addr = mini->next_extent[batch];
-      platform_status rc = mini_allocator_get_new_extent(
+      platform_status rc          = mini_allocator_get_new_extent(
          mini, mini->types[batch], &mini->next_extent[batch]);
       platform_assert_status_ok(rc);
       next_addr = extent_addr;
@@ -543,7 +545,7 @@ mini_alloc_page(mini_allocator *mini, uint64 batch, uint64 *next_extent)
 {
    uint64          addrs[2]  = {0, 0};
    uint64          page_size = cache_page_size(mini->cc);
-   platform_status rc       = mini_alloc_bytes(
+   platform_status rc        = mini_alloc_bytes(
       mini, batch, page_size, page_size, 0, addrs, next_extent);
    if (!SUCCESS(rc)) {
       return 0;
@@ -558,7 +560,7 @@ mini_alloc_extent(mini_allocator *mini, uint64 batch, uint64 *next_extent)
 {
    uint64          addrs[2]    = {0, 0};
    uint64          extent_size = cache_extent_size(mini->cc);
-   platform_status rc         = mini_alloc_bytes(
+   platform_status rc          = mini_alloc_bytes(
       mini, batch, extent_size, extent_size, 0, addrs, next_extent);
    if (!SUCCESS(rc)) {
       return 0;
@@ -614,14 +616,11 @@ mini_release(mini_allocator *mini)
 {
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
-      refcount ref =
-         allocator_dec_ref(mini->al,
-                           mini->next_extent[batch],
-                           mini->types[batch]);
+      refcount ref = allocator_dec_ref(
+         mini->al, mini->next_extent[batch], mini->types[batch]);
       platform_assert(ref == AL_NO_REFS);
-      ref = allocator_dec_ref(mini->al,
-                              mini->next_extent[batch],
-                              mini->types[batch]);
+      ref = allocator_dec_ref(
+         mini->al, mini->next_extent[batch], mini->types[batch]);
       platform_assert(ref == AL_FREE);
    }
 }
