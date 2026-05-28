@@ -349,13 +349,7 @@ message_type_string(message_type type)
    ((message){.type = MESSAGE_TYPE_DELETE, .data = NULL_SLICE})
 
 static inline message
-message_create(message_type type, slice data)
-{
-   return (message){.type = type, .cc = NULL, .data = data};
-}
-
-static inline message
-message_create_blob(message_type type, cache *cc, slice data)
+message_create(message_type type, cache *cc, slice data)
 {
    return (message){.type = type, .cc = cc, .data = data};
 }
@@ -408,8 +402,8 @@ message_materialize_if_needed(platform_heap_id heap_id,
          writable_buffer_deinit(tmp);
          return rc;
       }
-      *result =
-         message_create(message_class(msg), writable_buffer_to_slice(tmp));
+      *result = message_create(
+         message_class(msg), NULL, writable_buffer_to_slice(tmp));
    } else {
       *result = msg;
    }
@@ -499,9 +493,9 @@ ondisk_tuple_message(cache *cc, const ondisk_tuple *odt)
 {
    slice data =
       slice_create(odt->message_length, odt->key_and_message + odt->key_length);
-   return message_create_blob(ondisk_tuple_message_class(odt),
-                              ondisk_tuple_message_isblob(odt) ? cc : NULL,
-                              data);
+   return message_create(ondisk_tuple_message_class(odt),
+                         ondisk_tuple_message_isblob(odt) ? cc : NULL,
+                         data);
 }
 
 static inline void
@@ -583,8 +577,7 @@ merge_accumulator_isblob(const merge_accumulator *ma)
 static inline message
 merge_accumulator_to_message(const merge_accumulator *ma)
 {
-   return message_create_blob(
-      ma->type, ma->cc, writable_buffer_to_slice(&ma->data));
+   return message_create(ma->type, ma->cc, writable_buffer_to_slice(&ma->data));
 }
 
 static inline slice

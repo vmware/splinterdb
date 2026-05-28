@@ -625,7 +625,7 @@ splinterdb_insert(splinterdb               *kvsb,
                   slice                     value,
                   splinterdb_lookup_result *old_result)
 {
-   message        msg = message_create(MESSAGE_TYPE_INSERT, value);
+   message        msg = message_create(MESSAGE_TYPE_INSERT, NULL, value);
    lookup_result *_old_result =
       old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
    return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
@@ -648,7 +648,7 @@ splinterdb_update(splinterdb               *kvsb,
                   slice                     update,
                   splinterdb_lookup_result *old_result)
 {
-   message        msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   message        msg = message_create(MESSAGE_TYPE_UPDATE, NULL, update);
    lookup_result *_old_result =
       old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
    platform_assert(kvsb->data_cfg->merge_tuples);

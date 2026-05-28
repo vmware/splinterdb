@@ -2497,6 +2497,7 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
       *curr_key = index_entry_key(entry);
       *data     = message_create(
          MESSAGE_TYPE_PIVOT_DATA,
+         NULL,
          slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
    }
 }
