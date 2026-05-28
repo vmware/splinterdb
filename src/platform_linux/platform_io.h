@@ -81,6 +81,8 @@ typedef void (*io_wait_all_fn)(io_handle *io);
 typedef void (*io_register_thread_fn)(io_handle *io);
 typedef void (*io_deregister_thread_fn)(io_handle *io);
 typedef bool32 (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
+typedef void (*io_print_stats_fn)(io_handle *io, platform_log_handle *log);
+typedef void (*io_reset_stats_fn)(io_handle *io);
 
 typedef void *(*io_get_context_fn)(io_handle *io);
 
@@ -96,6 +98,8 @@ typedef struct io_ops {
    io_register_thread_fn     register_thread;
    io_deregister_thread_fn   deregister_thread;
    io_max_latency_elapsed_fn max_latency_elapsed;
+   io_print_stats_fn         print_stats;
+   io_reset_stats_fn         reset_stats;
    io_get_context_fn         get_context;
 } io_ops;
 
@@ -223,6 +227,22 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
       return io->ops->max_latency_elapsed(io, ts);
    }
    return TRUE;
+}
+
+static inline void
+io_print_stats(io_handle *io, platform_log_handle *log_handle)
+{
+   if (io->ops->print_stats) {
+      io->ops->print_stats(io, log_handle);
+   }
+}
+
+static inline void
+io_reset_stats(io_handle *io)
+{
+   if (io->ops->reset_stats) {
+      io->ops->reset_stats(io);
+   }
 }
 
 /*

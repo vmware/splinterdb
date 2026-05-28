@@ -500,6 +500,7 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
    }
 
    splinterdb_stats_reset(kvs);
+   io_reset_stats((io_handle *)splinterdb_get_io_handle(kvs));
 
    splinterdb_iterator *iter       = NULL;
    timestamp            start_time = platform_get_timestamp();
@@ -562,6 +563,8 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
    if (print_lookup_stats) {
       splinterdb_stats_print_lookup(kvs);
    }
+   io_print_stats((io_handle *)splinterdb_get_io_handle(kvs),
+                  Platform_default_log_handle);
 
    splinterdb_iterator_deinit(iter);
    splinterdb_close(&kvs);
@@ -586,6 +589,7 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
    }
 
    splinterdb_stats_reset(kvs);
+   io_reset_stats((io_handle *)splinterdb_get_io_handle(kvs));
 
    uint64 effective_scan_length =
       scan_length == 0 ? expected_records : scan_length;
@@ -729,6 +733,8 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
    if (print_lookup_stats) {
       splinterdb_stats_print_lookup(kvs);
    }
+   io_print_stats((io_handle *)splinterdb_get_io_handle(kvs),
+                  Platform_default_log_handle);
 
    splinterdb_close(&kvs);
    return rc;

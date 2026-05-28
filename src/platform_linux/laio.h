@@ -21,10 +21,16 @@ typedef enum process_context_state {
    PROCESS_CONTEXT_STATE_SHUTTING_DOWN,
 } process_context_state;
 
+#define LAIO_QD_HIST_BUCKETS (IO_DEFAULT_KERNEL_QUEUE_SIZE + 2)
+
 typedef struct io_process_context {
    process_context_state state;
    uint64                lock;
    uint64                io_count; // inflight ios
+   uint64                io_submit_count;
+   uint64                io_submit_eagain;
+   uint64                io_submit_hist[LAIO_QD_HIST_BUCKETS];
+   uint64                max_observed_io_count;
    io_context_t          ctx;
    pthread_t             io_cleaner;
    async_wait_queue      submit_waiters;

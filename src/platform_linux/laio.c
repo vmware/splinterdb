@@ -38,6 +38,74 @@
 
 #define LAIO_CLEANER_TERMINATE_CALLBACK NULL
 
+static inline void
+laio_record_submit_depth(io_process_context *pctx, uint64 depth)
+{
+   uint64 bucket = MIN(depth, (uint64)LAIO_QD_HIST_BUCKETS - 1);
+   pctx->io_submit_hist[bucket]++;
+   pctx->io_submit_count++;
+   pctx->max_observed_io_count = MAX(pctx->max_observed_io_count, depth);
+}
+
+static void
+laio_reset_stats(io_handle *ioh)
+{
+   laio_handle *io = (laio_handle *)ioh;
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      io_process_context *pctx    = &io->ctx[i];
+      pctx->io_submit_count       = 0;
+      pctx->io_submit_eagain      = 0;
+      pctx->max_observed_io_count = pctx->io_count;
+      memset(pctx->io_submit_hist, 0, sizeof(pctx->io_submit_hist));
+   }
+}
+
+static void
+laio_print_stats(io_handle *ioh, platform_log_handle *log_handle)
+{
+   laio_handle *io                         = (laio_handle *)ioh;
+   uint64       total_submit_count         = 0;
+   uint64       total_submit_eagain        = 0;
+   uint64       max_observed_depth         = 0;
+   uint64       hist[LAIO_QD_HIST_BUCKETS] = {0};
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      io_process_context *pctx = &io->ctx[i];
+      total_submit_count += pctx->io_submit_count;
+      total_submit_eagain += pctx->io_submit_eagain;
+      max_observed_depth = MAX(max_observed_depth, pctx->max_observed_io_count);
+      for (uint64 bucket = 0; bucket < LAIO_QD_HIST_BUCKETS; bucket++) {
+         hist[bucket] += pctx->io_submit_hist[bucket];
+      }
+   }
+
+   platform_log(log_handle, "LAIO Queue Depth Histogram\n");
+   platform_log(
+      log_handle,
+      "------------------------------------------------------------\n");
+   platform_log(log_handle, "successful submits: %lu\n", total_submit_count);
+   platform_log(log_handle, "EAGAIN retries:     %lu\n", total_submit_eagain);
+   platform_log(log_handle, "max observed depth: %lu\n", max_observed_depth);
+   platform_log(log_handle, "submit-depth histogram:\n");
+   for (uint64 bucket = 0; bucket < LAIO_QD_HIST_BUCKETS; bucket++) {
+      if (hist[bucket] == 0) {
+         continue;
+      }
+      if (bucket + 1 == LAIO_QD_HIST_BUCKETS) {
+         platform_log(log_handle,
+                      "  >=%-3u : %lu\n",
+                      IO_DEFAULT_KERNEL_QUEUE_SIZE,
+                      hist[bucket]);
+      } else {
+         platform_log(log_handle, "  %-5lu: %lu\n", bucket, hist[bucket]);
+      }
+   }
+   platform_log(
+      log_handle,
+      "------------------------------------------------------------\n");
+}
+
 /*
  * Context management
  */
@@ -149,6 +217,12 @@ laio_get_thread_context(laio_handle *io)
          __sync_lock_release(&io->ctx[pid].lock);
          return &io->ctx[pid];
       }
+      io->ctx[pid].io_count              = 0;
+      io->ctx[pid].io_submit_count       = 0;
+      io->ctx[pid].io_submit_eagain      = 0;
+      io->ctx[pid].max_observed_io_count = 0;
+      memset(
+         io->ctx[pid].io_submit_hist, 0, sizeof(io->ctx[pid].io_submit_hist));
       int status = io_setup(io->cfg->kernel_queue_size, &io->ctx[pid].ctx);
       if (status != 0) {
          platform_error_log(
@@ -306,12 +380,15 @@ laio_async_run(io_async_state *gios)
          async_wait_queue_lock(queue);
       }
 
-      submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs);
+      io_process_context *pctx = ios->pctx;
+
+      submit_status = io_submit(pctx->ctx, 1, ios->reqs);
 
       if (submit_status == 1) {
          // Successfully submitted, which means that our state was stored on the
          // kernel's wait queue for this io, which means we have "given away"
          // our state and therefore must not touch it again before returning.
+         laio_record_submit_depth(pctx, pctx->io_count);
          if (queue != NULL) {
             async_wait_queue_unlock(queue);
          }
@@ -340,6 +417,7 @@ laio_async_run(io_async_state *gios)
       } else if (queue != NULL) {
          // Transient failure to submit, so we still own our state.  Wait to try
          // again.
+         ios->pctx->io_submit_eagain++;
          async_wait_queue_append(
             queue, &ios->waiter_node, ios->callback, ios->callback_arg);
          async_yield_after(ios, async_wait_queue_unlock(queue));
@@ -348,7 +426,9 @@ laio_async_run(io_async_state *gios)
          // Transient failure to submit, so we still own our state, but we were
          // trying optimistically to submit w/o locking our wait queue.  So try
          // again with lock held.
+         ios->pctx->io_submit_eagain++;
          queue = &ios->pctx->submit_waiters;
+         continue;
       }
    }
 
@@ -545,6 +625,8 @@ static io_ops laio_ops = {
    .async_state_init = laio_async_state_init,
    .cleanup          = laio_cleanup,
    .wait_all         = laio_wait_all,
+   .print_stats      = laio_print_stats,
+   .reset_stats      = laio_reset_stats,
 };
 
 /*
