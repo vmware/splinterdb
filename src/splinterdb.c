@@ -535,8 +535,15 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
       return EINVAL;
    }
 
-   *value =
-      merge_accumulator_to_value(lookup_result_const_accumulator(_result));
+   lookup_result *mutable_result =
+      lookup_result_from_splinterdb((splinterdb_lookup_result *)result);
+   platform_status status =
+      merge_accumulator_ensure_materialized(&mutable_result->value);
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+
+   *value = merge_accumulator_to_value(lookup_result_accumulator(mutable_result));
    return 0;
 }
 
@@ -651,6 +658,7 @@ struct splinterdb_iterator {
    core_range_iterator sri;
    platform_status     last_rc;
    const splinterdb   *parent;
+   merge_accumulator   materialized_message;
 };
 
 static inline bool32
@@ -710,6 +718,7 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
    it->last_rc = STATUS_OK;
+   merge_accumulator_init(&it->materialized_message, kvs->spl.heap_id);
 
    core_range_iterator *range_itor = &(it->sri);
    key                  min_key;
@@ -743,6 +752,7 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
                                                  start_key,
                                                  UINT64_MAX);
    if (!SUCCESS(rc)) {
+      merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);
       return platform_status_to_int(rc);
    }
@@ -759,6 +769,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
 
    core_range_iterator *range_itor = &(iter->sri);
    core_range_iterator_deinit(range_itor);
+   merge_accumulator_deinit(&iter->materialized_message);
 
    core_handle *spl = range_itor->spl;
    platform_free(spl->heap_id, range_itor);
@@ -837,8 +848,15 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
    iterator *itor = &(iter->sri.super);
 
    iterator_curr(itor, &result_key, &msg);
-   *value  = message_slice(msg);
    *outkey = key_slice(result_key);
+   if (message_isblob(msg)) {
+      iter->last_rc = message_materialize(msg, &iter->materialized_message);
+      if (SUCCESS(iter->last_rc)) {
+         *value = merge_accumulator_to_value(&iter->materialized_message);
+      }
+   } else {
+      *value = message_slice(msg);
+   }
 }
 
 void

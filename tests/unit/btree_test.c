@@ -51,7 +51,8 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              uint64                *generation)
 {
    platform_status rc =
-      btree_create_leaf_incorporate_spec(cfg, hid, hdr, tuple_key, msg, spec);
+      btree_create_leaf_incorporate_spec(
+         cfg, NULL, NULL, hid, hdr, tuple_key, msg, spec);
    ASSERT_TRUE(SUCCESS(rc));
    return btree_try_perform_leaf_incorporate_spec(cfg, hdr, spec, generation);
 }
@@ -206,7 +207,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
       key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      message msg       = btree_get_tuple_message(cfg, hdr, i);
+      message msg       = btree_get_tuple_message(cfg, NULL, hdr, i);
       cmp_rv            = data_key_compare(
          cfg->data_cfg, key_create(FALSE, i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -231,7 +232,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
       key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      message msg       = btree_get_tuple_message(cfg, hdr, i);
+      message msg       = btree_get_tuple_message(cfg, NULL, hdr, i);
       cmp_rv            = data_key_compare(
          cfg->data_cfg, key_create(FALSE, i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -247,7 +248,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    for (uint64 i = 0; i < nkvs; i++) {
       key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      message msg       = btree_get_tuple_message(cfg, hdr, i);
+      message msg       = btree_get_tuple_message(cfg, NULL, hdr, i);
       cmp_rv            = data_key_compare(
          cfg->data_cfg, key_create(FALSE, i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -447,7 +448,7 @@ leaf_split_tests(btree_config    *cfg,
          cfg, hid, hdr, tuple_key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(
-            Platform_error_log_handle, cfg, 0, hdr, PAGE_TYPE_MEMTABLE);
+            Platform_error_log_handle, cfg, NULL, 0, hdr, PAGE_TYPE_MEMTABLE);
          ASSERT_FALSE(success,
                       "Weird.  An incorporate that was supposed to fail "
                       "actually succeeded (nkvs=%d, realnkvs=%d, i=%d).\n",
@@ -455,7 +456,7 @@ leaf_split_tests(btree_config    *cfg,
                       realnkvs,
                       i);
          btree_print_locked_node(
-            Platform_error_log_handle, cfg, 0, hdr, PAGE_TYPE_MEMTABLE);
+            Platform_error_log_handle, cfg, NULL, 0, hdr, PAGE_TYPE_MEMTABLE);
          ASSERT_FALSE(success);
       }
       leaf_splitting_plan plan =

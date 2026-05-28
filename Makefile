@@ -72,6 +72,8 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 # use += here, so that extra flags can be provided via the environment
 
+LD = $(CC)
+
 CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
@@ -408,6 +410,9 @@ CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(PLATFORM_IO_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
+            $(OBJDIR)/$(SRCDIR)/blob.o            \
+            $(OBJDIR)/$(SRCDIR)/blob_build.o      \
+            $(OBJDIR)/$(SRCDIR)/data_blob_build.o \
             $(OBJDIR)/$(SRCDIR)/data_internal.o   \
             $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
             $(CLOCKCACHE_SYS)

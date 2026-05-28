@@ -9,9 +9,9 @@
  *
  *     The purpose of the mini allocator is to allocate pages from extents
  *     and to maintain a list of allocated extents for future bulk operations,
- *     such as reference counting and deallocation. Keyed mini allocators
- *     further associate a key range to each extent, so that these bulk
- *     operations can be restricted to given key ranges.
+ *     such as reference counting and deallocation. A single mini allocator can
+ *     manage batches with different page types; the metadata records each
+ *     extent's page type so bulk operations can deallocate mixed trees/blobs.
  */
 
 #pragma once
@@ -26,7 +26,7 @@
  * extents. This batch-size is somewhat of an artificial limit to manage this
  * contiguity.
  */
-#define MINI_MAX_BATCHES 8
+#define MINI_MAX_BATCHES 16
 
 /*
  * mini_allocator: Mini-allocator context.
@@ -37,11 +37,13 @@ typedef struct mini_allocator {
    bool32          pinned;
    uint64          meta_head;
    volatile uint64 meta_tail;
-   page_type       type;
+   page_type       meta_type;
+   page_type       types[MINI_MAX_BATCHES];
 
    uint64          num_extents;
    uint64          num_batches;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
+   uint64          saved_next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
 
@@ -52,12 +54,44 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type);
+
+uint64
+mini_init_with_types(mini_allocator  *mini,
+                     cache           *cc,
+                     uint64           meta_head,
+                     uint64           meta_tail,
+                     uint64           num_batches,
+                     page_type        meta_type,
+                     const page_type *types);
 void
 mini_release(mini_allocator *mini);
 
 uint64
 mini_alloc(mini_allocator *mini, uint64 batch, uint64 *next_extent);
 
+platform_status
+mini_alloc_bytes(mini_allocator *mini,
+                 uint64          batch,
+                 uint64          num_bytes,
+                 uint64          alignment,
+                 uint64          boundary,
+                 uint64          addrs[2],
+                 uint64         *next_extent);
+
+void
+mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch);
+
+uint64
+mini_alloc_page(mini_allocator *mini, uint64 batch, uint64 *next_extent);
+
+uint64
+mini_alloc_extent(mini_allocator *mini, uint64 batch, uint64 *next_extent);
+
+platform_status
+mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr);
+
+uint64
+mini_next_addr(mini_allocator *mini, uint64 batch);
 
 refcount
 mini_inc_ref(cache *cc, uint64 meta_head);

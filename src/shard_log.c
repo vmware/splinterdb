@@ -10,6 +10,7 @@
  */
 
 #include "shard_log.h"
+#include "data_blob_build.h"
 #include "data_internal.h"
 #include "platform_sleep.h"
 #include "platform_hash.h"
@@ -58,6 +59,11 @@ const static iterator_ops shard_log_iterator_ops = {
    .print    = NULL,
 };
 
+static const page_type shard_log_page_type_table[NUM_BLOB_BATCHES + 1] = {
+   PAGE_TYPE_LOG,
+   [1 ... NUM_BLOB_BATCHES] = PAGE_TYPE_BLOB,
+};
+
 static inline uint64
 shard_log_page_size(shard_log_config *cfg)
 {
@@ -86,7 +92,7 @@ shard_log_get_thread_data(shard_log *log, threadid thr_id)
 page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-   uint64 addr = mini_alloc(&log->mini, 0, next_extent);
+   uint64 addr = mini_alloc_page(&log->mini, 0, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
@@ -112,7 +118,13 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
       thread_data->offset = 0;
    }
 
-   log->addr = mini_init(&log->mini, cc, log->meta_head, 0, 1, PAGE_TYPE_LOG);
+   log->addr = mini_init_with_types(&log->mini,
+                                    cc,
+                                    log->meta_head,
+                                    0,
+                                    NUM_BLOB_BATCHES + 1,
+                                    PAGE_TYPE_LOG,
+                                    shard_log_page_type_table);
    // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
    // log->meta_head);
 
@@ -152,10 +164,16 @@ log_entry_key(log_entry *le)
    return ondisk_tuple_key(&le->tuple);
 }
 
-static message
-log_entry_message(log_entry *le)
+static bool32
+log_entry_message_isblob(log_entry *le)
 {
-   return ondisk_tuple_message(&le->tuple);
+   return ondisk_tuple_message_isblob(&le->tuple);
+}
+
+static message
+log_entry_message(cache *cc, log_entry *le)
+{
+   return ondisk_tuple_message(cc, &le->tuple);
 }
 
 static uint64
@@ -215,12 +233,40 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 
    shard_log             *log = (shard_log *)logh;
    cache                 *cc  = log->cc;
+   merge_accumulator      log_blob;
+   bool32                 log_blob_inited = FALSE;
+
+   uint64 max_entry_size =
+      shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
+   if (message_isblob(msg)
+       || max_entry_size < log_entry_required_capacity(tuple_key, msg))
+   {
+      merge_accumulator_init(&log_blob, platform_get_heap_id());
+      platform_status rc;
+      if (message_isblob(msg)) {
+         rc = message_clone(
+            &log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
+      } else {
+         rc = message_to_blob(
+            &log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
+      }
+      if (!SUCCESS(rc)) {
+         merge_accumulator_deinit(&log_blob);
+         return rc.r;
+      }
+      msg              = merge_accumulator_to_message(&log_blob);
+      log_blob_inited = TRUE;
+   }
+
    shard_log_thread_data *thread_data =
       shard_log_get_thread_data(log, platform_get_tid());
 
    page_handle *page;
    if (thread_data->addr == SHARD_UNMAPPED) {
       if (get_new_page_for_thread(log, thread_data, &page)) {
+         if (log_blob_inited) {
+            merge_accumulator_deinit(&log_blob);
+         }
          return -1;
       }
    } else {
@@ -254,6 +300,9 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {
+         if (log_blob_inited) {
+            merge_accumulator_deinit(&log_blob);
+         }
          return -1;
       }
       cursor = (log_entry *)(page->data + thread_data->offset);
@@ -271,6 +320,14 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    cache_unlock(cc, page);
    cache_unclaim(cc, page);
    cache_unget(cc, page);
+
+   if (log_blob_inited) {
+      platform_status rc = blob_sync(cc, message_slice(msg));
+      merge_accumulator_deinit(&log_blob);
+      if (!SUCCESS(rc)) {
+         return rc.r;
+      }
+   }
 
    return 0;
 }
@@ -348,6 +405,7 @@ shard_log_iterator_init(cache              *cc,
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
+   itor->cc        = cc;
    itor->cfg       = cfg;
    allocator *al   = cache_get_allocator(cc);
 
@@ -433,7 +491,7 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *curr_key                = log_entry_key(itor->entries[itor->pos]);
-   *msg                     = log_entry_message(itor->entries[itor->pos]);
+   *msg                     = log_entry_message(itor->cc, itor->entries[itor->pos]);
 }
 
 bool32
@@ -474,6 +532,12 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->cache_cfg = cache_cfg;
    log_cfg->data_cfg  = data_cfg;
    log_cfg->seed      = HASH_SEED;
+   log_cfg->blob_cfg  = (blob_build_config){
+      .extent_batch  = 1,
+      .page_batch    = 2,
+      .subpage_batch = 3,
+      .alignment     = cache_config_page_size(cache_cfg),
+   };
 }
 
 void
@@ -499,9 +563,10 @@ shard_log_print(shard_log *log)
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
-               platform_default_log("%s -- %s : %lu\n",
+               platform_default_log("%s -- %s%s : %lu\n",
                                     key_string(dcfg, log_entry_key(le)),
-                                    message_string(dcfg, log_entry_message(le)),
+                                    log_entry_message_isblob(le) ? "(blob) " : "",
+                                    message_string(dcfg, log_entry_message(cc, le)),
                                     le->generation);
             }
          }

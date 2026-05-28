@@ -10,6 +10,8 @@
 #pragma once
 
 #include "splinterdb/data.h"
+#include "blob.h"
+#include "cache.h"
 #include "util.h"
 
 /*
@@ -349,7 +351,13 @@ message_type_string(message_type type)
 static inline message
 message_create(message_type type, slice data)
 {
-   return (message){.type = type, .data = data};
+   return (message){.type = type, .cc = NULL, .data = data};
+}
+
+static inline message
+message_create_blob(message_type type, cache *cc, slice data)
+{
+   return (message){.type = type, .cc = cc, .data = data};
 }
 
 static inline bool32
@@ -373,18 +381,46 @@ message_is_invalid_user_type(message msg)
           || msg.type > MESSAGE_TYPE_MAX_VALID_USER_TYPE;
 }
 
-/* Define an arbitrary ordering on messages.  In practice, all we care
- * about is equality, but this is written to follow the same
- * comparison interface as for ordered types. */
-static inline int
-message_lex_cmp(message a, message b)
+static inline uint64
+message_materialized_length(message msg)
 {
-   if (a.type < b.type) {
-      return -1;
-   } else if (b.type < a.type) {
-      return 1;
+   if (message_isblob(msg)) {
+      return blob_length(message_slice(msg));
    } else {
-      return slice_lex_cmp(a.data, b.data);
+      return message_length(msg);
+   }
+}
+
+static inline platform_status
+message_materialize(message msg, merge_accumulator *tmp);
+
+static inline platform_status
+message_materialize_if_needed(platform_heap_id heap_id,
+                              message          msg,
+                              writable_buffer *tmp,
+                              message         *result)
+{
+   if (message_isblob(msg)) {
+      writable_buffer_init(tmp, heap_id);
+      platform_status rc =
+         blob_materialize_full(msg.cc, message_slice(msg), tmp);
+      if (!SUCCESS(rc)) {
+         writable_buffer_deinit(tmp);
+         return rc;
+      }
+      *result =
+         message_create(message_class(msg), writable_buffer_to_slice(tmp));
+   } else {
+      *result = msg;
+   }
+   return STATUS_OK;
+}
+
+static inline void
+message_dematerialize_if_needed(message msg, writable_buffer *tmp)
+{
+   if (message_isblob(msg)) {
+      writable_buffer_deinit(tmp);
    }
 }
 
@@ -420,6 +456,7 @@ _Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE
                   < (1ULL << ONDISK_MESSAGE_TYPE_BITS),
                "ONDISK_MESSAGE_TYPE_BITS is too small");
 #define ONDISK_MESSAGE_TYPE_MASK ((0x1 << ONDISK_MESSAGE_TYPE_BITS) - 1)
+#define ONDISK_MESSAGE_ISBLOB    (0x4)
 
 /* Size of the data part of an existing ondisk_tuple */
 static inline uint64
@@ -451,12 +488,20 @@ ondisk_tuple_message_class(const ondisk_tuple *odt)
    return odt->flags & ONDISK_MESSAGE_TYPE_MASK;
 }
 
-static inline message
-ondisk_tuple_message(const ondisk_tuple *odt)
+static inline bool32
+ondisk_tuple_message_isblob(const ondisk_tuple *odt)
 {
-   return message_create(ondisk_tuple_message_class(odt),
-                         slice_create(odt->message_length,
-                                      odt->key_and_message + odt->key_length));
+   return (odt->flags & ONDISK_MESSAGE_ISBLOB) != 0;
+}
+
+static inline message
+ondisk_tuple_message(cache *cc, const ondisk_tuple *odt)
+{
+   slice data =
+      slice_create(odt->message_length, odt->key_and_message + odt->key_length);
+   return message_create_blob(ondisk_tuple_message_class(odt),
+                              ondisk_tuple_message_isblob(odt) ? cc : NULL,
+                              data);
 }
 
 static inline void
@@ -464,6 +509,7 @@ copy_message_to_ondisk_tuple(ondisk_tuple *odt, message msg)
 {
    odt->message_length = message_length(msg);
    odt->flags          = message_class(msg);
+   odt->flags |= message_isblob(msg) ? ONDISK_MESSAGE_ISBLOB : 0;
    memcpy(odt->key_and_message + odt->key_length,
           message_data(msg),
           message_length(msg));
@@ -474,7 +520,7 @@ copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
 {
    debug_assert(key_is_user_key(k));
    odt->key_length = key_length(k);
-   odt->flags      = ONDISK_KEY_DEFAULT_FLAGS;
+   odt->key_flags  = ONDISK_KEY_DEFAULT_FLAGS;
    memcpy(odt->key_and_message, key_data(k), key_length(k));
    copy_message_to_ondisk_tuple(odt, msg);
 }
@@ -487,6 +533,7 @@ copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
 
 struct merge_accumulator {
    message_type    type;
+   cache          *cc;
    writable_buffer data;
 };
 
@@ -495,6 +542,7 @@ merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)
 {
    writable_buffer_init(&ma->data, heap_id);
    ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
 }
 
 static inline void
@@ -509,6 +557,7 @@ merge_accumulator_init_with_buffer(merge_accumulator *ma,
    writable_buffer_init_with_buffer(
       &ma->data, heap_id, allocation_size, data, logical_size);
    ma->type = type;
+   ma->cc   = NULL;
 }
 
 static inline void
@@ -516,6 +565,7 @@ merge_accumulator_deinit(merge_accumulator *ma)
 {
    writable_buffer_deinit(&ma->data);
    ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
 }
 
 static inline bool32
@@ -524,16 +574,25 @@ merge_accumulator_is_definitive(const merge_accumulator *ma)
    return ma->type == MESSAGE_TYPE_INSERT || ma->type == MESSAGE_TYPE_DELETE;
 }
 
+static inline bool32
+merge_accumulator_isblob(const merge_accumulator *ma)
+{
+   return ma->cc != NULL;
+}
+
 static inline message
 merge_accumulator_to_message(const merge_accumulator *ma)
 {
-   return message_create(ma->type, writable_buffer_to_slice(&ma->data));
+   return message_create_blob(ma->type,
+                              ma->cc,
+                              writable_buffer_to_slice(&ma->data));
 }
 
 static inline slice
 merge_accumulator_to_value(const merge_accumulator *ma)
 {
    debug_assert(ma->type == MESSAGE_TYPE_INSERT);
+   debug_assert(ma->cc == NULL);
    return writable_buffer_to_slice(&ma->data);
 }
 
@@ -551,6 +610,7 @@ static inline void
 merge_accumulator_set_to_null(merge_accumulator *ma)
 {
    ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
    writable_buffer_set_to_null(&ma->data);
 }
 
@@ -559,7 +619,41 @@ merge_accumulator_is_null(const merge_accumulator *ma)
 {
    bool32 r = writable_buffer_is_null(&ma->data);
    debug_assert(IMPLIES(r, ma->type == MESSAGE_TYPE_INVALID));
+   debug_assert(IMPLIES(r, ma->cc == NULL));
    return r;
+}
+
+static inline platform_status
+message_materialize(message msg, merge_accumulator *tmp)
+{
+   debug_assert(message_isblob(msg));
+   tmp->type = message_class(msg);
+   tmp->cc   = NULL;
+   return blob_materialize_full(msg.cc, message_slice(msg), &tmp->data);
+}
+
+static inline platform_status
+merge_accumulator_ensure_materialized(merge_accumulator *ma)
+{
+   if (!merge_accumulator_isblob(ma)) {
+      return STATUS_OK;
+   }
+
+   writable_buffer materialized;
+   writable_buffer_init(&materialized, ma->data.heap_id);
+   platform_status rc = blob_materialize_full(ma->cc,
+                                              writable_buffer_to_slice(&ma->data),
+                                              &materialized);
+   if (!SUCCESS(rc)) {
+      writable_buffer_deinit(&materialized);
+      return rc;
+   }
+
+   writable_buffer old_data = ma->data;
+   ma->data                 = materialized;
+   ma->cc                   = NULL;
+   writable_buffer_deinit(&old_data);
+   return STATUS_OK;
 }
 
 /*
@@ -597,6 +691,11 @@ data_key_hash(const data_config *cfg, key k, uint32 seed)
 }
 
 static inline int
+data_merge_tuples_final(const data_config *cfg,
+                        key                tuple_key,
+                        merge_accumulator *oldest_message);
+
+static inline int
 data_merge_tuples(const data_config *cfg,
                   key                tuple_key,
                   message            old_raw_message,
@@ -611,12 +710,29 @@ data_merge_tuples(const data_config *cfg,
 
    message_type oldclass = message_class(old_raw_message);
    if (oldclass == MESSAGE_TYPE_DELETE) {
-      return cfg->merge_tuples_final(cfg, tuple_key.user_slice, new_message);
+      return data_merge_tuples_final(cfg, tuple_key, new_message);
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
+   platform_status rc = merge_accumulator_ensure_materialized(new_message);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+
+   writable_buffer old_tmp;
+   message         old_materialized_message;
+   rc = message_materialize_if_needed(new_message->data.heap_id,
+                                      old_raw_message,
+                                      &old_tmp,
+                                      &old_materialized_message);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+
    int result = cfg->merge_tuples(
-      cfg, tuple_key.user_slice, old_raw_message, new_message);
+      cfg, tuple_key.user_slice, old_materialized_message, new_message);
+   message_dematerialize_if_needed(old_raw_message, &old_tmp);
+
    if (result
        && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
    {
@@ -636,6 +752,12 @@ data_merge_tuples_final(const data_config *cfg,
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
    }
+
+   platform_status rc = merge_accumulator_ensure_materialized(oldest_message);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+
    int result =
       cfg->merge_tuples_final(cfg, tuple_key.user_slice, oldest_message);
    if (result
@@ -666,7 +788,48 @@ data_message_to_string(const data_config *cfg,
                        char              *str,
                        size_t             size)
 {
-   cfg->message_to_string(cfg, msg, str, size);
+   writable_buffer tmp;
+   message         materialized;
+   platform_status rc = message_materialize_if_needed(
+      platform_get_heap_id(), msg, &tmp, &materialized);
+   if (!SUCCESS(rc)) {
+      if (size != 0) {
+         str[0] = '\0';
+      }
+      return;
+   }
+   cfg->message_to_string(cfg, materialized, str, size);
+   message_dematerialize_if_needed(msg, &tmp);
+}
+
+/* Define an arbitrary ordering on messages. In practice, all we care
+ * about is equality, but this follows the same interface as ordered types. */
+static inline int
+message_lex_cmp(message a, message b)
+{
+   if (a.type < b.type) {
+      return -1;
+   } else if (b.type < a.type) {
+      return 1;
+   } else {
+      writable_buffer  a_tmp;
+      message          a_materialized;
+      writable_buffer  b_tmp;
+      message          b_materialized;
+      platform_heap_id hid = platform_get_heap_id();
+
+      platform_status rc =
+         message_materialize_if_needed(hid, a, &a_tmp, &a_materialized);
+      platform_assert_status_ok(rc);
+      rc = message_materialize_if_needed(hid, b, &b_tmp, &b_materialized);
+      platform_assert_status_ok(rc);
+
+      int result = slice_lex_cmp(message_slice(a_materialized),
+                                 message_slice(b_materialized));
+      message_dematerialize_if_needed(a, &a_tmp);
+      message_dematerialize_if_needed(b, &b_tmp);
+      return result;
+   }
 }
 
 #define key_string(cfg, key_to_print)                                          \
