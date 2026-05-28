@@ -103,7 +103,7 @@ static inline platform_status
 lookup_result_update_with_blob_ref(lookup_result         *result,
                                    key                    found_key,
                                    message                msg,
-                                   const message_blob_ref *blob_ref)
+                                   const ondisk_ref       *blob_ref)
 {
    if (lookup_result_is_existence(result)) {
       bool32 success = merge_accumulator_resize(&result->value, 0);

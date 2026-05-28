@@ -724,7 +724,7 @@ core_memtable_lookup(core_handle   *spl,
          cc, cfg, root_addr, type, target, result, NULL);
    }
 
-   message_blob_ref blob_ref;
+   ondisk_ref blob_ref;
    memtable_blob_ref_init(&spl->mt_ctxt, root_addr, &blob_ref);
    return btree_lookup_and_merge_with_blob_ref(
       cc, cfg, root_addr, type, target, result, &blob_ref, NULL);

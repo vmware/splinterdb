@@ -188,7 +188,7 @@ btree_insert(cache                  *cc,                  // IN
              key                     tuple_key,           // IN
              message                 data,                // IN
              lookup_result          *old_result,          // IN/OUT
-             const message_blob_ref *old_result_blob_ref, // IN
+             const ondisk_ref       *old_result_blob_ref, // IN
              uint64                 *generation);         // OUT
 
 uint64
@@ -239,7 +239,7 @@ btree_lookup_and_merge_with_blob_ref(cache                  *cc,
                                      page_type               type,
                                      key                     target,
                                      lookup_result          *result,
-                                     const message_blob_ref *blob_ref,
+                                     const ondisk_ref       *blob_ref,
                                      bool32                 *local_found);
 
 // clang-format off

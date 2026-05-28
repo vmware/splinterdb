@@ -195,28 +195,29 @@ get_btree_scratch(memtable_context *ctxt, uint64 tid)
 }
 
 static void
-memtable_blob_ref_inc(const message_blob_ref *blob_ref)
+memtable_blob_ref_inc(const ondisk_ref *blob_ref)
 {
-   btree_inc_ref(blob_ref->cc, blob_ref->arg, blob_ref->ref);
+   btree_inc_ref(blob_ref->cc, blob_ref->arg, blob_ref->addr);
 }
 
 static void
-memtable_blob_ref_dec(const message_blob_ref *blob_ref)
+memtable_blob_ref_dec(const ondisk_ref *blob_ref)
 {
-   btree_dec_ref(blob_ref->cc, blob_ref->arg, blob_ref->ref, blob_ref->type);
+   btree_dec_ref(
+      blob_ref->cc, blob_ref->arg, blob_ref->addr, blob_ref->type);
 }
 
 void
 memtable_blob_ref_init(memtable_context *ctxt,
                        uint64           root_addr,
-                       message_blob_ref *blob_ref)
+                       ondisk_ref       *blob_ref)
 {
-   *blob_ref = (message_blob_ref){.cc   = ctxt->cc,
-                                  .ref  = root_addr,
-                                  .type = PAGE_TYPE_MEMTABLE,
-                                  .arg  = ctxt->cfg.btree_cfg,
-                                  .inc  = memtable_blob_ref_inc,
-                                  .dec  = memtable_blob_ref_dec};
+   *blob_ref = (ondisk_ref){.cc   = ctxt->cc,
+                            .addr = root_addr,
+                            .type = PAGE_TYPE_MEMTABLE,
+                            .arg  = ctxt->cfg.btree_cfg,
+                            .inc  = memtable_blob_ref_inc,
+                            .dec  = memtable_blob_ref_dec};
 }
 
 void
@@ -244,7 +245,7 @@ memtable_insert(memtable_context *ctxt,
    const threadid tid = platform_get_tid();
 
    btree_scratch  *scratch = get_btree_scratch(ctxt, tid);
-   message_blob_ref blob_ref;
+   ondisk_ref blob_ref;
    memtable_blob_ref_init(ctxt, mt->root_addr, &blob_ref);
    platform_status rc      = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,

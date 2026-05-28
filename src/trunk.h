@@ -10,6 +10,7 @@
 #include "vector.h"
 #include "cache.h"
 #include "allocator.h"
+#include "ondisk_ref.h"
 #include "task.h"
 #include "btree.h"
 #include "routing_filter.h"
@@ -113,11 +114,9 @@ typedef struct trunk_pivot_state_map {
    trunk_pivot_state *buckets[TRUNK_PIVOT_STATE_MAP_BUCKETS];
 } trunk_pivot_state_map;
 
-/* An ondisk_node_ref is a pivot that has an associated bump in the refcount of
- * the child, so destroying an ondisk_node_ref will perform an
- * ondisk_node_dec_ref. */
+/* An ondisk_node_ref is a pivot key plus an owned in-memory ref to the child. */
 typedef struct trunk_ondisk_node_ref {
-   uint64     addr;
+   ondisk_ref ref;
    ondisk_key key;
 } trunk_ondisk_node_ref;
 
