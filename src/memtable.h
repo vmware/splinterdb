@@ -162,6 +162,17 @@ memtable_block_lookups(memtable_context *ctxt);
 void
 memtable_unblock_lookups(memtable_context *ctxt);
 
+void
+memtable_blob_ref_init(memtable_context *ctxt,
+                       uint64           root_addr,
+                       message_blob_ref *blob_ref);
+
+void
+memtable_root_inc_ref(memtable_context *ctxt, uint64 root_addr);
+
+bool32
+memtable_root_dec_ref(memtable_context *ctxt, uint64 root_addr);
+
 platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
@@ -171,8 +182,8 @@ memtable_insert(memtable_context *ctxt,
                 lookup_result    *old_result,
                 uint64           *generation);
 
-bool32
-memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt);
+void
+memtable_recycle(memtable_context *ctxt, memtable *mt);
 
 uint64
 memtable_force_finalize(memtable_context *ctxt);

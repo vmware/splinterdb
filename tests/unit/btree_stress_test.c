@@ -227,6 +227,7 @@ CTEST2(btree_stress, iterator_basics)
                           gen_key(&data->dbtree_cfg, i, keybuf, sizeof(keybuf)),
                           gen_msg(&data->dbtree_cfg, i, msgbuf, sizeof(msgbuf)),
                           NULL,
+                          NULL,
                           &generation)))
       {
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %d\n", i);
@@ -393,6 +394,7 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
                       gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
                       gen_msg(&data->dbtree_cfg, i, msgbuf, bt_page_size),
                       &uniqueness_result,
+                      NULL,
                       &generation);
       ASSERT_TRUE(SUCCESS(rc));
       ASSERT_FALSE(lookup_result_found(&uniqueness_result));
@@ -449,6 +451,7 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
                       gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
                       merge_accumulator_to_message(&update_msg),
                       &old_result,
+                      NULL,
                       &generation);
       ASSERT_TRUE(SUCCESS(rc));
       ASSERT_TRUE(lookup_result_found(&old_result));
@@ -530,6 +533,7 @@ insert_tests(cache           *cc,
                                 mini,
                                 gen_key(cfg, i, keybuf, keybuf_size),
                                 gen_msg(cfg, i, msgbuf, msgbuf_size),
+                                NULL,
                                 NULL,
                                 &generation)))
       {

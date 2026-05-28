@@ -525,18 +525,45 @@ copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
  * Merge accumulators are basically the message version of a writable buffer.
  */
 
+typedef struct message_blob_ref {
+   cache     *cc;
+   uint64     ref;
+   page_type  type;
+   const void *arg;
+   void (*inc)(const struct message_blob_ref *ref);
+   void (*dec)(const struct message_blob_ref *ref);
+} message_blob_ref;
+
+#define MESSAGE_BLOB_REF_NULL ((message_blob_ref){0})
+
+static inline bool32
+message_blob_ref_is_null(const message_blob_ref *ref)
+{
+   return ref == NULL || ref->dec == NULL;
+}
+
 struct merge_accumulator {
-   message_type    type;
-   cache          *cc;
-   writable_buffer data;
+   message_type     type;
+   cache           *cc;
+   writable_buffer  data;
+   message_blob_ref blob_ref;
 };
+
+void
+merge_accumulator_release_blob_ref(merge_accumulator *ma);
+
+_Bool
+merge_accumulator_copy_message_with_blob_ref(merge_accumulator       *ma,
+                                             message                  msg,
+                                             const message_blob_ref *blob_ref);
 
 static inline void
 merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)
 {
    writable_buffer_init(&ma->data, heap_id);
-   ma->type = MESSAGE_TYPE_INVALID;
-   ma->cc   = NULL;
+   ma->type     = MESSAGE_TYPE_INVALID;
+   ma->cc       = NULL;
+   ma->blob_ref = MESSAGE_BLOB_REF_NULL;
 }
 
 static inline void
@@ -550,16 +577,19 @@ merge_accumulator_init_with_buffer(merge_accumulator *ma,
 {
    writable_buffer_init_with_buffer(
       &ma->data, heap_id, allocation_size, data, logical_size);
-   ma->type = type;
-   ma->cc   = NULL;
+   ma->type     = type;
+   ma->cc       = NULL;
+   ma->blob_ref = MESSAGE_BLOB_REF_NULL;
 }
 
 static inline void
 merge_accumulator_deinit(merge_accumulator *ma)
 {
+   merge_accumulator_release_blob_ref(ma);
    writable_buffer_deinit(&ma->data);
-   ma->type = MESSAGE_TYPE_INVALID;
-   ma->cc   = NULL;
+   ma->type     = MESSAGE_TYPE_INVALID;
+   ma->cc       = NULL;
+   ma->blob_ref = MESSAGE_BLOB_REF_NULL;
 }
 
 static inline bool32
@@ -601,6 +631,7 @@ merge_accumulator_init_from_message(merge_accumulator *ma,
 static inline void
 merge_accumulator_set_to_null(merge_accumulator *ma)
 {
+   merge_accumulator_release_blob_ref(ma);
    ma->type = MESSAGE_TYPE_INVALID;
    ma->cc   = NULL;
    writable_buffer_set_to_null(&ma->data);
@@ -612,6 +643,7 @@ merge_accumulator_is_null(const merge_accumulator *ma)
    bool32 r = writable_buffer_is_null(&ma->data);
    debug_assert(IMPLIES(r, ma->type == MESSAGE_TYPE_INVALID));
    debug_assert(IMPLIES(r, ma->cc == NULL));
+   debug_assert(IMPLIES(r, message_blob_ref_is_null(&ma->blob_ref)));
    return r;
 }
 
@@ -642,6 +674,7 @@ merge_accumulator_ensure_materialized(merge_accumulator *ma)
 
    writable_buffer old_data = ma->data;
    ma->data                 = materialized;
+   merge_accumulator_release_blob_ref(ma);
    ma->cc                   = NULL;
    writable_buffer_deinit(&old_data);
    return STATUS_OK;

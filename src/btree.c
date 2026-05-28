@@ -602,15 +602,16 @@ btree_record_old_result(const btree_config          *cfg,
                         cache                       *cc,
                         const btree_hdr             *hdr,
                         const leaf_incorporate_spec *spec,
-                        lookup_result               *old_result)
+                        lookup_result               *old_result,
+                        const message_blob_ref      *blob_ref)
 {
    if (old_result == NULL || spec->old_entry_state != ENTRY_STILL_EXISTS) {
       return STATUS_OK;
    }
 
    leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, spec->idx);
-   return lookup_result_update(
-      old_result, leaf_entry_key(entry), leaf_entry_message(cc, entry));
+   return lookup_result_update_with_blob_ref(
+      old_result, leaf_entry_key(entry), leaf_entry_message(cc, entry), blob_ref);
 }
 
 platform_status
@@ -1303,6 +1304,32 @@ btree_dec_ref(cache              *cc,
    return ref == 0;
 }
 
+static void
+btree_blob_ref_inc(const message_blob_ref *ref)
+{
+   btree_inc_ref(ref->cc, ref->arg, ref->ref);
+}
+
+static void
+btree_blob_ref_dec(const message_blob_ref *ref)
+{
+   btree_dec_ref(ref->cc, ref->arg, ref->ref, ref->type);
+}
+
+static message_blob_ref
+btree_blob_ref(cache              *cc,
+               const btree_config *cfg,
+               uint64              root_addr,
+               page_type           type)
+{
+   return (message_blob_ref){.cc   = cc,
+                             .ref  = root_addr,
+                             .type = type,
+                             .arg  = cfg,
+                             .inc  = btree_blob_ref_inc,
+                             .dec  = btree_blob_ref_dec};
+}
+
 /*
  * *********************************************************************
  * The process of splitting a child leaf is divided into four steps in
@@ -1354,6 +1381,7 @@ btree_split_child_leaf(cache                 *cc,
                        btree_node            *child,
                        leaf_incorporate_spec *spec,
                        lookup_result         *old_result,
+                       const message_blob_ref *old_result_blob_ref,
                        uint64                *generation) // OUT
 {
    btree_node right_child;
@@ -1413,7 +1441,8 @@ btree_split_child_leaf(cache                 *cc,
    /* p: write, c: write, rc: write, cn: write if exists */
 
    platform_status rc =
-      btree_record_old_result(cfg, cc, child->hdr, spec, old_result);
+      btree_record_old_result(
+         cfg, cc, child->hdr, spec, old_result, old_result_blob_ref);
    if (!SUCCESS(rc)) {
       if (child_next.addr != 0) {
          btree_node_full_unlock(cc, cfg, &child_next);
@@ -1475,16 +1504,17 @@ btree_split_child_leaf(cache                 *cc,
  * - insertion is complete
  */
 static inline platform_status
-btree_defragment_or_split_child_leaf(cache              *cc,
-                                     const btree_config *cfg,
-                                     mini_allocator     *mini,
-                                     btree_scratch      *scratch,
-                                     btree_node         *parent,
-                                     uint64      index_of_child_in_parent,
-                                     btree_node *child,
-                                     leaf_incorporate_spec *spec,
-                                     lookup_result         *old_result,
-                                     uint64                *generation) // OUT
+btree_defragment_or_split_child_leaf(cache                  *cc,
+                                     const btree_config     *cfg,
+                                     mini_allocator         *mini,
+                                     btree_scratch          *scratch,
+                                     btree_node             *parent,
+                                     uint64 index_of_child_in_parent,
+                                     btree_node             *child,
+                                     leaf_incorporate_spec  *spec,
+                                     lookup_result          *old_result,
+                                     const message_blob_ref *old_result_blob_ref,
+                                     uint64                 *generation) // OUT
 {
    uint64 nentries   = btree_num_entries(child->hdr);
    uint64 live_bytes = 0;
@@ -1508,7 +1538,8 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       btree_node_unget(cc, cfg, parent);
       btree_node_lock(cc, cfg, child);
       platform_status rc =
-         btree_record_old_result(cfg, cc, child->hdr, spec, old_result);
+         btree_record_old_result(
+            cfg, cc, child->hdr, spec, old_result, old_result_blob_ref);
       if (!SUCCESS(rc)) {
          btree_node_full_unlock(cc, cfg, child);
          return rc;
@@ -1528,6 +1559,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
                                     child,
                                     spec,
                                     old_result,
+                                    old_result_blob_ref,
                                     generation);
    }
 
@@ -1779,16 +1811,17 @@ btree_grow_root(cache              *cc,   // IN
  *-----------------------------------------------------------------------------
  */
 platform_status
-btree_insert(cache              *cc,         // IN
-             const btree_config *cfg,        // IN
-             platform_heap_id    heap_id,    // IN
-             btree_scratch      *scratch,    // IN
-             uint64              root_addr,  // IN
-             mini_allocator     *mini,       // IN
-             key                 tuple_key,  // IN
-             message             msg,        // IN
-             lookup_result      *old_result, // IN/OUT
-             uint64             *generation)             // OUT
+btree_insert(cache                  *cc,                  // IN
+             const btree_config     *cfg,                 // IN
+             platform_heap_id        heap_id,             // IN
+             btree_scratch          *scratch,             // IN
+             uint64                  root_addr,           // IN
+             mini_allocator         *mini,                // IN
+             key                     tuple_key,           // IN
+             message                 msg,                 // IN
+             lookup_result          *old_result,          // IN/OUT
+             const message_blob_ref *old_result_blob_ref, // IN
+             uint64                 *generation)          // OUT
 {
    platform_status       rc;
    leaf_incorporate_spec spec;
@@ -1828,8 +1861,12 @@ start_over:
       }
       btree_node_lock(cc, cfg, &root_node);
       if (btree_can_perform_leaf_incorporate_spec(cfg, root_node.hdr, &spec)) {
-         rc =
-            btree_record_old_result(cfg, cc, root_node.hdr, &spec, old_result);
+         rc = btree_record_old_result(cfg,
+                                      cc,
+                                      root_node.hdr,
+                                      &spec,
+                                      old_result,
+                                      old_result_blob_ref);
          if (!SUCCESS(rc)) {
             btree_node_full_unlock(cc, cfg, &root_node);
             destroy_leaf_incorporate_spec(&spec);
@@ -2042,7 +2079,12 @@ start_over:
          goto start_over;
       }
       btree_node_lock(cc, cfg, &child_node);
-      rc = btree_record_old_result(cfg, cc, child_node.hdr, &spec, old_result);
+      rc = btree_record_old_result(cfg,
+                                   cc,
+                                   child_node.hdr,
+                                   &spec,
+                                   old_result,
+                                   old_result_blob_ref);
       if (!SUCCESS(rc)) {
          btree_node_full_unlock(cc, cfg, &child_node);
          destroy_leaf_incorporate_spec(&spec);
@@ -2094,6 +2136,7 @@ start_over:
                                              &child_node,
                                              &spec,
                                              old_result,
+                                             old_result_blob_ref,
                                              generation);
    destroy_leaf_incorporate_spec(&spec);
    if (STATUS_IS_EQ(rc, STATUS_BUSY)) {
@@ -2351,10 +2394,25 @@ btree_lookup_and_merge(cache              *cc,        // IN
                        lookup_result      *result,    // IN/OUT
                        bool32             *local_found)           // OUT
 {
+   return btree_lookup_and_merge_with_blob_ref(
+      cc, cfg, root_addr, type, target, result, NULL, local_found);
+}
+
+platform_status
+btree_lookup_and_merge_with_blob_ref(cache                  *cc,        // IN
+                                     const btree_config     *cfg,       // IN
+                                     uint64                  root_addr, // IN
+                                     page_type               type,      // IN
+                                     key                     target,    // IN
+                                     lookup_result          *result,    // IN/OUT
+                                     const message_blob_ref *blob_ref,  // IN
+                                     bool32                 *local_found) // OUT
+{
    btree_node      node;
    key             found_key;
    message         local_data;
    platform_status rc = STATUS_OK;
+   message_blob_ref default_blob_ref = MESSAGE_BLOB_REF_NULL;
 
    log_trace_key(target, "btree_lookup");
 
@@ -2368,7 +2426,12 @@ btree_lookup_and_merge(cache              *cc,        // IN
       if (local_found != NULL) {
          *local_found = TRUE;
       }
-      rc = lookup_result_update(result, found_key, local_data);
+      if (message_isblob(local_data) && message_blob_ref_is_null(blob_ref)) {
+         default_blob_ref = btree_blob_ref(cc, cfg, root_addr, type);
+         blob_ref         = &default_blob_ref;
+      }
+      rc = lookup_result_update_with_blob_ref(
+         result, found_key, local_data, blob_ref);
       btree_node_unget(cc, cfg, &node);
    }
    return rc;
@@ -2402,7 +2465,16 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state)
 
    platform_status rc = STATUS_OK;
    if (!key_is_null(state->found_key)) {
-      rc = lookup_result_update(state->result, state->found_key, state->msg);
+      message_blob_ref blob_ref = MESSAGE_BLOB_REF_NULL;
+      if (message_isblob(state->msg)) {
+         blob_ref = btree_blob_ref(
+            state->cc, state->cfg, state->root_addr, state->type);
+      }
+      rc = lookup_result_update_with_blob_ref(
+         state->result,
+         state->found_key,
+         state->msg,
+         message_blob_ref_is_null(&blob_ref) ? NULL : &blob_ref);
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
    async_return(state, rc);

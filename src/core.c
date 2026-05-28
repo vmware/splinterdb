@@ -289,21 +289,16 @@ core_get_compacted_memtable(core_handle *spl, uint64 generation)
 }
 
 static inline void
-core_memtable_inc_ref(core_handle *spl, uint64 mt_gen)
+core_memtable_inc_ref(core_handle *spl, uint64 root_addr)
 {
-   memtable *mt = core_get_memtable(spl, mt_gen);
-   allocator_inc_ref(spl->al, mt->root_addr);
+   memtable_root_inc_ref(&spl->mt_ctxt, root_addr);
 }
 
 
 static void
-core_memtable_dec_ref(core_handle *spl, uint64 generation)
+core_memtable_dec_ref(core_handle *spl, uint64 root_addr)
 {
-   memtable *mt = core_get_memtable(spl, generation);
-   memtable_dec_ref_maybe_recycle(&spl->mt_ctxt, mt);
-
-   // the branch in the compacted memtable is now in the tree, so don't zap it,
-   // we don't try to zero out the cmt because that would introduce a race.
+   memtable_root_dec_ref(&spl->mt_ctxt, root_addr);
 }
 
 
@@ -325,7 +320,7 @@ core_memtable_iterator_init(core_handle    *spl,
                             bool32          inc_ref)
 {
    if (inc_ref) {
-      allocator_inc_ref(spl->al, root_addr);
+      core_memtable_inc_ref(spl, root_addr);
    }
    btree_iterator_init(spl->cc,
                        spl->cfg.btree_cfg,
@@ -345,12 +340,12 @@ core_memtable_iterator_init(core_handle    *spl,
 static void
 core_memtable_iterator_deinit(core_handle    *spl,
                               btree_iterator *itor,
-                              uint64          mt_gen,
+                              uint64          root_addr,
                               bool32          dec_ref)
 {
    btree_iterator_deinit(itor);
    if (dec_ref) {
-      core_memtable_dec_ref(spl, mt_gen);
+      core_memtable_dec_ref(spl, root_addr);
    }
 }
 
@@ -604,11 +599,7 @@ core_memtable_incorporate(core_handle   *spl,
 
    core_close_log_stream_if_enabled(spl, &stream);
 
-   /*
-    * Decrement the now-incorporated memtable ref count and recycle if no
-    * references
-    */
-   memtable_dec_ref_maybe_recycle(&spl->mt_ctxt, mt);
+   memtable_recycle(&spl->mt_ctxt, mt);
 
    if (spl->cfg.use_stats) {
       const threadid tid = platform_get_tid();
@@ -728,8 +719,15 @@ core_memtable_lookup(core_handle   *spl,
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
 
-   return btree_lookup_and_merge(
-      cc, cfg, root_addr, type, target, result, NULL);
+   if (memtable_is_compacted) {
+      return btree_lookup_and_merge(
+         cc, cfg, root_addr, type, target, result, NULL);
+   }
+
+   message_blob_ref blob_ref;
+   memtable_blob_ref_init(&spl->mt_ctxt, root_addr, &blob_ref);
+   return btree_lookup_and_merge_with_blob_ref(
+      cc, cfg, root_addr, type, target, result, &blob_ref, NULL);
 }
 
 static platform_status
@@ -1041,7 +1039,7 @@ core_range_iterator_init(core_handle         *spl,
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
-         core_memtable_inc_ref(spl, mt_gen);
+         core_memtable_inc_ref(spl, root_addr);
       }
 
       range_itor->branch[range_itor->num_branches].addr = root_addr;
@@ -1427,8 +1425,7 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
                        range_itor->branch[i].addr,
                        PAGE_TYPE_BRANCH);
       } else {
-         uint64 mt_gen = range_itor->memtable_start_gen - i;
-         core_memtable_dec_ref(spl, mt_gen);
+         core_memtable_dec_ref(spl, range_itor->branch[i].addr);
       }
    }
    key_buffer_deinit(&range_itor->min_key);

@@ -113,6 +113,9 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2);
 static uint64
 sum_branch_lookups(const splinterdb *kvsb);
 
+static uint64
+force_flush_current_memtable(splinterdb *kvsb);
+
 static void
 assert_lookup_result_not_found(const splinterdb_lookup_result *result);
 
@@ -388,6 +391,88 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 
    splinterdb_lookup_result_deinit(&result);
    platform_free(data->cfg.heap_id, too_large_value_data);
+}
+
+CTEST2(splinterdb_quick, test_large_lookup_survives_memtable_recycle)
+{
+   size_t large_value_len = 3 * IO_DEFAULT_PAGE_SIZE + 123;
+   char  *large_value_data;
+   large_value_data =
+      TYPED_ARRAY_MALLOC(data->cfg.heap_id, large_value_data, large_value_len);
+   memset(large_value_data, 'z', large_value_len);
+   slice large_value = slice_create(large_value_len, large_value_data);
+   slice user_key    = slice_create(sizeof("foo"), "foo");
+
+   int rc = splinterdb_insert(data->kvsb, user_key, large_value, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+
+   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       generation = force_flush_current_memtable(data->kvsb);
+   memtable    *mt =
+      &core->mt_ctxt.mt[generation % core->mt_ctxt.cfg.max_memtables];
+   ASSERT_EQUAL(MEMTABLE_STATE_READY, mt->state);
+
+   for (uint64 i = 0; i < core->mt_ctxt.cfg.max_memtables; i++) {
+      char recycle_key[TEST_INSERT_KEY_LENGTH] = {0};
+      char recycle_val[TEST_INSERT_VAL_LENGTH] = {0};
+
+      snprintf(recycle_key, sizeof(recycle_key), "r-%06lu", i);
+      snprintf(recycle_val, sizeof(recycle_val), "v-%06lu", i);
+      rc = splinterdb_insert(data->kvsb,
+                             slice_create(strlen(recycle_key), recycle_key),
+                             slice_create(strlen(recycle_val), recycle_val),
+                             NULL);
+      ASSERT_EQUAL(0, rc);
+      force_flush_current_memtable(data->kvsb);
+   }
+
+   slice value;
+   rc = splinterdb_lookup_result_value(&result, &value);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(large_value_len, slice_length(value));
+   ASSERT_EQUAL(0, slice_lex_cmp(large_value, value));
+
+   splinterdb_lookup_result_deinit(&result);
+   platform_free(data->cfg.heap_id, large_value_data);
+}
+
+CTEST2(splinterdb_quick, test_iterator_survives_memtable_recycle)
+{
+   const int num_inserts = 50;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_iterator *it = NULL;
+   rc = splinterdb_iterator_init(
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_iterator_valid(it));
+
+   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       generation = force_flush_current_memtable(data->kvsb);
+   memtable    *mt =
+      &core->mt_ctxt.mt[generation % core->mt_ctxt.cfg.max_memtables];
+   ASSERT_EQUAL(MEMTABLE_STATE_READY, mt->state);
+
+   int i = 0;
+   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
+      rc = check_current_tuple(it, i);
+      ASSERT_EQUAL(0, rc);
+      i++;
+   }
+   ASSERT_EQUAL(num_inserts, i);
+
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_iterator_deinit(it);
 }
 
 /*
@@ -1633,6 +1718,17 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
                                   .disk_size  = 127 * Mega,
                                   .use_shmem  = FALSE,
                                   .data_cfg   = default_data_cfg};
+}
+
+static uint64
+force_flush_current_memtable(splinterdb *kvsb)
+{
+   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+   uint64       generation = memtable_force_finalize(&core->mt_ctxt);
+   core->mt_ctxt.process(core->mt_ctxt.process_ctxt, generation);
+   platform_status rc = task_perform_until_quiescent(core->ts);
+   ASSERT_TRUE(SUCCESS(rc));
+   return generation;
 }
 
 static uint64

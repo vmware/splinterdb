@@ -100,7 +100,10 @@ lookup_result_found(const lookup_result *result)
 }
 
 static inline platform_status
-lookup_result_update(lookup_result *result, key found_key, message msg)
+lookup_result_update_with_blob_ref(lookup_result         *result,
+                                   key                    found_key,
+                                   message                msg,
+                                   const message_blob_ref *blob_ref)
 {
    if (lookup_result_is_existence(result)) {
       bool32 success = merge_accumulator_resize(&result->value, 0);
@@ -112,7 +115,8 @@ lookup_result_update(lookup_result *result, key found_key, message msg)
    }
 
    if (merge_accumulator_is_null(&result->value)) {
-      bool32 success = merge_accumulator_copy_message(&result->value, msg);
+      bool32 success = merge_accumulator_copy_message_with_blob_ref(
+         &result->value, msg, blob_ref);
       return success ? STATUS_OK : STATUS_NO_MEMORY;
    }
 
@@ -121,6 +125,12 @@ lookup_result_update(lookup_result *result, key found_key, message msg)
                 == 0
              ? STATUS_OK
              : STATUS_NO_MEMORY;
+}
+
+static inline platform_status
+lookup_result_update(lookup_result *result, key found_key, message msg)
+{
+   return lookup_result_update_with_blob_ref(result, found_key, msg, NULL);
 }
 
 static inline bool32
