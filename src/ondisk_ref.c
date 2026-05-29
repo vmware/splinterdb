@@ -106,11 +106,8 @@ ondisk_ref_deinit(ondisk_ref *ref)
 {
    if (!ondisk_ref_is_null(ref)) {
       ondisk_ref_assert_valid(ref);
-      ondisk_ref ref_copy = ONDISK_REF_NULL;
-      ondisk_ref_copy_fields(&ref_copy, ref);
+      ref->dec(ref);
       ondisk_ref_clear(ref);
-      ref_copy.dec(&ref_copy);
-      ondisk_ref_clear(&ref_copy);
    }
 }
 

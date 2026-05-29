@@ -719,17 +719,8 @@ core_memtable_lookup(core_handle   *spl,
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
 
-   if (memtable_is_compacted) {
-      return btree_lookup_and_merge(
-         cc, cfg, root_addr, type, target, result, NULL);
-   }
-
-   ondisk_ref blob_ref;
-   memtable_blob_ref_init(&spl->mt_ctxt, root_addr, &blob_ref);
-   platform_status rc = btree_lookup_and_merge_with_blob_ref(
-      cc, cfg, root_addr, type, target, result, &blob_ref, NULL);
-   ondisk_ref_deinit(&blob_ref);
-   return rc;
+   return btree_lookup_and_merge(
+      cc, cfg, root_addr, type, target, result, NULL);
 }
 
 static platform_status
