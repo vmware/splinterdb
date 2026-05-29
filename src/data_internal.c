@@ -31,7 +31,7 @@ merge_accumulator_to_slice(const merge_accumulator *ma)
 void
 merge_accumulator_release_blob_ref(merge_accumulator *ma)
 {
-   ondisk_ref_dec(&ma->blob_ref);
+   ondisk_ref_deinit(&ma->blob_ref);
 }
 
 /* Copy a message into an already-initialized merge_accumulator. */
@@ -42,23 +42,16 @@ merge_accumulator_copy_message(merge_accumulator *ma, message msg)
 }
 
 _Bool
-merge_accumulator_copy_message_with_blob_ref(merge_accumulator       *ma,
-                                             message                  msg,
-                                             const ondisk_ref         *blob_ref)
+merge_accumulator_copy_message_with_blob_ref(merge_accumulator *ma,
+                                             message            msg,
+                                             const ondisk_ref  *blob_ref)
 {
    platform_status rc =
       writable_buffer_copy_slice(&ma->data, message_slice(msg));
    if (!SUCCESS(rc)) {
       return FALSE;
    }
-   ondisk_ref old_ref = ma->blob_ref;
-   ma->blob_ref       = ONDISK_REF_NULL;
-
-   if (message_isblob(msg) && !ondisk_ref_is_null(blob_ref)) {
-      ondisk_ref_inc(blob_ref);
-      ma->blob_ref = *blob_ref;
-   }
-   ondisk_ref_dec(&old_ref);
+   ondisk_ref_replace(&ma->blob_ref, message_is_blob(msg) ? blob_ref : NULL);
 
    ma->type = message_class(msg);
    ma->cc   = msg.cc;

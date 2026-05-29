@@ -70,8 +70,8 @@ typedef struct leaf_incorporate_spec {
    bool32 use_msg;
    union {
       /* use_msg is the tag on this union. */
-      message           msg;
-      merge_accumulator ma;
+      message           new_message;
+      merge_accumulator merged_message;
    } msg;
 } leaf_incorporate_spec;
 

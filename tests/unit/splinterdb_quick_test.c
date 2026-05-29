@@ -414,7 +414,7 @@ CTEST2(splinterdb_quick, test_large_lookup_survives_memtable_recycle)
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
-   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
    uint64       generation = force_flush_current_memtable(data->kvsb);
    memtable    *mt =
       &core->mt_ctxt.mt[generation % core->mt_ctxt.cfg.max_memtables];
@@ -451,12 +451,12 @@ CTEST2(splinterdb_quick, test_iterator_survives_memtable_recycle)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(
+   rc                      = splinterdb_iterator_init(
       data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_iterator_valid(it));
 
-   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
    uint64       generation = force_flush_current_memtable(data->kvsb);
    memtable    *mt =
       &core->mt_ctxt.mt[generation % core->mt_ctxt.cfg.max_memtables];

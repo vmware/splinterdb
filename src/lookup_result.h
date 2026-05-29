@@ -100,10 +100,10 @@ lookup_result_found(const lookup_result *result)
 }
 
 static inline platform_status
-lookup_result_update_with_blob_ref(lookup_result         *result,
-                                   key                    found_key,
-                                   message                msg,
-                                   const ondisk_ref       *blob_ref)
+lookup_result_update_with_blob_ref(lookup_result    *result,
+                                   key               found_key,
+                                   message           msg,
+                                   const ondisk_ref *blob_ref)
 {
    if (lookup_result_is_existence(result)) {
       bool32 success = merge_accumulator_resize(&result->value, 0);

@@ -415,6 +415,7 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
             $(OBJDIR)/$(SRCDIR)/data_blob_build.o \
             $(OBJDIR)/$(SRCDIR)/data_internal.o   \
             $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
+            $(OBJDIR)/$(SRCDIR)/ondisk_ref.o      \
             $(CLOCKCACHE_SYS)
 
 #################################################################

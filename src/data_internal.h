@@ -356,6 +356,12 @@ message_create(message_type type, cache *cc, slice data)
 }
 
 static inline bool32
+message_is_blob(message msg)
+{
+   return message_isblob(msg);
+}
+
+static inline bool32
 message_is_null(message msg)
 {
    bool32 r = slice_is_null(msg.data);
@@ -379,7 +385,7 @@ message_is_invalid_user_type(message msg)
 static inline uint64
 message_materialized_length(message msg)
 {
-   if (message_isblob(msg)) {
+   if (message_is_blob(msg)) {
       return blob_length(message_slice(msg));
    } else {
       return message_length(msg);
@@ -395,7 +401,7 @@ message_materialize_if_needed(platform_heap_id heap_id,
                               writable_buffer *tmp,
                               message         *result)
 {
-   if (message_isblob(msg)) {
+   if (message_is_blob(msg)) {
       writable_buffer_init(tmp, heap_id);
       platform_status rc =
          blob_materialize_full(msg.cc, message_slice(msg), tmp);
@@ -414,7 +420,7 @@ message_materialize_if_needed(platform_heap_id heap_id,
 static inline void
 message_dematerialize_if_needed(message msg, writable_buffer *tmp)
 {
-   if (message_isblob(msg)) {
+   if (message_is_blob(msg)) {
       writable_buffer_deinit(tmp);
    }
 }
@@ -451,7 +457,7 @@ _Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE
                   < (1ULL << ONDISK_MESSAGE_TYPE_BITS),
                "ONDISK_MESSAGE_TYPE_BITS is too small");
 #define ONDISK_MESSAGE_TYPE_MASK ((0x1 << ONDISK_MESSAGE_TYPE_BITS) - 1)
-#define ONDISK_MESSAGE_ISBLOB    (0x4)
+#define ONDISK_MESSAGE_IS_BLOB   (0x4)
 
 /* Size of the data part of an existing ondisk_tuple */
 static inline uint64
@@ -484,9 +490,9 @@ ondisk_tuple_message_class(const ondisk_tuple *odt)
 }
 
 static inline bool32
-ondisk_tuple_message_isblob(const ondisk_tuple *odt)
+ondisk_tuple_message_is_blob(const ondisk_tuple *odt)
 {
-   return (odt->flags & ONDISK_MESSAGE_ISBLOB) != 0;
+   return (odt->flags & ONDISK_MESSAGE_IS_BLOB) != 0;
 }
 
 static inline message
@@ -495,7 +501,7 @@ ondisk_tuple_message(cache *cc, const ondisk_tuple *odt)
    slice data =
       slice_create(odt->message_length, odt->key_and_message + odt->key_length);
    return message_create(ondisk_tuple_message_class(odt),
-                         ondisk_tuple_message_isblob(odt) ? cc : NULL,
+                         ondisk_tuple_message_is_blob(odt) ? cc : NULL,
                          data);
 }
 
@@ -504,7 +510,7 @@ copy_message_to_ondisk_tuple(ondisk_tuple *odt, message msg)
 {
    odt->message_length = message_length(msg);
    odt->flags          = message_class(msg);
-   odt->flags |= message_isblob(msg) ? ONDISK_MESSAGE_ISBLOB : 0;
+   odt->flags |= message_is_blob(msg) ? ONDISK_MESSAGE_IS_BLOB : 0;
    memcpy(odt->key_and_message + odt->key_length,
           message_data(msg),
           message_length(msg));
@@ -527,27 +533,27 @@ copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
  */
 
 struct merge_accumulator {
-   message_type     type;
-   cache           *cc;
-   writable_buffer  data;
-   ondisk_ref       blob_ref;
+   message_type    type;
+   cache          *cc;
+   writable_buffer data;
+   ondisk_ref      blob_ref;
 };
 
 void
 merge_accumulator_release_blob_ref(merge_accumulator *ma);
 
 _Bool
-merge_accumulator_copy_message_with_blob_ref(merge_accumulator       *ma,
-                                             message                  msg,
-                                             const ondisk_ref         *blob_ref);
+merge_accumulator_copy_message_with_blob_ref(merge_accumulator *ma,
+                                             message            msg,
+                                             const ondisk_ref  *blob_ref);
 
 static inline void
 merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)
 {
    writable_buffer_init(&ma->data, heap_id);
-   ma->type     = MESSAGE_TYPE_INVALID;
-   ma->cc       = NULL;
-   ma->blob_ref = ONDISK_REF_NULL;
+   ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
+   ondisk_ref_init_null(&ma->blob_ref);
 }
 
 static inline void
@@ -561,9 +567,9 @@ merge_accumulator_init_with_buffer(merge_accumulator *ma,
 {
    writable_buffer_init_with_buffer(
       &ma->data, heap_id, allocation_size, data, logical_size);
-   ma->type     = type;
-   ma->cc       = NULL;
-   ma->blob_ref = ONDISK_REF_NULL;
+   ma->type = type;
+   ma->cc   = NULL;
+   ondisk_ref_init_null(&ma->blob_ref);
 }
 
 static inline void
@@ -571,9 +577,9 @@ merge_accumulator_deinit(merge_accumulator *ma)
 {
    merge_accumulator_release_blob_ref(ma);
    writable_buffer_deinit(&ma->data);
-   ma->type     = MESSAGE_TYPE_INVALID;
-   ma->cc       = NULL;
-   ma->blob_ref = ONDISK_REF_NULL;
+   ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
+   ondisk_ref_init_null(&ma->blob_ref);
 }
 
 static inline bool32
@@ -634,7 +640,7 @@ merge_accumulator_is_null(const merge_accumulator *ma)
 static inline platform_status
 message_materialize(message msg, merge_accumulator *tmp)
 {
-   debug_assert(message_isblob(msg));
+   debug_assert(message_is_blob(msg));
    tmp->type = message_class(msg);
    tmp->cc   = NULL;
    return blob_materialize_full(msg.cc, message_slice(msg), &tmp->data);
@@ -659,7 +665,7 @@ merge_accumulator_ensure_materialized(merge_accumulator *ma)
    writable_buffer old_data = ma->data;
    ma->data                 = materialized;
    merge_accumulator_release_blob_ref(ma);
-   ma->cc                   = NULL;
+   ma->cc = NULL;
    writable_buffer_deinit(&old_data);
    return STATUS_OK;
 }

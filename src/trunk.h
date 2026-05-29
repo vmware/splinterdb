@@ -114,7 +114,8 @@ typedef struct trunk_pivot_state_map {
    trunk_pivot_state *buckets[TRUNK_PIVOT_STATE_MAP_BUCKETS];
 } trunk_pivot_state_map;
 
-/* An ondisk_node_ref is a pivot key plus an owned in-memory ref to the child. */
+/* An ondisk_node_ref is a pivot key plus an owned in-memory ref to the child.
+ */
 typedef struct trunk_ondisk_node_ref {
    ondisk_ref ref;
    ondisk_key key;

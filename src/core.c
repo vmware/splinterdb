@@ -726,8 +726,10 @@ core_memtable_lookup(core_handle   *spl,
 
    ondisk_ref blob_ref;
    memtable_blob_ref_init(&spl->mt_ctxt, root_addr, &blob_ref);
-   return btree_lookup_and_merge_with_blob_ref(
+   platform_status rc = btree_lookup_and_merge_with_blob_ref(
       cc, cfg, root_addr, type, target, result, &blob_ref, NULL);
+   ondisk_ref_deinit(&blob_ref);
+   return rc;
 }
 
 static platform_status

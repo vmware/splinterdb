@@ -850,7 +850,7 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
 
    iterator_curr(itor, &result_key, &msg);
    *outkey = key_slice(result_key);
-   if (message_isblob(msg)) {
+   if (message_is_blob(msg)) {
       iter->last_rc = message_materialize(msg, &iter->materialized_message);
       if (SUCCESS(iter->last_rc)) {
          *value = merge_accumulator_to_value(&iter->materialized_message);

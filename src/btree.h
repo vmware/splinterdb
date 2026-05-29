@@ -179,17 +179,17 @@ typedef struct btree_pack_req {
 } btree_pack_req;
 
 platform_status
-btree_insert(cache                  *cc,                  // IN
-             const btree_config     *cfg,                 // IN
-             platform_heap_id        heap_id,             // IN
-             btree_scratch          *scratch,             // IN
-             uint64                  root_addr,           // IN
-             mini_allocator         *mini,                // IN
-             key                     tuple_key,           // IN
-             message                 data,                // IN
-             lookup_result          *old_result,          // IN/OUT
-             const ondisk_ref       *old_result_blob_ref, // IN
-             uint64                 *generation);         // OUT
+btree_insert(cache              *cc,                  // IN
+             const btree_config *cfg,                 // IN
+             platform_heap_id    heap_id,             // IN
+             btree_scratch      *scratch,             // IN
+             uint64              root_addr,           // IN
+             mini_allocator     *mini,                // IN
+             key                 tuple_key,           // IN
+             message             data,                // IN
+             lookup_result      *old_result,          // IN/OUT
+             const ondisk_ref   *old_result_blob_ref, // IN
+             uint64             *generation);                     // OUT
 
 uint64
 btree_create(cache              *cc,
@@ -233,14 +233,14 @@ btree_lookup_and_merge(cache              *cc,
                        bool32             *local_found);
 
 platform_status
-btree_lookup_and_merge_with_blob_ref(cache                  *cc,
-                                     const btree_config     *cfg,
-                                     uint64                  root_addr,
-                                     page_type               type,
-                                     key                     target,
-                                     lookup_result          *result,
-                                     const ondisk_ref       *blob_ref,
-                                     bool32                 *local_found);
+btree_lookup_and_merge_with_blob_ref(cache              *cc,
+                                     const btree_config *cfg,
+                                     uint64              root_addr,
+                                     page_type           type,
+                                     key                 target,
+                                     lookup_result      *result,
+                                     const ondisk_ref   *blob_ref,
+                                     bool32             *local_found);
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,

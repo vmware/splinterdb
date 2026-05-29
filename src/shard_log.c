@@ -167,7 +167,7 @@ log_entry_key(log_entry *le)
 static bool32
 log_entry_message_isblob(log_entry *le)
 {
-   return ondisk_tuple_message_isblob(&le->tuple);
+   return ondisk_tuple_message_is_blob(&le->tuple);
 }
 
 static message
@@ -238,12 +238,12 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 
    uint64 max_entry_size =
       shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
-   if (message_isblob(msg)
+   if (message_is_blob(msg)
        || max_entry_size < log_entry_required_capacity(tuple_key, msg))
    {
       merge_accumulator_init(&log_blob, platform_get_heap_id());
       platform_status rc;
-      if (message_isblob(msg)) {
+      if (message_is_blob(msg)) {
          rc =
             message_clone(&log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
       } else {

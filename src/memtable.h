@@ -165,7 +165,7 @@ memtable_unblock_lookups(memtable_context *ctxt);
 
 void
 memtable_blob_ref_init(memtable_context *ctxt,
-                       uint64           root_addr,
+                       uint64            root_addr,
                        ondisk_ref       *blob_ref);
 
 void
