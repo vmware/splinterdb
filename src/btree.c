@@ -616,16 +616,14 @@ btree_record_old_result(const btree_config          *cfg,
       return STATUS_OK;
    }
 
-   leaf_entry       *entry    = btree_get_leaf_entry(cfg, hdr, spec->idx);
-   message           old_msg  = leaf_entry_message(cc, entry);
-   ondisk_ref        blob_ref = ONDISK_REF_NULL;
-   const ondisk_ref *ref      = NULL;
+   leaf_entry *entry    = btree_get_leaf_entry(cfg, hdr, spec->idx);
+   message     old_msg  = leaf_entry_message(cc, entry);
+   ondisk_ref  blob_ref = ONDISK_REF_NULL;
    if (message_is_blob(old_msg)) {
       btree_blob_ref_init(&blob_ref, cc, cfg, root_addr, PAGE_TYPE_MEMTABLE);
-      ref = &blob_ref;
    }
-   platform_status rc =
-      lookup_result_update(old_result, leaf_entry_key(entry), old_msg, ref);
+   platform_status rc = lookup_result_update(
+      old_result, leaf_entry_key(entry), old_msg, &blob_ref);
    ondisk_ref_deinit(&blob_ref);
    return rc;
 }
@@ -2403,8 +2401,7 @@ btree_lookup_and_merge(cache              *cc,        // IN
    btree_node      node;
    key             found_key;
    message         local_data;
-   platform_status rc       = STATUS_OK;
-   ondisk_ref      blob_ref = ONDISK_REF_NULL;
+   platform_status rc = STATUS_OK;
 
    log_trace_key(target, "btree_lookup");
 
@@ -2415,6 +2412,7 @@ btree_lookup_and_merge(cache              *cc,        // IN
    btree_lookup_with_ref(
       cc, cfg, root_addr, type, target, &node, &found_key, &local_data);
    if (!key_is_null(found_key)) {
+      ondisk_ref blob_ref = ONDISK_REF_NULL;
       if (local_found != NULL) {
          *local_found = TRUE;
       }
@@ -2422,9 +2420,9 @@ btree_lookup_and_merge(cache              *cc,        // IN
          btree_blob_ref_init(&blob_ref, cc, cfg, root_addr, type);
       }
       rc = lookup_result_update(result, found_key, local_data, &blob_ref);
+      ondisk_ref_deinit(&blob_ref);
       btree_node_unget(cc, cfg, &node);
    }
-   ondisk_ref_deinit(&blob_ref);
    return rc;
 }
 

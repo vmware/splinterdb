@@ -28,30 +28,15 @@ merge_accumulator_to_slice(const merge_accumulator *ma)
    return writable_buffer_to_slice(&ma->data);
 }
 
-void
-merge_accumulator_release_blob_ref(merge_accumulator *ma)
-{
-   ondisk_ref_deinit(&ma->blob_ref);
-}
-
 /* Copy a message into an already-initialized merge_accumulator. */
 _Bool
 merge_accumulator_copy_message(merge_accumulator *ma, message msg)
-{
-   return merge_accumulator_copy_message_with_blob_ref(ma, msg, NULL);
-}
-
-_Bool
-merge_accumulator_copy_message_with_blob_ref(merge_accumulator *ma,
-                                             message            msg,
-                                             const ondisk_ref  *blob_ref)
 {
    platform_status rc =
       writable_buffer_copy_slice(&ma->data, message_slice(msg));
    if (!SUCCESS(rc)) {
       return FALSE;
    }
-   ondisk_ref_replace(&ma->blob_ref, message_is_blob(msg) ? blob_ref : NULL);
 
    ma->type = message_class(msg);
    ma->cc   = msg.cc;
@@ -63,7 +48,6 @@ merge_accumulator_resize(merge_accumulator *ma, uint64 newsize)
 {
    platform_status rc = writable_buffer_resize(&ma->data, newsize);
    if (SUCCESS(rc) && newsize == 0) {
-      merge_accumulator_release_blob_ref(ma);
       ma->cc = NULL;
    }
    return SUCCESS(rc);
@@ -74,7 +58,6 @@ merge_accumulator_set_class(merge_accumulator *ma, message_type type)
 {
    ma->type = type;
    if (type == MESSAGE_TYPE_INVALID || type == MESSAGE_TYPE_DELETE) {
-      merge_accumulator_release_blob_ref(ma);
       ma->cc = NULL;
    }
 }

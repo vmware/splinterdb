@@ -537,8 +537,7 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
 
    lookup_result *mutable_result =
       lookup_result_from_splinterdb((splinterdb_lookup_result *)result);
-   platform_status status =
-      merge_accumulator_ensure_materialized(&mutable_result->value);
+   platform_status status = lookup_result_ensure_materialized(mutable_result);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
    }

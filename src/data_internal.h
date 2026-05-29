@@ -12,7 +12,6 @@
 #include "splinterdb/data.h"
 #include "blob.h"
 #include "cache.h"
-#include "ondisk_ref.h"
 #include "util.h"
 
 /*
@@ -536,16 +535,7 @@ struct merge_accumulator {
    message_type    type;
    cache          *cc;
    writable_buffer data;
-   ondisk_ref      blob_ref;
 };
-
-void
-merge_accumulator_release_blob_ref(merge_accumulator *ma);
-
-_Bool
-merge_accumulator_copy_message_with_blob_ref(merge_accumulator *ma,
-                                             message            msg,
-                                             const ondisk_ref  *blob_ref);
 
 static inline void
 merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)
@@ -553,7 +543,6 @@ merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)
    writable_buffer_init(&ma->data, heap_id);
    ma->type = MESSAGE_TYPE_INVALID;
    ma->cc   = NULL;
-   ondisk_ref_init_null(&ma->blob_ref);
 }
 
 static inline void
@@ -569,17 +558,14 @@ merge_accumulator_init_with_buffer(merge_accumulator *ma,
       &ma->data, heap_id, allocation_size, data, logical_size);
    ma->type = type;
    ma->cc   = NULL;
-   ondisk_ref_init_null(&ma->blob_ref);
 }
 
 static inline void
 merge_accumulator_deinit(merge_accumulator *ma)
 {
-   merge_accumulator_release_blob_ref(ma);
    writable_buffer_deinit(&ma->data);
    ma->type = MESSAGE_TYPE_INVALID;
    ma->cc   = NULL;
-   ondisk_ref_init_null(&ma->blob_ref);
 }
 
 static inline bool32
@@ -621,7 +607,6 @@ merge_accumulator_init_from_message(merge_accumulator *ma,
 static inline void
 merge_accumulator_set_to_null(merge_accumulator *ma)
 {
-   merge_accumulator_release_blob_ref(ma);
    ma->type = MESSAGE_TYPE_INVALID;
    ma->cc   = NULL;
    writable_buffer_set_to_null(&ma->data);
@@ -633,7 +618,6 @@ merge_accumulator_is_null(const merge_accumulator *ma)
    bool32 r = writable_buffer_is_null(&ma->data);
    debug_assert(IMPLIES(r, ma->type == MESSAGE_TYPE_INVALID));
    debug_assert(IMPLIES(r, ma->cc == NULL));
-   debug_assert(IMPLIES(r, ondisk_ref_is_null(&ma->blob_ref)));
    return r;
 }
 
@@ -664,8 +648,7 @@ merge_accumulator_ensure_materialized(merge_accumulator *ma)
 
    writable_buffer old_data = ma->data;
    ma->data                 = materialized;
-   merge_accumulator_release_blob_ref(ma);
-   ma->cc = NULL;
+   ma->cc                   = NULL;
    writable_buffer_deinit(&old_data);
    return STATUS_OK;
 }

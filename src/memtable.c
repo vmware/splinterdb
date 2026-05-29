@@ -218,8 +218,8 @@ memtable_insert(memtable_context *ctxt,
 {
    const threadid tid = platform_get_tid();
 
-   btree_scratch *scratch = get_btree_scratch(ctxt, tid);
-   platform_status rc = btree_insert(ctxt->cc,
+   btree_scratch  *scratch = get_btree_scratch(ctxt, tid);
+   platform_status rc      = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,
                                      heap_id,
                                      scratch,

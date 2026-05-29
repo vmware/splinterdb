@@ -20,12 +20,7 @@ message_to_blob(const blob_build_config *cfg,
    platform_assert(!message_is_blob(msg));
    ma->type = message_class(msg);
    ma->cc   = cc;
-   platform_status rc =
-      blob_build(cfg, cc, mini, message_slice(msg), &ma->data);
-   if (SUCCESS(rc)) {
-      merge_accumulator_release_blob_ref(ma);
-   }
-   return rc;
+   return blob_build(cfg, cc, mini, message_slice(msg), &ma->data);
 }
 
 platform_status
@@ -38,12 +33,7 @@ message_clone(const blob_build_config *cfg,
    platform_assert(message_is_blob(msg));
    result->type = message_class(msg);
    result->cc   = cc;
-   platform_status rc =
-      blob_clone(cfg, cc, mini, message_slice(msg), &result->data);
-   if (SUCCESS(rc)) {
-      merge_accumulator_release_blob_ref(result);
-   }
-   return rc;
+   return blob_clone(cfg, cc, mini, message_slice(msg), &result->data);
 }
 
 platform_status
@@ -70,7 +60,6 @@ merge_accumulator_convert_to_blob(const blob_build_config *cfg,
    if (!SUCCESS(rc)) {
       return rc;
    }
-   merge_accumulator_release_blob_ref(ma);
    ma->cc = cc;
    return rc;
 }

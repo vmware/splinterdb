@@ -179,16 +179,16 @@ typedef struct btree_pack_req {
 } btree_pack_req;
 
 platform_status
-btree_insert(cache              *cc,                  // IN
-             const btree_config *cfg,                 // IN
-             platform_heap_id    heap_id,             // IN
-             btree_scratch      *scratch,             // IN
-             uint64              root_addr,           // IN
-             mini_allocator     *mini,                // IN
-             key                 tuple_key,           // IN
-             message             data,                // IN
-             lookup_result      *old_result,          // IN/OUT
-             uint64             *generation);                     // OUT
+btree_insert(cache              *cc,         // IN
+             const btree_config *cfg,        // IN
+             platform_heap_id    heap_id,    // IN
+             btree_scratch      *scratch,    // IN
+             uint64              root_addr,  // IN
+             mini_allocator     *mini,       // IN
+             key                 tuple_key,  // IN
+             message             data,       // IN
+             lookup_result      *old_result, // IN/OUT
+             uint64             *generation);            // OUT
 
 uint64
 btree_create(cache              *cc,
