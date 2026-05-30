@@ -130,7 +130,7 @@ lookup_result_update(lookup_result    *result,
 
    platform_assert(result->data_cfg != NULL);
    int rc = data_merge_tuples(result->data_cfg, found_key, msg, &result->value);
-   if (!merge_accumulator_isblob(&result->value)) {
+   if (!merge_accumulator_is_blob(&result->value)) {
       ondisk_ref_deinit(&result->blob_ref);
    }
    return rc == 0 ? STATUS_OK : STATUS_NO_MEMORY;
@@ -177,7 +177,7 @@ lookup_result_finalize(lookup_result *result, key query_key)
    {
       platform_assert(result->data_cfg != NULL);
       data_merge_tuples_final(result->data_cfg, query_key, &result->value);
-      if (!merge_accumulator_isblob(&result->value)) {
+      if (!merge_accumulator_is_blob(&result->value)) {
          ondisk_ref_deinit(&result->blob_ref);
       }
    }

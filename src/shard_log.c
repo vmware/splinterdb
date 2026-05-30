@@ -165,7 +165,7 @@ log_entry_key(log_entry *le)
 }
 
 static bool32
-log_entry_message_isblob(log_entry *le)
+log_entry_message_is_blob(log_entry *le)
 {
    return ondisk_tuple_message_is_blob(&le->tuple);
 }
@@ -566,7 +566,7 @@ shard_log_print(shard_log *log)
                platform_default_log(
                   "%s -- %s%s : %lu\n",
                   key_string(dcfg, log_entry_key(le)),
-                  log_entry_message_isblob(le) ? "(blob) " : "",
+                  log_entry_message_is_blob(le) ? "(blob) " : "",
                   message_string(dcfg, log_entry_message(cc, le)),
                   le->generation);
             }

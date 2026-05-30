@@ -42,7 +42,7 @@ merge_accumulator_convert_to_blob(const blob_build_config *cfg,
                                   mini_allocator          *mini,
                                   merge_accumulator       *ma)
 {
-   if (merge_accumulator_isblob(ma)) {
+   if (merge_accumulator_is_blob(ma)) {
       return STATUS_OK;
    }
 

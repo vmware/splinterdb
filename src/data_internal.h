@@ -357,7 +357,7 @@ message_create(message_type type, cache *cc, slice data)
 static inline bool32
 message_is_blob(message msg)
 {
-   return message_isblob(msg);
+   return message_is_blob(msg);
 }
 
 static inline bool32
@@ -575,7 +575,7 @@ merge_accumulator_is_definitive(const merge_accumulator *ma)
 }
 
 static inline bool32
-merge_accumulator_isblob(const merge_accumulator *ma)
+merge_accumulator_is_blob(const merge_accumulator *ma)
 {
    return ma->cc != NULL;
 }
@@ -633,7 +633,7 @@ message_materialize(message msg, merge_accumulator *tmp)
 static inline platform_status
 merge_accumulator_ensure_materialized(merge_accumulator *ma)
 {
-   if (!merge_accumulator_isblob(ma)) {
+   if (!merge_accumulator_is_blob(ma)) {
       return STATUS_OK;
    }
 

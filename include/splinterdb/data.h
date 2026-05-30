@@ -73,7 +73,7 @@ message_length(message msg)
 }
 
 static inline _Bool
-message_isblob(message msg)
+message_is_blob(message msg)
 {
    return msg.cc != NULL;
 }
