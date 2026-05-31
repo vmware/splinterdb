@@ -201,7 +201,6 @@ CTEST2(btree_stress, iterator_basics)
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
    for (int i = 0; i < 1000; i++) {
-      uint64 generation;
       iterator_tests((cache *)&data->cc,
                      &data->dbtree_cfg,
                      root_addr,
@@ -217,18 +216,20 @@ CTEST2(btree_stress, iterator_basics)
                      FALSE,
                      data->hid);
 
-      if (!SUCCESS(
-             btree_insert((cache *)&data->cc,
-                          &data->dbtree_cfg,
-                          data->hid,
-                          data->test_scratch,
-                          root_addr,
-                          &mini,
-                          gen_key(&data->dbtree_cfg, i, keybuf, sizeof(keybuf)),
-                          gen_msg(&data->dbtree_cfg, i, msgbuf, sizeof(msgbuf)),
-                          NULL,
-                          &generation)))
-      {
+      btree_insert_results results;
+      btree_insert_results_init(&results, NULL);
+      platform_status rc =
+         btree_insert((cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      data->hid,
+                      data->test_scratch,
+                      root_addr,
+                      &mini,
+                      gen_key(&data->dbtree_cfg, i, keybuf, sizeof(keybuf)),
+                      gen_msg(&data->dbtree_cfg, i, msgbuf, sizeof(msgbuf)),
+                      &results);
+      btree_insert_results_deinit(&results);
+      if (!SUCCESS(rc)) {
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %d\n", i);
       }
    }
@@ -381,7 +382,8 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
                       NULL);
 
    for (uint64 i = 0; i < 2048; i++) {
-      uint64 generation;
+      btree_insert_results results;
+      btree_insert_results_init(&results, &uniqueness_result);
 
       platform_status rc =
          btree_insert((cache *)&data->cc,
@@ -392,8 +394,8 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
                       &mini,
                       gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
                       gen_msg(&data->dbtree_cfg, i, msgbuf, bt_page_size),
-                      &uniqueness_result,
-                      &generation);
+                      &results);
+      btree_insert_results_deinit(&results);
       ASSERT_TRUE(SUCCESS(rc));
       ASSERT_FALSE(lookup_result_found(&uniqueness_result));
    }
@@ -437,7 +439,8 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
                               &expected_new_msg);
 
    for (uint64 i = 0; i < 2048; i += 257) {
-      uint64 generation;
+      btree_insert_results results;
+      btree_insert_results_init(&results, &old_result);
 
       platform_status rc =
          btree_insert((cache *)&data->cc,
@@ -448,8 +451,8 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
                       &mini,
                       gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
                       merge_accumulator_to_message(&update_msg),
-                      &old_result,
-                      &generation);
+                      &results);
+      btree_insert_results_deinit(&results);
       ASSERT_TRUE(SUCCESS(rc));
       ASSERT_TRUE(lookup_result_found(&old_result));
       ASSERT_EQUAL(
@@ -513,8 +516,6 @@ insert_tests(cache           *cc,
              int              start,
              int              end)
 {
-   uint64 generation;
-
    uint64 bt_page_size = btree_page_size(cfg);
    int    keybuf_size  = bt_page_size;
    int    msgbuf_size  = bt_page_size;
@@ -522,17 +523,19 @@ insert_tests(cache           *cc,
    uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
-      if (!SUCCESS(btree_insert(cc,
-                                cfg,
-                                hid,
-                                scratch,
-                                root_addr,
-                                mini,
-                                gen_key(cfg, i, keybuf, keybuf_size),
-                                gen_msg(cfg, i, msgbuf, msgbuf_size),
-                                NULL,
-                                &generation)))
-      {
+      btree_insert_results results;
+      btree_insert_results_init(&results, NULL);
+      platform_status rc = btree_insert(cc,
+                                        cfg,
+                                        hid,
+                                        scratch,
+                                        root_addr,
+                                        mini,
+                                        gen_key(cfg, i, keybuf, keybuf_size),
+                                        gen_msg(cfg, i, msgbuf, msgbuf_size),
+                                        &results);
+      btree_insert_results_deinit(&results);
+      if (!SUCCESS(rc)) {
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }

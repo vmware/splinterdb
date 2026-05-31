@@ -167,7 +167,7 @@ typedef struct btree_pack_req {
    btree_node        edge[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    uint32            num_edges[BTREE_MAX_HEIGHT];
-   merge_accumulator ma;
+   merge_accumulator blob_buffer;
 
    mini_allocator mini;
 
@@ -178,6 +178,29 @@ typedef struct btree_pack_req {
    uint64 message_bytes; // total size of msgs in tuples of the output tree
 } btree_pack_req;
 
+typedef struct btree_insert_results {
+   lookup_result     *old_result_buffer; // optional, not owned
+   uint64             leaf_generation;
+   merge_accumulator  msg_blob;
+} btree_insert_results;
+
+static inline void
+btree_insert_results_init(btree_insert_results *results,
+                          lookup_result        *old_result_buffer)
+{
+   results->old_result_buffer = old_result_buffer;
+   results->leaf_generation   = 0;
+   merge_accumulator_init(&results->msg_blob, PROCESS_PRIVATE_HEAP_ID);
+}
+
+static inline void
+btree_insert_results_deinit(btree_insert_results *results)
+{
+   merge_accumulator_deinit(&results->msg_blob);
+   results->old_result_buffer = NULL;
+   results->leaf_generation   = 0;
+}
+
 platform_status
 btree_insert(cache              *cc,         // IN
              const btree_config *cfg,        // IN
@@ -187,8 +210,7 @@ btree_insert(cache              *cc,         // IN
              mini_allocator     *mini,       // IN
              key                 tuple_key,  // IN
              message             data,       // IN
-             lookup_result      *old_result, // IN/OUT
-             uint64             *generation);            // OUT
+             btree_insert_results *results); // IN/OUT
 
 uint64
 btree_create(cache              *cc,
@@ -344,7 +366,7 @@ btree_pack_req_init(btree_pack_req     *req,
    req->itor       = itor;
    req->max_tuples = max_tuples;
    req->seed       = seed;
-   merge_accumulator_init(&req->ma, hid);
+   merge_accumulator_init(&req->blob_buffer, hid);
    if (cfg->data_cfg->key_hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
          TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
@@ -364,7 +386,7 @@ btree_pack_req_init(btree_pack_req     *req,
 static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
-   merge_accumulator_deinit(&req->ma);
+   merge_accumulator_deinit(&req->blob_buffer);
    if (req->fingerprint_arr) {
       platform_free(hid, req->fingerprint_arr);
    }

@@ -95,15 +95,15 @@ test_btree_insert(test_memtable_context *ctxt, key tuple_key, message data)
       goto out;
    }
 
-   // dummy leaf generation (unused in this test)
-   uint64 dummy_leaf_generation;
+   btree_insert_results insert_results;
+   btree_insert_results_init(&insert_results, NULL);
    rc = memtable_insert(&ctxt->mt_ctxt,
                         &ctxt->mt_ctxt.mt[generation],
                         ctxt->heap_id,
                         tuple_key,
                         data,
-                        NULL,
-                        &dummy_leaf_generation);
+                        &insert_results);
+   btree_insert_results_deinit(&insert_results);
 
 out:
    memtable_end_insert(&ctxt->mt_ctxt);

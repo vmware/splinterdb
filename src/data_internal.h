@@ -355,12 +355,6 @@ message_create(message_type type, cache *cc, slice data)
 }
 
 static inline bool32
-message_is_blob(message msg)
-{
-   return message_is_blob(msg);
-}
-
-static inline bool32
 message_is_null(message msg)
 {
    bool32 r = slice_is_null(msg.data);

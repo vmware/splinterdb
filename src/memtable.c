@@ -213,22 +213,20 @@ memtable_insert(memtable_context *ctxt,
                 platform_heap_id  heap_id,
                 key               tuple_key,
                 message           msg,
-                lookup_result    *old_result,
-                uint64           *leaf_generation)
+                btree_insert_results *results)
 {
    const threadid tid = platform_get_tid();
 
    btree_scratch  *scratch = get_btree_scratch(ctxt, tid);
    platform_status rc      = btree_insert(ctxt->cc,
-                                     ctxt->cfg.btree_cfg,
-                                     heap_id,
-                                     scratch,
-                                     mt->root_addr,
-                                     &mt->mini,
-                                     tuple_key,
-                                     msg,
-                                     old_result,
-                                     leaf_generation);
+                                          ctxt->cfg.btree_cfg,
+                                          heap_id,
+                                          scratch,
+                                          mt->root_addr,
+                                          &mt->mini,
+                                          tuple_key,
+                                          msg,
+                                          results);
    if (!SUCCESS(rc)) {
       return rc;
    }

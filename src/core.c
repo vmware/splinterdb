@@ -377,14 +377,14 @@ core_memtable_insert(core_handle   *spl,
 
    // this call is safe because we hold the insert lock
    memtable *mt = core_get_memtable(spl, *generation);
-   uint64    leaf_generation; // used for ordering the log
+   btree_insert_results insert_results;
+   btree_insert_results_init(&insert_results, old_result);
    rc = memtable_insert(&spl->mt_ctxt,
                         mt,
                         PROCESS_PRIVATE_HEAP_ID,
                         tuple_key,
                         msg,
-                        old_result,
-                        &leaf_generation);
+                        &insert_results);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
@@ -396,16 +396,26 @@ core_memtable_insert(core_handle   *spl,
     * to recover the old value. One way to do this might be to insert a
     * reference to the trunk into the log. */
    if (spl->cfg.use_log) {
-      int crappy_rc = log_write(spl->log, tuple_key, msg, leaf_generation);
+      message log_msg = merge_accumulator_is_null(&insert_results.msg_blob)
+                           ? msg
+                           : merge_accumulator_to_message(
+                                &insert_results.msg_blob);
+      int crappy_rc =
+         log_write(spl->log,
+                   tuple_key,
+                   log_msg,
+                   insert_results.leaf_generation);
       if (crappy_rc != 0) {
          rc = (platform_status){.r = crappy_rc};
          goto unlock_insert_lock;
       }
    }
 
+   btree_insert_results_deinit(&insert_results);
    return STATUS_OK;
 
 unlock_insert_lock:
+   btree_insert_results_deinit(&insert_results);
    memtable_end_insert(&spl->mt_ctxt);
 out:
    return rc;

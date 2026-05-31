@@ -174,8 +174,7 @@ memtable_insert(memtable_context *ctxt,
                 platform_heap_id  heap_id,
                 key               tuple_key,
                 message           msg,
-                lookup_result    *old_result,
-                uint64           *generation);
+                btree_insert_results *results);
 
 void
 memtable_recycle(memtable_context *ctxt, memtable *mt);
