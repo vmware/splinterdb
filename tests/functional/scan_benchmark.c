@@ -773,7 +773,7 @@ scan_benchmark(int argc, char *argv[])
       goto out;
    }
 
-   if (master_cfg.max_key_size < SCAN_BENCHMARK_KEY_SIZE) {
+   if (master_cfg.key_size < SCAN_BENCHMARK_KEY_SIZE) {
       platform_error_log("scan_benchmark: key-size must be at least %u bytes\n",
                          SCAN_BENCHMARK_KEY_SIZE);
       rc = EINVAL;
@@ -795,7 +795,7 @@ scan_benchmark(int argc, char *argv[])
       goto out;
    }
 
-   default_data_config_init(master_cfg.max_key_size, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
 
    platform_default_log(
       "scan_benchmark: db=%s mode=%d num_inserts=%lu "

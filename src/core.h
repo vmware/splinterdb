@@ -255,12 +255,6 @@ core_print_extent_counts(platform_log_handle *log_handle, core_handle *spl);
 void
 core_print_space_use(platform_log_handle *log_handle, core_handle *spl);
 
-static inline uint64
-core_max_key_size(core_handle *spl)
-{
-   return spl->cfg.data_cfg->max_key_size;
-}
-
 static inline int
 core_key_compare(core_handle *spl, key key1, key key2)
 {

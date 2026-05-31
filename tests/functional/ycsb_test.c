@@ -1199,7 +1199,7 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (system_cfg->data_cfg->max_key_size != YCSB_KEY_SIZE) {
+   if (system_cfg->key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
       goto cleanup;

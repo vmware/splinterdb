@@ -150,9 +150,7 @@ CTEST_SETUP(large_inserts_stress)
    data->cfg.num_memtable_bg_threads = data->master_cfg.num_memtable_bg_threads;
    data->cfg.num_normal_bg_threads   = data->master_cfg.num_normal_bg_threads;
 
-
-   size_t max_key_size = TEST_KEY_SIZE;
-   default_data_config_init(max_key_size, data->cfg.data_cfg);
+   default_data_config_init(data->cfg.data_cfg);
 
    int rv = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rv);

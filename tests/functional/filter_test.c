@@ -23,13 +23,13 @@ static platform_status
 test_filter_basic(cache           *cc,
                   routing_config  *cfg,
                   platform_heap_id hid,
+                  uint64           key_size,
                   uint64           num_fingerprints,
                   uint64           num_values)
 {
    platform_default_log("filter_test: routing filter basic test started\n");
    platform_status rc = STATUS_OK;
 
-   const uint64 key_size = cfg->data_cfg->max_key_size;
    if (key_size < sizeof(uint64)) {
       platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
@@ -144,6 +144,7 @@ static platform_status
 test_filter_perf(cache           *cc,
                  routing_config  *cfg,
                  platform_heap_id hid,
+                 uint64           key_size,
                  uint64           num_fingerprints,
                  uint64           num_values,
                  uint64           num_trees)
@@ -151,7 +152,6 @@ test_filter_perf(cache           *cc,
    platform_default_log("filter_test: routing filter perf test started\n");
    platform_status rc = STATUS_OK;
 
-   const uint64 key_size = cfg->data_cfg->max_key_size;
    if (key_size < sizeof(uint64)) {
       platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
@@ -365,6 +365,7 @@ filter_test(int argc, char *argv[])
       rc = test_filter_perf((cache *)cc,
                             &system_cfg.filter_cfg,
                             hid,
+                            system_cfg.key_size,
                             rflimit / system_cfg.trunk_node_cfg.target_fanout,
                             system_cfg.trunk_node_cfg.target_fanout,
                             100);
@@ -373,24 +374,28 @@ filter_test(int argc, char *argv[])
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
+                             system_cfg.key_size,
                              rflimit / system_cfg.trunk_node_cfg.target_fanout,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
+                             system_cfg.key_size,
                              100,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
+                             system_cfg.key_size,
                              1,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
+                             system_cfg.key_size,
                              1,
                              2 * system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));

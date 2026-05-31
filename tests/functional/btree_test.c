@@ -29,6 +29,7 @@ typedef struct test_btree_config {
    test_key_type           type;
    uint64                  semiseq_freq;
    uint64                  period;
+   uint64                  key_size;
    test_message_generator *msggen;
 } test_btree_config;
 
@@ -161,13 +162,13 @@ test_btree_tuple(test_memtable_context *ctxt,
                  uint64                 thread_id)
 {
    test_btree_config *cfg = ctxt->cfg;
-   key_buffer_resize(keybuf, cfg->mt_cfg->btree_cfg->data_cfg->max_key_size);
+   key_buffer_resize(keybuf, cfg->key_size);
    test_key(keybuf,
             cfg->type,
             seq,
             thread_id,
             cfg->semiseq_freq,
-            cfg->mt_cfg->btree_cfg->data_cfg->max_key_size,
+            cfg->key_size,
             cfg->period);
 
    if (data != NULL) {
@@ -1036,7 +1037,7 @@ test_btree_merge_basic(cache             *cc,
       pivot[pivot_no] = pivot_no * (max_key / arity + 1);
       test_int_to_key(&pivot_key[pivot_no],
                       pivot[pivot_no],
-                      btree_cfg->data_cfg->max_key_size);
+                      cfg->key_size);
    }
    key_buffer_init_from_key(&pivot_key[arity], hid, POSITIVE_INFINITY_KEY);
 
@@ -1193,14 +1194,14 @@ test_btree_count_in_range(cache             *cc,
                2 * i,
                0,
                0,
-               btree_cfg->data_cfg->max_key_size,
+               cfg->key_size,
                0);
       test_key(&bound_key[1],
                TEST_RANDOM,
                2 * i + 1,
                0,
                0,
-               btree_cfg->data_cfg->max_key_size,
+               cfg->key_size,
                0);
 
       btree_pivot_stats stats;
@@ -1326,10 +1327,10 @@ test_btree_rough_iterator(cache             *cc,
       key     curr_key;
       message dummy_data;
       iterator_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
-      if (key_length(curr_key) != btree_cfg->data_cfg->max_key_size) {
+      if (key_length(curr_key) != cfg->key_size) {
          platform_default_log("Weird key length: %lu should be: %lu\n",
                               key_length(curr_key),
-                              btree_cfg->data_cfg->max_key_size);
+                              cfg->key_size);
       }
       if (message_length(dummy_data) != sizeof(btree_pivot_data)) {
          platform_default_log("Weird data length: %lu should be == "
@@ -1430,7 +1431,7 @@ test_btree_merge_perf(cache             *cc,
       pivot[pivot_no] = pivot_no * (max_key / arity + 1);
       test_int_to_key(&pivot_key[pivot_no],
                       pivot[pivot_no],
-                      btree_cfg->data_cfg->max_key_size);
+                      cfg->key_size);
    }
    key_buffer_init_from_key(&pivot_key[arity], hid, POSITIVE_INFINITY_KEY);
 
@@ -1586,7 +1587,11 @@ btree_test(int argc, char *argv[])
    memtable_config *mt_cfg    = &system_cfg.splinter_cfg.mt_cfg;
    mt_cfg->max_memtables      = 128;
    test_btree_config test_cfg = {
-      .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0, .msggen = &gen};
+      .mt_cfg        = mt_cfg,
+      .type          = TEST_RANDOM,
+      .semiseq_freq  = 0,
+      .key_size      = system_cfg.key_size,
+      .msggen        = &gen};
    if (!SUCCESS(rc)) {
       platform_error_log("btree_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));
@@ -1647,8 +1652,7 @@ btree_test(int argc, char *argv[])
    uint64 max_tuples_per_memtable =
       test_cfg.mt_cfg->max_extents_per_memtable
       * cache_config_extent_size((cache_config *)&system_cfg.cache_cfg) / 3
-      / (system_cfg.data_cfg->max_key_size
-         + generator_average_message_size(&gen));
+      / (system_cfg.key_size + generator_average_message_size(&gen));
    if (run_perf_test) {
       uint64 total_inserts = 64 * max_tuples_per_memtable;
 

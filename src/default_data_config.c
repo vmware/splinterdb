@@ -55,12 +55,10 @@ message_to_string(const data_config *cfg,
  * with default values.
  */
 void
-default_data_config_init(const size_t max_key_size, // IN
-                         data_config *out_cfg       // OUT
+default_data_config_init(data_config *out_cfg // OUT
 )
 {
    data_config cfg = {
-      .max_key_size       = max_key_size,
       .key_compare        = key_compare,
       .key_hash           = key_hash,
       .merge_tuples       = NULL,

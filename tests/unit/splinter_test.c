@@ -421,7 +421,7 @@ CTEST2(splinter, test_lookups)
    lookup_result_init(
       &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
-   const size_t key_size = core_max_key_size(&spl);
+   const size_t key_size = data->system_cfg->key_size;
 
    platform_status rc;
 
@@ -708,7 +708,7 @@ splinter_do_inserts(void         *datap,
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;
    DECLARE_AUTO_KEY_BUFFER(keybuf, spl->heap_id);
-   const size_t key_size = core_max_key_size(spl);
+   const size_t key_size = data->system_cfg->key_size;
 
    // Allocate a large array for copying over shadow copies of rows
    // inserted, if user has asked to return such an array.
@@ -823,7 +823,9 @@ test_lookup_by_range(void         *datap,
                      trunk_shadow *shadow,
                      uint64        num_ranges)
 {
-   const size_t key_size = core_max_key_size(spl);
+   struct CTEST_IMPL_DATA_SNAME(splinter) *data =
+      (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
+   const size_t key_size = data->system_cfg->key_size;
 
    uint64 start_time = platform_get_timestamp();
 
