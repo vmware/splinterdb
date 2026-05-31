@@ -597,10 +597,10 @@ btree_merge_tuples(const btree_config *cfg,
 static message
 spec_message(const leaf_incorporate_spec *spec)
 {
-   if (spec->use_msg) {
+   if (spec->use_new_message) {
       return spec->msg.new_message;
    } else {
-      return merge_accumulator_to_message(&spec->msg.merged_message);
+      return merge_accumulator_to_message(&spec->msg.modified_message);
    }
 }
 
@@ -633,8 +633,8 @@ static inline platform_status
 btree_record_insert_msg_blob(btree_insert_results        *results,
                              const leaf_incorporate_spec *spec)
 {
-   if (spec->old_entry_state != ENTRY_DID_NOT_EXIST || spec->use_msg
-       || !merge_accumulator_is_blob(&spec->msg.merged_message))
+   if (spec->old_entry_state != ENTRY_DID_NOT_EXIST || spec->use_new_message
+       || !merge_accumulator_is_blob(&spec->msg.modified_message))
    {
       return STATUS_OK;
    }
@@ -642,7 +642,7 @@ btree_record_insert_msg_blob(btree_insert_results        *results,
    debug_assert(merge_accumulator_is_null(&results->msg_blob));
    bool32 success = merge_accumulator_copy_message(
       &results->msg_blob,
-      merge_accumulator_to_message(&spec->msg.merged_message));
+      merge_accumulator_to_message(&spec->msg.modified_message));
    return success ? STATUS_OK : STATUS_NO_MEMORY;
 }
 
@@ -665,46 +665,46 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
    if (!found) {
       spec->idx++;
       if (message_is_blob(msg)) {
-         spec->use_msg = FALSE;
-         merge_accumulator_init(&spec->msg.merged_message, heap_id);
+         spec->use_new_message = FALSE;
+         merge_accumulator_init(&spec->msg.modified_message, heap_id);
          rc = message_clone(
-            &btree_blob_cfg, cc, mini, msg, &spec->msg.merged_message);
+            &btree_blob_cfg, cc, mini, msg, &spec->msg.modified_message);
       } else if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
                  < message_length(msg))
       {
-         spec->use_msg = FALSE;
-         merge_accumulator_init(&spec->msg.merged_message, heap_id);
+         spec->use_new_message = FALSE;
+         merge_accumulator_init(&spec->msg.modified_message, heap_id);
          rc = message_to_blob(
-            &btree_blob_cfg, cc, mini, msg, &spec->msg.merged_message);
+            &btree_blob_cfg, cc, mini, msg, &spec->msg.modified_message);
       } else {
-         spec->use_msg         = TRUE;
+         spec->use_new_message = TRUE;
          spec->msg.new_message = msg;
       }
    } else {
       leaf_entry *entry      = btree_get_leaf_entry(cfg, hdr, spec->idx);
       message     oldmessage = leaf_entry_message(cc, entry);
       bool32      success;
-      spec->use_msg = FALSE;
-      success       = merge_accumulator_init_from_message(
-         &spec->msg.merged_message, heap_id, msg);
+      spec->use_new_message = FALSE;
+      success               = merge_accumulator_init_from_message(
+         &spec->msg.modified_message, heap_id, msg);
       if (!success) {
          return STATUS_NO_MEMORY;
       }
       if (btree_merge_tuples(
-             cfg, tuple_key, oldmessage, &spec->msg.merged_message))
+             cfg, tuple_key, oldmessage, &spec->msg.modified_message))
       {
-         merge_accumulator_deinit(&spec->msg.merged_message);
+         merge_accumulator_deinit(&spec->msg.modified_message);
          return STATUS_NO_MEMORY;
       } else if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
-                 < merge_accumulator_length(&spec->msg.merged_message))
+                 < merge_accumulator_length(&spec->msg.modified_message))
       {
          rc = merge_accumulator_convert_to_blob(
-            &btree_blob_cfg, cc, mini, &spec->msg.merged_message);
+            &btree_blob_cfg, cc, mini, &spec->msg.modified_message);
       }
    }
 
-   if (!SUCCESS(rc) && !spec->use_msg) {
-      merge_accumulator_deinit(&spec->msg.merged_message);
+   if (!SUCCESS(rc) && !spec->use_new_message) {
+      merge_accumulator_deinit(&spec->msg.modified_message);
    }
    return rc;
 }
@@ -712,8 +712,8 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
 void
 destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec)
 {
-   if (!spec->use_msg) {
-      merge_accumulator_deinit(&spec->msg.merged_message);
+   if (!spec->use_new_message) {
+      merge_accumulator_deinit(&spec->msg.modified_message);
    }
 }
 
@@ -1149,12 +1149,10 @@ bool32
 btree_alloc(cache          *cc,
             mini_allocator *mini,
             uint64          height,
-            key             alloc_key,
             uint64         *next_extent,
             page_type       type,
             btree_node     *node)
 {
-   (void)alloc_key;
    node->addr = mini_alloc_page(mini, NUM_BLOB_BATCHES + height, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
@@ -1414,8 +1412,7 @@ btree_split_child_leaf(cache                 *cc,
                        uint64                 index_of_child_in_parent,
                        btree_node            *child,
                        leaf_incorporate_spec *spec,
-                       btree_insert_results  *results,
-                       uint64                *generation) // OUT
+                       btree_insert_results  *results) // OUT
 {
    btree_node right_child;
 
@@ -1436,7 +1433,6 @@ btree_split_child_leaf(cache                 *cc,
    btree_alloc(cc,
                mini,
                btree_height(child->hdr),
-               NULL_KEY,
                NULL,
                PAGE_TYPE_MEMTABLE,
                &right_child);
@@ -1518,8 +1514,13 @@ btree_split_child_leaf(cache                 *cc,
    }
    /* p: unlocked, c: write, rc: write, cn: unlocked */
 
-   btree_split_leaf_build_right_node(
-      cfg, child->hdr, child->addr, spec, plan, right_child.hdr, generation);
+   btree_split_leaf_build_right_node(cfg,
+                                     child->hdr,
+                                     child->addr,
+                                     spec,
+                                     plan,
+                                     right_child.hdr,
+                                     &results->leaf_generation);
    btree_node_full_unlock(cc, cfg, &right_child);
    /* p: unlocked, c: write, rc: unlocked, cn: unlocked */
 
@@ -1527,7 +1528,7 @@ btree_split_child_leaf(cache                 *cc,
       cfg, scratch, child->hdr, spec, plan, right_child.addr);
    if (plan.insertion_goes_left) {
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
-         cfg, child->hdr, spec, generation);
+         cfg, child->hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
    }
    btree_node_full_unlock(cc, cfg, child);
@@ -1555,8 +1556,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
                                      uint64      index_of_child_in_parent,
                                      btree_node *child,
                                      leaf_incorporate_spec *spec,
-                                     btree_insert_results  *results,
-                                     uint64                *generation) // OUT
+                                     btree_insert_results  *results) // OUT
 {
    uint64 nentries   = btree_num_entries(child->hdr);
    uint64 live_bytes = 0;
@@ -1592,7 +1592,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       }
       btree_defragment_leaf(cfg, scratch, child->hdr, spec);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
-         cfg, child->hdr, spec, generation);
+         cfg, child->hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
       btree_node_full_unlock(cc, cfg, child);
    } else {
@@ -1605,8 +1605,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
                                     index_of_child_in_parent,
                                     child,
                                     spec,
-                                    results,
-                                    generation);
+                                    results);
    }
 
    return STATUS_OK;
@@ -1650,7 +1649,6 @@ btree_split_child_index(cache              *cc,
    btree_alloc(cc,
                mini,
                btree_height(child->hdr),
-               NULL_KEY,
                NULL,
                PAGE_TYPE_MEMTABLE,
                &right_child);
@@ -1820,13 +1818,8 @@ btree_grow_root(cache              *cc,   // IN
 {
    // allocate a new left node
    btree_node child;
-   btree_alloc(cc,
-               mini,
-               btree_height(root_node->hdr),
-               NULL_KEY,
-               NULL,
-               PAGE_TYPE_MEMTABLE,
-               &child);
+   btree_alloc(
+      cc, mini, btree_height(root_node->hdr), NULL, PAGE_TYPE_MEMTABLE, &child);
 
    // copy root to child
    memmove(child.hdr, root_node->hdr, btree_page_size(cfg));
@@ -1869,7 +1862,6 @@ btree_insert(cache                *cc,        // IN
 {
    platform_status       rc;
    leaf_incorporate_spec spec;
-   uint64               *generation = &results->leaf_generation;
 
    if (MAX_INLINE_KEY_SIZE(btree_page_size(cfg)) < key_length(tuple_key)) {
       return STATUS_BAD_PARAM;
@@ -1920,7 +1912,7 @@ start_over:
             return rc;
          }
          bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
-            cfg, root_node.hdr, &spec, generation);
+            cfg, root_node.hdr, &spec, &results->leaf_generation);
          platform_assert(incorporated);
          btree_node_full_unlock(cc, cfg, &root_node);
          destroy_leaf_incorporate_spec(&spec);
@@ -2140,7 +2132,7 @@ start_over:
          return rc;
       }
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
-         cfg, child_node.hdr, &spec, generation);
+         cfg, child_node.hdr, &spec, &results->leaf_generation);
       platform_assert(incorporated);
       btree_node_full_unlock(cc, cfg, &child_node);
       destroy_leaf_incorporate_spec(&spec);
@@ -2185,8 +2177,7 @@ start_over:
                                              child_idx,
                                              &child_node,
                                              &spec,
-                                             results,
-                                             generation);
+                                             results);
    destroy_leaf_incorporate_spec(&spec);
    if (STATUS_IS_EQ(rc, STATUS_BUSY)) {
       goto start_over;
@@ -3637,7 +3628,6 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
    btree_alloc(req->cc,
                &req->mini,
                height,
-               pivot,
                &node_next_extent,
                PAGE_TYPE_BRANCH,
                &new_node);

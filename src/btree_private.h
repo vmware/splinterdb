@@ -67,11 +67,12 @@ typedef struct leaf_incorporate_spec {
       ENTRY_STILL_EXISTS,
       ENTRY_HAS_BEEN_REMOVED
    } old_entry_state;
-   bool32 use_msg;
+   bool32 use_new_message;
    union {
-      /* use_msg is the tag on this union. */
-      message           new_message;
-      merge_accumulator merged_message;
+      /* use_new_message is the tag on this union. */
+      message new_message;
+      // modified_message is either merged or blobified or both...
+      merge_accumulator modified_message;
    } msg;
 } leaf_incorporate_spec;
 
