@@ -41,14 +41,14 @@
 #include "config.h"
 #include "splinterdb_tests_private.h"
 
-#define TEST_MAX_KEY_SIZE 13
+#define TEST_MAX_KEY_SIZE 23
 
 /* -1 for message encoding overhead */
 #define TEST_MAX_VALUE_SIZE 32
 
 // Hard-coded format strings to generate key and values
-static const char key_fmt[] = "key-%04x";
-static const char val_fmt[] = "val-%04x";
+static const char key_fmt[] = "key-%018x";
+static const char val_fmt[] = "val-%018x";
 #define KEY_FMT_LENGTH         (22)
 #define VAL_FMT_LENGTH         (22)
 #define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
@@ -1238,8 +1238,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg               = test_data_config;
-   data->cfg.data_cfg->max_key_size = 20;
+   data->cfg.data_cfg = test_data_config;
+   // data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1451,8 +1451,8 @@ CTEST2(splinterdb_quick, test_write_api_old_result_existence_only)
 CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 {
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg               = test_data_config;
-   data->cfg.data_cfg->max_key_size = 20;
+   data->cfg.data_cfg = test_data_config;
+   // data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1501,8 +1501,8 @@ CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
 {
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg               = test_data_config;
-   data->cfg.data_cfg->max_key_size = 20;
+   data->cfg.data_cfg = test_data_config;
+   // data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
