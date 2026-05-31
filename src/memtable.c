@@ -194,14 +194,26 @@ get_btree_scratch(memtable_context *ctxt, uint64 tid)
                             + tid * ctxt->btree_scratch_sz);
 }
 
+void
+memtable_root_inc_ref(memtable_context *ctxt, uint64 root_addr)
+{
+   btree_inc_ref(ctxt->cc, ctxt->cfg.btree_cfg, root_addr);
+}
+
+bool32
+memtable_root_dec_ref(memtable_context *ctxt, uint64 root_addr)
+{
+   return btree_dec_ref(
+      ctxt->cc, ctxt->cfg.btree_cfg, root_addr, PAGE_TYPE_MEMTABLE);
+}
+
 platform_status
-memtable_insert(memtable_context *ctxt,
-                memtable         *mt,
-                platform_heap_id  heap_id,
-                key               tuple_key,
-                message           msg,
-                lookup_result    *old_result,
-                uint64           *leaf_generation)
+memtable_insert(memtable_context     *ctxt,
+                memtable             *mt,
+                platform_heap_id      heap_id,
+                key                   tuple_key,
+                message               msg,
+                btree_insert_results *results)
 {
    const threadid tid = platform_get_tid();
 
@@ -214,8 +226,7 @@ memtable_insert(memtable_context *ctxt,
                                      &mt->mini,
                                      tuple_key,
                                      msg,
-                                     old_result,
-                                     leaf_generation);
+                                     results);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -225,26 +236,24 @@ memtable_insert(memtable_context *ctxt,
    return rc;
 }
 
-/*
- * if there are no outstanding refs, then destroy and reinit memtable and
- * transition to READY
- */
-bool32
-memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
+void
+memtable_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;
 
-   bool32 freed = btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
-   if (freed) {
-      platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
-      mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
-      memtable_lock_incorporation_lock(ctxt);
-      mt->generation += ctxt->cfg.max_memtables;
-      memtable_unlock_incorporation_lock(ctxt);
-      memtable_transition(
-         mt, MEMTABLE_STATE_INCORPORATED, MEMTABLE_STATE_READY);
-   }
-   return freed;
+   platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
+   /*
+    * Reuse the slot independently of the old tree's lifetime. The old root's
+    * mini allocator is protected by its own refcount and may be GCed by this
+    * dec-ref or by a later lookup result / iterator release.
+    */
+   uint64 old_root_addr = mt->root_addr;
+   mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+   memtable_lock_incorporation_lock(ctxt);
+   mt->generation += ctxt->cfg.max_memtables;
+   memtable_unlock_incorporation_lock(ctxt);
+   memtable_transition(mt, MEMTABLE_STATE_INCORPORATED, MEMTABLE_STATE_READY);
+   memtable_root_dec_ref(ctxt, old_root_addr);
 }
 
 uint64

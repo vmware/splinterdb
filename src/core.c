@@ -289,28 +289,20 @@ core_get_compacted_memtable(core_handle *spl, uint64 generation)
 }
 
 static inline void
-core_memtable_inc_ref(core_handle *spl, uint64 mt_gen)
+core_memtable_inc_ref(core_handle *spl, uint64 root_addr)
 {
-   memtable *mt = core_get_memtable(spl, mt_gen);
-   allocator_inc_ref(spl->al, mt->root_addr);
+   memtable_root_inc_ref(&spl->mt_ctxt, root_addr);
 }
 
 
 static void
-core_memtable_dec_ref(core_handle *spl, uint64 generation)
+core_memtable_dec_ref(core_handle *spl, uint64 root_addr)
 {
-   memtable *mt = core_get_memtable(spl, generation);
-   memtable_dec_ref_maybe_recycle(&spl->mt_ctxt, mt);
-
-   // the branch in the compacted memtable is now in the tree, so don't zap it,
-   // we don't try to zero out the cmt because that would introduce a race.
+   memtable_root_dec_ref(&spl->mt_ctxt, root_addr);
 }
 
 
-/*
- * Wrappers for creating/destroying memtable iterators. Increments/decrements
- * the memtable ref count and cleans up if ref count == 0
- */
+/* Wrappers for creating/destroying memtable btree iterators. */
 static void
 core_memtable_iterator_init(core_handle    *spl,
                             btree_iterator *itor,
@@ -320,13 +312,8 @@ core_memtable_iterator_init(core_handle    *spl,
                             comparison      max_key_comparison,
                             key             max_key,
                             comparison      start_key_comparison,
-                            key             start_key,
-                            bool32          is_live,
-                            bool32          inc_ref)
+                            key             start_key)
 {
-   if (inc_ref) {
-      allocator_inc_ref(spl->al, root_addr);
-   }
    btree_iterator_init(spl->cc,
                        spl->cfg.btree_cfg,
                        itor,
@@ -343,30 +330,17 @@ core_memtable_iterator_init(core_handle    *spl,
 }
 
 static void
-core_memtable_iterator_deinit(core_handle    *spl,
-                              btree_iterator *itor,
-                              uint64          mt_gen,
-                              bool32          dec_ref)
+core_memtable_iterator_deinit(btree_iterator *itor)
 {
    btree_iterator_deinit(itor);
-   if (dec_ref) {
-      core_memtable_dec_ref(spl, mt_gen);
-   }
 }
 
 /*
- * Attempts to insert (key, data) into the current memtable.
- *
- * Returns:
- *    success if succeeded
- *    locked if successful
+ * On success, returns the current memtable with the insert lock held. The
+ * caller must release it with memtable_end_insert().
  */
 static platform_status
-core_memtable_insert(core_handle   *spl,
-                     key            tuple_key,
-                     message        msg,
-                     lookup_result *old_result,
-                     uint64        *generation)
+core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
 {
    platform_status rc =
       memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, generation);
@@ -377,43 +351,37 @@ core_memtable_insert(core_handle   *spl,
       rc = memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, generation);
    }
    if (!SUCCESS(rc)) {
-      goto out;
+      return rc;
    }
 
    // this call is safe because we hold the insert lock
-   memtable *mt = core_get_memtable(spl, *generation);
-   uint64    leaf_generation; // used for ordering the log
-   rc = memtable_insert(&spl->mt_ctxt,
-                        mt,
-                        PROCESS_PRIVATE_HEAP_ID,
-                        tuple_key,
-                        msg,
-                        old_result,
-                        &leaf_generation);
-   if (!SUCCESS(rc)) {
-      goto unlock_insert_lock;
-   }
+   *mt = core_get_memtable(spl, *generation);
+   return STATUS_OK;
+}
 
+static platform_status
+core_log_insert(core_handle                *spl,
+                key                         tuple_key,
+                message                     msg,
+                const btree_insert_results *insert_results)
+{
    /* TODO: FIXME: One way we could get stuck in a fetch-and-update is if the
     * insert succeeds but the lookup fails (e.g. due to an I/O error while
     * traversing the trunk).  I think the promise we should make in that case is
     * that we will preserve enough information in the log to enable the user
     * to recover the old value. One way to do this might be to insert a
     * reference to the trunk into the log. */
-   if (spl->cfg.use_log) {
-      int crappy_rc = log_write(spl->log, tuple_key, msg, leaf_generation);
-      if (crappy_rc != 0) {
-         rc = (platform_status){.r = crappy_rc};
-         goto unlock_insert_lock;
-      }
+   if (!spl->cfg.use_log) {
+      return STATUS_OK;
    }
 
-   return STATUS_OK;
-
-unlock_insert_lock:
-   memtable_end_insert(&spl->mt_ctxt);
-out:
-   return rc;
+   message log_msg =
+      merge_accumulator_is_null(&insert_results->msg_blob)
+         ? msg
+         : merge_accumulator_to_message(&insert_results->msg_blob);
+   int log_rc =
+      log_write(spl->log, tuple_key, log_msg, insert_results->leaf_generation);
+   return log_rc == 0 ? STATUS_OK : (platform_status){.r = log_rc};
 }
 
 /*
@@ -446,9 +414,7 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
                                less_than,
                                POSITIVE_INFINITY_KEY,
                                greater_than_or_equal,
-                               NEGATIVE_INFINITY_KEY,
-                               FALSE,
-                               FALSE);
+                               NEGATIVE_INFINITY_KEY);
    const routing_config *rfcfg = spl->cfg.trunk_node_cfg->filter_cfg;
    uint64 rflimit = routing_filter_max_fingerprints(spl->cfg.cache_cfg, rfcfg);
    btree_pack_req req;
@@ -479,7 +445,7 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
          spl->stats[tid].root_compaction_max_tuples = req.num_tuples;
       }
    }
-   core_memtable_iterator_deinit(spl, &btree_itor, FALSE, FALSE);
+   core_memtable_iterator_deinit(&btree_itor);
 
    new_branch->root_addr = req.root_addr;
 
@@ -604,11 +570,7 @@ core_memtable_incorporate(core_handle   *spl,
 
    core_close_log_stream_if_enabled(spl, &stream);
 
-   /*
-    * Decrement the now-incorporated memtable ref count and recycle if no
-    * references
-    */
-   memtable_dec_ref_maybe_recycle(&spl->mt_ctxt, mt);
+   memtable_recycle(&spl->mt_ctxt, mt);
 
    if (spl->cfg.use_stats) {
       const threadid tid = platform_get_tid();
@@ -1041,7 +1003,7 @@ core_range_iterator_init(core_handle         *spl,
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
-         core_memtable_inc_ref(spl, mt_gen);
+         core_memtable_inc_ref(spl, root_addr);
       }
 
       range_itor->branch[range_itor->num_branches].addr = root_addr;
@@ -1427,8 +1389,7 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
                        range_itor->branch[i].addr,
                        PAGE_TYPE_BRANCH);
       } else {
-         uint64 mt_gen = range_itor->memtable_start_gen - i;
-         core_memtable_dec_ref(spl, mt_gen);
+         core_memtable_dec_ref(spl, range_itor->branch[i].addr);
       }
    }
    key_buffer_deinit(&range_itor->min_key);
@@ -1472,10 +1433,27 @@ core_insert(core_handle   *spl,
    }
 
    uint64          generation;
-   platform_status rc =
-      core_memtable_insert(spl, tuple_key, data, old_result, &generation);
+   memtable       *mt = NULL;
+   platform_status rc = core_begin_memtable_insert(spl, &generation, &mt);
    if (!SUCCESS(rc)) {
       goto out;
+   }
+
+   btree_insert_results insert_results;
+   btree_insert_results_init(&insert_results, old_result);
+   rc = memtable_insert(&spl->mt_ctxt,
+                        mt,
+                        PROCESS_PRIVATE_HEAP_ID,
+                        tuple_key,
+                        data,
+                        &insert_results);
+   if (!SUCCESS(rc)) {
+      goto end_insert;
+   }
+
+   rc = core_log_insert(spl, tuple_key, data, &insert_results);
+   if (!SUCCESS(rc)) {
+      goto end_insert;
    }
 
    if (old_result != NULL) {
@@ -1486,7 +1464,7 @@ core_insert(core_handle   *spl,
          rc = core_lookup_from_memtable_generation_locked(
             spl, generation - 1, tuple_key, old_result);
          if (!SUCCESS(rc)) {
-            goto lookup_failed;
+            goto deinit_insert_results;
          }
       } else {
          memtable_end_insert(&spl->mt_ctxt);
@@ -1496,7 +1474,8 @@ core_insert(core_handle   *spl,
       memtable_end_insert(&spl->mt_ctxt);
    }
 
-lookup_failed:
+deinit_insert_results:
+   btree_insert_results_deinit(&insert_results);
 
    task_perform_one_if_needed(spl->ts, spl->cfg.queue_scale_percent);
 
@@ -1523,6 +1502,11 @@ lookup_failed:
    }
 
 out:
+   return rc;
+
+end_insert:
+   btree_insert_results_deinit(&insert_results);
+   memtable_end_insert(&spl->mt_ctxt);
    return rc;
 }
 

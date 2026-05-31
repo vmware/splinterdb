@@ -37,7 +37,9 @@ merge_accumulator_copy_message(merge_accumulator *ma, message msg)
    if (!SUCCESS(rc)) {
       return FALSE;
    }
+
    ma->type = message_class(msg);
+   ma->cc   = msg.cc;
    return TRUE;
 }
 
@@ -45,6 +47,9 @@ _Bool
 merge_accumulator_resize(merge_accumulator *ma, uint64 newsize)
 {
    platform_status rc = writable_buffer_resize(&ma->data, newsize);
+   if (SUCCESS(rc) && newsize == 0) {
+      ma->cc = NULL;
+   }
    return SUCCESS(rc);
 }
 
@@ -52,4 +57,7 @@ void
 merge_accumulator_set_class(merge_accumulator *ma, message_type type)
 {
    ma->type = type;
+   if (type == MESSAGE_TYPE_INVALID || type == MESSAGE_TYPE_DELETE) {
+      ma->cc = NULL;
+   }
 }

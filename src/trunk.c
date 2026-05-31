@@ -1787,9 +1787,29 @@ trunk_node_inc_all_refs(trunk_context *context, trunk_node *node)
    }
 }
 
-static trunk_ondisk_node_ref *
-trunk_ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
+static void
+trunk_ondisk_node_ref_inc(const ondisk_ref *ref)
 {
+   trunk_context *context = (trunk_context *)ref->arg;
+   debug_assert(ref->type == PAGE_TYPE_TRUNK);
+   trunk_ondisk_node_inc_ref(context, ref->addr);
+}
+
+static void
+trunk_ondisk_node_ref_dec(const ondisk_ref *ref)
+{
+   trunk_context *context = (trunk_context *)ref->arg;
+   debug_assert(ref->type == PAGE_TYPE_TRUNK);
+   trunk_ondisk_node_dec_ref(context, ref->addr);
+}
+
+static trunk_ondisk_node_ref *
+trunk_ondisk_node_ref_create(trunk_context *context,
+                             key            k,
+                             uint64         child_addr,
+                             bool32         adopt)
+{
+   platform_heap_id       hid    = context->hid;
    trunk_ondisk_node_ref *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, result, key.bytes, ondisk_key_required_data_capacity(k));
    if (result == NULL) {
@@ -1797,7 +1817,23 @@ trunk_ondisk_node_ref_create(platform_heap_id hid, key k, uint64 child_addr)
          "%s():%d: TYPED_FLEXIBLE_STRUCT_ZALLOC() failed", __func__, __LINE__);
       return NULL;
    }
-   result->addr = child_addr;
+   if (adopt) {
+      ondisk_ref_init_adopt(&result->ref,
+                            context->cc,
+                            child_addr,
+                            PAGE_TYPE_TRUNK,
+                            context,
+                            trunk_ondisk_node_ref_inc,
+                            trunk_ondisk_node_ref_dec);
+   } else {
+      ondisk_ref_init(&result->ref,
+                      context->cc,
+                      child_addr,
+                      PAGE_TYPE_TRUNK,
+                      context,
+                      trunk_ondisk_node_ref_inc,
+                      trunk_ondisk_node_ref_dec);
+   }
    copy_key_to_ondisk_key(&result->key, k);
    return result;
 }
@@ -1807,9 +1843,8 @@ trunk_ondisk_node_ref_destroy(trunk_ondisk_node_ref *odnref,
                               trunk_context         *context,
                               platform_heap_id       hid)
 {
-   if (odnref->addr != 0) {
-      trunk_ondisk_node_dec_ref(context, odnref->addr);
-   }
+   debug_assert(ondisk_ref_is_null(&odnref->ref) || odnref->ref.arg == context);
+   ondisk_ref_deinit(&odnref->ref);
    platform_free(hid, odnref);
 }
 
@@ -1819,7 +1854,7 @@ trunk_pivot_create_from_ondisk_node_ref(trunk_ondisk_node_ref *odnref,
 {
    return trunk_pivot_create(hid,
                              ondisk_key_to_key(&odnref->key),
-                             odnref->addr,
+                             odnref->ref.addr,
                              0,
                              TRUNK_STATS_ZERO,
                              TRUNK_STATS_ZERO);
@@ -2118,7 +2153,7 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
    trunk_node_inc_all_refs(context, node);
 
    result = trunk_ondisk_node_ref_create(
-      context->hid, trunk_node_pivot_key(node, 0), header_addr);
+      context, trunk_node_pivot_key(node, 0), header_addr, TRUE);
    if (result == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_ref_create() failed", __func__, __LINE__);
@@ -2391,7 +2426,7 @@ trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
       rc                           = STATUS_OK;
    } else {
       rc = trunk_ondisk_node_handle_init(
-         handle, context->cc, context->root->addr);
+         handle, context->cc, context->root->ref.addr);
    }
    trunk_read_end(context);
    return rc;
@@ -2516,7 +2551,7 @@ trunk_apply_changes_internal(trunk_context          *context,
                rc = vector_append(&new_child_refs, new_child_ref);
                platform_assert_status_ok(rc);
 
-               trunk_pivot_set_child_addr(child_pivot, new_child_ref->addr);
+               trunk_pivot_set_child_addr(child_pivot, new_child_ref->ref.addr);
             }
          }
       }
@@ -2544,7 +2579,7 @@ trunk_apply_changes(trunk_context          *context,
                     void                   *arg)
 {
    trunk_ondisk_node_ref *new_root_ref = trunk_apply_changes_internal(
-      context, context->root->addr, minkey, maxkey, height, func, arg);
+      context, context->root->ref.addr, minkey, maxkey, height, func, arg);
    if (new_root_ref != NULL) {
       trunk_set_root(context, new_root_ref);
    } else {
@@ -4904,7 +4939,7 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
    // Read the old root.
    trunk_node root;
    if (context->root != NULL) {
-      rc = trunk_node_deserialize(context, context->root->addr, &root);
+      rc = trunk_node_deserialize(context, context->root->ref.addr, &root);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_incorporate: node_deserialize failed: %d\n",
                             rc.r);
@@ -5828,22 +5863,22 @@ trunk_context_init(trunk_context      *context,
 {
    memset(context, 0, sizeof(trunk_context));
 
+   context->cfg = cfg;
+   context->hid = hid;
+   context->cc  = cc;
+   context->al  = al;
+   context->ts  = ts;
+
    if (root_addr != 0) {
-      context->root =
-         trunk_ondisk_node_ref_create(hid, NEGATIVE_INFINITY_KEY, root_addr);
+      context->root = trunk_ondisk_node_ref_create(
+         context, NEGATIVE_INFINITY_KEY, root_addr, FALSE);
       if (context->root == NULL) {
          platform_error_log("trunk_node_context_init: "
                             "ondisk_node_ref_create failed\n");
          return STATUS_NO_MEMORY;
       }
-      allocator_inc_ref(al, root_addr);
    }
 
-   context->cfg   = cfg;
-   context->hid   = hid;
-   context->cc    = cc;
-   context->al    = al;
-   context->ts    = ts;
    context->stats = NULL;
    if (cfg->use_stats) {
       context->stats = TYPED_ARRAY_MALLOC(hid, context->stats, MAX_THREADS);
@@ -6040,7 +6075,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
    // Get the height of the tree
    trunk_node      root;
    platform_status rc =
-      trunk_node_deserialize(context, context->root->addr, &root);
+      trunk_node_deserialize(context, context->root->ref.addr, &root);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_node_print_insertion_stats: "
                          "node_deserialize failed: %d\n",

@@ -15,15 +15,17 @@
 #include "cache.h"
 #include "iterator.h"
 #include "splinterdb/data.h"
+#include "blob_build.h"
 #include "mini_allocator.h"
 
 /*
  * Configuration structure to set up the sharded log sub-system.
  */
 typedef struct shard_log_config {
-   cache_config *cache_cfg;
-   data_config  *data_cfg;
-   uint64        seed;
+   cache_config     *cache_cfg;
+   data_config      *data_cfg;
+   uint64            seed;
+   blob_build_config blob_cfg;
    // data config of point message tree
 } shard_log_config;
 
@@ -50,6 +52,7 @@ typedef struct log_entry log_entry;
 
 typedef struct shard_log_iterator {
    iterator          super;
+   cache            *cc;
    shard_log_config *cfg;
    char             *contents;
    log_entry       **entries;

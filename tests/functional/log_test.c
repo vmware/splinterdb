@@ -117,6 +117,70 @@ test_log_crash(clockcache             *cc,
    return 0;
 }
 
+static int
+test_log_large_message(cache            *cc,
+                       shard_log_config *cfg,
+                       shard_log        *log,
+                       platform_heap_id  hid)
+{
+   platform_status    rc;
+   shard_log_iterator itor;
+   iterator          *itorh = (iterator *)&itor;
+   merge_accumulator  msg;
+   key                returned_key;
+   message            returned_message;
+   char               key_data[] = "large-log-key";
+   key                skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   uint64             value_len = 3 * cache_page_size(cc) + 123;
+
+   rc = shard_log_init(log, cc, cfg);
+   platform_assert_status_ok(rc);
+
+   merge_accumulator_init(&msg, hid);
+   bool32 success = merge_accumulator_resize(&msg, value_len);
+   platform_assert(success);
+   merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&msg), 'L', value_len);
+
+   int log_rc =
+      log_write((log_handle *)log, skey, merge_accumulator_to_message(&msg), 0);
+   platform_assert(log_rc == 0);
+
+   merge_accumulator filler;
+   merge_accumulator_init(&filler, hid);
+   success = merge_accumulator_resize(&filler, cache_page_size(cc) / 4);
+   platform_assert(success);
+   merge_accumulator_set_class(&filler, MESSAGE_TYPE_INSERT);
+   memset(
+      merge_accumulator_data(&filler), 'f', merge_accumulator_length(&filler));
+   for (uint64 i = 1; i < 16; i++) {
+      log_rc = log_write(
+         (log_handle *)log, skey, merge_accumulator_to_message(&filler), i);
+      platform_assert(log_rc == 0);
+   }
+   merge_accumulator_deinit(&filler);
+
+   rc = shard_log_iterator_init(cc,
+                                cfg,
+                                hid,
+                                log_addr((log_handle *)log),
+                                log_magic((log_handle *)log),
+                                &itor);
+   platform_assert_status_ok(rc);
+   platform_assert(iterator_can_curr(itorh));
+
+   iterator_curr(itorh, &returned_key, &returned_message);
+   platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
+   platform_assert(
+      message_lex_cmp(merge_accumulator_to_message(&msg), returned_message)
+      == 0);
+
+   shard_log_iterator_deinit(hid, &itor);
+   merge_accumulator_deinit(&msg);
+   shard_log_zap(log);
+   return 0;
+}
+
 typedef struct test_log_thread_params {
    shard_log              *log;
    platform_thread         thread;
@@ -317,6 +381,9 @@ log_test(int argc, char *argv[])
 
    shard_log *log = TYPED_MALLOC(hid, log);
    platform_assert(log != NULL);
+   rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, log, hid);
+   platform_assert(rc == 0);
+
    if (run_perf_test) {
       ret = test_log_perf(
          (cache *)cc, &system_cfg.log_cfg, log, 200000000, &gen, 16, &ts, hid);

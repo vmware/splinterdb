@@ -41,16 +41,16 @@
 #include "config.h"
 #include "splinterdb_tests_private.h"
 
-#define TEST_MAX_KEY_SIZE 13
+#define TEST_MAX_KEY_SIZE 23
 
 /* -1 for message encoding overhead */
 #define TEST_MAX_VALUE_SIZE 32
 
 // Hard-coded format strings to generate key and values
-static const char key_fmt[] = "key-%04x";
-static const char val_fmt[] = "val-%04x";
-#define KEY_FMT_LENGTH         (8)
-#define VAL_FMT_LENGTH         (8)
+static const char key_fmt[] = "key-%018x";
+static const char val_fmt[] = "val-%018x";
+#define KEY_FMT_LENGTH         (22)
+#define VAL_FMT_LENGTH         (22)
 #define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
 #define TEST_INSERT_VAL_LENGTH (VAL_FMT_LENGTH + 1)
 
@@ -112,6 +112,9 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2);
 
 static uint64
 sum_branch_lookups(const splinterdb *kvsb);
+
+static uint64
+force_flush_current_memtable(splinterdb *kvsb);
 
 static void
 assert_lookup_result_not_found(const splinterdb_lookup_result *result);
@@ -337,16 +340,12 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 }
 
 /*
- * Test case to verify core interfaces when value-size is > max value-size.
- * Here, we basically exercise the insert interface, which will trip up
- * if very large values are supplied. (Once insert fails, there is
- * no further need to verify the other interfaces for very-large-values.)
+ * Test case to verify core interfaces when value-size is larger than a page.
  */
 CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
-   size_t too_large_value_len =
-      MAX_INLINE_MESSAGE_SIZE(IO_DEFAULT_PAGE_SIZE) + 1;
-   char *too_large_value_data;
+   size_t too_large_value_len = 3 * IO_DEFAULT_PAGE_SIZE + 123;
+   char  *too_large_value_data;
    too_large_value_data = TYPED_ARRAY_MALLOC(
       data->cfg.heap_id, too_large_value_data, too_large_value_len);
    memset(too_large_value_data, 'z', too_large_value_len);
@@ -355,9 +354,125 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 
    int rc = splinterdb_insert(
       data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value, NULL);
+   ASSERT_EQUAL(0, rc);
 
-   ASSERT_EQUAL(EINVAL, rc);
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   rc = splinterdb_lookup(
+      data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+
+   slice value;
+   rc = splinterdb_lookup_result_value(&result, &value);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(too_large_value_len, slice_length(value));
+   ASSERT_EQUAL(0, slice_lex_cmp(too_large_value, value));
+
+   splinterdb_lookup_result_deinit(&result);
+
+   splinterdb_close(&data->kvsb);
+   rc = splinterdb_open(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = splinterdb_lookup(
+      data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+
+   rc = splinterdb_lookup_result_value(&result, &value);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(too_large_value_len, slice_length(value));
+   ASSERT_EQUAL(0, slice_lex_cmp(too_large_value, value));
+
+   splinterdb_lookup_result_deinit(&result);
    platform_free(data->cfg.heap_id, too_large_value_data);
+}
+
+CTEST2(splinterdb_quick, test_large_lookup_survives_memtable_recycle)
+{
+   size_t large_value_len = 3 * IO_DEFAULT_PAGE_SIZE + 123;
+   char  *large_value_data;
+   large_value_data =
+      TYPED_ARRAY_MALLOC(data->cfg.heap_id, large_value_data, large_value_len);
+   memset(large_value_data, 'z', large_value_len);
+   slice large_value = slice_create(large_value_len, large_value_data);
+   slice user_key    = slice_create(sizeof("foo"), "foo");
+
+   int rc = splinterdb_insert(data->kvsb, user_key, large_value, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       generation = force_flush_current_memtable(data->kvsb);
+   memtable    *mt =
+      &core->mt_ctxt.mt[generation % core->mt_ctxt.cfg.max_memtables];
+   ASSERT_EQUAL(MEMTABLE_STATE_READY, mt->state);
+
+   for (uint64 i = 0; i < core->mt_ctxt.cfg.max_memtables; i++) {
+      char recycle_key[TEST_INSERT_KEY_LENGTH] = {0};
+      char recycle_val[TEST_INSERT_VAL_LENGTH] = {0};
+
+      snprintf(recycle_key, sizeof(recycle_key), "r-%06lu", i);
+      snprintf(recycle_val, sizeof(recycle_val), "v-%06lu", i);
+      rc = splinterdb_insert(data->kvsb,
+                             slice_create(strlen(recycle_key), recycle_key),
+                             slice_create(strlen(recycle_val), recycle_val),
+                             NULL);
+      ASSERT_EQUAL(0, rc);
+      force_flush_current_memtable(data->kvsb);
+   }
+
+   slice value;
+   rc = splinterdb_lookup_result_value(&result, &value);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(large_value_len, slice_length(value));
+   ASSERT_EQUAL(0, slice_lex_cmp(large_value, value));
+
+   splinterdb_lookup_result_deinit(&result);
+   platform_free(data->cfg.heap_id, large_value_data);
+}
+
+CTEST2(splinterdb_quick, test_iterator_survives_memtable_recycle)
+{
+   const int num_inserts = 50;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_iterator *it = NULL;
+   rc                      = splinterdb_iterator_init(
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_iterator_valid(it));
+
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       generation = force_flush_current_memtable(data->kvsb);
+   memtable    *mt =
+      &core->mt_ctxt.mt[generation % core->mt_ctxt.cfg.max_memtables];
+   ASSERT_EQUAL(MEMTABLE_STATE_READY, mt->state);
+
+   int i = 0;
+   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
+      rc = check_current_tuple(it, i);
+      ASSERT_EQUAL(0, rc);
+      i++;
+   }
+   ASSERT_EQUAL(num_inserts, i);
+
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_iterator_deinit(it);
 }
 
 /*
@@ -1123,8 +1238,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg               = test_data_config;
-   data->cfg.data_cfg->max_key_size = 20;
+   data->cfg.data_cfg = test_data_config;
+   // data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1336,8 +1451,8 @@ CTEST2(splinterdb_quick, test_write_api_old_result_existence_only)
 CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 {
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg               = test_data_config;
-   data->cfg.data_cfg->max_key_size = 20;
+   data->cfg.data_cfg = test_data_config;
+   // data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1386,8 +1501,8 @@ CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
 {
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg               = test_data_config;
-   data->cfg.data_cfg->max_key_size = 20;
+   data->cfg.data_cfg = test_data_config;
+   // data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1603,6 +1718,17 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
                                   .disk_size  = 127 * Mega,
                                   .use_shmem  = FALSE,
                                   .data_cfg   = default_data_cfg};
+}
+
+static uint64
+force_flush_current_memtable(splinterdb *kvsb)
+{
+   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+   uint64       generation = memtable_force_finalize(&core->mt_ctxt);
+   core->mt_ctxt.process(core->mt_ctxt.process_ctxt, generation);
+   platform_status rc = task_perform_until_quiescent(core->ts);
+   ASSERT_TRUE(SUCCESS(rc));
+   return generation;
 }
 
 static uint64

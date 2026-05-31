@@ -49,7 +49,9 @@ typedef enum message_type {
  */
 typedef struct message {
    message_type type;
-   slice        data;
+   // Internal: non-NULL means data is a blob descriptor.
+   void *cc;
+   slice data;
 } message;
 
 static inline message_type
@@ -68,6 +70,12 @@ static inline uint64
 message_length(message msg)
 {
    return slice_length(msg.data);
+}
+
+static inline _Bool
+message_is_blob(message msg)
+{
+   return msg.cc != NULL;
 }
 
 static inline const void *

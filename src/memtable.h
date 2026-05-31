@@ -162,17 +162,22 @@ memtable_block_lookups(memtable_context *ctxt);
 void
 memtable_unblock_lookups(memtable_context *ctxt);
 
-platform_status
-memtable_insert(memtable_context *ctxt,
-                memtable         *mt,
-                platform_heap_id  heap_id,
-                key               tuple_key,
-                message           msg,
-                lookup_result    *old_result,
-                uint64           *generation);
+void
+memtable_root_inc_ref(memtable_context *ctxt, uint64 root_addr);
 
 bool32
-memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt);
+memtable_root_dec_ref(memtable_context *ctxt, uint64 root_addr);
+
+platform_status
+memtable_insert(memtable_context     *ctxt,
+                memtable             *mt,
+                platform_heap_id      heap_id,
+                key                   tuple_key,
+                message               msg,
+                btree_insert_results *results);
+
+void
+memtable_recycle(memtable_context *ctxt, memtable *mt);
 
 uint64
 memtable_force_finalize(memtable_context *ctxt);
