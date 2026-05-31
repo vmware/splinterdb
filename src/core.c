@@ -379,8 +379,8 @@ core_log_insert(core_handle                *spl,
       merge_accumulator_is_null(&insert_results->msg_blob)
          ? msg
          : merge_accumulator_to_message(&insert_results->msg_blob);
-   int log_rc = log_write(
-      spl->log, tuple_key, log_msg, insert_results->leaf_generation);
+   int log_rc =
+      log_write(spl->log, tuple_key, log_msg, insert_results->leaf_generation);
    return log_rc == 0 ? STATUS_OK : (platform_status){.r = log_rc};
 }
 
