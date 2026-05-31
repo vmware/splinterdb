@@ -179,9 +179,9 @@ typedef struct btree_pack_req {
 } btree_pack_req;
 
 typedef struct btree_insert_results {
-   lookup_result     *old_result_buffer; // optional, not owned
-   uint64             leaf_generation;
-   merge_accumulator  msg_blob;
+   lookup_result    *old_result_buffer; // optional, not owned
+   uint64            leaf_generation;
+   merge_accumulator msg_blob;
 } btree_insert_results;
 
 static inline void
@@ -202,15 +202,15 @@ btree_insert_results_deinit(btree_insert_results *results)
 }
 
 platform_status
-btree_insert(cache              *cc,         // IN
-             const btree_config *cfg,        // IN
-             platform_heap_id    heap_id,    // IN
-             btree_scratch      *scratch,    // IN
-             uint64              root_addr,  // IN
-             mini_allocator     *mini,       // IN
-             key                 tuple_key,  // IN
-             message             data,       // IN
-             btree_insert_results *results); // IN/OUT
+btree_insert(cache                *cc,        // IN
+             const btree_config   *cfg,       // IN
+             platform_heap_id      heap_id,   // IN
+             btree_scratch        *scratch,   // IN
+             uint64                root_addr, // IN
+             mini_allocator       *mini,      // IN
+             key                   tuple_key, // IN
+             message               data,      // IN
+             btree_insert_results *results);  // IN/OUT
 
 uint64
 btree_create(cache              *cc,

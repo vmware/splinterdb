@@ -169,11 +169,11 @@ bool32
 memtable_root_dec_ref(memtable_context *ctxt, uint64 root_addr);
 
 platform_status
-memtable_insert(memtable_context *ctxt,
-                memtable         *mt,
-                platform_heap_id  heap_id,
-                key               tuple_key,
-                message           msg,
+memtable_insert(memtable_context     *ctxt,
+                memtable             *mt,
+                platform_heap_id      heap_id,
+                key                   tuple_key,
+                message               msg,
                 btree_insert_results *results);
 
 void

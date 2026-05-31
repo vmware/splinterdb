@@ -1579,8 +1579,8 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       btree_node_unclaim(cc, cfg, parent);
       btree_node_unget(cc, cfg, parent);
       btree_node_lock(cc, cfg, child);
-      platform_status rc = btree_record_old_result(
-         cfg, cc, root_addr, child->hdr, spec, results);
+      platform_status rc =
+         btree_record_old_result(cfg, cc, root_addr, child->hdr, spec, results);
       if (!SUCCESS(rc)) {
          btree_node_full_unlock(cc, cfg, child);
          return rc;
@@ -1857,19 +1857,19 @@ btree_grow_root(cache              *cc,   // IN
  *-----------------------------------------------------------------------------
  */
 platform_status
-btree_insert(cache              *cc,         // IN
-             const btree_config *cfg,        // IN
-             platform_heap_id    heap_id,    // IN
-             btree_scratch      *scratch,    // IN
-             uint64              root_addr,  // IN
-             mini_allocator     *mini,       // IN
-             key                 tuple_key,  // IN
-             message             msg,        // IN
-             btree_insert_results *results)  // IN/OUT
+btree_insert(cache                *cc,        // IN
+             const btree_config   *cfg,       // IN
+             platform_heap_id      heap_id,   // IN
+             btree_scratch        *scratch,   // IN
+             uint64                root_addr, // IN
+             mini_allocator       *mini,      // IN
+             key                   tuple_key, // IN
+             message               msg,       // IN
+             btree_insert_results *results)   // IN/OUT
 {
    platform_status       rc;
    leaf_incorporate_spec spec;
-   uint64                *generation = &results->leaf_generation;
+   uint64               *generation = &results->leaf_generation;
 
    if (MAX_INLINE_KEY_SIZE(btree_page_size(cfg)) < key_length(tuple_key)) {
       return STATUS_BAD_PARAM;

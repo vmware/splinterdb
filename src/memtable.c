@@ -208,25 +208,25 @@ memtable_root_dec_ref(memtable_context *ctxt, uint64 root_addr)
 }
 
 platform_status
-memtable_insert(memtable_context *ctxt,
-                memtable         *mt,
-                platform_heap_id  heap_id,
-                key               tuple_key,
-                message           msg,
+memtable_insert(memtable_context     *ctxt,
+                memtable             *mt,
+                platform_heap_id      heap_id,
+                key                   tuple_key,
+                message               msg,
                 btree_insert_results *results)
 {
    const threadid tid = platform_get_tid();
 
    btree_scratch  *scratch = get_btree_scratch(ctxt, tid);
    platform_status rc      = btree_insert(ctxt->cc,
-                                          ctxt->cfg.btree_cfg,
-                                          heap_id,
-                                          scratch,
-                                          mt->root_addr,
-                                          &mt->mini,
-                                          tuple_key,
-                                          msg,
-                                          results);
+                                     ctxt->cfg.btree_cfg,
+                                     heap_id,
+                                     scratch,
+                                     mt->root_addr,
+                                     &mt->mini,
+                                     tuple_key,
+                                     msg,
+                                     results);
    if (!SUCCESS(rc)) {
       return rc;
    }
