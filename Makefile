@@ -134,6 +134,23 @@ help::
 	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
 
 # ************************************************************************
+# Memory allocation fault injection
+ifndef BUILD_MEMORY_FAULT_INJECTION
+   BUILD_MEMORY_FAULT_INJECTION=0
+endif
+
+ifeq "$(BUILD_MEMORY_FAULT_INJECTION)" "1"
+   CFLAGS += -DPLATFORM_MEMORY_FAULT_INJECTION=1
+else ifeq "$(BUILD_MEMORY_FAULT_INJECTION)" "0"
+   CFLAGS += -DPLATFORM_MEMORY_FAULT_INJECTION=0
+else
+   $(error Unknown BUILD_MEMORY_FAULT_INJECTION mode "$(BUILD_MEMORY_FAULT_INJECTION)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	@echo '  BUILD_MEMORY_FAULT_INJECTION={0,1}: Disable/enable allocation fault injection (Default: disabled)'
+
+# ************************************************************************
 # Address sanitizer
 #   - Ctests will be silently skipped with clang builds. (Known issue.)
 #   - Use gcc to build in Asan mode to run unit-tests.
