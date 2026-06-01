@@ -389,11 +389,9 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                          kvs->heap_id);
    }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to %s SplinterDB instance.\n",
-                         (open_existing ? "mount existing" : "initialize"));
-
-      // Return a generic 'something went wrong' error
-      status = STATUS_INVALID_STATE;
+      platform_error_log("Failed to %s SplinterDB instance: %s\n",
+                         (open_existing ? "mount existing" : "initialize"),
+                         platform_status_to_string(status));
       goto deinit_cache;
    }
 

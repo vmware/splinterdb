@@ -481,8 +481,9 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
             init, (v), __old_length __VA_OPT__(, __VA_ARGS__));                \
       }                                                                        \
       if (!SUCCESS(__rc)) {                                                    \
-         __rc = writable_buffer_resize(&(v)->wb, __old_size);                  \
-         platform_assert_status_ok(__rc);                                      \
+         platform_status __resize_rc =                                         \
+            writable_buffer_resize(&(v)->wb, __old_size);                      \
+         platform_assert_status_ok(__resize_rc);                               \
       }                                                                        \
       __rc;                                                                    \
    })

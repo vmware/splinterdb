@@ -358,6 +358,7 @@ btree_pack_req_init(btree_pack_req     *req,
                     iterator           *itor,
                     uint64              max_tuples,
                     unsigned int        seed,
+                    bool32              collect_fingerprints,
                     platform_heap_id    hid)
 {
    memset(req, 0, sizeof(*req));
@@ -367,7 +368,9 @@ btree_pack_req_init(btree_pack_req     *req,
    req->max_tuples = max_tuples;
    req->seed       = seed;
    merge_accumulator_init(&req->blob_buffer, hid);
-   if (cfg->data_cfg->key_hash != NULL && max_tuples > 0) {
+   if (collect_fingerprints && cfg->data_cfg->key_hash != NULL
+       && max_tuples > 0)
+   {
       req->fingerprint_arr =
          TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
 

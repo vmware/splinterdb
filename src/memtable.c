@@ -17,6 +17,33 @@
 #define MEMTABLE_INSERT_LOCK_IDX 0
 #define MEMTABLE_LOOKUP_LOCK_IDX 1
 
+const char *
+memtable_state_string(memtable_state state)
+{
+   switch (state) {
+      case MEMTABLE_STATE_INVALID:
+         return "INVALID";
+      case MEMTABLE_STATE_READY:
+         return "READY";
+      case MEMTABLE_STATE_FINALIZED:
+         return "FINALIZED";
+      case MEMTABLE_STATE_COMPACTED:
+         return "COMPACTED";
+      case MEMTABLE_STATE_COMPACTING:
+         return "COMPACTING";
+      case MEMTABLE_STATE_INCORPORATION_ASSIGNED:
+         return "INCORPORATION_ASSIGNED";
+      case MEMTABLE_STATE_INCORPORATION_FAILED:
+         return "INCORPORATION_FAILED";
+      case MEMTABLE_STATE_INCORPORATING:
+         return "INCORPORATING";
+      case MEMTABLE_STATE_INCORPORATED:
+         return "INCORPORATED";
+      default:
+         return "UNKNOWN";
+   }
+}
+
 bool32
 memtable_is_full(const memtable_config *cfg, memtable *mt)
 {
@@ -252,8 +279,19 @@ memtable_recycle(memtable_context *ctxt, memtable *mt)
    memtable_lock_incorporation_lock(ctxt);
    mt->generation += ctxt->cfg.max_memtables;
    memtable_unlock_incorporation_lock(ctxt);
+   mt->incorporation_status = STATUS_OK;
    memtable_transition(mt, MEMTABLE_STATE_INCORPORATED, MEMTABLE_STATE_READY);
    memtable_root_dec_ref(ctxt, old_root_addr);
+}
+
+void
+memtable_mark_incorporation_failed(memtable *mt, platform_status status)
+{
+   platform_assert(!SUCCESS(status));
+   mt->incorporation_status = status;
+   memtable_transition(mt,
+                       MEMTABLE_STATE_INCORPORATION_ASSIGNED,
+                       MEMTABLE_STATE_INCORPORATION_FAILED);
 }
 
 uint64
@@ -278,17 +316,42 @@ void
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 {
    ZERO_CONTENTS(mt);
-   mt->cfg       = cfg->btree_cfg;
-   mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
-   mt->state     = MEMTABLE_STATE_READY;
+   mt->cfg                  = cfg->btree_cfg;
+   mt->root_addr            =
+      btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+   mt->state                = MEMTABLE_STATE_READY;
+   mt->incorporation_status = STATUS_OK;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
+}
+
+static bool32
+memtable_mini_needs_release(memtable *mt)
+{
+   switch (mt->state) {
+      case MEMTABLE_STATE_READY:
+      case MEMTABLE_STATE_FINALIZED:
+         return TRUE;
+      case MEMTABLE_STATE_COMPACTING:
+      case MEMTABLE_STATE_COMPACTED:
+      case MEMTABLE_STATE_INCORPORATION_ASSIGNED:
+      case MEMTABLE_STATE_INCORPORATION_FAILED:
+      case MEMTABLE_STATE_INCORPORATING:
+      case MEMTABLE_STATE_INCORPORATED:
+         return FALSE;
+      case MEMTABLE_STATE_INVALID:
+      default:
+         platform_assert(0);
+         return FALSE;
+   }
 }
 
 void
 memtable_deinit(cache *cc, memtable *mt)
 {
-   mini_release(&mt->mini);
+   if (memtable_mini_needs_release(mt)) {
+      mini_release(&mt->mini);
+   }
    debug_only bool32 freed =
       btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);

@@ -288,6 +288,51 @@ core_get_compacted_memtable(core_handle *spl, uint64 generation)
    return &spl->compacted_memtable[memtable_idx];
 }
 
+static bool32
+core_memtable_state_has_compacted_branch(memtable_state state)
+{
+   return state == MEMTABLE_STATE_COMPACTED
+          || state == MEMTABLE_STATE_INCORPORATION_ASSIGNED
+          || state == MEMTABLE_STATE_INCORPORATION_FAILED;
+}
+
+static uint64
+core_memtable_compacted_branch_root(core_handle *spl, uint64 generation)
+{
+   memtable *mt = core_get_memtable(spl, generation);
+   if (!core_memtable_state_has_compacted_branch(mt->state)) {
+      return 0;
+   }
+
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   return cmt->branch.root_addr;
+}
+
+static void
+core_memtable_release_compacted_branch(core_handle *spl, uint64 generation)
+{
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   if (cmt->branch.root_addr == 0) {
+      return;
+   }
+
+   btree_dec_ref(
+      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_BRANCH);
+   cmt->branch.root_addr = 0;
+}
+
+static void
+core_memtable_mark_incorporation_failed(core_handle     *spl,
+                                        uint64           generation,
+                                        platform_status  status)
+{
+   memtable_block_lookups(&spl->mt_ctxt);
+   memtable *mt = core_get_memtable(spl, generation);
+   memtable_mark_incorporation_failed(mt, status);
+   core_memtable_release_compacted_branch(spl, generation);
+   memtable_unblock_lookups(&spl->mt_ctxt);
+}
+
 static inline void
 core_memtable_inc_ref(core_handle *spl, uint64 root_addr)
 {
@@ -424,6 +469,7 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
                        itor,
                        rflimit,
                        rfcfg->seed,
+                       FALSE,
                        spl->heap_id);
    uint64 pack_start;
    if (spl->cfg.use_stats) {
@@ -514,14 +560,17 @@ unlock_incorp_lock:
    return should_continue;
 }
 
-static void
+static platform_status
 core_memtable_incorporate(core_handle   *spl,
                           uint64         generation,
                           const threadid tid)
 {
    platform_stream_handle stream;
    platform_status        rc = core_open_log_stream_if_enabled(spl, &stream);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      core_memtable_mark_incorporation_failed(spl, generation, rc);
+      return rc;
+   }
    core_log_stream_if_enabled(
       spl, &stream, "incorporate memtable gen %lu\n", generation);
    core_log_stream_if_enabled(
@@ -534,9 +583,15 @@ core_memtable_incorporate(core_handle   *spl,
       flush_start = platform_get_timestamp();
    }
    rc = trunk_incorporate_prepare(&spl->trunk_context, cmt->branch.root_addr);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_incorporate_prepare failed: %s\n",
+                         platform_status_to_string(rc));
+      core_close_log_stream_if_enabled(spl, &stream);
+      core_memtable_mark_incorporation_failed(spl, generation, rc);
+      return rc;
+   }
    btree_dec_ref(
-      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
+      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_BRANCH);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -581,6 +636,8 @@ core_memtable_incorporate(core_handle   *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+
+   return STATUS_OK;
 }
 
 /*
@@ -590,7 +647,7 @@ core_memtable_incorporate(core_handle   *spl,
  * context of the foreground thread.  If background threads are enabled, this
  * function is called in the context of the memtable worker thread.
  */
-static void
+static platform_status
 core_memtable_flush_internal(core_handle *spl, uint64 generation)
 {
    const threadid tid = platform_get_tid();
@@ -602,18 +659,26 @@ core_memtable_flush_internal(core_handle *spl, uint64 generation)
       goto out;
    }
    do {
-      core_memtable_incorporate(spl, generation, tid);
+      platform_status rc = core_memtable_incorporate(spl, generation, tid);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       generation++;
    } while (core_try_continue_incorporate(spl, generation));
 out:
-   return;
+   return STATUS_OK;
 }
 
 static void
 core_memtable_flush_internal_virtual(task *arg)
 {
    core_memtable_args *mt_args = container_of(arg, core_memtable_args, tsk);
-   core_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   platform_status rc =
+      core_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   if (!SUCCESS(rc)) {
+      platform_error_log("memtable flush failed: %s\n",
+                         platform_status_to_string(rc));
+   }
 }
 
 /*
@@ -1787,6 +1852,53 @@ core_mount(core_handle      *spl,
    return STATUS_OK;
 }
 
+static bool32
+core_report_unincorporated_memtables(core_handle *spl)
+{
+   bool32 found_unincorporated = FALSE;
+   uint64 start_generation = memtable_generation_retired(&spl->mt_ctxt) + 1;
+   uint64 end_generation   = memtable_generation(&spl->mt_ctxt);
+
+   for (uint64 generation = start_generation; generation < end_generation;
+        generation++)
+   {
+      memtable *mt = core_try_get_memtable(spl, generation);
+      if (mt == NULL || mt->state == MEMTABLE_STATE_READY) {
+         continue;
+      }
+
+      found_unincorporated = TRUE;
+      uint64 compacted_root =
+         core_memtable_compacted_branch_root(spl, generation);
+      if (mt->state == MEMTABLE_STATE_INCORPORATION_FAILED) {
+         platform_error_log("Shutdown found memtable from failed "
+                            "incorporation: generation=%lu state=%s "
+                            "status=%s memtable_root=%lu "
+                            "compacted_root=%lu\n",
+                            generation,
+                            memtable_state_string(mt->state),
+                            platform_status_to_string(
+                               mt->incorporation_status),
+                            mt->root_addr,
+                            compacted_root);
+      } else {
+         platform_error_log("Shutdown found unincorporated memtable: "
+                            "generation=%lu state=%s memtable_root=%lu "
+                            "compacted_root=%lu\n",
+                            generation,
+                            memtable_state_string(mt->state),
+                            mt->root_addr,
+                            compacted_root);
+      }
+
+      if (compacted_root != 0) {
+         core_memtable_release_compacted_branch(spl, generation);
+      }
+   }
+
+   return found_unincorporated;
+}
+
 /*
  * This function is only safe to call when all other calls to spl have returned.
  */
@@ -1809,6 +1921,8 @@ core_prepare_for_shutdown(core_handle *spl)
    // finish any outstanding tasks and destroy task system for this table.
    platform_status rc = task_perform_until_quiescent(spl->ts);
    platform_assert_status_ok(rc);
+
+   core_report_unincorporated_memtables(spl);
 
    // destroy memtable context (and its memtables)
    memtable_context_deinit(&spl->mt_ctxt);
