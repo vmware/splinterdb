@@ -10,8 +10,6 @@ int
 init_data_config_from_master_config(data_config   *data_cfg,
                                     master_config *master_cfg)
 {
-   (void)data_cfg;
-   (void)master_cfg;
    return 1;
 }
 
