@@ -136,7 +136,8 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    platform_assert(size <= size + alignment - 1);
    size_t aligned_size = (size + alignment - 1) & ~((uintptr_t)alignment - 1);
 
-#if PLATFORM_MEMORY_FAULT_INJECTION
+#if PLATFORM_MEMORY_FAULT_INJECTION                                           \
+   && !defined(PLATFORM_MEMORY_FAULT_INJECTION_DISABLED_IN_THIS_FILE)
    if (platform_memory_fault_should_fail(
           heap_id, size, objname, func, file, lineno))
    {
@@ -175,7 +176,8 @@ platform_realloc_from_heap(const platform_heap_id heap_id,
 {
    /* FIXME: alignment? */
 
-#if PLATFORM_MEMORY_FAULT_INJECTION
+#if PLATFORM_MEMORY_FAULT_INJECTION                                           \
+   && !defined(PLATFORM_MEMORY_FAULT_INJECTION_DISABLED_IN_THIS_FILE)
    if (newsize != 0
        && platform_memory_fault_should_fail(
              heap_id, newsize, objname, func, file, lineno))
