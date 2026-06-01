@@ -1420,10 +1420,6 @@ core_insert(core_handle   *spl,
       ts = platform_get_timestamp();
    }
 
-   if (core_max_key_size(spl) < key_length(tuple_key)) {
-      return STATUS_BAD_PARAM;
-   }
-
    if (message_class(data) == MESSAGE_TYPE_DELETE) {
       data = DELETE_MESSAGE;
    }

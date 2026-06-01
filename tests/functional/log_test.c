@@ -29,6 +29,7 @@ test_log_crash(clockcache             *cc,
                task_system            *ts,
                platform_heap_id        hid,
                test_message_generator *gen,
+               uint64                  key_size,
                uint64                  num_entries,
                bool32                  crash)
 
@@ -58,13 +59,8 @@ test_log_crash(clockcache             *cc,
    merge_accumulator_init(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
-      key skey = test_key(&keybuffer,
-                          TEST_RANDOM,
-                          i,
-                          0,
-                          0,
-                          1 + (i % cfg->data_cfg->max_key_size),
-                          0);
+      key skey =
+         test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }
@@ -81,13 +77,8 @@ test_log_crash(clockcache             *cc,
    itorh = (iterator *)&itor;
 
    for (i = 0; i < num_entries && iterator_can_curr(itorh); i++) {
-      key skey = test_key(&keybuffer,
-                          TEST_RANDOM,
-                          i,
-                          0,
-                          0,
-                          1 + (i % cfg->data_cfg->max_key_size),
-                          0);
+      key skey =
+         test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
       iterator_curr(itorh, &returned_key, &returned_message);
@@ -186,6 +177,7 @@ typedef struct test_log_thread_params {
    platform_thread         thread;
    int                     thread_id;
    test_message_generator *gen;
+   uint64                  key_size;
    uint64                  num_entries;
 } test_log_thread_params;
 
@@ -199,6 +191,7 @@ test_log_thread(void *arg)
    int                     thread_id   = params->thread_id;
    uint64                  num_entries = params->num_entries;
    test_message_generator *gen         = params->gen;
+   uint64                  key_size    = params->key_size;
    uint64                  i;
    merge_accumulator       msg;
    DECLARE_AUTO_KEY_BUFFER(keybuf, hid);
@@ -206,8 +199,7 @@ test_log_thread(void *arg)
    merge_accumulator_init(&msg, hid);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
-      key skey = test_key(
-         &keybuf, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->max_key_size, 0);
+      key skey = test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }
@@ -221,6 +213,7 @@ test_log_perf(cache                  *cc,
               shard_log              *log,
               uint64                  num_entries,
               test_message_generator *gen,
+              uint64                  key_size,
               uint64                  num_threads,
               task_system            *ts,
               platform_heap_id        hid)
@@ -239,6 +232,7 @@ test_log_perf(cache                  *cc,
       params[i].log         = log;
       params[i].thread_id   = i;
       params[i].gen         = gen;
+      params[i].key_size    = key_size;
       params[i].num_entries = num_entries / num_threads;
    }
 
@@ -327,10 +321,12 @@ log_test(int argc, char *argv[])
       platform_get_module_id(), 512 * MiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
-   core_config *cfg                            = TYPED_MALLOC(hid, cfg);
-   uint64       num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   core_config         *cfg                            = TYPED_MALLOC(hid, cfg);
+   uint64               num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   test_workload_config workload_cfg;
 
    status = test_parse_args(&system_cfg,
+                            &workload_cfg,
                             &seed,
                             &gen,
                             &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -385,8 +381,15 @@ log_test(int argc, char *argv[])
    platform_assert(rc == 0);
 
    if (run_perf_test) {
-      ret = test_log_perf(
-         (cache *)cc, &system_cfg.log_cfg, log, 200000000, &gen, 16, &ts, hid);
+      ret = test_log_perf((cache *)cc,
+                          &system_cfg.log_cfg,
+                          log,
+                          200000000,
+                          &gen,
+                          workload_cfg.key_size,
+                          16,
+                          &ts,
+                          hid);
       platform_assert_status_ok(ret);
       rc = 0;
    } else if (run_crash_test) {
@@ -399,6 +402,7 @@ log_test(int argc, char *argv[])
                           &ts,
                           hid,
                           &gen,
+                          workload_cfg.key_size,
                           500000,
                           TRUE /* crash */);
       platform_assert(rc == 0);
@@ -412,6 +416,7 @@ log_test(int argc, char *argv[])
                           &ts,
                           hid,
                           &gen,
+                          workload_cfg.key_size,
                           500000,
                           FALSE /* don't crash */);
       platform_assert(rc == 0);

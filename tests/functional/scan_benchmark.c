@@ -748,6 +748,7 @@ scan_benchmark(int argc, char *argv[])
    int                    config_argc = 0;
    char                 **config_argv = NULL;
    master_config          master_cfg;
+   test_workload_config   workload_cfg;
    data_config            default_data_cfg;
    splinterdb_config      cfg;
    int                    rc = 0;
@@ -772,8 +773,9 @@ scan_benchmark(int argc, char *argv[])
       rc = scan_benchmark_status_to_int(status);
       goto out;
    }
+   test_workload_config_init(&workload_cfg, &master_cfg);
 
-   if (master_cfg.max_key_size < SCAN_BENCHMARK_KEY_SIZE) {
+   if (workload_cfg.key_size < SCAN_BENCHMARK_KEY_SIZE) {
       platform_error_log("scan_benchmark: key-size must be at least %u bytes\n",
                          SCAN_BENCHMARK_KEY_SIZE);
       rc = EINVAL;
@@ -795,7 +797,7 @@ scan_benchmark(int argc, char *argv[])
       goto out;
    }
 
-   default_data_config_init(master_cfg.max_key_size, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
 
    platform_default_log(
       "scan_benchmark: db=%s mode=%d num_inserts=%lu "
@@ -807,7 +809,7 @@ scan_benchmark(int argc, char *argv[])
       master_cfg.num_inserts,
       master_cfg.cache_capacity,
       master_cfg.extent_size,
-      master_cfg.message_size,
+      workload_cfg.message_size,
       options.random_load_order,
       options.splinter_random_keys,
       options.scan_length,
@@ -820,7 +822,7 @@ scan_benchmark(int argc, char *argv[])
       scan_benchmark_make_config(&master_cfg, &default_data_cfg, &cfg, FALSE);
       rc = scan_benchmark_load_database(&cfg,
                                         master_cfg.num_inserts,
-                                        master_cfg.message_size,
+                                        workload_cfg.message_size,
                                         options.random_load_order,
                                         options.splinter_random_keys,
                                         master_cfg.seed);

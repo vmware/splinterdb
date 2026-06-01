@@ -43,7 +43,6 @@
 
 #define IP4_MIN_KEY_SIZE ((1 * IPV4_NUM_FIELDS) + IPV4_NUM_DOTS)
 
-// Application declares the limit of key-sizes it intends to use
 #define IP4_MAX_KEY_SIZE ((3 * IPV4_NUM_FIELDS) + IPV4_NUM_DOTS)
 
 // Max # of chars in a well-formed IP4 address, including null-terminator byte
@@ -133,7 +132,7 @@ main()
 
    // Initialize data configuration, describing your key-value properties
    data_config splinter_data_cfg;
-   default_data_config_init(IP4_MAX_KEY_SIZE, &splinter_data_cfg);
+   default_data_config_init(&splinter_data_cfg);
 
    // -- ACTION IS HERE --
    // Customize key-comparison with our implementation for IP4 addresses

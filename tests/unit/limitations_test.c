@@ -21,8 +21,6 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "platform_units.h"
 
-#define TEST_MAX_KEY_SIZE 13
-
 static void
 create_default_cfg(splinterdb_config *out_cfg,
                    data_config       *default_data_cfg,
@@ -100,6 +98,7 @@ CTEST2(limitations, test_io_init_invalid_page_size)
 
    rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
+                          NULL,
                           &data->gen,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
@@ -154,6 +153,7 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
 
    rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
+                          NULL,
                           &data->gen,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
@@ -208,7 +208,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Cannot use up all possible threads for just bg-threads.
@@ -229,7 +229,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_page_size)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    uint64 page_size_configured = cfg.page_size;
@@ -250,7 +250,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_extent_size)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    uint64 extent_size_configured = cfg.extent_size;
@@ -276,7 +276,7 @@ CTEST2(limitations, test_create_zero_disk_size)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this, to see if an error is raised.
@@ -292,7 +292,7 @@ CTEST2(limitations, test_create_zero_extent_capacity)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to some non-zero value, to see if an error is raised.
@@ -308,7 +308,7 @@ CTEST2(limitations, test_disk_size_not_integral_multiple_of_page_size)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to some non-integral multiple of configured page-size.
@@ -326,7 +326,7 @@ CTEST2(limitations, test_disk_size_not_integral_multiple_of_extents)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to some non-integral multiple of configured extent-size.
@@ -346,7 +346,7 @@ CTEST2(limitations, test_zero_cache_size)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to an illegal value.
@@ -369,7 +369,7 @@ CTEST2(limitations, test_file_error_returns)
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   default_data_config_init(&default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    cfg.filename = "/dev/null/this-file-cannot-possibly-be-opened";

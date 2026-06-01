@@ -32,7 +32,6 @@ typedef struct {
    uint32_t    num_inserts;
    int         random_data;
    splinterdb *kvsb;
-   uint16_t    max_key_size;
    uint16_t    max_value_size;
 } worker_config;
 
@@ -54,8 +53,7 @@ CTEST_SETUP(splinterdb_stress)
                                    .data_cfg   = &data->default_data_config,
                                    .num_memtable_bg_threads = 2,
                                    .num_normal_bg_threads   = 2};
-   size_t max_key_size = TEST_KEY_SIZE;
-   default_data_config_init(max_key_size, data->cfg.data_cfg);
+   default_data_config_init(data->cfg.data_cfg);
 
    data->cfg.use_shmem =
       config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);

@@ -132,7 +132,6 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
 static platform_status
 splinterdb_validate_app_data_config(const data_config *cfg)
 {
-   platform_assert(cfg->max_key_size > 0);
    platform_assert(cfg->key_compare != NULL);
    platform_assert(cfg->key_hash != NULL);
    platform_assert(cfg->key_to_string != NULL);

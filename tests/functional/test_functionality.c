@@ -156,10 +156,9 @@ verify_tuple_callback(core_handle *spl, test_async_ctxt *ctxt, void *arg)
 platform_status
 verify_against_shadow(core_handle                *spl,
                       test_splinter_shadow_array *sharr,
+                      uint64                      key_size,
                       test_async_lookup          *async_lookup)
 {
-   uint64 key_size = spl->cfg.data_cfg->max_key_size;
-
    platform_assert(key_size >= sizeof(uint64));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
@@ -333,7 +332,7 @@ out:
 #define VERIFY_RANGE_ENDPOINT_LESS  (6)
 
 static key
-choose_key(data_config                *cfg,         // IN
+choose_key(uint64                      key_size,    // IN
            test_splinter_shadow_array *sharr,       // IN
            random_state               *prg,         // IN/OUT
            int                         type,        // IN
@@ -365,7 +364,7 @@ choose_key(data_config                *cfg,         // IN
             pos++;
          }
          *index = pos;
-         test_int_to_key(keybuf, int_key, cfg->max_key_size);
+         test_int_to_key(keybuf, int_key, key_size);
          break;
       }
       case VERIFY_RANGE_ENDPOINT_EQUAL:
@@ -376,7 +375,7 @@ choose_key(data_config                *cfg,         // IN
       case VERIFY_RANGE_ENDPOINT_LESS:
          platform_assert(!is_start && !key_is_null(startkey));
          *index = start_index ? (random_next_uint64(prg) % start_index) : 0;
-         test_int_to_key(keybuf, sharr->keys[*index], cfg->max_key_size);
+         test_int_to_key(keybuf, sharr->keys[*index], key_size);
          break;
       default:
          platform_assert(0);
@@ -390,6 +389,7 @@ verify_range_against_shadow_all_types(core_handle                *spl,
                                       random_state               *prg,
                                       test_splinter_shadow_array *sharr,
                                       platform_heap_id            hid,
+                                      uint64                      key_size,
                                       bool32                      do_it)
 {
    int             begin_type;
@@ -410,7 +410,7 @@ verify_range_against_shadow_all_types(core_handle                *spl,
            end_type <= VERIFY_RANGE_ENDPOINT_RAND;
            end_type++)
       {
-         start_key = choose_key(spl->cfg.data_cfg,
+         start_key = choose_key(key_size,
                                 sharr,
                                 prg,
                                 begin_type,
@@ -419,7 +419,7 @@ verify_range_against_shadow_all_types(core_handle                *spl,
                                 0,
                                 &start_index,
                                 &startkey_buf);
-         end_key   = choose_key(spl->cfg.data_cfg,
+         end_key   = choose_key(key_size,
                               sharr,
                               prg,
                               end_type,
@@ -443,7 +443,7 @@ verify_range_against_shadow_all_types(core_handle                *spl,
         end_type <= VERIFY_RANGE_ENDPOINT_LESS;
         end_type++)
    {
-      start_key = choose_key(spl->cfg.data_cfg,
+      start_key = choose_key(key_size,
                              sharr,
                              prg,
                              begin_type,
@@ -452,7 +452,7 @@ verify_range_against_shadow_all_types(core_handle                *spl,
                              0,
                              &start_index,
                              &startkey_buf);
-      end_key   = choose_key(spl->cfg.data_cfg,
+      end_key   = choose_key(key_size,
                            sharr,
                            prg,
                            end_type,
@@ -478,6 +478,7 @@ validate_tree_against_shadow(core_handle               *spl,
                              random_state              *prg,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_id           hid,
+                             uint64                     key_size,
                              bool32                     do_it,
                              test_async_lookup         *async_lookup)
 {
@@ -503,7 +504,7 @@ validate_tree_against_shadow(core_handle               *spl,
       memcpy(&sharr, &dry_run_sharr, sizeof(sharr));
    }
 
-   rc = verify_against_shadow(spl, &sharr, async_lookup);
+   rc = verify_against_shadow(spl, &sharr, key_size, async_lookup);
    if (!SUCCESS(rc)) {
       platform_free(hid, async_lookup);
       platform_error_log("Failed to verify inserted items in Splinter: %s\n",
@@ -511,7 +512,8 @@ validate_tree_against_shadow(core_handle               *spl,
       goto cleanup;
    }
 
-   rc = verify_range_against_shadow_all_types(spl, prg, &sharr, hid, do_it);
+   rc = verify_range_against_shadow_all_types(
+      spl, prg, &sharr, hid, key_size, do_it);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to verify range iteration over inserted items "
                          "in Splinter: %s\n",
@@ -543,6 +545,7 @@ static platform_status
 insert_random_messages(core_handle               *spl,
                        test_splinter_shadow_tree *shadow,
                        random_state              *prg,
+                       uint64                     key_size,
                        int                        num_messages,
                        message_type               op,
                        uint64                     minkey,
@@ -550,8 +553,6 @@ insert_random_messages(core_handle               *spl,
                        int64                      mindelta,
                        int64                      maxdelta)
 {
-   uint64 key_size = spl->cfg.data_cfg->max_key_size;
-
    platform_assert(key_size >= sizeof(uint64));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
@@ -639,18 +640,19 @@ cmp_ptrs(const void *a, const void *b)
  *-----------------------------------------------------------------------------
  */
 platform_status
-test_functionality(allocator       *al,
-                   io_handle       *io,
-                   cache           *cc[],
-                   system_config   *cfg,
-                   uint64           seed,
-                   uint64           num_inserts,
-                   uint64           correctness_check_frequency,
-                   task_system     *state,
-                   platform_heap_id hid,
-                   uint8            num_tables,
-                   uint8            num_caches,
-                   uint32           max_async_inflight)
+test_functionality(allocator            *al,
+                   io_handle            *io,
+                   cache                *cc[],
+                   system_config        *cfg,
+                   test_workload_config *workload_cfg,
+                   uint64                seed,
+                   uint64                num_inserts,
+                   uint64                correctness_check_frequency,
+                   task_system          *state,
+                   platform_heap_id      hid,
+                   uint8                 num_tables,
+                   uint8                 num_caches,
+                   uint32                max_async_inflight)
 {
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
@@ -709,8 +711,13 @@ test_functionality(allocator       *al,
    for (uint8 idx = 0; idx < num_tables; idx++) {
       core_handle               *spl    = &spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
-      status                            = validate_tree_against_shadow(
-         spl, &prg, shadow, hid, TRUE, async_lookup);
+      status                            = validate_tree_against_shadow(spl,
+                                            &prg,
+                                            shadow,
+                                            hid,
+                                            workload_cfg[idx].key_size,
+                                            TRUE,
+                                            async_lookup);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate empty tree against shadow: \
                             %s\n",
@@ -790,6 +797,7 @@ test_functionality(allocator       *al,
          status = insert_random_messages(spl,
                                          shadow,
                                          &prg,
+                                         workload_cfg[idx].key_size,
                                          num_messages,
                                          op,
                                          minkey,
@@ -807,6 +815,7 @@ test_functionality(allocator       *al,
             &prg,
             shadow,
             hid,
+            workload_cfg[idx].key_size,
             correctness_check_frequency
                && (i % correctness_check_frequency) == 0,
             async_lookup);
@@ -853,6 +862,7 @@ test_functionality(allocator       *al,
          &prg,
          shadow,
          hid,
+         workload_cfg[idx].key_size,
          correctness_check_frequency
             && ((i - 1) % correctness_check_frequency) != 0,
          async_lookup);

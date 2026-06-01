@@ -941,6 +941,7 @@ cache_test(int argc, char *argv[])
    core_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(&system_cfg,
+                        NULL,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],

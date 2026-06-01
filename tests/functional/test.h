@@ -213,6 +213,28 @@ typedef struct system_config {
    io_config          io_cfg;
 } system_config;
 
+typedef struct test_workload_config {
+   uint64 key_size;
+   uint64 message_size;
+} test_workload_config;
+
+static inline void
+test_workload_config_init(test_workload_config *workload_cfg,
+                          const master_config  *master_cfg)
+{
+   workload_cfg->key_size     = master_cfg->key_size;
+   workload_cfg->message_size = master_cfg->message_size;
+}
+
+static inline void
+test_message_generator_init(test_message_generator     *gen,
+                            const test_workload_config *workload_cfg)
+{
+   gen->type             = MESSAGE_TYPE_INSERT;
+   gen->min_payload_size = GENERATOR_MIN_PAYLOAD_SIZE;
+   gen->max_payload_size = workload_cfg->message_size;
+}
+
 /*
  * test_config_init() --
  *
@@ -221,13 +243,11 @@ typedef struct system_config {
  * may have been used to setup master_cfg beyond its initial defaults.
  */
 static inline platform_status
-test_config_init(system_config          *system_cfg, // OUT
-                 test_message_generator *gen,
-                 master_config          *master_cfg // IN
+test_config_init(system_config *system_cfg, // OUT
+                 master_config *master_cfg  // IN
 )
 {
-   system_cfg->data_cfg               = test_data_config;
-   system_cfg->data_cfg->max_key_size = master_cfg->max_key_size;
+   system_cfg->data_cfg = test_data_config;
 
    io_config_init(&system_cfg->io_cfg,
                   master_cfg->page_size,
@@ -293,9 +313,6 @@ test_config_init(system_config          *system_cfg, // OUT
       return rc;
    }
 
-   gen->type             = MESSAGE_TYPE_INSERT;
-   gen->min_payload_size = GENERATOR_MIN_PAYLOAD_SIZE;
-   gen->max_payload_size = master_cfg->message_size;
    return rc;
 }
 
@@ -323,14 +340,16 @@ typedef struct test_exec_config {
 static inline platform_status
 test_parse_args_n(system_config           system_cfg[],  // OUT
                   test_exec_config       *test_exec_cfg, // OUT
+                  test_workload_config   *workload_cfg,  // OUT
                   test_message_generator *gen,           // OUT
                   uint8                   num_config,    // IN
                   int                     argc,          // IN
                   char                   *argv[]         // IN
 )
 {
-   platform_status rc;
-   uint8           i;
+   platform_status      rc;
+   uint8                i;
+   test_workload_config local_workload_cfg;
 
    // Allocate memory and setup default configs for up to n-instances
    master_config *master_cfg =
@@ -346,9 +365,15 @@ test_parse_args_n(system_config           system_cfg[],  // OUT
    }
 
    for (i = 0; i < num_config; i++) {
-      rc = test_config_init(&system_cfg[i], gen, &master_cfg[i]);
+      rc = test_config_init(&system_cfg[i], &master_cfg[i]);
       if (!SUCCESS(rc)) {
          goto out;
+      }
+      test_workload_config *curr_workload_cfg =
+         workload_cfg ? &workload_cfg[i] : &local_workload_cfg;
+      test_workload_config_init(curr_workload_cfg, &master_cfg[i]);
+      if (gen) {
+         test_message_generator_init(gen, curr_workload_cfg);
       }
    }
 
@@ -374,6 +399,7 @@ out:
  */
 static inline platform_status
 test_parse_args(system_config          *system_cfg,
+                test_workload_config   *workload_cfg,
                 uint64                 *seed,
                 test_message_generator *gen,
                 uint64                 *num_memtable_bg_threads,
@@ -385,7 +411,8 @@ test_parse_args(system_config          *system_cfg,
    ZERO_STRUCT(test_exec_cfg);
 
    platform_status rc;
-   rc = test_parse_args_n(system_cfg, &test_exec_cfg, gen, 1, argc, argv);
+   rc = test_parse_args_n(
+      system_cfg, &test_exec_cfg, workload_cfg, gen, 1, argc, argv);
    if (!SUCCESS(rc)) {
       return rc;
    }

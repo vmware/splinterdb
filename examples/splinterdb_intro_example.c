@@ -16,9 +16,6 @@
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define CACHE_SIZE_MB   64   // Size of cache; can be changed across boots
 
-/* Application declares the limit of key-sizes it intends to use */
-#define USER_MAX_KEY_SIZE ((int)100)
-
 /*
  * -------------------------------------------------------------------------------
  * We, intentionally, do not check for errors or show error handling, as this is
@@ -32,7 +29,7 @@ main()
 
    // Initialize data configuration, using default key-comparison handling.
    data_config splinter_data_cfg;
-   default_data_config_init(USER_MAX_KEY_SIZE, &splinter_data_cfg);
+   default_data_config_init(&splinter_data_cfg);
 
    // Basic configuration of a SplinterDB instance
    splinterdb_config splinterdb_cfg;

@@ -56,18 +56,21 @@ CTEST_TEARDOWN(config_parse)
 CTEST2(config_parse, test_basic_parsing)
 {
    // Following get setup pointing to allocated memory
-   system_config         *system_cfg = NULL;
+   system_config         *system_cfg   = NULL;
+   test_workload_config  *workload_cfg = NULL;
    test_message_generator gen;
 
    int num_tables = 1;
 
    // Allocate memory for global config structures
-   system_cfg = TYPED_ARRAY_MALLOC(data->hid, system_cfg, num_tables);
+   system_cfg   = TYPED_ARRAY_MALLOC(data->hid, system_cfg, num_tables);
+   workload_cfg = TYPED_ARRAY_MALLOC(data->hid, workload_cfg, num_tables);
 
    platform_status rc;
 
    rc = test_parse_args_n(system_cfg,
                           &data->test_exec_cfg,
+                          workload_cfg,
                           &gen,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
@@ -94,4 +97,5 @@ CTEST2(config_parse, test_basic_parsing)
                "--verbose-progress");
 
    platform_free(data->hid, system_cfg);
+   platform_free(data->hid, workload_cfg);
 }

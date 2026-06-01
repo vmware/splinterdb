@@ -31,6 +31,7 @@ typedef struct test_config {
    uint64        period;       // if TEST_PERIODIC then repeat sequence after
                                // this many keys
    uint64 num_periods;         // if TEST_PERIODIC then repeat this many times
+   uint64 key_size;
    test_message_generator *gen;
    test_exec_config       *test_exec_cfg; // Describes test's exec parameters
 } test_config;

@@ -14,8 +14,8 @@
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define CACHE_SIZE_MB   64   // Size of cache; can be changed across boots
 
-/* Application declares the limit of key-sizes it intends to use */
-#define USER_MAX_KEY_SIZE ((int)100)
+/* Largest key buffer used by this example. */
+#define USER_KEY_BUF_SIZE ((int)100)
 
 /* Avg value size and max value sizes we expect to deal with in this program */
 #define USER_AVG_VALUE_SIZE ((int)128)
@@ -33,7 +33,7 @@ main()
 
    // Initialize data configuration, using default key-comparison handling.
    data_config splinter_data_cfg;
-   default_data_config_init(USER_MAX_KEY_SIZE, &splinter_data_cfg);
+   default_data_config_init(&splinter_data_cfg);
 
    // Basic configuration of a SplinterDB instance
    splinterdb_config splinterdb_cfg;
@@ -49,7 +49,7 @@ main()
    printf("Created SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
    // -- ACTION IS HERE --
-   char key_buf[USER_MAX_KEY_SIZE];
+   char key_buf[USER_KEY_BUF_SIZE];
    char val_buf[USER_MAX_VALUE_SIZE];
 
    int nrows = 0;
@@ -88,7 +88,7 @@ main()
         val_len <<= 1, nrows++)
    {
 
-      char key_buf[USER_MAX_KEY_SIZE];
+      char key_buf[USER_KEY_BUF_SIZE];
       snprintf(key_buf, sizeof(key_buf), "Key with val_len=%d", val_len);
       size_t key_len = strlen(key_buf);
 

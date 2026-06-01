@@ -180,9 +180,6 @@ typedef void (*message_to_str_fn)(const data_config *cfg,
  * to do something differently, it has to provide these implementations.
  */
 struct data_config {
-   // FIXME: Planned for deprecation.
-   uint64 max_key_size;
-
    key_compare_fn key_compare;
    key_hash_fn    key_hash;
    /* The merge functions may be NULL, in which case

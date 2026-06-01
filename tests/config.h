@@ -97,7 +97,7 @@ typedef struct master_config {
    platform_log_handle *log_handle;
 
    // data
-   uint64 max_key_size;
+   uint64 key_size;
    uint64 message_size;
 
    // Test-execution configuration parameters

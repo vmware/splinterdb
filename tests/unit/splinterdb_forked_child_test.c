@@ -100,7 +100,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
 
    // Setup global data_config for Splinter's use.
    memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
-   default_data_config_init(30, splinter_data_cfgp);
+   default_data_config_init(splinter_data_cfgp);
 
    splinterdb_config splinterdb_cfg;
 
@@ -171,7 +171,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
 
    // Setup global data_config for Splinter's use.
    memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
-   default_data_config_init(30, splinter_data_cfgp);
+   default_data_config_init(splinter_data_cfgp);
 
    splinterdb_config splinterdb_cfg;
 
@@ -288,7 +288,7 @@ CTEST2(splinterdb_forked_child,
 
    // Setup global data_config for Splinter's use.
    memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
-   default_data_config_init(30, splinter_data_cfgp);
+   default_data_config_init(splinter_data_cfgp);
 
    splinterdb_config splinterdb_cfg;
 
@@ -386,7 +386,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 
    // Setup global data_config for Splinter's use.
    memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
-   default_data_config_init(30, splinter_data_cfgp);
+   default_data_config_init(splinter_data_cfgp);
 
    splinterdb_config splinterdb_cfg;
 

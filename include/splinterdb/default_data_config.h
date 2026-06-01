@@ -16,8 +16,7 @@ extern "C" {
 #endif
 
 void
-default_data_config_init(const uint64 max_key_size, // IN
-                         data_config *out_cfg       // OUT
+default_data_config_init(data_config *out_cfg // OUT
 );
 
 #ifdef __cplusplus

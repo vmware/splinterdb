@@ -10,7 +10,6 @@ int
 init_data_config_from_master_config(data_config   *data_cfg,
                                     master_config *master_cfg)
 {
-   data_cfg->max_key_size = master_cfg->max_key_size;
    return 1;
 }
 
