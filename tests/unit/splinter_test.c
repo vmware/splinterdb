@@ -89,6 +89,7 @@ CTEST_DATA(splinter)
 
    // Following get setup pointing to allocated memory
    system_config         *system_cfg;
+   test_workload_config  *workload_cfg;
    io_handle             *io;
    clockcache            *clock_cache;
    task_system            tasks;
@@ -130,11 +131,14 @@ CTEST_SETUP(splinter)
    // Allocate memory for global config structures
    data->system_cfg = TYPED_ARRAY_MALLOC(data->hid, data->system_cfg,
                                           num_tables);
+   data->workload_cfg =
+      TYPED_ARRAY_MALLOC(data->hid, data->workload_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
    rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
+                          data->workload_cfg,
                           &data->gen,
                           num_tables,
                           Ctest_argc,   // argc/argv globals setup by CTests
@@ -204,6 +208,9 @@ CTEST_TEARDOWN(splinter)
 
    if (data->system_cfg) {
       platform_free(data->hid, data->system_cfg);
+   }
+   if (data->workload_cfg) {
+      platform_free(data->hid, data->workload_cfg);
    }
 
    platform_heap_destroy(&data->hid);
@@ -421,7 +428,7 @@ CTEST2(splinter, test_lookups)
    lookup_result_init(
       &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
-   const size_t key_size = data->system_cfg->key_size;
+   const size_t key_size = data->workload_cfg->key_size;
 
    platform_status rc;
 
@@ -708,7 +715,7 @@ splinter_do_inserts(void         *datap,
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;
    DECLARE_AUTO_KEY_BUFFER(keybuf, spl->heap_id);
-   const size_t key_size = data->system_cfg->key_size;
+   const size_t key_size = data->workload_cfg->key_size;
 
    // Allocate a large array for copying over shadow copies of rows
    // inserted, if user has asked to return such an array.
@@ -825,7 +832,7 @@ test_lookup_by_range(void         *datap,
 {
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
-   const size_t key_size = data->system_cfg->key_size;
+   const size_t key_size = data->workload_cfg->key_size;
 
    uint64 start_time = platform_get_timestamp();
 

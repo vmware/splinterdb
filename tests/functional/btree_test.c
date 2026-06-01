@@ -1575,8 +1575,10 @@ btree_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   test_workload_config workload_cfg;
 
    rc = test_parse_args(&system_cfg,
+                        &workload_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1590,7 +1592,7 @@ btree_test(int argc, char *argv[])
       .mt_cfg        = mt_cfg,
       .type          = TEST_RANDOM,
       .semiseq_freq  = 0,
-      .key_size      = system_cfg.key_size,
+      .key_size      = workload_cfg.key_size,
       .msggen        = &gen};
    if (!SUCCESS(rc)) {
       platform_error_log("btree_test: failed to parse config: %s\n",
@@ -1652,7 +1654,7 @@ btree_test(int argc, char *argv[])
    uint64 max_tuples_per_memtable =
       test_cfg.mt_cfg->max_extents_per_memtable
       * cache_config_extent_size((cache_config *)&system_cfg.cache_cfg) / 3
-      / (system_cfg.key_size + generator_average_message_size(&gen));
+      / (workload_cfg.key_size + generator_average_message_size(&gen));
    if (run_perf_test) {
       uint64 total_inserts = 64 * max_tuples_per_memtable;
 

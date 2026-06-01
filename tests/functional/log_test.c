@@ -333,8 +333,10 @@ log_test(int argc, char *argv[])
 
    core_config *cfg                            = TYPED_MALLOC(hid, cfg);
    uint64       num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   test_workload_config workload_cfg;
 
    status = test_parse_args(&system_cfg,
+                            &workload_cfg,
                             &seed,
                             &gen,
                             &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -394,7 +396,7 @@ log_test(int argc, char *argv[])
                           log,
                           200000000,
                           &gen,
-                          system_cfg.key_size,
+                          workload_cfg.key_size,
                           16,
                           &ts,
                           hid);
@@ -410,7 +412,7 @@ log_test(int argc, char *argv[])
                           &ts,
                           hid,
                           &gen,
-                          system_cfg.key_size,
+                          workload_cfg.key_size,
                           500000,
                           TRUE /* crash */);
       platform_assert(rc == 0);
@@ -424,7 +426,7 @@ log_test(int argc, char *argv[])
                           &ts,
                           hid,
                           &gen,
-                          system_cfg.key_size,
+                          workload_cfg.key_size,
                           500000,
                           FALSE /* don't crash */);
       platform_assert(rc == 0);

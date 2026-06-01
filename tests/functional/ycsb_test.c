@@ -1185,8 +1185,10 @@ ycsb_test(int argc, char *argv[])
 
    system_config *system_cfg = TYPED_MALLOC(hid, system_cfg);
    uint64         num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   test_workload_config workload_cfg;
 
    rc = test_parse_args(system_cfg,
+                        &workload_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1199,7 +1201,7 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (system_cfg->key_size != YCSB_KEY_SIZE) {
+   if (workload_cfg.key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
       goto cleanup;

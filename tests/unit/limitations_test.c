@@ -98,6 +98,7 @@ CTEST2(limitations, test_io_init_invalid_page_size)
 
    rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
+                          NULL,
                           &data->gen,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
@@ -152,6 +153,7 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
 
    rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
+                          NULL,
                           &data->gen,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests

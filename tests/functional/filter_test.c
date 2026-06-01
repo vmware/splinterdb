@@ -312,8 +312,10 @@ filter_test(int argc, char *argv[])
 
    uint64 num_memtable_bg_threads_unused = 0;
    uint64 num_normal_bg_threads_unused   = 0;
+   test_workload_config workload_cfg;
 
    rc = test_parse_args(&system_cfg,
+                        &workload_cfg,
                         &seed,
                         &gen,
                         &num_memtable_bg_threads_unused,
@@ -365,7 +367,7 @@ filter_test(int argc, char *argv[])
       rc = test_filter_perf((cache *)cc,
                             &system_cfg.filter_cfg,
                             hid,
-                            system_cfg.key_size,
+                            workload_cfg.key_size,
                             rflimit / system_cfg.trunk_node_cfg.target_fanout,
                             system_cfg.trunk_node_cfg.target_fanout,
                             100);
@@ -374,28 +376,28 @@ filter_test(int argc, char *argv[])
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
-                             system_cfg.key_size,
+                             workload_cfg.key_size,
                              rflimit / system_cfg.trunk_node_cfg.target_fanout,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
-                             system_cfg.key_size,
+                             workload_cfg.key_size,
                              100,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
-                             system_cfg.key_size,
+                             workload_cfg.key_size,
                              1,
                              system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
-                             system_cfg.key_size,
+                             workload_cfg.key_size,
                              1,
                              2 * system_cfg.trunk_node_cfg.target_fanout);
       platform_assert(SUCCESS(rc));

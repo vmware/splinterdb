@@ -847,7 +847,7 @@ compute_per_table_inserts(uint64        *per_table_inserts, // OUT
 
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size =
-         cfg[i].key_size + generator_average_message_size(test_cfg->gen);
+         test_cfg[i].key_size + generator_average_message_size(test_cfg->gen);
       num_inserts = (num_inserts_cfg ? num_inserts_cfg
                                      : test_cfg[i].tree_size / tuple_size);
       if (test_cfg[i].key_type == TEST_PERIODIC) {
@@ -1515,7 +1515,7 @@ test_splinter_periodic(system_config   *cfg,
 
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size =
-         cfg[i].key_size + generator_average_message_size(test_cfg->gen);
+         test_cfg[i].key_size + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       if (test_cfg[i].key_type == TEST_PERIODIC) {
          test_cfg[i].period = num_inserts;
@@ -2167,7 +2167,7 @@ test_splinter_delete(system_config   *cfg,
 
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size =
-         cfg[i].key_size + generator_average_message_size(test_cfg->gen);
+         test_cfg[i].key_size + generator_average_message_size(test_cfg->gen);
       num_inserts          = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
@@ -2678,9 +2678,16 @@ splinter_test(int argc, char *argv[])
     * 3. Parse trunk_config options, see config_usage()
     */
    system_config *system_cfg = TYPED_ARRAY_MALLOC(hid, system_cfg, num_tables);
+   test_workload_config *workload_cfg =
+      TYPED_ARRAY_MALLOC(hid, workload_cfg, num_tables);
 
-   rc = test_parse_args_n(
-      system_cfg, &test_exec_cfg, &gen, num_tables, config_argc, config_argv);
+   rc = test_parse_args_n(system_cfg,
+                          &test_exec_cfg,
+                          workload_cfg,
+                          &gen,
+                          num_tables,
+                          config_argc,
+                          config_argv);
 
    // if there are multiple cache capacity, cache_per_table needs to be TRUE
    bool32 multi_cap = FALSE;
@@ -2705,7 +2712,7 @@ splinter_test(int argc, char *argv[])
    }
 
    for (uint8 i = 0; i < num_tables; i++) {
-      test_cfg[i].key_size = system_cfg[i].key_size;
+      test_cfg[i].key_size = workload_cfg[i].key_size;
    }
 
    seed = test_exec_cfg.seed;
@@ -2879,6 +2886,7 @@ splinter_test(int argc, char *argv[])
                                  io,
                                  caches,
                                  system_cfg,
+                                 workload_cfg,
                                  seed,
                                  test_ops,
                                  correctness_check_frequency,
@@ -2913,6 +2921,7 @@ splinter_test(int argc, char *argv[])
 handle_destroy:
    io_handle_destroy(io);
 cfg_free:
+   platform_free(hid, workload_cfg);
    platform_free(hid, system_cfg);
    platform_free(hid, test_cfg);
 heap_destroy:

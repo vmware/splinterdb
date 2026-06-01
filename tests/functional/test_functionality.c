@@ -640,18 +640,19 @@ cmp_ptrs(const void *a, const void *b)
  *-----------------------------------------------------------------------------
  */
 platform_status
-test_functionality(allocator       *al,
-                   io_handle       *io,
-                   cache           *cc[],
-                   system_config   *cfg,
-                   uint64           seed,
-                   uint64           num_inserts,
-                   uint64           correctness_check_frequency,
-                   task_system     *state,
-                   platform_heap_id hid,
-                   uint8            num_tables,
-                   uint8            num_caches,
-                   uint32           max_async_inflight)
+test_functionality(allocator            *al,
+                   io_handle            *io,
+                   cache                *cc[],
+                   system_config        *cfg,
+                   test_workload_config *workload_cfg,
+                   uint64                seed,
+                   uint64                num_inserts,
+                   uint64                correctness_check_frequency,
+                   task_system          *state,
+                   platform_heap_id      hid,
+                   uint8                 num_tables,
+                   uint8                 num_caches,
+                   uint32                max_async_inflight)
 {
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
@@ -710,8 +711,13 @@ test_functionality(allocator       *al,
    for (uint8 idx = 0; idx < num_tables; idx++) {
       core_handle               *spl    = &spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
-      status                            = validate_tree_against_shadow(
-         spl, &prg, shadow, hid, cfg[idx].key_size, TRUE, async_lookup);
+      status                            = validate_tree_against_shadow(spl,
+                                            &prg,
+                                            shadow,
+                                            hid,
+                                            workload_cfg[idx].key_size,
+                                            TRUE,
+                                            async_lookup);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate empty tree against shadow: \
                             %s\n",
@@ -791,7 +797,7 @@ test_functionality(allocator       *al,
          status = insert_random_messages(spl,
                                          shadow,
                                          &prg,
-                                         cfg[idx].key_size,
+                                         workload_cfg[idx].key_size,
                                          num_messages,
                                          op,
                                          minkey,
@@ -809,7 +815,7 @@ test_functionality(allocator       *al,
             &prg,
             shadow,
             hid,
-            cfg[idx].key_size,
+            workload_cfg[idx].key_size,
             correctness_check_frequency
                && (i % correctness_check_frequency) == 0,
             async_lookup);
@@ -856,7 +862,7 @@ test_functionality(allocator       *al,
          &prg,
          shadow,
          hid,
-         cfg[idx].key_size,
+         workload_cfg[idx].key_size,
          correctness_check_frequency
             && ((i - 1) % correctness_check_frequency) != 0,
          async_lookup);
