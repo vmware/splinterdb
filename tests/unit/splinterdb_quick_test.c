@@ -320,7 +320,7 @@ CTEST2(splinterdb_quick, test_apis_for_large_key)
  */
 CTEST2(splinterdb_quick, test_key_size_gt_max_inline_key_size)
 {
-   char too_large_key_data[MAX_INLINE_KEY_SIZE(IO_DEFAULT_PAGE_SIZE) + 1];
+   char   too_large_key_data[MAX_INLINE_KEY_SIZE(IO_DEFAULT_PAGE_SIZE) + 1];
    size_t too_large_key_len = sizeof(too_large_key_data);
    memset(too_large_key_data, 'a', too_large_key_len);
    slice too_large_key = slice_create(too_large_key_len, too_large_key_data);
@@ -483,8 +483,8 @@ CTEST2(splinterdb_quick, test_iterator_survives_memtable_recycle)
  */
 CTEST2(splinterdb_quick, test_variable_length_values)
 {
-   slice      key_empty = slice_create(sizeof("empty"), "empty");
-   const char empty_string[0];
+   slice      key_empty      = slice_create(sizeof("empty"), "empty");
+   const char empty_string[] = "";
 
    slice      key_short       = slice_create(sizeof("short"), "short");
    const char short_string[1] = "v";
@@ -498,10 +498,8 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    memset(max_length_string, 'b', TEST_MAX_VALUE_SIZE);
 
    // Insert keys with different value (lengths)
-   int rc = splinterdb_insert(data->kvsb,
-                              key_empty,
-                              slice_create(sizeof(empty_string), empty_string),
-                              NULL);
+   int rc = splinterdb_insert(
+      data->kvsb, key_empty, slice_create(0, empty_string), NULL);
    ASSERT_EQUAL(0, rc);
 
    rc = splinterdb_insert(data->kvsb,
@@ -1239,7 +1237,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg = test_data_config;
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   int rc             = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    const size_t key_len   = 3;
@@ -1451,7 +1449,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 {
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg = test_data_config;
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   int rc             = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    slice       user_key  = slice_create(strlen("merge-key"), "merge-key");
@@ -1500,7 +1498,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
 {
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg = test_data_config;
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   int rc             = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    slice user_key  = slice_create(strlen("trunk-merge-key"), "trunk-merge-key");

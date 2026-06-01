@@ -310,8 +310,8 @@ filter_test(int argc, char *argv[])
       platform_get_module_id(), 512 * MiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
-   uint64 num_memtable_bg_threads_unused = 0;
-   uint64 num_normal_bg_threads_unused   = 0;
+   uint64               num_memtable_bg_threads_unused = 0;
+   uint64               num_normal_bg_threads_unused   = 0;
    test_workload_config workload_cfg;
 
    rc = test_parse_args(&system_cfg,

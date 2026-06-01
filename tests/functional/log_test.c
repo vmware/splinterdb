@@ -59,13 +59,8 @@ test_log_crash(clockcache             *cc,
    merge_accumulator_init(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
-      key skey = test_key(&keybuffer,
-                          TEST_RANDOM,
-                          i,
-                          0,
-                          0,
-                          1 + (i % key_size),
-                          0);
+      key skey =
+         test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }
@@ -82,13 +77,8 @@ test_log_crash(clockcache             *cc,
    itorh = (iterator *)&itor;
 
    for (i = 0; i < num_entries && iterator_can_curr(itorh); i++) {
-      key skey = test_key(&keybuffer,
-                          TEST_RANDOM,
-                          i,
-                          0,
-                          0,
-                          1 + (i % key_size),
-                          0);
+      key skey =
+         test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
       iterator_curr(itorh, &returned_key, &returned_message);
@@ -331,8 +321,8 @@ log_test(int argc, char *argv[])
       platform_get_module_id(), 512 * MiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
-   core_config *cfg                            = TYPED_MALLOC(hid, cfg);
-   uint64       num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   core_config         *cfg                            = TYPED_MALLOC(hid, cfg);
+   uint64               num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    test_workload_config workload_cfg;
 
    status = test_parse_args(&system_cfg,

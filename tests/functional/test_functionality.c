@@ -340,7 +340,7 @@ choose_key(uint64                      key_size,    // IN
            key                         startkey,    // IN
            int                         start_index, // IN
            int                        *index,       // OUT
-           key_buffer                 *keybuf)      // OUT
+           key_buffer                 *keybuf)                      // OUT
 {
    uint64 num_keys = sharr->nkeys;
 
@@ -420,14 +420,14 @@ verify_range_against_shadow_all_types(core_handle                *spl,
                                 &start_index,
                                 &startkey_buf);
          end_key   = choose_key(key_size,
-                                sharr,
-                                prg,
-                                end_type,
-                                0,
-                                start_key,
-                                start_index,
-                                &end_index,
-                                &endkey_buf);
+                              sharr,
+                              prg,
+                              end_type,
+                              0,
+                              start_key,
+                              start_index,
+                              &end_index,
+                              &endkey_buf);
          if (do_it) {
             rc = verify_range_against_shadow(
                spl, sharr, start_key, end_key, hid, start_index, end_index);
@@ -453,14 +453,14 @@ verify_range_against_shadow_all_types(core_handle                *spl,
                              &start_index,
                              &startkey_buf);
       end_key   = choose_key(key_size,
-                             sharr,
-                             prg,
-                             end_type,
-                             0,
-                             start_key,
-                             start_index,
-                             &end_index,
-                             &endkey_buf);
+                           sharr,
+                           prg,
+                           end_type,
+                           0,
+                           start_key,
+                           start_index,
+                           &end_index,
+                           &endkey_buf);
       if (do_it) {
          rc = verify_range_against_shadow(
             spl, sharr, start_key, end_key, hid, start_index, end_index);

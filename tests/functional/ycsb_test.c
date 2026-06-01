@@ -1183,8 +1183,8 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 512 * MiB, FALSE, &hid);
    platform_assert_status_ok(rc);
 
-   system_config *system_cfg = TYPED_MALLOC(hid, system_cfg);
-   uint64         num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   system_config       *system_cfg = TYPED_MALLOC(hid, system_cfg);
+   uint64               num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    test_workload_config workload_cfg;
 
    rc = test_parse_args(system_cfg,

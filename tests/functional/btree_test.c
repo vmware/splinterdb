@@ -1035,9 +1035,7 @@ test_btree_merge_basic(cache             *cc,
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
       key_buffer_init(&pivot_key[pivot_no], hid);
       pivot[pivot_no] = pivot_no * (max_key / arity + 1);
-      test_int_to_key(&pivot_key[pivot_no],
-                      pivot[pivot_no],
-                      cfg->key_size);
+      test_int_to_key(&pivot_key[pivot_no], pivot[pivot_no], cfg->key_size);
    }
    key_buffer_init_from_key(&pivot_key[arity], hid, POSITIVE_INFINITY_KEY);
 
@@ -1189,20 +1187,8 @@ test_btree_count_in_range(cache             *cc,
 
    platform_status rc = STATUS_OK;
    for (uint64 i = 0; i < iterations; i++) {
-      test_key(&bound_key[0],
-               TEST_RANDOM,
-               2 * i,
-               0,
-               0,
-               cfg->key_size,
-               0);
-      test_key(&bound_key[1],
-               TEST_RANDOM,
-               2 * i + 1,
-               0,
-               0,
-               cfg->key_size,
-               0);
+      test_key(&bound_key[0], TEST_RANDOM, 2 * i, 0, 0, cfg->key_size, 0);
+      test_key(&bound_key[1], TEST_RANDOM, 2 * i + 1, 0, 0, cfg->key_size, 0);
 
       btree_pivot_stats stats;
       key               min_key = key_buffer_key(&bound_key[0]);
@@ -1429,9 +1415,7 @@ test_btree_merge_perf(cache             *cc,
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
       key_buffer_init(&pivot_key[pivot_no], hid);
       pivot[pivot_no] = pivot_no * (max_key / arity + 1);
-      test_int_to_key(&pivot_key[pivot_no],
-                      pivot[pivot_no],
-                      cfg->key_size);
+      test_int_to_key(&pivot_key[pivot_no], pivot[pivot_no], cfg->key_size);
    }
    key_buffer_init_from_key(&pivot_key[arity], hid, POSITIVE_INFINITY_KEY);
 
@@ -1574,7 +1558,7 @@ btree_test(int argc, char *argv[])
       platform_get_module_id(), 512 * MiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
-   uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   uint64               num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    test_workload_config workload_cfg;
 
    rc = test_parse_args(&system_cfg,
@@ -1588,12 +1572,11 @@ btree_test(int argc, char *argv[])
 
    memtable_config *mt_cfg    = &system_cfg.splinter_cfg.mt_cfg;
    mt_cfg->max_memtables      = 128;
-   test_btree_config test_cfg = {
-      .mt_cfg        = mt_cfg,
-      .type          = TEST_RANDOM,
-      .semiseq_freq  = 0,
-      .key_size      = workload_cfg.key_size,
-      .msggen        = &gen};
+   test_btree_config test_cfg = {.mt_cfg       = mt_cfg,
+                                 .type         = TEST_RANDOM,
+                                 .semiseq_freq = 0,
+                                 .key_size     = workload_cfg.key_size,
+                                 .msggen       = &gen};
    if (!SUCCESS(rc)) {
       platform_error_log("btree_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));

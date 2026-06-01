@@ -227,7 +227,7 @@ test_workload_config_init(test_workload_config *workload_cfg,
 }
 
 static inline void
-test_message_generator_init(test_message_generator      *gen,
+test_message_generator_init(test_message_generator     *gen,
                             const test_workload_config *workload_cfg)
 {
    gen->type             = MESSAGE_TYPE_INSERT;
@@ -338,17 +338,17 @@ typedef struct test_exec_config {
  * Not all tests may need these, so this arg is optional, and can be NULL.
  */
 static inline platform_status
-test_parse_args_n(system_config          system_cfg[],    // OUT
-                  test_exec_config      *test_exec_cfg,   // OUT
-                  test_workload_config  *workload_cfg,    // OUT
-                  test_message_generator *gen,            // OUT
-                  uint8                  num_config,      // IN
-                  int                    argc,            // IN
-                  char                  *argv[]           // IN
+test_parse_args_n(system_config           system_cfg[],  // OUT
+                  test_exec_config       *test_exec_cfg, // OUT
+                  test_workload_config   *workload_cfg,  // OUT
+                  test_message_generator *gen,           // OUT
+                  uint8                   num_config,    // IN
+                  int                     argc,          // IN
+                  char                   *argv[]         // IN
 )
 {
-   platform_status rc;
-   uint8           i;
+   platform_status      rc;
+   uint8                i;
    test_workload_config local_workload_cfg;
 
    // Allocate memory and setup default configs for up to n-instances
