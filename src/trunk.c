@@ -3478,7 +3478,7 @@ bundle_compaction_task(task *arg)
          state,
          bc,
          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_branch_merger;
    }
 
    uint64 tuple_bound;
@@ -3493,7 +3493,7 @@ bundle_compaction_task(task *arg)
          state,
          bc,
          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_branch_merger;
    }
 
    rc = trunk_branch_merger_build_merge_itor(&merger, bc->merge_mode);
@@ -3503,7 +3503,7 @@ bundle_compaction_task(task *arg)
          state,
          bc,
          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_branch_merger;
    }
 
    btree_pack_req pack_req;
@@ -3516,11 +3516,12 @@ bundle_compaction_task(task *arg)
                             TRUE,
                             context->hid);
    if (!SUCCESS(rc)) {
-      platform_error_log("btree_pack_req_init failed for state: %p bc: %p: %s\n",
-                         state,
-                         bc,
-                         platform_status_to_string(rc));
-      goto cleanup;
+      platform_error_log(
+         "btree_pack_req_init failed for state: %p bc: %p: %s\n",
+         state,
+         bc,
+         platform_status_to_string(rc));
+      goto cleanup_branch_merger;
    }
 
    // This is just a quick shortcut to avoid wasting time on a compaction when
@@ -3530,7 +3531,7 @@ bundle_compaction_task(task *arg)
                          "for state %p\n",
                          state);
       rc = STATUS_INVALID_STATE;
-      goto cleanup;
+      goto cleanup_pack_req;
    }
 
    uint64 pack_start = platform_get_timestamp();
@@ -3540,7 +3541,7 @@ bundle_compaction_task(task *arg)
                          state,
                          bc,
                          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_pack_req;
    }
    if (context->stats) {
       context->stats[tid].compaction_pack_time_ns[state->height] +=
@@ -3569,8 +3570,9 @@ bundle_compaction_task(task *arg)
              bc->compaction_time_ns);
    }
 
-cleanup:
+cleanup_pack_req:
    btree_pack_req_deinit(&pack_req, context->hid);
+cleanup_branch_merger:
    trunk_branch_merger_deinit(&merger);
 
    trunk_pivot_state_lock_compactions(state);
@@ -3595,25 +3597,26 @@ cleanup:
 static platform_status
 enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
 {
-   uint64 height       = trunk_node_height(node);
-   uint64 num_children = trunk_node_num_children(node);
-   platform_status result = STATUS_OK;
+   uint64          height       = trunk_node_height(node);
+   uint64          num_children = trunk_node_num_children(node);
+   platform_status result       = STATUS_OK;
 
    for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
       if (trunk_node_pivot_has_received_bundles(node, pivot_num)) {
-         platform_status    rc           = STATUS_OK;
-         key                pivot_key    = trunk_node_pivot_key(node, pivot_num);
-         key                ubkey        = trunk_node_pivot_key(node, pivot_num + 1);
-         bundle            *pivot_bundle = trunk_node_pivot_bundle(node, pivot_num);
-         trunk_pivot_state *state        = NULL;
-         bundle_compaction *bc           = NULL;
+         platform_status rc        = STATUS_OK;
+         key             pivot_key = trunk_node_pivot_key(node, pivot_num);
+         key             ubkey     = trunk_node_pivot_key(node, pivot_num + 1);
+         bundle *pivot_bundle      = trunk_node_pivot_bundle(node, pivot_num);
+         trunk_pivot_state *state  = NULL;
+         bundle_compaction *bc     = NULL;
 
-         state = trunk_pivot_state_map_get_or_create_entry(context,
-                                                           &context->pivot_states,
-                                                           pivot_key,
-                                                           ubkey,
-                                                           height,
-                                                           pivot_bundle);
+         state =
+            trunk_pivot_state_map_get_or_create_entry(context,
+                                                      &context->pivot_states,
+                                                      pivot_key,
+                                                      ubkey,
+                                                      height,
+                                                      pivot_bundle);
          if (state == NULL) {
             platform_error_log("enqueue_bundle_compaction: "
                                "pivot_state_map_get_or_create failed\n");

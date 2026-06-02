@@ -237,8 +237,7 @@ CTEST2(vector, map_elts_to_ptrs_fails_on_null)
    uint64_ptr_vector ptrs;
    vector_init(&ptrs, platform_get_heap_id());
    platform_status rc =
-      VECTOR_MAP_ELTS_TO_PTRS(
-         &ptrs, ptr_at_fail_after_5, &data->ten, values);
+      VECTOR_MAP_ELTS_TO_PTRS(&ptrs, ptr_at_fail_after_5, &data->ten, values);
 
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_MEMORY));
    ASSERT_EQUAL(5, vector_length(&ptrs));

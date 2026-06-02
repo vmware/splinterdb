@@ -316,10 +316,9 @@ void
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 {
    ZERO_CONTENTS(mt);
-   mt->cfg                  = cfg->btree_cfg;
-   mt->root_addr            =
-      btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
-   mt->state                = MEMTABLE_STATE_READY;
+   mt->cfg       = cfg->btree_cfg;
+   mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+   mt->state     = MEMTABLE_STATE_READY;
    mt->incorporation_status = STATUS_OK;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;

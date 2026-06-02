@@ -124,7 +124,7 @@ CTEST_MEMORY_FAULT(platform_api, test_memory_fault_range)
    cfg.range_count = 2;
    platform_memory_fault_config_set(&cfg);
 
-   char *p0 = TYPED_ARRAY_MALLOC(data->hid, p0, 8);
+   char                          *p0 = TYPED_ARRAY_MALLOC(data->hid, p0, 8);
    platform_memory_fault_counters unarmed_counters =
       platform_memory_fault_get_counters();
    platform_memory_fault_enable();
@@ -134,11 +134,11 @@ CTEST_MEMORY_FAULT(platform_api, test_memory_fault_range)
    char *p3 = TYPED_ARRAY_MALLOC(data->hid, p3, 8);
    char *p4 = TYPED_ARRAY_MALLOC(data->hid, p4, 8);
 
-   bool32 p0_ok = p0 != NULL;
-   bool32 p1_ok = p1 != NULL;
-   bool32 p2_ok = p2 != NULL;
-   bool32 p3_ok = p3 != NULL;
-   bool32 p4_ok = p4 != NULL;
+   bool32                         p0_ok = p0 != NULL;
+   bool32                         p1_ok = p1 != NULL;
+   bool32                         p2_ok = p2 != NULL;
+   bool32                         p3_ok = p3 != NULL;
+   bool32                         p4_ok = p4 != NULL;
    platform_memory_fault_counters counters =
       platform_memory_fault_get_counters();
 
@@ -168,11 +168,11 @@ CTEST_MEMORY_FAULT(platform_api, test_memory_fault_random_respects_max_failures)
 
    platform_memory_fault_config cfg;
    platform_memory_fault_config_get(&cfg);
-   cfg.mode                            = PLATFORM_MEMORY_FAULT_RANDOM;
-   cfg.seed                            = 42;
-   cfg.random_fail_probability         = PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE;
-   cfg.random_burst_start_probability  = 0;
-   cfg.max_failures                    = 2;
+   cfg.mode                           = PLATFORM_MEMORY_FAULT_RANDOM;
+   cfg.seed                           = 42;
+   cfg.random_fail_probability        = PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE;
+   cfg.random_burst_start_probability = 0;
+   cfg.max_failures                   = 2;
    platform_memory_fault_config_set(&cfg);
    platform_memory_fault_enable();
 
@@ -180,9 +180,9 @@ CTEST_MEMORY_FAULT(platform_api, test_memory_fault_random_respects_max_failures)
    char *p2 = TYPED_ARRAY_MALLOC(data->hid, p2, 8);
    char *p3 = TYPED_ARRAY_MALLOC(data->hid, p3, 8);
 
-   bool32 p1_ok = p1 != NULL;
-   bool32 p2_ok = p2 != NULL;
-   bool32 p3_ok = p3 != NULL;
+   bool32                         p1_ok = p1 != NULL;
+   bool32                         p2_ok = p2 != NULL;
+   bool32                         p3_ok = p3 != NULL;
    platform_memory_fault_counters counters =
       platform_memory_fault_get_counters();
 

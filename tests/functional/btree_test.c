@@ -839,8 +839,8 @@ test_btree_create_packed_trees(cache             *cc,
                           0);
 
       btree_pack_req req;
-      rc =
-         btree_pack_req_init(&req, cc, btree_cfg, &itor.super, 0, 0, FALSE, hid);
+      rc = btree_pack_req_init(
+         &req, cc, btree_cfg, &itor.super, 0, 0, FALSE, hid);
       platform_assert_status_ok(rc);
 
       rc = btree_pack(&req);

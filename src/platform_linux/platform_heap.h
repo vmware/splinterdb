@@ -136,7 +136,7 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    platform_assert(size <= size + alignment - 1);
    size_t aligned_size = (size + alignment - 1) & ~((uintptr_t)alignment - 1);
 
-#if PLATFORM_MEMORY_FAULT_INJECTION                                           \
+#if PLATFORM_MEMORY_FAULT_INJECTION                                            \
    && !defined(PLATFORM_MEMORY_FAULT_INJECTION_DISABLED_IN_THIS_FILE)
    if (platform_memory_fault_should_fail(
           heap_id, size, objname, func, file, lineno))
@@ -167,8 +167,8 @@ platform_aligned_malloc(const platform_heap_id heap_id,
 static inline void *
 platform_realloc_from_heap(const platform_heap_id heap_id,
                            const size_t           oldsize,
-                           void                  *ptr, // IN
-                           const size_t           newsize,       // IN
+                           void                  *ptr,     // IN
+                           const size_t           newsize, // IN
                            const char            *objname,
                            const char            *func,
                            const char            *file,
@@ -176,11 +176,11 @@ platform_realloc_from_heap(const platform_heap_id heap_id,
 {
    /* FIXME: alignment? */
 
-#if PLATFORM_MEMORY_FAULT_INJECTION                                           \
+#if PLATFORM_MEMORY_FAULT_INJECTION                                            \
    && !defined(PLATFORM_MEMORY_FAULT_INJECTION_DISABLED_IN_THIS_FILE)
    if (newsize != 0
        && platform_memory_fault_should_fail(
-             heap_id, newsize, objname, func, file, lineno))
+          heap_id, newsize, objname, func, file, lineno))
    {
       return NULL;
    }
@@ -195,14 +195,8 @@ platform_realloc_from_heap(const platform_heap_id heap_id,
 }
 
 #define platform_realloc(id, oldsize, p, newsize)                              \
-   platform_realloc_from_heap(id,                                              \
-                              oldsize,                                         \
-                              p,                                               \
-                              newsize,                                         \
-                              STRINGIFY(p),                                    \
-                              __func__,                                        \
-                              __FILE__,                                        \
-                              __LINE__)
+   platform_realloc_from_heap(                                                 \
+      id, oldsize, p, newsize, STRINGIFY(p), __func__, __FILE__, __LINE__)
 
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,

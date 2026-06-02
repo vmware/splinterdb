@@ -322,9 +322,9 @@ core_memtable_release_compacted_branch(core_handle *spl, uint64 generation)
 }
 
 static void
-core_memtable_mark_incorporation_failed(core_handle     *spl,
-                                        uint64           generation,
-                                        platform_status  status)
+core_memtable_mark_incorporation_failed(core_handle    *spl,
+                                        uint64          generation,
+                                        platform_status status)
 {
    memtable_block_lookups(&spl->mt_ctxt);
    memtable *mt = core_get_memtable(spl, generation);
@@ -673,7 +673,7 @@ static void
 core_memtable_flush_internal_virtual(task *arg)
 {
    core_memtable_args *mt_args = container_of(arg, core_memtable_args, tsk);
-   platform_status rc =
+   platform_status     rc =
       core_memtable_flush_internal(mt_args->spl, mt_args->generation);
    if (!SUCCESS(rc)) {
       platform_error_log("memtable flush failed: %s\n",
@@ -1856,8 +1856,8 @@ static bool32
 core_report_unincorporated_memtables(core_handle *spl)
 {
    bool32 found_unincorporated = FALSE;
-   uint64 start_generation = memtable_generation_retired(&spl->mt_ctxt) + 1;
-   uint64 end_generation   = memtable_generation(&spl->mt_ctxt);
+   uint64 start_generation     = memtable_generation_retired(&spl->mt_ctxt) + 1;
+   uint64 end_generation       = memtable_generation(&spl->mt_ctxt);
 
    for (uint64 generation = start_generation; generation < end_generation;
         generation++)
@@ -1877,8 +1877,7 @@ core_report_unincorporated_memtables(core_handle *spl)
                             "compacted_root=%lu\n",
                             generation,
                             memtable_state_string(mt->state),
-                            platform_status_to_string(
-                               mt->incorporation_status),
+                            platform_status_to_string(mt->incorporation_status),
                             mt->root_addr,
                             compacted_root);
       } else {

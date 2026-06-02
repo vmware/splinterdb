@@ -283,9 +283,8 @@ __vector_replace(writable_buffer       *dst,
       if (SUCCESS(__rc)) {                                                     \
          uint64 __idx = 0;                                                     \
          for (; __idx < __len; __idx++) {                                      \
-            vector_elt_type(dst) __result =                                    \
-               vector_apply_to_elt(                                            \
-                  src, __idx, func __VA_OPT__(, __VA_ARGS__));                 \
+            vector_elt_type(dst) __result = vector_apply_to_elt(               \
+               src, __idx, func __VA_OPT__(, __VA_ARGS__));                    \
             if (__result == NULL) {                                            \
                __rc = STATUS_NO_MEMORY;                                        \
                break;                                                          \
@@ -293,9 +292,8 @@ __vector_replace(writable_buffer       *dst,
             vector_set(dst, __idx, __result);                                  \
          }                                                                     \
          if (!SUCCESS(__rc)) {                                                 \
-            platform_status __resize_rc =                                      \
-               writable_buffer_resize(&(dst)->wb,                              \
-                                      __idx * vector_elt_size(dst));           \
+            platform_status __resize_rc = writable_buffer_resize(              \
+               &(dst)->wb, __idx * vector_elt_size(dst));                      \
             platform_assert_status_ok(__resize_rc);                            \
          }                                                                     \
       }                                                                        \

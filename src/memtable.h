@@ -189,8 +189,7 @@ void
 memtable_recycle(memtable_context *ctxt, memtable *mt);
 
 void
-memtable_mark_incorporation_failed(memtable      *mt,
-                                   platform_status status);
+memtable_mark_incorporation_failed(memtable *mt, platform_status status);
 
 const char *
 memtable_state_string(memtable_state state);

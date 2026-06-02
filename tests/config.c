@@ -186,11 +186,11 @@ config_usage()
 #if PLATFORM_MEMORY_FAULT_INJECTION
 
 static bool32
-config_parse_uint64_arg(int          argc,
-                        char        *argv[],
-                        uint64      *idx,
-                        const char  *name,
-                        uint64      *result)
+config_parse_uint64_arg(int         argc,
+                        char       *argv[],
+                        uint64     *idx,
+                        const char *name,
+                        uint64     *result)
 {
    if (*idx + 1 == argc || !try_string_to_uint64(argv[++(*idx)], result)) {
       platform_error_log("config: failed to parse %s\n", name);
@@ -200,11 +200,11 @@ config_parse_uint64_arg(int          argc,
 }
 
 static bool32
-config_parse_uint32_arg(int          argc,
-                        char        *argv[],
-                        uint64      *idx,
-                        const char  *name,
-                        uint32      *result)
+config_parse_uint32_arg(int         argc,
+                        char       *argv[],
+                        uint64     *idx,
+                        const char *name,
+                        uint32     *result)
 {
    uint64 tmp;
    if (!config_parse_uint64_arg(argc, argv, idx, name, &tmp)
@@ -485,8 +485,11 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             fault_config_seen = TRUE;
             fault_disable     = FALSE;
             fault_cfg.mode    = PLATFORM_MEMORY_FAULT_RANGE;
-            if (!config_parse_uint64_arg(
-                   argc, argv, &i, "--fault-alloc-range", &fault_cfg.range_start)
+            if (!config_parse_uint64_arg(argc,
+                                         argv,
+                                         &i,
+                                         "--fault-alloc-range",
+                                         &fault_cfg.range_start)
                 || !config_parse_uint64_arg(argc,
                                             argv,
                                             &i,
