@@ -358,23 +358,6 @@ trunk_pivot_destroy(trunk_pivot *pvt, platform_heap_id hid)
    platform_free(hid, pvt);
 }
 
-static platform_status
-trunk_pivot_append_copy(trunk_pivot_vector *pivots,
-                        const trunk_pivot *src,
-                        platform_heap_id   hid)
-{
-   trunk_pivot *copy = trunk_pivot_copy(src, hid);
-   if (copy == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-
-   platform_status rc = vector_append(pivots, copy);
-   if (!SUCCESS(rc)) {
-      trunk_pivot_destroy(copy, hid);
-   }
-   return rc;
-}
-
 static key
 trunk_pivot_key(const trunk_pivot *pvt)
 {
@@ -539,23 +522,13 @@ trunk_node_copy_init(trunk_node       *dst,
    vector_init(&pivot_bundles, hid);
    vector_init(&inflight_bundles, hid);
 
-   rc = vector_ensure_capacity(&pivots, vector_length(&src->pivots));
+   rc = VECTOR_MAP_ELTS_TO_PTRS(&pivots, trunk_pivot_copy, &src->pivots, hid);
    if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
+      platform_error_log("%s():%d: VECTOR_MAP_ELTS_TO_PTRS() failed: %s",
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
       goto cleanup_vectors;
-   }
-   for (uint64 i = 0; i < vector_length(&src->pivots); i++) {
-      rc = trunk_pivot_append_copy(&pivots, vector_get(&src->pivots, i), hid);
-      if (!SUCCESS(rc)) {
-         platform_error_log("%s():%d: trunk_pivot_append_copy() failed: %s",
-                            __func__,
-                            __LINE__,
-                            platform_status_to_string(rc));
-         goto cleanup_vectors;
-      }
    }
    rc = VECTOR_EMPLACE_MAP_PTRS(
       &pivot_bundles, bundle_init_copy, &src->pivot_bundles, hid);
@@ -1885,23 +1858,6 @@ trunk_pivot_create_from_ondisk_node_ref(trunk_ondisk_node_ref *odnref,
                              0,
                              TRUNK_STATS_ZERO,
                              TRUNK_STATS_ZERO);
-}
-
-static platform_status
-trunk_pivot_append_from_ondisk_node_ref(trunk_pivot_vector     *pivots,
-                                        trunk_ondisk_node_ref *odnref,
-                                        platform_heap_id       hid)
-{
-   trunk_pivot *pivot = trunk_pivot_create_from_ondisk_node_ref(odnref, hid);
-   if (pivot == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-
-   platform_status rc = vector_append(pivots, pivot);
-   if (!SUCCESS(rc)) {
-      trunk_pivot_destroy(pivot, hid);
-   }
-   return rc;
 }
 
 static uint64
@@ -4611,23 +4567,15 @@ flush_to_one_child(trunk_context                *context,
    // Construct our new pivots for the new children
    trunk_pivot_vector new_pivots;
    vector_init(&new_pivots, PROCESS_PRIVATE_HEAP_ID);
-   rc = vector_ensure_capacity(&new_pivots, vector_length(&new_childrefs));
+   rc = VECTOR_MAP_ELTS_TO_PTRS(&new_pivots,
+                                trunk_pivot_create_from_ondisk_node_ref,
+                                &new_childrefs,
+                                PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
-      platform_error_log("flush_to_one_child: vector_ensure_capacity failed: "
+      platform_error_log("flush_to_one_child: VECTOR_MAP_ELTS_TO_PTRS failed: "
                          "%d\n",
                          rc.r);
       goto cleanup_new_pivots;
-   }
-   for (uint64 j = 0; j < vector_length(&new_childrefs); j++) {
-      rc = trunk_pivot_append_from_ondisk_node_ref(
-         &new_pivots, vector_get(&new_childrefs, j), PROCESS_PRIVATE_HEAP_ID);
-      if (!SUCCESS(rc)) {
-         platform_error_log(
-            "flush_to_one_child: trunk_pivot_append_from_ondisk_node_ref "
-            "failed: %d\n",
-            rc.r);
-         goto cleanup_new_pivots;
-      }
    }
    for (uint64 j = 0; j < vector_length(&new_pivots); j++) {
       trunk_pivot *new_pivot = vector_get(&new_pivots, j);
@@ -4872,16 +4820,15 @@ build_new_roots(trunk_context                *context,
                          rc.r);
       goto cleanup_pivots;
    }
-   for (uint64 i = 0; i < vector_length(node_refs); i++) {
-      rc = trunk_pivot_append_from_ondisk_node_ref(
-         &pivots, vector_get(node_refs, i), PROCESS_PRIVATE_HEAP_ID);
-      if (!SUCCESS(rc)) {
-         platform_error_log("build_new_roots: "
-                            "trunk_pivot_append_from_ondisk_node_ref failed: "
-                            "%d\n",
-                            rc.r);
-         goto cleanup_pivots;
-      }
+   rc = VECTOR_MAP_ELTS_TO_PTRS(&pivots,
+                                trunk_pivot_create_from_ondisk_node_ref,
+                                node_refs,
+                                PROCESS_PRIVATE_HEAP_ID);
+   if (!SUCCESS(rc)) {
+      platform_error_log("build_new_roots: VECTOR_MAP_ELTS_TO_PTRS failed: "
+                         "%d\n",
+                         rc.r);
+      goto cleanup_pivots;
    }
    trunk_pivot *ub_pivot = trunk_pivot_create(PROCESS_PRIVATE_HEAP_ID,
                                               POSITIVE_INFINITY_KEY,
