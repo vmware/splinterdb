@@ -56,8 +56,8 @@ jobs:
     name: ${{ matrix.compiler_mode }} ${{ matrix.build_mode }} ${{ matrix.target }} ${{ matrix.tests_function }}
     runs-on: ubuntu-latest
     env:
-      CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
-      LD:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang' }}
+      CC:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang-19' }}
+      LD:         ${{ startsWith(matrix.compiler_mode, 'gcc') && 'gcc' || 'clang-19' }}
       BUILD_MODE: ${{ matrix.build_mode }}
       BUILD_ASAN: ${{ endsWith(matrix.compiler_mode, 'asan') && 1 || 0 }}
       BUILD_MSAN: ${{ endsWith(matrix.compiler_mode, 'msan') && 1 || 0 }}
