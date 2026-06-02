@@ -1674,6 +1674,10 @@ core_apply_to_range(core_handle   *spl,
 {
    core_range_iterator *range_itor =
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
+   if (range_itor == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+
    platform_status rc = core_range_iterator_init(spl,
                                                  range_itor,
                                                  greater_than_or_equal,

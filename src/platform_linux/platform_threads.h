@@ -57,7 +57,7 @@ typedef struct process_event_callback_list_node {
    struct process_event_callback_list_node *next;
 } process_event_callback_list_node;
 
-void
+platform_status
 platform_linux_add_process_event_callback(
    process_event_callback_list_node *node);
 

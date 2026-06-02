@@ -123,7 +123,7 @@ thread_registration_cleanup_disarm(void)
  * in the task system structure to indicate that no threads are currently
  * active.
  */
-static void
+static platform_status
 id_allocator_init_if_needed(void)
 {
    if (id_alloc == NULL) {
@@ -136,7 +136,7 @@ id_allocator_init_if_needed(void)
                          0);
       if (my_id_alloc == MAP_FAILED) {
          platform_error_log("Failed to allocate memory for id allocator");
-         return;
+         return STATUS_NO_MEMORY;
       }
       memset(my_id_alloc, 0x00, sizeof(id_allocator));
       memset(my_id_alloc->tid_allocator.available_tids,
@@ -146,6 +146,7 @@ id_allocator_init_if_needed(void)
          munmap(my_id_alloc, sizeof(id_allocator));
       }
    }
+   return STATUS_OK;
 }
 
 /*
@@ -308,11 +309,15 @@ decref_xxxpid(void)
    __sync_lock_release(&id_alloc->pid_allocator.lock);
 }
 
-void
+platform_status
 platform_linux_add_process_event_callback(
    process_event_callback_list_node *node)
 {
-   id_allocator_init_if_needed();
+   platform_status rc = id_allocator_init_if_needed();
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    while (
       __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
    {
@@ -321,6 +326,7 @@ platform_linux_add_process_event_callback(
    node->next = id_alloc->process_event_callback_list;
    id_alloc->process_event_callback_list = node;
    __sync_lock_release(&id_alloc->process_event_callback_list_lock);
+   return STATUS_OK;
 }
 
 void
@@ -407,7 +413,10 @@ platform_register_thread(void)
                    "registered as thread %lu\n",
                    thread_tid);
 
-   id_allocator_init_if_needed();
+   status = id_allocator_init_if_needed();
+   if (!SUCCESS(status)) {
+      return -1;
+   }
 
    status = ensure_xxxpid_is_setup();
    if (!SUCCESS(status)) {
@@ -465,8 +474,12 @@ platform_thread_create(platform_thread       *thread,
 {
    int ret;
 
-   id_allocator_init_if_needed();
-   platform_status rc = ensure_xxxpid_is_setup();
+   platform_status rc = id_allocator_init_if_needed();
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = ensure_xxxpid_is_setup();
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -506,6 +519,10 @@ platform_thread_join(platform_thread *thread)
 threadid
 platform_num_threads(void)
 {
-   id_allocator_init_if_needed();
+   platform_status rc = id_allocator_init_if_needed();
+   if (!SUCCESS(rc)) {
+      return 0;
+   }
+
    return id_alloc->tid_allocator.num_threads;
 }

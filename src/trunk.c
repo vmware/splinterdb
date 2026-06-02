@@ -2294,7 +2294,7 @@ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
                          __LINE__,
                          platform_status_to_string(rc));
    }
-   return STATUS_OK;
+   return rc;
 }
 
 
@@ -3953,12 +3953,19 @@ leaf_estimate_unique_keys(trunk_context *context,
    *estimate = unfiltered_tuples;
 
    if (0 < num_fp) {
-      uint32 num_globally_unique_fp =
-         routing_filter_estimate_unique_fp(context->cc,
-                                           context->cfg->filter_cfg,
-                                           PROCESS_PRIVATE_HEAP_ID,
-                                           vector_data(&maplets),
-                                           vector_length(&maplets));
+      uint32 num_globally_unique_fp;
+      rc = routing_filter_estimate_unique_fp(context->cc,
+                                             context->cfg->filter_cfg,
+                                             PROCESS_PRIVATE_HEAP_ID,
+                                             vector_data(&maplets),
+                                             vector_length(&maplets),
+                                             &num_globally_unique_fp);
+      if (!SUCCESS(rc)) {
+         platform_error_log("leaf_estimate_unique_keys: "
+                            "routing_filter_estimate_unique_fp failed: %d\n",
+                            rc.r);
+         goto cleanup;
+      }
 
       num_globally_unique_fp = routing_filter_estimate_unique_keys_from_count(
          context->cfg->filter_cfg, num_globally_unique_fp);

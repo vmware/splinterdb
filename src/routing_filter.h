@@ -168,12 +168,13 @@ uint32
 routing_filter_estimate_unique_keys(routing_filter *filter,
                                     routing_config *cfg);
 
-uint32
+platform_status
 routing_filter_estimate_unique_fp(cache                *cc,
                                   const routing_config *cfg,
                                   platform_heap_id      hid,
                                   routing_filter       *filter,
-                                  uint64                num_filters);
+                                  uint64                num_filters,
+                                  uint32               *num_unique_fp);
 
 uint64
 routing_filter_space_use_bytes(cache *cc, const routing_filter *filter);

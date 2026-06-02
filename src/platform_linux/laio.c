@@ -716,11 +716,18 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
 
    io->pecnode.termination = laio_process_termination_callback;
    io->pecnode.arg         = io;
-   platform_linux_add_process_event_callback(&io->pecnode);
+   rc = platform_linux_add_process_event_callback(&io->pecnode);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "failed to register process event callback: %s\n",
+         platform_status_to_string(rc));
+      goto process_event_callback_failed;
+   }
 
    // leave req_hand set to 0
    return (io_handle *)io;
 
+process_event_callback_failed:
 write_failed:
 seek_failed:
 no_fallocate_and_bad_size:

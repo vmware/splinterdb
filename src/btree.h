@@ -373,12 +373,6 @@ btree_pack_req_init(btree_pack_req     *req,
    {
       req->fingerprint_arr =
          TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
-
-      // When we run with shared-memory configured, we expect that it is sized
-      // big-enough to not get OOMs from here. Hence, only a debug_assert().
-      debug_assert(req->fingerprint_arr,
-                   "Unable to allocate memory for %lu tuples",
-                   max_tuples);
       if (!req->fingerprint_arr) {
          return STATUS_NO_MEMORY;
       }

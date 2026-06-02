@@ -81,8 +81,15 @@ test_filter_basic(cache           *cc,
                            filter[i + 1].num_unique);
    }
 
-   uint32 num_unique =
-      routing_filter_estimate_unique_fp(cc, cfg, hid, filter + 1, num_values);
+   uint32 num_unique;
+   rc = routing_filter_estimate_unique_fp(
+      cc, cfg, hid, filter + 1, num_values, &num_unique);
+   if (!SUCCESS(rc)) {
+      for (uint64 i = 0; i < num_values; i++) {
+         routing_filter_dec_ref(cc, &filter[i + 1]);
+      }
+      goto out;
+   }
    num_unique = routing_filter_estimate_unique_keys_from_count(cfg, num_unique);
    platform_default_log("across filters: num input keys %8u estimate %8u\n",
                         num_input_keys[num_values - 1],
