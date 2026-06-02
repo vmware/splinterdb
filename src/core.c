@@ -1706,73 +1706,69 @@ destroy_range_itor:
 }
 
 static void
-core_stats_deinit(core_handle *spl, core_stats **stats_in)
+core_stats_destroy(platform_heap_id heap_id, core_stats *stats)
 {
-   core_stats *stats = *stats_in;
    if (stats == NULL) {
       return;
    }
 
    for (uint64 i = 0; i < MAX_THREADS; i++) {
-      histogram_destroy(spl->heap_id, &stats[i].insert_latency_histo);
-      histogram_destroy(spl->heap_id, &stats[i].update_latency_histo);
-      histogram_destroy(spl->heap_id, &stats[i].delete_latency_histo);
+      histogram_destroy(heap_id, stats[i].insert_latency_histo);
+      histogram_destroy(heap_id, stats[i].update_latency_histo);
+      histogram_destroy(heap_id, stats[i].delete_latency_histo);
    }
-   platform_free(spl->heap_id, stats);
-   *stats_in = NULL;
+   platform_free(heap_id, stats);
+}
+
+static core_stats *
+core_stats_create(platform_heap_id heap_id)
+{
+   core_stats *stats = TYPED_ARRAY_ZALLOC(heap_id, stats, MAX_THREADS);
+   if (stats == NULL) {
+      return NULL;
+   }
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      stats[i].insert_latency_histo =
+         histogram_create(heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      if (stats[i].insert_latency_histo == NULL) {
+         goto cleanup;
+      }
+      stats[i].update_latency_histo =
+         histogram_create(heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      if (stats[i].update_latency_histo == NULL) {
+         goto cleanup;
+      }
+      stats[i].delete_latency_histo =
+         histogram_create(heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      if (stats[i].delete_latency_histo == NULL) {
+         goto cleanup;
+      }
+   }
+
+   return stats;
+
+cleanup:
+   core_stats_destroy(heap_id, stats);
+   return NULL;
 }
 
 static platform_status
-core_stats_init(core_handle *spl, core_stats **stats_out)
+core_create_stats(core_handle *spl)
 {
-   *stats_out = NULL;
-
    if (!spl->cfg.use_stats) {
       return STATUS_OK;
    }
 
-   core_stats *stats = TYPED_ARRAY_ZALLOC(spl->heap_id, stats, MAX_THREADS);
-   if (stats == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-
-   platform_status rc = STATUS_OK;
-   for (uint64 i = 0; i < MAX_THREADS; i++) {
-      rc = histogram_create(spl->heap_id,
-                            LATENCYHISTO_SIZE + 1,
-                            latency_histo_buckets,
-                            &stats[i].insert_latency_histo);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
-      rc = histogram_create(spl->heap_id,
-                            LATENCYHISTO_SIZE + 1,
-                            latency_histo_buckets,
-                            &stats[i].update_latency_histo);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
-      rc = histogram_create(spl->heap_id,
-                            LATENCYHISTO_SIZE + 1,
-                            latency_histo_buckets,
-                            &stats[i].delete_latency_histo);
-      if (!SUCCESS(rc)) {
-         goto cleanup;
-      }
-   }
-
-   *stats_out = stats;
-   return STATUS_OK;
-
-cleanup:
-   core_stats_deinit(spl, &stats);
-   return rc;
+   spl->stats = core_stats_create(spl->heap_id);
+   return spl->stats == NULL ? STATUS_NO_MEMORY : STATUS_OK;
 }
 
-static platform_status
-core_init_stats(core_handle *spl)
+static void
+core_destroy_stats(core_handle *spl)
 {
-   return core_stats_init(spl, &spl->stats);
+   core_stats_destroy(spl->heap_id, spl->stats);
+   spl->stats = NULL;
 }
 
 
@@ -1823,7 +1819,7 @@ core_mkfs(core_handle      *spl,
       goto deinit_log;
    }
 
-   rc = core_init_stats(spl);
+   rc = core_create_stats(spl);
    if (!SUCCESS(rc)) {
       goto deinit_trunk_context;
    }
@@ -1835,7 +1831,7 @@ core_mkfs(core_handle      *spl,
    return STATUS_OK;
 
 deinit_stats:
-   core_stats_deinit(spl, &spl->stats);
+   core_destroy_stats(spl);
 deinit_trunk_context:
    trunk_context_deinit(&spl->trunk_context);
 deinit_log:
@@ -1908,7 +1904,7 @@ core_mount(core_handle      *spl,
       goto deinit_log;
    }
 
-   rc = core_init_stats(spl);
+   rc = core_create_stats(spl);
    if (!SUCCESS(rc)) {
       goto deinit_trunk_context;
    }
@@ -1920,7 +1916,7 @@ core_mount(core_handle      *spl,
    return STATUS_OK;
 
 deinit_stats:
-   core_stats_deinit(spl, &spl->stats);
+   core_destroy_stats(spl);
 deinit_trunk_context:
    trunk_context_deinit(&spl->trunk_context);
 deinit_log:
@@ -2032,7 +2028,7 @@ core_unmount(core_handle *spl)
                          platform_status_to_string(rc));
    }
    trunk_context_deinit(&spl->trunk_context);
-   core_stats_deinit(spl, &spl->stats);
+   core_destroy_stats(spl);
    return rc;
 }
 
@@ -2047,7 +2043,7 @@ core_destroy(core_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
-   core_stats_deinit(spl, &spl->stats);
+   core_destroy_stats(spl);
 }
 
 
@@ -2124,19 +2120,31 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
       return;
    }
 
-   histogram_handle insert_lat_accum, update_lat_accum, delete_lat_accum;
-   histogram_create(PROCESS_PRIVATE_HEAP_ID,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &insert_lat_accum);
-   histogram_create(PROCESS_PRIVATE_HEAP_ID,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &update_lat_accum);
-   histogram_create(PROCESS_PRIVATE_HEAP_ID,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &delete_lat_accum);
+   histogram *insert_lat_accum;
+   histogram *update_lat_accum;
+   histogram *delete_lat_accum;
+   insert_lat_accum =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID,
+                       LATENCYHISTO_SIZE + 1,
+                       latency_histo_buckets);
+   update_lat_accum =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID,
+                       LATENCYHISTO_SIZE + 1,
+                       latency_histo_buckets);
+   delete_lat_accum =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID,
+                       LATENCYHISTO_SIZE + 1,
+                       latency_histo_buckets);
+   if (insert_lat_accum == NULL || update_lat_accum == NULL
+       || delete_lat_accum == NULL)
+   {
+      platform_error_log("Out of memory for statistics");
+      histogram_destroy(PROCESS_PRIVATE_HEAP_ID, insert_lat_accum);
+      histogram_destroy(PROCESS_PRIVATE_HEAP_ID, update_lat_accum);
+      histogram_destroy(PROCESS_PRIVATE_HEAP_ID, delete_lat_accum);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, global);
+      return;
+   }
 
    for (thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       histogram_merge_in(insert_lat_accum,
@@ -2192,9 +2200,9 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
    histogram_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
    histogram_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
    histogram_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
-   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &insert_lat_accum);
-   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &update_lat_accum);
-   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &delete_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, insert_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, update_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, delete_lat_accum);
 
 
    platform_log(log_handle, "Flush Statistics\n");
@@ -2333,15 +2341,14 @@ void
 core_reset_stats(core_handle *spl)
 {
    if (spl->cfg.use_stats) {
-      core_stats     *new_stats = NULL;
-      platform_status rc        = core_stats_init(spl, &new_stats);
-      if (!SUCCESS(rc)) {
+      core_stats *new_stats = core_stats_create(spl->heap_id);
+      if (new_stats == NULL) {
          platform_error_log("core_reset_stats: failed to reset stats: %s\n",
-                            platform_status_to_string(rc));
+                            platform_status_to_string(STATUS_NO_MEMORY));
          return;
       }
 
-      core_stats_deinit(spl, &spl->stats);
+      core_destroy_stats(spl);
       spl->stats = new_stats;
    }
 }

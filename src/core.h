@@ -53,9 +53,9 @@ typedef struct core_stats {
    uint64 updates;
    uint64 deletions;
 
-   histogram_handle insert_latency_histo;
-   histogram_handle update_latency_histo;
-   histogram_handle delete_latency_histo;
+   histogram *insert_latency_histo;
+   histogram *update_latency_histo;
+   histogram *delete_latency_histo;
 
    uint64 memtable_flushes;
    uint64 memtable_flush_time_ns;
