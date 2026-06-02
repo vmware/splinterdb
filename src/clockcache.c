@@ -2372,7 +2372,7 @@ void
 clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 {
    async_io_state *state            = NULL;
-   uint64          state_pages      = 0;
+   uint64          state_num_pages  = 0;
    uint64          pages_per_extent = cc->cfg->pages_per_extent;
    threadid        tid              = platform_get_tid();
 
@@ -2395,15 +2395,15 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
          case GET_RC_CONFLICT:
             // in cache, issue IO req if pages have been queued
             if (state != NULL) {
-               platform_assert(state_pages > 0);
+               platform_assert(state_num_pages > 0);
                if (cc->cfg->use_stats) {
                   threadid tid = platform_get_tid();
-                  cc->stats[tid].page_reads[type] += state_pages;
+                  cc->stats[tid].page_reads[type] += state_num_pages;
                   cc->stats[tid].prefetches_issued[type]++;
                }
                io_async_run(state->iostate);
-               state       = NULL;
-               state_pages = 0;
+               state           = NULL;
+               state_num_pages = 0;
             }
             clockcache_log(addr,
                            entry_no,
@@ -2448,7 +2448,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                platform_status rc =
                   io_async_state_append_page(state->iostate, entry->page.data);
                platform_assert_status_ok(rc);
-               state_pages++;
+               state_num_pages++;
                clockcache_log(addr,
                               entry_no,
                               "prefetch (load): entry %u addr %lu\n",
@@ -2460,7 +2460,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                 * entry and retry
                 */
                clockcache_release_unpublished_entry(entry);
-               if (state_pages == 0) {
+               if (state_num_pages == 0) {
                   io_async_state_deinit(state->iostate);
                   platform_free(cc->heap_id, state);
                   state = NULL;
@@ -2475,15 +2475,15 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
    }
    // issue IO req if pages have been queued
    if (state != NULL) {
-      platform_assert(state_pages > 0);
+      platform_assert(state_num_pages > 0);
       if (cc->cfg->use_stats) {
          threadid tid = platform_get_tid();
-         cc->stats[tid].page_reads[type] += state_pages;
+         cc->stats[tid].page_reads[type] += state_num_pages;
          cc->stats[tid].prefetches_issued[type]++;
       }
       io_async_run(state->iostate);
-      state       = NULL;
-      state_pages = 0;
+      state           = NULL;
+      state_num_pages = 0;
    }
 }
 
