@@ -992,11 +992,11 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
          state->cc                = cc;
          state->outstanding_pages = NULL;
          platform_status rc       = io_async_state_init(state->iostate,
-                                                        cc->io,
-                                                        io_async_pwritev,
-                                                        first_addr,
-                                                        clockcache_write_callback,
-                                                        state);
+                                                  cc->io,
+                                                  io_async_pwritev,
+                                                  first_addr,
+                                                  clockcache_write_callback,
+                                                  state);
          if (!SUCCESS(rc)) {
             platform_error_log("clockcache_batch_start_writeback: "
                                "io_async_state_init failed: %s\n",
@@ -1019,8 +1019,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                                   "flush: entry %u addr %lu\n",
                                   next_entry_no,
                                   addr);
-            rc =
-               io_async_state_append_page(state->iostate, next_entry->page.data);
+            rc = io_async_state_append_page(state->iostate,
+                                            next_entry->page.data);
             if (!SUCCESS(rc)) {
                platform_error_log("clockcache_batch_start_writeback: "
                                   "io_async_state_append_page failed: %s\n",
