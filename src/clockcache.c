@@ -885,6 +885,23 @@ clockcache_write_callback(void *wbs)
    platform_free(cc->heap_id, state);
 }
 
+static void
+clockcache_abort_writeback_range(clockcache *cc,
+                                 uint64      first_addr,
+                                 uint64      end_addr)
+{
+   uint64 page_size = clockcache_page_size(cc);
+
+   for (uint64 addr = first_addr; addr < end_addr; addr += page_size) {
+      uint32 entry_number = clockcache_lookup(cc, addr);
+      platform_assert(entry_number != CC_UNMAPPED_ENTRY);
+
+      debug_only uint32 was_writeback =
+         clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
+      debug_assert(was_writeback);
+   }
+}
+
 
 /*
  *----------------------------------------------------------------------
@@ -963,26 +980,34 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
 
 
          async_io_state *state;
-         while ((state = TYPED_MALLOC(cc->heap_id, state)) == NULL) {
-            clockcache_wait(cc);
+         state = TYPED_MALLOC(cc->heap_id, state);
+         if (state == NULL) {
+            platform_error_log(
+               "clockcache_batch_start_writeback: async_io_state allocation "
+               "failed\n");
+            clockcache_abort_writeback_range(cc, first_addr, end_addr);
+            goto close_log;
          }
 
          state->cc                = cc;
          state->outstanding_pages = NULL;
-         io_async_state_init(state->iostate,
-                             cc->io,
-                             io_async_pwritev,
-                             first_addr,
-                             clockcache_write_callback,
-                             state);
+         platform_status rc       = io_async_state_init(state->iostate,
+                                                        cc->io,
+                                                        io_async_pwritev,
+                                                        first_addr,
+                                                        clockcache_write_callback,
+                                                        state);
+         if (!SUCCESS(rc)) {
+            platform_error_log("clockcache_batch_start_writeback: "
+                               "io_async_state_init failed: %s\n",
+                               platform_status_to_string(rc));
+            clockcache_abort_writeback_range(cc, first_addr, end_addr);
+            platform_free(cc->heap_id, state);
+            goto close_log;
+         }
 
          uint64 req_count =
             clockcache_divide_by_page_size(cc, end_addr - first_addr);
-
-         if (cc->cfg->use_stats) {
-            cc->stats[tid].page_writes[entry->type] += req_count;
-            cc->stats[tid].writes_issued++;
-         }
 
          for (i = 0; i < req_count; i++) {
             addr       = first_addr + clockcache_multiply_by_page_size(cc, i);
@@ -994,12 +1019,29 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                                   "flush: entry %u addr %lu\n",
                                   next_entry_no,
                                   addr);
-            io_async_state_append_page(state->iostate, next_entry->page.data);
+            rc =
+               io_async_state_append_page(state->iostate, next_entry->page.data);
+            if (!SUCCESS(rc)) {
+               platform_error_log("clockcache_batch_start_writeback: "
+                                  "io_async_state_append_page failed: %s\n",
+                                  platform_status_to_string(rc));
+               io_async_state_deinit(state->iostate);
+               clockcache_abort_writeback_range(cc, first_addr, end_addr);
+               platform_free(cc->heap_id, state);
+               goto close_log;
+            }
+         }
+
+         if (cc->cfg->use_stats) {
+            cc->stats[tid].page_writes[entry->type] += req_count;
+            cc->stats[tid].writes_issued++;
          }
 
          io_async_run(state->iostate);
       }
    }
+
+close_log:
    clockcache_close_log_stream();
 }
 
