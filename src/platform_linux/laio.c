@@ -718,9 +718,8 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
    io->pecnode.arg         = io;
    rc = platform_linux_add_process_event_callback(&io->pecnode);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "failed to register process event callback: %s\n",
-         platform_status_to_string(rc));
+      platform_error_log("failed to register process event callback: %s\n",
+                         platform_status_to_string(rc));
       goto process_event_callback_failed;
    }
 

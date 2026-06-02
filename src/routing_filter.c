@@ -720,7 +720,7 @@ routing_filter_estimate_unique_fp(cache                *cc,
    uint32 buffer_size = total_num_fp / 12;
    uint32 alloc_size  = buffer_size + cfg->index_size;
    // NOLINTNEXTLINE(bugprone-sizeof-expression)
-   uint32 *local  = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
+   uint32 *local = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
    if (local == NULL) {
       return STATUS_NO_MEMORY;
    }
