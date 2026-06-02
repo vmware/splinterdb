@@ -1571,6 +1571,15 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
    return FALSE;
 }
 
+static void
+clockcache_release_unpublished_entry(clockcache_entry *entry)
+{
+   entry->page.disk_addr = CC_UNMAPPED_ADDR;
+   entry->type           = PAGE_TYPE_INVALID;
+   platform_assert(entry->waiters.head == NULL);
+   entry->status = CC_FREE_STATUS;
+}
+
 static uint64
 clockcache_acquire_entry_for_load(clockcache *cc, // IN
                                   uint64      addr,
@@ -1592,9 +1601,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
           &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
    {
       clockcache_dec_ref(cc, entry_number, tid);
-      platform_assert(entry->waiters.head == NULL);
-      entry->type   = PAGE_TYPE_INVALID;
-      entry->status = CC_FREE_STATUS;
+      clockcache_release_unpublished_entry(entry);
       clockcache_log(addr,
                      entry_number,
                      "get abort: entry: %u addr: %lu\n",
@@ -2365,6 +2372,7 @@ void
 clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 {
    async_io_state *state            = NULL;
+   uint64          state_pages      = 0;
    uint64          pages_per_extent = cc->cfg->pages_per_extent;
    threadid        tid              = platform_get_tid();
 
@@ -2385,17 +2393,17 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             clockcache_dec_ref(cc, entry_no, tid);
             // fallthrough
          case GET_RC_CONFLICT:
-            // in cache, issue IO req if started
+            // in cache, issue IO req if pages have been queued
             if (state != NULL) {
+               platform_assert(state_pages > 0);
                if (cc->cfg->use_stats) {
                   threadid tid = platform_get_tid();
-                  uint64   count;
-                  io_async_state_get_iovec(state->iostate, &count);
-                  cc->stats[tid].page_reads[type] += count;
+                  cc->stats[tid].page_reads[type] += state_pages;
                   cc->stats[tid].prefetches_issued[type]++;
                }
                io_async_run(state->iostate);
-               state = NULL;
+               state       = NULL;
+               state_pages = 0;
             }
             clockcache_log(addr,
                            entry_no,
@@ -2412,19 +2420,14 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             entry->page.disk_addr   = addr;
             entry->type             = type;
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
-            bool32 started_state    = FALSE;
             if (state == NULL) {
                // start a new IO req before publishing the loading entry
                state = TYPED_MALLOC(cc->heap_id, state);
                if (state == NULL) {
-                  entry->page.disk_addr = CC_UNMAPPED_ADDR;
-                  entry->type           = PAGE_TYPE_INVALID;
-                  platform_assert(entry->waiters.head == NULL);
-                  entry->status = CC_FREE_STATUS;
+                  clockcache_release_unpublished_entry(entry);
                   return;
                }
-               started_state = TRUE;
-               state->cc     = cc;
+               state->cc = cc;
                platform_status rc =
                   io_async_state_init(state->iostate,
                                       cc->io,
@@ -2433,11 +2436,9 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                                       clockcache_prefetch_callback,
                                       state);
                if (!SUCCESS(rc)) {
-                  entry->page.disk_addr = CC_UNMAPPED_ADDR;
-                  entry->type           = PAGE_TYPE_INVALID;
-                  platform_assert(entry->waiters.head == NULL);
-                  entry->status = CC_FREE_STATUS;
+                  clockcache_release_unpublished_entry(entry);
                   platform_free(cc->heap_id, state);
+                  state = NULL;
                   return;
                }
             }
@@ -2447,6 +2448,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                platform_status rc =
                   io_async_state_append_page(state->iostate, entry->page.data);
                platform_assert_status_ok(rc);
+               state_pages++;
                clockcache_log(addr,
                               entry_no,
                               "prefetch (load): entry %u addr %lu\n",
@@ -2457,11 +2459,8 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                 * someone else is already loading this page, release the free
                 * entry and retry
                 */
-               entry->page.disk_addr = CC_UNMAPPED_ADDR;
-               entry->type           = PAGE_TYPE_INVALID;
-               platform_assert(entry->waiters.head == NULL);
-               entry->status = CC_FREE_STATUS;
-               if (started_state) {
+               clockcache_release_unpublished_entry(entry);
+               if (state_pages == 0) {
                   io_async_state_deinit(state->iostate);
                   platform_free(cc->heap_id, state);
                   state = NULL;
@@ -2474,17 +2473,17 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             platform_assert(0);
       }
    }
-   // issue IO req if started
+   // issue IO req if pages have been queued
    if (state != NULL) {
+      platform_assert(state_pages > 0);
       if (cc->cfg->use_stats) {
          threadid tid = platform_get_tid();
-         uint64   count;
-         io_async_state_get_iovec(state->iostate, &count);
-         cc->stats[tid].page_reads[type] += count;
+         cc->stats[tid].page_reads[type] += state_pages;
          cc->stats[tid].prefetches_issued[type]++;
       }
       io_async_run(state->iostate);
-      state = NULL;
+      state       = NULL;
+      state_pages = 0;
    }
 }
 
