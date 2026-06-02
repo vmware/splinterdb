@@ -5896,6 +5896,10 @@ trunk_context_init(trunk_context      *context,
       if (context->stats == NULL) {
          platform_error_log("trunk_node_context_init: "
                             "TYPED_ARRAY_MALLOC failed\n");
+         if (context->root != NULL) {
+            trunk_ondisk_node_ref_destroy(context->root, context, hid);
+            context->root = NULL;
+         }
          return STATUS_NO_MEMORY;
       }
       memset(context->stats, 0, sizeof(trunk_stats) * MAX_THREADS);

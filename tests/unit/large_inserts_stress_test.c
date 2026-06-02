@@ -101,7 +101,7 @@ CTEST_DATA(large_inserts_stress)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(large_inserts_stress)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
    // First, register that main() is being run as a parent process
    data->am_parent = TRUE;
    data->this_pid  = platform_get_os_pid();

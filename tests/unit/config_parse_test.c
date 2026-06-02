@@ -16,6 +16,7 @@
  */
 #include "core.h"
 #include "functional/test.h"
+#include "platform_threads.h"
 #include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -33,7 +34,7 @@ CTEST_DATA(config_parse)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(config_parse)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
    uint64 heap_capacity = (512 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(

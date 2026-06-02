@@ -382,8 +382,14 @@ log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
 {
    shard_log_config *cfg  = (shard_log_config *)lcfg;
    shard_log        *slog = TYPED_MALLOC(hid, slog);
+   if (slog == NULL) {
+      return NULL;
+   }
    platform_status   rc   = shard_log_init(slog, cc, cfg);
-   platform_assert(SUCCESS(rc));
+   if (!SUCCESS(rc)) {
+      platform_free(hid, slog);
+      return NULL;
+   }
    return (log_handle *)slog;
 }
 

@@ -9,6 +9,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "platform_units.h"
+#include "platform_threads.h"
 #include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
@@ -30,7 +31,7 @@ CTEST_DATA(writable_buffer)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(writable_buffer)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
    data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    platform_status rc = platform_heap_create(

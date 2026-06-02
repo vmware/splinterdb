@@ -10,6 +10,7 @@
  */
 #include "vector.h"
 #include "ctest.h"
+#include "platform_threads.h"
 
 typedef VECTOR(uint64) uint64_vector;
 typedef VECTOR(uint64 *) uint64_ptr_vector;
@@ -24,7 +25,7 @@ CTEST_DATA(vector)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(vector)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
    platform_heap_id hid = platform_get_heap_id();
    vector_init(&data->empty, hid);
    vector_init(&data->one, hid);

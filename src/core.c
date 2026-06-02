@@ -133,7 +133,7 @@ typedef struct ONDISK core_super_block {
  * Super block functions
  *-----------------------------------------------------------------------------
  */
-static void
+static platform_status
 core_set_super_block(core_handle *spl,
                      bool32       is_checkpoint,
                      bool32       is_unmount,
@@ -150,7 +150,9 @@ core_set_super_block(core_handle *spl,
    } else {
       rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    }
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    while (!cache_try_claim(spl->cc, super_page)) {
       platform_sleep_ns(wait);
@@ -166,13 +168,16 @@ core_set_super_block(core_handle *spl,
    trunk_init_root_handle(&spl->trunk_context, &root_handle);
    uint64 root_addr = trunk_ondisk_node_handle_addr(&root_handle);
    if (root_addr != 0) {
-      super->root_addr = root_addr;
-      rc               = trunk_inc_ref(spl->al, super->root_addr);
-      platform_assert_status_ok(rc);
-
-   } else {
-      super->root_addr = 0;
+      rc = trunk_inc_ref(spl->al, root_addr);
+      if (!SUCCESS(rc)) {
+         trunk_ondisk_node_handle_deinit(&root_handle);
+         cache_unlock(spl->cc, super_page);
+         cache_unclaim(spl->cc, super_page);
+         cache_unget(spl->cc, super_page);
+         return rc;
+      }
    }
+   super->root_addr = root_addr;
    trunk_ondisk_node_handle_deinit(&root_handle);
 
    if (spl->cfg.use_log) {
@@ -205,8 +210,12 @@ core_set_super_block(core_handle *spl,
                          spl->al,
                          spl->ts,
                          old_root_addr);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
+
+   return STATUS_OK;
 }
 
 static core_super_block *
@@ -1703,6 +1712,76 @@ destroy_range_itor:
    return rc;
 }
 
+static void
+core_stats_deinit(core_handle *spl, core_stats **stats_in)
+{
+   core_stats *stats = *stats_in;
+   if (stats == NULL) {
+      return;
+   }
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      histogram_destroy(spl->heap_id, &stats[i].insert_latency_histo);
+      histogram_destroy(spl->heap_id, &stats[i].update_latency_histo);
+      histogram_destroy(spl->heap_id, &stats[i].delete_latency_histo);
+   }
+   platform_free(spl->heap_id, stats);
+   *stats_in = NULL;
+}
+
+static platform_status
+core_stats_init(core_handle *spl, core_stats **stats_out)
+{
+   *stats_out = NULL;
+
+   if (!spl->cfg.use_stats) {
+      return STATUS_OK;
+   }
+
+   core_stats *stats = TYPED_ARRAY_ZALLOC(spl->heap_id, stats, MAX_THREADS);
+   if (stats == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+
+   platform_status rc = STATUS_OK;
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      rc = histogram_create(spl->heap_id,
+                            LATENCYHISTO_SIZE + 1,
+                            latency_histo_buckets,
+                            &stats[i].insert_latency_histo);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      rc = histogram_create(spl->heap_id,
+                            LATENCYHISTO_SIZE + 1,
+                            latency_histo_buckets,
+                            &stats[i].update_latency_histo);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+      rc = histogram_create(spl->heap_id,
+                            LATENCYHISTO_SIZE + 1,
+                            latency_histo_buckets,
+                            &stats[i].delete_latency_histo);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+   }
+
+   *stats_out = stats;
+   return STATUS_OK;
+
+cleanup:
+   core_stats_deinit(spl, &stats);
+   return rc;
+}
+
+static platform_status
+core_init_stats(core_handle *spl)
+{
+   return core_stats_init(spl, &spl->stats);
+}
+
 
 /* Format the disk and mount the database */
 platform_status
@@ -1739,37 +1818,41 @@ core_mkfs(core_handle      *spl,
    // set up the log
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
-   }
-
-   trunk_context_init(
-      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
-
-   core_set_super_block(spl, FALSE, FALSE, TRUE);
-
-   if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      if (spl->log == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto deinit_memtable_context;
       }
    }
 
+   rc = trunk_context_init(
+      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
+   if (!SUCCESS(rc)) {
+      goto deinit_log;
+   }
+
+   rc = core_init_stats(spl);
+   if (!SUCCESS(rc)) {
+      goto deinit_trunk_context;
+   }
+
+   rc = core_set_super_block(spl, FALSE, FALSE, TRUE);
+   if (!SUCCESS(rc)) {
+      goto deinit_stats;
+   }
    return STATUS_OK;
+
+deinit_stats:
+   core_stats_deinit(spl, &spl->stats);
+deinit_trunk_context:
+   trunk_context_deinit(&spl->trunk_context);
+deinit_log:
+   if (spl->cfg.use_log) {
+      platform_free(spl->heap_id, spl->log);
+      spl->log = NULL;
+   }
+deinit_memtable_context:
+   memtable_context_deinit(&spl->mt_ctxt);
+   return rc;
 }
 
 /*
@@ -1820,36 +1903,41 @@ core_mount(core_handle      *spl,
 
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
-   }
-
-   trunk_context_init(
-      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
-
-   core_set_super_block(spl, FALSE, FALSE, FALSE);
-
-   if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      if (spl->log == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto deinit_memtable_context;
       }
    }
+
+   rc = trunk_context_init(
+      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
+   if (!SUCCESS(rc)) {
+      goto deinit_log;
+   }
+
+   rc = core_init_stats(spl);
+   if (!SUCCESS(rc)) {
+      goto deinit_trunk_context;
+   }
+
+   rc = core_set_super_block(spl, FALSE, FALSE, FALSE);
+   if (!SUCCESS(rc)) {
+      goto deinit_stats;
+   }
    return STATUS_OK;
+
+deinit_stats:
+   core_stats_deinit(spl, &spl->stats);
+deinit_trunk_context:
+   trunk_context_deinit(&spl->trunk_context);
+deinit_log:
+   if (spl->cfg.use_log) {
+      platform_free(spl->heap_id, spl->log);
+      spl->log = NULL;
+   }
+deinit_memtable_context:
+   memtable_context_deinit(&spl->mt_ctxt);
+   return rc;
 }
 
 static bool32
@@ -1942,18 +2030,17 @@ core_prepare_for_shutdown(core_handle *spl)
 platform_status
 core_unmount(core_handle *spl)
 {
+   platform_status rc;
+
    core_prepare_for_shutdown(spl);
-   core_set_super_block(spl, FALSE, TRUE, FALSE);
-   trunk_context_deinit(&spl->trunk_context);
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+   rc = core_set_super_block(spl, FALSE, TRUE, FALSE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_unmount: failed to update super block: %s\n",
+                         platform_status_to_string(rc));
    }
-   return STATUS_OK;
+   trunk_context_deinit(&spl->trunk_context);
+   core_stats_deinit(spl, &spl->stats);
+   return rc;
 }
 
 /*
@@ -1967,14 +2054,7 @@ core_destroy(core_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
-   }
+   core_stats_deinit(spl, &spl->stats);
 }
 
 
@@ -2260,33 +2340,16 @@ void
 core_reset_stats(core_handle *spl)
 {
    if (spl->cfg.use_stats) {
-      for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-         histogram_destroy(spl->heap_id,
-                           &spl->stats[thr_i].insert_latency_histo);
-         histogram_destroy(spl->heap_id,
-                           &spl->stats[thr_i].update_latency_histo);
-         histogram_destroy(spl->heap_id,
-                           &spl->stats[thr_i].delete_latency_histo);
-
-         memset(&spl->stats[thr_i], 0, sizeof(spl->stats[thr_i]));
-
-         platform_status rc;
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[thr_i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[thr_i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[thr_i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      core_stats    *new_stats = NULL;
+      platform_status rc       = core_stats_init(spl, &new_stats);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_reset_stats: failed to reset stats: %s\n",
+                            platform_status_to_string(rc));
+         return;
       }
+
+      core_stats_deinit(spl, &spl->stats);
+      spl->stats = new_stats;
    }
 }
 

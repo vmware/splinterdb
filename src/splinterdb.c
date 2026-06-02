@@ -474,7 +474,11 @@ splinterdb_close(splinterdb **kvs_in) // IN
     * order when these sub-systems were init'ed when a Splinter device was
     * created or re-opened. Otherwise, asserts will trip.
     */
-   core_unmount(&kvs->spl);
+   platform_status status = core_unmount(&kvs->spl);
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to close SplinterDB instance cleanly: %s\n",
+                         platform_status_to_string(status));
+   }
    io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);

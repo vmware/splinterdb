@@ -19,6 +19,7 @@
 #include "splinterdb/data.h"
 #include "../config.h"
 #include "platform_io.h"
+#include "platform_threads.h"
 #include "platform_units.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
@@ -120,7 +121,7 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;

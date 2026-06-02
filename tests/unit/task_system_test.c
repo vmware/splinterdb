@@ -26,6 +26,7 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
+#include "platform_threads.h"
 #include "config.h" // Reqd for definition of master_config{}
 #include "task.h"
 
@@ -96,7 +97,7 @@ CTEST_DATA(task_system)
  */
 CTEST_SETUP(task_system)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
 
    platform_status rc = STATUS_OK;
    bool use_shmem     = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);

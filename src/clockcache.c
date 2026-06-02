@@ -2412,21 +2412,38 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             entry->page.disk_addr   = addr;
             entry->type             = type;
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
-            if (__sync_bool_compare_and_swap(
-                   &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
-            {
+            bool32 started_state     = FALSE;
+            if (state == NULL) {
+               // start a new IO req before publishing the loading entry
+               state = TYPED_MALLOC(cc->heap_id, state);
                if (state == NULL) {
-                  // start a new IO req
-                  state = TYPED_MALLOC(cc->heap_id, state);
-                  platform_assert(state);
-                  state->cc = cc;
+                  entry->page.disk_addr = CC_UNMAPPED_ADDR;
+                  entry->type           = PAGE_TYPE_INVALID;
+                  platform_assert(entry->waiters.head == NULL);
+                  entry->status = CC_FREE_STATUS;
+                  return;
+               }
+               started_state = TRUE;
+               state->cc = cc;
+               platform_status rc =
                   io_async_state_init(state->iostate,
                                       cc->io,
                                       io_async_preadv,
                                       addr,
                                       clockcache_prefetch_callback,
                                       state);
+               if (!SUCCESS(rc)) {
+                  entry->page.disk_addr = CC_UNMAPPED_ADDR;
+                  entry->type           = PAGE_TYPE_INVALID;
+                  platform_assert(entry->waiters.head == NULL);
+                  entry->status = CC_FREE_STATUS;
+                  platform_free(cc->heap_id, state);
+                  return;
                }
+            }
+            if (__sync_bool_compare_and_swap(
+                   &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
+            {
                platform_status rc =
                   io_async_state_append_page(state->iostate, entry->page.data);
                platform_assert_status_ok(rc);
@@ -2444,6 +2461,11 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                entry->type           = PAGE_TYPE_INVALID;
                platform_assert(entry->waiters.head == NULL);
                entry->status = CC_FREE_STATUS;
+               if (started_state) {
+                  io_async_state_deinit(state->iostate);
+                  platform_free(cc->heap_id, state);
+                  state = NULL;
+               }
                page_off--;
             }
             break;

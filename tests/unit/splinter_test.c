@@ -26,6 +26,7 @@
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "task.h"
+#include "platform_threads.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"
@@ -107,7 +108,7 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   platform_register_thread();
+   platform_register_thread_auto();
    bool use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    // Defaults: For basic unit-tests, use single threads
