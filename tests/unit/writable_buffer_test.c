@@ -31,7 +31,7 @@ CTEST_DATA(writable_buffer)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(writable_buffer)
 {
-   platform_register_thread_auto();
+   platform_register_thread();
    data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    platform_status rc = platform_heap_create(

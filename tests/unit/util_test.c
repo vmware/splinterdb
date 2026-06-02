@@ -28,7 +28,7 @@ CTEST_DATA(util){};
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(util)
 {
-   platform_register_thread_auto();
+   platform_register_thread();
 }
 
 // Optional teardown function for suite, called after every test in suite

@@ -388,39 +388,6 @@ thread_registration_cleanup_function(void *arg)
    }
 }
 
-static platform_status
-register_thread_common(void)
-{
-   platform_status status;
-   threadid        thread_tid;
-
-   id_allocator_init_if_needed();
-
-   status = ensure_xxxpid_is_setup();
-   if (!SUCCESS(status)) {
-      return status;
-   }
-
-   thread_tid = allocate_threadid();
-   // Unavailable threads is a temporary state that could go away.
-   if (thread_tid == INVALID_TID) {
-      decref_xxxpid();
-      return STATUS_BUSY;
-   }
-
-   platform_assert(thread_tid < MAX_THREADS);
-   xxxtid = thread_tid;
-
-   status = thread_registration_cleanup_arm();
-   if (!SUCCESS(status)) {
-      deallocate_threadid(thread_tid);
-      decref_xxxpid();
-      return status;
-   }
-
-   return STATUS_OK;
-}
-
 /*
  * platform_register_thread(): Register this new thread.
  *
@@ -430,7 +397,8 @@ register_thread_common(void)
 int
 platform_register_thread(void)
 {
-   threadid thread_tid = xxxtid;
+   platform_status status;
+   threadid        thread_tid = xxxtid;
 
    // Before registration, all SplinterDB threads' tid will be its default
    // value; i.e. INVALID_TID.
@@ -439,17 +407,31 @@ platform_register_thread(void)
                    "registered as thread %lu\n",
                    thread_tid);
 
-   return SUCCESS(register_thread_common()) ? 0 : -1;
-}
+   id_allocator_init_if_needed();
 
-platform_status
-platform_register_thread_auto(void)
-{
-   if (xxxtid != INVALID_TID) {
-      return STATUS_OK;
+   status = ensure_xxxpid_is_setup();
+   if (!SUCCESS(status)) {
+      return -1;
    }
 
-   return register_thread_common();
+   thread_tid = allocate_threadid();
+   // Unavailable threads is a temporary state that could go away.
+   if (thread_tid == INVALID_TID) {
+      decref_xxxpid();
+      return -1;
+   }
+
+   platform_assert(thread_tid < MAX_THREADS);
+   xxxtid = thread_tid;
+
+   status = thread_registration_cleanup_arm();
+   if (!SUCCESS(status)) {
+      deallocate_threadid(thread_tid);
+      decref_xxxpid();
+      return -1;
+   }
+
+   return 0;
 }
 
 

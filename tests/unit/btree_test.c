@@ -75,7 +75,7 @@ CTEST_DATA(btree)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(btree)
 {
-   platform_register_thread_auto();
+   platform_register_thread();
    config_set_defaults(&data->master_cfg);
    uint64 heap_capacity = (512 * MiB);
 

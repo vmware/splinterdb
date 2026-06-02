@@ -69,7 +69,7 @@ CTEST_DATA(misc)
 
 CTEST_SETUP(misc)
 {
-   platform_register_thread_auto();
+   platform_register_thread();
    // All test cases in this test usually deal with error handling
    set_log_streams_for_tests(MSG_LEVEL_ERRORS);
    data->log_output = platform_get_stdout_stream();
