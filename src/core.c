@@ -2340,8 +2340,8 @@ void
 core_reset_stats(core_handle *spl)
 {
    if (spl->cfg.use_stats) {
-      core_stats    *new_stats = NULL;
-      platform_status rc       = core_stats_init(spl, &new_stats);
+      core_stats     *new_stats = NULL;
+      platform_status rc        = core_stats_init(spl, &new_stats);
       if (!SUCCESS(rc)) {
          platform_error_log("core_reset_stats: failed to reset stats: %s\n",
                             platform_status_to_string(rc));

@@ -2412,7 +2412,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             entry->page.disk_addr   = addr;
             entry->type             = type;
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
-            bool32 started_state     = FALSE;
+            bool32 started_state    = FALSE;
             if (state == NULL) {
                // start a new IO req before publishing the loading entry
                state = TYPED_MALLOC(cc->heap_id, state);
@@ -2424,7 +2424,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   return;
                }
                started_state = TRUE;
-               state->cc = cc;
+               state->cc     = cc;
                platform_status rc =
                   io_async_state_init(state->iostate,
                                       cc->io,

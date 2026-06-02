@@ -385,7 +385,7 @@ log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
    if (slog == NULL) {
       return NULL;
    }
-   platform_status   rc   = shard_log_init(slog, cc, cfg);
+   platform_status rc = shard_log_init(slog, cc, cfg);
    if (!SUCCESS(rc)) {
       platform_free(hid, slog);
       return NULL;
