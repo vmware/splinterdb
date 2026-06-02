@@ -213,7 +213,7 @@ trunk_context_init(trunk_context      *context,
                    task_system        *ts,
                    uint64              root_addr);
 
-platform_status
+void
 trunk_inc_ref(allocator *al, uint64 root_addr);
 
 platform_status

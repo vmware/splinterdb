@@ -168,14 +168,7 @@ core_set_super_block(core_handle *spl,
    trunk_init_root_handle(&spl->trunk_context, &root_handle);
    uint64 root_addr = trunk_ondisk_node_handle_addr(&root_handle);
    if (root_addr != 0) {
-      rc = trunk_inc_ref(spl->al, root_addr);
-      if (!SUCCESS(rc)) {
-         trunk_ondisk_node_handle_deinit(&root_handle);
-         cache_unlock(spl->cc, super_page);
-         cache_unclaim(spl->cc, super_page);
-         cache_unget(spl->cc, super_page);
-         return rc;
-      }
+      trunk_inc_ref(spl->al, root_addr);
    }
    super->root_addr = root_addr;
    trunk_ondisk_node_handle_deinit(&root_handle);

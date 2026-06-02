@@ -5911,11 +5911,10 @@ trunk_context_init(trunk_context      *context,
    return STATUS_OK;
 }
 
-platform_status
+void
 trunk_inc_ref(allocator *al, uint64 root_addr)
 {
    trunk_addr_inc_ref(al, root_addr);
-   return STATUS_OK;
 }
 
 platform_status
