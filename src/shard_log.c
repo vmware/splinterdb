@@ -408,6 +408,7 @@ shard_log_iterator_init(cache              *cc,
    uint64       num_valid_pages = 0;
    uint64       extent_addr;
    uint64       next_extent_addr;
+   uint64       contents_size;
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
@@ -437,17 +438,15 @@ shard_log_iterator_init(cache              *cc,
 
 finished_first_pass:
 
-   uint64 contents_size = num_valid_pages * shard_log_page_size(cfg);
+   contents_size = num_valid_pages * shard_log_page_size(cfg);
    if (contents_size != 0) {
-      itor->contents =
-         TYPED_ARRAY_MALLOC(hid, itor->contents, contents_size);
+      itor->contents = TYPED_ARRAY_MALLOC(hid, itor->contents, contents_size);
       if (itor->contents == NULL) {
          return STATUS_NO_MEMORY;
       }
    }
    if (itor->num_entries != 0) {
-      itor->entries =
-         TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
+      itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
       if (itor->entries == NULL) {
          platform_free(hid, itor->contents);
          return STATUS_NO_MEMORY;
