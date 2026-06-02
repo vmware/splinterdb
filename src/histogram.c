@@ -18,10 +18,8 @@ histogram_create(platform_heap_id   heap_id,
                  const int64 *const bucket_limits)
 {
    histogram *hh;
-   hh = TYPED_MANUAL_MALLOC(heap_id,
-                            hh,
-                            sizeof(*hh)
-                               + num_buckets * sizeof(hh->count[0]));
+   hh = TYPED_MANUAL_MALLOC(
+      heap_id, hh, sizeof(*hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return NULL;
    }

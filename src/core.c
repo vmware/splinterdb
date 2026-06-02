@@ -1729,18 +1729,18 @@ core_stats_create(platform_heap_id heap_id)
    }
 
    for (uint64 i = 0; i < MAX_THREADS; i++) {
-      stats[i].insert_latency_histo =
-         histogram_create(heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      stats[i].insert_latency_histo = histogram_create(
+         heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
       if (stats[i].insert_latency_histo == NULL) {
          goto cleanup;
       }
-      stats[i].update_latency_histo =
-         histogram_create(heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      stats[i].update_latency_histo = histogram_create(
+         heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
       if (stats[i].update_latency_histo == NULL) {
          goto cleanup;
       }
-      stats[i].delete_latency_histo =
-         histogram_create(heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      stats[i].delete_latency_histo = histogram_create(
+         heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
       if (stats[i].delete_latency_histo == NULL) {
          goto cleanup;
       }
