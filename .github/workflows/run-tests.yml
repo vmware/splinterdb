@@ -65,7 +65,7 @@ jobs:
     steps:
     - name: Free Runner Space
       # NOTE: Use a specific tag or commit shasum for immutability
-      uses: justinthelaw/maximize-github-runner-space@latest
+      uses: justinthelaw/maximize-github-runner-space@v0.9.0
     # - name: Maximize build space
     #   uses: rtjohnso/maximize-build-space@v1
     #   with:
