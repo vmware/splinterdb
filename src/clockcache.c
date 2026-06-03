@@ -882,7 +882,7 @@ clockcache_write_callback(void *wbs)
    }
 
    io_async_state_deinit(state->iostate);
-   platform_free(cc->heap_id, state);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, state);
 }
 
 static void
@@ -980,7 +980,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
 
 
          async_io_state *state;
-         state = TYPED_MALLOC(cc->heap_id, state);
+         state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
          if (state == NULL) {
             platform_error_log(
                "clockcache_batch_start_writeback: async_io_state allocation "
@@ -1002,7 +1002,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                                "io_async_state_init failed: %s\n",
                                platform_status_to_string(rc));
             clockcache_abort_writeback_range(cc, first_addr, end_addr);
-            platform_free(cc->heap_id, state);
+            platform_free(PROCESS_PRIVATE_HEAP_ID, state);
             goto close_log;
          }
 
@@ -1027,7 +1027,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                                   platform_status_to_string(rc));
                io_async_state_deinit(state->iostate);
                clockcache_abort_writeback_range(cc, first_addr, end_addr);
-               platform_free(cc->heap_id, state);
+               platform_free(PROCESS_PRIVATE_HEAP_ID, state);
                goto close_log;
             }
          }
@@ -2232,7 +2232,7 @@ clockcache_page_sync(clockcache  *cc,
    }
 
    if (!is_blocking) {
-      state = TYPED_MALLOC(cc->heap_id, state);
+      state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
       platform_assert(state);
       state->cc                = cc;
       state->outstanding_pages = NULL;
@@ -2292,7 +2292,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
       {
          if (state == NULL) {
             req_addr = page_addr;
-            state    = TYPED_MALLOC(cc->heap_id, state);
+            state    = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
             platform_assert(state);
             state->cc                = cc;
             state->outstanding_pages = pages_outstanding;
@@ -2400,7 +2400,7 @@ clockcache_prefetch_callback(void *pfs)
    }
 
    io_async_state_deinit(state->iostate);
-   platform_free(cc->heap_id, state);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, state);
 }
 
 /*
@@ -2464,7 +2464,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
             if (state == NULL) {
                // start a new IO req before publishing the loading entry
-               state = TYPED_MALLOC(cc->heap_id, state);
+               state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
                if (state == NULL) {
                   clockcache_release_unpublished_entry(entry);
                   return;
@@ -2479,7 +2479,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                                       state);
                if (!SUCCESS(rc)) {
                   clockcache_release_unpublished_entry(entry);
-                  platform_free(cc->heap_id, state);
+                  platform_free(PROCESS_PRIVATE_HEAP_ID, state);
                   state = NULL;
                   return;
                }
@@ -2504,7 +2504,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                clockcache_release_unpublished_entry(entry);
                if (state_num_pages == 0) {
                   io_async_state_deinit(state->iostate);
-                  platform_free(cc->heap_id, state);
+                  platform_free(PROCESS_PRIVATE_HEAP_ID, state);
                   state = NULL;
                }
                page_off--;

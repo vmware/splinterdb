@@ -271,7 +271,7 @@ laio_async_state_deinit(io_async_state *ios)
 {
    laio_async_state *lios = (laio_async_state *)ios;
    if (lios->iovs != lios->iov) {
-      platform_free(lios->io->heap_id, lios->iovs);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, lios->iovs);
    }
 }
 
@@ -486,7 +486,9 @@ laio_async_state_init(io_async_state   *state,
    {
       ios->iovs = ios->iov;
    } else {
-      ios->iovs = TYPED_ARRAY_MALLOC(io->heap_id, ios->iovs, pages_per_extent);
+      ios->iovs = TYPED_ARRAY_MALLOC(PROCESS_PRIVATE_HEAP_ID,
+                                     ios->iovs,
+                                     pages_per_extent);
       if (ios->iovs == NULL) {
          return STATUS_NO_MEMORY;
       }
