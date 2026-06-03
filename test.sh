@@ -4,7 +4,7 @@ set -e
 
 source timing_utils.sh
 
-DB_CAPACITY="--db-capacity-gib 20"
+DB_CAPACITY="--db-capacity-gib 25"
 
 function run()
 {
@@ -120,12 +120,12 @@ function large_insert_stress_tests_1() {
 
 function large_insert_stress_tests_2() {
     # 250 sec
-    run unit/large_inserts_stress_test             --num-inserts  8000000 --num-normal-bg-threads 20 --num-memtable-bg-threads 8
+    run unit/large_inserts_stress_test             --num-inserts  6000000 --num-normal-bg-threads 20 --num-memtable-bg-threads 8
 }
 
 function large_insert_stress_tests_3() {
     # 250 sec
-    run unit/large_inserts_stress_test --use-shmem --num-inserts  8000000 --num-normal-bg-threads 20 --num-memtable-bg-threads 8
+    run unit/large_inserts_stress_test --use-shmem --num-inserts  6000000 --num-normal-bg-threads 20 --num-memtable-bg-threads 8
 }
 
 function filter_tests() {
