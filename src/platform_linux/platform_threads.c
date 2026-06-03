@@ -5,6 +5,7 @@
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_log.h"
 #include <sys/mman.h>
+#include <errno.h>
 #include <string.h>
 
 __thread threadid xxxtid = INVALID_TID;
@@ -135,7 +136,9 @@ id_allocator_init_if_needed(void)
                          -1,
                          0);
       if (my_id_alloc == MAP_FAILED) {
-         platform_error_log("Failed to allocate memory for id allocator");
+         platform_error_log("id_allocator_init_if_needed: mmap failed for "
+                            "id allocator: %s\n",
+                            strerror(errno));
          return STATUS_NO_MEMORY;
       }
       memset(my_id_alloc, 0x00, sizeof(id_allocator));
@@ -271,6 +274,9 @@ ensure_xxxpid_is_setup(void)
    __sync_lock_release(&id_alloc->pid_allocator.lock);
 
    if (ospid != myospid) {
+      platform_error_log("ensure_xxxpid_is_setup: no PID slot available for "
+                         "OS pid %d\n",
+                         myospid);
       return STATUS_BUSY;
    }
 
@@ -315,6 +321,9 @@ platform_linux_add_process_event_callback(
 {
    platform_status rc = id_allocator_init_if_needed();
    if (!SUCCESS(rc)) {
+      platform_error_log("platform_linux_add_process_event_callback: "
+                         "id allocator init failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
@@ -415,11 +424,16 @@ platform_register_thread(void)
 
    status = id_allocator_init_if_needed();
    if (!SUCCESS(status)) {
+      platform_error_log("platform_register_thread: id allocator init failed: "
+                         "%s\n",
+                         platform_status_to_string(status));
       return -1;
    }
 
    status = ensure_xxxpid_is_setup();
    if (!SUCCESS(status)) {
+      platform_error_log("platform_register_thread: PID setup failed: %s\n",
+                         platform_status_to_string(status));
       return -1;
    }
 
@@ -427,6 +441,8 @@ platform_register_thread(void)
    // Unavailable threads is a temporary state that could go away.
    if (thread_tid == INVALID_TID) {
       decref_xxxpid();
+      platform_error_log("platform_register_thread: thread id allocation "
+                         "failed\n");
       return -1;
    }
 
@@ -437,6 +453,8 @@ platform_register_thread(void)
    if (!SUCCESS(status)) {
       deallocate_threadid(thread_tid);
       decref_xxxpid();
+      platform_error_log("platform_register_thread: cleanup arm failed: %s\n",
+                         platform_status_to_string(status));
       return -1;
    }
 
@@ -476,11 +494,16 @@ platform_thread_create(platform_thread       *thread,
 
    platform_status rc = id_allocator_init_if_needed();
    if (!SUCCESS(rc)) {
+      platform_error_log("platform_thread_create: id allocator init failed: "
+                         "%s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
    rc = ensure_xxxpid_is_setup();
    if (!SUCCESS(rc)) {
+      platform_error_log("platform_thread_create: PID setup failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
@@ -489,6 +512,8 @@ platform_thread_create(platform_thread       *thread,
    threadid tid = allocate_threadid();
    if (tid == INVALID_TID) {
       decref_xxxpid();
+      platform_error_log("platform_thread_create: thread id allocation "
+                         "failed\n");
       return STATUS_BUSY;
    }
    thread_invocation *thread_inv = &id_alloc->thread_invocations[tid];
@@ -499,6 +524,9 @@ platform_thread_create(platform_thread       *thread,
    if (ret != 0) {
       deallocate_threadid(tid);
       decref_xxxpid();
+      platform_error_log("platform_thread_create: pthread_create failed: "
+                         "%s\n",
+                         strerror(ret));
       return STATUS_NO_MEMORY;
    }
 
@@ -521,6 +549,8 @@ platform_num_threads(void)
 {
    platform_status rc = id_allocator_init_if_needed();
    if (!SUCCESS(rc)) {
+      platform_error_log("platform_num_threads: id allocator init failed: %s\n",
+                         platform_status_to_string(rc));
       return 0;
    }
 

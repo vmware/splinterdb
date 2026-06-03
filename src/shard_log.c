@@ -383,10 +383,13 @@ log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
    shard_log_config *cfg  = (shard_log_config *)lcfg;
    shard_log        *slog = TYPED_MALLOC(hid, slog);
    if (slog == NULL) {
+      platform_error_log("log_create: failed to allocate shard_log\n");
       return NULL;
    }
    platform_status rc = shard_log_init(slog, cc, cfg);
    if (!SUCCESS(rc)) {
+      platform_error_log("log_create: shard_log_init failed: %s\n",
+                         platform_status_to_string(rc));
       platform_free(hid, slog);
       return NULL;
    }
@@ -442,12 +445,18 @@ finished_first_pass:
    if (contents_size != 0) {
       itor->contents = TYPED_ARRAY_MALLOC(hid, itor->contents, contents_size);
       if (itor->contents == NULL) {
+         platform_error_log("shard_log_iterator_init: failed to allocate "
+                            "contents buffer of %lu bytes\n",
+                            contents_size);
          return STATUS_NO_MEMORY;
       }
    }
    if (itor->num_entries != 0) {
       itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
       if (itor->entries == NULL) {
+         platform_error_log("shard_log_iterator_init: failed to allocate "
+                            "entries array for %lu entries\n",
+                            itor->num_entries);
          platform_free(hid, itor->contents);
          return STATUS_NO_MEMORY;
       }

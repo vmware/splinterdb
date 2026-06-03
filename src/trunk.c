@@ -3644,7 +3644,8 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
          if (!SUCCESS(rc)) {
             trunk_pivot_state_decref(state);
             platform_error_log(
-               "enqueue_bundle_compaction: task_enqueue failed\n");
+               "enqueue_bundle_compaction: task_enqueue failed: %s\n",
+               platform_status_to_string(rc));
          }
 
       next:

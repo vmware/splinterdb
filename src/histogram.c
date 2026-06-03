@@ -21,6 +21,9 @@ histogram_create(platform_heap_id   heap_id,
    hh = TYPED_MANUAL_MALLOC(
       heap_id, hh, sizeof(*hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
+      platform_error_log("histogram_create: failed to allocate histogram "
+                         "with %u buckets\n",
+                         num_buckets);
       return NULL;
    }
    hh->num_buckets   = num_buckets;

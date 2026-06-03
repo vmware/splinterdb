@@ -15,6 +15,7 @@
 
 
 #include "util.h"
+#include "platform_log.h"
 
 #define VECTOR(elt_type)                                                       \
    struct {                                                                    \
@@ -280,12 +281,24 @@ __vector_replace(writable_buffer       *dst,
       uint64          __len  = vector_length(src);                             \
       uint64          __size = __len * vector_elt_size(dst);                   \
       __rc                   = writable_buffer_resize(&(dst)->wb, __size);     \
-      if (SUCCESS(__rc)) {                                                     \
+      if (!SUCCESS(__rc)) {                                                    \
+         platform_error_log("VECTOR_MAP_ELTS_TO_PTRS: resize failed at "       \
+                            "%s:%d: %s\n",                                     \
+                            __FILE__,                                          \
+                            __LINE__,                                          \
+                            platform_status_to_string(__rc));                  \
+      } else {                                                                 \
          uint64 __idx = 0;                                                     \
          for (; __idx < __len; __idx++) {                                      \
             vector_elt_type(dst) __result = vector_apply_to_elt(               \
                src, __idx, func __VA_OPT__(, __VA_ARGS__));                    \
             if (__result == NULL) {                                            \
+               platform_error_log("VECTOR_MAP_ELTS_TO_PTRS: %s returned NULL " \
+                                  "at index %lu from %s:%d\n",                 \
+                                  STRINGIFY(func),                             \
+                                  __idx,                                       \
+                                  __FILE__,                                    \
+                                  __LINE__);                                   \
                __rc = STATUS_NO_MEMORY;                                        \
                break;                                                          \
             }                                                                  \

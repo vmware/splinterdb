@@ -708,6 +708,8 @@ routing_filter_estimate_unique_fp(cache                *cc,
                                   uint32               *num_unique_fp)
 {
    if (num_unique_fp == NULL) {
+      platform_error_log("routing_filter_estimate_unique_fp: "
+                         "num_unique_fp must not be NULL\n");
       return STATUS_BAD_PARAM;
    }
 
@@ -722,6 +724,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
    // NOLINTNEXTLINE(bugprone-sizeof-expression)
    uint32 *local = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
    if (local == NULL) {
+      platform_error_log("routing_filter_estimate_unique_fp: failed to "
+                         "allocate fingerprint work buffer of %u uint32s\n",
+                         alloc_size);
       return STATUS_NO_MEMORY;
    }
    uint32 *fp_arr = local;

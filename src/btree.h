@@ -10,6 +10,7 @@
 #pragma once
 
 #include "platform_hash.h"
+#include "platform_log.h"
 #include "platform_typed_alloc.h"
 #include "async.h"
 #include "blob_build.h"
@@ -374,6 +375,9 @@ btree_pack_req_init(btree_pack_req     *req,
       req->fingerprint_arr =
          TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
       if (!req->fingerprint_arr) {
+         platform_error_log("btree_pack_req_init: failed to allocate "
+                            "fingerprint array for %lu tuples\n",
+                            max_tuples);
          return STATUS_NO_MEMORY;
       }
    }
