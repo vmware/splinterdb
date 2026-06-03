@@ -2287,7 +2287,7 @@ clockcache_page_sync(clockcache  *cc,
       platform_assert(state);
       state->cc                = cc;
       state->outstanding_pages = NULL;
-      status = io_async_state_init(state->iostate,
+      status                   = io_async_state_init(state->iostate,
                                    cc->io,
                                    io_async_pwritev,
                                    addr,
@@ -2381,7 +2381,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
             platform_assert(state);
             state->cc                = cc;
             state->outstanding_pages = pages_outstanding;
-            platform_status rc = io_async_state_init(state->iostate,
+            platform_status rc       = io_async_state_init(state->iostate,
                                                      cc->io,
                                                      io_async_pwritev,
                                                      req_addr,

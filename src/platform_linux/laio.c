@@ -524,9 +524,8 @@ laio_async_state_init(io_async_state   *state,
    {
       ios->iovs = ios->iov;
    } else {
-      ios->iovs = TYPED_ARRAY_MALLOC(PROCESS_PRIVATE_HEAP_ID,
-                                     ios->iovs,
-                                     pages_per_extent);
+      ios->iovs = TYPED_ARRAY_MALLOC(
+         PROCESS_PRIVATE_HEAP_ID, ios->iovs, pages_per_extent);
       if (ios->iovs == NULL) {
          platform_error_log("laio_async_state_init: failed to allocate iovec "
                             "array for addr %lu, pages_per_extent %lu\n",
