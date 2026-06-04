@@ -3242,6 +3242,8 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
       !btree_node_claim(state->itor->cc, state->itor->cfg, &state->itor->curr))
    {
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      debug_assert(state->callback != NULL);
+      async_yield_after(state, state->callback(state->callback_arg));
       btree_lookup_async_state_init(&state->lookup_state,
                                     state->itor->cc,
                                     state->itor->cfg,
