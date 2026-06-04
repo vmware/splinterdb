@@ -382,8 +382,17 @@ log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
 {
    shard_log_config *cfg  = (shard_log_config *)lcfg;
    shard_log        *slog = TYPED_MALLOC(hid, slog);
-   platform_status   rc   = shard_log_init(slog, cc, cfg);
-   platform_assert(SUCCESS(rc));
+   if (slog == NULL) {
+      platform_error_log("log_create: failed to allocate shard_log\n");
+      return NULL;
+   }
+   platform_status rc = shard_log_init(slog, cc, cfg);
+   if (!SUCCESS(rc)) {
+      platform_error_log("log_create: shard_log_init failed: %s\n",
+                         platform_status_to_string(rc));
+      platform_free(hid, slog);
+      return NULL;
+   }
    return (log_handle *)slog;
 }
 
@@ -402,6 +411,7 @@ shard_log_iterator_init(cache              *cc,
    uint64       num_valid_pages = 0;
    uint64       extent_addr;
    uint64       next_extent_addr;
+   uint64       contents_size;
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
@@ -431,9 +441,26 @@ shard_log_iterator_init(cache              *cc,
 
 finished_first_pass:
 
-   itor->contents = TYPED_ARRAY_MALLOC(
-      hid, itor->contents, num_valid_pages * shard_log_page_size(cfg));
-   itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
+   contents_size = num_valid_pages * shard_log_page_size(cfg);
+   if (contents_size != 0) {
+      itor->contents = TYPED_ARRAY_MALLOC(hid, itor->contents, contents_size);
+      if (itor->contents == NULL) {
+         platform_error_log("shard_log_iterator_init: failed to allocate "
+                            "contents buffer of %lu bytes\n",
+                            contents_size);
+         return STATUS_NO_MEMORY;
+      }
+   }
+   if (itor->num_entries != 0) {
+      itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
+      if (itor->entries == NULL) {
+         platform_error_log("shard_log_iterator_init: failed to allocate "
+                            "entries array for %lu entries\n",
+                            itor->num_entries);
+         platform_free(hid, itor->contents);
+         return STATUS_NO_MEMORY;
+      }
+   }
 
    // traverse the log extents again and copy the kv pairs
    log_entry *cursor    = (log_entry *)itor->contents;
@@ -467,14 +494,16 @@ finished_first_pass:
    debug_assert(entry_idx == itor->num_entries);
 
    // sort by generation
-   log_entry *tmp;
 finished_second_pass:
-   platform_sort_slow(itor->entries,
-                      itor->num_entries,
-                      sizeof(log_entry *),
-                      shard_log_compare,
-                      NULL,
-                      &tmp);
+   if (itor->num_entries != 0) {
+      log_entry *tmp;
+      platform_sort_slow(itor->entries,
+                         itor->num_entries,
+                         sizeof(log_entry *),
+                         shard_log_compare,
+                         NULL,
+                         &tmp);
+   }
 
    return STATUS_OK;
 }
@@ -482,8 +511,12 @@ finished_second_pass:
 void
 shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 {
-   platform_free(hid, itor->contents);
-   platform_free(hid, itor->entries);
+   if (itor->contents != NULL) {
+      platform_free(hid, itor->contents);
+   }
+   if (itor->entries != NULL) {
+      platform_free(hid, itor->entries);
+   }
 }
 
 void

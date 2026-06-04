@@ -5,6 +5,7 @@
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_log.h"
 #include <sys/mman.h>
+#include <errno.h>
 #include <string.h>
 
 __thread threadid xxxtid = INVALID_TID;
@@ -123,7 +124,7 @@ thread_registration_cleanup_disarm(void)
  * in the task system structure to indicate that no threads are currently
  * active.
  */
-static void
+static platform_status
 id_allocator_init_if_needed(void)
 {
    if (id_alloc == NULL) {
@@ -135,8 +136,10 @@ id_allocator_init_if_needed(void)
                          -1,
                          0);
       if (my_id_alloc == MAP_FAILED) {
-         platform_error_log("Failed to allocate memory for id allocator");
-         return;
+         platform_error_log("id_allocator_init_if_needed: mmap failed for "
+                            "id allocator: %s\n",
+                            strerror(errno));
+         return STATUS_NO_MEMORY;
       }
       memset(my_id_alloc, 0x00, sizeof(id_allocator));
       memset(my_id_alloc->tid_allocator.available_tids,
@@ -146,6 +149,7 @@ id_allocator_init_if_needed(void)
          munmap(my_id_alloc, sizeof(id_allocator));
       }
    }
+   return STATUS_OK;
 }
 
 /*
@@ -270,6 +274,9 @@ ensure_xxxpid_is_setup(void)
    __sync_lock_release(&id_alloc->pid_allocator.lock);
 
    if (ospid != myospid) {
+      platform_error_log("ensure_xxxpid_is_setup: no PID slot available for "
+                         "OS pid %d\n",
+                         myospid);
       return STATUS_BUSY;
    }
 
@@ -308,11 +315,18 @@ decref_xxxpid(void)
    __sync_lock_release(&id_alloc->pid_allocator.lock);
 }
 
-void
+platform_status
 platform_linux_add_process_event_callback(
    process_event_callback_list_node *node)
 {
-   id_allocator_init_if_needed();
+   platform_status rc = id_allocator_init_if_needed();
+   if (!SUCCESS(rc)) {
+      platform_error_log("platform_linux_add_process_event_callback: "
+                         "id allocator init failed: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
    while (
       __sync_lock_test_and_set(&id_alloc->process_event_callback_list_lock, 1))
    {
@@ -321,6 +335,7 @@ platform_linux_add_process_event_callback(
    node->next = id_alloc->process_event_callback_list;
    id_alloc->process_event_callback_list = node;
    __sync_lock_release(&id_alloc->process_event_callback_list_lock);
+   return STATUS_OK;
 }
 
 void
@@ -388,39 +403,6 @@ thread_registration_cleanup_function(void *arg)
    }
 }
 
-static platform_status
-register_thread_common(void)
-{
-   platform_status status;
-   threadid        thread_tid;
-
-   id_allocator_init_if_needed();
-
-   status = ensure_xxxpid_is_setup();
-   if (!SUCCESS(status)) {
-      return status;
-   }
-
-   thread_tid = allocate_threadid();
-   // Unavailable threads is a temporary state that could go away.
-   if (thread_tid == INVALID_TID) {
-      decref_xxxpid();
-      return STATUS_BUSY;
-   }
-
-   platform_assert(thread_tid < MAX_THREADS);
-   xxxtid = thread_tid;
-
-   status = thread_registration_cleanup_arm();
-   if (!SUCCESS(status)) {
-      deallocate_threadid(thread_tid);
-      decref_xxxpid();
-      return status;
-   }
-
-   return STATUS_OK;
-}
-
 /*
  * platform_register_thread(): Register this new thread.
  *
@@ -430,7 +412,8 @@ register_thread_common(void)
 int
 platform_register_thread(void)
 {
-   threadid thread_tid = xxxtid;
+   platform_status status;
+   threadid        thread_tid = xxxtid;
 
    // Before registration, all SplinterDB threads' tid will be its default
    // value; i.e. INVALID_TID.
@@ -439,17 +422,43 @@ platform_register_thread(void)
                    "registered as thread %lu\n",
                    thread_tid);
 
-   return SUCCESS(register_thread_common()) ? 0 : -1;
-}
-
-platform_status
-platform_register_thread_auto(void)
-{
-   if (xxxtid != INVALID_TID) {
-      return STATUS_OK;
+   status = id_allocator_init_if_needed();
+   if (!SUCCESS(status)) {
+      platform_error_log("platform_register_thread: id allocator init failed: "
+                         "%s\n",
+                         platform_status_to_string(status));
+      return -1;
    }
 
-   return register_thread_common();
+   status = ensure_xxxpid_is_setup();
+   if (!SUCCESS(status)) {
+      platform_error_log("platform_register_thread: PID setup failed: %s\n",
+                         platform_status_to_string(status));
+      return -1;
+   }
+
+   thread_tid = allocate_threadid();
+   // Unavailable threads is a temporary state that could go away.
+   if (thread_tid == INVALID_TID) {
+      decref_xxxpid();
+      platform_error_log("platform_register_thread: thread id allocation "
+                         "failed\n");
+      return -1;
+   }
+
+   platform_assert(thread_tid < MAX_THREADS);
+   xxxtid = thread_tid;
+
+   status = thread_registration_cleanup_arm();
+   if (!SUCCESS(status)) {
+      deallocate_threadid(thread_tid);
+      decref_xxxpid();
+      platform_error_log("platform_register_thread: cleanup arm failed: %s\n",
+                         platform_status_to_string(status));
+      return -1;
+   }
+
+   return 0;
 }
 
 
@@ -483,9 +492,18 @@ platform_thread_create(platform_thread       *thread,
 {
    int ret;
 
-   id_allocator_init_if_needed();
-   platform_status rc = ensure_xxxpid_is_setup();
+   platform_status rc = id_allocator_init_if_needed();
    if (!SUCCESS(rc)) {
+      platform_error_log("platform_thread_create: id allocator init failed: "
+                         "%s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   rc = ensure_xxxpid_is_setup();
+   if (!SUCCESS(rc)) {
+      platform_error_log("platform_thread_create: PID setup failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
@@ -494,6 +512,8 @@ platform_thread_create(platform_thread       *thread,
    threadid tid = allocate_threadid();
    if (tid == INVALID_TID) {
       decref_xxxpid();
+      platform_error_log("platform_thread_create: thread id allocation "
+                         "failed\n");
       return STATUS_BUSY;
    }
    thread_invocation *thread_inv = &id_alloc->thread_invocations[tid];
@@ -504,6 +524,9 @@ platform_thread_create(platform_thread       *thread,
    if (ret != 0) {
       deallocate_threadid(tid);
       decref_xxxpid();
+      platform_error_log("platform_thread_create: pthread_create failed: "
+                         "%s\n",
+                         strerror(ret));
       return STATUS_NO_MEMORY;
    }
 
@@ -524,6 +547,12 @@ platform_thread_join(platform_thread *thread)
 threadid
 platform_num_threads(void)
 {
-   id_allocator_init_if_needed();
+   platform_status rc = id_allocator_init_if_needed();
+   if (!SUCCESS(rc)) {
+      platform_error_log("platform_num_threads: id allocator init failed: %s\n",
+                         platform_status_to_string(rc));
+      return 0;
+   }
+
    return id_alloc->tid_allocator.num_threads;
 }

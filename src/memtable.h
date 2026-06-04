@@ -10,6 +10,7 @@
 #pragma once
 
 #include "platform_mutex.h"
+#include "platform_status.h"
 #include "task.h"
 #include "cache.h"
 #include "btree.h"
@@ -25,6 +26,7 @@ typedef enum memtable_state {
    MEMTABLE_STATE_COMPACTED,
    MEMTABLE_STATE_COMPACTING,
    MEMTABLE_STATE_INCORPORATION_ASSIGNED,
+   MEMTABLE_STATE_INCORPORATION_FAILED,
    MEMTABLE_STATE_INCORPORATING,
    MEMTABLE_STATE_INCORPORATED,
    NUM_MEMTABLE_STATES,
@@ -36,6 +38,7 @@ typedef struct memtable {
    uint64                  root_addr;
    mini_allocator          mini;
    btree_config           *cfg;
+   platform_status         incorporation_status;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
 static inline bool32
@@ -63,7 +66,11 @@ memtable_try_transition(memtable      *mt,
       case MEMTABLE_STATE_INCORPORATION_ASSIGNED:
          // This occurs after the lookup lock has been acquired in
          // incorporate_memtable
-         debug_assert(new_state == MEMTABLE_STATE_INCORPORATING);
+         debug_assert(new_state == MEMTABLE_STATE_INCORPORATING
+                      || new_state == MEMTABLE_STATE_INCORPORATION_FAILED);
+         break;
+      case MEMTABLE_STATE_INCORPORATION_FAILED:
+         debug_assert(0);
          break;
       case MEMTABLE_STATE_INCORPORATING:
          // This transition happens when incorporation has completed
@@ -83,6 +90,8 @@ memtable_try_transition(memtable      *mt,
          case MEMTABLE_STATE_COMPACTED:
             debug_assert(actual_old_state
                          != MEMTABLE_STATE_INCORPORATION_ASSIGNED);
+            debug_assert(actual_old_state
+                         != MEMTABLE_STATE_INCORPORATION_FAILED);
             debug_assert(actual_old_state != MEMTABLE_STATE_INCORPORATING);
             break;
          default:
@@ -178,6 +187,12 @@ memtable_insert(memtable_context     *ctxt,
 
 void
 memtable_recycle(memtable_context *ctxt, memtable *mt);
+
+void
+memtable_mark_incorporation_failed(memtable *mt, platform_status status);
+
+const char *
+memtable_state_string(memtable_state state);
 
 uint64
 memtable_force_finalize(memtable_context *ctxt);

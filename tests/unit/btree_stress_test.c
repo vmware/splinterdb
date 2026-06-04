@@ -19,6 +19,7 @@
 #include "splinterdb/data.h"
 #include "../config.h"
 #include "platform_io.h"
+#include "platform_threads.h"
 #include "platform_units.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
@@ -808,7 +809,7 @@ pack_tests(cache           *cc,
 
    platform_status rc = STATUS_TEST_FAILED;
    btree_pack_req  req;
-   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, hid);
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, FALSE, hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {

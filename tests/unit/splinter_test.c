@@ -26,6 +26,7 @@
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "task.h"
+#include "platform_threads.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"

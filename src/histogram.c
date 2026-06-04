@@ -12,19 +12,19 @@
 #include "platform_log.h"
 #include "poison.h"
 
-platform_status
+histogram *
 histogram_create(platform_heap_id   heap_id,
                  uint32             num_buckets,
-                 const int64 *const bucket_limits,
-                 histogram_handle  *histo)
+                 const int64 *const bucket_limits)
 {
-   histogram_handle hh;
-   hh = TYPED_MANUAL_MALLOC(heap_id,
-                            hh,
-                            sizeof(hh) // NOLINT(bugprone-sizeof-expression)
-                               + num_buckets * sizeof(hh->count[0]));
+   histogram *hh;
+   hh = TYPED_MANUAL_MALLOC(
+      heap_id, hh, sizeof(*hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
-      return STATUS_NO_MEMORY;
+      platform_error_log("histogram_create: failed to allocate histogram "
+                         "with %u buckets\n",
+                         num_buckets);
+      return NULL;
    }
    hh->num_buckets   = num_buckets;
    hh->bucket_limits = bucket_limits;
@@ -34,21 +34,20 @@ histogram_create(platform_heap_id   heap_id,
    hh->num           = 0;
    memset(hh->count, 0, hh->num_buckets * sizeof(hh->count[0]));
 
-   *histo = hh;
-   return STATUS_OK;
+   return hh;
 }
 
 void
-histogram_destroy(platform_heap_id heap_id, histogram_handle *histo_out)
+histogram_destroy(platform_heap_id heap_id, histogram *histo)
 {
-   platform_assert(histo_out);
-   histogram_handle histo = *histo_out;
+   if (histo == NULL) {
+      return;
+   }
    platform_free(heap_id, histo);
-   *histo_out = NULL;
 }
 
 void
-histogram_print(histogram_handle     histo,
+histogram_print(histogram           *histo,
                 const char          *name,
                 platform_log_handle *log_handle)
 {

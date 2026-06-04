@@ -10,6 +10,7 @@
  */
 #include "util.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "platform_threads.h"
 
 static const char debug_hex_encode_sample_data[10] =
    {0, 1, 2, 3, 0xa4, 5, 0xd6, 7, 8, 9};

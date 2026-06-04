@@ -22,6 +22,7 @@
 #include "platform_threads.h"
 #include "platform_units.h"
 #include "platform_buffer.h"
+#include "platform_typed_alloc.h"
 #include "platform_spinlock.h"
 #include "platform_mutex.h"
 #include "platform_condvar.h"
@@ -50,9 +51,16 @@ CTEST_SETUP(platform_api)
 
 CTEST_TEARDOWN(platform_api)
 {
+   platform_memory_fault_disable();
    platform_heap_destroy(&data->hid);
    platform_deregister_thread();
 }
+
+#if PLATFORM_MEMORY_FAULT_INJECTION
+#   define CTEST_MEMORY_FAULT CTEST2
+#else
+#   define CTEST_MEMORY_FAULT CTEST2_SKIP
+#endif
 
 /*
  * Test platform_buffer_init() and platform_buffer_deinit().
@@ -103,6 +111,93 @@ CTEST2(platform_api, test_platform_buffer_init_fails_for_very_large_length)
    ASSERT_FALSE(SUCCESS(rc));
 
    set_log_streams_for_tests(MSG_LEVEL_INFO);
+}
+
+CTEST_MEMORY_FAULT(platform_api, test_memory_fault_range)
+{
+   platform_memory_fault_disable();
+
+   platform_memory_fault_config cfg;
+   platform_memory_fault_config_get(&cfg);
+   cfg.mode        = PLATFORM_MEMORY_FAULT_RANGE;
+   cfg.range_start = 2;
+   cfg.range_count = 2;
+   platform_memory_fault_config_set(&cfg);
+
+   char                          *p0 = TYPED_ARRAY_MALLOC(data->hid, p0, 8);
+   platform_memory_fault_counters unarmed_counters =
+      platform_memory_fault_get_counters();
+   platform_memory_fault_enable();
+
+   char *p1 = TYPED_ARRAY_MALLOC(data->hid, p1, 8);
+   char *p2 = TYPED_ARRAY_MALLOC(data->hid, p2, 8);
+   char *p3 = TYPED_ARRAY_MALLOC(data->hid, p3, 8);
+   char *p4 = TYPED_ARRAY_MALLOC(data->hid, p4, 8);
+
+   bool32                         p0_ok = p0 != NULL;
+   bool32                         p1_ok = p1 != NULL;
+   bool32                         p2_ok = p2 != NULL;
+   bool32                         p3_ok = p3 != NULL;
+   bool32                         p4_ok = p4 != NULL;
+   platform_memory_fault_counters counters =
+      platform_memory_fault_get_counters();
+
+   platform_memory_fault_disable();
+   platform_memory_fault_counters disabled_counters =
+      platform_memory_fault_get_counters();
+   platform_free(data->hid, p1);
+   platform_free(data->hid, p4);
+   platform_free(data->hid, p0);
+
+   ASSERT_TRUE(p0_ok);
+   ASSERT_EQUAL(0, unarmed_counters.alloc_count);
+   ASSERT_EQUAL(0, unarmed_counters.failure_count);
+   ASSERT_TRUE(p1_ok);
+   ASSERT_FALSE(p2_ok);
+   ASSERT_FALSE(p3_ok);
+   ASSERT_TRUE(p4_ok);
+   ASSERT_EQUAL(4, counters.alloc_count);
+   ASSERT_EQUAL(2, counters.failure_count);
+   ASSERT_EQUAL(counters.alloc_count, disabled_counters.alloc_count);
+   ASSERT_EQUAL(counters.failure_count, disabled_counters.failure_count);
+}
+
+CTEST_MEMORY_FAULT(platform_api, test_memory_fault_random_respects_max_failures)
+{
+   platform_memory_fault_disable();
+
+   platform_memory_fault_config cfg;
+   platform_memory_fault_config_get(&cfg);
+   cfg.mode                           = PLATFORM_MEMORY_FAULT_RANDOM;
+   cfg.seed                           = 42;
+   cfg.random_fail_probability        = PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE;
+   cfg.random_burst_start_probability = 0;
+   cfg.max_failures                   = 2;
+   platform_memory_fault_config_set(&cfg);
+   platform_memory_fault_enable();
+
+   char *p1 = TYPED_ARRAY_MALLOC(data->hid, p1, 8);
+   char *p2 = TYPED_ARRAY_MALLOC(data->hid, p2, 8);
+   char *p3 = TYPED_ARRAY_MALLOC(data->hid, p3, 8);
+
+   bool32                         p1_ok = p1 != NULL;
+   bool32                         p2_ok = p2 != NULL;
+   bool32                         p3_ok = p3 != NULL;
+   platform_memory_fault_counters counters =
+      platform_memory_fault_get_counters();
+
+   platform_memory_fault_disable();
+   platform_memory_fault_counters disabled_counters =
+      platform_memory_fault_get_counters();
+   platform_free(data->hid, p3);
+
+   ASSERT_FALSE(p1_ok);
+   ASSERT_FALSE(p2_ok);
+   ASSERT_TRUE(p3_ok);
+   ASSERT_EQUAL(3, counters.alloc_count);
+   ASSERT_EQUAL(2, counters.failure_count);
+   ASSERT_EQUAL(counters.alloc_count, disabled_counters.alloc_count);
+   ASSERT_EQUAL(counters.failure_count, disabled_counters.failure_count);
 }
 
 

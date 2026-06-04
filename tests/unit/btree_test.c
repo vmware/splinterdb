@@ -15,6 +15,7 @@
 #include "test_data.h"
 #include "splinterdb/data.h"
 #include "platform_io.h"
+#include "platform_threads.h"
 #include "platform_units.h"
 #include "clockcache.h"
 #include "btree_private.h"

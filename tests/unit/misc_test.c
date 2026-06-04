@@ -12,6 +12,7 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "platform_log.h"
+#include "platform_threads.h"
 #include "platform_units.h"
 #include "platform_assert.h"
 

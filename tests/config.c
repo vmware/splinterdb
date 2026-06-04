@@ -4,6 +4,7 @@
 #include "config.h"
 #include "platform_units.h"
 #include "platform_buffer.h"
+#include "platform_heap.h"
 #include "util.h"
 
 /*
@@ -167,7 +168,98 @@ config_usage()
    platform_error_log("\t--num-inserts (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_INSERTS);
    platform_error_log("\t--seed (%d)\n", TEST_CONFIG_DEFAULT_SEED);
+
+#if PLATFORM_MEMORY_FAULT_INJECTION
+   platform_error_log("\t--fault-alloc-range <start> <count>\n");
+   platform_error_log("\t--fault-alloc-random <seed>\n");
+   platform_error_log("\t--fault-alloc-random-probability <ppm>\n");
+   platform_error_log("\t--fault-alloc-burst-probability <ppm>\n");
+   platform_error_log("\t--fault-alloc-burst-fail-probability <ppm>\n");
+   platform_error_log("\t--fault-alloc-burst-min <count>\n");
+   platform_error_log("\t--fault-alloc-burst-max <count>\n");
+   platform_error_log("\t--fault-alloc-max-failures <count>\n");
+   platform_error_log("\t--fault-alloc-verbose\n");
+   platform_error_log("\t--fault-alloc-disable\n");
+#endif
 }
+
+#if PLATFORM_MEMORY_FAULT_INJECTION
+
+static bool32
+config_parse_uint64_arg(int         argc,
+                        char       *argv[],
+                        uint64     *idx,
+                        const char *name,
+                        uint64     *result)
+{
+   if (*idx + 1 == argc || !try_string_to_uint64(argv[++(*idx)], result)) {
+      platform_error_log("config: failed to parse %s\n", name);
+      return FALSE;
+   }
+   return TRUE;
+}
+
+static bool32
+config_parse_uint32_arg(int         argc,
+                        char       *argv[],
+                        uint64     *idx,
+                        const char *name,
+                        uint32     *result)
+{
+   uint64 tmp;
+   if (!config_parse_uint64_arg(argc, argv, idx, name, &tmp)
+       || tmp > UINT32_MAX)
+   {
+      platform_error_log("config: failed to parse %s\n", name);
+      return FALSE;
+   }
+   *result = (uint32)tmp;
+   return TRUE;
+}
+
+static platform_status
+config_parse_memory_fault_validate(const platform_memory_fault_config *cfg)
+{
+   switch (cfg->mode) {
+      case PLATFORM_MEMORY_FAULT_RANGE:
+         if (cfg->range_start == 0 || cfg->range_count == 0) {
+            platform_error_log("config: --fault-alloc-range uses a 1-based "
+                               "start and non-zero count\n");
+            return STATUS_BAD_PARAM;
+         }
+         break;
+
+      case PLATFORM_MEMORY_FAULT_RANDOM:
+         if (cfg->random_fail_probability
+                > PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE
+             || cfg->random_burst_start_probability
+                   > PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE
+             || cfg->random_burst_fail_probability
+                   > PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE)
+         {
+            platform_error_log("config: fault allocation probabilities are "
+                               "parts per million and must be <= %u\n",
+                               PLATFORM_MEMORY_FAULT_PROBABILITY_SCALE);
+            return STATUS_BAD_PARAM;
+         }
+         if (cfg->random_burst_min_length == 0
+             || cfg->random_burst_max_length < cfg->random_burst_min_length)
+         {
+            platform_error_log("config: invalid fault allocation burst length "
+                               "range\n");
+            return STATUS_BAD_PARAM;
+         }
+         break;
+
+      default:
+         platform_error_log("config: invalid fault allocation mode\n");
+         return STATUS_BAD_PARAM;
+   }
+
+   return STATUS_OK;
+}
+
+#endif // PLATFORM_MEMORY_FAULT_INJECTION
 
 /*
  * config_parse_use_shmem() - Check if --use-shmem argument was supplied on
@@ -194,6 +286,14 @@ config_parse_use_shmem(int argc, char *argv[])
 platform_status
 config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
 {
+#if PLATFORM_MEMORY_FAULT_INJECTION
+   platform_memory_fault_config fault_cfg;
+   platform_memory_fault_config_get(&fault_cfg);
+   bool32 fault_option_seen = FALSE;
+   bool32 fault_config_seen = FALSE;
+   bool32 fault_disable     = FALSE;
+#endif
+
    uint64 i;
    for (i = 0; i < argc; i++) {
       // Don't be mislead; this is not dead-code. See the config macro expansion
@@ -378,12 +478,152 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_uint64("num-inserts", cfg, num_inserts) {}
          config_set_uint64("num-processes", cfg, num_processes) {}
 
+#if PLATFORM_MEMORY_FAULT_INJECTION
+         config_has_option("fault-alloc-range")
+         {
+            fault_option_seen = TRUE;
+            fault_config_seen = TRUE;
+            fault_disable     = FALSE;
+            fault_cfg.mode    = PLATFORM_MEMORY_FAULT_RANGE;
+            if (!config_parse_uint64_arg(argc,
+                                         argv,
+                                         &i,
+                                         "--fault-alloc-range",
+                                         &fault_cfg.range_start)
+                || !config_parse_uint64_arg(argc,
+                                            argv,
+                                            &i,
+                                            "--fault-alloc-range",
+                                            &fault_cfg.range_count))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-random")
+         {
+            fault_option_seen = TRUE;
+            fault_config_seen = TRUE;
+            fault_disable     = FALSE;
+            fault_cfg.mode    = PLATFORM_MEMORY_FAULT_RANDOM;
+            if (!config_parse_uint64_arg(
+                   argc, argv, &i, "--fault-alloc-random", &fault_cfg.seed))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-random-probability")
+         {
+            fault_option_seen = TRUE;
+            if (!config_parse_uint32_arg(argc,
+                                         argv,
+                                         &i,
+                                         "--fault-alloc-random-probability",
+                                         &fault_cfg.random_fail_probability))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-burst-probability")
+         {
+            fault_option_seen = TRUE;
+            if (!config_parse_uint32_arg(
+                   argc,
+                   argv,
+                   &i,
+                   "--fault-alloc-burst-probability",
+                   &fault_cfg.random_burst_start_probability))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-burst-fail-probability")
+         {
+            fault_option_seen = TRUE;
+            if (!config_parse_uint32_arg(
+                   argc,
+                   argv,
+                   &i,
+                   "--fault-alloc-burst-fail-probability",
+                   &fault_cfg.random_burst_fail_probability))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-burst-min")
+         {
+            fault_option_seen = TRUE;
+            if (!config_parse_uint64_arg(argc,
+                                         argv,
+                                         &i,
+                                         "--fault-alloc-burst-min",
+                                         &fault_cfg.random_burst_min_length))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-burst-max")
+         {
+            fault_option_seen = TRUE;
+            if (!config_parse_uint64_arg(argc,
+                                         argv,
+                                         &i,
+                                         "--fault-alloc-burst-max",
+                                         &fault_cfg.random_burst_max_length))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-max-failures")
+         {
+            fault_option_seen = TRUE;
+            if (!config_parse_uint64_arg(argc,
+                                         argv,
+                                         &i,
+                                         "--fault-alloc-max-failures",
+                                         &fault_cfg.max_failures))
+            {
+               return STATUS_BAD_PARAM;
+            }
+         }
+         config_has_option("fault-alloc-verbose")
+         {
+            fault_option_seen = TRUE;
+            fault_cfg.verbose = TRUE;
+         }
+         config_has_option("fault-alloc-disable")
+         {
+            fault_option_seen = TRUE;
+            fault_disable     = TRUE;
+         }
+#endif
+
          config_set_else
          {
             platform_error_log("config: invalid option: %s\n", argv[i]);
             return STATUS_BAD_PARAM;
          }
       }
+
+#if PLATFORM_MEMORY_FAULT_INJECTION
+      if (fault_option_seen) {
+         if (fault_disable) {
+            platform_memory_fault_disable();
+         } else {
+            if (!fault_config_seen) {
+               platform_error_log("config: fault allocation tuning options "
+                                  "require --fault-alloc-range or "
+                                  "--fault-alloc-random\n");
+               return STATUS_BAD_PARAM;
+            }
+            platform_status rc = config_parse_memory_fault_validate(&fault_cfg);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
+            platform_memory_fault_config_set(&fault_cfg);
+            platform_memory_fault_enable();
+         }
+      }
+#endif
 
       // Validate consistency of config parameters provided.
       for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {

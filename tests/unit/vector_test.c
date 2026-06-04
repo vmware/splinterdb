@@ -10,8 +10,10 @@
  */
 #include "vector.h"
 #include "ctest.h"
+#include "platform_threads.h"
 
 typedef VECTOR(uint64) uint64_vector;
+typedef VECTOR(uint64 *) uint64_ptr_vector;
 
 CTEST_DATA(vector)
 {
@@ -189,6 +191,61 @@ CTEST2(vector, map_ptrs)
    for (int i = 0; i < vector_length(&data->ten); i++) {
       ASSERT_EQUAL(i * i, vector_get(&data->empty, i));
    }
+}
+
+uint64 *
+ptr_at(uint64 x, uint64 *values)
+{
+   return &values[x];
+}
+
+CTEST2(vector, map_elts_to_ptrs)
+{
+   uint64 values[10];
+   for (uint64 i = 0; i < ARRAY_SIZE(values); i++) {
+      values[i] = i;
+   }
+
+   uint64_ptr_vector ptrs;
+   vector_init(&ptrs, platform_get_heap_id());
+   platform_status rc =
+      VECTOR_MAP_ELTS_TO_PTRS(&ptrs, ptr_at, &data->ten, values);
+
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(10, vector_length(&ptrs));
+   for (int i = 0; i < vector_length(&ptrs); i++) {
+      ASSERT_TRUE(vector_get(&ptrs, i) == &values[i]);
+   }
+   vector_deinit(&ptrs);
+}
+
+uint64 *
+ptr_at_fail_after_5(uint64 x, uint64 *values)
+{
+   if (x < 5) {
+      return &values[x];
+   }
+   return NULL;
+}
+
+CTEST2(vector, map_elts_to_ptrs_fails_on_null)
+{
+   uint64 values[10];
+   for (uint64 i = 0; i < ARRAY_SIZE(values); i++) {
+      values[i] = i;
+   }
+
+   uint64_ptr_vector ptrs;
+   vector_init(&ptrs, platform_get_heap_id());
+   platform_status rc =
+      VECTOR_MAP_ELTS_TO_PTRS(&ptrs, ptr_at_fail_after_5, &data->ten, values);
+
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_MEMORY));
+   ASSERT_EQUAL(5, vector_length(&ptrs));
+   for (int i = 0; i < vector_length(&ptrs); i++) {
+      ASSERT_TRUE(vector_get(&ptrs, i) == &values[i]);
+   }
+   vector_deinit(&ptrs);
 }
 
 uint64

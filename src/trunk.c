@@ -522,9 +522,9 @@ trunk_node_copy_init(trunk_node       *dst,
    vector_init(&pivot_bundles, hid);
    vector_init(&inflight_bundles, hid);
 
-   rc = VECTOR_MAP_ELTS(&pivots, trunk_pivot_copy, &src->pivots, hid);
+   rc = VECTOR_MAP_ELTS_TO_PTRS(&pivots, trunk_pivot_copy, &src->pivots, hid);
    if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: VECTOR_MAP_ELTS() failed: %s",
+      platform_error_log("%s():%d: VECTOR_MAP_ELTS_TO_PTRS() failed: %s",
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
@@ -2294,7 +2294,7 @@ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
                          __LINE__,
                          platform_status_to_string(rc));
    }
-   return STATUS_OK;
+   return rc;
 }
 
 
@@ -3478,7 +3478,7 @@ bundle_compaction_task(task *arg)
          state,
          bc,
          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_branch_merger;
    }
 
    uint64 tuple_bound;
@@ -3493,7 +3493,7 @@ bundle_compaction_task(task *arg)
          state,
          bc,
          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_branch_merger;
    }
 
    rc = trunk_branch_merger_build_merge_itor(&merger, bc->merge_mode);
@@ -3503,17 +3503,26 @@ bundle_compaction_task(task *arg)
          state,
          bc,
          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_branch_merger;
    }
 
    btree_pack_req pack_req;
-   btree_pack_req_init(&pack_req,
-                       context->cc,
-                       context->cfg->btree_cfg,
-                       &merger.merge_itor->super,
-                       tuple_bound,
-                       context->cfg->filter_cfg->seed,
-                       context->hid);
+   rc = btree_pack_req_init(&pack_req,
+                            context->cc,
+                            context->cfg->btree_cfg,
+                            &merger.merge_itor->super,
+                            tuple_bound,
+                            context->cfg->filter_cfg->seed,
+                            TRUE,
+                            context->hid);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "btree_pack_req_init failed for state: %p bc: %p: %s\n",
+         state,
+         bc,
+         platform_status_to_string(rc));
+      goto cleanup_branch_merger;
+   }
 
    // This is just a quick shortcut to avoid wasting time on a compaction when
    // the pivot is already stuck due to an earlier maplet compaction failure.
@@ -3522,7 +3531,7 @@ bundle_compaction_task(task *arg)
                          "for state %p\n",
                          state);
       rc = STATUS_INVALID_STATE;
-      goto cleanup;
+      goto cleanup_pack_req;
    }
 
    uint64 pack_start = platform_get_timestamp();
@@ -3532,7 +3541,7 @@ bundle_compaction_task(task *arg)
                          state,
                          bc,
                          platform_status_to_string(rc));
-      goto cleanup;
+      goto cleanup_pack_req;
    }
    if (context->stats) {
       context->stats[tid].compaction_pack_time_ns[state->height] +=
@@ -3561,8 +3570,9 @@ bundle_compaction_task(task *arg)
              bc->compaction_time_ns);
    }
 
-cleanup:
+cleanup_pack_req:
    btree_pack_req_deinit(&pack_req, context->hid);
+cleanup_branch_merger:
    trunk_branch_merger_deinit(&merger);
 
    trunk_pivot_state_lock_compactions(state);
@@ -3587,8 +3597,9 @@ cleanup:
 static platform_status
 enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
 {
-   uint64 height       = trunk_node_height(node);
-   uint64 num_children = trunk_node_num_children(node);
+   uint64          height       = trunk_node_height(node);
+   uint64          num_children = trunk_node_num_children(node);
+   platform_status result       = STATUS_OK;
 
    for (uint64 pivot_num = 0; pivot_num < num_children; pivot_num++) {
       if (trunk_node_pivot_has_received_bundles(node, pivot_num)) {
@@ -3596,8 +3607,10 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
          key             pivot_key = trunk_node_pivot_key(node, pivot_num);
          key             ubkey     = trunk_node_pivot_key(node, pivot_num + 1);
          bundle *pivot_bundle      = trunk_node_pivot_bundle(node, pivot_num);
+         trunk_pivot_state *state  = NULL;
+         bundle_compaction *bc     = NULL;
 
-         trunk_pivot_state *state =
+         state =
             trunk_pivot_state_map_get_or_create_entry(context,
                                                       &context->pivot_states,
                                                       pivot_key,
@@ -3611,8 +3624,7 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
             goto next;
          }
 
-         bundle_compaction *bc =
-            bundle_compaction_create(context, node, pivot_num, state);
+         bc = bundle_compaction_create(context, node, pivot_num, state);
          if (bc == NULL) {
             platform_error_log("enqueue_bundle_compaction: "
                                "bundle_compaction_create failed\n");
@@ -3632,12 +3644,16 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
          if (!SUCCESS(rc)) {
             trunk_pivot_state_decref(state);
             platform_error_log(
-               "enqueue_bundle_compaction: task_enqueue failed\n");
+               "enqueue_bundle_compaction: task_enqueue failed: %s\n",
+               platform_status_to_string(rc));
          }
 
       next:
          if (!SUCCESS(rc) && bc) {
             bc->state = BUNDLE_COMPACTION_FAILED;
+         }
+         if (!SUCCESS(rc) && SUCCESS(result)) {
+            result = rc;
          }
          if (state != NULL) {
             trunk_pivot_state_map_release_entry(
@@ -3646,7 +3662,7 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
       }
    }
 
-   return STATUS_OK;
+   return result;
 }
 
 static void
@@ -3938,12 +3954,19 @@ leaf_estimate_unique_keys(trunk_context *context,
    *estimate = unfiltered_tuples;
 
    if (0 < num_fp) {
-      uint32 num_globally_unique_fp =
-         routing_filter_estimate_unique_fp(context->cc,
-                                           context->cfg->filter_cfg,
-                                           PROCESS_PRIVATE_HEAP_ID,
-                                           vector_data(&maplets),
-                                           vector_length(&maplets));
+      uint32 num_globally_unique_fp;
+      rc = routing_filter_estimate_unique_fp(context->cc,
+                                             context->cfg->filter_cfg,
+                                             PROCESS_PRIVATE_HEAP_ID,
+                                             vector_data(&maplets),
+                                             vector_length(&maplets),
+                                             &num_globally_unique_fp);
+      if (!SUCCESS(rc)) {
+         platform_error_log("leaf_estimate_unique_keys: "
+                            "routing_filter_estimate_unique_fp failed: %d\n",
+                            rc.r);
+         goto cleanup;
+      }
 
       num_globally_unique_fp = routing_filter_estimate_unique_keys_from_count(
          context->cfg->filter_cfg, num_globally_unique_fp);
@@ -3959,7 +3982,7 @@ leaf_estimate_unique_keys(trunk_context *context,
 
 cleanup:
    vector_deinit(&maplets);
-   return STATUS_OK;
+   return rc;
 }
 
 static platform_status
@@ -4555,19 +4578,13 @@ flush_to_one_child(trunk_context                *context,
    // Construct our new pivots for the new children
    trunk_pivot_vector new_pivots;
    vector_init(&new_pivots, PROCESS_PRIVATE_HEAP_ID);
-   rc = vector_ensure_capacity(&new_pivots, vector_length(&new_childrefs));
+   rc = VECTOR_MAP_ELTS_TO_PTRS(&new_pivots,
+                                trunk_pivot_create_from_ondisk_node_ref,
+                                &new_childrefs,
+                                PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
-      platform_error_log("flush_to_one_child: vector_ensure_capacity failed: "
+      platform_error_log("flush_to_one_child: VECTOR_MAP_ELTS_TO_PTRS failed: "
                          "%d\n",
-                         rc.r);
-      goto cleanup_new_pivots;
-   }
-   rc = VECTOR_MAP_ELTS(&new_pivots,
-                        trunk_pivot_create_from_ondisk_node_ref,
-                        &new_childrefs,
-                        PROCESS_PRIVATE_HEAP_ID);
-   if (!SUCCESS(rc)) {
-      platform_error_log("flush_to_one_child: VECTOR_MAP_ELTS failed: %d\n",
                          rc.r);
       goto cleanup_new_pivots;
    }
@@ -4814,12 +4831,14 @@ build_new_roots(trunk_context                *context,
                          rc.r);
       goto cleanup_pivots;
    }
-   rc = VECTOR_MAP_ELTS(&pivots,
-                        trunk_pivot_create_from_ondisk_node_ref,
-                        node_refs,
-                        PROCESS_PRIVATE_HEAP_ID);
+   rc = VECTOR_MAP_ELTS_TO_PTRS(&pivots,
+                                trunk_pivot_create_from_ondisk_node_ref,
+                                node_refs,
+                                PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
-      platform_error_log("build_new_roots: VECTOR_MAP_ELTS failed: %d\n", rc.r);
+      platform_error_log("build_new_roots: VECTOR_MAP_ELTS_TO_PTRS failed: "
+                         "%d\n",
+                         rc.r);
       goto cleanup_pivots;
    }
    trunk_pivot *ub_pivot = trunk_pivot_create(PROCESS_PRIVATE_HEAP_ID,
@@ -5885,6 +5904,10 @@ trunk_context_init(trunk_context      *context,
       if (context->stats == NULL) {
          platform_error_log("trunk_node_context_init: "
                             "TYPED_ARRAY_MALLOC failed\n");
+         if (context->root != NULL) {
+            trunk_ondisk_node_ref_destroy(context->root, context, hid);
+            context->root = NULL;
+         }
          return STATUS_NO_MEMORY;
       }
       memset(context->stats, 0, sizeof(trunk_stats) * MAX_THREADS);
@@ -5896,11 +5919,10 @@ trunk_context_init(trunk_context      *context,
    return STATUS_OK;
 }
 
-platform_status
+void
 trunk_inc_ref(allocator *al, uint64 root_addr)
 {
    trunk_addr_inc_ref(al, root_addr);
-   return STATUS_OK;
 }
 
 platform_status

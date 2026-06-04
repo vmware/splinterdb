@@ -133,7 +133,7 @@ typedef struct ONDISK core_super_block {
  * Super block functions
  *-----------------------------------------------------------------------------
  */
-static void
+static platform_status
 core_set_super_block(core_handle *spl,
                      bool32       is_checkpoint,
                      bool32       is_unmount,
@@ -150,7 +150,14 @@ core_set_super_block(core_handle *spl,
    } else {
       rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    }
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_set_super_block: failed to %s super block "
+                         "address for root id %lu: %s\n",
+                         is_create ? "allocate" : "get",
+                         spl->id,
+                         platform_status_to_string(rc));
+      return rc;
+   }
    super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    while (!cache_try_claim(spl->cc, super_page)) {
       platform_sleep_ns(wait);
@@ -166,13 +173,9 @@ core_set_super_block(core_handle *spl,
    trunk_init_root_handle(&spl->trunk_context, &root_handle);
    uint64 root_addr = trunk_ondisk_node_handle_addr(&root_handle);
    if (root_addr != 0) {
-      super->root_addr = root_addr;
-      rc               = trunk_inc_ref(spl->al, super->root_addr);
-      platform_assert_status_ok(rc);
-
-   } else {
-      super->root_addr = 0;
+      trunk_inc_ref(spl->al, root_addr);
    }
+   super->root_addr = root_addr;
    trunk_ondisk_node_handle_deinit(&root_handle);
 
    if (spl->cfg.use_log) {
@@ -205,8 +208,16 @@ core_set_super_block(core_handle *spl,
                          spl->al,
                          spl->ts,
                          old_root_addr);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_set_super_block: trunk_dec_ref failed for "
+                            "old root addr %lu: %s\n",
+                            old_root_addr,
+                            platform_status_to_string(rc));
+         return rc;
+      }
    }
+
+   return STATUS_OK;
 }
 
 static core_super_block *
@@ -286,6 +297,57 @@ core_get_compacted_memtable(core_handle *spl, uint64 generation)
    platform_assert(mt->state != MEMTABLE_STATE_READY);
 
    return &spl->compacted_memtable[memtable_idx];
+}
+
+static bool32
+core_memtable_state_has_compacted_branch(memtable_state state)
+{
+   return state == MEMTABLE_STATE_COMPACTED
+          || state == MEMTABLE_STATE_INCORPORATION_ASSIGNED
+          || state == MEMTABLE_STATE_INCORPORATION_FAILED;
+}
+
+static uint64
+core_memtable_compacted_branch_root(core_handle *spl, uint64 generation)
+{
+   memtable *mt = core_get_memtable(spl, generation);
+   if (!core_memtable_state_has_compacted_branch(mt->state)) {
+      return 0;
+   }
+
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   return cmt->branch.root_addr;
+}
+
+static void
+core_memtable_release_compacted_branch(core_handle *spl, uint64 generation)
+{
+   core_compacted_memtable *cmt = core_get_compacted_memtable(spl, generation);
+   if (cmt->branch.root_addr == 0) {
+      return;
+   }
+
+   btree_dec_ref(
+      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_BRANCH);
+   cmt->branch.root_addr = 0;
+}
+
+static void
+core_memtable_mark_incorporation_failed(core_handle    *spl,
+                                        uint64          generation,
+                                        platform_status status)
+{
+   memtable_block_lookups(&spl->mt_ctxt);
+   memtable *mt = core_get_memtable(spl, generation);
+   platform_error_log("Memtable incorporation failed: generation=%lu "
+                      "state=%s status=%s memtable_root=%lu\n",
+                      generation,
+                      memtable_state_string(mt->state),
+                      platform_status_to_string(status),
+                      mt->root_addr);
+   memtable_mark_incorporation_failed(mt, status);
+   core_memtable_release_compacted_branch(spl, generation);
+   memtable_unblock_lookups(&spl->mt_ctxt);
 }
 
 static inline void
@@ -424,6 +486,7 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
                        itor,
                        rflimit,
                        rfcfg->seed,
+                       FALSE,
                        spl->heap_id);
    uint64 pack_start;
    if (spl->cfg.use_stats) {
@@ -514,14 +577,21 @@ unlock_incorp_lock:
    return should_continue;
 }
 
-static void
+static platform_status
 core_memtable_incorporate(core_handle   *spl,
                           uint64         generation,
                           const threadid tid)
 {
    platform_stream_handle stream;
    platform_status        rc = core_open_log_stream_if_enabled(spl, &stream);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_memtable_incorporate: failed to open log "
+                         "stream for generation %lu: %s\n",
+                         generation,
+                         platform_status_to_string(rc));
+      core_memtable_mark_incorporation_failed(spl, generation, rc);
+      return rc;
+   }
    core_log_stream_if_enabled(
       spl, &stream, "incorporate memtable gen %lu\n", generation);
    core_log_stream_if_enabled(
@@ -534,9 +604,15 @@ core_memtable_incorporate(core_handle   *spl,
       flush_start = platform_get_timestamp();
    }
    rc = trunk_incorporate_prepare(&spl->trunk_context, cmt->branch.root_addr);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_incorporate_prepare failed: %s\n",
+                         platform_status_to_string(rc));
+      core_close_log_stream_if_enabled(spl, &stream);
+      core_memtable_mark_incorporation_failed(spl, generation, rc);
+      return rc;
+   }
    btree_dec_ref(
-      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_MEMTABLE);
+      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_BRANCH);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -581,6 +657,8 @@ core_memtable_incorporate(core_handle   *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+
+   return STATUS_OK;
 }
 
 /*
@@ -590,7 +668,7 @@ core_memtable_incorporate(core_handle   *spl,
  * context of the foreground thread.  If background threads are enabled, this
  * function is called in the context of the memtable worker thread.
  */
-static void
+static platform_status
 core_memtable_flush_internal(core_handle *spl, uint64 generation)
 {
    const threadid tid = platform_get_tid();
@@ -602,18 +680,26 @@ core_memtable_flush_internal(core_handle *spl, uint64 generation)
       goto out;
    }
    do {
-      core_memtable_incorporate(spl, generation, tid);
+      platform_status rc = core_memtable_incorporate(spl, generation, tid);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       generation++;
    } while (core_try_continue_incorporate(spl, generation));
 out:
-   return;
+   return STATUS_OK;
 }
 
 static void
 core_memtable_flush_internal_virtual(task *arg)
 {
    core_memtable_args *mt_args = container_of(arg, core_memtable_args, tsk);
-   core_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   platform_status     rc =
+      core_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   if (!SUCCESS(rc)) {
+      platform_error_log("memtable flush failed: %s\n",
+                         platform_status_to_string(rc));
+   }
 }
 
 /*
@@ -1607,6 +1693,13 @@ core_apply_to_range(core_handle   *spl,
 {
    core_range_iterator *range_itor =
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
+   if (range_itor == NULL) {
+      platform_error_log("core_apply_to_range: failed to allocate range "
+                         "iterator for %lu tuples\n",
+                         num_tuples);
+      return STATUS_NO_MEMORY;
+   }
+
    platform_status rc = core_range_iterator_init(spl,
                                                  range_itor,
                                                  greater_than_or_equal,
@@ -1617,6 +1710,9 @@ core_apply_to_range(core_handle   *spl,
                                                  start_key,
                                                  num_tuples);
    if (!SUCCESS(rc)) {
+      platform_error_log("core_apply_to_range: range iterator init failed: "
+                         "%s\n",
+                         platform_status_to_string(rc));
       goto destroy_range_itor;
    }
 
@@ -1628,6 +1724,8 @@ core_apply_to_range(core_handle   *spl,
       func(curr_key, data, arg);
       rc = iterator_next(&range_itor->super);
       if (!SUCCESS(rc)) {
+         platform_error_log("core_apply_to_range: iterator_next failed: %s\n",
+                            platform_status_to_string(rc));
          goto destroy_range_itor;
       }
    }
@@ -1636,6 +1734,84 @@ destroy_range_itor:
    core_range_iterator_deinit(range_itor);
    platform_free(PROCESS_PRIVATE_HEAP_ID, range_itor);
    return rc;
+}
+
+static void
+core_stats_destroy(platform_heap_id heap_id, core_stats *stats)
+{
+   if (stats == NULL) {
+      return;
+   }
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      histogram_destroy(heap_id, stats[i].insert_latency_histo);
+      histogram_destroy(heap_id, stats[i].update_latency_histo);
+      histogram_destroy(heap_id, stats[i].delete_latency_histo);
+   }
+   platform_free(heap_id, stats);
+}
+
+static core_stats *
+core_stats_create(platform_heap_id heap_id)
+{
+   core_stats *stats = TYPED_ARRAY_ZALLOC(heap_id, stats, MAX_THREADS);
+   if (stats == NULL) {
+      platform_error_log("core_stats_create: failed to allocate stats array "
+                         "for %u threads\n",
+                         MAX_THREADS);
+      return NULL;
+   }
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      stats[i].insert_latency_histo = histogram_create(
+         heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      if (stats[i].insert_latency_histo == NULL) {
+         platform_error_log("core_stats_create: failed to allocate insert "
+                            "latency histogram for thread %lu\n",
+                            i);
+         goto cleanup;
+      }
+      stats[i].update_latency_histo = histogram_create(
+         heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      if (stats[i].update_latency_histo == NULL) {
+         platform_error_log("core_stats_create: failed to allocate update "
+                            "latency histogram for thread %lu\n",
+                            i);
+         goto cleanup;
+      }
+      stats[i].delete_latency_histo = histogram_create(
+         heap_id, LATENCYHISTO_SIZE + 1, latency_histo_buckets);
+      if (stats[i].delete_latency_histo == NULL) {
+         platform_error_log("core_stats_create: failed to allocate delete "
+                            "latency histogram for thread %lu\n",
+                            i);
+         goto cleanup;
+      }
+   }
+
+   return stats;
+
+cleanup:
+   core_stats_destroy(heap_id, stats);
+   return NULL;
+}
+
+static platform_status
+core_create_stats(core_handle *spl)
+{
+   if (!spl->cfg.use_stats) {
+      return STATUS_OK;
+   }
+
+   spl->stats = core_stats_create(spl->heap_id);
+   return spl->stats == NULL ? STATUS_NO_MEMORY : STATUS_OK;
+}
+
+static void
+core_destroy_stats(core_handle *spl)
+{
+   core_stats_destroy(spl->heap_id, spl->stats);
+   spl->stats = NULL;
 }
 
 
@@ -1668,43 +1844,56 @@ core_mkfs(core_handle      *spl,
                                               core_memtable_flush_virtual,
                                               spl);
    if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: memtable_context_init failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
    // set up the log
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
-   }
-
-   trunk_context_init(
-      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
-
-   core_set_super_block(spl, FALSE, FALSE, TRUE);
-
-   if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      if (spl->log == NULL) {
+         platform_error_log("core_mkfs: log_create failed\n");
+         rc = STATUS_NO_MEMORY;
+         goto deinit_memtable_context;
       }
    }
 
+   rc = trunk_context_init(
+      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: trunk_context_init failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_log;
+   }
+
+   rc = core_create_stats(spl);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: core_create_stats failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_trunk_context;
+   }
+
+   rc = core_set_super_block(spl, FALSE, FALSE, TRUE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: core_set_super_block failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_stats;
+   }
    return STATUS_OK;
+
+deinit_stats:
+   core_destroy_stats(spl);
+deinit_trunk_context:
+   trunk_context_deinit(&spl->trunk_context);
+deinit_log:
+   if (spl->cfg.use_log) {
+      platform_free(spl->heap_id, spl->log);
+      spl->log = NULL;
+   }
+deinit_memtable_context:
+   memtable_context_deinit(&spl->mt_ctxt);
+   return rc;
 }
 
 /*
@@ -1750,41 +1939,101 @@ core_mount(core_handle      *spl,
                                               core_memtable_flush_virtual,
                                               spl);
    if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: memtable_context_init failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
-   }
-
-   trunk_context_init(
-      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
-
-   core_set_super_block(spl, FALSE, FALSE, FALSE);
-
-   if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      if (spl->log == NULL) {
+         platform_error_log("core_mount: log_create failed\n");
+         rc = STATUS_NO_MEMORY;
+         goto deinit_memtable_context;
       }
    }
+
+   rc = trunk_context_init(
+      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: trunk_context_init failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_log;
+   }
+
+   rc = core_create_stats(spl);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: core_create_stats failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_trunk_context;
+   }
+
+   rc = core_set_super_block(spl, FALSE, FALSE, FALSE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: core_set_super_block failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_stats;
+   }
    return STATUS_OK;
+
+deinit_stats:
+   core_destroy_stats(spl);
+deinit_trunk_context:
+   trunk_context_deinit(&spl->trunk_context);
+deinit_log:
+   if (spl->cfg.use_log) {
+      platform_free(spl->heap_id, spl->log);
+      spl->log = NULL;
+   }
+deinit_memtable_context:
+   memtable_context_deinit(&spl->mt_ctxt);
+   return rc;
+}
+
+static bool32
+core_report_unincorporated_memtables(core_handle *spl)
+{
+   bool32 found_unincorporated = FALSE;
+   uint64 start_generation     = memtable_generation_retired(&spl->mt_ctxt) + 1;
+   uint64 end_generation       = memtable_generation(&spl->mt_ctxt);
+
+   for (uint64 generation = start_generation; generation < end_generation;
+        generation++)
+   {
+      memtable *mt = core_try_get_memtable(spl, generation);
+      if (mt == NULL || mt->state == MEMTABLE_STATE_READY) {
+         continue;
+      }
+
+      found_unincorporated = TRUE;
+      uint64 compacted_root =
+         core_memtable_compacted_branch_root(spl, generation);
+      if (mt->state == MEMTABLE_STATE_INCORPORATION_FAILED) {
+         platform_error_log("Shutdown found memtable from failed "
+                            "incorporation: generation=%lu state=%s "
+                            "status=%s memtable_root=%lu "
+                            "compacted_root=%lu\n",
+                            generation,
+                            memtable_state_string(mt->state),
+                            platform_status_to_string(mt->incorporation_status),
+                            mt->root_addr,
+                            compacted_root);
+      } else {
+         platform_error_log("Shutdown found unincorporated memtable: "
+                            "generation=%lu state=%s memtable_root=%lu "
+                            "compacted_root=%lu\n",
+                            generation,
+                            memtable_state_string(mt->state),
+                            mt->root_addr,
+                            compacted_root);
+      }
+
+      if (compacted_root != 0) {
+         core_memtable_release_compacted_branch(spl, generation);
+      }
+   }
+
+   return found_unincorporated;
 }
 
 /*
@@ -1810,6 +2059,8 @@ core_prepare_for_shutdown(core_handle *spl)
    platform_status rc = task_perform_until_quiescent(spl->ts);
    platform_assert_status_ok(rc);
 
+   core_report_unincorporated_memtables(spl);
+
    // destroy memtable context (and its memtables)
    memtable_context_deinit(&spl->mt_ctxt);
 
@@ -1829,18 +2080,17 @@ core_prepare_for_shutdown(core_handle *spl)
 platform_status
 core_unmount(core_handle *spl)
 {
+   platform_status rc;
+
    core_prepare_for_shutdown(spl);
-   core_set_super_block(spl, FALSE, TRUE, FALSE);
-   trunk_context_deinit(&spl->trunk_context);
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+   rc = core_set_super_block(spl, FALSE, TRUE, FALSE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_unmount: failed to update super block: %s\n",
+                         platform_status_to_string(rc));
    }
-   return STATUS_OK;
+   trunk_context_deinit(&spl->trunk_context);
+   core_destroy_stats(spl);
+   return rc;
 }
 
 /*
@@ -1854,14 +2104,7 @@ core_destroy(core_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
-   if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         histogram_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
-         histogram_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
-   }
+   core_destroy_stats(spl);
 }
 
 
@@ -1938,19 +2181,31 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
       return;
    }
 
-   histogram_handle insert_lat_accum, update_lat_accum, delete_lat_accum;
-   histogram_create(PROCESS_PRIVATE_HEAP_ID,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &insert_lat_accum);
-   histogram_create(PROCESS_PRIVATE_HEAP_ID,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &update_lat_accum);
-   histogram_create(PROCESS_PRIVATE_HEAP_ID,
-                         LATENCYHISTO_SIZE + 1,
-                         latency_histo_buckets,
-                         &delete_lat_accum);
+   histogram *insert_lat_accum;
+   histogram *update_lat_accum;
+   histogram *delete_lat_accum;
+   insert_lat_accum =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID,
+                       LATENCYHISTO_SIZE + 1,
+                       latency_histo_buckets);
+   update_lat_accum =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID,
+                       LATENCYHISTO_SIZE + 1,
+                       latency_histo_buckets);
+   delete_lat_accum =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID,
+                       LATENCYHISTO_SIZE + 1,
+                       latency_histo_buckets);
+   if (insert_lat_accum == NULL || update_lat_accum == NULL
+       || delete_lat_accum == NULL)
+   {
+      platform_error_log("Out of memory for statistics\n");
+      histogram_destroy(PROCESS_PRIVATE_HEAP_ID, insert_lat_accum);
+      histogram_destroy(PROCESS_PRIVATE_HEAP_ID, update_lat_accum);
+      histogram_destroy(PROCESS_PRIVATE_HEAP_ID, delete_lat_accum);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, global);
+      return;
+   }
 
    for (thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       histogram_merge_in(insert_lat_accum,
@@ -2006,9 +2261,9 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
    histogram_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
    histogram_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
    histogram_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
-   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &insert_lat_accum);
-   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &update_lat_accum);
-   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, &delete_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, insert_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, update_lat_accum);
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, delete_lat_accum);
 
 
    platform_log(log_handle, "Flush Statistics\n");
@@ -2147,33 +2402,15 @@ void
 core_reset_stats(core_handle *spl)
 {
    if (spl->cfg.use_stats) {
-      for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-         histogram_destroy(spl->heap_id,
-                           &spl->stats[thr_i].insert_latency_histo);
-         histogram_destroy(spl->heap_id,
-                           &spl->stats[thr_i].update_latency_histo);
-         histogram_destroy(spl->heap_id,
-                           &spl->stats[thr_i].delete_latency_histo);
-
-         memset(&spl->stats[thr_i], 0, sizeof(spl->stats[thr_i]));
-
-         platform_status rc;
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[thr_i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[thr_i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = histogram_create(spl->heap_id,
-                               LATENCYHISTO_SIZE + 1,
-                               latency_histo_buckets,
-                               &spl->stats[thr_i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      core_stats *new_stats = core_stats_create(spl->heap_id);
+      if (new_stats == NULL) {
+         platform_error_log("core_reset_stats: failed to reset stats: %s\n",
+                            platform_status_to_string(STATUS_NO_MEMORY));
+         return;
       }
+
+      core_destroy_stats(spl);
+      spl->stats = new_stats;
    }
 }
 

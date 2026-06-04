@@ -181,6 +181,12 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
    if (ret == bytes) {
       return STATUS_OK;
    }
+   platform_error_log("laio_read: pread failed for addr %lu, bytes %lu, "
+                      "ret %d: %s\n",
+                      addr,
+                      bytes,
+                      ret,
+                      strerror(errno));
    return STATUS_IO_ERROR;
 }
 
@@ -198,6 +204,12 @@ laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
    if (ret == bytes) {
       return STATUS_OK;
    }
+   platform_error_log("laio_write: pwrite failed for addr %lu, bytes %lu, "
+                      "ret %d: %s\n",
+                      addr,
+                      bytes,
+                      ret,
+                      strerror(errno));
    return STATUS_IO_ERROR;
 }
 
@@ -236,8 +248,15 @@ laio_get_thread_context(laio_handle *io)
       }
       io->ctx[pid].state = PROCESS_CONTEXT_STATE_INITIALIZED;
       async_wait_queue_init(&io->ctx[pid].submit_waiters);
-      pthread_create(
+      int pthread_status = pthread_create(
          &io->ctx[pid].io_cleaner, NULL, laio_cleaner, &io->ctx[pid]);
+      if (pthread_status != 0) {
+         platform_error_log("pthread_create() failed for laio cleaner "
+                            "PID=%lu: %s\n",
+                            pid,
+                            strerror(pthread_status));
+      }
+      platform_assert(pthread_status == 0);
       __sync_lock_release(&io->ctx[pid].lock);
    }
    return &io->ctx[pid];
@@ -271,7 +290,7 @@ laio_async_state_deinit(io_async_state *ios)
 {
    laio_async_state *lios = (laio_async_state *)ios;
    if (lios->iovs != lios->iov) {
-      platform_free(lios->io->heap_id, lios->iovs);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, lios->iovs);
    }
 }
 
@@ -283,6 +302,11 @@ laio_async_state_append_page(io_async_state *ios, void *buf)
       lios->io->cfg->extent_size / lios->io->cfg->page_size;
 
    if (lios->iovlen == pages_per_extent) {
+      platform_error_log("laio_async_state_append_page: request for addr %lu "
+                         "already has %lu pages, limit %lu\n",
+                         lios->addr,
+                         lios->iovlen,
+                         pages_per_extent);
       return STATUS_LIMIT_EXCEEDED;
    }
 
@@ -332,6 +356,13 @@ laio_async_run(io_async_state *gios)
    }
 
    ios->pctx = laio_get_thread_context(ios->io);
+   if (ios->pctx == NULL) {
+      platform_error_log("laio_async_run: failed to get thread context for "
+                         "addr %lu\n",
+                         ios->addr);
+      ios->status = -EIO;
+      async_return(ios);
+   }
    if (ios->cmd == io_async_preadv) {
       io_prep_preadv(&ios->req, ios->io->fd, ios->iovs, ios->iovlen, ios->addr);
    } else {
@@ -440,6 +471,13 @@ laio_async_state_get_result(io_async_state *gios)
 {
    laio_async_state *ios = (laio_async_state *)gios;
    if (ios->status < 0) {
+      platform_error_log("laio_async_state_get_result: async %s failed for "
+                         "addr %lu, pages %lu, status %d: %s\n",
+                         ios->cmd == io_async_preadv ? "read" : "write",
+                         ios->addr,
+                         ios->iovlen,
+                         ios->status,
+                         strerror(-ios->status));
       return STATUS_IO_ERROR;
    }
 
@@ -486,8 +524,13 @@ laio_async_state_init(io_async_state   *state,
    {
       ios->iovs = ios->iov;
    } else {
-      ios->iovs = TYPED_ARRAY_MALLOC(io->heap_id, ios->iovs, pages_per_extent);
+      ios->iovs = TYPED_ARRAY_MALLOC(
+         PROCESS_PRIVATE_HEAP_ID, ios->iovs, pages_per_extent);
       if (ios->iovs == NULL) {
+         platform_error_log("laio_async_state_init: failed to allocate iovec "
+                            "array for addr %lu, pages_per_extent %lu\n",
+                            addr,
+                            pages_per_extent);
          return STATUS_NO_MEMORY;
       }
    }
@@ -560,6 +603,10 @@ laio_wakeup_cleaner(io_process_context *pctx,
    io_set_callback(iocb, LAIO_CLEANER_TERMINATE_CALLBACK);
    int status = io_submit(pctx->ctx, 1, &iocb);
    if (status != 1) {
+      platform_error_log("laio_wakeup_cleaner: io_submit failed, status=%d: "
+                         "%s\n",
+                         status,
+                         status < 0 ? strerror(-status) : "unexpected result");
       return STATUS_IO_ERROR;
    }
    return STATUS_OK;
@@ -646,6 +693,7 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
 
    laio_handle *io = TYPED_MALLOC(hid, io);
    if (io == NULL) {
+      platform_error_log("laio_handle_create: failed to allocate io handle\n");
       return NULL;
    }
 
@@ -716,11 +764,17 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
 
    io->pecnode.termination = laio_process_termination_callback;
    io->pecnode.arg         = io;
-   platform_linux_add_process_event_callback(&io->pecnode);
+   rc = platform_linux_add_process_event_callback(&io->pecnode);
+   if (!SUCCESS(rc)) {
+      platform_error_log("failed to register process event callback: %s\n",
+                         platform_status_to_string(rc));
+      goto process_event_callback_failed;
+   }
 
    // leave req_hand set to 0
    return (io_handle *)io;
 
+process_event_callback_failed:
 write_failed:
 seek_failed:
 no_fallocate_and_bad_size:

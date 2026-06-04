@@ -134,6 +134,25 @@ help::
 	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
 
 # ************************************************************************
+# Memory allocation fault injection
+ifndef BUILD_MEMORY_FAULT_INJECTION
+   BUILD_MEMORY_FAULT_INJECTION=0
+endif
+
+ifeq "$(BUILD_MEMORY_FAULT_INJECTION)" "1"
+   CFLAGS += -DPLATFORM_MEMORY_FAULT_INJECTION=1
+else ifeq "$(BUILD_MEMORY_FAULT_INJECTION)" "0"
+   CFLAGS += -DPLATFORM_MEMORY_FAULT_INJECTION=0
+else
+   $(error Unknown BUILD_MEMORY_FAULT_INJECTION mode "$(BUILD_MEMORY_FAULT_INJECTION)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	@echo '  BUILD_MEMORY_FAULT_INJECTION={0,1}: Disable/enable allocation fault injection (Default: disabled)'
+
+TEST_MEMORY_FAULT_DISABLED_CFLAGS = -DPLATFORM_MEMORY_FAULT_INJECTION_DISABLED_IN_THIS_FILE
+
+# ************************************************************************
 # Address sanitizer
 #   - Ctests will be silently skipped with clang builds. (Known issue.)
 #   - Use gcc to build in Asan mode to run unit-tests.
@@ -245,6 +264,11 @@ FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 # Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o obj/tests/unit/c.o
 FAST_UNIT_TESTOBJS := $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
+TESTOBJ := $(TESTSRC:%.c=$(OBJDIR)/%.o)
+
+$(filter-out $(OBJDIR)/tests/unit/platform_apis_test.o,$(TESTOBJ)): \
+   EXTRA_CFLAGS += $(TEST_MEMORY_FAULT_DISABLED_CFLAGS)
+
 # ----
 # Binaries from unit-test sources in tests/unit/ sub-dir
 # Although the sources are in, say, tests/unit/splinterdb_quick_test.c, and so on
@@ -275,7 +299,7 @@ all-examples: $(EXAMPLES_BINS)
 # any mismatched config from a prior build, so we can ensure we never
 # accidentially build using a mixture of configs
 
-CONFIG_HASH = $(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
+CONFIG_HASH = $(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(TEST_MEMORY_FAULT_DISABLED_CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
 CONFIG_FILE_PREFIX = $(BUILD_PATH)/build-config.
 CONFIG_FILE = $(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 
@@ -292,6 +316,7 @@ $(CONFIG_FILE): | $(BUILD_PATH)/. mismatched_config_file_check
 	$(COMMAND) echo CC          = $(CC)          >> $@
 	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
 	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
+	$(COMMAND) echo TEST_MEMORY_FAULT_DISABLED_CFLAGS = $(TEST_MEMORY_FAULT_DISABLED_CFLAGS) >> $@
 	$(COMMAND) echo INCLUDE     = $(INCLUDE)     >> $@
 	$(COMMAND) echo TARGET_ARCH = $(TARGET_ARCH) >> $@
 	$(COMMAND) echo LD          = $(LD)          >> $@
@@ -322,7 +347,7 @@ $(BINDIR)/%/.:
 # RECIPES
 #
 
-COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(GIT_VERSION_CFLAGS) $(EXTRA_CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
 $(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@

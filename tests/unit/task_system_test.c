@@ -26,6 +26,7 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
+#include "platform_threads.h"
 #include "config.h" // Reqd for definition of master_config{}
 #include "task.h"
 

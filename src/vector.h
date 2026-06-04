@@ -15,6 +15,7 @@
 
 
 #include "util.h"
+#include "platform_log.h"
 
 #define VECTOR(elt_type)                                                       \
    struct {                                                                    \
@@ -268,6 +269,50 @@ __vector_replace(writable_buffer       *dst,
    VECTOR_MAP_GENERIC(                                                         \
       dst, vector_apply_to_ptr, src, func __VA_OPT__(, __VA_ARGS__))
 
+// forall i: dst[i] = f(src[i], ...)
+// f must return a pointer. Stops after the first NULL result.
+// Leaves dst length equal to the number of non-NULL results.
+#define VECTOR_MAP_ELTS_TO_PTRS(dst, func, src, ...)                           \
+   ({                                                                          \
+      _Static_assert(                                                          \
+         __builtin_classify_type((vector_elt_type(dst))0) == 5,                \
+         "VECTOR_MAP_ELTS_TO_PTRS requires pointer elements in dst");          \
+      platform_status __rc;                                                    \
+      uint64          __len  = vector_length(src);                             \
+      uint64          __size = __len * vector_elt_size(dst);                   \
+      __rc                   = writable_buffer_resize(&(dst)->wb, __size);     \
+      if (!SUCCESS(__rc)) {                                                    \
+         platform_error_log("VECTOR_MAP_ELTS_TO_PTRS: resize failed at "       \
+                            "%s:%d: %s\n",                                     \
+                            __FILE__,                                          \
+                            __LINE__,                                          \
+                            platform_status_to_string(__rc));                  \
+      } else {                                                                 \
+         uint64 __idx = 0;                                                     \
+         for (; __idx < __len; __idx++) {                                      \
+            vector_elt_type(dst) __result = vector_apply_to_elt(               \
+               src, __idx, func __VA_OPT__(, __VA_ARGS__));                    \
+            if (__result == NULL) {                                            \
+               platform_error_log("VECTOR_MAP_ELTS_TO_PTRS: %s returned NULL " \
+                                  "at index %lu from %s:%d\n",                 \
+                                  STRINGIFY(func),                             \
+                                  __idx,                                       \
+                                  __FILE__,                                    \
+                                  __LINE__);                                   \
+               __rc = STATUS_NO_MEMORY;                                        \
+               break;                                                          \
+            }                                                                  \
+            vector_set(dst, __idx, __result);                                  \
+         }                                                                     \
+         if (!SUCCESS(__rc)) {                                                 \
+            platform_status __resize_rc = writable_buffer_resize(              \
+               &(dst)->wb, __idx * vector_elt_size(dst));                      \
+            platform_assert_status_ok(__resize_rc);                            \
+         }                                                                     \
+      }                                                                        \
+      __rc;                                                                    \
+   })
+
 /*
  * Convenience function so you can use vector_apply_to_elements to
  * free all the elements of a vector of pointers.
@@ -481,8 +526,9 @@ _Static_assert(!__builtin_types_compatible_p(platform_status, void), "Uhoh");
             init, (v), __old_length __VA_OPT__(, __VA_ARGS__));                \
       }                                                                        \
       if (!SUCCESS(__rc)) {                                                    \
-         __rc = writable_buffer_resize(&(v)->wb, __old_size);                  \
-         platform_assert_status_ok(__rc);                                      \
+         platform_status __resize_rc =                                         \
+            writable_buffer_resize(&(v)->wb, __old_size);                      \
+         platform_assert_status_ok(__resize_rc);                               \
       }                                                                        \
       __rc;                                                                    \
    })

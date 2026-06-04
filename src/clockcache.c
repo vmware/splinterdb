@@ -842,7 +842,12 @@ clockcache_write_callback(void *wbs)
       return;
    }
 
-   platform_assert_status_ok(io_async_state_get_result(state->iostate));
+   platform_status rc = io_async_state_get_result(state->iostate);
+   if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_write_callback: async write failed: %s\n",
+                         platform_status_to_string(rc));
+   }
+   platform_assert_status_ok(rc);
 
    const struct iovec *iovec;
    uint64              count;
@@ -882,7 +887,24 @@ clockcache_write_callback(void *wbs)
    }
 
    io_async_state_deinit(state->iostate);
-   platform_free(cc->heap_id, state);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+}
+
+static void
+clockcache_abort_writeback_range(clockcache *cc,
+                                 uint64      first_addr,
+                                 uint64      end_addr)
+{
+   uint64 page_size = clockcache_page_size(cc);
+
+   for (uint64 addr = first_addr; addr < end_addr; addr += page_size) {
+      uint32 entry_number = clockcache_lookup(cc, addr);
+      platform_assert(entry_number != CC_UNMAPPED_ENTRY);
+
+      debug_only uint32 was_writeback =
+         clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
+      debug_assert(was_writeback);
+   }
 }
 
 
@@ -963,26 +985,34 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
 
 
          async_io_state *state;
-         while ((state = TYPED_MALLOC(cc->heap_id, state)) == NULL) {
-            clockcache_wait(cc);
+         state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+         if (state == NULL) {
+            platform_error_log(
+               "clockcache_batch_start_writeback: async_io_state allocation "
+               "failed\n");
+            clockcache_abort_writeback_range(cc, first_addr, end_addr);
+            goto close_log;
          }
 
          state->cc                = cc;
          state->outstanding_pages = NULL;
-         io_async_state_init(state->iostate,
-                             cc->io,
-                             io_async_pwritev,
-                             first_addr,
-                             clockcache_write_callback,
-                             state);
+         platform_status rc       = io_async_state_init(state->iostate,
+                                                  cc->io,
+                                                  io_async_pwritev,
+                                                  first_addr,
+                                                  clockcache_write_callback,
+                                                  state);
+         if (!SUCCESS(rc)) {
+            platform_error_log("clockcache_batch_start_writeback: "
+                               "io_async_state_init failed: %s\n",
+                               platform_status_to_string(rc));
+            clockcache_abort_writeback_range(cc, first_addr, end_addr);
+            platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+            goto close_log;
+         }
 
          uint64 req_count =
             clockcache_divide_by_page_size(cc, end_addr - first_addr);
-
-         if (cc->cfg->use_stats) {
-            cc->stats[tid].page_writes[entry->type] += req_count;
-            cc->stats[tid].writes_issued++;
-         }
 
          for (i = 0; i < req_count; i++) {
             addr       = first_addr + clockcache_multiply_by_page_size(cc, i);
@@ -994,12 +1024,29 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                                   "flush: entry %u addr %lu\n",
                                   next_entry_no,
                                   addr);
-            io_async_state_append_page(state->iostate, next_entry->page.data);
+            rc = io_async_state_append_page(state->iostate,
+                                            next_entry->page.data);
+            if (!SUCCESS(rc)) {
+               platform_error_log("clockcache_batch_start_writeback: "
+                                  "io_async_state_append_page failed: %s\n",
+                                  platform_status_to_string(rc));
+               io_async_state_deinit(state->iostate);
+               clockcache_abort_writeback_range(cc, first_addr, end_addr);
+               platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+               goto close_log;
+            }
+         }
+
+         if (cc->cfg->use_stats) {
+            cc->stats[tid].page_writes[entry->type] += req_count;
+            cc->stats[tid].writes_issued++;
          }
 
          io_async_run(state->iostate);
       }
    }
+
+close_log:
    clockcache_close_log_stream();
 }
 
@@ -1571,6 +1618,15 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
    return FALSE;
 }
 
+static void
+clockcache_release_unpublished_entry(clockcache_entry *entry)
+{
+   entry->page.disk_addr = CC_UNMAPPED_ADDR;
+   entry->type           = PAGE_TYPE_INVALID;
+   platform_assert(entry->waiters.head == NULL);
+   entry->status = CC_FREE_STATUS;
+}
+
 static uint64
 clockcache_acquire_entry_for_load(clockcache *cc, // IN
                                   uint64      addr,
@@ -1592,9 +1648,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
           &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
    {
       clockcache_dec_ref(cc, entry_number, tid);
-      platform_assert(entry->waiters.head == NULL);
-      entry->type   = PAGE_TYPE_INVALID;
-      entry->status = CC_FREE_STATUS;
+      clockcache_release_unpublished_entry(entry);
       clockcache_log(addr,
                      entry_number,
                      "get abort: entry: %u addr: %lu\n",
@@ -1649,6 +1703,13 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
    }
 
    platform_status status = io_read(cc->io, entry->page.data, page_size, addr);
+   if (!SUCCESS(status)) {
+      platform_error_log("clockcache_get_from_disk: io_read failed for addr "
+                         "%lu, type %u: %s\n",
+                         addr,
+                         type,
+                         platform_status_to_string(status));
+   }
    platform_assert_status_ok(status);
 
    if (cc->cfg->use_stats) {
@@ -1856,7 +1917,15 @@ clockcache_get_from_disk_async_callback(void *arg)
    if (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
       return;
    }
-   platform_assert_status_ok(io_async_state_get_result(state->iostate));
+   platform_status rc = io_async_state_get_result(state->iostate);
+   if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_get_from_disk_async_callback: async read "
+                         "failed for addr %lu, entry %lu: %s\n",
+                         state->addr,
+                         state->entry_number,
+                         platform_status_to_string(rc));
+   }
+   platform_assert_status_ok(rc);
 
    clockcache_finish_load(state->cc, state->addr, state->entry_number);
    state->callback(state->callback_arg);
@@ -1888,10 +1957,26 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
    // we've acquired an entry, because other threads could now be waiting on the
    // load to finish, and there is no way for them to handle our failure to load
    // the page.
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("clockcache_get_from_disk_async: "
+                         "io_async_state_init failed for addr %lu, entry %lu: "
+                         "%s\n",
+                         state->addr,
+                         state->entry_number,
+                         platform_status_to_string(state->rc));
+   }
    platform_assert_status_ok(state->rc);
 
    state->rc =
       io_async_state_append_page(state->iostate, state->entry->page.data);
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("clockcache_get_from_disk_async: "
+                         "io_async_state_append_page failed for addr %lu, "
+                         "entry %lu: %s\n",
+                         state->addr,
+                         state->entry_number,
+                         platform_status_to_string(state->rc));
+   }
    platform_assert_status_ok(state->rc);
 
    if (state->cc->cfg->use_stats) {
@@ -1901,7 +1986,15 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
    while (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
       async_yield(state);
    }
-   platform_assert_status_ok(io_async_state_get_result(state->iostate));
+   state->rc = io_async_state_get_result(state->iostate);
+   if (!SUCCESS(state->rc)) {
+      platform_error_log("clockcache_get_from_disk_async: async read failed "
+                         "for addr %lu, entry %lu: %s\n",
+                         state->addr,
+                         state->entry_number,
+                         platform_status_to_string(state->rc));
+   }
+   platform_assert_status_ok(state->rc);
    io_async_state_deinit(state->iostate);
 
    if (state->cc->cfg->use_stats) {
@@ -2183,20 +2276,53 @@ clockcache_page_sync(clockcache  *cc,
    }
 
    if (!is_blocking) {
-      state = TYPED_MALLOC(cc->heap_id, state);
+      state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+      if (state == NULL) {
+         platform_error_log("clockcache_page_sync: async_io_state allocation "
+                            "failed for addr %lu, entry %u, type %u\n",
+                            addr,
+                            entry_number,
+                            type);
+      }
       platform_assert(state);
       state->cc                = cc;
       state->outstanding_pages = NULL;
-      io_async_state_init(state->iostate,
-                          cc->io,
-                          io_async_pwritev,
-                          addr,
-                          clockcache_write_callback,
-                          state);
-      io_async_state_append_page(state->iostate, page->data);
+      status                   = io_async_state_init(state->iostate,
+                                   cc->io,
+                                   io_async_pwritev,
+                                   addr,
+                                   clockcache_write_callback,
+                                   state);
+      if (!SUCCESS(status)) {
+         platform_error_log("clockcache_page_sync: io_async_state_init failed "
+                            "for addr %lu, entry %u, type %u: %s\n",
+                            addr,
+                            entry_number,
+                            type,
+                            platform_status_to_string(status));
+      }
+      platform_assert_status_ok(status);
+      status = io_async_state_append_page(state->iostate, page->data);
+      if (!SUCCESS(status)) {
+         platform_error_log("clockcache_page_sync: io_async_state_append_page "
+                            "failed for addr %lu, entry %u, type %u: %s\n",
+                            addr,
+                            entry_number,
+                            type,
+                            platform_status_to_string(status));
+      }
+      platform_assert_status_ok(status);
       io_async_run(state->iostate);
    } else {
       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
+      if (!SUCCESS(status)) {
+         platform_error_log("clockcache_page_sync: io_write failed for addr "
+                            "%lu, entry %u, type %u: %s\n",
+                            addr,
+                            entry_number,
+                            type,
+                            platform_status_to_string(status));
+      }
       platform_assert_status_ok(status);
       clockcache_log(addr,
                      entry_number,
@@ -2243,19 +2369,47 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
       {
          if (state == NULL) {
             req_addr = page_addr;
-            state    = TYPED_MALLOC(cc->heap_id, state);
+            state    = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+            if (state == NULL) {
+               platform_error_log("clockcache_extent_sync: async_io_state "
+                                  "allocation failed for extent addr %lu, "
+                                  "page addr %lu, entry %u\n",
+                                  addr,
+                                  page_addr,
+                                  entry_number);
+            }
             platform_assert(state);
             state->cc                = cc;
             state->outstanding_pages = pages_outstanding;
-            io_async_state_init(state->iostate,
-                                cc->io,
-                                io_async_pwritev,
-                                req_addr,
-                                clockcache_write_callback,
-                                state);
+            platform_status rc       = io_async_state_init(state->iostate,
+                                                     cc->io,
+                                                     io_async_pwritev,
+                                                     req_addr,
+                                                     clockcache_write_callback,
+                                                     state);
+            if (!SUCCESS(rc)) {
+               platform_error_log("clockcache_extent_sync: "
+                                  "io_async_state_init failed for extent addr "
+                                  "%lu, req addr %lu, entry %u: %s\n",
+                                  addr,
+                                  req_addr,
+                                  entry_number,
+                                  platform_status_to_string(rc));
+            }
+            platform_assert_status_ok(rc);
          }
-         io_async_state_append_page(
+         platform_status rc = io_async_state_append_page(
             state->iostate, clockcache_get_entry(cc, entry_number)->page.data);
+         if (!SUCCESS(rc)) {
+            platform_error_log("clockcache_extent_sync: "
+                               "io_async_state_append_page failed for extent "
+                               "addr %lu, page addr %lu, entry %u: %s\n",
+                               addr,
+                               page_addr,
+                               entry_number,
+                               platform_status_to_string(rc));
+         }
+         platform_assert_status_ok(rc);
          req_count++;
       } else {
          // ALEX: There is maybe a race with eviction with this assertion
@@ -2316,7 +2470,13 @@ clockcache_prefetch_callback(void *pfs)
       return;
    }
 
-   platform_assert_status_ok(io_async_state_get_result(state->iostate));
+   platform_status rc = io_async_state_get_result(state->iostate);
+   if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_prefetch_callback: async read failed: "
+                         "%s\n",
+                         platform_status_to_string(rc));
+   }
+   platform_assert_status_ok(rc);
 
    const struct iovec *iovec;
    uint64              count;
@@ -2351,7 +2511,7 @@ clockcache_prefetch_callback(void *pfs)
    }
 
    io_async_state_deinit(state->iostate);
-   platform_free(cc->heap_id, state);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, state);
 }
 
 /*
@@ -2365,6 +2525,7 @@ void
 clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 {
    async_io_state *state            = NULL;
+   uint64          state_num_pages  = 0;
    uint64          pages_per_extent = cc->cfg->pages_per_extent;
    threadid        tid              = platform_get_tid();
 
@@ -2385,17 +2546,17 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             clockcache_dec_ref(cc, entry_no, tid);
             // fallthrough
          case GET_RC_CONFLICT:
-            // in cache, issue IO req if started
+            // in cache, issue IO req if pages have been queued
             if (state != NULL) {
+               platform_assert(state_num_pages > 0);
                if (cc->cfg->use_stats) {
                   threadid tid = platform_get_tid();
-                  uint64   count;
-                  io_async_state_get_iovec(state->iostate, &count);
-                  cc->stats[tid].page_reads[type] += count;
+                  cc->stats[tid].page_reads[type] += state_num_pages;
                   cc->stats[tid].prefetches_issued[type]++;
                }
                io_async_run(state->iostate);
-               state = NULL;
+               state           = NULL;
+               state_num_pages = 0;
             }
             clockcache_log(addr,
                            entry_no,
@@ -2412,24 +2573,59 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             entry->page.disk_addr   = addr;
             entry->type             = type;
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
-            if (__sync_bool_compare_and_swap(
-                   &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
-            {
+            if (state == NULL) {
+               // start a new IO req before publishing the loading entry
+               state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
                if (state == NULL) {
-                  // start a new IO req
-                  state = TYPED_MALLOC(cc->heap_id, state);
-                  platform_assert(state);
-                  state->cc = cc;
+                  platform_error_log("clockcache_prefetch: async_io_state "
+                                     "allocation failed for base addr %lu, "
+                                     "page addr %lu, type %u\n",
+                                     base_addr,
+                                     addr,
+                                     type);
+                  clockcache_release_unpublished_entry(entry);
+                  return;
+               }
+               state->cc = cc;
+               platform_status rc =
                   io_async_state_init(state->iostate,
                                       cc->io,
                                       io_async_preadv,
                                       addr,
                                       clockcache_prefetch_callback,
                                       state);
+               if (!SUCCESS(rc)) {
+                  platform_error_log("clockcache_prefetch: "
+                                     "io_async_state_init failed for base addr "
+                                     "%lu, page addr %lu, type %u: %s\n",
+                                     base_addr,
+                                     addr,
+                                     type,
+                                     platform_status_to_string(rc));
+                  clockcache_release_unpublished_entry(entry);
+                  platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+                  state = NULL;
+                  return;
                }
+            }
+            if (__sync_bool_compare_and_swap(
+                   &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
+            {
                platform_status rc =
                   io_async_state_append_page(state->iostate, entry->page.data);
+               if (!SUCCESS(rc)) {
+                  platform_error_log("clockcache_prefetch: "
+                                     "io_async_state_append_page failed for "
+                                     "base addr %lu, page addr %lu, entry %u, "
+                                     "type %u: %s\n",
+                                     base_addr,
+                                     addr,
+                                     free_entry_no,
+                                     type,
+                                     platform_status_to_string(rc));
+               }
                platform_assert_status_ok(rc);
+               state_num_pages++;
                clockcache_log(addr,
                               entry_no,
                               "prefetch (load): entry %u addr %lu\n",
@@ -2440,10 +2636,12 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                 * someone else is already loading this page, release the free
                 * entry and retry
                 */
-               entry->page.disk_addr = CC_UNMAPPED_ADDR;
-               entry->type           = PAGE_TYPE_INVALID;
-               platform_assert(entry->waiters.head == NULL);
-               entry->status = CC_FREE_STATUS;
+               clockcache_release_unpublished_entry(entry);
+               if (state_num_pages == 0) {
+                  io_async_state_deinit(state->iostate);
+                  platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+                  state = NULL;
+               }
                page_off--;
             }
             break;
@@ -2452,17 +2650,17 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             platform_assert(0);
       }
    }
-   // issue IO req if started
+   // issue IO req if pages have been queued
    if (state != NULL) {
+      platform_assert(state_num_pages > 0);
       if (cc->cfg->use_stats) {
          threadid tid = platform_get_tid();
-         uint64   count;
-         io_async_state_get_iovec(state->iostate, &count);
-         cc->stats[tid].page_reads[type] += count;
+         cc->stats[tid].page_reads[type] += state_num_pages;
          cc->stats[tid].prefetches_issued[type]++;
       }
       io_async_run(state->iostate);
-      state = NULL;
+      state           = NULL;
+      state_num_pages = 0;
    }
 }
 
@@ -3146,6 +3344,10 @@ clockcache_init(clockcache        *cc,   // OUT
    platform_status rc = platform_buffer_init(
       &cc->lookup_bh, allocator_page_capacity * sizeof(cc->lookup[0]));
    if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_init: failed to allocate lookup table "
+                         "(%lu bytes): %s\n",
+                         allocator_page_capacity * sizeof(cc->lookup[0]),
+                         platform_status_to_string(rc));
       goto alloc_error;
    }
    cc->lookup = platform_buffer_getaddr(&cc->lookup_bh);
@@ -3156,6 +3358,10 @@ clockcache_init(clockcache        *cc,   // OUT
    rc = platform_buffer_init(&cc->entry_bh,
                              cc->cfg->page_capacity * sizeof(cc->entry[0]));
    if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_init: failed to allocate entries "
+                         "(%lu bytes): %s\n",
+                         cc->cfg->page_capacity * sizeof(cc->entry[0]),
+                         platform_status_to_string(rc));
       goto alloc_error;
    }
    cc->entry = platform_buffer_getaddr(&cc->entry_bh);
@@ -3163,6 +3369,10 @@ clockcache_init(clockcache        *cc,   // OUT
    /* data must be aligned because of O_DIRECT */
    rc = platform_buffer_init(&cc->data_bh, cc->cfg->capacity);
    if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_init: failed to allocate page data "
+                         "(%lu bytes): %s\n",
+                         cc->cfg->capacity,
+                         platform_status_to_string(rc));
       goto alloc_error;
    }
    cc->data = platform_buffer_getaddr(&cc->data_bh);
@@ -3183,6 +3393,10 @@ clockcache_init(clockcache        *cc,   // OUT
 
    rc = platform_buffer_init(&cc->rc_bh, refcount_size);
    if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_init: failed to allocate refcounts "
+                         "(%lu bytes): %s\n",
+                         refcount_size,
+                         platform_status_to_string(rc));
       goto alloc_error;
    }
    cc->refcount = platform_buffer_getaddr(&cc->rc_bh);
@@ -3191,6 +3405,10 @@ clockcache_init(clockcache        *cc,   // OUT
    rc = platform_buffer_init(&cc->pincount_bh,
                              cc->cfg->page_capacity * sizeof(cc->pincount[0]));
    if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_init: failed to allocate pincounts "
+                         "(%lu bytes): %s\n",
+                         cc->cfg->page_capacity * sizeof(cc->pincount[0]),
+                         platform_status_to_string(rc));
       goto alloc_error;
    }
    cc->pincount = platform_buffer_getaddr(&cc->pincount_bh);
@@ -3207,6 +3425,11 @@ clockcache_init(clockcache        *cc,   // OUT
                              cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH
                                 * sizeof(cc->batch_busy[0]));
    if (!SUCCESS(rc)) {
+      platform_error_log("clockcache_init: failed to allocate batch state "
+                         "(%lu bytes): %s\n",
+                         cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH
+                            * sizeof(cc->batch_busy[0]),
+                         platform_status_to_string(rc));
       goto alloc_error;
    }
    cc->batch_busy = platform_buffer_getaddr(&cc->batch_bh);

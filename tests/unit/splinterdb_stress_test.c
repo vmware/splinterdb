@@ -12,6 +12,7 @@
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "platform_threads.h"
 #include "unit_tests.h"
 #include "../functional/random.h"
 #include "config.h"

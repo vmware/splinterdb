@@ -699,13 +699,21 @@ routing_filter_prefetch(cache                *cc,
    }
 }
 
-uint32
+platform_status
 routing_filter_estimate_unique_fp(cache                *cc,
                                   const routing_config *cfg,
                                   platform_heap_id      hid,
                                   routing_filter       *filter,
-                                  uint64                num_filters)
+                                  uint64                num_filters,
+                                  uint32               *num_unique_fp)
 {
+   if (num_unique_fp == NULL) {
+      platform_error_log("routing_filter_estimate_unique_fp: "
+                         "num_unique_fp must not be NULL\n");
+      return STATUS_BAD_PARAM;
+   }
+
+   *num_unique_fp = 0;
    platform_assert(num_filters <= MAX_FILTERS);
    uint32 total_num_fp = 0;
    for (uint64 i = 0; i != num_filters; i++) {
@@ -714,7 +722,13 @@ routing_filter_estimate_unique_fp(cache                *cc,
    uint32 buffer_size = total_num_fp / 12;
    uint32 alloc_size  = buffer_size + cfg->index_size;
    // NOLINTNEXTLINE(bugprone-sizeof-expression)
-   uint32 *local  = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
+   uint32 *local = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
+   if (local == NULL) {
+      platform_error_log("routing_filter_estimate_unique_fp: failed to "
+                         "allocate fingerprint work buffer of %u uint32s\n",
+                         alloc_size);
+      return STATUS_NO_MEMORY;
+   }
    uint32 *fp_arr = local;
    uint32 *count  = local + buffer_size;
 
@@ -829,7 +843,8 @@ routing_filter_estimate_unique_fp(cache                *cc,
    }
 
    platform_free(hid, local);
-   return num_unique * 16;
+   *num_unique_fp = num_unique * 16;
+   return STATUS_OK;
 }
 
 static inline async_status

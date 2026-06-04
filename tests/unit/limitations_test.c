@@ -19,6 +19,7 @@
 #include "splinterdb/default_data_config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "platform_threads.h"
 #include "platform_units.h"
 
 static void

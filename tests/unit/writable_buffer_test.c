@@ -9,6 +9,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "platform_units.h"
+#include "platform_threads.h"
 #include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.

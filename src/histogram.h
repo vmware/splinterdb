@@ -13,7 +13,6 @@
 #include "splinterdb/platform_linux/public_platform.h"
 #include "platform_heap.h"
 #include "platform_assert.h"
-#include "platform_status.h"
 
 typedef struct histogram {
    unsigned int  num_buckets;
@@ -21,24 +20,23 @@ typedef struct histogram {
    long          min, max, total;
    unsigned long num; // no. of elements
    unsigned long count[];
-} *histogram_handle;
+} histogram;
 
-platform_status
+histogram *
 histogram_create(platform_heap_id   heap_id,
                  uint32             num_buckets,
-                 const int64 *const bucket_limits,
-                 histogram_handle  *histo);
+                 const int64 *const bucket_limits);
 
 void
-histogram_destroy(platform_heap_id heap_id, histogram_handle *histo);
+histogram_destroy(platform_heap_id heap_id, histogram *histo);
 
 void
-histogram_print(histogram_handle     histo,
+histogram_print(histogram           *histo,
                 const char          *name,
                 platform_log_handle *log_handle);
 
 static inline void
-histogram_insert(histogram_handle histo, int64 datum)
+histogram_insert(histogram *histo, int64 datum)
 {
    int lo = 0, hi = histo->num_buckets - 1;
 
@@ -64,7 +62,7 @@ histogram_insert(histogram_handle histo, int64 datum)
 }
 
 static inline void
-histogram_merge_in(histogram_handle dest_histo, histogram_handle src_histo)
+histogram_merge_in(histogram *dest_histo, histogram *src_histo)
 {
    uint32 i;
    if (src_histo->num == 0) {

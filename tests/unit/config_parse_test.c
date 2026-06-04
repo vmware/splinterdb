@@ -16,6 +16,7 @@
  */
 #include "core.h"
 #include "functional/test.h"
+#include "platform_threads.h"
 #include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.

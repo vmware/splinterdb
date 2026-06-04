@@ -28,9 +28,6 @@ platform_get_tid()
    return xxxtid;
 }
 
-platform_status
-platform_register_thread_auto(void);
-
 static inline platform_status
 platform_ensure_thread_registered()
 {
@@ -40,7 +37,7 @@ platform_ensure_thread_registered()
       return STATUS_OK;
    }
 
-   return platform_register_thread_auto();
+   return platform_register_thread() == 0 ? STATUS_OK : STATUS_BUSY;
 }
 
 /* This is not part of the platform API.  It is used internally to this platform
@@ -60,7 +57,7 @@ typedef struct process_event_callback_list_node {
    struct process_event_callback_list_node *next;
 } process_event_callback_list_node;
 
-void
+platform_status
 platform_linux_add_process_event_callback(
    process_event_callback_list_node *node);
 

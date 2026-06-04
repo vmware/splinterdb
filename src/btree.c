@@ -3242,6 +3242,8 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
       !btree_node_claim(state->itor->cc, state->itor->cfg, &state->itor->curr))
    {
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      debug_assert(state->callback != NULL);
+      async_yield_after(state, state->callback(state->callback_arg));
       btree_lookup_async_state_init(&state->lookup_state,
                                     state->itor->cc,
                                     state->itor->cfg,
@@ -3701,7 +3703,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    log_trace_key(tuple_key, "btree_pack_loop (bottom)");
 
-   if (req->max_tuples > 0 && req->cfg->data_cfg->key_hash != NULL) {
+   if (req->fingerprint_arr != NULL) {
       platform_assert(req->num_tuples < req->max_tuples);
       req->fingerprint_arr[req->num_tuples] =
          data_key_hash(req->cfg->data_cfg, tuple_key, req->seed);
