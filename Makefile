@@ -451,6 +451,7 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 #
 $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
+$(BINDIR)/$(UNITDIR)/platform_threads_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)            \
                                 $(COMMON_UNIT_TESTOBJ)
@@ -534,6 +535,7 @@ $(BINDIR)/$(UNITDIR)/splinterdb_heap_id_mgmt_test: $(COMMON_TESTOBJ)         \
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
 unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
+unit/platform_threads_test:        $(BINDIR)/$(UNITDIR)/platform_threads_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
 unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
