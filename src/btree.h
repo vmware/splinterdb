@@ -140,8 +140,8 @@ typedef struct btree_iterator {
    bool32              do_prefetch;
    uint32              height;
    page_type           page_type;
-   // Active memtable iterators copy leaves here and release page locks.
-   bool32     copy_leaves;
+   // Active memtable iterators copy nodes here and release page locks.
+   bool32     copy_nodes;
    comparison min_key_comparison;
    key        min_key;
    comparison max_key_comparison;
@@ -149,7 +149,7 @@ typedef struct btree_iterator {
 
    uint64     root_addr;
    btree_node curr;
-   char      *leaf_copy;
+   char      *node_copy;
    int64      idx;
    int64      curr_min_idx;
    uint64     end_addr;
@@ -299,7 +299,7 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state);
 async_status
 btree_lookup_async(btree_lookup_async_state *state);
 
-void
+platform_status
 btree_iterator_init(cache              *cc,
                     const btree_config *cfg,
                     btree_iterator     *itor,
@@ -312,7 +312,7 @@ btree_iterator_init(cache              *cc,
                     comparison          start_type,
                     key                 start_key,
                     bool32              do_prefetch,
-                    bool32              copy_leaves,
+                    bool32              copy_nodes,
                     uint32              height);
 
 // clang-format off
@@ -329,7 +329,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    param, comparison,                   start_type,
    param, key,                          start_key,
    param, bool32,                       do_prefetch,
-   param, bool32,                       copy_leaves,
+   param, bool32,                       copy_nodes,
    param, uint32,                       height,
    param, async_callback_fn,            callback,
    param, void *,                       callback_arg,
@@ -353,6 +353,9 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
 
 async_status
 btree_iterator_init_async(btree_iterator_async_state *state);
+
+platform_status
+btree_iterator_init_async_result(btree_iterator_async_state *state);
 
 void
 btree_iterator_deinit(btree_iterator *itor);

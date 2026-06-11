@@ -365,7 +365,7 @@ core_memtable_dec_ref(core_handle *spl, uint64 root_addr)
 
 
 /* Wrappers for creating/destroying memtable btree iterators. */
-static void
+static platform_status
 core_memtable_iterator_init(core_handle    *spl,
                             btree_iterator *itor,
                             uint64          root_addr,
@@ -376,20 +376,20 @@ core_memtable_iterator_init(core_handle    *spl,
                             comparison      start_key_comparison,
                             key             start_key)
 {
-   btree_iterator_init(spl->cc,
-                       spl->cfg.btree_cfg,
-                       itor,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       min_key_comparison,
-                       min_key,
-                       max_key_comparison,
-                       max_key,
-                       start_key_comparison,
-                       start_key,
-                       FALSE,
-                       FALSE,
-                       0);
+   return btree_iterator_init(spl->cc,
+                              spl->cfg.btree_cfg,
+                              itor,
+                              root_addr,
+                              PAGE_TYPE_MEMTABLE,
+                              min_key_comparison,
+                              min_key,
+                              max_key_comparison,
+                              max_key,
+                              start_key_comparison,
+                              start_key,
+                              FALSE,
+                              FALSE,
+                              0);
 }
 
 static void
@@ -469,15 +469,16 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    btree_iterator btree_itor;
    iterator      *itor = &btree_itor.super;
 
-   core_memtable_iterator_init(spl,
-                               &btree_itor,
-                               memtable_root_addr,
-                               greater_than_or_equal,
-                               NEGATIVE_INFINITY_KEY,
-                               less_than,
-                               POSITIVE_INFINITY_KEY,
-                               greater_than_or_equal,
-                               NEGATIVE_INFINITY_KEY);
+   platform_status rc = core_memtable_iterator_init(spl,
+                                                    &btree_itor,
+                                                    memtable_root_addr,
+                                                    greater_than_or_equal,
+                                                    NEGATIVE_INFINITY_KEY,
+                                                    less_than,
+                                                    POSITIVE_INFINITY_KEY,
+                                                    greater_than_or_equal,
+                                                    NEGATIVE_INFINITY_KEY);
+   platform_assert_status_ok(rc);
    const routing_config *rfcfg = spl->cfg.trunk_node_cfg->filter_cfg;
    uint64 rflimit = routing_filter_max_fingerprints(spl->cfg.cache_cfg, rfcfg);
    btree_pack_req req;
@@ -876,7 +877,7 @@ core_start_btree_iterator_init_async(
    comparison                              start_key_comparison,
    key                                     start_key,
    bool32                                  do_prefetch,
-   bool32                                  copy_leaves)
+   bool32                                  copy_nodes)
 {
    btree_iterator_async_state_init(&ctxt->state,
                                    spl->cc,
@@ -891,7 +892,7 @@ core_start_btree_iterator_init_async(
                                    start_key_comparison,
                                    start_key,
                                    do_prefetch,
-                                   copy_leaves,
+                                   copy_nodes,
                                    0,
                                    core_btree_iterator_init_async_callback,
                                    ctxt);
@@ -900,7 +901,7 @@ core_start_btree_iterator_init_async(
 
    if (btree_iterator_init_async(&ctxt->state) == ASYNC_STATUS_DONE) {
       ctxt->done = TRUE;
-      return async_result(&ctxt->state);
+      return btree_iterator_init_async_result(&ctxt->state);
    }
 
    return STATUS_OK;
@@ -917,7 +918,7 @@ core_drain_btree_iterator_init_async(
    for (uint64 i = 0; i < num_inits; i++) {
       if (ctxt[i].done) {
          done_count++;
-         platform_status rc = async_result(&ctxt[i].state);
+         platform_status rc = btree_iterator_init_async_result(&ctxt[i].state);
          if (!SUCCESS(rc) && SUCCESS(result)) {
             result = rc;
          }
@@ -936,7 +937,8 @@ core_drain_btree_iterator_init_async(
          if (btree_iterator_init_async(&ctxt[i].state) == ASYNC_STATUS_DONE) {
             ctxt[i].done = TRUE;
             done_count++;
-            platform_status rc = async_result(&ctxt[i].state);
+            platform_status rc =
+               btree_iterator_init_async_result(&ctxt[i].state);
             if (!SUCCESS(rc) && SUCCESS(result)) {
                result = rc;
             }
@@ -1024,7 +1026,7 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->min_key_comparison = min_key_comparison;
    range_itor->max_key_comparison = max_key_comparison;
    ZERO_ARRAY(range_itor->compacted);
-   ZERO_ARRAY(range_itor->copy_leaves);
+   ZERO_ARRAY(range_itor->copy_nodes);
    ZERO_ARRAY(range_itor->btree_itor_initialized);
 
    key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
@@ -1099,7 +1101,7 @@ core_range_iterator_init(core_handle         *spl,
          core_memtable_root_addr_for_lookup(spl, mt_gen, &compacted, &active);
       range_itor->compacted[range_itor->num_branches] = compacted;
       // Only READY memtables can be modified while this iterator is live.
-      range_itor->copy_leaves[range_itor->num_branches] = active;
+      range_itor->copy_nodes[range_itor->num_branches] = active;
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
@@ -1137,8 +1139,8 @@ core_range_iterator_init(core_handle         *spl,
    }
 
    for (uint64 i = old_num_branches; i < range_itor->num_branches; i++) {
-      range_itor->compacted[i]   = TRUE;
-      range_itor->copy_leaves[i] = FALSE;
+      range_itor->compacted[i]  = TRUE;
+      range_itor->copy_nodes[i] = FALSE;
    }
 
    range_itor->local_min_key_comparison = greater_than_or_equal;
@@ -1206,7 +1208,7 @@ core_range_iterator_init(core_handle         *spl,
          start_key_comparison,
          start_key,
          do_prefetch,
-         range_itor->copy_leaves[branch_no]);
+         range_itor->copy_nodes[branch_no]);
       started_inits++;
       if (!SUCCESS(rc)) {
          break;

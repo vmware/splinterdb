@@ -2551,41 +2551,22 @@ btree_lookup_async(btree_lookup_async_state *state)
  *-----------------------------------------------------------------------------
  */
 static inline bool32
-btree_iterator_copies_leaves(btree_iterator *itor)
-{
-   return itor->copy_leaves && itor->height == 0;
-}
-
-static inline bool32
 btree_iterator_curr_is_copy(btree_iterator *itor)
 {
-   return btree_iterator_copies_leaves(itor) && itor->curr.page == NULL
-          && itor->curr.hdr != NULL;
-}
-
-static inline void
-btree_iterator_alloc_leaf_copy(btree_iterator *itor)
-{
-   if (!btree_iterator_copies_leaves(itor)) {
-      return;
-   }
-
-   itor->leaf_copy = TYPED_MANUAL_MALLOC(
-      PROCESS_PRIVATE_HEAP_ID, itor->leaf_copy, btree_page_size(itor->cfg));
-   platform_assert(itor->leaf_copy != NULL);
+   return itor->copy_nodes && itor->curr.page == NULL && itor->curr.hdr != NULL;
 }
 
 static inline void
 btree_iterator_copy_curr_if_needed(btree_iterator *itor)
 {
-   if (!btree_iterator_copies_leaves(itor) || itor->curr.page == NULL) {
+   if (!itor->copy_nodes || itor->curr.page == NULL) {
       return;
    }
 
-   debug_assert(itor->leaf_copy != NULL);
-   memcpy(itor->leaf_copy, itor->curr.hdr, btree_page_size(itor->cfg));
+   debug_assert(itor->node_copy != NULL);
+   memcpy(itor->node_copy, itor->curr.hdr, btree_page_size(itor->cfg));
    btree_node_unget(itor->cc, itor->cfg, &itor->curr);
-   itor->curr.hdr = (btree_hdr *)itor->leaf_copy;
+   itor->curr.hdr = (btree_hdr *)itor->node_copy;
 }
 
 static inline void
@@ -2956,8 +2937,8 @@ btree_iterator_prev_leaf(btree_iterator *itor)
 
    debug_only uint64 curr_addr = itor->curr.addr;
    /*
-    * Copied leaves can have stale prev_addr values. Read the live current
-    * leaf before moving backward so predecessor splits are not skipped.
+    * Copied nodes can have stale prev_addr values. Read the live current node
+    * before moving backward so predecessor splits are not skipped.
     */
    uint64 prev_addr = btree_iterator_curr_live_prev_addr(itor);
    btree_iterator_release_curr(itor);
@@ -3460,21 +3441,21 @@ const static iterator_ops btree_iterator_ops = {
  *    min_key and max_key need to be valid until iterator deinitialized
  *-----------------------------------------------------------------------------
  */
-void
-btree_iterator_init(cache              *cc,
-                    const btree_config *cfg,
-                    btree_iterator     *itor,
-                    uint64              root_addr,
-                    page_type           page_type,
-                    comparison          min_key_comparison,
-                    key                 min_key,
-                    comparison          max_key_comparison,
-                    key                 max_key,
-                    comparison          start_type,
-                    key                 start_key,
-                    bool32              do_prefetch,
-                    bool32              copy_leaves,
-                    uint32              height)
+static platform_status
+btree_iterator_init_common(cache              *cc,
+                           const btree_config *cfg,
+                           btree_iterator     *itor,
+                           uint64              root_addr,
+                           page_type           page_type,
+                           comparison          min_key_comparison,
+                           key                 min_key,
+                           comparison          max_key_comparison,
+                           key                 max_key,
+                           key                 start_key,
+                           bool32              do_prefetch,
+                           bool32              copy_nodes,
+                           uint32              height,
+                           key                *normalized_start_key)
 {
    platform_assert(root_addr != 0);
    debug_assert(page_type == PAGE_TYPE_MEMTABLE
@@ -3505,15 +3486,59 @@ btree_iterator_init(cache              *cc,
    itor->root_addr          = root_addr;
    itor->do_prefetch        = do_prefetch;
    itor->height             = height;
-   itor->copy_leaves        = copy_leaves && height == 0;
+   itor->copy_nodes         = copy_nodes;
    itor->min_key_comparison = min_key_comparison;
    itor->min_key            = min_key;
    itor->max_key_comparison = max_key_comparison;
    itor->max_key            = max_key;
    itor->page_type          = page_type;
    itor->super.ops          = &btree_iterator_ops;
-   debug_assert(IMPLIES(itor->copy_leaves, page_type == PAGE_TYPE_MEMTABLE));
-   btree_iterator_alloc_leaf_copy(itor);
+   if (copy_nodes) {
+      itor->node_copy = TYPED_MANUAL_MALLOC(
+         PROCESS_PRIVATE_HEAP_ID, itor->node_copy, btree_page_size(itor->cfg));
+      if (itor->node_copy == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+   }
+
+   *normalized_start_key = start_key;
+
+   return STATUS_OK;
+}
+
+platform_status
+btree_iterator_init(cache              *cc,
+                    const btree_config *cfg,
+                    btree_iterator     *itor,
+                    uint64              root_addr,
+                    page_type           page_type,
+                    comparison          min_key_comparison,
+                    key                 min_key,
+                    comparison          max_key_comparison,
+                    key                 max_key,
+                    comparison          start_type,
+                    key                 start_key,
+                    bool32              do_prefetch,
+                    bool32              copy_nodes,
+                    uint32              height)
+{
+   platform_status rc = btree_iterator_init_common(cc,
+                                                   cfg,
+                                                   itor,
+                                                   root_addr,
+                                                   page_type,
+                                                   min_key_comparison,
+                                                   min_key,
+                                                   max_key_comparison,
+                                                   max_key,
+                                                   start_key,
+                                                   do_prefetch,
+                                                   copy_nodes,
+                                                   height,
+                                                   &start_key);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    find_btree_node_and_get_idx_bounds(itor, start_key, start_type);
 
@@ -3526,6 +3551,8 @@ btree_iterator_init(cache              *cc,
 
    debug_assert(!iterator_can_curr((iterator *)itor)
                 || itor->idx < btree_num_entries(itor->curr.hdr));
+
+   return STATUS_OK;
 }
 
 async_status
@@ -3533,47 +3560,24 @@ btree_iterator_init_async(btree_iterator_async_state *state)
 {
    async_begin(state, 0);
 
-   platform_assert(state->root_addr != 0);
-   debug_assert(state->type == PAGE_TYPE_MEMTABLE
-                || state->type == PAGE_TYPE_BRANCH);
-
-   debug_assert(!key_is_null(state->min_key) && !key_is_null(state->max_key)
-                && !key_is_null(state->start_key));
-   debug_assert(state->min_key_comparison == greater_than
-                || state->min_key_comparison == greater_than_or_equal);
-   debug_assert(state->max_key_comparison == less_than
-                || state->max_key_comparison == less_than_or_equal);
-
-   if (btree_key_compare(state->cfg, state->min_key, state->max_key) > 0) {
-      state->max_key            = state->min_key;
-      state->min_key_comparison = greater_than_or_equal;
-      state->max_key_comparison = less_than;
-   }
-   if (btree_key_compare(state->cfg, state->start_key, state->min_key) < 0) {
-      state->start_key = state->min_key;
-   }
-   if (btree_key_compare(state->cfg, state->start_key, state->max_key) > 0) {
-      state->start_key = state->max_key;
+   platform_status rc = btree_iterator_init_common(state->cc,
+                                                   state->cfg,
+                                                   state->itor,
+                                                   state->root_addr,
+                                                   state->type,
+                                                   state->min_key_comparison,
+                                                   state->min_key,
+                                                   state->max_key_comparison,
+                                                   state->max_key,
+                                                   state->start_key,
+                                                   state->do_prefetch,
+                                                   state->copy_nodes,
+                                                   state->height,
+                                                   &state->target);
+   if (!SUCCESS(rc)) {
+      async_return(state, rc);
    }
 
-   ZERO_CONTENTS(state->itor);
-   state->itor->cc                 = state->cc;
-   state->itor->cfg                = state->cfg;
-   state->itor->root_addr          = state->root_addr;
-   state->itor->do_prefetch        = state->do_prefetch;
-   state->itor->height             = state->height;
-   state->itor->copy_leaves        = state->copy_leaves && state->height == 0;
-   state->itor->min_key_comparison = state->min_key_comparison;
-   state->itor->min_key            = state->min_key;
-   state->itor->max_key_comparison = state->max_key_comparison;
-   state->itor->max_key            = state->max_key;
-   state->itor->page_type          = state->type;
-   state->itor->super.ops          = &btree_iterator_ops;
-   debug_assert(
-      IMPLIES(state->itor->copy_leaves, state->type == PAGE_TYPE_MEMTABLE));
-   btree_iterator_alloc_leaf_copy(state->itor);
-
-   state->target        = state->start_key;
    state->position_rule = state->start_type;
    async_await_subroutine(state, find_btree_node_and_get_idx_bounds_async);
    btree_iterator_copy_curr_if_needed(state->itor);
@@ -3594,14 +3598,20 @@ btree_iterator_init_async(btree_iterator_async_state *state)
    async_return(state, STATUS_OK);
 }
 
+platform_status
+btree_iterator_init_async_result(btree_iterator_async_state *state)
+{
+   return async_result(state);
+}
+
 void
 btree_iterator_deinit(btree_iterator *itor)
 {
    debug_assert(itor != NULL);
    btree_iterator_release_curr(itor);
-   if (itor->leaf_copy != NULL) {
-      platform_free(PROCESS_PRIVATE_HEAP_ID, itor->leaf_copy);
-      itor->leaf_copy = NULL;
+   if (itor->node_copy != NULL) {
+      platform_free(PROCESS_PRIVATE_HEAP_ID, itor->node_copy);
+      itor->node_copy = NULL;
    }
 }
 
@@ -3978,22 +3988,23 @@ btree_count_in_range_by_iterator(cache             *cc,
                                  key                max_key,
                                  btree_pivot_stats *stats)
 {
-   btree_iterator btree_itor;
-   iterator      *itor = &btree_itor.super;
-   btree_iterator_init(cc,
-                       cfg,
-                       &btree_itor,
-                       root_addr,
-                       PAGE_TYPE_BRANCH,
-                       greater_than_or_equal,
-                       min_key,
-                       less_than,
-                       max_key,
-                       greater_than_or_equal,
-                       min_key,
-                       TRUE,
-                       FALSE,
-                       0);
+   btree_iterator  btree_itor;
+   iterator       *itor = &btree_itor.super;
+   platform_status rc   = btree_iterator_init(cc,
+                                            cfg,
+                                            &btree_itor,
+                                            root_addr,
+                                            PAGE_TYPE_BRANCH,
+                                            greater_than_or_equal,
+                                            min_key,
+                                            less_than,
+                                            max_key,
+                                            greater_than_or_equal,
+                                            min_key,
+                                            TRUE,
+                                            FALSE,
+                                            0);
+   platform_assert_status_ok(rc);
 
    memset(stats, 0, sizeof(*stats));
 
