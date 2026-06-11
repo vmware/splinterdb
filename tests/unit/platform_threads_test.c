@@ -172,7 +172,8 @@ CTEST2(platform_threads, test_forked_child_pid_slots_are_reused)
    churn_forked_children(register_and_deregister_in_child);
 }
 
-CTEST2(platform_threads, test_forked_child_auto_cleanup_reuses_tid_and_pid_slots)
+CTEST2(platform_threads,
+       test_forked_child_auto_cleanup_reuses_tid_and_pid_slots)
 {
    (void)data;
 
