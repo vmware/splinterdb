@@ -124,6 +124,7 @@ typedef struct core_range_iterator {
    uint64            memtable_start_gen;
    uint64            memtable_end_gen;
    bool32            compacted[CORE_RANGE_ITOR_MAX_BRANCHES];
+   bool32            copy_leaves[CORE_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator   *merge_itor;
    bool32            can_prev;
    bool32            can_next;
