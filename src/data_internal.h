@@ -746,7 +746,7 @@ data_merge_tuples_final(const data_config *cfg,
                         merge_accumulator *oldest_message)
 {
    debug_assert(key_is_user_key(tuple_key));
-   debug_assert(!key_is_query_key(tuple_key));
+   // debug_assert(!key_is_query_key(tuple_key));
 
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;

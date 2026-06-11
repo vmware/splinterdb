@@ -179,6 +179,15 @@ typedef struct splinterdb_config {
    uint64 prefetch_budget;
 } splinterdb_config;
 
+#define SPLINTERDB_COST_STATS_MAX_MEMTABLES 8
+
+typedef struct splinterdb_cost_stats {
+   uint64 target_fanout;
+   uint64 trunk_height;
+   uint32 nmemtables;
+   uint8  memtable_heights[SPLINTERDB_COST_STATS_MAX_MEMTABLES];
+} splinterdb_cost_stats;
+
 ///////////////////////////////////////
 // Lifecycle
 ///////////////////////////////////////
@@ -191,9 +200,11 @@ typedef struct splinterdb splinterdb;
 // The library will allocate and own the memory for splinterdb
 // and will free it on splinterdb_close().
 //
-// It is ok for the caller to stack-allocate cfg, since it is not retained.
-// But cfg->data_cfg will be referenced by the returned splinterdb object
-// So it must live at least as long as the splinterdb
+// It is ok for the caller to stack-allocate cfg, since the cfg object itself
+// is not retained. The returned splinterdb object records an effective copy
+// for splinterdb_get_config(). cfg->data_cfg will be referenced by the
+// returned splinterdb object, so it must live at least as long as the
+// splinterdb.
 int
 splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 
@@ -205,9 +216,11 @@ splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 // The library will allocate and own the memory for splinterdb
 // and will free it on splinterdb_close().
 //
-// It is ok for the caller to stack-allocate cfg, since it is not retained.
-// But cfg->data_cfg will be referenced by the returned splinterdb object
-// So it must live at least as long as the splinterdb
+// It is ok for the caller to stack-allocate cfg, since the cfg object itself
+// is not retained. The returned splinterdb object records an effective copy
+// for splinterdb_get_config(). cfg->data_cfg will be referenced by the
+// returned splinterdb object, so it must live at least as long as the
+// splinterdb.
 int
 splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 
@@ -237,6 +250,20 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 // After STATUS_OK or any forced close, *kvs is freed and set to NULL.
 int
 splinterdb_close(splinterdb **kvs, bool32 force);
+
+// Return the effective config for a running SplinterDB instance, including
+// defaults applied during create/open.
+//
+// The returned pointer is owned by kvs and remains valid until
+// splinterdb_close(). The caller must not modify it.
+const splinterdb_config *
+splinterdb_get_config(const splinterdb *kvs);
+
+// Fill in cost-model statistics for a running SplinterDB instance.
+//
+// Returns 0 on success, otherwise an errno-style error code.
+int
+splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats);
 
 
 ////////////////////////////////////

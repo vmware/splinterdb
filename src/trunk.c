@@ -3251,6 +3251,22 @@ trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
    return rc;
 }
 
+platform_status
+trunk_get_height(trunk_context *context, uint64 *height)
+{
+   trunk_ondisk_node_handle handle;
+   platform_status          rc = trunk_init_root_handle(context, &handle);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   *height =
+      (handle.header_page == NULL) ? 0 : trunk_ondisk_node_height(&handle);
+   trunk_ondisk_node_handle_deinit(&handle);
+
+   return STATUS_OK;
+}
+
 uint64
 trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle)
 {

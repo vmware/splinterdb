@@ -313,6 +313,9 @@ platform_status
 trunk_init_root_handle(trunk_context            *context,
                        trunk_ondisk_node_handle *handle);
 
+platform_status
+trunk_get_height(trunk_context *context, uint64 *height);
+
 void
 trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle);
 

@@ -45,6 +45,7 @@ splinterdb_get_version()
 }
 
 typedef struct splinterdb {
+   splinterdb_config  effective_cfg;
    task_system        task_sys;
    io_config          io_cfg;
    io_handle         *io_handle;
@@ -354,6 +355,12 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
+   kvs->effective_cfg          = cfg;
+   kvs->effective_cfg.filename = kvs->io_cfg.filename;
+   if (cfg.cache_logfile != NULL) {
+      kvs->effective_cfg.cache_logfile = kvs->cache_cfg.logfile;
+   }
+
    return STATUS_OK;
 }
 
@@ -398,8 +405,9 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    splinterdb     *kvs = NULL;
    platform_status status;
 
-   bool                 we_created_heap  = FALSE;
-   platform_heap_id     use_this_heap_id = kvs_cfg->heap_id;
+   bool                 we_created_heap    = FALSE;
+   platform_heap_id     use_this_heap_id   = kvs_cfg->heap_id;
+   uint64               created_shmem_size = 0;
    disk_geometry        geometry;
    const disk_geometry *config_geometry = NULL;
 
@@ -416,7 +424,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    if (kvs_cfg->use_shmem && (use_this_heap_id == NULL)) {
       size_t shmem_size =
          (kvs_cfg->shmem_size ? kvs_cfg->shmem_size : 512 * MiB);
-      status = platform_heap_create(
+      created_shmem_size = shmem_size;
+      status             = platform_heap_create(
          platform_get_module_id(), shmem_size, TRUE, &use_this_heap_id);
       if (!SUCCESS(status)) {
          platform_error_log(
@@ -468,7 +477,11 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    // All future memory allocation should come from shared memory, if so
    // configured.
-   kvs->heap_id = use_this_heap_id;
+   kvs->heap_id               = use_this_heap_id;
+   kvs->effective_cfg.heap_id = use_this_heap_id;
+   if (created_shmem_size != 0) {
+      kvs->effective_cfg.shmem_size = created_shmem_size;
+   }
 
    kvs->io_handle = io_handle_create(&kvs->io_cfg, kvs->heap_id);
    if (kvs->io_handle == NULL) {
@@ -593,6 +606,60 @@ splinterdb_open(const splinterdb_config *cfg, // IN
 )
 {
    return splinterdb_create_or_open(cfg, kvs, TRUE);
+}
+
+const splinterdb_config *
+splinterdb_get_config(const splinterdb *kvs)
+{
+   platform_assert(kvs != NULL);
+   return &kvs->effective_cfg;
+}
+
+int
+splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
+{
+   platform_assert(kvs != NULL);
+   platform_assert(stats != NULL);
+
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   ZERO_CONTENTS(stats);
+
+   stats->target_fanout = kvs->spl.trunk_context.cfg->target_fanout;
+
+   platform_status status =
+      trunk_get_height(&kvs->spl.trunk_context, &stats->trunk_height);
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+
+   memtable_context *mt_ctxt = &kvs->spl.mt_ctxt;
+   if (mt_ctxt->cfg.max_memtables > SPLINTERDB_COST_STATS_MAX_MEMTABLES) {
+      return platform_status_to_int(STATUS_LIMIT_EXCEEDED);
+   }
+
+   stats->nmemtables = mt_ctxt->cfg.max_memtables;
+
+   memtable_begin_lookup(mt_ctxt);
+   for (uint64 mt_no = 0; mt_no < mt_ctxt->cfg.max_memtables; mt_no++) {
+      uint32 height;
+      status = btree_get_root_height(mt_ctxt->cc,
+                                     mt_ctxt->cfg.btree_cfg,
+                                     memtable_root_addr(&mt_ctxt->mt[mt_no]),
+                                     PAGE_TYPE_MEMTABLE,
+                                     &height);
+      if (!SUCCESS(status)) {
+         memtable_end_lookup(mt_ctxt);
+         return platform_status_to_int(status);
+      }
+      stats->memtable_heights[mt_no] = height;
+   }
+   memtable_end_lookup(mt_ctxt);
+
+   return 0;
 }
 
 /*

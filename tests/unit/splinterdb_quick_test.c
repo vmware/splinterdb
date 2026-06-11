@@ -183,6 +183,50 @@ CTEST_TEARDOWN(splinterdb_quick)
    platform_deregister_thread();
 }
 
+CTEST2(splinterdb_quick, test_get_config_returns_effective_config)
+{
+   const splinterdb_config *cfg = splinterdb_get_config(data->kvsb);
+
+   ASSERT_TRUE(cfg != NULL);
+   ASSERT_TRUE(cfg != &data->cfg);
+
+   ASSERT_STREQ(TEST_CONFIG_DEFAULT_IO_FILENAME, cfg->filename);
+   ASSERT_EQUAL(64 * Mega, cfg->cache_size);
+   ASSERT_EQUAL(127 * Mega, cfg->disk_size);
+   ASSERT_TRUE(data->cfg.data_cfg == cfg->data_cfg);
+   ASSERT_EQUAL(data->cfg.use_shmem, cfg->use_shmem);
+
+   ASSERT_EQUAL(IO_DEFAULT_PAGE_SIZE, cfg->page_size);
+   ASSERT_EQUAL(IO_DEFAULT_EXTENT_SIZE, cfg->extent_size);
+   ASSERT_EQUAL(IO_DEFAULT_FLAGS, cfg->io_flags);
+   ASSERT_EQUAL(IO_DEFAULT_PERMS, cfg->io_perms);
+   ASSERT_EQUAL(IO_DEFAULT_ASYNC_QUEUE_DEPTH, cfg->io_async_queue_depth);
+
+   ASSERT_EQUAL(1, cfg->btree_rough_count_height);
+   ASSERT_EQUAL(26, cfg->filter_hash_size);
+   ASSERT_EQUAL(9, cfg->filter_log_index_size);
+   ASSERT_EQUAL(24 * Mega, cfg->memtable_capacity);
+   ASSERT_EQUAL(8, cfg->fanout);
+   ASSERT_EQUAL_U(UINT64_MAX, cfg->reclaim_threshold);
+}
+
+CTEST2(splinterdb_quick, test_get_cost_stats)
+{
+   splinterdb_cost_stats stats = {0};
+
+   int rc = splinterdb_get_cost_stats(data->kvsb, &stats);
+   ASSERT_EQUAL(0, rc);
+
+   ASSERT_EQUAL(8, stats.target_fanout);
+   ASSERT_EQUAL(0, stats.trunk_height);
+   ASSERT_EQUAL(4, stats.nmemtables);
+
+   for (uint32 mt_no = 0; mt_no < SPLINTERDB_COST_STATS_MAX_MEMTABLES; mt_no++)
+   {
+      ASSERT_EQUAL(0, stats.memtable_heights[mt_no]);
+   }
+}
+
 /*
  * ***********************************************************************
  * All tests in each file are named with one term, which represents the
