@@ -641,20 +641,21 @@ test_btree_basic(cache             *cc,
    uint64         root_addr = memtable_root_addr(mt);
    btree_iterator itor;
    start_time = platform_get_timestamp();
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       &itor,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       less_than,
-                       POSITIVE_INFINITY_KEY,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       FALSE,
-                       FALSE,
-                       0);
+   rc         = btree_iterator_init(cc,
+                            btree_cfg,
+                            &itor,
+                            root_addr,
+                            PAGE_TYPE_MEMTABLE,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            less_than,
+                            POSITIVE_INFINITY_KEY,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            FALSE,
+                            FALSE,
+                            0);
+   platform_assert_status_ok(rc);
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
    btree_pack_req req;
@@ -825,20 +826,21 @@ test_btree_create_packed_trees(cache             *cc,
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
       memtable      *mt = &ctxt->mt_ctxt.mt[tree_no];
       btree_iterator itor;
-      btree_iterator_init(cc,
-                          btree_cfg,
-                          &itor,
-                          memtable_root_addr(mt),
-                          PAGE_TYPE_MEMTABLE,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          less_than,
-                          POSITIVE_INFINITY_KEY,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          FALSE,
-                          FALSE,
-                          0);
+      rc = btree_iterator_init(cc,
+                               btree_cfg,
+                               &itor,
+                               memtable_root_addr(mt),
+                               PAGE_TYPE_MEMTABLE,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               less_than,
+                               POSITIVE_INFINITY_KEY,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               FALSE,
+                               FALSE,
+                               0);
+      platform_assert_status_ok(rc);
 
       btree_pack_req req;
       rc = btree_pack_req_init(
@@ -882,20 +884,23 @@ test_count_tuples_in_range(cache        *cc,
                           PAGE_TYPE_BRANCH);
          platform_assert(0);
       }
-      btree_iterator_init(cc,
-                          cfg,
-                          &itor,
-                          root_addr[i],
-                          type,
-                          greater_than_or_equal,
-                          low_key,
-                          less_than,
-                          high_key,
-                          greater_than_or_equal,
-                          low_key,
-                          TRUE,
-                          FALSE,
-                          0);
+      rc = btree_iterator_init(cc,
+                               cfg,
+                               &itor,
+                               root_addr[i],
+                               type,
+                               greater_than_or_equal,
+                               low_key,
+                               less_than,
+                               high_key,
+                               greater_than_or_equal,
+                               low_key,
+                               TRUE,
+                               FALSE,
+                               0);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       key last_key = NULL_KEY;
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
@@ -978,20 +983,21 @@ test_btree_print_all_keys(cache        *cc,
    uint64         i;
    for (i = 0; i < num_trees; i++) {
       platform_default_log("tree number %lu\n", i);
-      btree_iterator_init(cc,
-                          cfg,
-                          &itor,
-                          root_addr[i],
-                          type,
-                          greater_than_or_equal,
-                          low_key,
-                          less_than,
-                          high_key,
-                          greater_than_or_equal,
-                          low_key,
-                          TRUE,
-                          FALSE,
-                          0);
+      platform_status rc = btree_iterator_init(cc,
+                                               cfg,
+                                               &itor,
+                                               root_addr[i],
+                                               type,
+                                               greater_than_or_equal,
+                                               low_key,
+                                               less_than,
+                                               high_key,
+                                               greater_than_or_equal,
+                                               low_key,
+                                               TRUE,
+                                               FALSE,
+                                               0);
+      platform_assert_status_ok(rc);
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
          message data;
@@ -1056,20 +1062,21 @@ test_btree_merge_basic(cache             *cc,
       key lo = key_buffer_key(&pivot_key[pivot_no]);
       key hi = key_buffer_key(&pivot_key[pivot_no + 1]);
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-         btree_iterator_init(cc,
-                             btree_cfg,
-                             &btree_itor_arr[tree_no],
-                             root_addr[tree_no],
-                             PAGE_TYPE_BRANCH,
-                             greater_than_or_equal,
-                             lo,
-                             less_than,
-                             hi,
-                             greater_than_or_equal,
-                             lo,
-                             TRUE,
-                             FALSE,
-                             0);
+         rc = btree_iterator_init(cc,
+                                  btree_cfg,
+                                  &btree_itor_arr[tree_no],
+                                  root_addr[tree_no],
+                                  PAGE_TYPE_BRANCH,
+                                  greater_than_or_equal,
+                                  lo,
+                                  less_than,
+                                  hi,
+                                  greater_than_or_equal,
+                                  lo,
+                                  TRUE,
+                                  FALSE,
+                                  0);
+         platform_assert_status_ok(rc);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
@@ -1278,20 +1285,21 @@ test_btree_rough_iterator(cache             *cc,
    platform_assert(rough_itor);
 
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
-      btree_iterator_init(cc,
-                          btree_cfg,
-                          &rough_btree_itor[tree_no],
-                          root_addr[tree_no],
-                          PAGE_TYPE_BRANCH,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          less_than,
-                          POSITIVE_INFINITY_KEY,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          TRUE,
-                          FALSE,
-                          1);
+      rc = btree_iterator_init(cc,
+                               btree_cfg,
+                               &rough_btree_itor[tree_no],
+                               root_addr[tree_no],
+                               PAGE_TYPE_BRANCH,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               less_than,
+                               POSITIVE_INFINITY_KEY,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               TRUE,
+                               TRUE,
+                               1);
+      platform_assert_status_ok(rc);
       if (iterator_can_curr(&rough_btree_itor[tree_no].super)) {
          key     curr_key;
          message msg;
@@ -1440,20 +1448,21 @@ test_btree_merge_perf(cache             *cc,
          key max_key = key_buffer_key(&pivot_key[pivot_no + 1]);
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             uint64 global_tree_no = merge_no * num_merges + tree_no;
-            btree_iterator_init(cc,
-                                btree_cfg,
-                                &btree_itor_arr[tree_no],
-                                root_addr[global_tree_no],
-                                PAGE_TYPE_BRANCH,
-                                greater_than_or_equal,
-                                min_key,
-                                less_than,
-                                max_key,
-                                greater_than_or_equal,
-                                min_key,
-                                TRUE,
-                                FALSE,
-                                0);
+            rc                    = btree_iterator_init(cc,
+                                     btree_cfg,
+                                     &btree_itor_arr[tree_no],
+                                     root_addr[global_tree_no],
+                                     PAGE_TYPE_BRANCH,
+                                     greater_than_or_equal,
+                                     min_key,
+                                     less_than,
+                                     max_key,
+                                     greater_than_or_equal,
+                                     min_key,
+                                     TRUE,
+                                     FALSE,
+                                     0);
+            platform_assert_status_ok(rc);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;

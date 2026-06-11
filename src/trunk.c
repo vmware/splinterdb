@@ -2274,26 +2274,36 @@ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
       return STATUS_NO_MEMORY;
    }
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       iter,
-                       addr,
-                       type,
-                       greater_than_or_equal,
-                       merger->min_key,
-                       less_than,
-                       merger->max_key,
-                       greater_than_or_equal,
-                       merger->min_key,
-                       TRUE,
-                       FALSE,
-                       merger->height);
-   platform_status rc = vector_append(&merger->itors, (iterator *)iter);
+   platform_status rc = btree_iterator_init(cc,
+                                            btree_cfg,
+                                            iter,
+                                            addr,
+                                            type,
+                                            greater_than_or_equal,
+                                            merger->min_key,
+                                            less_than,
+                                            merger->max_key,
+                                            greater_than_or_equal,
+                                            merger->min_key,
+                                            TRUE,
+                                            FALSE,
+                                            merger->height);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: btree_iterator_init() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      platform_free(merger->hid, iter);
+      return rc;
+   }
+   rc = vector_append(&merger->itors, (iterator *)iter);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_append() failed: %s",
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
+      btree_iterator_deinit(iter);
+      platform_free(merger->hid, iter);
    }
    return rc;
 }
