@@ -141,11 +141,11 @@ typedef struct btree_iterator {
    uint32              height;
    page_type           page_type;
    // Active memtable iterators copy leaves here and release page locks.
-   bool32              copy_leaves;
-   comparison          min_key_comparison;
-   key                 min_key;
-   comparison          max_key_comparison;
-   key                 max_key;
+   bool32     copy_leaves;
+   comparison min_key_comparison;
+   key        min_key;
+   comparison max_key_comparison;
+   key        max_key;
 
    uint64     root_addr;
    btree_node curr;
