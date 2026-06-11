@@ -140,6 +140,8 @@ typedef struct btree_iterator {
    bool32              do_prefetch;
    uint32              height;
    page_type           page_type;
+   // Active memtable iterators copy leaves here and release page locks.
+   bool32              copy_leaves;
    comparison          min_key_comparison;
    key                 min_key;
    comparison          max_key_comparison;
@@ -147,6 +149,7 @@ typedef struct btree_iterator {
 
    uint64     root_addr;
    btree_node curr;
+   char      *leaf_copy;
    int64      idx;
    int64      curr_min_idx;
    uint64     end_addr;
@@ -309,6 +312,7 @@ btree_iterator_init(cache              *cc,
                     comparison          start_type,
                     key                 start_key,
                     bool32              do_prefetch,
+                    bool32              copy_leaves,
                     uint32              height);
 
 // clang-format off
@@ -325,6 +329,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    param, comparison,                   start_type,
    param, key,                          start_key,
    param, bool32,                       do_prefetch,
+   param, bool32,                       copy_leaves,
    param, uint32,                       height,
    param, async_callback_fn,            callback,
    param, void *,                       callback_arg,

@@ -2286,6 +2286,7 @@ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
                        greater_than_or_equal,
                        merger->min_key,
                        TRUE,
+                       FALSE,
                        merger->height);
    platform_status rc = vector_append(&merger->itors, (iterator *)iter);
    if (!SUCCESS(rc)) {

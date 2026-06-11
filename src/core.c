@@ -388,6 +388,7 @@ core_memtable_iterator_init(core_handle    *spl,
                        start_key_comparison,
                        start_key,
                        FALSE,
+                       FALSE,
                        0);
 }
 
@@ -734,14 +735,21 @@ core_memtable_flush_virtual(void *arg, uint64 generation)
 static inline uint64
 core_memtable_root_addr_for_lookup(core_handle *spl,
                                    uint64       generation,
-                                   bool32      *is_compacted)
+                                   bool32      *is_compacted,
+                                   bool32      *is_active)
 {
    memtable *mt = core_get_memtable(spl, generation);
    platform_assert(memtable_ok_to_lookup(mt));
+   if (is_active != NULL) {
+      *is_active = mt->state == MEMTABLE_STATE_READY;
+   }
 
    if (memtable_ok_to_lookup_compacted(mt)) {
       // lookup in packed tree
       *is_compacted = TRUE;
+      if (is_active != NULL) {
+         *is_active = FALSE;
+      }
       core_compacted_memtable *cmt =
          core_get_compacted_memtable(spl, generation);
       return cmt->branch.root_addr;
@@ -772,7 +780,7 @@ core_memtable_lookup(core_handle   *spl,
    btree_config *const cfg = spl->cfg.btree_cfg;
    bool32              memtable_is_compacted;
    uint64              root_addr = core_memtable_root_addr_for_lookup(
-      spl, generation, &memtable_is_compacted);
+      spl, generation, &memtable_is_compacted, NULL);
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
 
@@ -867,7 +875,8 @@ core_start_btree_iterator_init_async(
    key                                     max_key,
    comparison                              start_key_comparison,
    key                                     start_key,
-   bool32                                  do_prefetch)
+   bool32                                  do_prefetch,
+   bool32                                  copy_leaves)
 {
    btree_iterator_async_state_init(&ctxt->state,
                                    spl->cc,
@@ -882,6 +891,7 @@ core_start_btree_iterator_init_async(
                                    start_key_comparison,
                                    start_key,
                                    do_prefetch,
+                                   copy_leaves,
                                    0,
                                    core_btree_iterator_init_async_callback,
                                    ctxt);
@@ -1014,6 +1024,7 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->min_key_comparison = min_key_comparison;
    range_itor->max_key_comparison = max_key_comparison;
    ZERO_ARRAY(range_itor->compacted);
+   ZERO_ARRAY(range_itor->copy_leaves);
    ZERO_ARRAY(range_itor->btree_itor_initialized);
 
    key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
@@ -1083,9 +1094,12 @@ core_range_iterator_init(core_handle         *spl,
       debug_assert(range_itor->num_branches < ARRAY_SIZE(range_itor->branch));
 
       bool32 compacted;
+      bool32 active;
       uint64 root_addr =
-         core_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
+         core_memtable_root_addr_for_lookup(spl, mt_gen, &compacted, &active);
       range_itor->compacted[range_itor->num_branches] = compacted;
+      // Only READY memtables can be modified while this iterator is live.
+      range_itor->copy_leaves[range_itor->num_branches] = active;
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
@@ -1124,6 +1138,7 @@ core_range_iterator_init(core_handle         *spl,
 
    for (uint64 i = old_num_branches; i < range_itor->num_branches; i++) {
       range_itor->compacted[i] = TRUE;
+      range_itor->copy_leaves[i] = FALSE;
    }
 
    range_itor->local_min_key_comparison = greater_than_or_equal;
@@ -1190,7 +1205,8 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer_key(&range_itor->local_max_key),
          start_key_comparison,
          start_key,
-         do_prefetch);
+         do_prefetch,
+         range_itor->copy_leaves[branch_no]);
       started_inits++;
       if (!SUCCESS(rc)) {
          break;
@@ -2360,7 +2376,7 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       bool32 memtable_is_compacted;
       uint64 root_addr = core_memtable_root_addr_for_lookup(
-         spl, mt_gen, &memtable_is_compacted);
+         spl, mt_gen, &memtable_is_compacted, NULL);
       platform_status rc;
 
       rc = btree_lookup(spl->cc,

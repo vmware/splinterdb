@@ -708,6 +708,7 @@ iterator_tests(cache           *cc,
                        greater_than_or_equal,
                        start_key,
                        FALSE,
+                       FALSE,
                        0);
 
    iterator *iter = (iterator *)&dbiter;
@@ -759,6 +760,7 @@ iterator_seek_tests(cache           *cc,
                        greater_than_or_equal,
                        start_key,
                        FALSE,
+                       FALSE,
                        0);
    iterator *iter = (iterator *)&dbiter;
 
@@ -804,6 +806,7 @@ pack_tests(cache           *cc,
                        POSITIVE_INFINITY_KEY,
                        greater_than_or_equal,
                        NEGATIVE_INFINITY_KEY,
+                       FALSE,
                        FALSE,
                        0);
 

@@ -2550,6 +2550,77 @@ btree_lookup_async(btree_lookup_async_state *state)
  * the end node and end_idx.
  *-----------------------------------------------------------------------------
  */
+static inline bool32
+btree_iterator_copies_leaves(btree_iterator *itor)
+{
+   return itor->copy_leaves && itor->height == 0;
+}
+
+static inline bool32
+btree_iterator_curr_is_copy(btree_iterator *itor)
+{
+   return btree_iterator_copies_leaves(itor) && itor->curr.page == NULL
+          && itor->curr.hdr != NULL;
+}
+
+static inline void
+btree_iterator_alloc_leaf_copy(btree_iterator *itor)
+{
+   if (!btree_iterator_copies_leaves(itor)) {
+      return;
+   }
+
+   itor->leaf_copy = TYPED_MANUAL_MALLOC(
+      PROCESS_PRIVATE_HEAP_ID, itor->leaf_copy, btree_page_size(itor->cfg));
+   platform_assert(itor->leaf_copy != NULL);
+}
+
+static inline void
+btree_iterator_copy_curr_if_needed(btree_iterator *itor)
+{
+   if (!btree_iterator_copies_leaves(itor) || itor->curr.page == NULL) {
+      return;
+   }
+
+   debug_assert(itor->leaf_copy != NULL);
+   memcpy(itor->leaf_copy, itor->curr.hdr, btree_page_size(itor->cfg));
+   btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+   itor->curr.hdr = (btree_hdr *)itor->leaf_copy;
+}
+
+static inline void
+btree_iterator_release_curr(btree_iterator *itor)
+{
+   if (itor->curr.page != NULL) {
+      btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+   } else {
+      itor->curr.hdr = NULL;
+   }
+}
+
+static inline void
+btree_iterator_get_curr_addr(btree_iterator *itor, uint64 addr)
+{
+   itor->curr.addr = addr;
+   btree_node_get(itor->cc, itor->cfg, &itor->curr, itor->page_type);
+   btree_iterator_copy_curr_if_needed(itor);
+}
+
+static inline uint64
+btree_iterator_curr_live_prev_addr(btree_iterator *itor)
+{
+   if (!btree_iterator_curr_is_copy(itor)) {
+      return itor->curr.hdr->prev_addr;
+   }
+
+   btree_node live_curr;
+   live_curr.addr = itor->curr.addr;
+   btree_node_get(itor->cc, itor->cfg, &live_curr, itor->page_type);
+   uint64 prev_addr = live_curr.hdr->prev_addr;
+   btree_node_unget(itor->cc, itor->cfg, &live_curr);
+   return prev_addr;
+}
+
 static bool32
 btree_iterator_can_prev(iterator *base_itor)
 {
@@ -2580,10 +2651,13 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
    */
    debug_assert(iterator_can_curr(base_itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
-   debug_assert(itor->curr.page != NULL);
-   debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
-   debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
-   cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
+   if (itor->curr.page != NULL) {
+      debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
+      debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
+      cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
+   } else {
+      debug_assert(btree_iterator_curr_is_copy(itor));
+   }
    if (itor->curr.hdr->height == 0) {
       *curr_key = btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
       *data     = btree_get_tuple_message(
@@ -2723,14 +2797,12 @@ btree_iterator_find_end_async(btree_iterator_async_state *state, uint64 depth)
 static void
 btree_iterator_next_leaf(btree_iterator *itor)
 {
-   cache              *cc  = itor->cc;
-   const btree_config *cfg = itor->cfg;
+   cache *cc = itor->cc;
 
    uint64 last_addr = itor->curr.addr;
    uint64 next_addr = itor->curr.hdr->next_addr;
-   btree_node_unget(cc, cfg, &itor->curr);
-   itor->curr.addr = next_addr;
-   btree_node_get(cc, cfg, &itor->curr, itor->page_type);
+   btree_iterator_release_curr(itor);
+   btree_iterator_get_curr_addr(itor, next_addr);
    itor->idx          = 0;
    itor->curr_min_idx = -1;
 
@@ -2761,9 +2833,9 @@ btree_iterator_next_leaf(btree_iterator *itor)
        * curr while we've released it, we will still want to
        * continue at curr (since we're at the 0th entry).
        */
-      btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+      btree_iterator_release_curr(itor);
       btree_iterator_find_end(itor);
-      btree_node_get(itor->cc, itor->cfg, &itor->curr, itor->page_type);
+      btree_iterator_get_curr_addr(itor, itor->curr.addr);
    }
 
    // To prefetch:
@@ -2880,14 +2952,16 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
 static void
 btree_iterator_prev_leaf(btree_iterator *itor)
 {
-   cache              *cc  = itor->cc;
    const btree_config *cfg = itor->cfg;
 
    debug_only uint64 curr_addr = itor->curr.addr;
-   uint64            prev_addr = itor->curr.hdr->prev_addr;
-   btree_node_unget(cc, cfg, &itor->curr);
-   itor->curr.addr = prev_addr;
-   btree_node_get(cc, cfg, &itor->curr, itor->page_type);
+   /*
+    * Copied leaves can have stale prev_addr values. Read the live current
+    * leaf before moving backward so predecessor splits are not skipped.
+    */
+   uint64            prev_addr = btree_iterator_curr_live_prev_addr(itor);
+   btree_iterator_release_curr(itor);
+   btree_iterator_get_curr_addr(itor, prev_addr);
 
    /*
     * The previous leaf may have split in between our release of the
@@ -2896,9 +2970,8 @@ btree_iterator_prev_leaf(btree_iterator *itor)
     */
    while (itor->curr.hdr->next_addr != curr_addr) {
       uint64 next_addr = itor->curr.hdr->next_addr;
-      btree_node_unget(cc, cfg, &itor->curr);
-      itor->curr.addr = next_addr;
-      btree_node_get(cc, cfg, &itor->curr, itor->page_type);
+      btree_iterator_release_curr(itor);
+      btree_iterator_get_curr_addr(itor, next_addr);
    }
 
    itor->idx = btree_num_entries(itor->curr.hdr) - 1;
@@ -3126,6 +3199,10 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
                                    key             target,
                                    comparison      position_rule)
 {
+   if (itor->curr.hdr != NULL) {
+      btree_iterator_release_curr(itor);
+   }
+
    // lookup the node that contains target
    btree_lookup_node(itor->cc,
                      itor->cfg,
@@ -3193,6 +3270,7 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
 
    // check if we already need to move to the prev/next leaf
    btree_iterator_move_leaf_if_needed(itor);
+   btree_iterator_copy_curr_if_needed(itor);
 }
 
 // This function violates our locking rules. See comment at top of file.
@@ -3395,6 +3473,7 @@ btree_iterator_init(cache              *cc,
                     comparison          start_type,
                     key                 start_key,
                     bool32              do_prefetch,
+                    bool32              copy_leaves,
                     uint32              height)
 {
    platform_assert(root_addr != 0);
@@ -3426,12 +3505,15 @@ btree_iterator_init(cache              *cc,
    itor->root_addr          = root_addr;
    itor->do_prefetch        = do_prefetch;
    itor->height             = height;
+   itor->copy_leaves        = copy_leaves && height == 0;
    itor->min_key_comparison = min_key_comparison;
    itor->min_key            = min_key;
    itor->max_key_comparison = max_key_comparison;
    itor->max_key            = max_key;
    itor->page_type          = page_type;
    itor->super.ops          = &btree_iterator_ops;
+   debug_assert(IMPLIES(itor->copy_leaves, page_type == PAGE_TYPE_MEMTABLE));
+   btree_iterator_alloc_leaf_copy(itor);
 
    find_btree_node_and_get_idx_bounds(itor, start_key, start_type);
 
@@ -3480,16 +3562,21 @@ btree_iterator_init_async(btree_iterator_async_state *state)
    state->itor->root_addr          = state->root_addr;
    state->itor->do_prefetch        = state->do_prefetch;
    state->itor->height             = state->height;
+   state->itor->copy_leaves        = state->copy_leaves && state->height == 0;
    state->itor->min_key_comparison = state->min_key_comparison;
    state->itor->min_key            = state->min_key;
    state->itor->max_key_comparison = state->max_key_comparison;
    state->itor->max_key            = state->max_key;
    state->itor->page_type          = state->type;
    state->itor->super.ops          = &btree_iterator_ops;
+   debug_assert(IMPLIES(state->itor->copy_leaves,
+                        state->type == PAGE_TYPE_MEMTABLE));
+   btree_iterator_alloc_leaf_copy(state->itor);
 
    state->target        = state->start_key;
    state->position_rule = state->start_type;
    async_await_subroutine(state, find_btree_node_and_get_idx_bounds_async);
+   btree_iterator_copy_curr_if_needed(state->itor);
 
    if (state->itor->do_prefetch && state->itor->curr.hdr->next_extent_addr != 0
        && !btree_addrs_share_extent(
@@ -3511,7 +3598,11 @@ void
 btree_iterator_deinit(btree_iterator *itor)
 {
    debug_assert(itor != NULL);
-   btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+   btree_iterator_release_curr(itor);
+   if (itor->leaf_copy != NULL) {
+      platform_free(PROCESS_PRIVATE_HEAP_ID, itor->leaf_copy);
+      itor->leaf_copy = NULL;
+   }
 }
 
 /****************************
@@ -3901,6 +3992,7 @@ btree_count_in_range_by_iterator(cache             *cc,
                        greater_than_or_equal,
                        min_key,
                        TRUE,
+                       FALSE,
                        0);
 
    memset(stats, 0, sizeof(*stats));

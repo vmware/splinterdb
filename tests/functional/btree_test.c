@@ -1044,6 +1044,7 @@ test_btree_basic(cache             *cc,
                        greater_than_or_equal,
                        NEGATIVE_INFINITY_KEY,
                        FALSE,
+                       FALSE,
                        0);
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
@@ -1227,6 +1228,7 @@ test_btree_create_packed_trees(cache             *cc,
                           greater_than_or_equal,
                           NEGATIVE_INFINITY_KEY,
                           FALSE,
+                          FALSE,
                           0);
 
       btree_pack_req req;
@@ -1283,6 +1285,7 @@ test_count_tuples_in_range(cache        *cc,
                           greater_than_or_equal,
                           low_key,
                           TRUE,
+                          FALSE,
                           0);
       key last_key = NULL_KEY;
       while (iterator_can_curr(&itor.super)) {
@@ -1378,6 +1381,7 @@ test_btree_print_all_keys(cache        *cc,
                           greater_than_or_equal,
                           low_key,
                           TRUE,
+                          FALSE,
                           0);
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
@@ -1455,6 +1459,7 @@ test_btree_merge_basic(cache             *cc,
                              greater_than_or_equal,
                              lo,
                              TRUE,
+                             FALSE,
                              0);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
@@ -1676,6 +1681,7 @@ test_btree_rough_iterator(cache             *cc,
                           greater_than_or_equal,
                           NEGATIVE_INFINITY_KEY,
                           TRUE,
+                          FALSE,
                           1);
       if (iterator_can_curr(&rough_btree_itor[tree_no].super)) {
          key     curr_key;
@@ -1837,6 +1843,7 @@ test_btree_merge_perf(cache             *cc,
                                 greater_than_or_equal,
                                 min_key,
                                 TRUE,
+                                FALSE,
                                 0);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
