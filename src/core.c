@@ -1137,7 +1137,7 @@ core_range_iterator_init(core_handle         *spl,
    }
 
    for (uint64 i = old_num_branches; i < range_itor->num_branches; i++) {
-      range_itor->compacted[i] = TRUE;
+      range_itor->compacted[i]   = TRUE;
       range_itor->copy_leaves[i] = FALSE;
    }
 

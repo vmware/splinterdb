@@ -659,7 +659,7 @@ CTEST2(splinterdb_quick, test_iterator_delete_current)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(
+   rc                      = splinterdb_iterator_init(
       data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
    ASSERT_EQUAL(0, rc);
 
@@ -689,8 +689,8 @@ CTEST2(splinterdb_quick, test_iterator_delete_current)
       char key[TEST_INSERT_KEY_LENGTH] = {0};
 
       ASSERT_EQUAL(KEY_FMT_LENGTH, snprintf(key, sizeof(key), key_fmt, i));
-      rc = splinterdb_lookup(
-         data->kvsb, slice_create(sizeof(key), key), &result);
+      rc =
+         splinterdb_lookup(data->kvsb, slice_create(sizeof(key), key), &result);
       ASSERT_EQUAL(0, rc);
       ASSERT_FALSE(splinterdb_lookup_found(&result));
    }

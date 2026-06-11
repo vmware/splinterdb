@@ -2959,7 +2959,7 @@ btree_iterator_prev_leaf(btree_iterator *itor)
     * Copied leaves can have stale prev_addr values. Read the live current
     * leaf before moving backward so predecessor splits are not skipped.
     */
-   uint64            prev_addr = btree_iterator_curr_live_prev_addr(itor);
+   uint64 prev_addr = btree_iterator_curr_live_prev_addr(itor);
    btree_iterator_release_curr(itor);
    btree_iterator_get_curr_addr(itor, prev_addr);
 
@@ -3569,8 +3569,8 @@ btree_iterator_init_async(btree_iterator_async_state *state)
    state->itor->max_key            = state->max_key;
    state->itor->page_type          = state->type;
    state->itor->super.ops          = &btree_iterator_ops;
-   debug_assert(IMPLIES(state->itor->copy_leaves,
-                        state->type == PAGE_TYPE_MEMTABLE));
+   debug_assert(
+      IMPLIES(state->itor->copy_leaves, state->type == PAGE_TYPE_MEMTABLE));
    btree_iterator_alloc_leaf_copy(state->itor);
 
    state->target        = state->start_key;
