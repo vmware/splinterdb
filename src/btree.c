@@ -2839,7 +2839,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
 
    state->last_addr = state->itor->curr.addr;
    state->next_addr = state->itor->curr.hdr->next_addr;
-   btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+   btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->next_addr;
 
    cache_get_async_state_init(state->cache_get_state,
@@ -2856,6 +2856,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
    state->itor->curr.page =
       cache_get_async_state_result(state->itor->cc, state->cache_get_state);
    state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+   btree_iterator_copy_curr_if_needed(state->itor);
 
    state->itor->idx          = 0;
    state->itor->curr_min_idx = -1;
@@ -2887,7 +2888,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
        * curr while we've released it, we will still want to
        * continue at curr (since we're at the 0th entry).
        */
-      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      btree_iterator_release_curr(state->itor);
       async_await_subroutine(state, btree_iterator_find_end_async);
 
       cache_get_async_state_init(state->cache_get_state,
@@ -2904,6 +2905,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
       state->itor->curr.page =
          cache_get_async_state_result(state->itor->cc, state->cache_get_state);
       state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+      btree_iterator_copy_curr_if_needed(state->itor);
    }
 
    // To prefetch:
@@ -2992,8 +2994,28 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    async_begin(state, depth);
 
    state->curr_addr = state->itor->curr.addr;
-   state->prev_addr = state->itor->curr.hdr->prev_addr;
-   btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+   if (btree_iterator_curr_is_copy(state->itor)) {
+      state->live_curr.addr = state->curr_addr;
+      cache_get_async_state_init(state->cache_get_state,
+                                 state->itor->cc,
+                                 state->live_curr.addr,
+                                 state->itor->page_type,
+                                 state->callback,
+                                 state->callback_arg);
+      while (cache_get_async(state->itor->cc, state->cache_get_state)
+             != ASYNC_STATUS_DONE)
+      {
+         async_yield(state);
+      }
+      state->live_curr.page =
+         cache_get_async_state_result(state->itor->cc, state->cache_get_state);
+      state->live_curr.hdr = (btree_hdr *)state->live_curr.page->data;
+      state->prev_addr     = state->live_curr.hdr->prev_addr;
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
+   } else {
+      state->prev_addr = state->itor->curr.hdr->prev_addr;
+   }
+   btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->prev_addr;
 
    cache_get_async_state_init(state->cache_get_state,
@@ -3010,6 +3032,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    state->itor->curr.page =
       cache_get_async_state_result(state->itor->cc, state->cache_get_state);
    state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+   btree_iterator_copy_curr_if_needed(state->itor);
 
    /*
     * The previous leaf may have split in between our release of the
@@ -3018,7 +3041,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
     */
    while (state->itor->curr.hdr->next_addr != state->curr_addr) {
       state->next_addr = state->itor->curr.hdr->next_addr;
-      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      btree_iterator_release_curr(state->itor);
       state->itor->curr.addr = state->next_addr;
 
       cache_get_async_state_init(state->cache_get_state,
@@ -3035,6 +3058,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       state->itor->curr.page =
          cache_get_async_state_result(state->itor->cc, state->cache_get_state);
       state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+      btree_iterator_copy_curr_if_needed(state->itor);
    }
 
    state->itor->idx = btree_num_entries(state->itor->curr.hdr) - 1;
