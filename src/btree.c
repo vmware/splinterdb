@@ -2553,7 +2553,7 @@ btree_lookup_async(btree_lookup_async_state *state)
 static inline bool32
 btree_iterator_curr_is_copy(btree_iterator *itor)
 {
-   return itor->copy_nodes && itor->curr.page == NULL && itor->curr.hdr != NULL;
+   return itor->curr.hdr != NULL && itor->curr.hdr == itor->node_copy;
 }
 
 static inline void
