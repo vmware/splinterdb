@@ -154,7 +154,7 @@ typedef struct btree_iterator {
    int64      curr_min_idx;
    uint64     end_addr;
    int64      end_idx;
-   uint64     end_generation;
+   bool32     end_idx_valid;
 } btree_iterator;
 
 typedef struct btree_pack_req {
@@ -336,7 +336,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    local, platform_status,              __async_result,
    local, btree_lookup_async_state,     lookup_state,
    local, page_get_async_state_buffer,  cache_get_state,
-   local, btree_node,                   end,
    local, btree_node,                   live_curr,
    local, key,                          target,
    local, comparison,                   position_rule,
