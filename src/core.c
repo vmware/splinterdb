@@ -1026,7 +1026,6 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->min_key_comparison = min_key_comparison;
    range_itor->max_key_comparison = max_key_comparison;
    ZERO_ARRAY(range_itor->compacted);
-   ZERO_ARRAY(range_itor->copy_nodes);
    ZERO_ARRAY(range_itor->btree_itor_initialized);
 
    key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
@@ -1084,6 +1083,7 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->memtable_end_gen   = memtable_generation_retired(&spl->mt_ctxt);
    range_itor->num_memtable_branches =
       range_itor->memtable_start_gen - range_itor->memtable_end_gen;
+   bool32 first_memtable_copy_nodes = FALSE;
    for (uint64 mt_gen = range_itor->memtable_start_gen;
         mt_gen != range_itor->memtable_end_gen;
         mt_gen--)
@@ -1101,7 +1101,11 @@ core_range_iterator_init(core_handle         *spl,
          core_memtable_root_addr_for_lookup(spl, mt_gen, &compacted, &active);
       range_itor->compacted[range_itor->num_branches] = compacted;
       // Only READY memtables can be modified while this iterator is live.
-      range_itor->copy_nodes[range_itor->num_branches] = active;
+      if (range_itor->num_branches == 0) {
+         first_memtable_copy_nodes = active;
+      } else {
+         debug_assert(!active);
+      }
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
@@ -1139,8 +1143,7 @@ core_range_iterator_init(core_handle         *spl,
    }
 
    for (uint64 i = old_num_branches; i < range_itor->num_branches; i++) {
-      range_itor->compacted[i]  = TRUE;
-      range_itor->copy_nodes[i] = FALSE;
+      range_itor->compacted[i] = TRUE;
    }
 
    range_itor->local_min_key_comparison = greater_than_or_equal;
@@ -1208,7 +1211,7 @@ core_range_iterator_init(core_handle         *spl,
          start_key_comparison,
          start_key,
          do_prefetch,
-         range_itor->copy_nodes[branch_no]);
+         branch_no == 0 ? first_memtable_copy_nodes : FALSE);
       started_inits++;
       if (!SUCCESS(rc)) {
          break;
