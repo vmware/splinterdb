@@ -652,6 +652,52 @@ CTEST2(splinterdb_quick, test_basic_iterator)
    splinterdb_iterator_deinit(it);
 }
 
+CTEST2(splinterdb_quick, test_iterator_delete_current)
+{
+   const int num_inserts = 32;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_iterator *it = NULL;
+   rc                      = splinterdb_iterator_init(
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+
+   int num_deleted = 0;
+   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
+      slice key;
+      slice value;
+
+      splinterdb_iterator_get_current(it, &key, &value);
+      ASSERT_EQUAL(TEST_INSERT_KEY_LENGTH, slice_length(key));
+
+      rc = splinterdb_delete(data->kvsb, key, NULL);
+      ASSERT_EQUAL(0, rc);
+      num_deleted++;
+   }
+
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(num_inserts, num_deleted);
+   splinterdb_iterator_deinit(it);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   for (int i = 0; i < num_inserts; i++) {
+      char key[TEST_INSERT_KEY_LENGTH] = {0};
+
+      ASSERT_EQUAL(KEY_FMT_LENGTH, snprintf(key, sizeof(key), key_fmt, i));
+      rc =
+         splinterdb_lookup(data->kvsb, slice_create(sizeof(key), key), &result);
+      ASSERT_EQUAL(0, rc);
+      ASSERT_FALSE(splinterdb_lookup_found(&result));
+   }
+
+   splinterdb_lookup_result_deinit(&result);
+}
+
 /*
  * empty iterator test case.
  */

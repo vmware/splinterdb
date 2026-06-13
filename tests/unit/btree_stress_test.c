@@ -696,19 +696,21 @@ iterator_tests(cache           *cc,
    else
       start_key = POSITIVE_INFINITY_KEY;
 
-   btree_iterator_init(cc,
-                       cfg,
-                       &dbiter,
-                       root_addr,
-                       type,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       less_than,
-                       POSITIVE_INFINITY_KEY,
-                       greater_than_or_equal,
-                       start_key,
-                       FALSE,
-                       0);
+   platform_status rc = btree_iterator_init(cc,
+                                            cfg,
+                                            &dbiter,
+                                            root_addr,
+                                            type,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            less_than,
+                                            POSITIVE_INFINITY_KEY,
+                                            greater_than_or_equal,
+                                            start_key,
+                                            FALSE,
+                                            FALSE,
+                                            0);
+   ASSERT_TRUE(SUCCESS(rc));
 
    iterator *iter = (iterator *)&dbiter;
 
@@ -747,19 +749,21 @@ iterator_seek_tests(cache           *cc,
    // start in the "middle" of the range
    key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);
 
-   btree_iterator_init(cc,
-                       cfg,
-                       &dbiter,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       less_than,
-                       POSITIVE_INFINITY_KEY,
-                       greater_than_or_equal,
-                       start_key,
-                       FALSE,
-                       0);
+   platform_status rc = btree_iterator_init(cc,
+                                            cfg,
+                                            &dbiter,
+                                            root_addr,
+                                            PAGE_TYPE_MEMTABLE,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            less_than,
+                                            POSITIVE_INFINITY_KEY,
+                                            greater_than_or_equal,
+                                            start_key,
+                                            FALSE,
+                                            FALSE,
+                                            0);
+   ASSERT_TRUE(SUCCESS(rc));
    iterator *iter = (iterator *)&dbiter;
 
    // go down
@@ -793,22 +797,24 @@ pack_tests(cache           *cc,
    btree_iterator dbiter;
    iterator      *iter = (iterator *)&dbiter;
 
-   btree_iterator_init(cc,
-                       cfg,
-                       &dbiter,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       less_than,
-                       POSITIVE_INFINITY_KEY,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       FALSE,
-                       0);
+   platform_status rc = btree_iterator_init(cc,
+                                            cfg,
+                                            &dbiter,
+                                            root_addr,
+                                            PAGE_TYPE_MEMTABLE,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            less_than,
+                                            POSITIVE_INFINITY_KEY,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            FALSE,
+                                            FALSE,
+                                            0);
+   ASSERT_TRUE(SUCCESS(rc));
 
-   platform_status rc = STATUS_TEST_FAILED;
-   btree_pack_req  req;
+   rc = STATUS_TEST_FAILED;
+   btree_pack_req req;
    rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, FALSE, hid);
    ASSERT_TRUE(SUCCESS(rc));
 
