@@ -2266,14 +2266,13 @@ btree_lookup_node_addr(cache              *cc,
 
    for (uint32 h = btree_height(node.hdr); h > stop_at_height; h--) {
       bool32 found;
-      int64  child_idx =
-         key_is_positive_infinity(target)
-            ? btree_num_entries(node.hdr) - 1
-            : btree_find_pivot(cfg, node.hdr, target, &found);
+      int64  child_idx = key_is_positive_infinity(target)
+                            ? btree_num_entries(node.hdr) - 1
+                            : btree_find_pivot(cfg, node.hdr, target, &found);
       if (child_idx < 0) {
          child_idx = 0;
       }
-      index_entry *entry = btree_get_index_entry(cfg, node.hdr, child_idx);
+      index_entry *entry      = btree_get_index_entry(cfg, node.hdr, child_idx);
       uint64       child_addr = index_entry_child_addr(entry);
 
       if (h == stop_at_height + 1) {
@@ -2414,8 +2413,8 @@ btree_lookup_node_addr_async(btree_lookup_async_state *state, uint64 depth)
       bool32 found;
       int64  child_idx =
          key_is_positive_infinity(state->target)
-            ? btree_num_entries(state->node.hdr) - 1
-            : btree_find_pivot(
+             ? btree_num_entries(state->node.hdr) - 1
+             : btree_find_pivot(
                  state->cfg, state->node.hdr, state->target, &found);
       if (child_idx < 0) {
          child_idx = 0;
@@ -2751,13 +2750,12 @@ btree_iterator_find_end_addr(btree_iterator *itor)
       return;
    }
 
-   itor->end_addr =
-      btree_lookup_node_addr(itor->cc,
-                             itor->cfg,
-                             itor->root_addr,
-                             itor->max_key,
-                             itor->height,
-                             itor->page_type);
+   itor->end_addr      = btree_lookup_node_addr(itor->cc,
+                                           itor->cfg,
+                                           itor->root_addr,
+                                           itor->max_key,
+                                           itor->height,
+                                           itor->page_type);
    itor->end_idx_valid = FALSE;
 }
 
@@ -2916,8 +2914,9 @@ btree_iterator_find_end_addr_async(btree_iterator_async_state *state,
                                  state->callback_arg);
    state->lookup_state.stop_at_height = state->itor->height;
    state->lookup_state.stats          = NULL;
-   async_await(state, btree_lookup_node_addr_async(&state->lookup_state, 0)
-                         == ASYNC_STATUS_DONE);
+   async_await(state,
+               btree_lookup_node_addr_async(&state->lookup_state, 0)
+                  == ASYNC_STATUS_DONE);
    state->itor->end_addr      = state->lookup_state.node.addr;
    state->itor->end_idx_valid = FALSE;
 
