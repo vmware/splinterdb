@@ -1775,6 +1775,9 @@ test_btree_rough_iterator(cache             *cc,
       key_buffer_deinit(&pivot[i]);
    }
    platform_free(hid, pivot);
+   for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
+      btree_iterator_deinit(&rough_btree_itor[tree_no]);
+   }
    platform_free(hid, rough_btree_itor);
    platform_free(hid, rough_itor);
 
