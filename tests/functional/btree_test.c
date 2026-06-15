@@ -33,7 +33,12 @@ typedef struct btree_scan_perf_options {
    uint64 num_inserts;
    bool32 num_inserts_set;
    bool32 random_bounds;
+   bool32 memtable_no_copy_nodes;
+   bool32 memtable_copy_nodes;
 } btree_scan_perf_options;
+
+static const char *
+btree_scan_perf_memtable_mode_string(const btree_scan_perf_options *options);
 
 typedef struct test_btree_config {
    memtable_config        *mt_cfg;
@@ -360,6 +365,7 @@ test_btree_scan_once(cache        *cc,
                      page_type     type,
                      key           min_key,
                      key           max_key,
+                     bool32        copy_nodes,
                      uint64        expected_tuples,
                      uint64       *init_elapsed_ns,
                      uint64       *scan_elapsed_ns,
@@ -368,23 +374,27 @@ test_btree_scan_once(cache        *cc,
 {
    btree_iterator itor;
    timestamp      start_time = platform_get_timestamp();
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       &itor,
-                       root_addr,
-                       type,
-                       greater_than_or_equal,
-                       min_key,
-                       less_than,
-                       max_key,
-                       greater_than_or_equal,
-                       min_key,
-                       FALSE,
-                       0);
+   platform_status rc = btree_iterator_init(cc,
+                                            btree_cfg,
+                                            &itor,
+                                            root_addr,
+                                            type,
+                                            greater_than_or_equal,
+                                            min_key,
+                                            less_than,
+                                            max_key,
+                                            greater_than_or_equal,
+                                            min_key,
+                                            FALSE,
+                                            copy_nodes,
+                                            0);
    *init_elapsed_ns += platform_timestamp_elapsed(start_time);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
-   platform_status rc = STATUS_OK;
-   start_time         = platform_get_timestamp();
+   rc         = STATUS_OK;
+   start_time = platform_get_timestamp();
    uint64 scan_tuples = 0;
    while (iterator_can_curr(&itor.super)) {
       key     curr_key;
@@ -496,6 +506,7 @@ test_btree_scan_benchmark_tree(cache        *cc,
                                uint64        tuple_count,
                                const btree_scan_perf_options *options,
                                uint64        seed,
+                               bool32        copy_nodes,
                                const char   *label)
 {
    uint64 init_elapsed_ns       = 0;
@@ -529,6 +540,7 @@ test_btree_scan_benchmark_tree(cache        *cc,
                                                 type,
                                                 min_key,
                                                 max_key,
+                                                copy_nodes,
                                                 expected_tuples,
                                                 &init_elapsed_ns,
                                                 &scan_elapsed_ns,
@@ -567,12 +579,14 @@ test_btree_scan_perf(cache             *cc,
    }
 
    platform_default_log("btree scan perf config: inserts=%lu, scans=%lu, "
-                        "scan_length=%lu, random_bounds=%u, key_type=%s\n",
+                        "scan_length=%lu, random_bounds=%u, key_type=%s, "
+                        "memtable_scan_mode=%s\n",
                         target_tuples,
                         options->scan_count,
                         options->scan_length,
                         options->random_bounds,
-                        cfg->type == TEST_SEQ ? "seq" : "random");
+                        cfg->type == TEST_SEQ ? "seq" : "random",
+                        btree_scan_perf_memtable_mode_string(options));
 
    test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
    if (ctxt == NULL) {
@@ -626,33 +640,55 @@ test_btree_scan_perf(cache             *cc,
    }
 
    uint64 root_addr = memtable_root_addr(mt);
-   rc = test_btree_scan_benchmark_tree(cc,
-                                       ctxt,
-                                       btree_cfg,
-                                       root_addr,
-                                       PAGE_TYPE_MEMTABLE,
-                                       inserted,
-                                       options,
-                                       seed,
-                                       "memtable");
-   if (!SUCCESS(rc)) {
-      goto out;
+   if (options->memtable_no_copy_nodes) {
+      rc = test_btree_scan_benchmark_tree(cc,
+                                          ctxt,
+                                          btree_cfg,
+                                          root_addr,
+                                          PAGE_TYPE_MEMTABLE,
+                                          inserted,
+                                          options,
+                                          seed,
+                                          FALSE,
+                                          "memtable no-copy-nodes");
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+   }
+   if (options->memtable_copy_nodes) {
+      rc = test_btree_scan_benchmark_tree(cc,
+                                          ctxt,
+                                          btree_cfg,
+                                          root_addr,
+                                          PAGE_TYPE_MEMTABLE,
+                                          inserted,
+                                          options,
+                                          seed,
+                                          TRUE,
+                                          "memtable copy-nodes");
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
    }
 
    btree_iterator itor;
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       &itor,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       less_than,
-                       POSITIVE_INFINITY_KEY,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       FALSE,
-                       0);
+   rc = btree_iterator_init(cc,
+                            btree_cfg,
+                            &itor,
+                            root_addr,
+                            PAGE_TYPE_MEMTABLE,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            less_than,
+                            POSITIVE_INFINITY_KEY,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            FALSE,
+                            FALSE,
+                            0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
 
    btree_pack_req req;
    rc = btree_pack_req_init(
@@ -683,6 +719,7 @@ test_btree_scan_perf(cache             *cc,
                                        inserted,
                                        options,
                                        seed,
+                                       FALSE,
                                        "packed branch");
    btree_dec_ref(cc, btree_cfg, packed_root_addr, PAGE_TYPE_BRANCH);
 
@@ -1923,7 +1960,21 @@ btree_scan_perf_options_default(btree_scan_perf_options *options)
       .num_inserts     = 0,
       .num_inserts_set = FALSE,
       .random_bounds   = FALSE,
+      .memtable_no_copy_nodes = TRUE,
+      .memtable_copy_nodes    = TRUE,
    };
+}
+
+static const char *
+btree_scan_perf_memtable_mode_string(const btree_scan_perf_options *options)
+{
+   if (options->memtable_no_copy_nodes && options->memtable_copy_nodes) {
+      return "both";
+   }
+   if (options->memtable_no_copy_nodes) {
+      return "no-copy-nodes";
+   }
+   return "copy-nodes";
 }
 
 static platform_status
@@ -1975,6 +2026,36 @@ btree_scan_perf_parse_args(int                      argc,
                  || STRING_EQUALS_LITERAL(argv[i], "--random-scan-starts"))
       {
          options->random_bounds = TRUE;
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--memtable-scan-mode")) {
+         if (i + 1 == argc) {
+            platform_error_log(
+               "btree_test: failed to parse --memtable-scan-mode\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+         i++;
+         if (STRING_EQUALS_LITERAL(argv[i], "both")) {
+            options->memtable_no_copy_nodes = TRUE;
+            options->memtable_copy_nodes    = TRUE;
+         } else if (STRING_EQUALS_LITERAL(argv[i], "no-copy-nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "no_copy_nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "non-copy-nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "non_copy_nodes"))
+         {
+            options->memtable_no_copy_nodes = TRUE;
+            options->memtable_copy_nodes    = FALSE;
+         } else if (STRING_EQUALS_LITERAL(argv[i], "copy-nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "copy_nodes"))
+         {
+            options->memtable_no_copy_nodes = FALSE;
+            options->memtable_copy_nodes    = TRUE;
+         } else {
+            platform_error_log(
+               "btree_test: invalid --memtable-scan-mode '%s'\n",
+               argv[i]);
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
       } else {
          filtered[filtered_count++] = argv[i];
       }
@@ -1994,7 +2075,9 @@ usage(const char *argv0)
                       "\t%s --scan-perf [--num-inserts <count>] "
                       "[--scan-count <count>]\n"
                       "\t   [--scan-length <count>] "
-                      "[--random-scan-bounds]\n",
+                      "[--random-scan-bounds]\n"
+                      "\t   [--memtable-scan-mode "
+                      "<both|no-copy-nodes|copy-nodes>]\n",
                       argv0,
                       argv0,
                       argv0);
@@ -2007,6 +2090,8 @@ usage(const char *argv0)
                       "(0 = full scan or random-length range)\n");
    platform_error_log("\t--random-scan-bounds   choose fresh random bounds "
                       "for each scan\n");
+   platform_error_log("\t--memtable-scan-mode   choose which memtable "
+                      "iterator mode(s) to benchmark (default both)\n");
    config_usage();
 }
 
