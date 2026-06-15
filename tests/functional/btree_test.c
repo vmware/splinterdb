@@ -17,6 +17,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
+#include "random.h"
 #include "task.h"
 
 #define TEST_MAX_ASYNC_INFLIGHT 63
@@ -25,6 +26,14 @@ static uint64 max_async_inflight = 32;
 #define BTREE_SCAN_BENCHMARK_SCAN_COUNT (10)
 
 #include "poison.h"
+
+typedef struct btree_scan_perf_options {
+   uint64 scan_count;
+   uint64 scan_length;
+   uint64 num_inserts;
+   bool32 num_inserts_set;
+   bool32 random_bounds;
+} btree_scan_perf_options;
 
 typedef struct test_btree_config {
    memtable_config        *mt_cfg;
@@ -349,6 +358,8 @@ test_btree_scan_once(cache        *cc,
                      btree_config *btree_cfg,
                      uint64        root_addr,
                      page_type     type,
+                     key           min_key,
+                     key           max_key,
                      uint64        expected_tuples,
                      uint64       *init_elapsed_ns,
                      uint64       *scan_elapsed_ns,
@@ -363,11 +374,11 @@ test_btree_scan_once(cache        *cc,
                        root_addr,
                        type,
                        greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
+                       min_key,
                        less_than,
-                       POSITIVE_INFINITY_KEY,
+                       max_key,
                        greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
+                       min_key,
                        FALSE,
                        0);
    *init_elapsed_ns += platform_timestamp_elapsed(start_time);
@@ -405,13 +416,86 @@ test_btree_scan_once(cache        *cc,
    return STATUS_OK;
 }
 
+static void
+test_btree_scan_perf_key_at(test_memtable_context *ctxt,
+                            key_buffer            *keybuf,
+                            uint64                 tuple_no,
+                            uint64                 tuple_count,
+                            bool32                 lower_bound,
+                            key                   *bound_key)
+{
+   if (lower_bound && tuple_no == 0) {
+      *bound_key = NEGATIVE_INFINITY_KEY;
+   } else if (!lower_bound && tuple_no == tuple_count) {
+      *bound_key = POSITIVE_INFINITY_KEY;
+   } else {
+      test_btree_tuple(ctxt, keybuf, NULL, tuple_no, 0);
+      *bound_key = key_buffer_key(keybuf);
+   }
+}
+
+static void
+test_btree_scan_perf_choose_bounds(test_memtable_context       *ctxt,
+                                   const btree_scan_perf_options *options,
+                                   random_state                *rs,
+                                   uint64                       tuple_count,
+                                   key_buffer                  *min_keybuf,
+                                   key_buffer                  *max_keybuf,
+                                   key                         *min_key,
+                                   key                         *max_key,
+                                   uint64                      *expected_tuples)
+{
+   uint64 start_tuple = 0;
+   uint64 end_tuple   = tuple_count;
+
+   if (options->random_bounds) {
+      if (options->scan_length != 0) {
+         uint64 length = options->scan_length < tuple_count
+                            ? options->scan_length
+                            : tuple_count;
+         uint64 max_start = tuple_count - length;
+         start_tuple =
+            max_start == 0 ? 0 : random_next_uint64(rs) % (max_start + 1);
+         end_tuple = start_tuple + length;
+      } else {
+         uint64 first  = random_next_uint64(rs) % (tuple_count + 1);
+         uint64 second = random_next_uint64(rs) % (tuple_count + 1);
+         if (first > second) {
+            uint64 tmp = first;
+            first      = second;
+            second     = tmp;
+         }
+         if (first == second) {
+            if (second < tuple_count) {
+               second++;
+            } else {
+               first--;
+            }
+         }
+         start_tuple = first;
+         end_tuple   = second;
+      }
+   } else if (options->scan_length != 0) {
+      end_tuple = options->scan_length < tuple_count ? options->scan_length
+                                                     : tuple_count;
+   }
+
+   *expected_tuples = end_tuple - start_tuple;
+   test_btree_scan_perf_key_at(
+      ctxt, min_keybuf, start_tuple, tuple_count, TRUE, min_key);
+   test_btree_scan_perf_key_at(
+      ctxt, max_keybuf, end_tuple, tuple_count, FALSE, max_key);
+}
+
 static platform_status
 test_btree_scan_benchmark_tree(cache        *cc,
+                               test_memtable_context *ctxt,
                                btree_config *btree_cfg,
                                uint64        root_addr,
                                page_type     type,
-                               uint64        expected_tuples,
-                               uint64        scan_count,
+                               uint64        tuple_count,
+                               const btree_scan_perf_options *options,
+                               uint64        seed,
                                const char   *label)
 {
    uint64 init_elapsed_ns       = 0;
@@ -419,11 +503,32 @@ test_btree_scan_benchmark_tree(cache        *cc,
    uint64 tuples_scanned        = 0;
    uint64 logical_bytes_scanned = 0;
 
-   for (uint64 scan_no = 0; scan_no < scan_count; scan_no++) {
+   DECLARE_AUTO_KEY_BUFFER(min_keybuf, ctxt->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(max_keybuf, ctxt->heap_id);
+
+   random_state rs;
+   random_init(&rs, seed ^ 0x6eed0e9da4d94a4fULL, 0);
+
+   for (uint64 scan_no = 0; scan_no < options->scan_count; scan_no++) {
+      key    min_key;
+      key    max_key;
+      uint64 expected_tuples;
+      test_btree_scan_perf_choose_bounds(ctxt,
+                                         options,
+                                         &rs,
+                                         tuple_count,
+                                         &min_keybuf,
+                                         &max_keybuf,
+                                         &min_key,
+                                         &max_key,
+                                         &expected_tuples);
+
       platform_status rc = test_btree_scan_once(cc,
                                                 btree_cfg,
                                                 root_addr,
                                                 type,
+                                                min_key,
+                                                max_key,
                                                 expected_tuples,
                                                 &init_elapsed_ns,
                                                 &scan_elapsed_ns,
@@ -435,7 +540,7 @@ test_btree_scan_benchmark_tree(cache        *cc,
    }
 
    test_btree_scan_perf_print_results(label,
-                                      scan_count,
+                                      options->scan_count,
                                       tuples_scanned,
                                       logical_bytes_scanned,
                                       init_elapsed_ns,
@@ -447,13 +552,31 @@ static platform_status
 test_btree_scan_perf(cache             *cc,
                      test_btree_config *cfg,
                      platform_heap_id   hid,
-                     uint64             target_tuples,
-                     uint64             scan_count)
+                     uint64             default_target_tuples,
+                     const btree_scan_perf_options *options,
+                     uint64             seed)
 {
    platform_default_log("btree_test: btree scan perf test started\n");
 
+   uint64 target_tuples = options->num_inserts_set ? options->num_inserts
+                                                   : default_target_tuples;
+   bool32 bounded_scans = options->scan_length != 0 || options->random_bounds;
+   test_key_type saved_key_type = cfg->type;
+   if (bounded_scans) {
+      cfg->type = TEST_SEQ;
+   }
+
+   platform_default_log("btree scan perf config: inserts=%lu, scans=%lu, "
+                        "scan_length=%lu, random_bounds=%u, key_type=%s\n",
+                        target_tuples,
+                        options->scan_count,
+                        options->scan_length,
+                        options->random_bounds,
+                        cfg->type == TEST_SEQ ? "seq" : "random");
+
    test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
    if (ctxt == NULL) {
+      cfg->type = saved_key_type;
       return STATUS_NO_MEMORY;
    }
    memtable     *mt        = &ctxt->mt_ctxt.mt[0];
@@ -471,7 +594,9 @@ test_btree_scan_perf(cache             *cc,
       rc = test_btree_insert(
          ctxt, key_buffer_key(&keybuf), merge_accumulator_to_message(&data));
       if (!SUCCESS(rc)) {
-         if (STATUS_IS_EQ(rc, STATUS_NO_SPACE) && inserted != 0) {
+         if (STATUS_IS_EQ(rc, STATUS_NO_SPACE) && inserted != 0
+             && !options->num_inserts_set)
+         {
             rc = STATUS_OK;
          }
          break;
@@ -502,11 +627,13 @@ test_btree_scan_perf(cache             *cc,
 
    uint64 root_addr = memtable_root_addr(mt);
    rc = test_btree_scan_benchmark_tree(cc,
+                                       ctxt,
                                        btree_cfg,
                                        root_addr,
                                        PAGE_TYPE_MEMTABLE,
                                        inserted,
-                                       scan_count,
+                                       options,
+                                       seed,
                                        "memtable");
    if (!SUCCESS(rc)) {
       goto out;
@@ -549,11 +676,13 @@ test_btree_scan_perf(cache             *cc,
    btree_pack_req_deinit(&req, hid);
 
    rc = test_btree_scan_benchmark_tree(cc,
+                                       ctxt,
                                        btree_cfg,
                                        packed_root_addr,
                                        PAGE_TYPE_BRANCH,
                                        inserted,
-                                       scan_count,
+                                       options,
+                                       seed,
                                        "packed branch");
    btree_dec_ref(cc, btree_cfg, packed_root_addr, PAGE_TYPE_BRANCH);
 
@@ -567,6 +696,7 @@ out:
 
    merge_accumulator_deinit(&data);
    test_memtable_context_destroy(ctxt, hid);
+   cfg->type = saved_key_type;
    return rc;
 }
 
@@ -1766,15 +1896,98 @@ destroy_btrees:
 }
 
 static void
+btree_scan_perf_options_default(btree_scan_perf_options *options)
+{
+   *options = (btree_scan_perf_options){
+      .scan_count      = BTREE_SCAN_BENCHMARK_SCAN_COUNT,
+      .scan_length     = 0,
+      .num_inserts     = 0,
+      .num_inserts_set = FALSE,
+      .random_bounds   = FALSE,
+   };
+}
+
+static platform_status
+btree_scan_perf_parse_args(int                      argc,
+                           char                    *argv[],
+                           btree_scan_perf_options *options,
+                           int                     *config_argc,
+                           char                  ***config_argv)
+{
+   char **filtered =
+      TYPED_ARRAY_MALLOC(platform_get_heap_id(), filtered, MAX(argc, 1));
+   if (filtered == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+
+   int filtered_count = 0;
+   for (int i = 0; i < argc; i++) {
+      if (STRING_EQUALS_LITERAL(argv[i], "--num-inserts")) {
+         if (i + 1 == argc
+             || !try_string_to_uint64(argv[++i], &options->num_inserts)
+             || options->num_inserts == 0)
+         {
+            platform_error_log(
+               "btree_test: failed to parse --num-inserts\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+         options->num_inserts_set = TRUE;
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--scan-count")) {
+         if (i + 1 == argc
+             || !try_string_to_uint64(argv[++i], &options->scan_count)
+             || options->scan_count == 0)
+         {
+            platform_error_log(
+               "btree_test: failed to parse --scan-count\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--scan-length")) {
+         if (i + 1 == argc
+             || !try_string_to_uint64(argv[++i], &options->scan_length))
+         {
+            platform_error_log(
+               "btree_test: failed to parse --scan-length\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--random-scan-bounds")
+                 || STRING_EQUALS_LITERAL(argv[i], "--random-scan-starts"))
+      {
+         options->random_bounds = TRUE;
+      } else {
+         filtered[filtered_count++] = argv[i];
+      }
+   }
+
+   *config_argc = filtered_count;
+   *config_argv = filtered;
+   return STATUS_OK;
+}
+
+static void
 usage(const char *argv0)
 {
    platform_error_log("Usage:\n"
                       "\t%s --max-async-inflight [num]\n"
                       "\t%s --perf\n"
-                      "\t%s --scan-perf\n",
+                      "\t%s --scan-perf [--num-inserts <count>] "
+                      "[--scan-count <count>]\n"
+                      "\t   [--scan-length <count>] "
+                      "[--random-scan-bounds]\n",
                       argv0,
                       argv0,
                       argv0);
+   platform_error_log("\nB-tree scan benchmark options:\n");
+   platform_error_log("\t--num-inserts          number of tuples to insert\n");
+   platform_error_log("\t--scan-count           number of scans to run "
+                      "(default %u)\n",
+                      BTREE_SCAN_BENCHMARK_SCAN_COUNT);
+   platform_error_log("\t--scan-length          returned tuples per scan "
+                      "(0 = full scan or random-length range)\n");
+   platform_error_log("\t--random-scan-bounds   choose fresh random bounds "
+                      "for each scan\n");
    config_usage();
 }
 
@@ -1790,8 +2003,11 @@ btree_test(int argc, char *argv[])
    uint64                 seed;
    task_system            ts;
    test_message_generator gen;
+   btree_scan_perf_options scan_options;
+   char                 **filtered_config_argv = NULL;
 
    platform_register_thread();
+   btree_scan_perf_options_default(&scan_options);
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test      = TRUE;
@@ -1823,6 +2039,18 @@ btree_test(int argc, char *argv[])
       }
       config_argc -= 2;
       config_argv += 2;
+   }
+   if (run_perf_test) {
+      rc = btree_scan_perf_parse_args(config_argc,
+                                      config_argv,
+                                      &scan_options,
+                                      &config_argc,
+                                      &filtered_config_argv);
+      if (!SUCCESS(rc)) {
+         usage(argv[0]);
+         return -1;
+      }
+      config_argv = filtered_config_argv;
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
@@ -1860,7 +2088,14 @@ btree_test(int argc, char *argv[])
        * Print usage so client can fix commandline.
        */
       usage(argv[0]);
+      if (filtered_config_argv != NULL) {
+         platform_free(platform_get_heap_id(), filtered_config_argv);
+      }
       goto cleanup;
+   }
+   if (filtered_config_argv != NULL) {
+      platform_free(platform_get_heap_id(), filtered_config_argv);
+      filtered_config_argv = NULL;
    }
 
    if (run_perf_test) {
@@ -1918,7 +2153,8 @@ btree_test(int argc, char *argv[])
                                 &test_cfg,
                                 hid,
                                 max_tuples_per_memtable,
-                                BTREE_SCAN_BENCHMARK_SCAN_COUNT);
+                                &scan_options,
+                                seed);
       platform_assert_status_ok(rc);
 
       if (!run_scan_perf_only) {
