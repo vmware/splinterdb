@@ -2307,7 +2307,7 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
                     state->callback,
                     state->callback_arg);
    state->node.page = cache_get_async_state_result(&state->cache_get_state);
-   state->node.hdr = (btree_hdr *)state->node.page->data;
+   state->node.hdr  = (btree_hdr *)state->node.page->data;
 
    for (state->h = btree_height(state->node.hdr);
         state->h > state->stop_at_height;
@@ -2425,8 +2425,8 @@ btree_lookup_with_ref(cache              *cc,        // IN
    bool32          found = FALSE;
 
    *found_key = NULL_KEY;
-   rc         = btree_lookup_node(
-      cc, cfg, root_addr, target, 0, type, TRUE, node, NULL);
+   rc =
+      btree_lookup_node(cc, cfg, root_addr, target, 0, type, TRUE, node, NULL);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -2579,12 +2579,52 @@ btree_iterator_curr_is_copy(btree_iterator *itor)
           && itor->curr.hdr == (btree_hdr *)itor->node_copy;
 }
 
+// helper function to find a key within a btree node
+// at a height specified by the iterator
 static inline int64
 find_key_in_node(btree_iterator *itor,
                  btree_hdr      *hdr,
                  key             target,
                  comparison      position_rule,
-                 bool32         *found);
+                 bool32         *found)
+{
+   bool32 loc_found;
+   if (found == NULL) {
+      found = &loc_found;
+   }
+
+   int64 tmp;
+   if (itor->height == 0) {
+      tmp = btree_find_tuple(itor->cfg, hdr, target, found);
+   } else if (itor->height > hdr->height) {
+      // so we will always exceed height in future lookups
+      itor->height = (uint32)-1;
+      *found       = FALSE;
+      return 0; // this iterator is invalid, so return 0 for all lookups
+   } else {
+      tmp = btree_find_pivot(itor->cfg, hdr, target, found);
+   }
+
+   switch (position_rule) {
+      case less_than:
+         if (*found) {
+            --tmp;
+         }
+         // fallthrough
+      case less_than_or_equal:
+         break;
+      case greater_than_or_equal:
+         if (!*found) {
+            ++tmp;
+         }
+         break;
+      case greater_than:
+         ++tmp;
+         break;
+   }
+   return tmp;
+}
+
 
 static inline void
 btree_iterator_copy_curr_if_needed(btree_iterator *itor)
@@ -2667,7 +2707,7 @@ btree_iterator_find_end_addr(btree_iterator *itor)
       return;
    }
 
-   btree_node end;
+   btree_node      end;
    platform_status rc = btree_lookup_node(itor->cc,
                                           itor->cfg,
                                           itor->root_addr,
@@ -2764,52 +2804,6 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
          NULL,
          slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
    }
-}
-
-// helper function to find a key within a btree node
-// at a height specified by the iterator
-static inline int64
-find_key_in_node(btree_iterator *itor,
-                 btree_hdr      *hdr,
-                 key             target,
-                 comparison      position_rule,
-                 bool32         *found)
-{
-   bool32 loc_found;
-   if (found == NULL) {
-      found = &loc_found;
-   }
-
-   int64 tmp;
-   if (itor->height == 0) {
-      tmp = btree_find_tuple(itor->cfg, hdr, target, found);
-   } else if (itor->height > hdr->height) {
-      // so we will always exceed height in future lookups
-      itor->height = (uint32)-1;
-      *found       = FALSE;
-      return 0; // this iterator is invalid, so return 0 for all lookups
-   } else {
-      tmp = btree_find_pivot(itor->cfg, hdr, target, found);
-   }
-
-   switch (position_rule) {
-      case less_than:
-         if (*found) {
-            --tmp;
-         }
-         // fallthrough
-      case less_than_or_equal:
-         break;
-      case greater_than_or_equal:
-         if (!*found) {
-            ++tmp;
-         }
-         break;
-      case greater_than:
-         ++tmp;
-         break;
-   }
-   return tmp;
 }
 
 static async_status
@@ -3319,8 +3313,7 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
 
    if (state->itor->copy_nodes) {
       /* Once we've found end, we can unclaim curr. */
-      btree_node_unclaim(
-         state->itor->cc, state->itor->cfg, &state->itor->curr);
+      btree_node_unclaim(state->itor->cc, state->itor->cfg, &state->itor->curr);
    }
 
    // find the index of the minimum key
