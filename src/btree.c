@@ -3208,43 +3208,32 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
                                           NULL);
    platform_assert_status_ok(rc);
 
-   /*
-    * We have to claim curr in order to prevent possible deadlocks
-    * with insertion threads while finding the end address.
-    *
-    * Note that we can't lookup end first because, if there's a split
-    * between looking up end and looking up curr, we could end up in a
-    * situation where end comes before curr in the tree!  (We could
-    * prevent this by holding a claim on end while looking up curr,
-    * but that would essentially be the same as the code below.)
-    *
-    * Note that the approach in advance (i.e. releasing and reaquiring
-    * a lock on curr) is not viable here because we are not
-    * necessarily searching for the 0th entry in curr.  Thus a split
-    * of curr while we have released it could mean that we really want
-    * to start at curr's right sibling (after the split).  So we'd
-    * have to redo the search from scratch after releasing curr.
-    *
-    * So we take a claim on curr instead.
-    */
-   while (!btree_node_claim(itor->cc, itor->cfg, &itor->curr)) {
-      btree_node_unget(itor->cc, itor->cfg, &itor->curr);
-      rc = btree_lookup_node(itor->cc,
-                             itor->cfg,
-                             itor->root_addr,
-                             target,
-                             itor->height,
-                             itor->page_type,
-                             TRUE,
-                             &itor->curr,
-                             NULL);
-      platform_assert_status_ok(rc);
+   if (itor->copy_nodes) {
+      /*
+       * copy_nodes is used for active memtables, where concurrent inserts can
+       * split curr while we find end. Claim curr so end cannot race behind us.
+       */
+      while (!btree_node_claim(itor->cc, itor->cfg, &itor->curr)) {
+         btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+         rc = btree_lookup_node(itor->cc,
+                                itor->cfg,
+                                itor->root_addr,
+                                target,
+                                itor->height,
+                                itor->page_type,
+                                TRUE,
+                                &itor->curr,
+                                NULL);
+         platform_assert_status_ok(rc);
+      }
    }
 
    btree_iterator_find_end_addr(itor);
 
-   /* Once we've found end, we can unclaim curr. */
-   btree_node_unclaim(itor->cc, itor->cfg, &itor->curr);
+   if (itor->copy_nodes) {
+      /* Once we've found end, we can unclaim curr. */
+      btree_node_unclaim(itor->cc, itor->cfg, &itor->curr);
+   }
 
    // find the index of the minimum key
    bool32 found;
@@ -3295,53 +3284,44 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
                   == ASYNC_STATUS_DONE);
    state->itor->curr = state->lookup_state.node;
 
-   /*
-    * We have to claim curr in order to prevent possible deadlocks
-    * with insertion threads while finding the end address.
-    *
-    * Note that we can't lookup end first because, if there's a split
-    * between looking up end and looking up curr, we could end up in a
-    * situation where end comes before curr in the tree!  (We could
-    * prevent this by holding a claim on end while looking up curr,
-    * but that would essentially be the same as the code below.)
-    *
-    * Note that the approach in advance (i.e. releasing and reaquiring
-    * a lock on curr) is not viable here because we are not
-    * necessarily searching for the 0th entry in curr.  Thus a split
-    * of curr while we have released it could mean that we really want
-    * to start at curr's right sibling (after the split).  So we'd
-    * have to redo the search from scratch after releasing curr.
-    *
-    * So we take a claim on curr instead.
-    */
-   while (
-      !btree_node_claim(state->itor->cc, state->itor->cfg, &state->itor->curr))
-   {
-      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
-      debug_assert(state->callback != NULL);
-      async_yield_after(state, state->callback(state->callback_arg));
-      btree_lookup_async_state_init(&state->lookup_state,
-                                    state->itor->cc,
-                                    state->itor->cfg,
-                                    state->itor->root_addr,
-                                    state->itor->page_type,
-                                    state->target,
-                                    NULL,
-                                    state->callback,
-                                    state->callback_arg);
-      state->lookup_state.stop_at_height = state->itor->height;
-      state->lookup_state.stats          = NULL;
-      state->lookup_state.get_node       = TRUE;
-      async_await(state,
-                  btree_lookup_node_async(&state->lookup_state, 0)
-                     == ASYNC_STATUS_DONE);
-      state->itor->curr = state->lookup_state.node;
+   if (state->itor->copy_nodes) {
+      /*
+       * copy_nodes is used for active memtables, where concurrent inserts can
+       * split curr while we find end. Claim curr so end cannot race behind us.
+       */
+      while (!btree_node_claim(
+         state->itor->cc, state->itor->cfg, &state->itor->curr))
+      {
+         btree_node_unget(
+            state->itor->cc, state->itor->cfg, &state->itor->curr);
+         debug_assert(state->callback != NULL);
+         async_yield_after(state, state->callback(state->callback_arg));
+         btree_lookup_async_state_init(&state->lookup_state,
+                                       state->itor->cc,
+                                       state->itor->cfg,
+                                       state->itor->root_addr,
+                                       state->itor->page_type,
+                                       state->target,
+                                       NULL,
+                                       state->callback,
+                                       state->callback_arg);
+         state->lookup_state.stop_at_height = state->itor->height;
+         state->lookup_state.stats          = NULL;
+         state->lookup_state.get_node       = TRUE;
+         async_await(state,
+                     btree_lookup_node_async(&state->lookup_state, 0)
+                        == ASYNC_STATUS_DONE);
+         state->itor->curr = state->lookup_state.node;
+      }
    }
 
    async_await_subroutine(state, btree_iterator_find_end_addr_async);
 
-   /* Once we've found end, we can unclaim curr. */
-   btree_node_unclaim(state->itor->cc, state->itor->cfg, &state->itor->curr);
+   if (state->itor->copy_nodes) {
+      /* Once we've found end, we can unclaim curr. */
+      btree_node_unclaim(
+         state->itor->cc, state->itor->cfg, &state->itor->curr);
+   }
 
    // find the index of the minimum key
    state->tmp = find_key_in_node(state->itor,
