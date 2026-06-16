@@ -620,6 +620,7 @@ laio_process_termination_callback(threadid pid, void *arg)
    io_process_context *pctx = &io->ctx[pid];
 
    if (pctx->state == PROCESS_CONTEXT_STATE_INITIALIZED) {
+      laio_cleanup(&io->super, 0);
       while (__sync_lock_test_and_set(&pctx->lock, 1)) {
          // spin
       }
@@ -627,7 +628,7 @@ laio_process_termination_callback(threadid pid, void *arg)
          __sync_lock_release(&pctx->lock);
          return;
       }
-      debug_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
+      platform_assert(pctx->io_count == 0, "io_count=%lu", pctx->io_count);
 
       pctx->state = PROCESS_CONTEXT_STATE_SHUTTING_DOWN;
       struct iocb     iocb;
