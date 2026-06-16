@@ -271,11 +271,11 @@ cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
 
 static inline void
 cache_get_async_state_init(page_get_async_state_buffer *buffer,
-                           cache                      *cc,
-                           uint64                      addr,
-                           page_type                   type,
-                           async_callback_fn           callback,
-                           void                       *callback_arg)
+                           cache                       *cc,
+                           uint64                       addr,
+                           page_type                    type,
+                           async_callback_fn            callback,
+                           void                        *callback_arg)
 {
    buffer->cc = cc;
    return cc->ops->page_get_async_state_init(
