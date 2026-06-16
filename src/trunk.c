@@ -919,19 +919,16 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
 
    platform_assert(state->pivot->child_addr != 0);
    state->child_handle.cc = state->context->cc;
-   cache_get_async_state_init(state->cache_get_state,
-                              state->context->cc,
-                              state->pivot->child_addr,
-                              PAGE_TYPE_TRUNK,
-                              state->callback,
-                              state->callback_arg);
-   while (cache_get_async(state->context->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE)
-   {
-      async_yield(state);
-   }
+   async_await_call(state,
+                    cache_get_async,
+                    &state->cache_get_state,
+                    state->context->cc,
+                    state->pivot->child_addr,
+                    PAGE_TYPE_TRUNK,
+                    state->callback,
+                    state->callback_arg);
    state->child_handle.header_page =
-      cache_get_async_state_result(state->context->cc, state->cache_get_state);
+      cache_get_async_state_result(&state->cache_get_state);
    if (state->child_handle.header_page == NULL) {
       platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       state->rc = STATUS_IO_ERROR;
@@ -1073,19 +1070,15 @@ trunk_ondisk_node_handle_setup_content_page_async(
    } else {
       uint64 addr = state->handlep->header_page->disk_addr + state->offset;
       addr -= (addr % page_size);
-      cache_get_async_state_init(state->cache_get_state,
-                                 state->handlep->cc,
-                                 addr,
-                                 PAGE_TYPE_TRUNK,
-                                 state->callback,
-                                 state->callback_arg);
-      while (cache_get_async(state->handlep->cc, state->cache_get_state)
-             != ASYNC_STATUS_DONE)
-      {
-         async_yield(state);
-      }
-      *state->page = cache_get_async_state_result(state->handlep->cc,
-                                                  state->cache_get_state);
+      async_await_call(state,
+                       cache_get_async,
+                       &state->cache_get_state,
+                       state->handlep->cc,
+                       addr,
+                       PAGE_TYPE_TRUNK,
+                       state->callback,
+                       state->callback_arg);
+      *state->page = cache_get_async_state_result(&state->cache_get_state);
       if (*state->page == NULL) {
          platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
          state->rc = STATUS_IO_ERROR;
@@ -2274,25 +2267,36 @@ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
       return STATUS_NO_MEMORY;
    }
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       iter,
-                       addr,
-                       type,
-                       greater_than_or_equal,
-                       merger->min_key,
-                       less_than,
-                       merger->max_key,
-                       greater_than_or_equal,
-                       merger->min_key,
-                       TRUE,
-                       merger->height);
-   platform_status rc = vector_append(&merger->itors, (iterator *)iter);
+   platform_status rc = btree_iterator_init(cc,
+                                            btree_cfg,
+                                            iter,
+                                            addr,
+                                            type,
+                                            greater_than_or_equal,
+                                            merger->min_key,
+                                            less_than,
+                                            merger->max_key,
+                                            greater_than_or_equal,
+                                            merger->min_key,
+                                            TRUE,
+                                            FALSE,
+                                            merger->height);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: btree_iterator_init() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      platform_free(merger->hid, iter);
+      return rc;
+   }
+   rc = vector_append(&merger->itors, (iterator *)iter);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_append() failed: %s",
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
+      btree_iterator_deinit(iter);
+      platform_free(merger->hid, iter);
    }
    return rc;
 }

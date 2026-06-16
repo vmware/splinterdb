@@ -17,12 +17,28 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
+#include "random.h"
 #include "task.h"
 
 #define TEST_MAX_ASYNC_INFLIGHT 63
 static uint64 max_async_inflight = 32;
 
+#define BTREE_SCAN_BENCHMARK_SCAN_COUNT (10)
+
 #include "poison.h"
+
+typedef struct btree_scan_perf_options {
+   uint64 scan_count;
+   uint64 scan_length;
+   uint64 num_inserts;
+   bool32 num_inserts_set;
+   bool32 random_bounds;
+   bool32 memtable_no_copy_nodes;
+   bool32 memtable_copy_nodes;
+} btree_scan_perf_options;
+
+static const char *
+btree_scan_perf_memtable_mode_string(const btree_scan_perf_options *options);
 
 typedef struct test_btree_config {
    memtable_config        *mt_cfg;
@@ -307,6 +323,417 @@ destroy_btrees:
    platform_free(hid, params);
 
    return ret;
+}
+
+static void
+test_btree_scan_perf_print_results(const char *label,
+                                   uint64      scan_count,
+                                   uint64      tuples_scanned,
+                                   uint64      logical_bytes_scanned,
+                                   uint64      init_elapsed_ns,
+                                   uint64      scan_elapsed_ns)
+{
+   double ns_per_tuple =
+      tuples_scanned == 0 ? 0.0 : (double)scan_elapsed_ns / tuples_scanned;
+   double tuples_per_sec =
+      scan_elapsed_ns == 0
+         ? 0.0
+         : ((double)tuples_scanned * BILLION) / scan_elapsed_ns;
+   double logical_mib_per_sec =
+      scan_elapsed_ns == 0
+         ? 0.0
+         : ((double)logical_bytes_scanned * BILLION) / scan_elapsed_ns / MiB;
+
+   platform_default_log("btree scan perf %s: %lu scans, %lu tuples, "
+                        "%.2f ns/tuple, %.2f tuples/s, %.2f MiB/s logical, "
+                        "%.2f ns iterator init\n",
+                        label,
+                        scan_count,
+                        tuples_scanned,
+                        ns_per_tuple,
+                        tuples_per_sec,
+                        logical_mib_per_sec,
+                        scan_count == 0 ? 0.0
+                                        : (double)init_elapsed_ns / scan_count);
+}
+
+static platform_status
+test_btree_scan_once(cache        *cc,
+                     btree_config *btree_cfg,
+                     uint64        root_addr,
+                     page_type     type,
+                     key           min_key,
+                     key           max_key,
+                     bool32        copy_nodes,
+                     uint64        expected_tuples,
+                     uint64       *init_elapsed_ns,
+                     uint64       *scan_elapsed_ns,
+                     uint64       *tuples_scanned,
+                     uint64       *logical_bytes_scanned)
+{
+   btree_iterator  itor;
+   timestamp       start_time = platform_get_timestamp();
+   platform_status rc         = btree_iterator_init(cc,
+                                            btree_cfg,
+                                            &itor,
+                                            root_addr,
+                                            type,
+                                            greater_than_or_equal,
+                                            min_key,
+                                            less_than,
+                                            max_key,
+                                            greater_than_or_equal,
+                                            min_key,
+                                            FALSE,
+                                            copy_nodes,
+                                            0);
+   *init_elapsed_ns += platform_timestamp_elapsed(start_time);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc                 = STATUS_OK;
+   start_time         = platform_get_timestamp();
+   uint64 scan_tuples = 0;
+   while (iterator_can_curr(&itor.super)) {
+      key     curr_key;
+      message data;
+      iterator_curr(&itor.super, &curr_key, &data);
+
+      *logical_bytes_scanned += key_length(curr_key) + message_length(data);
+      scan_tuples++;
+      (*tuples_scanned)++;
+
+      rc = iterator_next(&itor.super);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+   }
+   *scan_elapsed_ns += platform_timestamp_elapsed(start_time);
+   btree_iterator_deinit(&itor);
+
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (scan_tuples != expected_tuples) {
+      platform_error_log("btree scan expected %lu tuples, saw %lu in last "
+                         "scan\n",
+                         expected_tuples,
+                         scan_tuples);
+      return STATUS_TEST_FAILED;
+   }
+   return STATUS_OK;
+}
+
+static void
+test_btree_scan_perf_key_at(test_memtable_context *ctxt,
+                            key_buffer            *keybuf,
+                            uint64                 tuple_no,
+                            uint64                 tuple_count,
+                            bool32                 lower_bound,
+                            key                   *bound_key)
+{
+   if (lower_bound && tuple_no == 0) {
+      *bound_key = NEGATIVE_INFINITY_KEY;
+   } else if (!lower_bound && tuple_no == tuple_count) {
+      *bound_key = POSITIVE_INFINITY_KEY;
+   } else {
+      test_btree_tuple(ctxt, keybuf, NULL, tuple_no, 0);
+      *bound_key = key_buffer_key(keybuf);
+   }
+}
+
+static void
+test_btree_scan_perf_choose_bounds(test_memtable_context         *ctxt,
+                                   const btree_scan_perf_options *options,
+                                   random_state                  *rs,
+                                   uint64                         tuple_count,
+                                   key_buffer                    *min_keybuf,
+                                   key_buffer                    *max_keybuf,
+                                   key                           *min_key,
+                                   key                           *max_key,
+                                   uint64 *expected_tuples)
+{
+   uint64 start_tuple = 0;
+   uint64 end_tuple   = tuple_count;
+
+   if (options->random_bounds) {
+      if (options->scan_length != 0) {
+         uint64 length    = options->scan_length < tuple_count
+                               ? options->scan_length
+                               : tuple_count;
+         uint64 max_start = tuple_count - length;
+         start_tuple =
+            max_start == 0 ? 0 : random_next_uint64(rs) % (max_start + 1);
+         end_tuple = start_tuple + length;
+      } else {
+         uint64 first  = random_next_uint64(rs) % (tuple_count + 1);
+         uint64 second = random_next_uint64(rs) % (tuple_count + 1);
+         if (first > second) {
+            uint64 tmp = first;
+            first      = second;
+            second     = tmp;
+         }
+         if (first == second) {
+            if (second < tuple_count) {
+               second++;
+            } else {
+               first--;
+            }
+         }
+         start_tuple = first;
+         end_tuple   = second;
+      }
+   } else if (options->scan_length != 0) {
+      end_tuple = options->scan_length < tuple_count ? options->scan_length
+                                                     : tuple_count;
+   }
+
+   *expected_tuples = end_tuple - start_tuple;
+   test_btree_scan_perf_key_at(
+      ctxt, min_keybuf, start_tuple, tuple_count, TRUE, min_key);
+   test_btree_scan_perf_key_at(
+      ctxt, max_keybuf, end_tuple, tuple_count, FALSE, max_key);
+}
+
+static platform_status
+test_btree_scan_benchmark_tree(cache                         *cc,
+                               test_memtable_context         *ctxt,
+                               btree_config                  *btree_cfg,
+                               uint64                         root_addr,
+                               page_type                      type,
+                               uint64                         tuple_count,
+                               const btree_scan_perf_options *options,
+                               uint64                         seed,
+                               bool32                         copy_nodes,
+                               const char                    *label)
+{
+   uint64 init_elapsed_ns       = 0;
+   uint64 scan_elapsed_ns       = 0;
+   uint64 tuples_scanned        = 0;
+   uint64 logical_bytes_scanned = 0;
+
+   DECLARE_AUTO_KEY_BUFFER(min_keybuf, ctxt->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(max_keybuf, ctxt->heap_id);
+
+   random_state rs;
+   random_init(&rs, seed ^ 0x6eed0e9da4d94a4fULL, 0);
+
+   for (uint64 scan_no = 0; scan_no < options->scan_count; scan_no++) {
+      key    min_key;
+      key    max_key;
+      uint64 expected_tuples;
+      test_btree_scan_perf_choose_bounds(ctxt,
+                                         options,
+                                         &rs,
+                                         tuple_count,
+                                         &min_keybuf,
+                                         &max_keybuf,
+                                         &min_key,
+                                         &max_key,
+                                         &expected_tuples);
+
+      platform_status rc = test_btree_scan_once(cc,
+                                                btree_cfg,
+                                                root_addr,
+                                                type,
+                                                min_key,
+                                                max_key,
+                                                copy_nodes,
+                                                expected_tuples,
+                                                &init_elapsed_ns,
+                                                &scan_elapsed_ns,
+                                                &tuples_scanned,
+                                                &logical_bytes_scanned);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   test_btree_scan_perf_print_results(label,
+                                      options->scan_count,
+                                      tuples_scanned,
+                                      logical_bytes_scanned,
+                                      init_elapsed_ns,
+                                      scan_elapsed_ns);
+   return STATUS_OK;
+}
+
+static platform_status
+test_btree_scan_perf(cache                         *cc,
+                     test_btree_config             *cfg,
+                     platform_heap_id               hid,
+                     uint64                         default_target_tuples,
+                     const btree_scan_perf_options *options,
+                     uint64                         seed)
+{
+   platform_default_log("btree_test: btree scan perf test started\n");
+
+   uint64 target_tuples =
+      options->num_inserts_set ? options->num_inserts : default_target_tuples;
+   bool32 bounded_scans = options->scan_length != 0 || options->random_bounds;
+   test_key_type saved_key_type = cfg->type;
+   if (bounded_scans) {
+      cfg->type = TEST_SEQ;
+   }
+
+   platform_default_log("btree scan perf config: inserts=%lu, scans=%lu, "
+                        "scan_length=%lu, random_bounds=%u, key_type=%s, "
+                        "memtable_scan_mode=%s\n",
+                        target_tuples,
+                        options->scan_count,
+                        options->scan_length,
+                        options->random_bounds,
+                        cfg->type == TEST_SEQ ? "seq" : "random",
+                        btree_scan_perf_memtable_mode_string(options));
+
+   test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
+   if (ctxt == NULL) {
+      cfg->type = saved_key_type;
+      return STATUS_NO_MEMORY;
+   }
+   memtable     *mt        = &ctxt->mt_ctxt.mt[0];
+   btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, ctxt->heap_id);
+   merge_accumulator data;
+   merge_accumulator_init(&data, ctxt->heap_id);
+
+   platform_status rc = STATUS_OK;
+   uint64          inserted;
+   timestamp       start_time = platform_get_timestamp();
+   for (inserted = 0; inserted < target_tuples; inserted++) {
+      test_btree_tuple(ctxt, &keybuf, &data, inserted, 0);
+      rc = test_btree_insert(
+         ctxt, key_buffer_key(&keybuf), merge_accumulator_to_message(&data));
+      if (!SUCCESS(rc)) {
+         if (STATUS_IS_EQ(rc, STATUS_NO_SPACE) && inserted != 0
+             && !options->num_inserts_set)
+         {
+            rc = STATUS_OK;
+         }
+         break;
+      }
+   }
+   uint64 load_elapsed_ns = platform_timestamp_elapsed(start_time);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   if (inserted == 0) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   platform_default_log("btree scan perf loaded %lu tuples in %lu ns "
+                        "(%.2f tuples/s)\n",
+                        inserted,
+                        load_elapsed_ns,
+                        load_elapsed_ns == 0
+                           ? 0.0
+                           : ((double)inserted * BILLION) / load_elapsed_ns);
+
+   if (!memtable_verify(cc, mt)) {
+      memtable_print(Platform_default_log_handle, cc, mt);
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   uint64 root_addr = memtable_root_addr(mt);
+   if (options->memtable_no_copy_nodes) {
+      rc = test_btree_scan_benchmark_tree(cc,
+                                          ctxt,
+                                          btree_cfg,
+                                          root_addr,
+                                          PAGE_TYPE_MEMTABLE,
+                                          inserted,
+                                          options,
+                                          seed,
+                                          FALSE,
+                                          "memtable no-copy-nodes");
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+   }
+   if (options->memtable_copy_nodes) {
+      rc = test_btree_scan_benchmark_tree(cc,
+                                          ctxt,
+                                          btree_cfg,
+                                          root_addr,
+                                          PAGE_TYPE_MEMTABLE,
+                                          inserted,
+                                          options,
+                                          seed,
+                                          TRUE,
+                                          "memtable copy-nodes");
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+   }
+
+   btree_iterator itor;
+   rc = btree_iterator_init(cc,
+                            btree_cfg,
+                            &itor,
+                            root_addr,
+                            PAGE_TYPE_MEMTABLE,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            less_than,
+                            POSITIVE_INFINITY_KEY,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            FALSE,
+                            FALSE,
+                            0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+
+   btree_pack_req req;
+   rc = btree_pack_req_init(
+      &req, cc, btree_cfg, (iterator *)&itor, 0, 0, FALSE, hid);
+   if (!SUCCESS(rc)) {
+      btree_iterator_deinit(&itor);
+      goto out;
+   }
+
+   start_time = platform_get_timestamp();
+   rc         = btree_pack(&req);
+   btree_iterator_deinit(&itor);
+   if (!SUCCESS(rc)) {
+      btree_pack_req_deinit(&req, hid);
+      goto out;
+   }
+
+   uint64 packed_root_addr = req.root_addr;
+   platform_default_log("btree scan perf packed tree in %lu ns\n",
+                        platform_timestamp_elapsed(start_time));
+   btree_pack_req_deinit(&req, hid);
+
+   rc = test_btree_scan_benchmark_tree(cc,
+                                       ctxt,
+                                       btree_cfg,
+                                       packed_root_addr,
+                                       PAGE_TYPE_BRANCH,
+                                       inserted,
+                                       options,
+                                       seed,
+                                       FALSE,
+                                       "packed branch");
+   btree_dec_ref(cc, btree_cfg, packed_root_addr, PAGE_TYPE_BRANCH);
+
+out:
+   if (SUCCESS(rc)) {
+      platform_default_log("btree_test: btree scan perf test succeeded\n");
+   } else {
+      platform_default_log("btree_test: btree scan perf test failed\n");
+   }
+   platform_default_log("\n");
+
+   merge_accumulator_deinit(&data);
+   test_memtable_context_destroy(ctxt, hid);
+   cfg->type = saved_key_type;
+   return rc;
 }
 
 // A single async context
@@ -641,19 +1068,21 @@ test_btree_basic(cache             *cc,
    uint64         root_addr = memtable_root_addr(mt);
    btree_iterator itor;
    start_time = platform_get_timestamp();
-   btree_iterator_init(cc,
-                       btree_cfg,
-                       &itor,
-                       root_addr,
-                       PAGE_TYPE_MEMTABLE,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       less_than,
-                       POSITIVE_INFINITY_KEY,
-                       greater_than_or_equal,
-                       NEGATIVE_INFINITY_KEY,
-                       FALSE,
-                       0);
+   rc         = btree_iterator_init(cc,
+                            btree_cfg,
+                            &itor,
+                            root_addr,
+                            PAGE_TYPE_MEMTABLE,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            less_than,
+                            POSITIVE_INFINITY_KEY,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            FALSE,
+                            FALSE,
+                            0);
+   platform_assert_status_ok(rc);
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
    btree_pack_req req;
@@ -824,19 +1253,21 @@ test_btree_create_packed_trees(cache             *cc,
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
       memtable      *mt = &ctxt->mt_ctxt.mt[tree_no];
       btree_iterator itor;
-      btree_iterator_init(cc,
-                          btree_cfg,
-                          &itor,
-                          memtable_root_addr(mt),
-                          PAGE_TYPE_MEMTABLE,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          less_than,
-                          POSITIVE_INFINITY_KEY,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          FALSE,
-                          0);
+      rc = btree_iterator_init(cc,
+                               btree_cfg,
+                               &itor,
+                               memtable_root_addr(mt),
+                               PAGE_TYPE_MEMTABLE,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               less_than,
+                               POSITIVE_INFINITY_KEY,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               FALSE,
+                               FALSE,
+                               0);
+      platform_assert_status_ok(rc);
 
       btree_pack_req req;
       rc = btree_pack_req_init(
@@ -880,19 +1311,23 @@ test_count_tuples_in_range(cache        *cc,
                           PAGE_TYPE_BRANCH);
          platform_assert(0);
       }
-      btree_iterator_init(cc,
-                          cfg,
-                          &itor,
-                          root_addr[i],
-                          type,
-                          greater_than_or_equal,
-                          low_key,
-                          less_than,
-                          high_key,
-                          greater_than_or_equal,
-                          low_key,
-                          TRUE,
-                          0);
+      rc = btree_iterator_init(cc,
+                               cfg,
+                               &itor,
+                               root_addr[i],
+                               type,
+                               greater_than_or_equal,
+                               low_key,
+                               less_than,
+                               high_key,
+                               greater_than_or_equal,
+                               low_key,
+                               TRUE,
+                               FALSE,
+                               0);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       key last_key = NULL_KEY;
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
@@ -975,19 +1410,21 @@ test_btree_print_all_keys(cache        *cc,
    uint64         i;
    for (i = 0; i < num_trees; i++) {
       platform_default_log("tree number %lu\n", i);
-      btree_iterator_init(cc,
-                          cfg,
-                          &itor,
-                          root_addr[i],
-                          type,
-                          greater_than_or_equal,
-                          low_key,
-                          less_than,
-                          high_key,
-                          greater_than_or_equal,
-                          low_key,
-                          TRUE,
-                          0);
+      platform_status rc = btree_iterator_init(cc,
+                                               cfg,
+                                               &itor,
+                                               root_addr[i],
+                                               type,
+                                               greater_than_or_equal,
+                                               low_key,
+                                               less_than,
+                                               high_key,
+                                               greater_than_or_equal,
+                                               low_key,
+                                               TRUE,
+                                               FALSE,
+                                               0);
+      platform_assert_status_ok(rc);
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
          message data;
@@ -1052,19 +1489,21 @@ test_btree_merge_basic(cache             *cc,
       key lo = key_buffer_key(&pivot_key[pivot_no]);
       key hi = key_buffer_key(&pivot_key[pivot_no + 1]);
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-         btree_iterator_init(cc,
-                             btree_cfg,
-                             &btree_itor_arr[tree_no],
-                             root_addr[tree_no],
-                             PAGE_TYPE_BRANCH,
-                             greater_than_or_equal,
-                             lo,
-                             less_than,
-                             hi,
-                             greater_than_or_equal,
-                             lo,
-                             TRUE,
-                             0);
+         rc = btree_iterator_init(cc,
+                                  btree_cfg,
+                                  &btree_itor_arr[tree_no],
+                                  root_addr[tree_no],
+                                  PAGE_TYPE_BRANCH,
+                                  greater_than_or_equal,
+                                  lo,
+                                  less_than,
+                                  hi,
+                                  greater_than_or_equal,
+                                  lo,
+                                  TRUE,
+                                  FALSE,
+                                  0);
+         platform_assert_status_ok(rc);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
@@ -1273,19 +1712,21 @@ test_btree_rough_iterator(cache             *cc,
    platform_assert(rough_itor);
 
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
-      btree_iterator_init(cc,
-                          btree_cfg,
-                          &rough_btree_itor[tree_no],
-                          root_addr[tree_no],
-                          PAGE_TYPE_BRANCH,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          less_than,
-                          POSITIVE_INFINITY_KEY,
-                          greater_than_or_equal,
-                          NEGATIVE_INFINITY_KEY,
-                          TRUE,
-                          1);
+      rc = btree_iterator_init(cc,
+                               btree_cfg,
+                               &rough_btree_itor[tree_no],
+                               root_addr[tree_no],
+                               PAGE_TYPE_BRANCH,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               less_than,
+                               POSITIVE_INFINITY_KEY,
+                               greater_than_or_equal,
+                               NEGATIVE_INFINITY_KEY,
+                               TRUE,
+                               TRUE,
+                               1);
+      platform_assert_status_ok(rc);
       if (iterator_can_curr(&rough_btree_itor[tree_no].super)) {
          key     curr_key;
          message msg;
@@ -1370,6 +1811,9 @@ test_btree_rough_iterator(cache             *cc,
       key_buffer_deinit(&pivot[i]);
    }
    platform_free(hid, pivot);
+   for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
+      btree_iterator_deinit(&rough_btree_itor[tree_no]);
+   }
    platform_free(hid, rough_btree_itor);
    platform_free(hid, rough_itor);
 
@@ -1434,19 +1878,21 @@ test_btree_merge_perf(cache             *cc,
          key max_key = key_buffer_key(&pivot_key[pivot_no + 1]);
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             uint64 global_tree_no = merge_no * num_merges + tree_no;
-            btree_iterator_init(cc,
-                                btree_cfg,
-                                &btree_itor_arr[tree_no],
-                                root_addr[global_tree_no],
-                                PAGE_TYPE_BRANCH,
-                                greater_than_or_equal,
-                                min_key,
-                                less_than,
-                                max_key,
-                                greater_than_or_equal,
-                                min_key,
-                                TRUE,
-                                0);
+            rc                    = btree_iterator_init(cc,
+                                     btree_cfg,
+                                     &btree_itor_arr[tree_no],
+                                     root_addr[global_tree_no],
+                                     PAGE_TYPE_BRANCH,
+                                     greater_than_or_equal,
+                                     min_key,
+                                     less_than,
+                                     max_key,
+                                     greater_than_or_equal,
+                                     min_key,
+                                     TRUE,
+                                     FALSE,
+                                     0);
+            platform_assert_status_ok(rc);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;
@@ -1505,38 +1951,180 @@ destroy_btrees:
 }
 
 static void
+btree_scan_perf_options_default(btree_scan_perf_options *options)
+{
+   *options = (btree_scan_perf_options){
+      .scan_count             = BTREE_SCAN_BENCHMARK_SCAN_COUNT,
+      .scan_length            = 0,
+      .num_inserts            = 0,
+      .num_inserts_set        = FALSE,
+      .random_bounds          = FALSE,
+      .memtable_no_copy_nodes = TRUE,
+      .memtable_copy_nodes    = TRUE,
+   };
+}
+
+static const char *
+btree_scan_perf_memtable_mode_string(const btree_scan_perf_options *options)
+{
+   if (options->memtable_no_copy_nodes && options->memtable_copy_nodes) {
+      return "both";
+   }
+   if (options->memtable_no_copy_nodes) {
+      return "no-copy-nodes";
+   }
+   return "copy-nodes";
+}
+
+static platform_status
+btree_scan_perf_parse_args(int                      argc,
+                           char                    *argv[],
+                           btree_scan_perf_options *options,
+                           int                     *config_argc,
+                           char                  ***config_argv)
+{
+   char **filtered =
+      TYPED_ARRAY_MALLOC(platform_get_heap_id(), filtered, MAX(argc, 1));
+   if (filtered == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+
+   int filtered_count = 0;
+   for (int i = 0; i < argc; i++) {
+      if (STRING_EQUALS_LITERAL(argv[i], "--num-inserts")) {
+         if (i + 1 == argc
+             || !try_string_to_uint64(argv[++i], &options->num_inserts)
+             || options->num_inserts == 0)
+         {
+            platform_error_log("btree_test: failed to parse --num-inserts\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+         options->num_inserts_set = TRUE;
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--scan-count")) {
+         if (i + 1 == argc
+             || !try_string_to_uint64(argv[++i], &options->scan_count)
+             || options->scan_count == 0)
+         {
+            platform_error_log("btree_test: failed to parse --scan-count\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--scan-length")) {
+         if (i + 1 == argc
+             || !try_string_to_uint64(argv[++i], &options->scan_length))
+         {
+            platform_error_log("btree_test: failed to parse --scan-length\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--random-scan-bounds")
+                 || STRING_EQUALS_LITERAL(argv[i], "--random-scan-starts"))
+      {
+         options->random_bounds = TRUE;
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--memtable-scan-mode")) {
+         if (i + 1 == argc) {
+            platform_error_log(
+               "btree_test: failed to parse --memtable-scan-mode\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+         i++;
+         if (STRING_EQUALS_LITERAL(argv[i], "both")) {
+            options->memtable_no_copy_nodes = TRUE;
+            options->memtable_copy_nodes    = TRUE;
+         } else if (STRING_EQUALS_LITERAL(argv[i], "no-copy-nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "no_copy_nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "non-copy-nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "non_copy_nodes"))
+         {
+            options->memtable_no_copy_nodes = TRUE;
+            options->memtable_copy_nodes    = FALSE;
+         } else if (STRING_EQUALS_LITERAL(argv[i], "copy-nodes")
+                    || STRING_EQUALS_LITERAL(argv[i], "copy_nodes"))
+         {
+            options->memtable_no_copy_nodes = FALSE;
+            options->memtable_copy_nodes    = TRUE;
+         } else {
+            platform_error_log(
+               "btree_test: invalid --memtable-scan-mode '%s'\n", argv[i]);
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+      } else {
+         filtered[filtered_count++] = argv[i];
+      }
+   }
+
+   *config_argc = filtered_count;
+   *config_argv = filtered;
+   return STATUS_OK;
+}
+
+static void
 usage(const char *argv0)
 {
    platform_error_log("Usage:\n"
                       "\t%s --max-async-inflight [num]\n"
-                      "\t%s --perf\n",
+                      "\t%s --perf\n"
+                      "\t%s --scan-perf [--num-inserts <count>] "
+                      "[--scan-count <count>]\n"
+                      "\t   [--scan-length <count>] "
+                      "[--random-scan-bounds]\n"
+                      "\t   [--memtable-scan-mode "
+                      "<both|no-copy-nodes|copy-nodes>]\n",
+                      argv0,
                       argv0,
                       argv0);
+   platform_error_log("\nB-tree scan benchmark options:\n");
+   platform_error_log("\t--num-inserts          number of tuples to insert\n");
+   platform_error_log("\t--scan-count           number of scans to run "
+                      "(default %u)\n",
+                      BTREE_SCAN_BENCHMARK_SCAN_COUNT);
+   platform_error_log("\t--scan-length          returned tuples per scan "
+                      "(0 = full scan or random-length range)\n");
+   platform_error_log("\t--random-scan-bounds   choose fresh random bounds "
+                      "for each scan\n");
+   platform_error_log("\t--memtable-scan-mode   choose which memtable "
+                      "iterator mode(s) to benchmark (default both)\n");
    config_usage();
 }
 
 int
 btree_test(int argc, char *argv[])
 {
-   system_config          system_cfg;
-   int                    config_argc;
-   char                 **config_argv;
-   bool32                 run_perf_test;
-   platform_status        rc;
-   uint64                 seed;
-   task_system            ts;
-   test_message_generator gen;
+   system_config           system_cfg;
+   int                     config_argc;
+   char                  **config_argv;
+   bool32                  run_perf_test;
+   bool32                  run_scan_perf_only;
+   platform_status         rc;
+   uint64                  seed;
+   task_system             ts;
+   test_message_generator  gen;
+   btree_scan_perf_options scan_options;
+   char                  **filtered_config_argv = NULL;
 
    platform_register_thread();
+   btree_scan_perf_options_default(&scan_options);
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
-      run_perf_test = TRUE;
-      config_argc   = argc - 2;
-      config_argv   = argv + 2;
+      run_perf_test      = TRUE;
+      run_scan_perf_only = FALSE;
+      config_argc        = argc - 2;
+      config_argv        = argv + 2;
+   } else if (argc > 1
+              && strncmp(argv[1], "--scan-perf", sizeof("--scan-perf")) == 0)
+   {
+      run_perf_test      = TRUE;
+      run_scan_perf_only = TRUE;
+      config_argc        = argc - 2;
+      config_argv        = argv + 2;
    } else {
-      run_perf_test = FALSE;
-      config_argc   = argc - 1;
-      config_argv   = argv + 1;
+      run_perf_test      = FALSE;
+      run_scan_perf_only = FALSE;
+      config_argc        = argc - 1;
+      config_argv        = argv + 1;
    }
    if (config_argc > 0
        && strncmp(config_argv[0],
@@ -1550,6 +2138,18 @@ btree_test(int argc, char *argv[])
       }
       config_argc -= 2;
       config_argv += 2;
+   }
+   if (run_perf_test) {
+      rc = btree_scan_perf_parse_args(config_argc,
+                                      config_argv,
+                                      &scan_options,
+                                      &config_argc,
+                                      &filtered_config_argv);
+      if (!SUCCESS(rc)) {
+         usage(argv[0]);
+         return -1;
+      }
+      config_argv = filtered_config_argv;
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
@@ -1587,7 +2187,14 @@ btree_test(int argc, char *argv[])
        * Print usage so client can fix commandline.
        */
       usage(argv[0]);
+      if (filtered_config_argv != NULL) {
+         platform_free(platform_get_heap_id(), filtered_config_argv);
+      }
       goto cleanup;
+   }
+   if (filtered_config_argv != NULL) {
+      platform_free(platform_get_heap_id(), filtered_config_argv);
+      filtered_config_argv = NULL;
    }
 
    if (run_perf_test) {
@@ -1641,13 +2248,19 @@ btree_test(int argc, char *argv[])
       * cache_config_extent_size((cache_config *)&system_cfg.cache_cfg) / 3
       / (workload_cfg.key_size + generator_average_message_size(&gen));
    if (run_perf_test) {
-      uint64 total_inserts = 64 * max_tuples_per_memtable;
-
-      rc = test_btree_perf(ccp, &test_cfg, total_inserts, 10, 128, &ts, hid);
+      rc = test_btree_scan_perf(
+         ccp, &test_cfg, hid, max_tuples_per_memtable, &scan_options, seed);
       platform_assert_status_ok(rc);
 
-      rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
-      platform_assert_status_ok(rc);
+      if (!run_scan_perf_only) {
+         uint64 total_inserts = 64 * max_tuples_per_memtable;
+
+         rc = test_btree_perf(ccp, &test_cfg, total_inserts, 10, 128, &ts, hid);
+         platform_assert_status_ok(rc);
+
+         rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
+         platform_assert_status_ok(rc);
+      }
    } else {
       uint64 total_inserts =
          max_tuples_per_memtable - (MAX_THREADS * (64 / sizeof(uint32)));

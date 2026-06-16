@@ -11,6 +11,20 @@
 // #define CTEST_NO_COLORS
 // #define CTEST_COLOR_OK
 
+#ifdef __has_feature
+#   if __has_feature(address_sanitizer)
+#      define CTEST_ADDRESS_SANITIZER 1
+#   endif
+#endif
+
+#ifdef __SANITIZE_ADDRESS__
+#   define CTEST_ADDRESS_SANITIZER 1
+#endif
+
+#if defined(CTEST_SEGFAULT) && !defined(CTEST_ADDRESS_SANITIZER)
+#   define CTEST_USE_SEGFAULT_HANDLER 1
+#endif
+
 #include <setjmp.h>
 #include <stdarg.h>
 #include <string.h>
@@ -122,7 +136,7 @@ color_print(const char *color, const char *text);
  * CTest Signal handler:
  * ---------------------------------------------------------------------------
  */
-#ifdef CTEST_SEGFAULT
+#ifdef CTEST_USE_SEGFAULT_HANDLER
 #   include <signal.h>
 static void
 sighandler(int signum)
@@ -146,7 +160,7 @@ sighandler(int signum)
    signal(signum, SIG_DFL);
    kill(platform_get_os_pid(), signum);
 }
-#endif // CTEST_SEGFAULT
+#endif // CTEST_USE_SEGFAULT_HANDLER
 
 /*
  * ---------------------------------------------------------------------------
@@ -174,7 +188,7 @@ ctest_main(int argc, const char *argv[])
    static int               idx      = 1;
    static ctest_filter_func filter   = suite_all;
 
-#ifdef CTEST_SEGFAULT
+#ifdef CTEST_USE_SEGFAULT_HANDLER
    signal(SIGSEGV, sighandler);
 #endif
 
