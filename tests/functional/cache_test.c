@@ -611,7 +611,7 @@ test_wait_inflight(test_params *params,
                cache_cleanup(params->cc);
             } else if (ctxt->status == ready_to_continue) {
                ctxt->status     = waiting_on_io;
-               async_status res = cache_get_async(params->cc, ctxt->buffer);
+               async_status res = cache_get_async(&ctxt->buffer);
                if (res == ASYNC_STATUS_DONE) {
                   ctxt->status = done;
                }
@@ -620,7 +620,7 @@ test_wait_inflight(test_params *params,
 
          platform_assert(params->handle_arr[batch_start + j] == NULL);
          params->handle_arr[batch_start + j] =
-            cache_get_async_state_result(params->cc, ctxt->buffer);
+            cache_get_async_state_result(&ctxt->buffer);
       }
 
       platform_assert(params->handle_arr[batch_start + j]->disk_addr
@@ -650,18 +650,18 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
          platform_assert(handle_arr[j] != NULL);
          ctxt->status = done;
       } else {
-         cache_get_async_state_init(ctxt->buffer,
+         cache_get_async_state_init(&ctxt->buffer,
                                     cc,
                                     addr_arr[j],
                                     PAGE_TYPE_MISC,
                                     test_async_callback,
                                     &params->ctxt[j]);
          ctxt->status = waiting_on_io;
-         res          = cache_get_async(cc, ctxt->buffer);
+         res          = cache_get_async(&ctxt->buffer);
          switch (res) {
             case ASYNC_STATUS_DONE:
                platform_assert(handle_arr[j] == NULL);
-               handle_arr[j] = cache_get_async_state_result(cc, ctxt->buffer);
+               handle_arr[j] = cache_get_async_state_result(&ctxt->buffer);
                platform_assert(handle_arr[j] != NULL);
                ctxt->status = done;
                break;

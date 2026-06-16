@@ -106,16 +106,26 @@ typedef page_handle *(*page_get_fn)(cache    *cc,
                                     page_type type);
 
 #define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (2048)
-typedef uint8 page_get_async_state_buffer[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
-typedef void (*page_get_async_state_init_fn)(page_get_async_state_buffer buffer,
-                                             cache                      *cc,
-                                             uint64                      addr,
-                                             page_type                   type,
+typedef union page_get_async_state_payload {
+   uint8       bytes[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
+   uint64      align_uint64;
+   void       *align_ptr;
+   long double align_long_double;
+} page_get_async_state_payload;
+
+typedef struct page_get_async_state_buffer {
+   cache                       *cc;
+   page_get_async_state_payload payload;
+} page_get_async_state_buffer;
+
+typedef void (*page_get_async_state_init_fn)(void             *payload,
+                                             cache            *cc,
+                                             uint64            addr,
+                                             page_type         type,
                                              async_callback_fn callback,
                                              void             *callback_arg);
-typedef async_status (*page_get_async_fn)(page_get_async_state_buffer buffer);
-typedef page_handle *(*page_get_async_state_result_fn)(
-   page_get_async_state_buffer buffer);
+typedef async_status (*page_get_async_fn)(void *payload);
+typedef page_handle *(*page_get_async_state_result_fn)(void *payload);
 
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
@@ -260,27 +270,28 @@ cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
 }
 
 static inline void
-cache_get_async_state_init(page_get_async_state_buffer buffer,
+cache_get_async_state_init(page_get_async_state_buffer *buffer,
                            cache                      *cc,
                            uint64                      addr,
                            page_type                   type,
                            async_callback_fn           callback,
                            void                       *callback_arg)
 {
+   buffer->cc = cc;
    return cc->ops->page_get_async_state_init(
-      buffer, cc, addr, type, callback, callback_arg);
+      &buffer->payload, cc, addr, type, callback, callback_arg);
 }
 
 static inline async_status
-cache_get_async(cache *cc, page_get_async_state_buffer buffer)
+cache_get_async(page_get_async_state_buffer *buffer)
 {
-   return cc->ops->page_get_async(buffer);
+   return buffer->cc->ops->page_get_async(&buffer->payload);
 }
 
 static inline page_handle *
-cache_get_async_state_result(cache *cc, page_get_async_state_buffer buffer)
+cache_get_async_state_result(page_get_async_state_buffer *buffer)
 {
-   return cc->ops->page_get_async_result(buffer);
+   return buffer->cc->ops->page_get_async_result(&buffer->payload);
 }
 
 /*

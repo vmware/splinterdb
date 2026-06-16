@@ -2298,19 +2298,15 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
                 || state->type == PAGE_TYPE_MEMTABLE);
    state->node.addr = state->root_addr;
 
-   cache_get_async_state_init(state->cache_get_state,
-                              state->cc,
-                              state->node.addr,
-                              state->type,
-                              state->callback,
-                              state->callback_arg);
-   while (cache_get_async(state->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE)
-   {
-      async_yield(state);
-   }
-   state->node.page =
-      cache_get_async_state_result(state->cc, state->cache_get_state);
+   async_await_call(state,
+                    cache_get_async,
+                    &state->cache_get_state,
+                    state->cc,
+                    state->node.addr,
+                    state->type,
+                    state->callback,
+                    state->callback_arg);
+   state->node.page = cache_get_async_state_result(&state->cache_get_state);
    state->node.hdr = (btree_hdr *)state->node.page->data;
 
    for (state->h = btree_height(state->node.hdr);
@@ -2343,19 +2339,16 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
          async_return(state);
       }
 
-      cache_get_async_state_init(state->cache_get_state,
-                                 state->cc,
-                                 state->child_node.addr,
-                                 state->type,
-                                 state->callback,
-                                 state->callback_arg);
-      while (cache_get_async(state->cc, state->cache_get_state)
-             != ASYNC_STATUS_DONE)
-      {
-         async_yield(state);
-      }
+      async_await_call(state,
+                       cache_get_async,
+                       &state->cache_get_state,
+                       state->cc,
+                       state->child_node.addr,
+                       state->type,
+                       state->callback,
+                       state->callback_arg);
       state->child_node.page =
-         cache_get_async_state_result(state->cc, state->cache_get_state);
+         cache_get_async_state_result(&state->cache_get_state);
       state->child_node.hdr = (btree_hdr *)state->child_node.page->data;
 
       debug_assert(state->child_node.page->disk_addr == state->child_node.addr);
@@ -2895,19 +2888,16 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
    btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->next_addr;
 
-   cache_get_async_state_init(state->cache_get_state,
-                              state->itor->cc,
-                              state->itor->curr.addr,
-                              state->itor->page_type,
-                              state->callback,
-                              state->callback_arg);
-   while (cache_get_async(state->itor->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE)
-   {
-      async_yield(state);
-   }
+   async_await_call(state,
+                    cache_get_async,
+                    &state->cache_get_state,
+                    state->itor->cc,
+                    state->itor->curr.addr,
+                    state->itor->page_type,
+                    state->callback,
+                    state->callback_arg);
    state->itor->curr.page =
-      cache_get_async_state_result(state->itor->cc, state->cache_get_state);
+      cache_get_async_state_result(&state->cache_get_state);
    state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
    btree_iterator_copy_curr_if_needed(state->itor);
 
@@ -3002,19 +2992,16 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    state->curr_addr = state->itor->curr.addr;
    if (btree_iterator_curr_is_copy(state->itor)) {
       state->live_curr.addr = state->curr_addr;
-      cache_get_async_state_init(state->cache_get_state,
-                                 state->itor->cc,
-                                 state->live_curr.addr,
-                                 state->itor->page_type,
-                                 state->callback,
-                                 state->callback_arg);
-      while (cache_get_async(state->itor->cc, state->cache_get_state)
-             != ASYNC_STATUS_DONE)
-      {
-         async_yield(state);
-      }
+      async_await_call(state,
+                       cache_get_async,
+                       &state->cache_get_state,
+                       state->itor->cc,
+                       state->live_curr.addr,
+                       state->itor->page_type,
+                       state->callback,
+                       state->callback_arg);
       state->live_curr.page =
-         cache_get_async_state_result(state->itor->cc, state->cache_get_state);
+         cache_get_async_state_result(&state->cache_get_state);
       state->live_curr.hdr = (btree_hdr *)state->live_curr.page->data;
       state->prev_addr     = state->live_curr.hdr->prev_addr;
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
@@ -3024,19 +3011,16 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->prev_addr;
 
-   cache_get_async_state_init(state->cache_get_state,
-                              state->itor->cc,
-                              state->itor->curr.addr,
-                              state->itor->page_type,
-                              state->callback,
-                              state->callback_arg);
-   while (cache_get_async(state->itor->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE)
-   {
-      async_yield(state);
-   }
+   async_await_call(state,
+                    cache_get_async,
+                    &state->cache_get_state,
+                    state->itor->cc,
+                    state->itor->curr.addr,
+                    state->itor->page_type,
+                    state->callback,
+                    state->callback_arg);
    state->itor->curr.page =
-      cache_get_async_state_result(state->itor->cc, state->cache_get_state);
+      cache_get_async_state_result(&state->cache_get_state);
    state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
    btree_iterator_copy_curr_if_needed(state->itor);
 
@@ -3050,19 +3034,16 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       btree_iterator_release_curr(state->itor);
       state->itor->curr.addr = state->next_addr;
 
-      cache_get_async_state_init(state->cache_get_state,
-                                 state->itor->cc,
-                                 state->itor->curr.addr,
-                                 state->itor->page_type,
-                                 state->callback,
-                                 state->callback_arg);
-      while (cache_get_async(state->itor->cc, state->cache_get_state)
-             != ASYNC_STATUS_DONE)
-      {
-         async_yield(state);
-      }
+      async_await_call(state,
+                       cache_get_async,
+                       &state->cache_get_state,
+                       state->itor->cc,
+                       state->itor->curr.addr,
+                       state->itor->page_type,
+                       state->callback,
+                       state->callback_arg);
       state->itor->curr.page =
-         cache_get_async_state_result(state->itor->cc, state->cache_get_state);
+         cache_get_async_state_result(&state->cache_get_state);
       state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
       btree_iterator_copy_curr_if_needed(state->itor);
    }

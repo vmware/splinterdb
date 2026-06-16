@@ -1845,6 +1845,9 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
 _Static_assert(sizeof(clockcache_get_async_state)
                   <= PAGE_GET_ASYNC_STATE_BUFFER_SIZE,
                "clockcache_get_async_state is too large");
+_Static_assert(_Alignof(clockcache_get_async_state)
+                  <= _Alignof(page_get_async_state_payload),
+               "clockcache_get_async_state has insufficient alignment");
 
 
 /*
@@ -3063,14 +3066,14 @@ clockcache_unpin_virtual(cache *c, page_handle *page)
 }
 
 static void
-clockcache_get_async_state_init_virtual(page_get_async_state_buffer buffer,
-                                        cache                      *cc,
-                                        uint64                      addr,
-                                        page_type                   type,
-                                        async_callback_fn           callback,
-                                        void *callback_arg)
+clockcache_get_async_state_init_virtual(void             *payload,
+                                        cache            *cc,
+                                        uint64            addr,
+                                        page_type         type,
+                                        async_callback_fn callback,
+                                        void             *callback_arg)
 {
-   clockcache_get_async_state_init((clockcache_get_async_state *)buffer,
+   clockcache_get_async_state_init((clockcache_get_async_state *)payload,
                                    (clockcache *)cc,
                                    addr,
                                    type,
@@ -3079,15 +3082,15 @@ clockcache_get_async_state_init_virtual(page_get_async_state_buffer buffer,
 }
 
 static async_status
-clockcache_get_async_virtual(page_get_async_state_buffer buffer)
+clockcache_get_async_virtual(void *payload)
 {
-   return clockcache_get_async((clockcache_get_async_state *)buffer);
+   return clockcache_get_async((clockcache_get_async_state *)payload);
 }
 
 static page_handle *
-clockcache_get_async_state_result_virtual(page_get_async_state_buffer buffer)
+clockcache_get_async_state_result_virtual(void *payload)
 {
-   clockcache_get_async_state *state = (clockcache_get_async_state *)buffer;
+   clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
    return state->__async_result;
 }
 

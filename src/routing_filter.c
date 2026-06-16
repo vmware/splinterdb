@@ -859,19 +859,15 @@ routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
       state->filter.addr
       + state->page_size * (state->index / state->addrs_per_page);
 
-   cache_get_async_state_init(state->cache_get_state,
-                              state->cc,
-                              state->index_addr,
-                              PAGE_TYPE_FILTER,
-                              state->callback,
-                              state->callback_arg);
-   while (cache_get_async(state->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE)
-   {
-      async_yield(state);
-   }
-   state->index_page =
-      cache_get_async_state_result(state->cc, state->cache_get_state);
+   async_await_call(state,
+                    cache_get_async,
+                    &state->cache_get_state,
+                    state->cc,
+                    state->index_addr,
+                    PAGE_TYPE_FILTER,
+                    state->callback,
+                    state->callback_arg);
+   state->index_page = cache_get_async_state_result(&state->cache_get_state);
 
    state->hdr_raw_addr =
       ((uint64 *)state->index_page->data)[state->index % state->addrs_per_page];
@@ -879,19 +875,15 @@ routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
    state->header_addr =
       state->hdr_raw_addr - (state->hdr_raw_addr % state->page_size);
 
-   cache_get_async_state_init(state->cache_get_state,
-                              state->cc,
-                              state->header_addr,
-                              PAGE_TYPE_FILTER,
-                              state->callback,
-                              state->callback_arg);
-   while (cache_get_async(state->cc, state->cache_get_state)
-          != ASYNC_STATUS_DONE)
-   {
-      async_yield(state);
-   }
-   state->filter_page =
-      cache_get_async_state_result(state->cc, state->cache_get_state);
+   async_await_call(state,
+                    cache_get_async,
+                    &state->cache_get_state,
+                    state->cc,
+                    state->header_addr,
+                    PAGE_TYPE_FILTER,
+                    state->callback,
+                    state->callback_arg);
+   state->filter_page = cache_get_async_state_result(&state->cache_get_state);
 
    uint64 header_off = state->hdr_raw_addr - state->header_addr;
    state->hdr        = (routing_hdr *)(state->filter_page->data + header_off);
