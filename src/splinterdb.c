@@ -262,48 +262,35 @@ splinterdb_config_read_disk_geometry(splinterdb_config *cfg,
       return STATUS_BAD_PARAM;
    }
 
-   splinterdb_config io_defaults = {0};
-   memcpy(&io_defaults, cfg, sizeof(io_defaults));
-   splinterdb_config_set_defaults(&io_defaults);
-
-   io_config io_cfg;
-   int       io_flags = io_defaults.io_flags & ~(O_CREAT | O_TRUNC);
-   io_config_init(&io_cfg,
-                  IO_DEFAULT_PAGE_SIZE,
-                  IO_DEFAULT_EXTENT_SIZE,
-                  io_flags,
-                  io_defaults.io_perms,
-                  io_defaults.io_async_queue_depth,
-                  io_defaults.filename);
-
-   io_handle *io = io_handle_create(&io_cfg, heap_id);
-   if (io == NULL) {
-      return STATUS_IO_ERROR;
-   }
-
    rc_allocator_super_block_config super_cfg;
    platform_status                 status =
-      rc_allocator_read_super_block(io, heap_id, &super_cfg);
-   io_handle_destroy(io);
+      rc_allocator_read_super_block(cfg->filename, heap_id, &super_cfg);
    if (!SUCCESS(status)) {
       return status;
    }
 
-   if ((cfg->disk_size != 0 && cfg->disk_size != super_cfg.disk_size)
-       || (cfg->page_size != 0 && cfg->page_size != super_cfg.page_size)
-       || (cfg->extent_size != 0 && cfg->extent_size != super_cfg.extent_size))
-   {
-      platform_error_log(
-         "SplinterDB superblock geometry does not match configuration: "
-         "superblock=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
-         "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
-         super_cfg.disk_size,
-         super_cfg.page_size,
-         super_cfg.extent_size,
-         cfg->disk_size,
-         cfg->page_size,
-         cfg->extent_size);
-      return STATUS_BAD_PARAM;
+   uint64 cfg_disk_size =
+      cfg->disk_size != 0 ? cfg->disk_size : super_cfg.disk_size;
+   uint64 cfg_page_size =
+      cfg->page_size != 0 ? cfg->page_size : super_cfg.page_size;
+   uint64 cfg_extent_size =
+      cfg->extent_size != 0 ? cfg->extent_size : super_cfg.extent_size;
+
+   io_config io_cfg;
+   io_config_init(&io_cfg,
+                  cfg_page_size,
+                  cfg_extent_size,
+                  cfg->io_flags,
+                  cfg->io_perms,
+                  cfg->io_async_queue_depth,
+                  cfg->filename);
+
+   allocator_config allocator_cfg;
+   allocator_config_init(&allocator_cfg, &io_cfg, cfg_disk_size);
+
+   status = rc_allocator_super_block_matches_config(&super_cfg, &allocator_cfg);
+   if (!SUCCESS(status)) {
+      return status;
    }
 
    cfg->disk_size   = super_cfg.disk_size;

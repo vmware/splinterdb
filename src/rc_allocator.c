@@ -339,20 +339,28 @@ rc_allocator_validate_super_block(rc_allocator *al)
       return status;
    }
 
-   if (super_cfg.disk_size != al->cfg->capacity
-       || super_cfg.page_size != al->cfg->io_cfg->page_size
-       || super_cfg.extent_size != al->cfg->io_cfg->extent_size)
+   return rc_allocator_super_block_matches_config(&super_cfg, al->cfg);
+}
+
+platform_status
+rc_allocator_super_block_matches_config(
+   const rc_allocator_super_block_config *super_cfg,
+   const allocator_config                *cfg)
+{
+   if (super_cfg->disk_size != cfg->capacity
+       || super_cfg->page_size != cfg->io_cfg->page_size
+       || super_cfg->extent_size != cfg->io_cfg->extent_size)
    {
       platform_error_log(
          "SplinterDB superblock geometry does not match configuration: "
          "superblock=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
          "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
-         super_cfg.disk_size,
-         super_cfg.page_size,
-         super_cfg.extent_size,
-         al->cfg->capacity,
-         al->cfg->io_cfg->page_size,
-         al->cfg->io_cfg->extent_size);
+         super_cfg->disk_size,
+         super_cfg->page_size,
+         super_cfg->extent_size,
+         cfg->capacity,
+         cfg->io_cfg->page_size,
+         cfg->io_cfg->extent_size);
       return STATUS_BAD_PARAM;
    }
 
@@ -360,7 +368,7 @@ rc_allocator_validate_super_block(rc_allocator *al)
 }
 
 platform_status
-rc_allocator_read_super_block(io_handle                       *io,
+rc_allocator_read_super_block(const char                      *filename,
                               platform_heap_id                 hid,
                               rc_allocator_super_block_config *super_cfg)
 {
@@ -371,7 +379,8 @@ rc_allocator_read_super_block(io_handle                       *io,
       return STATUS_NO_MEMORY;
    }
 
-   rc = io_read(io, meta_page, IO_DEFAULT_PAGE_SIZE, RC_ALLOCATOR_BASE_OFFSET);
+   rc = io_read_bootstrap(
+      filename, meta_page, IO_DEFAULT_PAGE_SIZE, RC_ALLOCATOR_BASE_OFFSET);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }

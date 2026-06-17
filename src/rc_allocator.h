@@ -129,9 +129,14 @@ rc_allocator_mount(rc_allocator      *al,
                    platform_module_id mid);
 
 platform_status
-rc_allocator_read_super_block(io_handle                       *io,
+rc_allocator_read_super_block(const char                      *filename,
                               platform_heap_id                 hid,
                               rc_allocator_super_block_config *super_cfg);
+
+platform_status
+rc_allocator_super_block_matches_config(
+   const rc_allocator_super_block_config *super_cfg,
+   const allocator_config                *cfg);
 
 void
 rc_allocator_unmount(rc_allocator *al);
