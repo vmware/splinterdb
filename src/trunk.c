@@ -3287,6 +3287,10 @@ maplet_compaction_task(task *arg)
    routing_filter     new_maplet  = state->maplet;
    maplet_compaction_apply_args apply_args;
    threadid                     tid;
+   bundle_compaction           *bc                  = NULL;
+   bundle_compaction           *last                = NULL;
+   uint64                       num_builds          = 0;
+   uint64                       total_build_time_ns = 0;
 
    tid = platform_get_tid();
 
@@ -3312,10 +3316,7 @@ maplet_compaction_task(task *arg)
       goto cleanup;
    }
 
-   bundle_compaction *bc                  = state->bundle_compactions;
-   bundle_compaction *last                = NULL;
-   uint64             num_builds          = 0;
-   uint64             total_build_time_ns = 0;
+   bc = state->bundle_compactions;
    while (bc != NULL && bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
       if (!branch_is_null(bc->output_branch)) {
          uint64 filter_build_start;
@@ -3700,13 +3701,13 @@ cleanup_branch_merger:
       maplet_enqueue_rc = enqueue_maplet_compaction(state);
    }
    trunk_pivot_state_unlock_compactions(state);
-   trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
 
    if (!SUCCESS(rc)) {
       bundle_compaction_tracker_done(bc, rc);
    } else if (!SUCCESS(maplet_enqueue_rc)) {
       bundle_compaction_tracker_done(bc, maplet_enqueue_rc);
    }
+   trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
 }
 
 static platform_status
