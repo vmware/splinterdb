@@ -9,6 +9,7 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@ typedef struct optimize_options {
    uint64      disk_size;
    uint64      num_normal_bg_threads;
    uint64      num_memtable_bg_threads;
+   _Bool       use_direct_io;
 } optimize_options;
 
 static void
@@ -69,6 +71,9 @@ main(int argc, char **argv)
    splinterdb_cfg.data_cfg                = &data_cfg;
    splinterdb_cfg.num_normal_bg_threads   = opts.num_normal_bg_threads;
    splinterdb_cfg.num_memtable_bg_threads = opts.num_memtable_bg_threads;
+   if (opts.use_direct_io) {
+      splinterdb_cfg.io_flags = O_RDWR | O_DIRECT;
+   }
 
    splinterdb *spl = NULL;
    rc              = splinterdb_open(&splinterdb_cfg, &spl);
@@ -116,6 +121,7 @@ usage(const char *progname)
            "  --max-key <key>              Exclusive upper bound\n"
            "  --cache-mib <mib>            Cache size in MiB (default %u)\n"
            "  --disk-size-mib <mib>        Check image size in MiB\n"
+           "  --set-O_DIRECT               Open the image with O_DIRECT\n"
            "  --normal-bg-threads <count>  Normal task threads (default %u)\n"
            "  --memtable-bg-threads <cnt>  Memtable task threads (default %u)\n"
            "  --help                       Show this help\n",
@@ -172,6 +178,8 @@ parse_options(int argc, char **argv, optimize_options *opts)
             return EINVAL;
          }
          opts->disk_size = mib * BYTES_PER_MIB;
+      } else if (strcmp(argv[i], "--set-O_DIRECT") == 0) {
+         opts->use_direct_io = TRUE;
       } else if (strcmp(argv[i], "--normal-bg-threads") == 0) {
          if (++i == argc
              || parse_uint64(argv[i], &opts->num_normal_bg_threads) != 0)
