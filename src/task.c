@@ -15,6 +15,51 @@ _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
                "Array task_type_name[] is incorrectly sized.");
 
 /****************************************
+ * Task trackers
+ ****************************************/
+
+void
+task_tracker_init(task_tracker         *tracker,
+                  task_tracker_callback callback,
+                  void                 *user_data)
+{
+   tracker->outstanding = 1;
+   tracker->failed      = FALSE;
+   tracker->status      = STATUS_OK;
+   tracker->callback    = callback;
+   tracker->user_data   = user_data;
+}
+
+void
+task_tracker_add(task_tracker *tracker)
+{
+   if (tracker != NULL) {
+      __sync_fetch_and_add(&tracker->outstanding, 1);
+   }
+}
+
+void
+task_tracker_done(task_tracker *tracker, platform_status status)
+{
+   if (tracker == NULL) {
+      return;
+   }
+
+   if (!SUCCESS(status)
+       && __sync_bool_compare_and_swap(&tracker->failed, FALSE, TRUE))
+   {
+      tracker->status = status;
+   }
+
+   uint64 old_outstanding = __sync_fetch_and_sub(&tracker->outstanding, 1);
+   platform_assert(0 < old_outstanding);
+
+   if (old_outstanding == 1 && tracker->callback != NULL) {
+      tracker->callback(tracker);
+   }
+}
+
+/****************************************
  * Background task management
  ****************************************/
 

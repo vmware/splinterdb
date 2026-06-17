@@ -483,6 +483,11 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                              $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                              $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/splinterdb_optimize_test: $(COMMON_TESTOBJ)      \
+                                               $(COMMON_UNIT_TESTOBJ) \
+                                               $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                               $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(COMMON_TESTOBJ)      \
                                            $(COMMON_UNIT_TESTOBJ) \
                                            $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
@@ -541,6 +546,7 @@ unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
+unit/splinterdb_optimize_test:     $(BINDIR)/$(UNITDIR)/splinterdb_optimize_test
 unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit/config_parse_test:            $(BINDIR)/$(UNITDIR)/config_parse_test
 unit/limitations_test:             $(BINDIR)/$(UNITDIR)/limitations_test
@@ -564,6 +570,9 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_wide_values_example: $(OBJDIR)/$(EXAMPLES_D
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example.o \
                                                         $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_optimize_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_optimize_example.o \
+                                                       $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example.o \
                                                                        $(LIBDIR)/libsplinterdb.so

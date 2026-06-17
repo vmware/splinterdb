@@ -159,6 +159,12 @@ core_insert(core_handle   *spl,
             lookup_result *old_result);
 
 platform_status
+core_optimize(core_handle                    *spl,
+              key                             minkey,
+              key                             maxkey,
+              struct splinterdb_notification *notification);
+
+platform_status
 core_lookup(core_handle *spl, key target, lookup_result *result);
 
 static inline bool32

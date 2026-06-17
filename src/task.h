@@ -48,6 +48,38 @@ struct task {
    timestamp    enqueue_time;
 };
 
+typedef struct task_tracker task_tracker;
+
+typedef void (*task_tracker_callback)(task_tracker *tracker);
+
+/*
+ * Tracks a dynamically growing set of tasks.  The tracker starts with one
+ * outstanding reference owned by the launcher.  Call task_tracker_add() before
+ * publishing each new unit of work, including follow-up work published by a
+ * tracked task.  Each unit must call task_tracker_done() exactly once.
+ *
+ * The final caller of task_tracker_done() invokes callback.  The callback owns
+ * the lifetime of the tracker and may free an enclosing object.
+ */
+struct task_tracker {
+   volatile uint64       outstanding;
+   volatile bool32       failed;
+   platform_status       status;
+   task_tracker_callback callback;
+   void                 *user_data;
+};
+
+void
+task_tracker_init(task_tracker         *tracker,
+                  task_tracker_callback callback,
+                  void                 *user_data);
+
+void
+task_tracker_add(task_tracker *tracker);
+
+void
+task_tracker_done(task_tracker *tracker, platform_status status);
+
 /*
  * Run-time task-specific execution metrics structure.
  */

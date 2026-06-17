@@ -17,7 +17,11 @@
 #include "platform_typed_alloc.h"
 #include "poison.h"
 
-#define RC_ALLOCATOR_META_PAGE_CSUM_SEED (2718281828)
+#define RC_ALLOCATOR_META_PAGE_CSUM_SEED   (2718281828)
+#define RC_ALLOCATOR_SUPER_BLOCK_CSUM_SEED (3141592653)
+
+#define RC_ALLOCATOR_SUPPORTED_FEATURE_FLAGS              (0)
+#define RC_ALLOCATOR_SUPPORTED_INCOMPATIBLE_FEATURE_FLAGS (0)
 
 /*
  * Base offset from where the allocator starts. Currently hard coded to 0.
@@ -223,6 +227,162 @@ rc_allocator_extent_number(rc_allocator *al, uint64 addr)
    return (addr / al->cfg->io_cfg->extent_size);
 }
 
+static checksum128
+rc_allocator_super_block_checksum(const rc_allocator_super_block *super)
+{
+   return platform_checksum128(super,
+                               offsetof(rc_allocator_super_block, checksum),
+                               RC_ALLOCATOR_SUPER_BLOCK_CSUM_SEED);
+}
+
+static bool32
+rc_allocator_super_block_checksum_valid(const rc_allocator_super_block *super)
+{
+   return platform_checksum_is_equal(super->checksum,
+                                     rc_allocator_super_block_checksum(super));
+}
+
+static checksum128
+rc_allocator_meta_page_checksum(const rc_allocator_meta_page *meta_page)
+{
+   return platform_checksum128(meta_page->splinters,
+                               sizeof(meta_page->splinters),
+                               RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+}
+
+static void
+rc_allocator_set_super_block(rc_allocator_super_block *super,
+                             allocator_config         *cfg)
+{
+   *super = (rc_allocator_super_block){
+      .magic                      = RC_ALLOCATOR_SUPER_BLOCK_MAGIC,
+      .format_version             = RC_ALLOCATOR_SUPER_BLOCK_VERSION,
+      .feature_flags              = 0,
+      .incompatible_feature_flags = 0,
+      .disk_size                  = cfg->capacity,
+      .page_size                  = cfg->io_cfg->page_size,
+      .extent_size                = cfg->io_cfg->extent_size,
+   };
+   super->checksum = rc_allocator_super_block_checksum(super);
+}
+
+static platform_status
+rc_allocator_super_block_config_valid(
+   const rc_allocator_super_block  *super,
+   rc_allocator_super_block_config *super_cfg)
+{
+   if (super->magic != RC_ALLOCATOR_SUPER_BLOCK_MAGIC) {
+      platform_error_log("Invalid SplinterDB superblock magic: %lu\n",
+                         super->magic);
+      return STATUS_BAD_PARAM;
+   }
+
+   if (!rc_allocator_super_block_checksum_valid(super)) {
+      platform_error_log("Invalid SplinterDB superblock checksum\n");
+      return STATUS_BAD_PARAM;
+   }
+
+   if (super->format_version != RC_ALLOCATOR_SUPER_BLOCK_VERSION) {
+      platform_error_log("Unsupported SplinterDB superblock version: %lu\n",
+                         super->format_version);
+      return STATUS_BAD_PARAM;
+   }
+
+   if ((super->feature_flags & ~RC_ALLOCATOR_SUPPORTED_FEATURE_FLAGS) != 0) {
+      platform_error_log("Unsupported SplinterDB feature flags: %lu\n",
+                         super->feature_flags);
+      return STATUS_BAD_PARAM;
+   }
+
+   if ((super->incompatible_feature_flags
+        & ~RC_ALLOCATOR_SUPPORTED_INCOMPATIBLE_FEATURE_FLAGS)
+       != 0)
+   {
+      platform_error_log("Unsupported SplinterDB incompatible feature flags: "
+                         "%lu\n",
+                         super->incompatible_feature_flags);
+      return STATUS_BAD_PARAM;
+   }
+
+   if (super->disk_size == 0 || super->page_size == 0
+       || super->extent_size == 0)
+   {
+      platform_error_log("Invalid SplinterDB superblock geometry: "
+                         "disk_size=%lu, page_size=%lu, extent_size=%lu\n",
+                         super->disk_size,
+                         super->page_size,
+                         super->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   if (super_cfg != NULL) {
+      *super_cfg = (rc_allocator_super_block_config){
+         .format_version             = super->format_version,
+         .feature_flags              = super->feature_flags,
+         .incompatible_feature_flags = super->incompatible_feature_flags,
+         .disk_size                  = super->disk_size,
+         .page_size                  = super->page_size,
+         .extent_size                = super->extent_size,
+      };
+   }
+
+   return STATUS_OK;
+}
+
+static platform_status
+rc_allocator_validate_super_block(rc_allocator *al)
+{
+   rc_allocator_super_block_config super_cfg;
+   platform_status                 status =
+      rc_allocator_super_block_config_valid(&al->meta_page->super, &super_cfg);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   if (super_cfg.disk_size != al->cfg->capacity
+       || super_cfg.page_size != al->cfg->io_cfg->page_size
+       || super_cfg.extent_size != al->cfg->io_cfg->extent_size)
+   {
+      platform_error_log(
+         "SplinterDB superblock geometry does not match configuration: "
+         "superblock=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
+         "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
+         super_cfg.disk_size,
+         super_cfg.page_size,
+         super_cfg.extent_size,
+         al->cfg->capacity,
+         al->cfg->io_cfg->page_size,
+         al->cfg->io_cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   return STATUS_OK;
+}
+
+platform_status
+rc_allocator_read_super_block(io_handle                       *io,
+                              platform_heap_id                 hid,
+                              rc_allocator_super_block_config *super_cfg)
+{
+   platform_status         rc;
+   rc_allocator_meta_page *meta_page = TYPED_ALIGNED_ZALLOC(
+      hid, IO_DEFAULT_PAGE_SIZE, meta_page, IO_DEFAULT_PAGE_SIZE);
+   if (meta_page == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+
+   rc = io_read(io, meta_page, IO_DEFAULT_PAGE_SIZE, RC_ALLOCATOR_BASE_OFFSET);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   rc = rc_allocator_super_block_config_valid(&meta_page->super, super_cfg);
+
+cleanup:
+   platform_free(hid, meta_page);
+   return rc;
+}
+
 static platform_status
 rc_allocator_init_meta_page(rc_allocator *al)
 {
@@ -252,6 +412,7 @@ rc_allocator_init_meta_page(rc_allocator *al)
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));
+   rc_allocator_set_super_block(&al->meta_page->super, al->cfg);
 
    return STATUS_OK;
 }
@@ -449,19 +610,39 @@ rc_allocator_mount(rc_allocator      *al,
    // load the meta page from disk.
    status = io_read(
       io, al->meta_page, al->cfg->io_cfg->page_size, RC_ALLOCATOR_BASE_OFFSET);
-   platform_assert_status_ok(status);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return status;
+   }
+
+   status = rc_allocator_validate_super_block(al);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return status;
+   }
+
    // validate the checksum of the meta page.
-   checksum128 currChecksum =
-      platform_checksum128(al->meta_page,
-                           sizeof(al->meta_page->splinters),
-                           RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+   checksum128 currChecksum = rc_allocator_meta_page_checksum(al->meta_page);
    if (!platform_checksum_is_equal(al->meta_page->checksum, currChecksum)) {
-      platform_assert(0, "Corrupt Meta Page upon mount");
+      platform_error_log("Corrupt SplinterDB allocator meta page on mount\n");
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return STATUS_BAD_PARAM;
    }
 
    // load the ref counts from disk.
    status = io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
-   platform_assert_status_ok(status);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return status;
+   }
 
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {
@@ -609,9 +790,7 @@ rc_allocator_alloc_super_addr(rc_allocator     *al,
          al->meta_page->splinters[idx] = allocator_root_id;
          *addr                         = (1 + idx) * al->cfg->io_cfg->page_size;
          al->meta_page->checksum =
-            platform_checksum128(al->meta_page,
-                                 sizeof(al->meta_page->splinters),
-                                 RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+            rc_allocator_meta_page_checksum(al->meta_page);
          platform_status io_status = io_write(al->io,
                                               al->meta_page,
                                               al->cfg->io_cfg->page_size,
@@ -640,9 +819,7 @@ rc_allocator_remove_super_addr(rc_allocator     *al,
       if (al->meta_page->splinters[idx] == allocator_root_id) {
          al->meta_page->splinters[idx] = INVALID_ALLOCATOR_ROOT_ID;
          al->meta_page->checksum =
-            platform_checksum128(al->meta_page,
-                                 sizeof(al->meta_page->splinters),
-                                 RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+            rc_allocator_meta_page_checksum(al->meta_page);
          platform_status status = io_write(al->io,
                                            al->meta_page,
                                            al->cfg->io_cfg->page_size,

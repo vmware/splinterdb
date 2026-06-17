@@ -18,6 +18,7 @@
 #include "merge.h"
 #include "data_internal.h"
 #include "task.h"
+#include "notification.h"
 #include "poison.h"
 
 typedef VECTOR(routing_filter) routing_filter_vector;
@@ -71,6 +72,7 @@ typedef enum bundle_compaction_state {
 } bundle_compaction_state;
 
 typedef VECTOR(trunk_branch_info) trunk_branch_info_vector;
+typedef VECTOR(task_tracker *) task_tracker_vector;
 
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
@@ -85,6 +87,7 @@ typedef struct bundle_compaction {
    trunk_pivot_stats         output_stats;
    uint32                   *fingerprints;
    uint64                    compaction_time_ns;
+   task_tracker             *tracker;
 } bundle_compaction;
 
 typedef struct trunk_context trunk_context;
@@ -2670,6 +2673,72 @@ bundle_compaction_destroy(bundle_compaction *compaction, trunk_context *context)
    platform_free(context->hid, compaction);
 }
 
+static void
+trunk_pivot_state_lock_compactions(trunk_pivot_state *state);
+
+static void
+trunk_pivot_state_unlock_compactions(trunk_pivot_state *state);
+
+static void
+bundle_compaction_save_tracker(bundle_compaction   *compaction,
+                               task_tracker_vector *trackers)
+{
+   task_tracker *tracker = compaction->tracker;
+   compaction->tracker   = NULL;
+   if (tracker != NULL) {
+      platform_status rc = vector_append(trackers, tracker);
+      platform_assert_status_ok(rc);
+   }
+}
+
+static void
+bundle_compaction_tracker_done(bundle_compaction *compaction,
+                               platform_status    status)
+{
+   task_tracker *tracker = compaction->tracker;
+   compaction->tracker   = NULL;
+   task_tracker_done(tracker, status);
+}
+
+static void
+task_tracker_vector_done(task_tracker_vector *trackers, platform_status status)
+{
+   for (uint64 i = 0; i < vector_length(trackers); i++) {
+      task_tracker_done(vector_get(trackers, i), status);
+   }
+   vector_truncate(trackers, 0);
+}
+
+static void
+bundle_compactions_save_trackers_through(trunk_pivot_state   *state,
+                                         bundle_compaction   *last,
+                                         task_tracker_vector *trackers)
+{
+   trunk_pivot_state_lock_compactions(state);
+   for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
+        bc                    = bc->next)
+   {
+      bundle_compaction_save_tracker(bc, trackers);
+      if (last != NULL && bc == last) {
+         break;
+      }
+   }
+   trunk_pivot_state_unlock_compactions(state);
+}
+
+static void
+bundle_compactions_save_succeeded_trackers_locked(trunk_pivot_state   *state,
+                                                  task_tracker_vector *trackers)
+{
+   for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
+        bc                    = bc->next)
+   {
+      if (bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
+         bundle_compaction_save_tracker(bc, trackers);
+      }
+   }
+}
+
 static bundle_compaction *
 bundle_compaction_create(trunk_context     *context,
                          trunk_node        *node,
@@ -3211,10 +3280,11 @@ enqueue_maplet_compaction(trunk_pivot_state *args);
 static void
 maplet_compaction_task(task *arg)
 {
-   platform_status    rc         = STATUS_OK;
-   trunk_pivot_state *state      = container_of(arg, trunk_pivot_state, tsk);
-   trunk_context     *context    = state->context;
-   routing_filter     new_maplet = state->maplet;
+   platform_status    rc          = STATUS_OK;
+   platform_status    followup_rc = STATUS_OK;
+   trunk_pivot_state *state       = container_of(arg, trunk_pivot_state, tsk);
+   trunk_context     *context     = state->context;
+   routing_filter     new_maplet  = state->maplet;
    maplet_compaction_apply_args apply_args;
    threadid                     tid;
 
@@ -3223,6 +3293,10 @@ maplet_compaction_task(task *arg)
    ZERO_STRUCT(apply_args);
    apply_args.state = state;
    vector_init(&apply_args.branches, PROCESS_PRIVATE_HEAP_ID);
+   task_tracker_vector completed_trackers;
+   vector_init(&completed_trackers, PROCESS_PRIVATE_HEAP_ID);
+   task_tracker_vector failed_trackers;
+   vector_init(&failed_trackers, PROCESS_PRIVATE_HEAP_ID);
 
    if (state->abandoned) {
       if (context->stats) {
@@ -3232,6 +3306,9 @@ maplet_compaction_task(task *arg)
             context->stats[tid].maplet_builds_aborted[state->height]++;
          }
       }
+      bundle_compactions_save_trackers_through(
+         state, NULL, &completed_trackers);
+      task_tracker_vector_done(&completed_trackers, STATUS_OK);
       goto cleanup;
    }
 
@@ -3353,12 +3430,15 @@ maplet_compaction_task(task *arg)
       while (state->bundle_compactions != last) {
          bundle_compaction *next = state->bundle_compactions->next;
          state->total_bundles -= state->bundle_compactions->num_bundles;
+         bundle_compaction_save_tracker(state->bundle_compactions,
+                                        &completed_trackers);
          bundle_compaction_destroy(state->bundle_compactions, context);
          state->bundle_compactions = next;
       }
       platform_assert(state->bundle_compactions == last);
       state->bundle_compactions = last->next;
       state->total_bundles -= last->num_bundles;
+      bundle_compaction_save_tracker(last, &completed_trackers);
       bundle_compaction_destroy(last, context);
 
       __sync_lock_release(&state->maplet_compaction_initiated);
@@ -3366,15 +3446,34 @@ maplet_compaction_task(task *arg)
       if (state->bundle_compactions
           && state->bundle_compactions->state == BUNDLE_COMPACTION_SUCCEEDED)
       {
-         enqueue_maplet_compaction(state);
+         followup_rc = enqueue_maplet_compaction(state);
+         if (!SUCCESS(followup_rc)) {
+            state->maplet_compaction_failed = TRUE;
+            bundle_compactions_save_succeeded_trackers_locked(state,
+                                                              &failed_trackers);
+         }
       }
    }
    trunk_pivot_state_unlock_compactions(state);
 
    trunk_modification_end(context);
+   task_tracker_vector_done(&completed_trackers, STATUS_OK);
+   task_tracker_vector_done(&failed_trackers, followup_rc);
 
 cleanup:
    if (!SUCCESS(rc) || !apply_args.found_match) {
+      bundle_compaction *tracker_last = last;
+      if (!SUCCESS(rc) && bc != NULL
+          && bc->state == BUNDLE_COMPACTION_SUCCEEDED)
+      {
+         tracker_last = bc;
+      }
+      if (tracker_last != NULL) {
+         platform_status tracker_status = SUCCESS(rc) ? STATUS_OK : rc;
+         bundle_compactions_save_trackers_through(
+            state, tracker_last, &completed_trackers);
+         task_tracker_vector_done(&completed_trackers, tracker_status);
+      }
       state->maplet_compaction_failed = TRUE;
       if (new_maplet.addr != state->maplet.addr) {
          routing_filter_dec_ref(context->cc, &new_maplet);
@@ -3382,6 +3481,8 @@ cleanup:
    }
 
    trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
+   vector_deinit(&failed_trackers);
+   vector_deinit(&completed_trackers);
    vector_deinit(&apply_args.branches);
 }
 
@@ -3432,6 +3533,7 @@ static void
 bundle_compaction_task(task *arg)
 {
    platform_status    rc;
+   platform_status    maplet_enqueue_rc = STATUS_OK;
    bundle_compaction *bc      = container_of(arg, bundle_compaction, tsk);
    trunk_pivot_state *state   = bc->pivot_state;
    trunk_context     *context = state->context;
@@ -3453,7 +3555,7 @@ bundle_compaction_task(task *arg)
       platform_assert(__sync_bool_compare_and_swap(
          &bc->state, BUNDLE_COMPACTION_IN_PROGRESS, BUNDLE_COMPACTION_ABORTED));
 
-
+      bundle_compaction_tracker_done(bc, STATUS_OK);
       trunk_pivot_state_map_release_entry(
          context, &context->pivot_states, state);
 
@@ -3580,6 +3682,9 @@ cleanup_branch_merger:
    trunk_branch_merger_deinit(&merger);
 
    trunk_pivot_state_lock_compactions(state);
+   if (SUCCESS(rc) && state->maplet_compaction_failed) {
+      rc = STATUS_INVALID_STATE;
+   }
    if (SUCCESS(rc)) {
       platform_assert(
          __sync_bool_compare_and_swap(&bc->state,
@@ -3592,14 +3697,22 @@ cleanup_branch_merger:
    if (bc->state == BUNDLE_COMPACTION_SUCCEEDED
        && state->bundle_compactions == bc)
    {
-      enqueue_maplet_compaction(state);
+      maplet_enqueue_rc = enqueue_maplet_compaction(state);
    }
    trunk_pivot_state_unlock_compactions(state);
    trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
+
+   if (!SUCCESS(rc)) {
+      bundle_compaction_tracker_done(bc, rc);
+   } else if (!SUCCESS(maplet_enqueue_rc)) {
+      bundle_compaction_tracker_done(bc, maplet_enqueue_rc);
+   }
 }
 
 static platform_status
-enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
+enqueue_bundle_compaction(trunk_context *context,
+                          trunk_node    *node,
+                          task_tracker  *tracker)
 {
    uint64          height       = trunk_node_height(node);
    uint64          num_children = trunk_node_num_children(node);
@@ -3635,6 +3748,8 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
             rc = STATUS_NO_MEMORY;
             goto next;
          }
+         bc->tracker = tracker;
+         task_tracker_add(tracker);
 
          trunk_pivot_state_incref(state);
 
@@ -3647,6 +3762,7 @@ enqueue_bundle_compaction(trunk_context *context, trunk_node *node)
                            FALSE);
          if (!SUCCESS(rc)) {
             trunk_pivot_state_decref(state);
+            bundle_compaction_tracker_done(bc, rc);
             platform_error_log(
                "enqueue_bundle_compaction: task_enqueue failed: %s\n",
                platform_status_to_string(rc));
@@ -3682,18 +3798,27 @@ incorporation_tasks_deinit(incorporation_tasks *itasks, trunk_context *context)
    vector_deinit(&itasks->node_compactions);
 }
 
-static void
-incorporation_tasks_execute(incorporation_tasks *itasks, trunk_context *context)
+static platform_status
+incorporation_tasks_execute(incorporation_tasks *itasks,
+                            trunk_context       *context,
+                            task_tracker        *tracker)
 {
+   platform_status result = STATUS_OK;
+
    for (uint64 i = 0; i < vector_length(&itasks->node_compactions); i++) {
       trunk_node     *node = vector_get_ptr(&itasks->node_compactions, i);
-      platform_status rc   = enqueue_bundle_compaction(context, node);
+      platform_status rc   = enqueue_bundle_compaction(context, node, tracker);
       if (!SUCCESS(rc)) {
          platform_error_log("incorporation_tasks_execute: "
                             "enqueue_bundle_compaction failed: %d\n",
                             rc.r);
+         if (SUCCESS(result)) {
+            result = rc;
+         }
       }
    }
+
+   return result;
 }
 
 static platform_status
@@ -4460,11 +4585,217 @@ cleanup_new_indexes:
 
 static uint64 abandoned_leaf_compactions = 0;
 
+static const trunk_flush_policy TRUNK_FLUSH_POLICY_DEFAULT = {
+   .type                  = TRUNK_FLUSH_POLICY_STANDARD,
+   .full_leaf_compactions = FALSE,
+};
+
+static const trunk_flush_policy *
+trunk_flush_policy_or_default(const trunk_flush_policy *policy)
+{
+   return policy == NULL ? &TRUNK_FLUSH_POLICY_DEFAULT : policy;
+}
+
+static bool32
+trunk_ranges_intersect(const trunk_context *context,
+                       key                  min1,
+                       key                  max1,
+                       key                  min2,
+                       key                  max2)
+{
+   return data_key_compare(context->cfg->data_cfg, min1, max2) < 0
+          && data_key_compare(context->cfg->data_cfg, min2, max1) < 0;
+}
+
+static bool32
+trunk_flush_range_policy_intersects_child(const trunk_context      *context,
+                                          const trunk_flush_policy *policy,
+                                          const trunk_node         *index,
+                                          uint64                    pivot_num)
+{
+   platform_assert(policy->type == TRUNK_FLUSH_POLICY_RANGE);
+
+   key child_minkey = trunk_node_pivot_key(index, pivot_num);
+   key child_maxkey = trunk_node_pivot_key(index, pivot_num + 1);
+
+   return trunk_ranges_intersect(context,
+                                 child_minkey,
+                                 child_maxkey,
+                                 policy->u.range.minkey,
+                                 policy->u.range.maxkey);
+}
+
+static bool32
+trunk_flush_range_policy_intersects_node(const trunk_context      *context,
+                                         const trunk_flush_policy *policy,
+                                         const trunk_node         *node)
+{
+   platform_assert(policy->type == TRUNK_FLUSH_POLICY_RANGE);
+
+   key node_minkey = trunk_node_pivot_key(node, 0);
+   key node_maxkey = trunk_node_pivot_key(node, trunk_node_num_children(node));
+
+   return trunk_ranges_intersect(context,
+                                 node_minkey,
+                                 node_maxkey,
+                                 policy->u.range.minkey,
+                                 policy->u.range.maxkey);
+}
+
+static bool32
+trunk_flush_policy_should_flush_to_child(trunk_context            *context,
+                                         const trunk_flush_policy *policy,
+                                         trunk_node               *index,
+                                         uint64                    pivot_num,
+                                         uint64                    rflimit)
+{
+   policy = trunk_flush_policy_or_default(policy);
+
+   switch (policy->type) {
+      case TRUNK_FLUSH_POLICY_STANDARD:
+      {
+         trunk_pivot *pvt = trunk_node_pivot(index, pivot_num);
+         return context->cfg->target_fanout
+                   < trunk_node_pivot_eventual_num_branches(
+                      context, index, pivot_num)
+                || rflimit < pvt->stats.num_tuples;
+      }
+
+      case TRUNK_FLUSH_POLICY_RANGE:
+         return trunk_flush_range_policy_intersects_child(
+            context, policy, index, pivot_num);
+
+      default:
+         platform_assert(0);
+         return FALSE;
+   }
+}
+
+static platform_status
+trunk_leaf_prepare_full_compaction(trunk_context *context, trunk_node *leaf)
+{
+   platform_status rc;
+
+   platform_assert(trunk_node_is_leaf(leaf));
+
+   bundle_vector new_inflight_bundles;
+   vector_init(&new_inflight_bundles, PROCESS_PRIVATE_HEAP_ID);
+
+   bundle *pivot_bundle = trunk_node_pivot_bundle(leaf, 0);
+   uint64  old_inflight_start =
+      trunk_pivot_inflight_bundle_start(trunk_node_pivot(leaf, 0));
+   uint64 old_inflight_end = vector_length(&leaf->inflight_bundles);
+   uint64 num_new_bundles  = (0 < bundle_num_branches(pivot_bundle) ? 1 : 0)
+                            + old_inflight_end - old_inflight_start;
+
+   rc = vector_ensure_capacity(&new_inflight_bundles, num_new_bundles);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      goto cleanup_new_inflight_bundles;
+   }
+
+   if (0 < bundle_num_branches(pivot_bundle)) {
+      rc = VECTOR_EMPLACE_APPEND(&new_inflight_bundles,
+                                 bundle_init_copy,
+                                 pivot_bundle,
+                                 PROCESS_PRIVATE_HEAP_ID);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s():%d: bundle_init_copy() failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_to_string(rc));
+         goto cleanup_new_inflight_bundles;
+      }
+   }
+
+   for (uint64 i = old_inflight_start; i < old_inflight_end; i++) {
+      rc = VECTOR_EMPLACE_APPEND(&new_inflight_bundles,
+                                 bundle_init_copy,
+                                 vector_get_ptr(&leaf->inflight_bundles, i),
+                                 PROCESS_PRIVATE_HEAP_ID);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s():%d: bundle_init_copy() failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_to_string(rc));
+         goto cleanup_new_inflight_bundles;
+      }
+   }
+
+   if (vector_length(&new_inflight_bundles) == 0) {
+      vector_deinit(&new_inflight_bundles);
+      return STATUS_OK;
+   }
+
+   trunk_pivot_state_map_abandon_entry(
+      context, trunk_node_pivot_min_key(leaf), trunk_node_height(leaf));
+
+   VECTOR_APPLY_TO_PTRS(&leaf->inflight_bundles, bundle_deinit);
+   vector_deinit(&leaf->inflight_bundles);
+   leaf->inflight_bundles = new_inflight_bundles;
+   leaf->num_old_bundles  = 0;
+
+   bundle_deinit(pivot_bundle);
+   bundle_init(pivot_bundle, PROCESS_PRIVATE_HEAP_ID);
+
+   trunk_pivot *pvt      = trunk_node_pivot(leaf, 0);
+   pvt->prereceive_stats = TRUNK_STATS_ZERO;
+   trunk_pivot_set_inflight_bundle_start(pvt, 0);
+
+   debug_assert(trunk_node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
+
+   return STATUS_OK;
+
+cleanup_new_inflight_bundles:
+   VECTOR_APPLY_TO_PTRS(&new_inflight_bundles, bundle_deinit);
+   vector_deinit(&new_inflight_bundles);
+   return rc;
+}
+
+static platform_status
+trunk_leaves_prepare_full_compactions(trunk_context            *context,
+                                      trunk_node_vector        *leaves,
+                                      const trunk_flush_policy *policy)
+{
+   platform_status rc;
+
+   policy = trunk_flush_policy_or_default(policy);
+
+   if (!policy->full_leaf_compactions) {
+      return STATUS_OK;
+   }
+
+   for (uint64 i = 0; i < vector_length(leaves); i++) {
+      trunk_node *leaf = vector_get_ptr(leaves, i);
+      if (policy->type != TRUNK_FLUSH_POLICY_RANGE
+          || !trunk_flush_range_policy_intersects_node(context, policy, leaf))
+      {
+         continue;
+      }
+
+      rc = trunk_leaf_prepare_full_compaction(context, leaf);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "%s():%d: trunk_leaf_prepare_full_compaction() failed: %s",
+            __func__,
+            __LINE__,
+            platform_status_to_string(rc));
+         return rc;
+      }
+   }
+
+   return STATUS_OK;
+}
+
 static platform_status
 restore_balance_leaf(trunk_context                *context,
                      trunk_node                   *leaf,
                      trunk_ondisk_node_ref_vector *new_leaf_refs,
-                     incorporation_tasks          *itasks)
+                     incorporation_tasks          *itasks,
+                     const trunk_flush_policy     *policy)
 {
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, PROCESS_PRIVATE_HEAP_ID);
@@ -4481,6 +4812,15 @@ restore_balance_leaf(trunk_context                *context,
       trunk_pivot_state_map_abandon_entry(
          context, trunk_node_pivot_min_key(leaf), trunk_node_height(leaf));
       abandoned_leaf_compactions++;
+   }
+
+   rc = trunk_leaves_prepare_full_compactions(context, &new_nodes, policy);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: prepare_full_compactions failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      goto cleanup_new_nodes;
    }
 
    rc = serialize_nodes_and_save_contingent_compactions(
@@ -4533,14 +4873,17 @@ flush_then_compact(trunk_context                *context,
                    bundle_vector                *inflight,
                    uint64                        inflight_start,
                    trunk_ondisk_node_ref_vector *new_node_refs,
-                   incorporation_tasks          *itasks);
+                   incorporation_tasks          *itasks,
+                   const trunk_flush_policy     *policy);
 
 static platform_status
 flush_to_one_child(trunk_context                *context,
                    trunk_node                   *index,
                    uint64                        pivot_num,
                    trunk_ondisk_node_ref_vector *new_childrefs_accumulator,
-                   incorporation_tasks          *itasks)
+                   incorporation_tasks          *itasks,
+                   const trunk_flush_policy     *policy,
+                   uint64                       *num_new_children)
 {
    platform_status rc = STATUS_OK;
 
@@ -4571,7 +4914,8 @@ flush_to_one_child(trunk_context                *context,
                            &index->inflight_bundles,
                            trunk_pivot_inflight_bundle_start(pvt),
                            &new_childrefs,
-                           itasks);
+                           itasks,
+                           policy);
    trunk_node_deinit(&child, context);
    if (!SUCCESS(rc)) {
       platform_error_log("flush_to_one_child: flush_then_compact failed: %d\n",
@@ -4596,6 +4940,9 @@ flush_to_one_child(trunk_context                *context,
       trunk_pivot *new_pivot = vector_get(&new_pivots, j);
       trunk_pivot_set_inflight_bundle_start(
          new_pivot, vector_length(&index->inflight_bundles));
+   }
+   if (num_new_children != NULL) {
+      *num_new_children = vector_length(&new_pivots);
    }
 
    // Construct the new empty pivot bundles for the new children
@@ -4683,12 +5030,15 @@ static platform_status
 restore_balance_index(trunk_context                *context,
                       trunk_node                   *index,
                       trunk_ondisk_node_ref_vector *new_index_refs,
-                      incorporation_tasks          *itasks)
+                      incorporation_tasks          *itasks,
+                      const trunk_flush_policy     *policy)
 {
    platform_status rc;
    threadid        tid     = platform_get_tid();
    uint64          rflimit = routing_filter_max_fingerprints(
       cache_get_config(context->cc), context->cfg->filter_cfg);
+
+   policy = trunk_flush_policy_or_default(policy);
 
    debug_assert(trunk_node_is_well_formed_index(context->cfg->data_cfg, index));
 
@@ -4697,14 +5047,18 @@ restore_balance_index(trunk_context                *context,
 
    uint64 fullest_child    = 0;
    uint64 fullest_kv_bytes = 0;
-   for (uint64 i = 0; i < trunk_node_num_children(index); i++) {
-      trunk_pivot *pvt = trunk_node_pivot(index, i);
-
-      if (context->cfg->target_fanout
-             < trunk_node_pivot_eventual_num_branches(context, index, i)
-          || rflimit < pvt->stats.num_tuples)
+   for (uint64 i = 0; i < trunk_node_num_children(index);) {
+      if (trunk_flush_policy_should_flush_to_child(
+             context, policy, index, i, rflimit))
       {
-         rc = flush_to_one_child(context, index, i, &all_new_childrefs, itasks);
+         uint64 num_new_children;
+         rc = flush_to_one_child(context,
+                                 index,
+                                 i,
+                                 &all_new_childrefs,
+                                 itasks,
+                                 policy,
+                                 &num_new_children);
          if (!SUCCESS(rc)) {
             platform_error_log("%s():%d: flush_to_one_child() failed: %s",
                                __func__,
@@ -4713,19 +5067,33 @@ restore_balance_index(trunk_context                *context,
             goto cleanup_all_new_children;
          }
 
-         if (context->stats) {
+         if (policy->type == TRUNK_FLUSH_POLICY_STANDARD && context->stats) {
             context->stats[tid].full_flushes[trunk_node_height(index)]++;
          }
 
-      } else if (fullest_kv_bytes < trunk_pivot_num_kv_bytes(pvt)) {
-         fullest_child    = i;
-         fullest_kv_bytes = trunk_pivot_num_kv_bytes(pvt);
+         i += num_new_children;
+      } else if (policy->type == TRUNK_FLUSH_POLICY_STANDARD) {
+         trunk_pivot *pvt = trunk_node_pivot(index, i);
+         if (fullest_kv_bytes < trunk_pivot_num_kv_bytes(pvt)) {
+            fullest_child    = i;
+            fullest_kv_bytes = trunk_pivot_num_kv_bytes(pvt);
+         }
+         i++;
+      } else {
+         i++;
       }
    }
 
-   if (context->cfg->incorporation_size_kv_bytes < fullest_kv_bytes) {
-      rc = flush_to_one_child(
-         context, index, fullest_child, &all_new_childrefs, itasks);
+   if (policy->type == TRUNK_FLUSH_POLICY_STANDARD
+       && context->cfg->incorporation_size_kv_bytes < fullest_kv_bytes)
+   {
+      rc = flush_to_one_child(context,
+                              index,
+                              fullest_child,
+                              &all_new_childrefs,
+                              itasks,
+                              policy,
+                              NULL);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: flush_to_one_child() failed: %s",
                             __func__,
@@ -4785,9 +5153,12 @@ flush_then_compact(trunk_context                *context,
                    bundle_vector                *inflight,
                    uint64                        inflight_start,
                    trunk_ondisk_node_ref_vector *new_node_refs,
-                   incorporation_tasks          *itasks)
+                   incorporation_tasks          *itasks,
+                   const trunk_flush_policy     *policy)
 {
    platform_status rc;
+
+   policy = trunk_flush_policy_or_default(policy);
 
    // Add the bundles to the node
    rc = trunk_node_receive_bundles(
@@ -4809,9 +5180,9 @@ flush_then_compact(trunk_context                *context,
 
    // Perform any needed recursive flushes and node splits
    if (trunk_node_is_leaf(node)) {
-      rc = restore_balance_leaf(context, node, new_node_refs, itasks);
+      rc = restore_balance_leaf(context, node, new_node_refs, itasks, policy);
    } else {
-      rc = restore_balance_index(context, node, new_node_refs, itasks);
+      rc = restore_balance_index(context, node, new_node_refs, itasks, policy);
    }
 
    return rc;
@@ -4926,16 +5297,18 @@ cleanup_pivots:
 }
 
 platform_status
-trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
+trunk_flush_prepare(trunk_context            *context,
+                    uint64                    branch_addr,
+                    const trunk_flush_policy *policy)
 {
    platform_status rc;
-   uint64          height;
+   uint64          height = 0;
+
+   policy = trunk_flush_policy_or_default(policy);
 
    trunk_modification_begin(context);
 
    incorporation_tasks_init(&context->tasks, context->hid);
-
-   branch_ref branch = create_branch_ref(branch_addr);
 
    bundle_vector inflight;
    vector_init(&inflight, PROCESS_PRIVATE_HEAP_ID);
@@ -4943,20 +5316,21 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
    trunk_ondisk_node_ref_vector new_node_refs;
    vector_init(&new_node_refs, PROCESS_PRIVATE_HEAP_ID);
 
-   trunk_pivot_vector new_pivot;
-   vector_init(&new_pivot, PROCESS_PRIVATE_HEAP_ID);
+   if (branch_addr != 0) {
+      branch_ref branch = create_branch_ref(branch_addr);
 
-   // Construct a vector of inflight bundles with one singleton bundle for
-   // the new branch.
-   rc = VECTOR_EMPLACE_APPEND(&inflight,
-                              bundle_init_single,
-                              PROCESS_PRIVATE_HEAP_ID,
-                              NULL_ROUTING_FILTER,
-                              branch);
-   if (!SUCCESS(rc)) {
-      platform_error_log(
-         "trunk_incorporate: VECTOR_EMPLACE_APPEND failed: %d\n", rc.r);
-      goto cleanup_vectors;
+      // Construct a vector of inflight bundles with one singleton bundle for
+      // the new branch.
+      rc = VECTOR_EMPLACE_APPEND(&inflight,
+                                 bundle_init_single,
+                                 PROCESS_PRIVATE_HEAP_ID,
+                                 NULL_ROUTING_FILTER,
+                                 branch);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "%s: VECTOR_EMPLACE_APPEND failed: %d\n", __func__, rc.r);
+         goto cleanup_vectors;
+      }
    }
 
    // Read the old root.
@@ -4964,11 +5338,11 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
    if (context->root != NULL) {
       rc = trunk_node_deserialize(context, context->root->ref.addr, &root);
       if (!SUCCESS(rc)) {
-         platform_error_log("trunk_incorporate: node_deserialize failed: %d\n",
-                            rc.r);
+         platform_error_log(
+            "%s: node_deserialize failed: %d\n", __func__, rc.r);
          goto cleanup_vectors;
       }
-   } else {
+   } else if (branch_addr != 0) {
       // If there is no root, create an empty one.
       rc = trunk_node_init_empty_leaf(&root,
                                       PROCESS_PRIVATE_HEAP_ID,
@@ -4976,22 +5350,30 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
                                       POSITIVE_INFINITY_KEY);
       if (!SUCCESS(rc)) {
          platform_error_log(
-            "trunk_incorporate: node_init_empty_leaf failed: %d\n", rc.r);
+            "%s: node_init_empty_leaf failed: %d\n", __func__, rc.r);
          goto cleanup_vectors;
       }
       debug_assert(
          trunk_node_is_well_formed_leaf(context->cfg->data_cfg, &root));
+   } else {
+      rc = STATUS_OK;
+      goto finish;
    }
 
    height = trunk_node_height(&root);
 
    // "flush" the new bundle to the root, then do any rebalancing needed.
-   rc = flush_then_compact(
-      context, &root, NULL, &inflight, 0, &new_node_refs, &context->tasks);
+   rc = flush_then_compact(context,
+                           &root,
+                           NULL,
+                           &inflight,
+                           0,
+                           &new_node_refs,
+                           &context->tasks,
+                           policy);
    trunk_node_deinit(&root, context);
    if (!SUCCESS(rc)) {
-      platform_error_log("trunk_incorporate: flush_then_compact failed: %d\n",
-                         rc.r);
+      platform_error_log("%s: flush_then_compact failed: %d\n", __func__, rc.r);
       goto cleanup_vectors;
    }
 
@@ -5000,15 +5382,16 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
    while (1 < vector_length(&new_node_refs)) {
       rc = build_new_roots(context, height, &new_node_refs);
       if (!SUCCESS(rc)) {
-         platform_error_log("trunk_incorporate: build_new_roots failed: %d\n",
-                            rc.r);
+         platform_error_log("%s: build_new_roots failed: %d\n", __func__, rc.r);
          goto cleanup_vectors;
       }
       height++;
    }
 
    platform_assert(context->post_incorporation_root == NULL);
-   context->post_incorporation_root = vector_get(&new_node_refs, 0);
+   if (0 < vector_length(&new_node_refs)) {
+      context->post_incorporation_root = vector_get(&new_node_refs, 0);
+   }
 
    if (context->stats) {
       threadid tid       = platform_get_tid();
@@ -5019,6 +5402,7 @@ trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
       context->stats[tid].incorporation_footprint_distribution[footprint]++;
    }
 
+finish:
 cleanup_vectors:
    if (!SUCCESS(rc)) {
       VECTOR_APPLY_TO_ELTS(
@@ -5034,7 +5418,7 @@ cleanup_vectors:
 }
 
 void
-trunk_incorporate_commit(trunk_context *context)
+trunk_flush_commit(trunk_context *context)
 {
    batch_rwlock_lock(&context->root_lock, 0);
    platform_assert(context->pre_incorporation_root == NULL);
@@ -5045,16 +5429,102 @@ trunk_incorporate_commit(trunk_context *context)
 }
 
 void
-trunk_incorporate_cleanup(trunk_context *context)
+trunk_flush_cleanup(trunk_context *context, task_tracker *tracker)
 {
+   platform_status rc;
+
    if (context->pre_incorporation_root != NULL) {
       trunk_ondisk_node_ref_destroy(
          context->pre_incorporation_root, context, context->hid);
       context->pre_incorporation_root = NULL;
    }
-   incorporation_tasks_execute(&context->tasks, context);
+   rc = incorporation_tasks_execute(&context->tasks, context, tracker);
    incorporation_tasks_deinit(&context->tasks, context);
    trunk_modification_end(context);
+   task_tracker_done(tracker, rc);
+}
+
+platform_status
+trunk_incorporate_prepare(trunk_context *context, uint64 branch_addr)
+{
+   platform_assert(branch_addr != 0);
+
+   return trunk_flush_prepare(
+      context, branch_addr, &TRUNK_FLUSH_POLICY_DEFAULT);
+}
+
+void
+trunk_incorporate_commit(trunk_context *context)
+{
+   trunk_flush_commit(context);
+}
+
+void
+trunk_incorporate_cleanup(trunk_context *context)
+{
+   trunk_flush_cleanup(context, NULL);
+}
+
+static void
+trunk_flush_tracker_done(task_tracker *tracker)
+{
+   splinterdb_notification *notification =
+      (splinterdb_notification *)tracker->user_data;
+   platform_status status = tracker->failed ? tracker->status : STATUS_OK;
+
+   splinterdb_notification_complete(notification, status);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, tracker);
+}
+
+platform_status
+trunk_optimize(trunk_context           *context,
+               key                      minkey,
+               key                      maxkey,
+               bool32                   full_leaf_compactions,
+               splinterdb_notification *notification)
+{
+   if (key_is_null(minkey) || key_is_null(maxkey)) {
+      return STATUS_BAD_PARAM;
+   }
+
+   int cmp = data_key_compare(context->cfg->data_cfg, minkey, maxkey);
+   if (cmp > 0) {
+      return STATUS_BAD_PARAM;
+   }
+   if (cmp == 0) {
+      splinterdb_notification_complete(notification, STATUS_OK);
+      return STATUS_OK;
+   }
+
+   task_tracker *tracker = NULL;
+   if (notification != NULL) {
+      tracker = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, tracker);
+      if (tracker == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+      task_tracker_init(tracker, trunk_flush_tracker_done, notification);
+   }
+
+   trunk_flush_policy policy = {
+      .type                  = TRUNK_FLUSH_POLICY_RANGE,
+      .full_leaf_compactions = full_leaf_compactions,
+      .u.range =
+         {
+            .minkey = minkey,
+            .maxkey = maxkey,
+         },
+   };
+
+   platform_status rc = trunk_flush_prepare(context, 0, &policy);
+   if (!SUCCESS(rc)) {
+      platform_free(PROCESS_PRIVATE_HEAP_ID, tracker);
+      return rc;
+   }
+
+   trunk_flush_commit(context);
+   trunk_flush_cleanup(context, tracker);
+
+   return STATUS_OK;
 }
 
 /***********************************

@@ -9,6 +9,7 @@
 
 #include "core.h"
 #include "data_internal.h"
+#include "notification.h"
 #include "platform_sleep.h"
 #include "platform_time.h"
 #include "platform_util.h"
@@ -1611,6 +1612,29 @@ end_insert:
    btree_insert_results_deinit(&insert_results);
    memtable_end_insert(&spl->mt_ctxt);
    return rc;
+}
+
+platform_status
+core_optimize(core_handle             *spl,
+              key                      minkey,
+              key                      maxkey,
+              splinterdb_notification *notification)
+{
+   if (key_is_null(minkey) || key_is_null(maxkey)) {
+      return STATUS_BAD_PARAM;
+   }
+
+   int cmp = data_key_compare(spl->cfg.data_cfg, minkey, maxkey);
+   if (cmp > 0) {
+      return STATUS_BAD_PARAM;
+   }
+   if (cmp == 0) {
+      splinterdb_notification_complete(notification, STATUS_OK);
+      return STATUS_OK;
+   }
+
+   return trunk_optimize(
+      &spl->trunk_context, minkey, maxkey, TRUE, notification);
 }
 
 // If any change is made in here, please make similar change in

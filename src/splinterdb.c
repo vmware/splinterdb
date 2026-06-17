@@ -19,6 +19,7 @@
 #include "rc_allocator.h"
 #include "core.h"
 #include "lookup_result.h"
+#include "notification.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
 #include "platform_typed_alloc.h"
@@ -85,6 +86,148 @@ splinterdb_assert_thread_registered(void)
 {
    platform_status rc = platform_ensure_thread_registered();
    platform_assert_status_ok(rc);
+}
+
+static void
+splinterdb_notification_init_common(splinterdb_notification         *note,
+                                    notification_mode                mode,
+                                    splinterdb_notification_callback callback,
+                                    void                            *user_data)
+{
+   notification *n = notification_from_splinterdb(note);
+
+   n->mode      = mode;
+   n->complete  = FALSE;
+   n->status    = STATUS_OK;
+   n->user_data = user_data;
+   n->callback  = callback;
+
+   platform_status rc = platform_condvar_init(&n->cv, PROCESS_PRIVATE_HEAP_ID);
+   platform_assert_status_ok(rc);
+}
+
+void
+splinterdb_notification_init_blocking(splinterdb_notification *note)
+{
+   splinterdb_notification_init_common(
+      note, NOTIFICATION_MODE_BLOCKING, NULL, NULL);
+}
+
+void
+splinterdb_notification_init_polling(splinterdb_notification *note,
+                                     void                    *user_data)
+{
+   splinterdb_notification_init_common(
+      note, NOTIFICATION_MODE_POLLING, NULL, user_data);
+}
+
+void
+splinterdb_notification_init_callback(splinterdb_notification         *note,
+                                      splinterdb_notification_callback callback,
+                                      void *user_data)
+{
+   splinterdb_notification_init_common(
+      note, NOTIFICATION_MODE_CALLBACK, callback, user_data);
+}
+
+void
+splinterdb_notification_deinit(splinterdb_notification *note)
+{
+   notification *n = notification_from_splinterdb(note);
+
+   platform_condvar_destroy(&n->cv);
+}
+
+_Bool
+splinterdb_notification_poll(const splinterdb_notification *note, int *status)
+{
+   notification *n =
+      notification_from_splinterdb((splinterdb_notification *)note);
+
+   platform_status rc = platform_condvar_lock(&n->cv);
+   platform_assert_status_ok(rc);
+
+   bool32 complete = n->complete;
+   if (status != NULL) {
+      *status = platform_status_to_int(n->status);
+   }
+
+   rc = platform_condvar_unlock(&n->cv);
+   platform_assert_status_ok(rc);
+
+   return complete;
+}
+
+int
+splinterdb_notification_wait(splinterdb_notification *note)
+{
+   notification *n = notification_from_splinterdb(note);
+
+   platform_status rc = platform_condvar_lock(&n->cv);
+   platform_assert_status_ok(rc);
+
+   while (!n->complete) {
+      rc = platform_condvar_wait(&n->cv);
+      platform_assert_status_ok(rc);
+   }
+
+   int status = platform_status_to_int(n->status);
+
+   rc = platform_condvar_unlock(&n->cv);
+   platform_assert_status_ok(rc);
+
+   return status;
+}
+
+void *
+splinterdb_notification_user_data(const splinterdb_notification *note)
+{
+   const notification *n = notification_from_const_splinterdb(note);
+
+   return n->user_data;
+}
+
+bool32
+splinterdb_notification_is_blocking(splinterdb_notification *note)
+{
+   if (note == NULL) {
+      return FALSE;
+   }
+
+   notification *n = notification_from_splinterdb(note);
+
+   return n->mode == NOTIFICATION_MODE_BLOCKING;
+}
+
+void
+splinterdb_notification_complete(splinterdb_notification *note,
+                                 platform_status          status)
+{
+   if (note == NULL) {
+      return;
+   }
+
+   notification *n = notification_from_splinterdb(note);
+
+   platform_status rc = platform_condvar_lock(&n->cv);
+   platform_assert_status_ok(rc);
+
+   platform_assert(!n->complete);
+   n->status   = status;
+   n->complete = TRUE;
+
+   splinterdb_notification_callback callback =
+      n->mode == NOTIFICATION_MODE_CALLBACK ? n->callback : NULL;
+
+   rc = platform_condvar_broadcast(&n->cv);
+   platform_assert_status_ok(rc);
+
+   rc = platform_condvar_unlock(&n->cv);
+   platform_assert_status_ok(rc);
+
+   if (callback != NULL) {
+      callback(note);
+   }
 }
 
 static void
@@ -252,6 +395,66 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    return STATUS_OK;
 }
 
+static platform_status
+splinterdb_config_read_disk_geometry(splinterdb_config *cfg,
+                                     platform_heap_id   heap_id)
+{
+   if (cfg->filename == NULL) {
+      platform_error_log("Expect filename to be set.\n");
+      return STATUS_BAD_PARAM;
+   }
+
+   splinterdb_config io_defaults = {0};
+   memcpy(&io_defaults, cfg, sizeof(io_defaults));
+   splinterdb_config_set_defaults(&io_defaults);
+
+   io_config io_cfg;
+   int       io_flags = io_defaults.io_flags & ~(O_CREAT | O_TRUNC);
+   io_config_init(&io_cfg,
+                  IO_DEFAULT_PAGE_SIZE,
+                  IO_DEFAULT_EXTENT_SIZE,
+                  io_flags,
+                  io_defaults.io_perms,
+                  io_defaults.io_async_queue_depth,
+                  io_defaults.filename);
+
+   io_handle *io = io_handle_create(&io_cfg, heap_id);
+   if (io == NULL) {
+      return STATUS_IO_ERROR;
+   }
+
+   rc_allocator_super_block_config super_cfg;
+   platform_status                 status =
+      rc_allocator_read_super_block(io, heap_id, &super_cfg);
+   io_handle_destroy(io);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   if ((cfg->disk_size != 0 && cfg->disk_size != super_cfg.disk_size)
+       || (cfg->page_size != 0 && cfg->page_size != super_cfg.page_size)
+       || (cfg->extent_size != 0 && cfg->extent_size != super_cfg.extent_size))
+   {
+      platform_error_log(
+         "SplinterDB superblock geometry does not match configuration: "
+         "superblock=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
+         "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
+         super_cfg.disk_size,
+         super_cfg.page_size,
+         super_cfg.extent_size,
+         cfg->disk_size,
+         cfg->page_size,
+         cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   cfg->disk_size   = super_cfg.disk_size;
+   cfg->page_size   = super_cfg.page_size;
+   cfg->extent_size = super_cfg.extent_size;
+
+   return STATUS_OK;
+}
+
 
 /*
  * Internal function for create or open
@@ -265,8 +468,10 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    splinterdb     *kvs = NULL;
    platform_status status;
 
-   bool             we_created_heap  = FALSE;
-   platform_heap_id use_this_heap_id = kvs_cfg->heap_id;
+   bool              we_created_heap  = FALSE;
+   platform_heap_id  use_this_heap_id = kvs_cfg->heap_id;
+   splinterdb_config cfg;
+   memcpy(&cfg, kvs_cfg, sizeof(cfg));
 
    status = platform_ensure_thread_registered();
    if (!SUCCESS(status)) {
@@ -296,6 +501,17 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       we_created_heap = TRUE;
    }
 
+   if (open_existing) {
+      status = splinterdb_config_read_disk_geometry(&cfg, use_this_heap_id);
+      if (!SUCCESS(status)) {
+         platform_error_log("Failed to read SplinterDB superblock from '%s': "
+                            "%s\n",
+                            kvs_cfg->filename,
+                            platform_status_to_string(status));
+         goto deinit_kvhandle;
+      }
+   }
+
    platform_assert(kvs_out != NULL);
 
    kvs = TYPED_ZALLOC(use_this_heap_id, kvs);
@@ -308,12 +524,12 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    // All memory allocation after this call should -ONLY- use heap handles
    // from the handle to the running Splinter instance; i.e. 'kvs'.
-   status = splinterdb_init_config(kvs_cfg, kvs);
+   status = splinterdb_init_config(&cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
                          "configuration: %s\n",
                          (open_existing ? "open existing" : "initialize"),
-                         kvs_cfg->filename,
+                         cfg.filename,
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
@@ -653,6 +869,39 @@ splinterdb_update(splinterdb               *kvsb,
       old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
    platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
+}
+
+int
+splinterdb_optimize(splinterdb              *kvs,
+                    slice                    user_min_key,
+                    slice                    user_max_key,
+                    splinterdb_notification *notification)
+{
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   platform_assert(kvs != NULL);
+
+   key min_key = slice_is_null(user_min_key)
+                    ? NEGATIVE_INFINITY_KEY
+                    : key_create_from_slice(TRUE, user_min_key);
+   key max_key = slice_is_null(user_max_key)
+                    ? POSITIVE_INFINITY_KEY
+                    : key_create_from_slice(TRUE, user_max_key);
+
+   platform_status status =
+      core_optimize(&kvs->spl, min_key, max_key, notification);
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+
+   if (splinterdb_notification_is_blocking(notification)) {
+      return splinterdb_notification_wait(notification);
+   }
+
+   return 0;
 }
 
 struct splinterdb_iterator {
