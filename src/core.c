@@ -1618,6 +1618,7 @@ platform_status
 core_optimize(core_handle             *spl,
               key                      minkey,
               key                      maxkey,
+              bool32                   full_leaf_compactions,
               splinterdb_notification *notification)
 {
    if (key_is_null(minkey) || key_is_null(maxkey)) {
@@ -1633,8 +1634,11 @@ core_optimize(core_handle             *spl,
       return STATUS_OK;
    }
 
-   return trunk_optimize(
-      &spl->trunk_context, minkey, maxkey, TRUE, notification);
+   return trunk_optimize(&spl->trunk_context,
+                         minkey,
+                         maxkey,
+                         full_leaf_compactions,
+                         notification);
 }
 
 // If any change is made in here, please make similar change in

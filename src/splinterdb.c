@@ -747,6 +747,7 @@ int
 splinterdb_optimize(splinterdb              *kvs,
                     slice                    user_min_key,
                     slice                    user_max_key,
+                    _Bool                    full_leaf_compactions,
                     splinterdb_notification *notification)
 {
    int rc = splinterdb_ensure_thread_registered();
@@ -763,8 +764,11 @@ splinterdb_optimize(splinterdb              *kvs,
                     ? POSITIVE_INFINITY_KEY
                     : key_create_from_slice(TRUE, user_max_key);
 
-   platform_status status =
-      core_optimize(&kvs->spl, min_key, max_key, notification);
+   platform_status status = core_optimize(&kvs->spl,
+                                          min_key,
+                                          max_key,
+                                          full_leaf_compactions,
+                                          notification);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
    }

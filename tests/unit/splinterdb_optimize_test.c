@@ -107,8 +107,25 @@ CTEST2(splinterdb_optimize, test_blocking_full_range)
 
    splinterdb_notification notification;
    splinterdb_notification_init_blocking(&notification);
-   int rc =
-      splinterdb_optimize(data->kvsb, NULL_SLICE, NULL_SLICE, &notification);
+   int rc = splinterdb_optimize(
+      data->kvsb, NULL_SLICE, NULL_SLICE, TRUE, &notification);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_notification_deinit(&notification);
+
+   verify_point_lookups(data->kvsb, num_keys);
+   verify_full_scan(data->kvsb, num_keys);
+}
+
+CTEST2(splinterdb_optimize, test_blocking_without_full_leaf_compactions)
+{
+   const uint32 num_keys = 320;
+
+   load_key_batches(data->kvsb, num_keys, 40);
+
+   splinterdb_notification notification;
+   splinterdb_notification_init_blocking(&notification);
+   int rc = splinterdb_optimize(
+      data->kvsb, NULL_SLICE, NULL_SLICE, FALSE, &notification);
    ASSERT_EQUAL(0, rc);
    splinterdb_notification_deinit(&notification);
 
@@ -151,6 +168,7 @@ CTEST2(splinterdb_optimize, test_polling_subrange)
    int rc = splinterdb_optimize(data->kvsb,
                                 slice_create(strlen(min_key), min_key),
                                 slice_create(strlen(max_key), max_key),
+                                TRUE,
                                 &notification);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(&user_data == splinterdb_notification_user_data(&notification));
@@ -185,6 +203,7 @@ CTEST2(splinterdb_optimize, test_callback_completion)
    int rc = splinterdb_optimize(data->kvsb,
                                 slice_create(strlen(min_key), min_key),
                                 slice_create(strlen(max_key), max_key),
+                                TRUE,
                                 &notification);
    ASSERT_EQUAL(0, rc);
 
@@ -424,6 +443,7 @@ optimize_thread(void *arg)
       splinterdb_optimize(args->kvsb,
                           slice_create(strlen(args->min_key), args->min_key),
                           slice_create(strlen(args->max_key), args->max_key),
+                          TRUE,
                           args->notification);
 
    return NULL;

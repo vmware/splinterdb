@@ -32,6 +32,7 @@ typedef struct optimize_options {
    uint64      num_normal_bg_threads;
    uint64      num_memtable_bg_threads;
    _Bool       use_direct_io;
+   _Bool       full_leaf_compactions;
 } optimize_options;
 
 static void
@@ -50,6 +51,7 @@ main(int argc, char **argv)
       .cache_size              = DEFAULT_CACHE_SIZE_MIB * BYTES_PER_MIB,
       .num_normal_bg_threads   = DEFAULT_NORMAL_BG_THREADS,
       .num_memtable_bg_threads = DEFAULT_MEMTABLE_BG_THREADS,
+      .full_leaf_compactions   = TRUE,
    };
 
    int rc = parse_options(argc, argv, &opts);
@@ -97,7 +99,8 @@ main(int argc, char **argv)
           opts.min_key == NULL ? "-infinity" : opts.min_key,
           opts.max_key == NULL ? "+infinity" : opts.max_key);
 
-   rc = splinterdb_optimize(spl, min_key, max_key, &notification);
+   rc = splinterdb_optimize(
+      spl, min_key, max_key, opts.full_leaf_compactions, &notification);
    splinterdb_notification_deinit(&notification);
 
    if (rc == 0) {
@@ -122,6 +125,7 @@ usage(const char *progname)
            "  --cache-mib <mib>            Cache size in MiB (default %u)\n"
            "  --disk-size-mib <mib>        Check image size in MiB\n"
            "  --set-O_DIRECT               Open the image with O_DIRECT\n"
+           "  --no-full-leaf-compactions   Skip full leaf compactions\n"
            "  --normal-bg-threads <count>  Normal task threads (default %u)\n"
            "  --memtable-bg-threads <cnt>  Memtable task threads (default %u)\n"
            "  --help                       Show this help\n",
@@ -180,6 +184,8 @@ parse_options(int argc, char **argv, optimize_options *opts)
          opts->disk_size = mib * BYTES_PER_MIB;
       } else if (strcmp(argv[i], "--set-O_DIRECT") == 0) {
          opts->use_direct_io = TRUE;
+      } else if (strcmp(argv[i], "--no-full-leaf-compactions") == 0) {
+         opts->full_leaf_compactions = FALSE;
       } else if (strcmp(argv[i], "--normal-bg-threads") == 0) {
          if (++i == argc
              || parse_uint64(argv[i], &opts->num_normal_bg_threads) != 0)

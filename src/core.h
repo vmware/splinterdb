@@ -162,6 +162,7 @@ platform_status
 core_optimize(core_handle                    *spl,
               key                             minkey,
               key                             maxkey,
+              bool32                          full_leaf_compactions,
               struct splinterdb_notification *notification);
 
 platform_status

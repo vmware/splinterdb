@@ -343,13 +343,16 @@ splinterdb_update(splinterdb               *kvsb,
                   splinterdb_lookup_result *old_result);
 
 // Optimize already-incorporated trunk data in [min_key, max_key). A null
-// min_key or max_key means the range is unbounded on that side. Passing a NULL
-// notification makes this fire-and-forget. Blocking notifications wait before
-// this function returns; polling and callback notifications complete later.
+// min_key or max_key means the range is unbounded on that side. If
+// full_leaf_compactions is true, enqueue full compactions for leaves in the
+// range after flushing. Passing a NULL notification makes this fire-and-forget.
+// Blocking notifications wait before this function returns; polling and
+// callback notifications complete later.
 int
 splinterdb_optimize(splinterdb              *kvs,
                     slice                    min_key,
                     slice                    max_key,
+                    _Bool                    full_leaf_compactions,
                     splinterdb_notification *notification);
 
 /*
