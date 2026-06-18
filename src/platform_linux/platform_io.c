@@ -7,6 +7,11 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+#      include <sanitizer/msan_interface.h>
+#   endif
+#endif
 
 io_handle *
 io_handle_create(io_config *cfg, platform_heap_id hid)
@@ -80,6 +85,11 @@ io_read_bootstrap(const char *filename, void *buf, uint64 bytes, uint64 addr)
          close(fd);
          return STATUS_IO_ERROR;
       }
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+      __msan_unpoison((char *)buf + bytes_read, ret);
+#   endif
+#endif
       bytes_read += ret;
    }
 

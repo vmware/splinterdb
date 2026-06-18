@@ -116,7 +116,7 @@ CTEST2(splinterdb_optimize, test_blocking_full_range)
    verify_full_scan(data->kvsb, num_keys);
 }
 
-CTEST2(splinterdb_optimize, test_open_reads_superblock_geometry)
+CTEST2(splinterdb_optimize, test_open_reads_disk_geometry)
 {
    const uint32 num_keys = 160;
 
