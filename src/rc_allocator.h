@@ -46,15 +46,6 @@ typedef struct ONDISK rc_allocator_super_block {
    checksum128 checksum;
 } rc_allocator_super_block;
 
-typedef struct rc_allocator_super_block_config {
-   uint64 format_version;
-   uint64 feature_flags;
-   uint64 incompatible_feature_flags;
-   uint64 disk_size;
-   uint64 page_size;
-   uint64 extent_size;
-} rc_allocator_super_block_config;
-
 /*
  *----------------------------------------------------------------------
  * rc_allocator_meta_page -- Disk-resident structure.
@@ -131,12 +122,12 @@ rc_allocator_mount(rc_allocator      *al,
 platform_status
 rc_allocator_read_super_block(const char                      *filename,
                               platform_heap_id                 hid,
-                              rc_allocator_super_block_config *super_cfg);
+                              disk_geometry                   *geometry);
 
 platform_status
 rc_allocator_super_block_matches_config(
-   const rc_allocator_super_block_config *super_cfg,
-   const allocator_config                *cfg);
+   const disk_geometry    *geometry,
+   const allocator_config *cfg);
 
 void
 rc_allocator_unmount(rc_allocator *al);

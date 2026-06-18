@@ -262,19 +262,19 @@ splinterdb_config_read_disk_geometry(splinterdb_config *cfg,
       return STATUS_BAD_PARAM;
    }
 
-   rc_allocator_super_block_config super_cfg;
-   platform_status                 status =
-      rc_allocator_read_super_block(cfg->filename, heap_id, &super_cfg);
+   disk_geometry   geometry;
+   platform_status status =
+      rc_allocator_read_super_block(cfg->filename, heap_id, &geometry);
    if (!SUCCESS(status)) {
       return status;
    }
 
    uint64 cfg_disk_size =
-      cfg->disk_size != 0 ? cfg->disk_size : super_cfg.disk_size;
+      cfg->disk_size != 0 ? cfg->disk_size : geometry.disk_size;
    uint64 cfg_page_size =
-      cfg->page_size != 0 ? cfg->page_size : super_cfg.page_size;
+      cfg->page_size != 0 ? cfg->page_size : geometry.page_size;
    uint64 cfg_extent_size =
-      cfg->extent_size != 0 ? cfg->extent_size : super_cfg.extent_size;
+      cfg->extent_size != 0 ? cfg->extent_size : geometry.extent_size;
 
    io_config io_cfg;
    io_config_init(&io_cfg,
@@ -288,14 +288,14 @@ splinterdb_config_read_disk_geometry(splinterdb_config *cfg,
    allocator_config allocator_cfg;
    allocator_config_init(&allocator_cfg, &io_cfg, cfg_disk_size);
 
-   status = rc_allocator_super_block_matches_config(&super_cfg, &allocator_cfg);
+   status = rc_allocator_super_block_matches_config(&geometry, &allocator_cfg);
    if (!SUCCESS(status)) {
       return status;
    }
 
-   cfg->disk_size   = super_cfg.disk_size;
-   cfg->page_size   = super_cfg.page_size;
-   cfg->extent_size = super_cfg.extent_size;
+   cfg->disk_size   = geometry.disk_size;
+   cfg->page_size   = geometry.page_size;
+   cfg->extent_size = geometry.extent_size;
 
    return STATUS_OK;
 }

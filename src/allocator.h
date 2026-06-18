@@ -87,6 +87,12 @@ typedef struct allocator_config {
    uint64 extent_mask;
 } allocator_config;
 
+typedef struct disk_geometry {
+   uint64 disk_size;
+   uint64 page_size;
+   uint64 extent_size;
+} disk_geometry;
+
 /*
  *-----------------------------------------------------------------------------
  * allocator_config_init

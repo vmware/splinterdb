@@ -267,9 +267,8 @@ rc_allocator_set_super_block(rc_allocator_super_block *super,
 }
 
 static platform_status
-rc_allocator_super_block_config_valid(
-   const rc_allocator_super_block  *super,
-   rc_allocator_super_block_config *super_cfg)
+rc_allocator_super_block_valid(const rc_allocator_super_block *super,
+                               disk_geometry                 *geometry)
 {
    if (super->magic != RC_ALLOCATOR_SUPER_BLOCK_MAGIC) {
       platform_error_log("Invalid SplinterDB superblock magic: %lu\n",
@@ -315,14 +314,11 @@ rc_allocator_super_block_config_valid(
       return STATUS_BAD_PARAM;
    }
 
-   if (super_cfg != NULL) {
-      *super_cfg = (rc_allocator_super_block_config){
-         .format_version             = super->format_version,
-         .feature_flags              = super->feature_flags,
-         .incompatible_feature_flags = super->incompatible_feature_flags,
-         .disk_size                  = super->disk_size,
-         .page_size                  = super->page_size,
-         .extent_size                = super->extent_size,
+   if (geometry != NULL) {
+      *geometry = (disk_geometry){
+         .disk_size   = super->disk_size,
+         .page_size   = super->page_size,
+         .extent_size = super->extent_size,
       };
    }
 
@@ -332,32 +328,31 @@ rc_allocator_super_block_config_valid(
 static platform_status
 rc_allocator_validate_super_block(rc_allocator *al)
 {
-   rc_allocator_super_block_config super_cfg;
-   platform_status                 status =
-      rc_allocator_super_block_config_valid(&al->meta_page->super, &super_cfg);
+   disk_geometry   geometry;
+   platform_status status =
+      rc_allocator_super_block_valid(&al->meta_page->super, &geometry);
    if (!SUCCESS(status)) {
       return status;
    }
 
-   return rc_allocator_super_block_matches_config(&super_cfg, al->cfg);
+   return rc_allocator_super_block_matches_config(&geometry, al->cfg);
 }
 
 platform_status
-rc_allocator_super_block_matches_config(
-   const rc_allocator_super_block_config *super_cfg,
-   const allocator_config                *cfg)
+rc_allocator_super_block_matches_config(const disk_geometry    *geometry,
+                                        const allocator_config *cfg)
 {
-   if (super_cfg->disk_size != cfg->capacity
-       || super_cfg->page_size != cfg->io_cfg->page_size
-       || super_cfg->extent_size != cfg->io_cfg->extent_size)
+   if (geometry->disk_size != cfg->capacity
+       || geometry->page_size != cfg->io_cfg->page_size
+       || geometry->extent_size != cfg->io_cfg->extent_size)
    {
       platform_error_log(
          "SplinterDB superblock geometry does not match configuration: "
          "superblock=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
          "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
-         super_cfg->disk_size,
-         super_cfg->page_size,
-         super_cfg->extent_size,
+         geometry->disk_size,
+         geometry->page_size,
+         geometry->extent_size,
          cfg->capacity,
          cfg->io_cfg->page_size,
          cfg->io_cfg->extent_size);
@@ -368,9 +363,9 @@ rc_allocator_super_block_matches_config(
 }
 
 platform_status
-rc_allocator_read_super_block(const char                      *filename,
-                              platform_heap_id                 hid,
-                              rc_allocator_super_block_config *super_cfg)
+rc_allocator_read_super_block(const char       *filename,
+                              platform_heap_id  hid,
+                              disk_geometry    *geometry)
 {
    platform_status         rc;
    rc_allocator_meta_page *meta_page = TYPED_ALIGNED_ZALLOC(
@@ -385,7 +380,7 @@ rc_allocator_read_super_block(const char                      *filename,
       goto cleanup;
    }
 
-   rc = rc_allocator_super_block_config_valid(&meta_page->super, super_cfg);
+   rc = rc_allocator_super_block_valid(&meta_page->super, geometry);
 
 cleanup:
    platform_free(hid, meta_page);
