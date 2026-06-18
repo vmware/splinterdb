@@ -7,11 +7,6 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
-#if defined(__has_feature)
-#   if __has_feature(memory_sanitizer)
-#      include <sanitizer/msan_interface.h>
-#   endif
-#endif
 
 io_handle *
 io_handle_create(io_config *cfg, platform_heap_id hid)
