@@ -17,7 +17,7 @@
 #include "platform_typed_alloc.h"
 #include "poison.h"
 
-#define RC_ALLOCATOR_META_PAGE_CSUM_SEED   (2718281828)
+#define RC_ALLOCATOR_META_PAGE_CSUM_SEED (2718281828)
 
 /*
  * Base offset from where the allocator starts. Currently hard coded to 0.
@@ -232,7 +232,7 @@ rc_allocator_meta_page_checksum(const rc_allocator_meta_page *meta_page)
 }
 
 static disk_geometry
-rc_allocator_get_disk_geometry(allocator_config *cfg)
+rc_allocator_config_get_disk_geometry(allocator_config *cfg)
 {
    return (disk_geometry){
       .disk_size   = cfg->capacity,
@@ -309,7 +309,7 @@ rc_allocator_init_meta_page(rc_allocator *al)
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));
-   al->meta_page->geometry = rc_allocator_get_disk_geometry(al->cfg);
+   al->meta_page->geometry = rc_allocator_config_get_disk_geometry(al->cfg);
 
    return STATUS_OK;
 }
