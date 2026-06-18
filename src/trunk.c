@@ -2674,10 +2674,16 @@ bundle_compaction_destroy(bundle_compaction *compaction, trunk_context *context)
 }
 
 static void
-trunk_pivot_state_lock_compactions(trunk_pivot_state *state);
+trunk_pivot_state_lock_compactions(trunk_pivot_state *state)
+{
+   platform_spin_lock(&state->compactions_lock);
+}
 
 static void
-trunk_pivot_state_unlock_compactions(trunk_pivot_state *state);
+trunk_pivot_state_unlock_compactions(trunk_pivot_state *state)
+{
+   platform_spin_unlock(&state->compactions_lock);
+}
 
 static void
 bundle_compaction_save_tracker(bundle_compaction   *compaction,
@@ -2855,18 +2861,6 @@ trunk_pivot_state_decref(trunk_pivot_state *state)
    uint64 oldrc = __sync_fetch_and_add(&state->refcount, -1);
    platform_assert(0 < oldrc);
    return oldrc - 1;
-}
-
-static void
-trunk_pivot_state_lock_compactions(trunk_pivot_state *state)
-{
-   platform_spin_lock(&state->compactions_lock);
-}
-
-static void
-trunk_pivot_state_unlock_compactions(trunk_pivot_state *state)
-{
-   platform_spin_unlock(&state->compactions_lock);
 }
 
 debug_only static void
