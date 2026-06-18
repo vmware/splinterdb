@@ -159,6 +159,7 @@ splinterdb_validate_app_data_config(const data_config *cfg)
  */
 static platform_status
 splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
+                       const disk_geometry     *geometry,
                        splinterdb              *kvs      // OUT
 )
 {
@@ -171,10 +172,10 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    kvs->data_cfg = kvs_cfg->data_cfg;
 
    if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0
-       || kvs_cfg->disk_size == 0)
+       || (geometry == NULL && kvs_cfg->disk_size == 0))
    {
-      platform_error_log(
-         "Expect filename, cache_size and disk_size to be set.\n");
+      platform_error_log("Expect filename and cache_size to be set; disk_size "
+                         "is required when creating.\n");
       return STATUS_BAD_PARAM;
    }
 
@@ -182,6 +183,14 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    splinterdb_config cfg = {0};
    memcpy(&cfg, kvs_cfg, sizeof(cfg));
    splinterdb_config_set_defaults(&cfg);
+   if (geometry != NULL) {
+      cfg.disk_size =
+         kvs_cfg->disk_size != 0 ? kvs_cfg->disk_size : geometry->disk_size;
+      cfg.page_size =
+         kvs_cfg->page_size != 0 ? kvs_cfg->page_size : geometry->page_size;
+      cfg.extent_size = kvs_cfg->extent_size != 0 ? kvs_cfg->extent_size
+                                                  : geometry->extent_size;
+   }
 
    io_config_init(&kvs->io_cfg,
                   cfg.page_size,
@@ -198,6 +207,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    }
 
    allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
+   if (geometry != NULL) {
+      rc = rc_allocator_disk_geometry_matches_config(geometry,
+                                                     &kvs->allocator_cfg);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
 
    clockcache_config_init(&kvs->cache_cfg,
                           &kvs->io_cfg,
@@ -281,42 +297,6 @@ splinterdb_config_read_disk_geometry(const char    *filename,
    return STATUS_OK;
 }
 
-static platform_status
-splinterdb_config_apply_disk_geometry(splinterdb_config   *cfg,
-                                      const disk_geometry *geometry)
-{
-   uint64 cfg_disk_size =
-      cfg->disk_size != 0 ? cfg->disk_size : geometry->disk_size;
-   uint64 cfg_page_size =
-      cfg->page_size != 0 ? cfg->page_size : geometry->page_size;
-   uint64 cfg_extent_size =
-      cfg->extent_size != 0 ? cfg->extent_size : geometry->extent_size;
-
-   io_config io_cfg;
-   io_config_init(&io_cfg,
-                  cfg_page_size,
-                  cfg_extent_size,
-                  cfg->io_flags,
-                  cfg->io_perms,
-                  cfg->io_async_queue_depth,
-                  cfg->filename);
-
-   allocator_config allocator_cfg;
-   allocator_config_init(&allocator_cfg, &io_cfg, cfg_disk_size);
-
-   platform_status status =
-      rc_allocator_disk_geometry_matches_config(geometry, &allocator_cfg);
-   if (!SUCCESS(status)) {
-      return status;
-   }
-
-   cfg->disk_size   = geometry->disk_size;
-   cfg->page_size   = geometry->page_size;
-   cfg->extent_size = geometry->extent_size;
-
-   return STATUS_OK;
-}
-
 
 /*
  * Internal function for create or open
@@ -332,8 +312,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    bool              we_created_heap  = FALSE;
    platform_heap_id  use_this_heap_id = kvs_cfg->heap_id;
-   splinterdb_config cfg;
-   memcpy(&cfg, kvs_cfg, sizeof(cfg));
+   disk_geometry     geometry;
+   const disk_geometry *config_geometry = NULL;
 
    status = platform_ensure_thread_registered();
    if (!SUCCESS(status)) {
@@ -364,8 +344,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    }
 
    if (open_existing) {
-      disk_geometry geometry;
-      status = splinterdb_config_read_disk_geometry(cfg.filename, &geometry);
+      status =
+         splinterdb_config_read_disk_geometry(kvs_cfg->filename, &geometry);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to read SplinterDB disk geometry from "
                             "'%s': %s\n",
@@ -373,15 +353,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             platform_status_to_string(status));
          goto deinit_kvhandle;
       }
-
-      status = splinterdb_config_apply_disk_geometry(&cfg, &geometry);
-      if (!SUCCESS(status)) {
-         platform_error_log("SplinterDB disk geometry from '%s' does not "
-                            "match specified configuration: %s\n",
-                            kvs_cfg->filename,
-                            platform_status_to_string(status));
-         goto deinit_kvhandle;
-      }
+      config_geometry = &geometry;
    }
 
    platform_assert(kvs_out != NULL);
@@ -396,12 +368,12 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    // All memory allocation after this call should -ONLY- use heap handles
    // from the handle to the running Splinter instance; i.e. 'kvs'.
-   status = splinterdb_init_config(&cfg, kvs);
+   status = splinterdb_init_config(kvs_cfg, config_geometry, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
                          "configuration: %s\n",
                          (open_existing ? "open existing" : "initialize"),
-                         cfg.filename,
+                         kvs_cfg->filename,
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
