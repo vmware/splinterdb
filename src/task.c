@@ -28,6 +28,13 @@ task_tracker_init(task_tracker         *tracker,
    tracker->status      = STATUS_OK;
    tracker->callback    = callback;
    tracker->user_data   = user_data;
+   tracker->next        = NULL;
+}
+
+void
+task_tracker_list_init(task_tracker_list *list)
+{
+   list->head = NULL;
 }
 
 void
@@ -56,7 +63,9 @@ tracker_done_common(task_tracker *tracker, platform_status status)
 }
 
 void
-task_tracker_done(task_tracker *tracker, platform_status status)
+task_tracker_done(task_tracker      *tracker,
+                  platform_status    status,
+                  task_tracker_list *completed)
 {
    if (tracker == NULL) {
       return;
@@ -65,7 +74,9 @@ task_tracker_done(task_tracker *tracker, platform_status status)
    uint64 old_outstanding = tracker_done_common(tracker, status);
 
    if (old_outstanding == 1 && tracker->callback != NULL) {
-      tracker->callback(tracker);
+      platform_assert(completed != NULL);
+      tracker->next   = completed->head;
+      completed->head = tracker;
    }
 }
 
@@ -80,6 +91,21 @@ task_tracker_done_but_not_last(task_tracker *tracker, platform_status status)
 
    uint64 old_outstanding = tracker_done_common(tracker, status);
    platform_assert(1 < old_outstanding);
+}
+
+void
+task_tracker_notify_all(task_tracker_list *completed)
+{
+   while (completed->head != NULL) {
+      task_tracker          *tracker  = completed->head;
+      task_tracker_callback  callback = tracker->callback;
+      completed->head                 = tracker->next;
+      tracker->next                   = NULL;
+
+      if (callback != NULL) {
+         callback(tracker);
+      }
+   }
 }
 
 
