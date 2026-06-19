@@ -38,12 +38,10 @@ task_tracker_add(task_tracker *tracker)
    }
 }
 
-void
-task_tracker_done(task_tracker *tracker, platform_status status)
+static uint64
+tracker_done_common(task_tracker *tracker, platform_status status)
 {
-   if (tracker == NULL) {
-      return;
-   }
+   platform_assert(tracker != NULL);
 
    if (!SUCCESS(status)
        && __sync_bool_compare_and_swap(&tracker->failed, FALSE, TRUE))
@@ -54,10 +52,36 @@ task_tracker_done(task_tracker *tracker, platform_status status)
    uint64 old_outstanding = __sync_fetch_and_sub(&tracker->outstanding, 1);
    platform_assert(0 < old_outstanding);
 
+   return old_outstanding;
+}
+
+void
+task_tracker_done(task_tracker *tracker, platform_status status)
+{
+   if (tracker == NULL) {
+      return;
+   }
+
+   uint64 old_outstanding = tracker_done_common(tracker, status);
+
    if (old_outstanding == 1 && tracker->callback != NULL) {
       tracker->callback(tracker);
    }
 }
+
+/* Use this in cases where you want to document that this finish site should
+ * never call the callback, e.g. in error paths inside locks. */
+void
+task_tracker_done_but_not_last(task_tracker *tracker, platform_status status)
+{
+   if (tracker == NULL) {
+      return;
+   }
+
+   uint64 old_outstanding = tracker_done_common(tracker, status);
+   platform_assert(1 < old_outstanding);
+}
+
 
 /****************************************
  * Background task management

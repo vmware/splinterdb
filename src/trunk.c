@@ -2651,6 +2651,7 @@ bundle_compaction_destroy(bundle_compaction *compaction, trunk_context *context)
    // bundle_compaction_print_table_entry(
    //    compaction, Platform_default_log_handle, 4);
    platform_assert(compaction->state >= BUNDLE_COMPACTION_MIN_ENDED);
+   platform_assert(compaction->tracker == NULL);
 
    for (uint64 i = 0; i < vector_length(&compaction->input_branches); i++) {
       trunk_branch_info bi = vector_get(&compaction->input_branches, i);
@@ -2685,12 +2686,17 @@ trunk_pivot_state_unlock_compactions(trunk_pivot_state *state)
    platform_spin_unlock(&state->compactions_lock);
 }
 
+static task_tracker *
+bundle_compaction_extract_tracker(bundle_compaction *compaction)
+{
+   return __atomic_exchange_n(&compaction->tracker, NULL, __ATOMIC_SEQ_CST);
+}
+
 static void
 bundle_compaction_save_tracker(bundle_compaction   *compaction,
                                task_tracker_vector *trackers)
 {
-   task_tracker *tracker = compaction->tracker;
-   compaction->tracker   = NULL;
+   task_tracker *tracker = bundle_compaction_extract_tracker(compaction);
    if (tracker != NULL) {
       platform_status rc = vector_append(trackers, tracker);
       platform_assert_status_ok(rc);
@@ -2698,12 +2704,11 @@ bundle_compaction_save_tracker(bundle_compaction   *compaction,
 }
 
 static void
-bundle_compaction_tracker_done(bundle_compaction *compaction,
-                               platform_status    status)
+bundle_compaction_tracker_done_but_not_last(bundle_compaction *compaction,
+                                            platform_status    status)
 {
-   task_tracker *tracker = compaction->tracker;
-   compaction->tracker   = NULL;
-   task_tracker_done(tracker, status);
+   task_tracker *tracker = bundle_compaction_extract_tracker(compaction);
+   task_tracker_done_but_not_last(tracker, status);
 }
 
 static void
@@ -2732,24 +2737,12 @@ bundle_compactions_save_trackers_through(trunk_pivot_state   *state,
    trunk_pivot_state_unlock_compactions(state);
 }
 
-static void
-bundle_compactions_save_succeeded_trackers_locked(trunk_pivot_state   *state,
-                                                  task_tracker_vector *trackers)
-{
-   for (bundle_compaction *bc = state->bundle_compactions; bc != NULL;
-        bc                    = bc->next)
-   {
-      if (bc->state == BUNDLE_COMPACTION_SUCCEEDED) {
-         bundle_compaction_save_tracker(bc, trackers);
-      }
-   }
-}
-
 static bundle_compaction *
 bundle_compaction_create(trunk_context     *context,
                          trunk_node        *node,
                          uint64             pivot_num,
-                         trunk_pivot_state *state)
+                         trunk_pivot_state *state,
+                         task_tracker      *tracker)
 {
    platform_status rc;
    trunk_pivot    *pvt      = trunk_node_pivot(node, pivot_num);
@@ -2764,6 +2757,7 @@ bundle_compaction_create(trunk_context     *context,
    result->pivot_state = state;
    result->state       = BUNDLE_COMPACTION_NOT_STARTED;
    result->input_stats = trunk_pivot_received_bundles_stats(pvt);
+   result->tracker     = tracker;
 
    if (trunk_node_is_leaf(node) && state->bundle_compactions == NULL
        && bundle_num_branches(pvt_bndl) == 0)
@@ -3268,6 +3262,19 @@ trunk_apply_changes_maplet_compaction(trunk_context *context,
    return STATUS_OK;
 }
 
+static void
+bundle_compactions_destroy(bundle_compaction *completed_bcs,
+                           trunk_context     *context)
+{
+   while (completed_bcs != NULL) {
+      bundle_compaction *next = completed_bcs->next;
+      task_tracker *tracker = bundle_compaction_extract_tracker(completed_bcs);
+      task_tracker_done(tracker, STATUS_OK);
+      bundle_compaction_destroy(completed_bcs, context);
+      completed_bcs = next;
+   }
+}
+
 static platform_status
 enqueue_maplet_compaction(trunk_pivot_state *args);
 
@@ -3291,10 +3298,6 @@ maplet_compaction_task(task *arg)
    ZERO_STRUCT(apply_args);
    apply_args.state = state;
    vector_init(&apply_args.branches, PROCESS_PRIVATE_HEAP_ID);
-   task_tracker_vector completed_trackers;
-   vector_init(&completed_trackers, PROCESS_PRIVATE_HEAP_ID);
-   task_tracker_vector failed_trackers;
-   vector_init(&failed_trackers, PROCESS_PRIVATE_HEAP_ID);
 
    if (state->abandoned) {
       if (context->stats) {
@@ -3419,22 +3422,20 @@ maplet_compaction_task(task *arg)
    }
    state->num_branches += vector_length(&apply_args.branches);
 
-
+   bundle_compaction *completed_bcs = NULL;
+   bundle_compaction *stuck_bcs     = NULL;
    trunk_pivot_state_lock_compactions(state);
    {
-      while (state->bundle_compactions != last) {
-         bundle_compaction *next = state->bundle_compactions->next;
-         state->total_bundles -= state->bundle_compactions->num_bundles;
-         bundle_compaction_save_tracker(state->bundle_compactions,
-                                        &completed_trackers);
-         bundle_compaction_destroy(state->bundle_compactions, context);
-         state->bundle_compactions = next;
+      for (bundle_compaction *this_bc = state->bundle_compactions;
+           this_bc != last;
+           this_bc = this_bc->next)
+      {
+         state->total_bundles -= this_bc->num_bundles;
       }
-      platform_assert(state->bundle_compactions == last);
-      state->bundle_compactions = last->next;
       state->total_bundles -= last->num_bundles;
-      bundle_compaction_save_tracker(last, &completed_trackers);
-      bundle_compaction_destroy(last, context);
+      completed_bcs             = state->bundle_compactions;
+      state->bundle_compactions = last->next;
+      last->next                = NULL;
 
       __sync_lock_release(&state->maplet_compaction_initiated);
 
@@ -3444,16 +3445,18 @@ maplet_compaction_task(task *arg)
          followup_rc = enqueue_maplet_compaction(state);
          if (!SUCCESS(followup_rc)) {
             state->maplet_compaction_failed = TRUE;
-            bundle_compactions_save_succeeded_trackers_locked(state,
-                                                              &failed_trackers);
+            stuck_bcs = bundle_compactions_extract_succeeded(state);
          }
       }
    }
    trunk_pivot_state_unlock_compactions(state);
 
    trunk_modification_end(context);
-   task_tracker_vector_done(&completed_trackers, STATUS_OK);
-   task_tracker_vector_done(&failed_trackers, followup_rc);
+
+   bundle_compactions_destroy(completed_bcs, context);
+   completed_bcs = NULL;
+   bundle_compactions_destroy(stuck_bcs, context);
+   stuck_bcs = NULL;
 
 cleanup:
    if (!SUCCESS(rc) || !apply_args.found_match) {
@@ -3465,9 +3468,12 @@ cleanup:
       }
       if (tracker_last != NULL) {
          platform_status tracker_status = SUCCESS(rc) ? STATUS_OK : rc;
-         bundle_compactions_save_trackers_through(
-            state, tracker_last, &completed_trackers);
-         task_tracker_vector_done(&completed_trackers, tracker_status);
+         trunk_pivot_state_lock_compactions(state);
+         stuck_bcs                 = state->bundle_compactions;
+         state->bundle_compactions = tracker_last->next;
+         tracker_last->next        = NULL;
+         trunk_pivot_state_unlock_compactions(state);
+         bundle_compactions_destroy(stuck_bcs, context);
       }
       state->maplet_compaction_failed = TRUE;
       if (new_maplet.addr != state->maplet.addr) {
@@ -3476,8 +3482,6 @@ cleanup:
    }
 
    trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
-   vector_deinit(&failed_trackers);
-   vector_deinit(&completed_trackers);
    vector_deinit(&apply_args.branches);
 }
 
@@ -3550,9 +3554,10 @@ bundle_compaction_task(task *arg)
       platform_assert(__sync_bool_compare_and_swap(
          &bc->state, BUNDLE_COMPACTION_IN_PROGRESS, BUNDLE_COMPACTION_ABORTED));
 
-      bundle_compaction_tracker_done(bc, STATUS_OK);
+      task_tracker *tracker = bundle_compaction_extract_tracker(bc);
       trunk_pivot_state_map_release_entry(
          context, &context->pivot_states, state);
+      task_tracker_done(tracker, STATUS_OK);
 
       return;
    }
@@ -3696,12 +3701,17 @@ cleanup_branch_merger:
    }
    trunk_pivot_state_unlock_compactions(state);
 
+   task_tracker   *tracker    = NULL;
+   platform_status tracker_rc = STATUS_OK;
    if (!SUCCESS(rc)) {
-      bundle_compaction_tracker_done(bc, rc);
+      tracker    = bundle_compaction_extract_tracker(bc);
+      tracker_rc = rc;
    } else if (!SUCCESS(maplet_enqueue_rc)) {
-      bundle_compaction_tracker_done(bc, maplet_enqueue_rc);
+      tracker    = bundle_compaction_extract_tracker(bc);
+      tracker_rc = maplet_enqueue_rc;
    }
    trunk_pivot_state_map_release_entry(context, &context->pivot_states, state);
+   task_tracker_done(tracker, tracker_rc);
 }
 
 static platform_status
@@ -3736,14 +3746,14 @@ enqueue_bundle_compaction(trunk_context *context,
             goto next;
          }
 
-         bc = bundle_compaction_create(context, node, pivot_num, state);
+         bc =
+            bundle_compaction_create(context, node, pivot_num, state, tracker);
          if (bc == NULL) {
             platform_error_log("enqueue_bundle_compaction: "
                                "bundle_compaction_create failed\n");
             rc = STATUS_NO_MEMORY;
             goto next;
          }
-         bc->tracker = tracker;
          task_tracker_add(tracker);
 
          trunk_pivot_state_incref(state);
@@ -3757,7 +3767,7 @@ enqueue_bundle_compaction(trunk_context *context,
                            FALSE);
          if (!SUCCESS(rc)) {
             trunk_pivot_state_decref(state);
-            bundle_compaction_tracker_done(bc, rc);
+            bundle_compaction_tracker_done_but_not_last(bc, rc);
             platform_error_log(
                "enqueue_bundle_compaction: task_enqueue failed: %s\n",
                platform_status_to_string(rc));

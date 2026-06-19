@@ -79,6 +79,8 @@ task_tracker_add(task_tracker *tracker);
 
 void
 task_tracker_done(task_tracker *tracker, platform_status status);
+void
+task_tracker_done_but_not_last(task_tracker *tracker, platform_status status);
 
 /*
  * Run-time task-specific execution metrics structure.
