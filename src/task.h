@@ -48,7 +48,7 @@ struct task {
    timestamp    enqueue_time;
 };
 
-typedef struct task_tracker task_tracker;
+typedef struct task_tracker      task_tracker;
 typedef struct task_tracker_list task_tracker_list;
 
 typedef void (*task_tracker_callback)(task_tracker *tracker);
@@ -73,7 +73,7 @@ struct task_tracker {
    platform_status       status;
    task_tracker_callback callback;
    void                 *user_data;
-   task_tracker          *next;
+   task_tracker         *next;
 };
 
 struct task_tracker_list {

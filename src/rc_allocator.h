@@ -101,9 +101,8 @@ platform_status
 rc_allocator_read_disk_geometry(const char *filename, disk_geometry *geometry);
 
 platform_status
-rc_allocator_disk_geometry_matches_config(
-   const disk_geometry    *geometry,
-   const allocator_config *cfg);
+rc_allocator_disk_geometry_matches_config(const disk_geometry    *geometry,
+                                          const allocator_config *cfg);
 
 void
 rc_allocator_unmount(rc_allocator *al);

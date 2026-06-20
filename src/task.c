@@ -97,10 +97,10 @@ void
 task_tracker_notify_all(task_tracker_list *completed)
 {
    while (completed->head != NULL) {
-      task_tracker          *tracker  = completed->head;
-      task_tracker_callback  callback = tracker->callback;
-      completed->head                 = tracker->next;
-      tracker->next                   = NULL;
+      task_tracker         *tracker  = completed->head;
+      task_tracker_callback callback = tracker->callback;
+      completed->head                = tracker->next;
+      tracker->next                  = NULL;
 
       if (callback != NULL) {
          callback(tracker);

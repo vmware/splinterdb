@@ -282,10 +282,7 @@ platform_status
 io_config_valid(io_config *cfg);
 
 platform_status
-io_read_bootstrap(const char *filename,
-                  void       *buf,
-                  uint64      bytes,
-                  uint64      addr);
+io_read_bootstrap(const char *filename, void *buf, uint64 bytes, uint64 addr);
 
 
 io_handle *

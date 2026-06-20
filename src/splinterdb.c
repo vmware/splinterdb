@@ -160,7 +160,7 @@ splinterdb_validate_app_data_config(const data_config *cfg)
 static platform_status
 splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                        const disk_geometry     *geometry,
-                       splinterdb              *kvs      // OUT
+                       splinterdb              *kvs // OUT
 )
 {
    platform_status rc = STATUS_OK;
@@ -310,9 +310,9 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    splinterdb     *kvs = NULL;
    platform_status status;
 
-   bool              we_created_heap  = FALSE;
-   platform_heap_id  use_this_heap_id = kvs_cfg->heap_id;
-   disk_geometry     geometry;
+   bool                 we_created_heap  = FALSE;
+   platform_heap_id     use_this_heap_id = kvs_cfg->heap_id;
+   disk_geometry        geometry;
    const disk_geometry *config_geometry = NULL;
 
    status = platform_ensure_thread_registered();
@@ -736,11 +736,8 @@ splinterdb_optimize(splinterdb              *kvs,
                     ? POSITIVE_INFINITY_KEY
                     : key_create_from_slice(TRUE, user_max_key);
 
-   platform_status status = core_optimize(&kvs->spl,
-                                          min_key,
-                                          max_key,
-                                          full_leaf_compactions,
-                                          notification);
+   platform_status status = core_optimize(
+      &kvs->spl, min_key, max_key, full_leaf_compactions, notification);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
    }
