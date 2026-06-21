@@ -5055,10 +5055,9 @@ trunk_flush_policy_should_flush_to_child(trunk_context            *context,
 }
 
 static bool32
-trunk_flush_policy_forces_full_leaf_compaction(
-   trunk_context            *context,
-   const trunk_flush_policy *policy,
-   trunk_node               *leaf)
+trunk_flush_policy_forces_full_leaf_compaction(trunk_context *context,
+                                               const trunk_flush_policy *policy,
+                                               trunk_node               *leaf)
 {
    policy = trunk_flush_policy_or_default(policy);
 
@@ -5083,14 +5082,11 @@ restore_balance_leaf(trunk_context                *context,
    trunk_node_vector new_nodes;
    vector_init(&new_nodes, PROCESS_PRIVATE_HEAP_ID);
 
-   bool32          abandon_compactions = FALSE;
-   bool32          force_full_compaction =
+   bool32 abandon_compactions = FALSE;
+   bool32 force_full_compaction =
       trunk_flush_policy_forces_full_leaf_compaction(context, policy, leaf);
-   platform_status rc = leaf_split(context,
-                                   leaf,
-                                   &new_nodes,
-                                   force_full_compaction,
-                                   &abandon_compactions);
+   platform_status rc = leaf_split(
+      context, leaf, &new_nodes, force_full_compaction, &abandon_compactions);
    if (!SUCCESS(rc)) {
       platform_error_log("restore_balance_leaf: leaf_split failed: %d\n", rc.r);
       goto cleanup_new_nodes;
