@@ -578,13 +578,14 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // freshen up the buffer
    memset(big_buffer, 'x', sizeof(big_buffer));
    char saved_big_buffer[sizeof(big_buffer)];
-   memcpy(saved_big_buffer, big_buffer, sizeof(big_buffer));
+   memset(saved_big_buffer, 'x', sizeof(saved_big_buffer));
 
-   // init the result again, but pretend the buffer is small
+   // init the result again, but give it a buffer too small for the value
+   uint64 short_buffer_len = TEST_MAX_VALUE_SIZE - 1;
    splinterdb_lookup_result_init(data->kvsb,
                                  &result,
                                  SPLINTERDB_LOOKUP_VALUE,
-                                 sizeof(big_buffer) / 2,
+                                 short_buffer_len,
                                  big_buffer);
 
    // lookup tuple with max-sized-value, passing it the short buffer
@@ -602,6 +603,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // we can deinit the result, and it doesn't try to free the stack space we
    // originally gave it
    splinterdb_lookup_result_deinit(&result);
+   ASSERT_EQUAL(0, memcmp(saved_big_buffer, big_buffer, sizeof(big_buffer)));
 
 
    // init another result, but don't give it a buffer
