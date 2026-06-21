@@ -260,6 +260,13 @@ trunk_incorporate_commit(trunk_context *context);
 void
 trunk_incorporate_cleanup(trunk_context *context);
 
+platform_status
+trunk_optimize(trunk_context                  *context,
+               key                             minkey,
+               key                             maxkey,
+               bool32                          full_leaf_compactions,
+               struct splinterdb_notification *notification);
+
 void
 trunk_modification_end(trunk_context *context);
 

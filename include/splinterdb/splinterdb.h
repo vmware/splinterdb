@@ -42,7 +42,11 @@ typedef struct splinterdb_config {
    // required configuration
    const char *filename;
    uint64      cache_size;
-   uint64      disk_size;
+
+   // Required for splinterdb_create().  For splinterdb_open(), zero means read
+   // the value from the on-disk superblock; nonzero values are checked against
+   // the superblock.
+   uint64 disk_size;
 
    // data_config is a required field that defines how your data should be
    // read and written in SplinterDB.  See data.h for details.
@@ -58,6 +62,8 @@ typedef struct splinterdb_config {
    uint64 shmem_size;
    _Bool  use_shmem; // Default is FALSE.
 
+   // For splinterdb_open(), zero means read the value from the on-disk
+   // superblock; nonzero values are checked against the superblock.
    uint64 page_size;
    uint64 extent_size;
 
@@ -160,7 +166,10 @@ typedef struct splinterdb splinterdb;
 int
 splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 
-// Open an existing splinterdb from a file/device on disk
+// Open an existing splinterdb from a file/device on disk.
+//
+// disk_size, page_size, and extent_size are read from the on-disk superblock
+// when left unset. If they are set, they must match the superblock.
 //
 // The library will allocate and own the memory for splinterdb
 // and will free it on splinterdb_close().
@@ -176,6 +185,49 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 // This will flush all data to disk and release all resources
 void
 splinterdb_close(splinterdb **kvs);
+
+
+////////////////////////////////////
+// Notifications
+////////////////////////////////////
+
+// Size of opaque data required to hold a notification.
+#define SPLINTERDB_NOTIFICATION_BUFSIZE (32 * sizeof(void *))
+
+typedef struct splinterdb_notification {
+   char opaque[SPLINTERDB_NOTIFICATION_BUFSIZE];
+} __attribute__((__aligned__(8))) splinterdb_notification;
+
+typedef void (*splinterdb_notification_callback)(
+   splinterdb_notification *notification);
+
+// The caller owns notification storage and must keep it alive until completion.
+// After completion, call splinterdb_notification_deinit before reusing or
+// destroying the notification.
+void
+splinterdb_notification_init_blocking(splinterdb_notification *notification);
+
+void
+splinterdb_notification_init_polling(splinterdb_notification *notification,
+                                     void                    *user_data);
+
+void
+splinterdb_notification_init_callback(splinterdb_notification *notification,
+                                      splinterdb_notification_callback callback,
+                                      void *user_data);
+
+void
+splinterdb_notification_deinit(splinterdb_notification *notification);
+
+_Bool
+splinterdb_notification_poll(const splinterdb_notification *notification,
+                             int                           *status);
+
+int
+splinterdb_notification_wait(splinterdb_notification *notification);
+
+void *
+splinterdb_notification_user_data(const splinterdb_notification *notification);
 
 
 ////////////////////////////////////
@@ -289,6 +341,19 @@ splinterdb_update(splinterdb               *kvsb,
                   slice                     key,
                   slice                     delta,
                   splinterdb_lookup_result *old_result);
+
+// Optimize already-incorporated trunk data in [min_key, max_key). A null
+// min_key or max_key means the range is unbounded on that side. If
+// full_leaf_compactions is true, enqueue full compactions for leaves in the
+// range after flushing. Passing a NULL notification makes this fire-and-forget.
+// Blocking notifications wait before this function returns; polling and
+// callback notifications complete later.
+int
+splinterdb_optimize(splinterdb              *kvs,
+                    slice                    min_key,
+                    slice                    max_key,
+                    _Bool                    full_leaf_compactions,
+                    splinterdb_notification *notification);
 
 /*
 Iterator API (range query)

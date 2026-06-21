@@ -19,6 +19,7 @@
 #include "rc_allocator.h"
 #include "core.h"
 #include "lookup_result.h"
+#include "notification.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
 #include "platform_typed_alloc.h"
@@ -158,7 +159,8 @@ splinterdb_validate_app_data_config(const data_config *cfg)
  */
 static platform_status
 splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
-                       splinterdb              *kvs      // OUT
+                       const disk_geometry     *geometry,
+                       splinterdb              *kvs // OUT
 )
 {
    platform_status rc = STATUS_OK;
@@ -170,10 +172,10 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    kvs->data_cfg = kvs_cfg->data_cfg;
 
    if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0
-       || kvs_cfg->disk_size == 0)
+       || (geometry == NULL && kvs_cfg->disk_size == 0))
    {
-      platform_error_log(
-         "Expect filename, cache_size and disk_size to be set.\n");
+      platform_error_log("Expect filename and cache_size to be set; disk_size "
+                         "is required when creating.\n");
       return STATUS_BAD_PARAM;
    }
 
@@ -181,6 +183,14 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    splinterdb_config cfg = {0};
    memcpy(&cfg, kvs_cfg, sizeof(cfg));
    splinterdb_config_set_defaults(&cfg);
+   if (geometry != NULL) {
+      cfg.disk_size =
+         kvs_cfg->disk_size != 0 ? kvs_cfg->disk_size : geometry->disk_size;
+      cfg.page_size =
+         kvs_cfg->page_size != 0 ? kvs_cfg->page_size : geometry->page_size;
+      cfg.extent_size = kvs_cfg->extent_size != 0 ? kvs_cfg->extent_size
+                                                  : geometry->extent_size;
+   }
 
    io_config_init(&kvs->io_cfg,
                   cfg.page_size,
@@ -197,6 +207,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    }
 
    allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
+   if (geometry != NULL) {
+      rc = rc_allocator_disk_geometry_matches_config(geometry,
+                                                     &kvs->allocator_cfg);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
 
    clockcache_config_init(&kvs->cache_cfg,
                           &kvs->io_cfg,
@@ -252,6 +269,34 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    return STATUS_OK;
 }
 
+static platform_status
+splinterdb_config_read_disk_geometry(const char    *filename,
+                                     disk_geometry *geometry)
+{
+   if (filename == NULL) {
+      platform_error_log("Expect filename to be set.\n");
+      return STATUS_BAD_PARAM;
+   }
+
+   platform_status status = rc_allocator_read_disk_geometry(filename, geometry);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   if (geometry->disk_size == 0 || geometry->page_size == 0
+       || geometry->extent_size == 0)
+   {
+      platform_error_log("Invalid SplinterDB disk geometry: "
+                         "disk_size=%lu, page_size=%lu, extent_size=%lu\n",
+                         geometry->disk_size,
+                         geometry->page_size,
+                         geometry->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   return STATUS_OK;
+}
+
 
 /*
  * Internal function for create or open
@@ -265,8 +310,10 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    splinterdb     *kvs = NULL;
    platform_status status;
 
-   bool             we_created_heap  = FALSE;
-   platform_heap_id use_this_heap_id = kvs_cfg->heap_id;
+   bool                 we_created_heap  = FALSE;
+   platform_heap_id     use_this_heap_id = kvs_cfg->heap_id;
+   disk_geometry        geometry;
+   const disk_geometry *config_geometry = NULL;
 
    status = platform_ensure_thread_registered();
    if (!SUCCESS(status)) {
@@ -296,6 +343,19 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       we_created_heap = TRUE;
    }
 
+   if (open_existing) {
+      status =
+         splinterdb_config_read_disk_geometry(kvs_cfg->filename, &geometry);
+      if (!SUCCESS(status)) {
+         platform_error_log("Failed to read SplinterDB disk geometry from "
+                            "'%s': %s\n",
+                            kvs_cfg->filename,
+                            platform_status_to_string(status));
+         goto deinit_kvhandle;
+      }
+      config_geometry = &geometry;
+   }
+
    platform_assert(kvs_out != NULL);
 
    kvs = TYPED_ZALLOC(use_this_heap_id, kvs);
@@ -308,7 +368,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    // All memory allocation after this call should -ONLY- use heap handles
    // from the handle to the running Splinter instance; i.e. 'kvs'.
-   status = splinterdb_init_config(kvs_cfg, kvs);
+   status = splinterdb_init_config(kvs_cfg, config_geometry, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
                          "configuration: %s\n",
@@ -653,6 +713,40 @@ splinterdb_update(splinterdb               *kvsb,
       old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
    platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
+}
+
+int
+splinterdb_optimize(splinterdb              *kvs,
+                    slice                    user_min_key,
+                    slice                    user_max_key,
+                    _Bool                    full_leaf_compactions,
+                    splinterdb_notification *notification)
+{
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   platform_assert(kvs != NULL);
+
+   key min_key = slice_is_null(user_min_key)
+                    ? NEGATIVE_INFINITY_KEY
+                    : key_create_from_slice(TRUE, user_min_key);
+   key max_key = slice_is_null(user_max_key)
+                    ? POSITIVE_INFINITY_KEY
+                    : key_create_from_slice(TRUE, user_max_key);
+
+   platform_status status = core_optimize(
+      &kvs->spl, min_key, max_key, full_leaf_compactions, notification);
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+
+   if (splinterdb_notification_is_blocking(notification)) {
+      return splinterdb_notification_wait(notification);
+   }
+
+   return 0;
 }
 
 struct splinterdb_iterator {

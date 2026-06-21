@@ -27,18 +27,21 @@
  *----------------------------------------------------------------------
  * rc_allocator_meta_page -- Disk-resident structure.
  *
- *  An on disk structure to hold the super block information about all the
- *  Splinter tables using this allocator. This is persisted at
- *  offset 0 of the device.
+ * An on disk structure to hold the bootstrap disk geometry and the super block
+ * addresses for all Splinter tables using this allocator. The geometry lives at
+ * offset 0 so open can read it before mounting the rest of SplinterDB.
  *----------------------------------------------------------------------
  */
 typedef struct ONDISK rc_allocator_meta_page {
+   disk_geometry     geometry;
    allocator_root_id splinters[RC_ALLOCATOR_MAX_ROOT_IDS];
    checksum128       checksum;
 } rc_allocator_meta_page;
 
-_Static_assert(offsetof(rc_allocator_meta_page, splinters) == 0,
-               "splinters array should be first field in meta_page struct");
+_Static_assert(offsetof(rc_allocator_meta_page, geometry) == 0,
+               "disk geometry should be first field in meta_page struct");
+_Static_assert(sizeof(rc_allocator_meta_page) <= IO_DEFAULT_PAGE_SIZE,
+               "allocator meta page must fit in the default page size");
 
 /*
  *----------------------------------------------------------------------
@@ -93,6 +96,13 @@ rc_allocator_mount(rc_allocator      *al,
                    io_handle         *io,
                    platform_heap_id   hid,
                    platform_module_id mid);
+
+platform_status
+rc_allocator_read_disk_geometry(const char *filename, disk_geometry *geometry);
+
+platform_status
+rc_allocator_disk_geometry_matches_config(const disk_geometry    *geometry,
+                                          const allocator_config *cfg);
 
 void
 rc_allocator_unmount(rc_allocator *al);

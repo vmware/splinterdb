@@ -223,6 +223,63 @@ rc_allocator_extent_number(rc_allocator *al, uint64 addr)
    return (addr / al->cfg->io_cfg->extent_size);
 }
 
+static checksum128
+rc_allocator_meta_page_checksum(const rc_allocator_meta_page *meta_page)
+{
+   return platform_checksum128(meta_page,
+                               offsetof(rc_allocator_meta_page, checksum),
+                               RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+}
+
+static disk_geometry
+rc_allocator_config_get_disk_geometry(allocator_config *cfg)
+{
+   return (disk_geometry){
+      .disk_size   = cfg->capacity,
+      .page_size   = cfg->io_cfg->page_size,
+      .extent_size = cfg->io_cfg->extent_size,
+   };
+}
+
+static platform_status
+rc_allocator_validate_disk_geometry(rc_allocator *al)
+{
+   disk_geometry geometry = al->meta_page->geometry;
+
+   return rc_allocator_disk_geometry_matches_config(&geometry, al->cfg);
+}
+
+platform_status
+rc_allocator_disk_geometry_matches_config(const disk_geometry    *geometry,
+                                          const allocator_config *cfg)
+{
+   if (geometry->disk_size != cfg->capacity
+       || geometry->page_size != cfg->io_cfg->page_size
+       || geometry->extent_size != cfg->io_cfg->extent_size)
+   {
+      platform_error_log(
+         "SplinterDB disk geometry does not match configuration: "
+         "disk=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
+         "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
+         geometry->disk_size,
+         geometry->page_size,
+         geometry->extent_size,
+         cfg->capacity,
+         cfg->io_cfg->page_size,
+         cfg->io_cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   return STATUS_OK;
+}
+
+platform_status
+rc_allocator_read_disk_geometry(const char *filename, disk_geometry *geometry)
+{
+   return io_read_bootstrap(
+      filename, geometry, sizeof(*geometry), RC_ALLOCATOR_BASE_OFFSET);
+}
+
 static platform_status
 rc_allocator_init_meta_page(rc_allocator *al)
 {
@@ -252,6 +309,7 @@ rc_allocator_init_meta_page(rc_allocator *al)
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));
+   al->meta_page->geometry = rc_allocator_config_get_disk_geometry(al->cfg);
 
    return STATUS_OK;
 }
@@ -449,19 +507,39 @@ rc_allocator_mount(rc_allocator      *al,
    // load the meta page from disk.
    status = io_read(
       io, al->meta_page, al->cfg->io_cfg->page_size, RC_ALLOCATOR_BASE_OFFSET);
-   platform_assert_status_ok(status);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return status;
+   }
+
+   status = rc_allocator_validate_disk_geometry(al);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return status;
+   }
+
    // validate the checksum of the meta page.
-   checksum128 currChecksum =
-      platform_checksum128(al->meta_page,
-                           sizeof(al->meta_page->splinters),
-                           RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+   checksum128 currChecksum = rc_allocator_meta_page_checksum(al->meta_page);
    if (!platform_checksum_is_equal(al->meta_page->checksum, currChecksum)) {
-      platform_assert(0, "Corrupt Meta Page upon mount");
+      platform_error_log("Corrupt SplinterDB allocator meta page on mount\n");
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return STATUS_BAD_PARAM;
    }
 
    // load the ref counts from disk.
    status = io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
-   platform_assert_status_ok(status);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_buffer_deinit(&al->bh);
+      platform_mutex_destroy(&al->lock);
+      return status;
+   }
 
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {
@@ -609,9 +687,7 @@ rc_allocator_alloc_super_addr(rc_allocator     *al,
          al->meta_page->splinters[idx] = allocator_root_id;
          *addr                         = (1 + idx) * al->cfg->io_cfg->page_size;
          al->meta_page->checksum =
-            platform_checksum128(al->meta_page,
-                                 sizeof(al->meta_page->splinters),
-                                 RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+            rc_allocator_meta_page_checksum(al->meta_page);
          platform_status io_status = io_write(al->io,
                                               al->meta_page,
                                               al->cfg->io_cfg->page_size,
@@ -640,9 +716,7 @@ rc_allocator_remove_super_addr(rc_allocator     *al,
       if (al->meta_page->splinters[idx] == allocator_root_id) {
          al->meta_page->splinters[idx] = INVALID_ALLOCATOR_ROOT_ID;
          al->meta_page->checksum =
-            platform_checksum128(al->meta_page,
-                                 sizeof(al->meta_page->splinters),
-                                 RC_ALLOCATOR_META_PAGE_CSUM_SEED);
+            rc_allocator_meta_page_checksum(al->meta_page);
          platform_status status = io_write(al->io,
                                            al->meta_page,
                                            al->cfg->io_cfg->page_size,

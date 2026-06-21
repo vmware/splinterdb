@@ -48,6 +48,59 @@ struct task {
    timestamp    enqueue_time;
 };
 
+typedef struct task_tracker      task_tracker;
+typedef struct task_tracker_list task_tracker_list;
+
+typedef void (*task_tracker_callback)(task_tracker *tracker);
+
+/*
+ * Tracks a dynamically growing set of tasks.  The tracker starts with one
+ * outstanding reference owned by the launcher.  Call task_tracker_add() before
+ * publishing each new unit of work, including follow-up work published by a
+ * tracked task.  Each unit must call task_tracker_done() exactly once.
+ *
+ * The final caller of task_tracker_done() links the tracker onto the supplied
+ * completion list.  Call task_tracker_notify_all() after dropping any locks
+ * that should not be held while invoking callbacks.  The callback owns the
+ * lifetime of the tracker and may free an enclosing object.
+ *
+ * The completion list is caller-owned.  It is intended to be a private local
+ * accumulator for one thread of execution, not a shared multi-producer queue.
+ */
+struct task_tracker {
+   volatile uint64       outstanding;
+   volatile bool32       failed;
+   platform_status       status;
+   task_tracker_callback callback;
+   void                 *user_data;
+   task_tracker         *next;
+};
+
+struct task_tracker_list {
+   task_tracker *head;
+};
+
+void
+task_tracker_init(task_tracker         *tracker,
+                  task_tracker_callback callback,
+                  void                 *user_data);
+
+void
+task_tracker_list_init(task_tracker_list *list);
+
+void
+task_tracker_add(task_tracker *tracker);
+
+void
+task_tracker_done(task_tracker      *tracker,
+                  platform_status    status,
+                  task_tracker_list *completed);
+void
+task_tracker_done_but_not_last(task_tracker *tracker, platform_status status);
+
+void
+task_tracker_notify_all(task_tracker_list *completed);
+
 /*
  * Run-time task-specific execution metrics structure.
  */

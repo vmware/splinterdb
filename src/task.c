@@ -15,6 +15,101 @@ _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
                "Array task_type_name[] is incorrectly sized.");
 
 /****************************************
+ * Task trackers
+ ****************************************/
+
+void
+task_tracker_init(task_tracker         *tracker,
+                  task_tracker_callback callback,
+                  void                 *user_data)
+{
+   tracker->outstanding = 1;
+   tracker->failed      = FALSE;
+   tracker->status      = STATUS_OK;
+   tracker->callback    = callback;
+   tracker->user_data   = user_data;
+   tracker->next        = NULL;
+}
+
+void
+task_tracker_list_init(task_tracker_list *list)
+{
+   list->head = NULL;
+}
+
+void
+task_tracker_add(task_tracker *tracker)
+{
+   if (tracker != NULL) {
+      __sync_fetch_and_add(&tracker->outstanding, 1);
+   }
+}
+
+static uint64
+tracker_done_common(task_tracker *tracker, platform_status status)
+{
+   platform_assert(tracker != NULL);
+
+   if (!SUCCESS(status)
+       && __sync_bool_compare_and_swap(&tracker->failed, FALSE, TRUE))
+   {
+      tracker->status = status;
+   }
+
+   uint64 old_outstanding = __sync_fetch_and_sub(&tracker->outstanding, 1);
+   platform_assert(0 < old_outstanding);
+
+   return old_outstanding;
+}
+
+void
+task_tracker_done(task_tracker      *tracker,
+                  platform_status    status,
+                  task_tracker_list *completed)
+{
+   if (tracker == NULL) {
+      return;
+   }
+
+   uint64 old_outstanding = tracker_done_common(tracker, status);
+
+   if (old_outstanding == 1 && tracker->callback != NULL) {
+      platform_assert(completed != NULL);
+      tracker->next   = completed->head;
+      completed->head = tracker;
+   }
+}
+
+/* Use this in cases where you want to document that this finish site should
+ * never call the callback, e.g. in error paths inside locks. */
+void
+task_tracker_done_but_not_last(task_tracker *tracker, platform_status status)
+{
+   if (tracker == NULL) {
+      return;
+   }
+
+   uint64 old_outstanding = tracker_done_common(tracker, status);
+   platform_assert(1 < old_outstanding);
+}
+
+void
+task_tracker_notify_all(task_tracker_list *completed)
+{
+   while (completed->head != NULL) {
+      task_tracker         *tracker  = completed->head;
+      task_tracker_callback callback = tracker->callback;
+      completed->head                = tracker->next;
+      tracker->next                  = NULL;
+
+      if (callback != NULL) {
+         callback(tracker);
+      }
+   }
+}
+
+
+/****************************************
  * Background task management
  ****************************************/
 
