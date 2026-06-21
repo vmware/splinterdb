@@ -153,22 +153,6 @@ typedef struct incorporation_tasks {
    trunk_node_vector node_compactions;
 } incorporation_tasks;
 
-typedef enum trunk_flush_policy_type {
-   TRUNK_FLUSH_POLICY_STANDARD,
-   TRUNK_FLUSH_POLICY_RANGE,
-} trunk_flush_policy_type;
-
-typedef struct trunk_flush_policy {
-   trunk_flush_policy_type type;
-   bool32                  full_leaf_compactions;
-   union {
-      struct {
-         key minkey;
-         key maxkey;
-      } range;
-   } u;
-} trunk_flush_policy;
-
 typedef struct pending_gc pending_gc;
 
 typedef struct trunk_context {
@@ -257,22 +241,6 @@ trunk_make_durable(trunk_context *context);
 
 void
 trunk_modification_begin(trunk_context *context);
-
-// Build a new trunk by flushing branch, if non-zero, according to policy.  A
-// NULL policy means to use normal incorporation balancing.
-platform_status
-trunk_flush_prepare(trunk_context            *context,
-                    uint64                    branch,
-                    const trunk_flush_policy *policy);
-
-// Must be called iff trunk_flush_prepare returned SUCCESS.
-void
-trunk_flush_commit(trunk_context *context);
-
-// Must be called iff trunk_flush_prepare returned SUCCESS and after
-// trunk_flush_commit.
-void
-trunk_flush_cleanup(trunk_context *context, task_tracker *tracker);
 
 // Build a new trunk with the branch incorporated.  The new trunk is not yet
 // visible to queriers.

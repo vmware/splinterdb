@@ -158,6 +158,22 @@ struct trunk_pivot_state {
    } protected;
 };
 
+typedef enum trunk_flush_policy_type {
+   TRUNK_FLUSH_POLICY_STANDARD,
+   TRUNK_FLUSH_POLICY_RANGE,
+} trunk_flush_policy_type;
+
+typedef struct trunk_flush_policy {
+   trunk_flush_policy_type type;
+   bool32                  full_leaf_compactions;
+   union {
+      struct {
+         key minkey;
+         key maxkey;
+      } range;
+   } u;
+} trunk_flush_policy;
+
 struct pending_gc {
    pending_gc *next;
    uint64      addr;
@@ -4697,10 +4713,26 @@ trunk_node_pivot_eventual_num_branches(trunk_context *context,
    return num_branches;
 }
 
+static bool32
+leaf_has_full_compaction_input(trunk_node *leaf)
+{
+   platform_assert(trunk_node_is_leaf(leaf));
+
+   bundle *pivot_bundle = trunk_node_pivot_bundle(leaf, 0);
+   if (0 < bundle_num_branches(pivot_bundle)) {
+      return TRUE;
+   }
+
+   trunk_pivot *pvt            = trunk_node_pivot(leaf, 0);
+   uint64       inflight_start = trunk_pivot_inflight_bundle_start(pvt);
+   return inflight_start < vector_length(&leaf->inflight_bundles);
+}
+
 static platform_status
 leaf_split(trunk_context     *context,
            trunk_node        *leaf,
            trunk_node_vector *new_leaves,
+           bool32             force_full_compaction,
            bool32            *abandon_compactions)
 {
    platform_status rc;
@@ -4715,9 +4747,17 @@ leaf_split(trunk_context     *context,
       return rc;
    }
 
-   if (target_num_leaves == 1
-       && trunk_node_pivot_eventual_num_branches(context, leaf, 0)
-             <= context->cfg->target_fanout)
+   force_full_compaction =
+      force_full_compaction && leaf_has_full_compaction_input(leaf);
+   bool32 needs_branch_compaction = FALSE;
+   if (target_num_leaves == 1) {
+      needs_branch_compaction =
+         context->cfg->target_fanout
+         < trunk_node_pivot_eventual_num_branches(context, leaf, 0);
+   }
+
+   if (target_num_leaves == 1 && !force_full_compaction
+       && !needs_branch_compaction)
    {
       if (context->stats) {
          context->stats[tid].single_leaf_splits++;
@@ -4728,9 +4768,15 @@ leaf_split(trunk_context     *context,
    }
 
    if (context->stats) {
-      context->stats[tid].node_splits[leaf->height]++;
-      context->stats[tid].node_splits_nodes_created[leaf->height] +=
-         target_num_leaves - 1;
+      if (target_num_leaves == 1 && force_full_compaction
+          && !needs_branch_compaction)
+      {
+         context->stats[tid].single_leaf_splits++;
+      } else {
+         context->stats[tid].node_splits[leaf->height]++;
+         context->stats[tid].node_splits_nodes_created[leaf->height] +=
+            target_num_leaves - 1;
+      }
    }
 
 
@@ -5008,123 +5054,23 @@ trunk_flush_policy_should_flush_to_child(trunk_context            *context,
    }
 }
 
-static platform_status
-trunk_leaf_prepare_full_compaction(trunk_context *context, trunk_node *leaf)
+static bool32
+trunk_flush_policy_forces_full_leaf_compaction(
+   trunk_context            *context,
+   const trunk_flush_policy *policy,
+   trunk_node               *leaf)
 {
-   platform_status rc;
-
-   platform_assert(trunk_node_is_leaf(leaf));
-
-   bundle_vector new_inflight_bundles;
-   vector_init(&new_inflight_bundles, PROCESS_PRIVATE_HEAP_ID);
-
-   bundle *pivot_bundle = trunk_node_pivot_bundle(leaf, 0);
-   uint64  old_inflight_start =
-      trunk_pivot_inflight_bundle_start(trunk_node_pivot(leaf, 0));
-   uint64 old_inflight_end = vector_length(&leaf->inflight_bundles);
-   uint64 num_new_bundles  = (0 < bundle_num_branches(pivot_bundle) ? 1 : 0)
-                            + old_inflight_end - old_inflight_start;
-
-   rc = vector_ensure_capacity(&new_inflight_bundles, num_new_bundles);
-   if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
-      goto cleanup_new_inflight_bundles;
-   }
-
-   if (0 < bundle_num_branches(pivot_bundle)) {
-      rc = VECTOR_EMPLACE_APPEND(&new_inflight_bundles,
-                                 bundle_init_copy,
-                                 pivot_bundle,
-                                 PROCESS_PRIVATE_HEAP_ID);
-      if (!SUCCESS(rc)) {
-         platform_error_log("%s():%d: bundle_init_copy() failed: %s",
-                            __func__,
-                            __LINE__,
-                            platform_status_to_string(rc));
-         goto cleanup_new_inflight_bundles;
-      }
-   }
-
-   for (uint64 i = old_inflight_start; i < old_inflight_end; i++) {
-      rc = VECTOR_EMPLACE_APPEND(&new_inflight_bundles,
-                                 bundle_init_copy,
-                                 vector_get_ptr(&leaf->inflight_bundles, i),
-                                 PROCESS_PRIVATE_HEAP_ID);
-      if (!SUCCESS(rc)) {
-         platform_error_log("%s():%d: bundle_init_copy() failed: %s",
-                            __func__,
-                            __LINE__,
-                            platform_status_to_string(rc));
-         goto cleanup_new_inflight_bundles;
-      }
-   }
-
-   if (vector_length(&new_inflight_bundles) == 0) {
-      vector_deinit(&new_inflight_bundles);
-      return STATUS_OK;
-   }
-
-   trunk_pivot_state_map_abandon_pivot(
-      context, trunk_node_pivot_min_key(leaf), trunk_node_height(leaf));
-
-   VECTOR_APPLY_TO_PTRS(&leaf->inflight_bundles, bundle_deinit);
-   vector_deinit(&leaf->inflight_bundles);
-   leaf->inflight_bundles = new_inflight_bundles;
-   leaf->num_old_bundles  = 0;
-
-   bundle_deinit(pivot_bundle);
-   bundle_init(pivot_bundle, PROCESS_PRIVATE_HEAP_ID);
-
-   trunk_pivot *pvt      = trunk_node_pivot(leaf, 0);
-   pvt->prereceive_stats = TRUNK_STATS_ZERO;
-   trunk_pivot_set_inflight_bundle_start(pvt, 0);
-
-   debug_assert(trunk_node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
-
-   return STATUS_OK;
-
-cleanup_new_inflight_bundles:
-   VECTOR_APPLY_TO_PTRS(&new_inflight_bundles, bundle_deinit);
-   vector_deinit(&new_inflight_bundles);
-   return rc;
-}
-
-static platform_status
-trunk_leaves_prepare_full_compactions(trunk_context            *context,
-                                      trunk_node_vector        *leaves,
-                                      const trunk_flush_policy *policy)
-{
-   platform_status rc;
-
    policy = trunk_flush_policy_or_default(policy);
 
    if (!policy->full_leaf_compactions) {
-      return STATUS_OK;
+      return FALSE;
    }
 
-   for (uint64 i = 0; i < vector_length(leaves); i++) {
-      trunk_node *leaf = vector_get_ptr(leaves, i);
-      if (policy->type != TRUNK_FLUSH_POLICY_RANGE
-          || !trunk_flush_range_policy_intersects_node(context, policy, leaf))
-      {
-         continue;
-      }
-
-      rc = trunk_leaf_prepare_full_compaction(context, leaf);
-      if (!SUCCESS(rc)) {
-         platform_error_log(
-            "%s():%d: trunk_leaf_prepare_full_compaction() failed: %s",
-            __func__,
-            __LINE__,
-            platform_status_to_string(rc));
-         return rc;
-      }
+   if (policy->type != TRUNK_FLUSH_POLICY_RANGE) {
+      return FALSE;
    }
 
-   return STATUS_OK;
+   return trunk_flush_range_policy_intersects_node(context, policy, leaf);
 }
 
 static platform_status
@@ -5138,8 +5084,13 @@ restore_balance_leaf(trunk_context                *context,
    vector_init(&new_nodes, PROCESS_PRIVATE_HEAP_ID);
 
    bool32          abandon_compactions = FALSE;
-   platform_status rc =
-      leaf_split(context, leaf, &new_nodes, &abandon_compactions);
+   bool32          force_full_compaction =
+      trunk_flush_policy_forces_full_leaf_compaction(context, policy, leaf);
+   platform_status rc = leaf_split(context,
+                                   leaf,
+                                   &new_nodes,
+                                   force_full_compaction,
+                                   &abandon_compactions);
    if (!SUCCESS(rc)) {
       platform_error_log("restore_balance_leaf: leaf_split failed: %d\n", rc.r);
       goto cleanup_new_nodes;
@@ -5149,15 +5100,6 @@ restore_balance_leaf(trunk_context                *context,
       trunk_pivot_state_map_abandon_pivot(
          context, trunk_node_pivot_min_key(leaf), trunk_node_height(leaf));
       abandoned_leaf_compactions++;
-   }
-
-   rc = trunk_leaves_prepare_full_compactions(context, &new_nodes, policy);
-   if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: prepare_full_compactions failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
-      goto cleanup_new_nodes;
    }
 
    rc = serialize_nodes_and_save_contingent_compactions(
