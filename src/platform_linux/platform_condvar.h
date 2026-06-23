@@ -4,7 +4,6 @@
 #pragma once
 
 #include "platform_status.h"
-#include "platform_heap.h"
 #include <pthread.h>
 
 typedef struct platform_condvar {
@@ -13,7 +12,7 @@ typedef struct platform_condvar {
 } platform_condvar;
 
 platform_status
-platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id);
+platform_condvar_init(platform_condvar *cv, bool32 process_shared);
 
 platform_status
 platform_condvar_wait(platform_condvar *cv);

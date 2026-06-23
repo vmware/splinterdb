@@ -8,7 +8,7 @@
 #include <pthread.h>
 
 platform_status
-platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
+platform_condvar_init(platform_condvar *cv, bool32 process_shared)
 {
    platform_status status;
    bool32          pth_condattr_setpshared_failed = FALSE;
@@ -23,8 +23,7 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 
    // clang-format off
    status.r = pthread_mutex_init(&cv->lock,
-                                ((heap_id == PROCESS_PRIVATE_HEAP_ID)
-                                    ? NULL : &mattr));
+                                (process_shared ? &mattr : NULL));
    // clang-format on
    debug_only int rv = pthread_mutexattr_destroy(&mattr);
    debug_assert(rv == 0);
@@ -44,8 +43,7 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 
    // clang-format off
    status.r = pthread_cond_init(&cv->cond,
-                                ((heap_id == PROCESS_PRIVATE_HEAP_ID)
-                                    ? NULL : &cattr));
+                                (process_shared ? &cattr : NULL));
    // clang-format on
 
    rv = pthread_condattr_destroy(&cattr);

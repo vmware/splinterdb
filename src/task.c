@@ -275,7 +275,7 @@ task_group_init(task_group  *group,
    platform_heap_id hid = ts->heap_id;
    platform_status  rc;
 
-   rc = platform_condvar_init(&group->cv, hid);
+   rc = platform_condvar_init(&group->cv, hid != PROCESS_PRIVATE_HEAP_ID);
    if (!SUCCESS(rc)) {
       return rc;
    }

@@ -261,7 +261,8 @@ CTEST2(platform_api, test_platform_mutex_init_destroy)
 CTEST2(platform_api, test_platform_condvar_init_destroy)
 {
    platform_condvar cv;
-   platform_status  rc = platform_condvar_init(&cv, data->hid);
+   platform_status rc =
+      platform_condvar_init(&cv, data->hid != PROCESS_PRIVATE_HEAP_ID);
    if (STATUS_IS_EQ(rc, STATUS_NOTSUP)) {
       platform_error_log(
          "Platform possibly does not support"

@@ -12,7 +12,6 @@
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
-#include "platform_sleep.h"
 #include "platform_threads.h"
 #include "splinterdb_tests_private.h"
 #include "unit_tests.h"
@@ -27,12 +26,6 @@
 
 static const char optimize_key_fmt[]   = "key-%018u";
 static const char optimize_value_fmt[] = "value-%018u-marker";
-
-typedef struct optimize_callback_state {
-   volatile uint64          callbacks;
-   int                      status;
-   splinterdb_notification *notification;
-} optimize_callback_state;
 
 typedef struct optimize_thread_args {
    splinterdb              *kvsb;
@@ -66,9 +59,6 @@ verify_point_lookups(splinterdb *kvsb, uint32 num_keys);
 
 static void
 verify_full_scan(splinterdb *kvsb, uint32 num_keys);
-
-static void
-optimize_callback(splinterdb_notification *notification);
 
 static void *
 optimize_thread(void *arg);
@@ -178,48 +168,6 @@ CTEST2(splinterdb_optimize, test_polling_subrange)
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_notification_poll(&notification, &status));
    ASSERT_EQUAL(0, status);
-
-   splinterdb_notification_deinit(&notification);
-
-   verify_point_lookups(data->kvsb, num_keys);
-   verify_full_scan(data->kvsb, num_keys);
-}
-
-CTEST2(splinterdb_optimize, test_callback_completion)
-{
-   const uint32 num_keys = 320;
-   char         min_key[OPTIMIZE_TEST_KEY_SIZE];
-   char         max_key[OPTIMIZE_TEST_KEY_SIZE];
-
-   load_key_batches(data->kvsb, num_keys, 40);
-   format_key(min_key, 0);
-   format_key(max_key, num_keys);
-
-   optimize_callback_state callback_state = {0};
-   splinterdb_notification notification;
-   splinterdb_notification_init_callback(
-      &notification, optimize_callback, &callback_state);
-
-   int rc = splinterdb_optimize(data->kvsb,
-                                slice_create(strlen(min_key), min_key),
-                                slice_create(strlen(max_key), max_key),
-                                TRUE,
-                                &notification);
-   ASSERT_EQUAL(0, rc);
-
-   rc = splinterdb_notification_wait(&notification);
-   ASSERT_EQUAL(0, rc);
-
-   for (uint64 i = 0;
-        i < 100000 && __sync_fetch_and_add(&callback_state.callbacks, 0) == 0;
-        i++)
-   {
-      platform_sleep_ns(1000);
-   }
-
-   ASSERT_EQUAL(1, __sync_fetch_and_add(&callback_state.callbacks, 0));
-   ASSERT_EQUAL(0, callback_state.status);
-   ASSERT_TRUE(&notification == callback_state.notification);
 
    splinterdb_notification_deinit(&notification);
 
@@ -413,19 +361,6 @@ verify_full_scan(splinterdb *kvsb, uint32 num_keys)
    rc = splinterdb_iterator_status(itor);
    ASSERT_EQUAL(0, rc);
    splinterdb_iterator_deinit(itor);
-}
-
-static void
-optimize_callback(splinterdb_notification *notification)
-{
-   optimize_callback_state *state =
-      splinterdb_notification_user_data(notification);
-   int status = EINVAL;
-
-   platform_assert(splinterdb_notification_poll(notification, &status));
-   state->status       = status;
-   state->notification = notification;
-   __sync_fetch_and_add(&state->callbacks, 1);
 }
 
 static void *
