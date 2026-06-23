@@ -5756,7 +5756,7 @@ trunk_flush_tracker_done(task_tracker *tracker)
 {
    trunk_flush_tracker *flush_tracker =
       (trunk_flush_tracker *)tracker->user_data;
-   platform_status      status = tracker->failed ? tracker->status : STATUS_OK;
+   platform_status status = tracker->failed ? tracker->status : STATUS_OK;
 
    splinterdb_notification_complete(flush_tracker->notification, status);
    platform_free(flush_tracker->hid, flush_tracker);

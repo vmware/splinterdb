@@ -79,8 +79,8 @@ void
 splinterdb_notification_init_polling(splinterdb_notification *note,
                                      void                    *user_data)
 {
-   splinterdb_notification_init_common(note, NOTIFICATION_MODE_POLLING,
-                                       user_data);
+   splinterdb_notification_init_common(
+      note, NOTIFICATION_MODE_POLLING, user_data);
 }
 
 void
