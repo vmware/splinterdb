@@ -5745,15 +5745,21 @@ trunk_incorporate_cleanup(trunk_context *context)
    trunk_flush_cleanup(context, NULL);
 }
 
+typedef struct trunk_flush_tracker {
+   task_tracker             tracker;
+   splinterdb_notification *notification;
+   platform_heap_id         hid;
+} trunk_flush_tracker;
+
 static void
 trunk_flush_tracker_done(task_tracker *tracker)
 {
-   splinterdb_notification *notification =
-      (splinterdb_notification *)tracker->user_data;
+   trunk_flush_tracker *flush_tracker =
+      (trunk_flush_tracker *)tracker->user_data;
    platform_status status = tracker->failed ? tracker->status : STATUS_OK;
 
-   splinterdb_notification_complete(notification, status);
-   platform_free(PROCESS_PRIVATE_HEAP_ID, tracker);
+   splinterdb_notification_complete(flush_tracker->notification, status);
+   platform_free(flush_tracker->hid, flush_tracker);
 }
 
 platform_status
@@ -5776,13 +5782,17 @@ trunk_optimize(trunk_context           *context,
       return STATUS_OK;
    }
 
-   task_tracker *tracker = NULL;
+   trunk_flush_tracker *flush_tracker = NULL;
+   task_tracker        *tracker       = NULL;
    if (notification != NULL) {
-      tracker = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, tracker);
-      if (tracker == NULL) {
+      flush_tracker = TYPED_MALLOC(context->hid, flush_tracker);
+      if (flush_tracker == NULL) {
          return STATUS_NO_MEMORY;
       }
-      task_tracker_init(tracker, trunk_flush_tracker_done, notification);
+      flush_tracker->notification = notification;
+      flush_tracker->hid          = context->hid;
+      tracker                     = &flush_tracker->tracker;
+      task_tracker_init(tracker, trunk_flush_tracker_done, flush_tracker);
    }
 
    trunk_flush_policy policy = {
@@ -5797,7 +5807,9 @@ trunk_optimize(trunk_context           *context,
 
    platform_status rc = trunk_flush_prepare(context, 0, &policy);
    if (!SUCCESS(rc)) {
-      platform_free(PROCESS_PRIVATE_HEAP_ID, tracker);
+      if (flush_tracker != NULL) {
+         platform_free(context->hid, flush_tracker);
+      }
       return rc;
    }
 

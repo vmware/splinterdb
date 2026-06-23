@@ -198,23 +198,16 @@ typedef struct splinterdb_notification {
    char opaque[SPLINTERDB_NOTIFICATION_BUFSIZE];
 } __attribute__((__aligned__(8))) splinterdb_notification;
 
-typedef void (*splinterdb_notification_callback)(
-   splinterdb_notification *notification);
-
 // The caller owns notification storage and must keep it alive until completion.
 // After completion, call splinterdb_notification_deinit before reusing or
-// destroying the notification.
+// destroying the notification. If completion may happen in another process, the
+// notification object must be allocated in shared memory.
 void
 splinterdb_notification_init_blocking(splinterdb_notification *notification);
 
 void
 splinterdb_notification_init_polling(splinterdb_notification *notification,
                                      void                    *user_data);
-
-void
-splinterdb_notification_init_callback(splinterdb_notification *notification,
-                                      splinterdb_notification_callback callback,
-                                      void *user_data);
 
 void
 splinterdb_notification_deinit(splinterdb_notification *notification);
@@ -224,7 +217,8 @@ splinterdb_notification_poll(const splinterdb_notification *notification,
                              int                           *status);
 
 int
-splinterdb_notification_wait(splinterdb_notification *notification);
+splinterdb_notification_wait(splinterdb              *kvs,
+                             splinterdb_notification *notification);
 
 void *
 splinterdb_notification_user_data(const splinterdb_notification *notification);
@@ -346,8 +340,8 @@ splinterdb_update(splinterdb               *kvsb,
 // min_key or max_key means the range is unbounded on that side. If
 // full_leaf_compactions is true, enqueue full compactions for leaves in the
 // range after flushing. Passing a NULL notification makes this fire-and-forget.
-// Blocking notifications wait before this function returns; polling and
-// callback notifications complete later.
+// Blocking notifications wait before this function returns; polling
+// notifications complete later.
 int
 splinterdb_optimize(splinterdb              *kvs,
                     slice                    min_key,

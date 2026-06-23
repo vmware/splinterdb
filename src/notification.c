@@ -18,16 +18,14 @@
 typedef enum notification_mode {
    NOTIFICATION_MODE_BLOCKING,
    NOTIFICATION_MODE_POLLING,
-   NOTIFICATION_MODE_CALLBACK,
 } notification_mode;
 
 typedef struct notification {
-   notification_mode                mode;
-   bool32                           complete;
-   platform_status                  status;
-   void                            *user_data;
-   splinterdb_notification_callback callback;
-   platform_condvar                 cv;
+   notification_mode mode;
+   bool32            complete;
+   platform_status   status;
+   void             *user_data;
+   platform_condvar  cv;
 } notification;
 
 _Static_assert(sizeof(notification) <= sizeof(splinterdb_notification),
@@ -56,10 +54,9 @@ platform_status_to_int(const platform_status status)
 }
 
 static void
-splinterdb_notification_init_common(splinterdb_notification         *note,
-                                    notification_mode                mode,
-                                    splinterdb_notification_callback callback,
-                                    void                            *user_data)
+splinterdb_notification_init_common(splinterdb_notification *note,
+                                    notification_mode        mode,
+                                    void                    *user_data)
 {
    notification *n = notification_from_splinterdb(note);
 
@@ -67,17 +64,15 @@ splinterdb_notification_init_common(splinterdb_notification         *note,
    n->complete  = FALSE;
    n->status    = STATUS_OK;
    n->user_data = user_data;
-   n->callback  = callback;
 
-   platform_status rc = platform_condvar_init(&n->cv, PROCESS_PRIVATE_HEAP_ID);
+   platform_status rc = platform_condvar_init(&n->cv, TRUE);
    platform_assert_status_ok(rc);
 }
 
 void
 splinterdb_notification_init_blocking(splinterdb_notification *note)
 {
-   splinterdb_notification_init_common(
-      note, NOTIFICATION_MODE_BLOCKING, NULL, NULL);
+   splinterdb_notification_init_common(note, NOTIFICATION_MODE_BLOCKING, NULL);
 }
 
 void
@@ -85,16 +80,7 @@ splinterdb_notification_init_polling(splinterdb_notification *note,
                                      void                    *user_data)
 {
    splinterdb_notification_init_common(
-      note, NOTIFICATION_MODE_POLLING, NULL, user_data);
-}
-
-void
-splinterdb_notification_init_callback(splinterdb_notification         *note,
-                                      splinterdb_notification_callback callback,
-                                      void *user_data)
-{
-   splinterdb_notification_init_common(
-      note, NOTIFICATION_MODE_CALLBACK, callback, user_data);
+      note, NOTIFICATION_MODE_POLLING, user_data);
 }
 
 void
@@ -123,27 +109,6 @@ splinterdb_notification_poll(const splinterdb_notification *note, int *status)
    platform_assert_status_ok(rc);
 
    return complete;
-}
-
-int
-splinterdb_notification_wait(splinterdb_notification *note)
-{
-   notification *n = notification_from_splinterdb(note);
-
-   platform_status rc = platform_condvar_lock(&n->cv);
-   platform_assert_status_ok(rc);
-
-   while (!n->complete) {
-      rc = platform_condvar_wait(&n->cv);
-      platform_assert_status_ok(rc);
-   }
-
-   int status = platform_status_to_int(n->status);
-
-   rc = platform_condvar_unlock(&n->cv);
-   platform_assert_status_ok(rc);
-
-   return status;
 }
 
 void *
@@ -183,16 +148,9 @@ splinterdb_notification_complete(splinterdb_notification *note,
    n->status   = status;
    n->complete = TRUE;
 
-   splinterdb_notification_callback callback =
-      n->mode == NOTIFICATION_MODE_CALLBACK ? n->callback : NULL;
-
    rc = platform_condvar_broadcast(&n->cv);
    platform_assert_status_ok(rc);
 
    rc = platform_condvar_unlock(&n->cv);
    platform_assert_status_ok(rc);
-
-   if (callback != NULL) {
-      callback(note);
-   }
 }
