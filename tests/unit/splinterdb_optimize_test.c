@@ -123,6 +123,30 @@ CTEST2(splinterdb_optimize, test_blocking_without_full_leaf_compactions)
    verify_full_scan(data->kvsb, num_keys);
 }
 
+CTEST2(splinterdb_optimize, test_blocking_with_no_background_threads)
+{
+   const uint32 num_keys = 320;
+
+   splinterdb_close(&data->kvsb);
+   data->cfg.num_memtable_bg_threads = 0;
+   data->cfg.num_normal_bg_threads   = 0;
+
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   load_key_batches(data->kvsb, num_keys, 40);
+
+   splinterdb_notification notification;
+   splinterdb_notification_init_blocking(&notification);
+   rc = splinterdb_optimize(
+      data->kvsb, NULL_SLICE, NULL_SLICE, TRUE, &notification);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_notification_deinit(&notification);
+
+   verify_point_lookups(data->kvsb, num_keys);
+   verify_full_scan(data->kvsb, num_keys);
+}
+
 CTEST2(splinterdb_optimize, test_open_reads_disk_geometry)
 {
    const uint32 num_keys = 160;
@@ -164,7 +188,7 @@ CTEST2(splinterdb_optimize, test_polling_subrange)
    ASSERT_TRUE(&user_data == splinterdb_notification_user_data(&notification));
 
    int status = EINVAL;
-   rc         = splinterdb_notification_wait(&notification);
+   rc         = splinterdb_notification_wait(data->kvsb, &notification);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_notification_poll(&notification, &status));
    ASSERT_EQUAL(0, status);
@@ -211,7 +235,7 @@ CTEST2(splinterdb_optimize, test_concurrent_overlapping_ranges)
    }
 
    for (uint32 i = 0; i < num_threads; i++) {
-      rc = splinterdb_notification_wait(&notifications[i]);
+      rc = splinterdb_notification_wait(data->kvsb, &notifications[i]);
       ASSERT_EQUAL(0, rc);
       ASSERT_TRUE(&args[i]
                   == splinterdb_notification_user_data(&notifications[i]));

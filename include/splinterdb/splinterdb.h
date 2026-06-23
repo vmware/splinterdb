@@ -217,7 +217,8 @@ splinterdb_notification_poll(const splinterdb_notification *notification,
                              int                           *status);
 
 int
-splinterdb_notification_wait(splinterdb_notification *notification);
+splinterdb_notification_wait(splinterdb              *kvs,
+                             splinterdb_notification *notification);
 
 void *
 splinterdb_notification_user_data(const splinterdb_notification *notification);

@@ -22,8 +22,10 @@
 #include "notification.h"
 #include "shard_log.h"
 #include "splinterdb_tests_private.h"
+#include "task.h"
 #include "platform_typed_alloc.h"
 #include "platform_assert.h"
+#include "platform_sleep.h"
 #include "platform_units.h"
 #include "platform_threads.h"
 #include "poison.h"
@@ -86,6 +88,36 @@ splinterdb_assert_thread_registered(void)
 {
    platform_status rc = platform_ensure_thread_registered();
    platform_assert_status_ok(rc);
+}
+
+int
+splinterdb_notification_wait(splinterdb              *kvs,
+                             splinterdb_notification *notification)
+{
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   platform_assert(kvs != NULL);
+   platform_assert(notification != NULL);
+
+   int    status  = 0;
+   uint64 backoff = 1;
+
+   while (!splinterdb_notification_poll(notification, &status)) {
+      platform_status task_rc = task_perform_one(&kvs->task_sys);
+      if (SUCCESS(task_rc)) {
+         backoff = 1;
+      } else if (STATUS_IS_EQ(task_rc, STATUS_TIMEDOUT)) {
+         platform_sleep_ns(backoff);
+         backoff = MIN(2 * backoff, 1 << 16);
+      } else {
+         return platform_status_to_int(task_rc);
+      }
+   }
+
+   return status;
 }
 
 static void
@@ -743,7 +775,7 @@ splinterdb_optimize(splinterdb              *kvs,
    }
 
    if (splinterdb_notification_is_blocking(notification)) {
-      return splinterdb_notification_wait(notification);
+      return splinterdb_notification_wait(kvs, notification);
    }
 
    return 0;

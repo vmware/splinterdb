@@ -111,27 +111,6 @@ splinterdb_notification_poll(const splinterdb_notification *note, int *status)
    return complete;
 }
 
-int
-splinterdb_notification_wait(splinterdb_notification *note)
-{
-   notification *n = notification_from_splinterdb(note);
-
-   platform_status rc = platform_condvar_lock(&n->cv);
-   platform_assert_status_ok(rc);
-
-   while (!n->complete) {
-      rc = platform_condvar_wait(&n->cv);
-      platform_assert_status_ok(rc);
-   }
-
-   int status = platform_status_to_int(n->status);
-
-   rc = platform_condvar_unlock(&n->cv);
-   platform_assert_status_ok(rc);
-
-   return status;
-}
-
 void *
 splinterdb_notification_user_data(const splinterdb_notification *note)
 {
