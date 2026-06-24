@@ -134,14 +134,32 @@ typedef struct ONDISK btree_pivot_data {
  * Drives extent prefetching for a forward btree_iterator. Reads extent
  * addresses ahead of the iterator from the branch's mini_allocator (via a
  * mini_meta_cursor, exploiting that extents within a batch are in key order)
- * and issues cache_prefetch for them, keeping ~lookahead leaf extents of IO in
+ * and issues cache_prefetch for them, keeping up to ~depth leaf extents of IO in
  * flight. Internal-node extents are skipped; blob extents are prefetched (for
  * height-0 scans). Forward-only; disabled on backward moves.
+ *
+ * Priming is non-blocking: the cursor's meta page is fetched lazily (PRIMING
+ * state) so the iterator's async init never waits on it and the first tuple is
+ * not delayed. The legacy single-extent-ahead prefetch (via the leaf's
+ * next_extent_addr) covers the window until the cursor becomes ACTIVE.
+ *
+ * Depth ramps up (slow-start) from BTREE_PREFETCH_RAMP_MIN toward `lookahead` as
+ * the scan proves long, so short scans don't waste bandwidth reading far ahead.
  */
+typedef enum btree_prefetch_state {
+   BTREE_PREFETCH_DISABLED = 0, // legacy next_extent_addr path / not applicable
+   BTREE_PREFETCH_PRIMING,      // meta-page IO kicked off; not yet positioned
+   BTREE_PREFETCH_ACTIVE,       // positioned; issuing deep prefetches
+} btree_prefetch_state;
+
+// Initial (and minimum) ramp-up depth; depth doubles toward `lookahead`.
+#define BTREE_PREFETCH_RAMP_MIN (1)
+
 typedef struct btree_prefetch_cursor {
-   bool32           enabled;
+   btree_prefetch_state state;
    bool32           at_end;           // prefetched through the last in-range extent
-   uint32           lookahead;        // K: target leaf extents in flight
+   uint32           lookahead;        // K: max leaf extents in flight (the cap)
+   uint32           depth;            // current ramp-up depth (<= lookahead)
    uint64           leaf_batch;       // mini batch of this iterator's level
    bool32           prefetch_blobs;   // also prefetch blob extents (height 0)
    uint64           prefetched_ahead; // leaf extents prefetched, not yet consumed

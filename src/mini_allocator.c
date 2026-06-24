@@ -933,7 +933,7 @@ mini_meta_cursor_deinit(mini_meta_cursor *cursor)
    }
 }
 
-bool32
+mini_meta_cursor_status
 mini_meta_cursor_next(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
                       uint64           *batch)
@@ -941,10 +941,17 @@ mini_meta_cursor_next(mini_meta_cursor *cursor,
    while (TRUE) {
       if (cursor->meta_page == NULL) {
          if (cursor->meta_addr == 0) {
-            return FALSE;
+            return MINI_META_CURSOR_END;
          }
-         cursor->meta_page =
-            cache_get(cursor->cc, cursor->meta_addr, TRUE, cursor->meta_type);
+         // Non-blocking: if the meta page isn't resident, kick off a single-page
+         // prefetch and let the caller retry later.
+         cursor->meta_page = cache_get(
+            cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
+         if (cursor->meta_page == NULL) {
+            cache_prefetch_page(
+               cursor->cc, cursor->meta_addr, cursor->meta_type);
+            return MINI_META_CURSOR_WOULD_BLOCK;
+         }
          cursor->num_entries = mini_num_entries(cursor->meta_page);
          cursor->entry_idx   = 0;
       }
@@ -954,7 +961,7 @@ mini_meta_cursor_next(mini_meta_cursor *cursor,
          *extent_addr      = meta_entry_extent_addr(cursor->cc, entry);
          *batch            = meta_entry_batch(entry);
          cursor->entry_idx++;
-         return TRUE;
+         return MINI_META_CURSOR_ENTRY;
       }
 
       // Exhausted this page; advance to the next one (if any).
@@ -965,18 +972,22 @@ mini_meta_cursor_next(mini_meta_cursor *cursor,
    }
 }
 
-bool32
+mini_meta_cursor_status
 mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
                              uint64            target_extent_addr)
 {
    uint64 extent_addr;
    uint64 batch;
-   while (mini_meta_cursor_next(cursor, &extent_addr, &batch)) {
+   while (TRUE) {
+      mini_meta_cursor_status status =
+         mini_meta_cursor_next(cursor, &extent_addr, &batch);
+      if (status != MINI_META_CURSOR_ENTRY) {
+         return status; // END or WOULD_BLOCK
+      }
       if (extent_addr == target_extent_addr) {
-         return TRUE;
+         return MINI_META_CURSOR_ENTRY;
       }
    }
-   return FALSE;
 }
 
 static void

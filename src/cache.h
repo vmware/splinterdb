@@ -169,6 +169,7 @@ typedef struct cache_ops {
    page_generic_fn      page_lock;
    page_generic_fn      page_unlock;
    page_prefetch_fn     page_prefetch;
+   page_prefetch_fn     page_prefetch_page;
    page_generic_fn      page_mark_dirty;
    page_generic_fn      page_pin;
    page_generic_fn      page_unpin;
@@ -406,6 +407,24 @@ static inline void
 cache_prefetch(cache *cc, uint64 addr, page_type type)
 {
    return cc->ops->page_prefetch(cc, addr, type);
+}
+
+/*
+ *----------------------------------------------------------------------
+ * cache_prefetch_page
+ *
+ * Like cache_prefetch, but loads only the single page at addr rather than the
+ * whole extent that contains it. Use this for sparse reads (e.g. a single
+ * mini_allocator meta page) where pulling in the surrounding extent would waste
+ * bandwidth. No notification is provided to the calling thread; it may call
+ * cache_get when it's ready to block on the arrival of the page.
+ *
+ *----------------------------------------------------------------------
+ */
+static inline void
+cache_prefetch_page(cache *cc, uint64 addr, page_type type)
+{
+   return cc->ops->page_prefetch_page(cc, addr, type);
 }
 
 /*

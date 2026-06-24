@@ -1805,7 +1805,10 @@ page_handle *
 clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
 {
    bool32       retry;
-   page_handle *handle;
+   // Initialize to NULL so a non-blocking get of a page that is not in cache
+   // (clockcache_get_internal returns without setting handle) honors the
+   // documented contract of returning NULL rather than an uninitialized value.
+   page_handle *handle = NULL;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
                 || type == PAGE_TYPE_MEMTABLE);
@@ -2668,6 +2671,118 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 }
 
 /*
+ *-----------------------------------------------------------------------------
+ * clockcache_prefetch_page --
+ *
+ *      Like clockcache_prefetch, but loads only the single page at addr instead
+ *      of its whole extent. Used for sparse reads (e.g. a mini_allocator meta
+ *      page) where dragging in the surrounding extent would waste bandwidth.
+ *-----------------------------------------------------------------------------
+ */
+void
+clockcache_prefetch_page(clockcache *cc, uint64 addr, page_type type)
+{
+   threadid tid = platform_get_tid();
+
+   debug_assert(addr % clockcache_page_size(cc) == 0);
+
+   while (TRUE) {
+      uint32 entry_no = clockcache_lookup(cc, addr);
+      get_rc get_read_rc;
+      if (entry_no != CC_UNMAPPED_ENTRY) {
+         get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
+      } else {
+         get_read_rc = GET_RC_EVICTED;
+      }
+
+      switch (get_read_rc) {
+         case GET_RC_SUCCESS:
+            // already resident: drop the ref we just took and we're done.
+            clockcache_dec_ref(cc, entry_no, tid);
+            return;
+         case GET_RC_CONFLICT:
+            // someone else is loading or has it locked: nothing to do.
+            return;
+         case GET_RC_EVICTED:
+         {
+            // not in cache: load just this page.
+            uint32 free_entry_no = clockcache_get_free_page(
+               cc, CC_READ_LOADING_STATUS, type, FALSE, TRUE);
+            clockcache_entry *entry = &cc->entry[free_entry_no];
+            entry->page.disk_addr   = addr;
+            entry->type             = type;
+            uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
+
+            async_io_state *state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+            if (state == NULL) {
+               platform_error_log("clockcache_prefetch_page: async_io_state "
+                                  "allocation failed for page addr %lu, "
+                                  "type %u\n",
+                                  addr,
+                                  type);
+               clockcache_release_unpublished_entry(entry);
+               return;
+            }
+            state->cc           = cc;
+            platform_status rc = io_async_state_init(state->iostate,
+                                                     cc->io,
+                                                     io_async_preadv,
+                                                     addr,
+                                                     clockcache_prefetch_callback,
+                                                     state);
+            if (!SUCCESS(rc)) {
+               platform_error_log("clockcache_prefetch_page: "
+                                  "io_async_state_init failed for page addr "
+                                  "%lu, type %u: %s\n",
+                                  addr,
+                                  type,
+                                  platform_status_to_string(rc));
+               clockcache_release_unpublished_entry(entry);
+               platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+               return;
+            }
+
+            if (__sync_bool_compare_and_swap(
+                   &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
+            {
+               rc = io_async_state_append_page(state->iostate,
+                                               entry->page.data);
+               if (!SUCCESS(rc)) {
+                  platform_error_log("clockcache_prefetch_page: "
+                                     "io_async_state_append_page failed for "
+                                     "page addr %lu, entry %u, type %u: %s\n",
+                                     addr,
+                                     free_entry_no,
+                                     type,
+                                     platform_status_to_string(rc));
+               }
+               platform_assert_status_ok(rc);
+               if (cc->cfg->use_stats) {
+                  cc->stats[tid].page_reads[type]++;
+                  cc->stats[tid].prefetches_issued[type]++;
+               }
+               clockcache_log(addr,
+                              free_entry_no,
+                              "prefetch_page (load): entry %u addr %lu\n",
+                              free_entry_no,
+                              addr);
+               io_async_run(state->iostate);
+               return;
+            } else {
+               // someone else started loading this page: release and retry.
+               clockcache_release_unpublished_entry(entry);
+               io_async_state_deinit(state->iostate);
+               platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+               continue;
+            }
+         }
+         default:
+            platform_assert(0);
+      }
+   }
+}
+
+/*
  *----------------------------------------------------------------------
  * clockcache_print --
  *
@@ -3045,6 +3160,13 @@ clockcache_prefetch_virtual(cache *c, uint64 addr, page_type type)
 }
 
 void
+clockcache_prefetch_page_virtual(cache *c, uint64 addr, page_type type)
+{
+   clockcache *cc = (clockcache *)c;
+   clockcache_prefetch_page(cc, addr, type);
+}
+
+void
 clockcache_mark_dirty_virtual(cache *c, page_handle *page)
 {
    clockcache *cc = (clockcache *)c;
@@ -3245,6 +3367,7 @@ static cache_ops clockcache_ops = {
    .page_lock         = clockcache_lock_virtual,
    .page_unlock       = clockcache_unlock_virtual,
    .page_prefetch     = clockcache_prefetch_virtual,
+   .page_prefetch_page = clockcache_prefetch_page_virtual,
    .page_mark_dirty   = clockcache_mark_dirty_virtual,
    .page_pin          = clockcache_pin_virtual,
    .page_unpin        = clockcache_unpin_virtual,

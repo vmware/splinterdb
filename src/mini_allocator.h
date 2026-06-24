@@ -121,9 +121,10 @@ mini_prefetch(cache *cc, page_type type, uint64 meta_head);
  * ahead of itself for prefetching.
  *
  * The cursor holds a read reference on the meta page it is currently reading;
- * call mini_meta_cursor_deinit() to release it. The cursor reads meta pages
- * with blocking cache_get(); meta pages are tiny and become hot quickly, so a
- * miss is rare, but callers on async paths should be aware it can block.
+ * call mini_meta_cursor_deinit() to release it. The cursor is non-blocking: it
+ * reads meta pages with a non-blocking cache_get() and, on a miss, issues a
+ * single-page prefetch and reports MINI_META_CURSOR_WOULD_BLOCK so the caller
+ * can do other work and retry later (the meta page lands shortly).
  */
 typedef struct mini_meta_cursor {
    cache       *cc;
@@ -133,6 +134,13 @@ typedef struct mini_meta_cursor {
    uint64       entry_idx;   // index of the next entry to read on meta_page
    uint64       num_entries; // number of entries on meta_page
 } mini_meta_cursor;
+
+// Result of a non-blocking cursor step.
+typedef enum mini_meta_cursor_status {
+   MINI_META_CURSOR_ENTRY,       // produced an entry
+   MINI_META_CURSOR_END,         // stream exhausted
+   MINI_META_CURSOR_WOULD_BLOCK, // next meta page not resident (prefetch issued)
+} mini_meta_cursor_status;
 
 void
 mini_meta_cursor_init(mini_meta_cursor *cursor,
@@ -144,16 +152,18 @@ void
 mini_meta_cursor_deinit(mini_meta_cursor *cursor);
 
 // Emit the next extent entry (its extent address and originating batch) in
-// allocation order. Returns FALSE once the stream is exhausted.
-bool32
+// allocation order. Non-blocking: returns MINI_META_CURSOR_WOULD_BLOCK (and
+// issues a prefetch for it) if the next meta page is not yet resident.
+mini_meta_cursor_status
 mini_meta_cursor_next(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
                       uint64           *batch);
 
 // Advance the cursor until it emits the entry for target_extent_addr, leaving
-// the cursor positioned just after it. Returns FALSE if not found before the
-// stream ends.
-bool32
+// the cursor positioned just after it. Returns MINI_META_CURSOR_ENTRY if found,
+// MINI_META_CURSOR_END if the stream ends first, or MINI_META_CURSOR_WOULD_BLOCK
+// if a needed meta page is not yet resident.
+mini_meta_cursor_status
 mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
                              uint64            target_extent_addr);
 
