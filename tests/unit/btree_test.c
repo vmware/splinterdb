@@ -188,8 +188,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
     * about this number. If you change the size of a btree leaf header
     * or the size of a btree leafy entry, then this number will need
     * to be changed, and that's fine.
+    * (Reduced from 208 to 207 when btree_hdr gained the 8-byte
+    *  meta_page_addr field used by the iterator prefetch cursor.)
     */
-   int nkvs = 208;
+   int nkvs = 207;
 
    btree_init_hdr(cfg, hdr);
 

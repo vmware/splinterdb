@@ -408,6 +408,7 @@ scan_benchmark_make_config(const master_config *master_cfg,
       .use_stats                = master_cfg->use_stats,
       .reclaim_threshold        = master_cfg->reclaim_threshold,
       .queue_scale_percent      = master_cfg->queue_scale_percent,
+      .prefetch_budget          = master_cfg->prefetch_budget,
    };
 
    if (open_existing) {

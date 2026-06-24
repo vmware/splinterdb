@@ -57,6 +57,37 @@ _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
 #define CORE_SUPER_CSUM_SEED (42)
 
 /*
+ * Minimum extent-prefetch depth for an eligible branch in a range scan. Keeping
+ * at least this many extents in flight is what makes deep prefetch worthwhile
+ * compared to the legacy single-extent-ahead path.
+ */
+#define CORE_MIN_PREFETCH_LOOKAHEAD (2)
+
+/*
+ * Per-branch extent-prefetch depth for a range scan. The configured prefetch
+ * budget (total bytes of read-ahead to keep in flight, ~ the storage's
+ * bandwidth-delay product) is converted to extents and divided across the
+ * eligible branches, with a floor of CORE_MIN_PREFETCH_LOOKAHEAD per branch.
+ * Dividing by the branch count bounds total outstanding read-ahead while still
+ * going deep when few branches dominate (a lone large branch gets the whole
+ * budget). Returns 0 when nothing is eligible to prefetch.
+ */
+static uint32
+core_prefetch_lookahead(core_handle *spl, uint64 n_eligible)
+{
+   if (n_eligible == 0) {
+      return 0;
+   }
+   uint64 budget_extents =
+      spl->cfg.prefetch_budget / cache_extent_size(spl->cc);
+   uint64 per_branch = budget_extents / n_eligible;
+   if (per_branch < CORE_MIN_PREFETCH_LOOKAHEAD) {
+      per_branch = CORE_MIN_PREFETCH_LOOKAHEAD;
+   }
+   return (uint32)per_branch;
+}
+
+/*
  * core logging functions.
  *
  * If verbose_logging_enabled is enabled in core_config, these functions print
@@ -878,7 +909,8 @@ core_start_btree_iterator_init_async(
    comparison                              start_key_comparison,
    key                                     start_key,
    bool32                                  do_prefetch,
-   bool32                                  copy_nodes)
+   bool32                                  copy_nodes,
+   uint32                                  prefetch_lookahead)
 {
    btree_iterator_async_state_init(&ctxt->state,
                                    spl->cc,
@@ -895,6 +927,7 @@ core_start_btree_iterator_init_async(
                                    do_prefetch,
                                    copy_nodes,
                                    0,
+                                   prefetch_lookahead,
                                    core_btree_iterator_init_async_callback,
                                    ctxt);
    ctxt->ready = FALSE;
@@ -1186,6 +1219,18 @@ core_range_iterator_init(core_handle         *spl,
       return STATUS_NO_MEMORY;
    }
 
+   // Deep extent-prefetch for the scan: count the branches eligible to prefetch
+   // (compacted, and only when the scan is large enough to be worth it), then
+   // give each a share of the prefetch budget (see core_prefetch_lookahead).
+   uint64 n_prefetch_branches = 0;
+   for (uint64 branch_no = 0; branch_no < range_itor->num_branches; branch_no++)
+   {
+      if (range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN) {
+         n_prefetch_branches++;
+      }
+   }
+   uint32 deep_lookahead = core_prefetch_lookahead(spl, n_prefetch_branches);
+
    uint64 started_inits = 0;
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
       uint64          branch_no   = range_itor->num_branches - i - 1;
@@ -1193,11 +1238,10 @@ core_range_iterator_init(core_handle         *spl,
       uint64          branch_addr = range_itor->branch[branch_no].addr;
       page_type       page_type   = range_itor->branch[branch_no].type;
       bool32          do_prefetch = FALSE;
-      if (range_itor->compacted[branch_no]) {
-         do_prefetch =
-            range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN
-               ? TRUE
-               : FALSE;
+      uint32          prefetch_lookahead = 1;
+      if (range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN) {
+         do_prefetch        = TRUE;
+         prefetch_lookahead = deep_lookahead;
       }
       rc = core_start_btree_iterator_init_async(
          spl,
@@ -1212,7 +1256,8 @@ core_range_iterator_init(core_handle         *spl,
          start_key_comparison,
          start_key,
          do_prefetch,
-         branch_no == 0 ? first_memtable_copy_nodes : FALSE);
+         branch_no == 0 ? first_memtable_copy_nodes : FALSE,
+         prefetch_lookahead);
       started_inits++;
       if (!SUCCESS(rc)) {
          break;
@@ -2483,6 +2528,7 @@ core_config_init(core_config         *core_cfg,
                  log_config          *log_cfg,
                  trunk_config        *trunk_node_cfg,
                  uint64               queue_scale_percent,
+                 uint64               prefetch_budget,
                  bool32               use_log,
                  bool32               use_stats,
                  bool32               verbose_logging,
@@ -2499,6 +2545,7 @@ core_config_init(core_config         *core_cfg,
    core_cfg->log_cfg        = log_cfg;
 
    core_cfg->queue_scale_percent     = queue_scale_percent;
+   core_cfg->prefetch_budget         = prefetch_budget;
    core_cfg->use_log                 = use_log;
    core_cfg->use_stats               = use_stats;
    core_cfg->verbose_logging_enabled = verbose_logging;

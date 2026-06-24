@@ -28,12 +28,21 @@
  * Splinter Configuration structure
  *----------------------------------------------------------------------
  */
+// Default range-scan prefetch budget (total extent read-ahead kept in flight),
+// ~1 MiB == 8 extents at the default 128 KiB extent size.
+#define CORE_DEFAULT_PREFETCH_BUDGET (1024UL * 1024)
+
 typedef struct core_config {
    cache_config *cache_cfg;
 
    // parameters
    uint64 queue_scale_percent; // Governs when inserters perform bg tasks.  See
                                // task.h
+
+   // Total bytes of extent read-ahead a range scan keeps in flight, divided
+   // across the branches it merges (see core_prefetch_lookahead). Roughly the
+   // storage's bandwidth-delay product; raise it for higher-latency devices.
+   uint64 prefetch_budget;
 
    bool32          use_stats; // stats
    memtable_config mt_cfg;
@@ -291,6 +300,7 @@ core_config_init(core_config         *trunk_cfg,
                  log_config          *log_cfg,
                  trunk_config        *trunk_node_cfg,
                  uint64               queue_scale_percent,
+                 uint64               prefetch_budget,
                  bool32               use_log,
                  bool32               use_stats,
                  bool32               verbose_logging,

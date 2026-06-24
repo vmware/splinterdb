@@ -160,6 +160,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    if (!cfg->reclaim_threshold) {
       cfg->reclaim_threshold = UINT64_MAX;
    }
+   if (!cfg->prefetch_budget) {
+      cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
+   }
 }
 
 static platform_status
@@ -290,6 +293,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                          (log_config *)&kvs->log_cfg,
                          &kvs->trunk_node_cfg,
                          cfg.queue_scale_percent,
+                         cfg.prefetch_budget,
                          cfg.use_log,
                          cfg.use_stats,
                          FALSE,
