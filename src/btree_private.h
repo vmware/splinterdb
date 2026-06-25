@@ -32,13 +32,13 @@ typedef node_offset table_entry;
  * *************************************************************************
  */
 struct ONDISK btree_hdr {
-   uint64      prev_addr;
-   uint64      next_addr;
-   uint64      next_extent_addr;
+   uint64 prev_addr;
+   uint64 next_addr;
+   uint64 next_extent_addr;
    // Address of the mini_allocator meta page that lists this node's extent.
-   // Stamped at pack time (see btree_pack_create_next_node); lets a forward
-   // (or, later, backward) prefetch cursor jump straight to this node's
-   // position in the extent stream instead of scanning from meta_head.
+   // Stamped at pack time (see btree_pack_create_next_node); lets the
+   // bidirectional prefetch cursor jump straight to this node's position in the
+   // extent stream instead of scanning from meta_head.
    uint64      meta_page_addr;
    uint64      generation;
    uint8       height;

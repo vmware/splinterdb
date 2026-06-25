@@ -19,6 +19,7 @@
 #include "data_internal.h"
 #include "task.h"
 #include "notification.h"
+#include "prefetch.h"
 #include "poison.h"
 
 typedef VECTOR(routing_filter) routing_filter_vector;
@@ -2446,20 +2447,14 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
    platform_assert(merger->merge_itor == NULL);
 
    // A compaction/leaf-split merge reads each input branch end to end, so give
-   // the branches deep prefetch from the shared budget (Little's law: split the
-   // read-ahead budget across the branches being merged). Min 2 mirrors the
-   // range-scan path (see core_prefetch_lookahead).
+   // the branches a soft share of the read-ahead budget.
    uint64 num_branches = vector_length(&merger->itors);
-   if (num_branches > 0 && merger->prefetch_budget > 0 && merger->cc != NULL) {
-      uint64 budget_extents =
-         merger->prefetch_budget / cache_extent_size(merger->cc);
-      uint64 lookahead = budget_extents / num_branches;
-      if (lookahead < 2) {
-         lookahead = 2;
-      }
+   uint32 lookahead    = prefetch_budget_to_extent_lookahead(
+      merger->cc, merger->prefetch_budget, num_branches);
+   if (lookahead > 0) {
       for (uint64 i = 0; i < num_branches; i++) {
          btree_iterator *itor = (btree_iterator *)vector_get(&merger->itors, i);
-         btree_iterator_set_prefetch_lookahead(itor, (uint32)lookahead);
+         btree_iterator_set_prefetch_lookahead(itor, lookahead);
       }
    }
 
@@ -2798,10 +2793,12 @@ bundle_compaction_destroy(bundle_compaction *compaction,
                     PAGE_TYPE_BRANCH);
    }
 
-   task_tracker_done(
-      compaction->tracker,
-      bundle_compaction_notify_status(compaction, maplet_compaction_rc),
-      completed);
+   if (compaction->tracker != NULL) {
+      task_tracker_done(
+         compaction->tracker,
+         bundle_compaction_notify_status(compaction, maplet_compaction_rc),
+         completed);
+   }
 
    platform_free(context->hid, compaction);
 }
@@ -4123,7 +4120,9 @@ enqueue_bundle_compaction(trunk_context     *context,
             rc = STATUS_NO_MEMORY;
             goto next;
          }
-         task_tracker_add(tracker);
+         if (tracker != NULL) {
+            task_tracker_add(tracker);
+         }
 
          trunk_pivot_state_incref(state);
 
@@ -4134,8 +4133,8 @@ enqueue_bundle_compaction(trunk_context     *context,
                            &bc->tsk,
                            bundle_compaction_task,
                            FALSE);
-         // Upon success, the trunk_pivot_state_incref and task_tracker_add are
-         // passed to the task
+         // Upon success, the trunk_pivot_state_incref and optional
+         // task_tracker_add are passed to the task.
 
          if (!SUCCESS(rc)) {
             trunk_pivot_state_decref(state); // undoes trunk_pivot_state_incref
@@ -5746,7 +5745,9 @@ trunk_flush_cleanup(trunk_context *context, task_tracker *tracker)
       &context->tasks, context, tracker, &completed);
    incorporation_tasks_deinit(&context->tasks, context);
    trunk_modification_end(context);
-   task_tracker_done(tracker, rc, &completed);
+   if (tracker != NULL) {
+      task_tracker_done(tracker, rc, &completed);
+   }
    task_tracker_notify_all(&completed);
 }
 

@@ -13,6 +13,7 @@
 #include "platform_sleep.h"
 #include "platform_time.h"
 #include "platform_util.h"
+#include "prefetch.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
@@ -55,37 +56,6 @@ _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
 
 /* Some randomly chosen Splinter super-block checksum seed. */
 #define CORE_SUPER_CSUM_SEED (42)
-
-/*
- * Minimum extent-prefetch depth for an eligible branch in a range scan. Keeping
- * at least this many extents in flight is what makes deep prefetch worthwhile
- * compared to the legacy single-extent-ahead path.
- */
-#define CORE_MIN_PREFETCH_LOOKAHEAD (2)
-
-/*
- * Per-branch extent-prefetch depth for a range scan. The configured prefetch
- * budget (total bytes of read-ahead to keep in flight, ~ the storage's
- * bandwidth-delay product) is converted to extents and divided across the
- * eligible branches, with a floor of CORE_MIN_PREFETCH_LOOKAHEAD per branch.
- * Dividing by the branch count bounds total outstanding read-ahead while still
- * going deep when few branches dominate (a lone large branch gets the whole
- * budget). Returns 0 when nothing is eligible to prefetch.
- */
-static uint32
-core_prefetch_lookahead(core_handle *spl, uint64 n_eligible)
-{
-   if (n_eligible == 0) {
-      return 0;
-   }
-   uint64 budget_extents =
-      spl->cfg.prefetch_budget / cache_extent_size(spl->cc);
-   uint64 per_branch = budget_extents / n_eligible;
-   if (per_branch < CORE_MIN_PREFETCH_LOOKAHEAD) {
-      per_branch = CORE_MIN_PREFETCH_LOOKAHEAD;
-   }
-   return (uint32)per_branch;
-}
 
 /*
  * core logging functions.
@@ -1221,7 +1191,7 @@ core_range_iterator_init(core_handle         *spl,
 
    // Deep extent-prefetch for the scan: count the branches eligible to prefetch
    // (compacted, and only when the scan is large enough to be worth it), then
-   // give each a share of the prefetch budget (see core_prefetch_lookahead).
+   // give each a soft share of the prefetch budget.
    uint64 n_prefetch_branches = 0;
    for (uint64 branch_no = 0; branch_no < range_itor->num_branches; branch_no++)
    {
@@ -1229,15 +1199,16 @@ core_range_iterator_init(core_handle         *spl,
          n_prefetch_branches++;
       }
    }
-   uint32 deep_lookahead = core_prefetch_lookahead(spl, n_prefetch_branches);
+   uint32 deep_lookahead = prefetch_budget_to_extent_lookahead(
+      spl->cc, spl->cfg.prefetch_budget, n_prefetch_branches);
 
    uint64 started_inits = 0;
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
-      uint64          branch_no   = range_itor->num_branches - i - 1;
-      btree_iterator *btree_itor  = &range_itor->btree_itor[branch_no];
-      uint64          branch_addr = range_itor->branch[branch_no].addr;
-      page_type       page_type   = range_itor->branch[branch_no].type;
-      bool32          do_prefetch = FALSE;
+      uint64          branch_no          = range_itor->num_branches - i - 1;
+      btree_iterator *btree_itor         = &range_itor->btree_itor[branch_no];
+      uint64          branch_addr        = range_itor->branch[branch_no].addr;
+      page_type       page_type          = range_itor->branch[branch_no].type;
+      bool32          do_prefetch        = FALSE;
       uint32          prefetch_lookahead = 1;
       if (range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN) {
          do_prefetch        = TRUE;

@@ -46,7 +46,7 @@ typedef struct ONDISK mini_meta_hdr {
  * meta_entry -- Disk-resident structure
  *
  *      Metadata for each extent stored in the extent list for a
- *      mini_allocator. Currently, this is just the extent address itself.
+ *      mini_allocator.
  *-----------------------------------------------------------------------------
  */
 /*
@@ -65,9 +65,10 @@ typedef struct ONDISK meta_entry {
    uint64 packed;
 } meta_entry;
 
-#define META_ENTRY_BATCH_BITS  (8)
-#define META_ENTRY_TYPE_BITS   (8)
-#define META_ENTRY_EXTENT_BITS (64 - META_ENTRY_BATCH_BITS - META_ENTRY_TYPE_BITS)
+#define META_ENTRY_BATCH_BITS (8)
+#define META_ENTRY_TYPE_BITS  (8)
+#define META_ENTRY_EXTENT_BITS                                                 \
+   (64 - META_ENTRY_BATCH_BITS - META_ENTRY_TYPE_BITS)
 
 _Static_assert(MINI_MAX_BATCHES <= (1 << META_ENTRY_BATCH_BITS),
                "mini_allocator batch number does not fit in a meta_entry");
@@ -102,12 +103,17 @@ meta_entry_pack(cache      *cc,
                 page_type   type,
                 uint64      batch)
 {
+   platform_assert(cc != NULL);
+   platform_assert(entry != NULL);
+
    uint64 extent_size   = cache_extent_size(cc);
    uint64 extent_number = extent_addr / extent_size;
-   debug_assert((extent_addr % extent_size) == 0);
-   debug_assert(extent_number < (1ULL << META_ENTRY_EXTENT_BITS));
-   debug_assert((uint64)type < (1 << META_ENTRY_TYPE_BITS));
-   debug_assert(batch < (1 << META_ENTRY_BATCH_BITS));
+   platform_assert(extent_addr != 0);
+   platform_assert((extent_addr % extent_size) == 0);
+   platform_assert(extent_number < (1ULL << META_ENTRY_EXTENT_BITS));
+   platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
+   platform_assert(batch < MINI_MAX_BATCHES);
+
    entry->packed =
       (extent_number << (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS))
       | ((uint64)type << META_ENTRY_BATCH_BITS) | batch;
@@ -348,9 +354,15 @@ mini_append_entry_to_page(mini_allocator *mini,
                           page_type       type,
                           uint64          batch)
 {
+   platform_assert(mini != NULL);
+   platform_assert(mini->cc != NULL);
+   platform_assert(meta_page != NULL);
+   platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
+   platform_assert(batch < mini->num_batches);
+
    uint64 page_size = cache_page_size(mini->cc);
-   debug_assert(extent_addr != 0);
-   debug_assert((extent_addr % page_size) == 0);
+   platform_assert(extent_addr != 0);
+   platform_assert((extent_addr % page_size) == 0);
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
@@ -907,7 +919,7 @@ mini_prefetch(cache *cc, page_type type, uint64 meta_head)
 
 /*
  *-----------------------------------------------------------------------------
- * mini_meta_cursor -- forward cursor over a mini_allocator's extent entries.
+ * mini_meta_cursor -- cursor over a mini_allocator's extent entries.
  *-----------------------------------------------------------------------------
  */
 void
@@ -916,6 +928,11 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
                       page_type         meta_type,
                       uint64            meta_addr)
 {
+   platform_assert(cursor != NULL);
+   platform_assert(cc != NULL);
+   platform_assert(PAGE_TYPE_FIRST <= meta_type && meta_type < NUM_PAGE_TYPES);
+   platform_assert(meta_addr != 0);
+
    cursor->cc          = cc;
    cursor->meta_type   = meta_type;
    cursor->meta_page   = NULL;
@@ -927,6 +944,8 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
 void
 mini_meta_cursor_deinit(mini_meta_cursor *cursor)
 {
+   platform_assert(cursor != NULL);
+
    if (cursor->meta_page != NULL) {
       cache_unget(cursor->cc, cursor->meta_page);
       cursor->meta_page = NULL;
@@ -938,15 +957,22 @@ mini_meta_cursor_next(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
                       uint64           *batch)
 {
+   platform_assert(cursor != NULL);
+   platform_assert(cursor->cc != NULL);
+   platform_assert(extent_addr != NULL);
+   platform_assert(batch != NULL);
+   platform_assert(PAGE_TYPE_FIRST <= cursor->meta_type
+                   && cursor->meta_type < NUM_PAGE_TYPES);
+
    while (TRUE) {
       if (cursor->meta_page == NULL) {
          if (cursor->meta_addr == 0) {
             return MINI_META_CURSOR_END;
          }
-         // Non-blocking: if the meta page isn't resident, kick off a single-page
-         // prefetch and let the caller retry later.
-         cursor->meta_page = cache_get(
-            cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
+         // Non-blocking: if the meta page isn't resident, kick off a
+         // single-page prefetch and let the caller retry later.
+         cursor->meta_page =
+            cache_get(cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
          if (cursor->meta_page == NULL) {
             cache_prefetch_page(
                cursor->cc, cursor->meta_addr, cursor->meta_type);
@@ -976,6 +1002,11 @@ mini_meta_cursor_status
 mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
                              uint64            target_extent_addr)
 {
+   platform_assert(cursor != NULL);
+   platform_assert(cursor->cc != NULL);
+   platform_assert(target_extent_addr != 0);
+   platform_assert(target_extent_addr % cache_extent_size(cursor->cc) == 0);
+
    uint64 extent_addr;
    uint64 batch;
    while (TRUE) {
@@ -995,6 +1026,13 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
                       uint64           *batch)
 {
+   platform_assert(cursor != NULL);
+   platform_assert(cursor->cc != NULL);
+   platform_assert(extent_addr != NULL);
+   platform_assert(batch != NULL);
+   platform_assert(PAGE_TYPE_FIRST <= cursor->meta_type
+                   && cursor->meta_type < NUM_PAGE_TYPES);
+
    while (TRUE) {
       if (cursor->meta_page == NULL) {
          return MINI_META_CURSOR_END;

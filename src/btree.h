@@ -133,20 +133,20 @@ typedef struct ONDISK btree_pivot_data {
 /*
  * Drives extent prefetching for a btree_iterator in either direction. Reads
  * extent addresses ahead of (or behind) the iterator from the branch's
- * mini_allocator (via a mini_meta_cursor, exploiting that extents within a batch
- * are in key order) and issues cache_prefetch for them, keeping up to ~depth leaf
- * extents of IO in flight. Internal-node extents are skipped; blob extents are
- * prefetched (for height-0 scans).
+ * mini_allocator (via a mini_meta_cursor, exploiting that extents within a
+ * batch are in key order) and issues cache_prefetch for them, keeping up to
+ * ~depth leaf extents of IO in flight. Internal-node extents are skipped; blob
+ * extents are prefetched (for height-0 scans).
  *
  * Priming is non-blocking: the cursor's meta page is fetched lazily (PRIMING
  * state) so the iterator's async init never waits on it and the first tuple is
  * not delayed. The legacy single-extent-ahead prefetch (via the leaf's
  * next_extent_addr) covers the window until the cursor becomes ACTIVE.
  *
- * Depth ramps up (slow-start) from BTREE_PREFETCH_RAMP_MIN toward `lookahead` as
- * the scan proves long, so short scans don't waste bandwidth reading far ahead.
- * On a direction change the ramp resets so both forward and backward scans get
- * the same slow-start treatment.
+ * Depth ramps up (slow-start) from BTREE_PREFETCH_RAMP_MIN toward `lookahead`
+ * as the scan proves long, so short scans don't waste bandwidth reading far
+ * ahead. On a direction change the ramp resets so both forward and backward
+ * scans get the same slow-start treatment.
  */
 typedef enum btree_prefetch_state {
    BTREE_PREFETCH_DISABLED = 0, // legacy next_extent_addr path / not applicable
@@ -159,13 +159,13 @@ typedef enum btree_prefetch_state {
 
 typedef struct btree_prefetch_cursor {
    btree_prefetch_state state;
-   bool32           at_end;           // prefetched through the last in-range extent
-   bool32           going_forward;    // current scan direction; reset resets ramp
-   uint32           lookahead;        // K: max leaf extents in flight (the cap)
-   uint32           depth;            // current ramp-up depth (<= lookahead)
-   uint64           leaf_batch;       // mini batch of this iterator's level
-   bool32           prefetch_blobs;   // also prefetch blob extents (height 0)
-   uint64           prefetched_ahead; // leaf extents prefetched, not yet consumed
+   bool32               at_end; // prefetched through the last in-range extent
+   bool32 going_forward;        // current scan direction; reset resets ramp
+   uint32 lookahead;            // K: max leaf extents in flight (the cap)
+   uint32 depth;                // current ramp-up depth (<= lookahead)
+   uint64 leaf_batch;           // mini batch of this iterator's level
+   bool32 prefetch_blobs;       // also prefetch blob extents (height 0)
+   uint64 prefetched_ahead;     // leaf extents prefetched, not yet consumed
    mini_meta_cursor meta_cursor;
 } btree_prefetch_cursor;
 

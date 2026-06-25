@@ -40,9 +40,8 @@ task_tracker_list_init(task_tracker_list *list)
 void
 task_tracker_add(task_tracker *tracker)
 {
-   if (tracker != NULL) {
-      __sync_fetch_and_add(&tracker->outstanding, 1);
-   }
+   platform_assert(tracker != NULL);
+   __sync_fetch_and_add(&tracker->outstanding, 1);
 }
 
 static uint64
@@ -67,10 +66,6 @@ task_tracker_done(task_tracker      *tracker,
                   platform_status    status,
                   task_tracker_list *completed)
 {
-   if (tracker == NULL) {
-      return;
-   }
-
    uint64 old_outstanding = tracker_done_common(tracker, status);
 
    if (old_outstanding == 1 && tracker->callback != NULL) {
@@ -85,10 +80,6 @@ task_tracker_done(task_tracker      *tracker,
 void
 task_tracker_done_but_not_last(task_tracker *tracker, platform_status status)
 {
-   if (tracker == NULL) {
-      return;
-   }
-
    uint64 old_outstanding = tracker_done_common(tracker, status);
    platform_assert(1 < old_outstanding);
 }

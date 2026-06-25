@@ -495,9 +495,9 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
 
 /*
  * Compaction-throughput benchmark: open an existing DB (cold cache) and time a
- * single blocking full-leaf optimize over the whole key range. With data > cache
- * and O_DIRECT, the branch reads done by compaction's merge iterators are cold,
- * so this exercises the btree-iterator prefetch path under compaction.
+ * single blocking full-leaf optimize over the whole key range. With data >
+ * cache and O_DIRECT, the branch reads done by compaction's merge iterators are
+ * cold, so this exercises the btree-iterator prefetch path under compaction.
  */
 static int
 scan_benchmark_run_optimize(const splinterdb_config *cfg)
@@ -513,7 +513,8 @@ scan_benchmark_run_optimize(const splinterdb_config *cfg)
    splinterdb_notification notification;
    splinterdb_notification_init_blocking(&notification);
 
-   platform_default_log("scan_benchmark: running blocking full-leaf optimize\n");
+   platform_default_log(
+      "scan_benchmark: running blocking full-leaf optimize\n");
    timestamp start_time = platform_get_timestamp();
    rc = splinterdb_optimize(kvs, NULL_SLICE, NULL_SLICE, TRUE, &notification);
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);

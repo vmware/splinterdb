@@ -1804,7 +1804,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
 page_handle *
 clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
 {
-   bool32       retry;
+   bool32 retry;
    // Initialize to NULL so a non-blocking get of a page that is not in cache
    // (clockcache_get_internal returns without setting handle) honors the
    // documented contract of returning NULL rather than an uninitialized value.
@@ -2684,7 +2684,9 @@ clockcache_prefetch_page(clockcache *cc, uint64 addr, page_type type)
 {
    threadid tid = platform_get_tid();
 
-   debug_assert(addr % clockcache_page_size(cc) == 0);
+   platform_assert(cc != NULL);
+   platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
+   platform_assert(addr % clockcache_page_size(cc) == 0);
 
    while (TRUE) {
       uint32 entry_no = clockcache_lookup(cc, addr);
@@ -2713,7 +2715,8 @@ clockcache_prefetch_page(clockcache *cc, uint64 addr, page_type type)
             entry->type             = type;
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
 
-            async_io_state *state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+            async_io_state *state =
+               TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
             if (state == NULL) {
                platform_error_log("clockcache_prefetch_page: async_io_state "
                                   "allocation failed for page addr %lu, "
@@ -2723,13 +2726,14 @@ clockcache_prefetch_page(clockcache *cc, uint64 addr, page_type type)
                clockcache_release_unpublished_entry(entry);
                return;
             }
-            state->cc           = cc;
-            platform_status rc = io_async_state_init(state->iostate,
-                                                     cc->io,
-                                                     io_async_preadv,
-                                                     addr,
-                                                     clockcache_prefetch_callback,
-                                                     state);
+            state->cc = cc;
+            platform_status rc =
+               io_async_state_init(state->iostate,
+                                   cc->io,
+                                   io_async_preadv,
+                                   addr,
+                                   clockcache_prefetch_callback,
+                                   state);
             if (!SUCCESS(rc)) {
                platform_error_log("clockcache_prefetch_page: "
                                   "io_async_state_init failed for page addr "
@@ -2745,8 +2749,8 @@ clockcache_prefetch_page(clockcache *cc, uint64 addr, page_type type)
             if (__sync_bool_compare_and_swap(
                    &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
             {
-               rc = io_async_state_append_page(state->iostate,
-                                               entry->page.data);
+               rc =
+                  io_async_state_append_page(state->iostate, entry->page.data);
                if (!SUCCESS(rc)) {
                   platform_error_log("clockcache_prefetch_page: "
                                      "io_async_state_append_page failed for "
@@ -3361,35 +3365,35 @@ static cache_ops clockcache_ops = {
    .page_get_async            = clockcache_get_async_virtual,
    .page_get_async_result     = clockcache_get_async_state_result_virtual,
 
-   .page_unget        = clockcache_unget_virtual,
-   .page_try_claim    = clockcache_try_claim_virtual,
-   .page_unclaim      = clockcache_unclaim_virtual,
-   .page_lock         = clockcache_lock_virtual,
-   .page_unlock       = clockcache_unlock_virtual,
-   .page_prefetch     = clockcache_prefetch_virtual,
+   .page_unget         = clockcache_unget_virtual,
+   .page_try_claim     = clockcache_try_claim_virtual,
+   .page_unclaim       = clockcache_unclaim_virtual,
+   .page_lock          = clockcache_lock_virtual,
+   .page_unlock        = clockcache_unlock_virtual,
+   .page_prefetch      = clockcache_prefetch_virtual,
    .page_prefetch_page = clockcache_prefetch_page_virtual,
-   .page_mark_dirty   = clockcache_mark_dirty_virtual,
-   .page_pin          = clockcache_pin_virtual,
-   .page_unpin        = clockcache_unpin_virtual,
-   .page_sync         = clockcache_page_sync_virtual,
-   .extent_sync       = clockcache_extent_sync_virtual,
-   .flush             = clockcache_flush_virtual,
-   .evict             = clockcache_evict_all_virtual,
-   .cleanup           = clockcache_wait_virtual,
-   .in_use            = clockcache_in_use_virtual,
-   .assert_ungot      = clockcache_assert_ungot_virtual,
-   .assert_free       = clockcache_assert_no_locks_held_virtual,
-   .print             = clockcache_print_virtual,
-   .print_stats       = clockcache_print_stats_virtual,
-   .io_stats          = clockcache_io_stats_virtual,
-   .reset_stats       = clockcache_reset_stats_virtual,
-   .validate_page     = clockcache_validate_page_virtual,
-   .count_dirty       = clockcache_count_dirty_virtual,
-   .page_get_read_ref = clockcache_get_read_ref_virtual,
-   .cache_present     = clockcache_present_virtual,
-   .enable_sync_get   = clockcache_enable_sync_get_virtual,
-   .get_allocator     = clockcache_get_allocator_virtual,
-   .get_config        = clockcache_get_config_virtual,
+   .page_mark_dirty    = clockcache_mark_dirty_virtual,
+   .page_pin           = clockcache_pin_virtual,
+   .page_unpin         = clockcache_unpin_virtual,
+   .page_sync          = clockcache_page_sync_virtual,
+   .extent_sync        = clockcache_extent_sync_virtual,
+   .flush              = clockcache_flush_virtual,
+   .evict              = clockcache_evict_all_virtual,
+   .cleanup            = clockcache_wait_virtual,
+   .in_use             = clockcache_in_use_virtual,
+   .assert_ungot       = clockcache_assert_ungot_virtual,
+   .assert_free        = clockcache_assert_no_locks_held_virtual,
+   .print              = clockcache_print_virtual,
+   .print_stats        = clockcache_print_stats_virtual,
+   .io_stats           = clockcache_io_stats_virtual,
+   .reset_stats        = clockcache_reset_stats_virtual,
+   .validate_page      = clockcache_validate_page_virtual,
+   .count_dirty        = clockcache_count_dirty_virtual,
+   .page_get_read_ref  = clockcache_get_read_ref_virtual,
+   .cache_present      = clockcache_present_virtual,
+   .enable_sync_get    = clockcache_enable_sync_get_virtual,
+   .get_allocator      = clockcache_get_allocator_virtual,
+   .get_config         = clockcache_get_config_virtual,
 };
 
 /*

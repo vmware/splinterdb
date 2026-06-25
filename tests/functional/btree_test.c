@@ -373,7 +373,8 @@ test_btree_scan_once(cache        *cc,
                      uint64       *tuples_scanned,
                      uint64       *logical_bytes_scanned)
 {
-   // prefetch_lookahead 0 => no prefetch; 1 => legacy single-extent; >=2 => deep
+   // prefetch_lookahead 0 => no prefetch; 1 => legacy single-extent; >=2 =>
+   // deep
    bool32          do_prefetch = (prefetch_lookahead >= 1);
    btree_iterator  itor;
    timestamp       start_time = platform_get_timestamp();
