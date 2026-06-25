@@ -167,6 +167,17 @@ mini_meta_cursor_status
 mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
                              uint64            target_extent_addr);
 
+// Emit the previous extent entry (reverse allocation order). The cursor must
+// have been positioned by mini_meta_cursor_seek_extent() or a prior call to
+// mini_meta_cursor_prev() — calling on a freshly-initialized cursor returns END.
+// Non-blocking: if the previous meta page isn't resident, issues a single-page
+// prefetch and returns MINI_META_CURSOR_WOULD_BLOCK; the current page is kept
+// alive so the retry can follow prev_meta_addr without re-reading.
+mini_meta_cursor_status
+mini_meta_cursor_prev(mini_meta_cursor *cursor,
+                      uint64           *extent_addr,
+                      uint64           *batch);
+
 /* Return total bytes allocated by the mini_allocator, including space used by
  * the mini_allocator itself.*/
 uint64

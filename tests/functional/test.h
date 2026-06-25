@@ -296,6 +296,7 @@ test_config_init(system_config *system_cfg, // OUT
                      master_cfg->memtable_capacity,
                      master_cfg->fanout,
                      master_cfg->btree_rough_count_height,
+                     master_cfg->prefetch_budget,
                      master_cfg->use_stats);
 
    rc = core_config_init(&system_cfg->splinter_cfg,

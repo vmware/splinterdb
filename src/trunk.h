@@ -26,6 +26,7 @@ typedef struct trunk_config {
    uint64                incorporation_size_kv_bytes;
    uint64                target_fanout;
    uint64                branch_rough_count_height;
+   uint64                prefetch_budget; // bytes of read-ahead per merge (~BDP)
    bool32                use_stats;
 } trunk_config;
 
@@ -183,6 +184,8 @@ typedef struct trunk_ondisk_node_handle {
 typedef struct trunk_branch_merger {
    platform_heap_id   hid;
    const data_config *data_cfg;
+   cache             *cc;              // for deep-prefetch budget sizing
+   uint64             prefetch_budget; // bytes of read-ahead across the merge
    key                min_key;
    key                max_key;
    uint64             height;
@@ -202,6 +205,7 @@ trunk_config_init(trunk_config         *config,
                   uint64                incorporation_size_kv_bytes,
                   uint64                target_fanout,
                   uint64                branch_rough_count_height,
+                  uint64                prefetch_budget,
                   bool32                use_stats);
 
 platform_status

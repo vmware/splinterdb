@@ -131,12 +131,12 @@ typedef struct ONDISK btree_pivot_data {
 } btree_pivot_data;
 
 /*
- * Drives extent prefetching for a forward btree_iterator. Reads extent
- * addresses ahead of the iterator from the branch's mini_allocator (via a
- * mini_meta_cursor, exploiting that extents within a batch are in key order)
- * and issues cache_prefetch for them, keeping up to ~depth leaf extents of IO in
- * flight. Internal-node extents are skipped; blob extents are prefetched (for
- * height-0 scans). Forward-only; disabled on backward moves.
+ * Drives extent prefetching for a btree_iterator in either direction. Reads
+ * extent addresses ahead of (or behind) the iterator from the branch's
+ * mini_allocator (via a mini_meta_cursor, exploiting that extents within a batch
+ * are in key order) and issues cache_prefetch for them, keeping up to ~depth leaf
+ * extents of IO in flight. Internal-node extents are skipped; blob extents are
+ * prefetched (for height-0 scans).
  *
  * Priming is non-blocking: the cursor's meta page is fetched lazily (PRIMING
  * state) so the iterator's async init never waits on it and the first tuple is
@@ -145,6 +145,8 @@ typedef struct ONDISK btree_pivot_data {
  *
  * Depth ramps up (slow-start) from BTREE_PREFETCH_RAMP_MIN toward `lookahead` as
  * the scan proves long, so short scans don't waste bandwidth reading far ahead.
+ * On a direction change the ramp resets so both forward and backward scans get
+ * the same slow-start treatment.
  */
 typedef enum btree_prefetch_state {
    BTREE_PREFETCH_DISABLED = 0, // legacy next_extent_addr path / not applicable
@@ -158,6 +160,7 @@ typedef enum btree_prefetch_state {
 typedef struct btree_prefetch_cursor {
    btree_prefetch_state state;
    bool32           at_end;           // prefetched through the last in-range extent
+   bool32           going_forward;    // current scan direction; reset resets ramp
    uint32           lookahead;        // K: max leaf extents in flight (the cap)
    uint32           depth;            // current ramp-up depth (<= lookahead)
    uint64           leaf_batch;       // mini batch of this iterator's level
@@ -390,7 +393,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    local, key,                          target,
    local, comparison,                   position_rule,
    local, bool32,                       found,
-   local, bool32,                       forward,
    local, int64,                        tmp,
    local, uint64,                       curr_addr,
    local, uint64,                       last_addr,

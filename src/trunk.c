@@ -2308,16 +2308,20 @@ static void
 trunk_branch_merger_init(trunk_branch_merger *merger,
                          platform_heap_id     hid,
                          const data_config   *data_cfg,
+                         cache               *cc,
+                         uint64               prefetch_budget,
                          key                  min_key,
                          key                  max_key,
                          uint64               height)
 {
-   merger->hid        = hid;
-   merger->data_cfg   = data_cfg;
-   merger->min_key    = min_key;
-   merger->max_key    = max_key;
-   merger->height     = height;
-   merger->merge_itor = NULL;
+   merger->hid             = hid;
+   merger->data_cfg        = data_cfg;
+   merger->cc              = cc;
+   merger->prefetch_budget = prefetch_budget;
+   merger->min_key         = min_key;
+   merger->max_key         = max_key;
+   merger->height          = height;
+   merger->merge_itor      = NULL;
    vector_init(&merger->itors, hid);
 }
 
@@ -2441,9 +2445,27 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
 {
    platform_assert(merger->merge_itor == NULL);
 
+   // A compaction/leaf-split merge reads each input branch end to end, so give
+   // the branches deep prefetch from the shared budget (Little's law: split the
+   // read-ahead budget across the branches being merged). Min 2 mirrors the
+   // range-scan path (see core_prefetch_lookahead).
+   uint64 num_branches = vector_length(&merger->itors);
+   if (num_branches > 0 && merger->prefetch_budget > 0 && merger->cc != NULL) {
+      uint64 budget_extents =
+         merger->prefetch_budget / cache_extent_size(merger->cc);
+      uint64 lookahead = budget_extents / num_branches;
+      if (lookahead < 2) {
+         lookahead = 2;
+      }
+      for (uint64 i = 0; i < num_branches; i++) {
+         btree_iterator *itor = (btree_iterator *)vector_get(&merger->itors, i);
+         btree_iterator_set_prefetch_lookahead(itor, (uint32)lookahead);
+      }
+   }
+
    return merge_iterator_create(merger->hid,
                                 merger->data_cfg,
-                                vector_length(&merger->itors),
+                                num_branches,
                                 vector_data(&merger->itors),
                                 merge_mode,
                                 TRUE,
@@ -3944,6 +3966,8 @@ bundle_compaction_task(task *arg)
    trunk_branch_merger_init(&merger,
                             PROCESS_PRIVATE_HEAP_ID,
                             context->cfg->data_cfg,
+                            context->cc,
+                            context->cfg->prefetch_budget,
                             key_buffer_key(&state->key),
                             key_buffer_key(&state->ubkey),
                             0);
@@ -4549,6 +4573,8 @@ leaf_split_select_pivots(trunk_context     *context,
    trunk_branch_merger_init(&merger,
                             PROCESS_PRIVATE_HEAP_ID,
                             context->cfg->data_cfg,
+                            context->cc,
+                            context->cfg->prefetch_budget,
                             min_key,
                             max_key,
                             context->cfg->branch_rough_count_height);
@@ -6625,6 +6651,7 @@ trunk_config_init(trunk_config         *config,
                   uint64                incorporation_size_kv_bytes,
                   uint64                target_fanout,
                   uint64                branch_rough_count_height,
+                  uint64                prefetch_budget,
                   bool32                use_stats)
 {
    config->data_cfg                    = data_cfg;
@@ -6633,6 +6660,7 @@ trunk_config_init(trunk_config         *config,
    config->incorporation_size_kv_bytes = incorporation_size_kv_bytes;
    config->target_fanout               = target_fanout;
    config->branch_rough_count_height   = branch_rough_count_height;
+   config->prefetch_budget             = prefetch_budget;
    config->use_stats                   = use_stats;
 }
 

@@ -990,6 +990,49 @@ mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
    }
 }
 
+mini_meta_cursor_status
+mini_meta_cursor_prev(mini_meta_cursor *cursor,
+                      uint64           *extent_addr,
+                      uint64           *batch)
+{
+   while (TRUE) {
+      if (cursor->meta_page == NULL) {
+         return MINI_META_CURSOR_END;
+      }
+
+      if (cursor->entry_idx > 0) {
+         cursor->entry_idx--;
+         meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
+         *extent_addr      = meta_entry_extent_addr(cursor->cc, entry);
+         *batch            = meta_entry_batch(entry);
+         return MINI_META_CURSOR_ENTRY;
+      }
+
+      // entry_idx == 0: exhausted this page going backward.
+      mini_meta_hdr *hdr       = (mini_meta_hdr *)cursor->meta_page->data;
+      uint64         prev_addr = hdr->prev_meta_addr;
+      if (prev_addr == 0) {
+         return MINI_META_CURSOR_END;
+      }
+
+      // Non-blocking: keep the current page alive so prev_meta_addr remains
+      // accessible on a WOULD_BLOCK retry — do NOT release before the load.
+      page_handle *prev_page =
+         cache_get(cursor->cc, prev_addr, FALSE, cursor->meta_type);
+      if (prev_page == NULL) {
+         cache_prefetch_page(cursor->cc, prev_addr, cursor->meta_type);
+         return MINI_META_CURSOR_WOULD_BLOCK;
+      }
+
+      cache_unget(cursor->cc, cursor->meta_page);
+      cursor->meta_page   = prev_page;
+      cursor->meta_addr   = prev_addr;
+      cursor->num_entries = mini_num_entries(cursor->meta_page);
+      cursor->entry_idx   = cursor->num_entries;
+      // Loop: entry_idx == num_entries > 0, will decrement and read.
+   }
+}
+
 static void
 space_use_add_extent(cache *cc, page_type type, uint64 extent_addr, void *out)
 {

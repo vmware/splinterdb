@@ -284,6 +284,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      cfg.memtable_capacity,
                      cfg.fanout,
                      cfg.btree_rough_count_height,
+                     cfg.prefetch_budget,
                      cfg.use_stats);
 
    rc = core_config_init(&kvs->trunk_cfg,
