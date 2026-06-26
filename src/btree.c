@@ -2668,8 +2668,8 @@ btree_iterator_curr_live_prev_addr(btree_iterator *itor)
    btree_node live_curr;
    live_curr.addr = itor->curr.addr;
    btree_node_get(itor->cc, itor->cfg, &live_curr, itor->page_type);
-   uint64 prev_addr =
-      btree_hdr_prev_addr(itor->cfg, live_curr.hdr, live_curr.addr, itor->page_type);
+   uint64 prev_addr = btree_hdr_prev_addr(
+      itor->cfg, live_curr.hdr, live_curr.addr, itor->page_type);
    btree_node_unget(itor->cc, itor->cfg, &live_curr);
    return prev_addr;
 }
@@ -2694,10 +2694,8 @@ btree_iterator_end_key_beyond_curr(btree_iterator *itor)
    }
    if (num_entries == 0 || itor->height > btree_height(itor->curr.hdr)) {
       return num_entries == 0
-             && btree_hdr_next_addr(itor->cfg,
-                                    itor->curr.hdr,
-                                    itor->curr.addr,
-                                    itor->page_type)
+             && btree_hdr_next_addr(
+                   itor->cfg, itor->curr.hdr, itor->curr.addr, itor->page_type)
                    != 0;
    }
 
@@ -3045,16 +3043,16 @@ btree_prefetch_cursor_deinit(btree_iterator *itor)
  * On a direction change, restarts the cursor in the new direction (resetting
  * the ramp). Otherwise pumps the non-blocking prime while PRIMING. Deep
  * prefetch refills after an extent-boundary crossing; header-link prefetch runs
- * after a crossing or direction restart, when the adjacent extent link is useful
- * and not just a duplicate prefetch for the current extent.
+ * after a crossing or direction restart, when the adjacent extent link is
+ * useful and not just a duplicate prefetch for the current extent.
  */
 static void
 btree_iterator_prefetch_on_advance(btree_iterator *itor,
                                    uint64          last_addr,
                                    bool32          going_forward)
 {
-   cache                 *cc = itor->cc;
-   btree_prefetch_cursor *pf = &itor->prefetch;
+   cache                 *cc        = itor->cc;
+   btree_prefetch_cursor *pf        = &itor->prefetch;
    bool32                 restarted = FALSE;
 
    // Direction change: restart cursor in the new direction, resetting ramp.
@@ -3069,7 +3067,8 @@ btree_iterator_prefetch_on_advance(btree_iterator *itor,
    if (pf->state == BTREE_PREFETCH_PRIMING) {
       positioned_now = btree_prefetch_cursor_pump(itor);
    }
-   bool32 crossed_extent = !btree_addrs_share_extent(cc, last_addr, itor->curr.addr);
+   bool32 crossed_extent =
+      !btree_addrs_share_extent(cc, last_addr, itor->curr.addr);
    if (pf->state == BTREE_PREFETCH_ACTIVE) {
       if (crossed_extent && !positioned_now && !restarted) {
          btree_prefetch_cursor_on_boundary(itor);
@@ -3086,7 +3085,8 @@ btree_iterator_prefetch_on_advance(btree_iterator *itor,
 
       if (extent_addr != 0
           && (!going_forward
-              || !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr)))
+              || !btree_addrs_share_extent(
+                 cc, itor->curr.addr, itor->end_addr)))
       {
          cache_prefetch(cc, extent_addr, itor->page_type);
       }
@@ -3103,8 +3103,8 @@ static void
 btree_iterator_next_leaf(btree_iterator *itor)
 {
    uint64 last_addr = itor->curr.addr;
-   uint64 next_addr =
-      btree_hdr_next_addr(itor->cfg, itor->curr.hdr, itor->curr.addr, itor->page_type);
+   uint64 next_addr = btree_hdr_next_addr(
+      itor->cfg, itor->curr.hdr, itor->curr.addr, itor->page_type);
    btree_iterator_release_curr(itor);
    btree_iterator_get_curr_addr(itor, next_addr);
    itor->idx          = 0;
@@ -3172,12 +3172,12 @@ btree_iterator_prev_leaf(btree_iterator *itor)
     * old curr node and the new one.  In this case, we can just walk
     * forward until we find the leaf whose successor is our old leaf.
     */
-   while (btree_hdr_next_addr(
-             cfg, itor->curr.hdr, itor->curr.addr, itor->page_type)
-          != last_addr)
+   while (
+      btree_hdr_next_addr(cfg, itor->curr.hdr, itor->curr.addr, itor->page_type)
+      != last_addr)
    {
-      uint64 next_addr =
-         btree_hdr_next_addr(cfg, itor->curr.hdr, itor->curr.addr, itor->page_type);
+      uint64 next_addr = btree_hdr_next_addr(
+         cfg, itor->curr.hdr, itor->curr.addr, itor->page_type);
       btree_iterator_release_curr(itor);
       btree_iterator_get_curr_addr(itor, next_addr);
    }
@@ -3193,7 +3193,8 @@ btree_iterator_prev_leaf(btree_iterator *itor)
       itor->curr_min_idx = find_key_in_node(
          itor, itor->curr.hdr, itor->min_key, itor->min_key_comparison, NULL);
    }
-   if (btree_hdr_prev_addr(cfg, itor->curr.hdr, itor->curr.addr, itor->page_type)
+   if (btree_hdr_prev_addr(
+          cfg, itor->curr.hdr, itor->curr.addr, itor->page_type)
           == 0
        && itor->curr_min_idx == -1)
    {
@@ -3868,9 +3869,7 @@ btree_iterator_deinit(btree_iterator *itor)
 
 // Branch nodes use the header union for meta_page_addr.
 static inline void
-btree_pack_node_init_hdr(const btree_config *cfg,
-                         btree_hdr          *hdr,
-                         uint8               height)
+btree_pack_node_init_hdr(const btree_config *cfg, btree_hdr *hdr, uint8 height)
 {
    btree_init_hdr(cfg, hdr);
    hdr->height = height;
@@ -3920,9 +3919,7 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot);
  * Add the specified node to its parent. Creates a parent if necessary.
  */
 static inline void
-btree_pack_link_node(btree_pack_req *req,
-                     uint64          height,
-                     uint64          offset)
+btree_pack_link_node(btree_pack_req *req, uint64 height, uint64 offset)
 {
    btree_node        *edge       = &req->edge[height][offset];
    btree_pivot_stats *edge_stats = &req->edge_stats[height][offset];
@@ -3997,8 +3994,8 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
    }
 
    if (0 < req->num_edges[height]) {
-      btree_node *old_node     = btree_pack_get_current_node(req, height);
-      new_node.hdr->prev_addr  = old_node->hdr->prev_addr;
+      btree_node *old_node    = btree_pack_get_current_node(req, height);
+      new_node.hdr->prev_addr = old_node->hdr->prev_addr;
       if (!btree_addrs_share_extent(req->cc, old_node->addr, new_node.addr)) {
          debug_assert(btree_page_is_last_in_extent(req->cfg, old_node->addr));
          debug_assert(btree_page_is_first_in_extent(req->cfg, new_node.addr));
@@ -4382,7 +4379,8 @@ btree_print_index_node(platform_log_handle *log_handle,
                 btree_hdr_next_addr(cfg, hdr, addr, type));
    if (type == PAGE_TYPE_BRANCH) {
       platform_log(log_handle, "**  flags: %u \n", hdr->flags);
-      platform_log(log_handle, "**  meta_page_addr: %lu \n", hdr->meta_page_addr);
+      platform_log(
+         log_handle, "**  meta_page_addr: %lu \n", hdr->meta_page_addr);
       platform_log(log_handle,
                    "**  prev_extent_addr: %lu \n",
                    btree_hdr_prev_extent_addr(cfg, hdr, addr, type));
@@ -4443,7 +4441,8 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                 btree_hdr_next_addr(cfg, hdr, addr, type));
    if (type == PAGE_TYPE_BRANCH) {
       platform_log(log_handle, "**  flags: %u \n", hdr->flags);
-      platform_log(log_handle, "**  meta_page_addr: %lu \n", hdr->meta_page_addr);
+      platform_log(
+         log_handle, "**  meta_page_addr: %lu \n", hdr->meta_page_addr);
       platform_log(log_handle,
                    "**  prev_extent_addr: %lu \n",
                    btree_hdr_prev_extent_addr(cfg, hdr, addr, type));
