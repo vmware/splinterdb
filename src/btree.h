@@ -140,8 +140,8 @@ typedef struct ONDISK btree_pivot_data {
  *
  * Priming is non-blocking: the cursor's meta page is fetched lazily (PRIMING
  * state) so the iterator's async init never waits on it and the first tuple is
- * not delayed. The legacy single-extent-ahead prefetch (via the leaf's
- * next_extent_addr) covers the window until the cursor becomes ACTIVE.
+ * not delayed. The leaf header's extent links are used for prefetching until
+ * the cursor becomes ACTIVE.
  *
  * Depth ramps up (slow-start) from BTREE_PREFETCH_RAMP_MIN toward `lookahead`
  * as the scan proves long, so short scans don't waste bandwidth reading far
@@ -149,7 +149,7 @@ typedef struct ONDISK btree_pivot_data {
  * scans get the same slow-start treatment.
  */
 typedef enum btree_prefetch_state {
-   BTREE_PREFETCH_DISABLED = 0, // legacy next_extent_addr path / not applicable
+   BTREE_PREFETCH_DISABLED = 0, // deep prefetch inactive
    BTREE_PREFETCH_PRIMING,      // meta-page IO kicked off; not yet positioned
    BTREE_PREFETCH_ACTIVE,       // positioned; issuing deep prefetches
 } btree_prefetch_state;
@@ -176,7 +176,6 @@ typedef struct btree_iterator {
    iterator            super;
    cache              *cc;
    const btree_config *cfg;
-   bool32              do_prefetch;
    uint32              height;
    page_type           page_type;
    // Active memtable iterators copy nodes here and release page locks.
@@ -212,6 +211,7 @@ typedef struct btree_pack_req {
    btree_node        edge[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    uint32            num_edges[BTREE_MAX_HEIGHT];
+   bool32            level_has_nodes[BTREE_MAX_HEIGHT];
    merge_accumulator blob_buffer;
 
    mini_allocator mini;
@@ -342,9 +342,9 @@ async_status
 btree_lookup_async(btree_lookup_async_state *state);
 
 /*
- * prefetch_lookahead is measured in leaf extents. Values <= 1 use the legacy
- * single-extent prefetch path; values >= 2 enable deep extent prefetch. Ignored
- * unless do_prefetch is TRUE.
+ * prefetch_lookahead is measured in leaf extents. 0 disables prefetch, 1
+ * prefetches at most the next extent, and values >= 2 enable deep extent
+ * prefetch.
  */
 platform_status
 btree_iterator_init(cache              *cc,
@@ -358,7 +358,6 @@ btree_iterator_init(cache              *cc,
                     key                 max_key,
                     comparison          start_type,
                     key                 start_key,
-                    bool32              do_prefetch,
                     bool32              copy_nodes,
                     uint32              height,
                     uint32              prefetch_lookahead);
@@ -376,7 +375,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    param, key,                          max_key,
    param, comparison,                   start_type,
    param, key,                          start_key,
-   param, bool32,                       do_prefetch,
    param, bool32,                       copy_nodes,
    param, uint32,                       height,
    param, uint32,                       prefetch_lookahead,

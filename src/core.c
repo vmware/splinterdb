@@ -390,9 +390,8 @@ core_memtable_iterator_init(core_handle    *spl,
                               start_key_comparison,
                               start_key,
                               FALSE,
-                              FALSE,
                               0,
-                              1);
+                              0);
 }
 
 static void
@@ -879,7 +878,6 @@ core_start_btree_iterator_init_async(
    key                                     max_key,
    comparison                              start_key_comparison,
    key                                     start_key,
-   bool32                                  do_prefetch,
    bool32                                  copy_nodes,
    uint32                                  prefetch_lookahead)
 {
@@ -895,7 +893,6 @@ core_start_btree_iterator_init_async(
                                    max_key,
                                    start_key_comparison,
                                    start_key,
-                                   do_prefetch,
                                    copy_nodes,
                                    0,
                                    prefetch_lookahead,
@@ -1211,10 +1208,8 @@ core_range_iterator_init(core_handle         *spl,
       btree_iterator *btree_itor         = &range_itor->btree_itor[branch_no];
       uint64          branch_addr        = range_itor->branch[branch_no].addr;
       page_type       page_type          = range_itor->branch[branch_no].type;
-      bool32          do_prefetch        = FALSE;
-      uint32          prefetch_lookahead = 1;
+      uint32          prefetch_lookahead = 0;
       if (range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN) {
-         do_prefetch        = TRUE;
          prefetch_lookahead = deep_lookahead;
       }
       rc = core_start_btree_iterator_init_async(
@@ -1229,7 +1224,6 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer_key(&range_itor->local_max_key),
          start_key_comparison,
          start_key,
-         do_prefetch,
          branch_no == 0 ? first_memtable_copy_nodes : FALSE,
          prefetch_lookahead);
       started_inits++;

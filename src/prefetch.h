@@ -12,9 +12,7 @@
 #include "platform_assert.h"
 
 /*
- * Minimum deep-prefetch depth for one eligible stream. Keeping at least this
- * many extents in flight is what makes deep prefetch worthwhile compared to the
- * legacy single-extent-ahead path.
+ * Minimum deep-prefetch depth for one eligible stream.
  */
 #define PREFETCH_MIN_EXTENT_LOOKAHEAD (2)
 

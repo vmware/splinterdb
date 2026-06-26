@@ -35,7 +35,7 @@ typedef struct btree_scan_perf_options {
    bool32 random_bounds;
    bool32 memtable_no_copy_nodes;
    bool32 memtable_copy_nodes;
-   uint32 prefetch_lookahead; // 0=no prefetch, 1=legacy single-extent, >=2 deep
+   uint32 prefetch_lookahead; // 0=off, 1=next extent, >=2 deep
 } btree_scan_perf_options;
 
 static const char *
@@ -373,9 +373,6 @@ test_btree_scan_once(cache        *cc,
                      uint64       *tuples_scanned,
                      uint64       *logical_bytes_scanned)
 {
-   // prefetch_lookahead 0 => no prefetch; 1 => legacy single-extent; >=2 =>
-   // deep
-   bool32          do_prefetch = (prefetch_lookahead >= 1);
    btree_iterator  itor;
    timestamp       start_time = platform_get_timestamp();
    platform_status rc         = btree_iterator_init(cc,
@@ -389,7 +386,6 @@ test_btree_scan_once(cache        *cc,
                                             max_key,
                                             greater_than_or_equal,
                                             min_key,
-                                            do_prefetch,
                                             copy_nodes,
                                             0,
                                             prefetch_lookahead);
@@ -690,9 +686,8 @@ test_btree_scan_perf(cache                         *cc,
                             greater_than_or_equal,
                             NEGATIVE_INFINITY_KEY,
                             FALSE,
-                            FALSE,
                             0,
-                            1);
+                            0);
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -1088,9 +1083,8 @@ test_btree_basic(cache             *cc,
                             greater_than_or_equal,
                             NEGATIVE_INFINITY_KEY,
                             FALSE,
-                            FALSE,
                             0,
-                            1);
+                            0);
    platform_assert_status_ok(rc);
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
@@ -1274,9 +1268,8 @@ test_btree_create_packed_trees(cache             *cc,
                                greater_than_or_equal,
                                NEGATIVE_INFINITY_KEY,
                                FALSE,
-                               FALSE,
                                0,
-                               1);
+                               0);
       platform_assert_status_ok(rc);
 
       btree_pack_req req;
@@ -1332,7 +1325,6 @@ test_count_tuples_in_range(cache        *cc,
                                high_key,
                                greater_than_or_equal,
                                low_key,
-                               TRUE,
                                FALSE,
                                0,
                                1);
@@ -1432,7 +1424,6 @@ test_btree_print_all_keys(cache        *cc,
                                                high_key,
                                                greater_than_or_equal,
                                                low_key,
-                                               TRUE,
                                                FALSE,
                                                0,
                                                1);
@@ -1512,7 +1503,6 @@ test_btree_merge_basic(cache             *cc,
                                   hi,
                                   greater_than_or_equal,
                                   lo,
-                                  TRUE,
                                   FALSE,
                                   0,
                                   1);
@@ -1737,7 +1727,6 @@ test_btree_rough_iterator(cache             *cc,
                                greater_than_or_equal,
                                NEGATIVE_INFINITY_KEY,
                                TRUE,
-                               TRUE,
                                1,
                                1);
       platform_assert_status_ok(rc);
@@ -1903,7 +1892,6 @@ test_btree_merge_perf(cache             *cc,
                                      max_key,
                                      greater_than_or_equal,
                                      min_key,
-                                     TRUE,
                                      FALSE,
                                      0,
                                      1);
@@ -2113,7 +2101,7 @@ usage(const char *argv0)
    platform_error_log("\t--memtable-scan-mode   choose which memtable "
                       "iterator mode(s) to benchmark (default both)\n");
    platform_error_log("\t--prefetch-lookahead   extents to prefetch ahead "
-                      "(0=off, 1=legacy single-extent, >=2 deep; default 0)\n");
+                      "(0=off, 1=next extent, >=2 deep; default 0)\n");
    config_usage();
 }
 

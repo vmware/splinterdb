@@ -2473,7 +2473,6 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
                                merger->max_key,
                                greater_than_or_equal,
                                merger->min_key,
-                               TRUE,
                                FALSE,
                                merger->height,
                                lookahead);
