@@ -2412,9 +2412,8 @@ trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
 
    for (uint64 i = 0; i < bundle_num_branches(routed); i++) {
       branch_ref bref = vector_get(&routed->branches, i);
-      rc              = trunk_branch_merger_add_branch(merger,
-                                          branch_ref_addr(bref),
-                                          bundle_branch_type(routed));
+      rc              = trunk_branch_merger_add_branch(
+         merger, branch_ref_addr(bref), bundle_branch_type(routed));
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
                             __func__,
@@ -2438,9 +2437,9 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
    // A compaction/leaf-split merge reads each input branch end to end, so give
    // the branches a soft share of the read-ahead budget.
    uint64 num_branches = vector_length(&merger->branches);
-   uint64 extent_size  = cache_config_extent_size(
-      merger->cfg->btree_cfg->cache_cfg);
-   uint32 lookahead    = prefetch_budget_to_extent_lookahead(
+   uint64 extent_size =
+      cache_config_extent_size(merger->cfg->btree_cfg->cache_cfg);
+   uint32 lookahead = prefetch_budget_to_extent_lookahead(
       extent_size, merger->cfg->prefetch_budget, num_branches);
    if (lookahead == 0) {
       lookahead = 1;
@@ -4035,9 +4034,8 @@ bundle_compaction_task(task *arg)
       goto cleanup_branch_merger;
    }
 
-   rc = trunk_branch_merger_build_merge_itor(&merger,
-                                             context->cc,
-                                             bc->input.merge_mode);
+   rc = trunk_branch_merger_build_merge_itor(
+      &merger, context->cc, bc->input.merge_mode);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "branch_merger_build_merge_itor failed for state: %p bc: %p: %s\n",
@@ -4616,8 +4614,8 @@ leaf_split_select_pivots(trunk_context     *context,
                             max_key,
                             context->cfg->branch_rough_count_height);
 
-   rc = trunk_branch_merger_add_bundle(
-      &merger, vector_get_ptr(&leaf->pivot_bundles, 0));
+   rc = trunk_branch_merger_add_bundle(&merger,
+                                       vector_get_ptr(&leaf->pivot_bundles, 0));
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "branch_merger_add_bundle failed: %d\n",
