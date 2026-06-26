@@ -3694,11 +3694,9 @@ btree_iterator_init(cache              *cc,
                     key                 start_key,
                     bool32              do_prefetch,
                     bool32              copy_nodes,
-                    uint32              height)
+                    uint32              height,
+                    uint32              prefetch_lookahead)
 {
-   // The synchronous init defaults to the legacy single-extent-ahead prefetch.
-   // Callers wanting deep prefetch call btree_iterator_set_prefetch_lookahead()
-   // afterward (the async path threads a lookahead in directly).
    platform_status rc = btree_iterator_init_common(cc,
                                                    cfg,
                                                    itor,
@@ -3712,7 +3710,7 @@ btree_iterator_init(cache              *cc,
                                                    do_prefetch,
                                                    copy_nodes,
                                                    height,
-                                                   1,
+                                                   prefetch_lookahead,
                                                    &start_key);
    if (!SUCCESS(rc)) {
       return rc;
@@ -3734,20 +3732,6 @@ btree_iterator_init(cache              *cc,
                 || itor->idx < btree_num_entries(itor->curr.hdr));
 
    return STATUS_OK;
-}
-
-void
-btree_iterator_set_prefetch_lookahead(btree_iterator *itor,
-                                      uint32          prefetch_lookahead)
-{
-   platform_assert(itor != NULL);
-   platform_assert(itor->do_prefetch);
-
-   itor->prefetch.lookahead = prefetch_lookahead;
-   // Re-anchor the cursor at the current position with the new lookahead. This
-   // also issues an initial prefetch (replacing the legacy one-extent prefetch
-   // from init when the cursor engages).
-   btree_prefetch_cursor_start(itor, TRUE);
 }
 
 async_status
@@ -4210,7 +4194,8 @@ btree_count_in_range_by_iterator(cache             *cc,
                                             min_key,
                                             TRUE,
                                             FALSE,
-                                            0);
+                                            0,
+                                            1);
    platform_assert_status_ok(rc);
 
    memset(stats, 0, sizeof(*stats));

@@ -181,18 +181,6 @@ typedef struct trunk_ondisk_node_handle {
    page_handle *inflight_bundle_page;
 } trunk_ondisk_node_handle;
 
-typedef struct trunk_branch_merger {
-   platform_heap_id   hid;
-   const data_config *data_cfg;
-   cache             *cc;              // for deep-prefetch budget sizing
-   uint64             prefetch_budget; // soft read-ahead bytes across the merge
-   key                min_key;
-   key                max_key;
-   uint64             height;
-   merge_iterator    *merge_itor;
-   iterator_vector    itors;
-} trunk_branch_merger;
-
 /********************************
  * Lifecycle
  ********************************/

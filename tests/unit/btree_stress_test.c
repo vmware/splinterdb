@@ -709,7 +709,8 @@ iterator_tests(cache           *cc,
                                             start_key,
                                             FALSE,
                                             FALSE,
-                                            0);
+                                            0,
+                                            1);
    ASSERT_TRUE(SUCCESS(rc));
 
    iterator *iter = (iterator *)&dbiter;
@@ -762,7 +763,8 @@ iterator_seek_tests(cache           *cc,
                                             start_key,
                                             FALSE,
                                             FALSE,
-                                            0);
+                                            0,
+                                            1);
    ASSERT_TRUE(SUCCESS(rc));
    iterator *iter = (iterator *)&dbiter;
 
@@ -810,7 +812,8 @@ pack_tests(cache           *cc,
                                             NEGATIVE_INFINITY_KEY,
                                             FALSE,
                                             FALSE,
-                                            0);
+                                            0,
+                                            1);
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = STATUS_TEST_FAILED;

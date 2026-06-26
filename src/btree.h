@@ -341,6 +341,11 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state);
 async_status
 btree_lookup_async(btree_lookup_async_state *state);
 
+/*
+ * prefetch_lookahead is measured in leaf extents. Values <= 1 use the legacy
+ * single-extent prefetch path; values >= 2 enable deep extent prefetch. Ignored
+ * unless do_prefetch is TRUE.
+ */
 platform_status
 btree_iterator_init(cache              *cc,
                     const btree_config *cfg,
@@ -355,17 +360,8 @@ btree_iterator_init(cache              *cc,
                     key                 start_key,
                     bool32              do_prefetch,
                     bool32              copy_nodes,
-                    uint32              height);
-
-/*
- * Set the extent-prefetch lookahead (in leaf extents) of an already-initialized
- * iterator and re-anchor its prefetch cursor at the current position. A value
- * >= 2 enables deep prefetch; <= 1 falls back to the legacy single-extent path.
- * The iterator must have been initialized with do_prefetch == TRUE.
- */
-void
-btree_iterator_set_prefetch_lookahead(btree_iterator *itor,
-                                      uint32          prefetch_lookahead);
+                    uint32              height,
+                    uint32              prefetch_lookahead);
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,

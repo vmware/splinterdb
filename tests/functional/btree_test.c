@@ -391,10 +391,8 @@ test_btree_scan_once(cache        *cc,
                                             min_key,
                                             do_prefetch,
                                             copy_nodes,
-                                            0);
-   if (SUCCESS(rc) && do_prefetch) {
-      btree_iterator_set_prefetch_lookahead(&itor, prefetch_lookahead);
-   }
+                                            0,
+                                            prefetch_lookahead);
    *init_elapsed_ns += platform_timestamp_elapsed(start_time);
    if (!SUCCESS(rc)) {
       return rc;
@@ -693,7 +691,8 @@ test_btree_scan_perf(cache                         *cc,
                             NEGATIVE_INFINITY_KEY,
                             FALSE,
                             FALSE,
-                            0);
+                            0,
+                            1);
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -1090,7 +1089,8 @@ test_btree_basic(cache             *cc,
                             NEGATIVE_INFINITY_KEY,
                             FALSE,
                             FALSE,
-                            0);
+                            0,
+                            1);
    platform_assert_status_ok(rc);
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
@@ -1275,7 +1275,8 @@ test_btree_create_packed_trees(cache             *cc,
                                NEGATIVE_INFINITY_KEY,
                                FALSE,
                                FALSE,
-                               0);
+                               0,
+                               1);
       platform_assert_status_ok(rc);
 
       btree_pack_req req;
@@ -1333,7 +1334,8 @@ test_count_tuples_in_range(cache        *cc,
                                low_key,
                                TRUE,
                                FALSE,
-                               0);
+                               0,
+                               1);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -1432,7 +1434,8 @@ test_btree_print_all_keys(cache        *cc,
                                                low_key,
                                                TRUE,
                                                FALSE,
-                                               0);
+                                               0,
+                                               1);
       platform_assert_status_ok(rc);
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
@@ -1511,7 +1514,8 @@ test_btree_merge_basic(cache             *cc,
                                   lo,
                                   TRUE,
                                   FALSE,
-                                  0);
+                                  0,
+                                  1);
          platform_assert_status_ok(rc);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
@@ -1734,6 +1738,7 @@ test_btree_rough_iterator(cache             *cc,
                                NEGATIVE_INFINITY_KEY,
                                TRUE,
                                TRUE,
+                               1,
                                1);
       platform_assert_status_ok(rc);
       if (iterator_can_curr(&rough_btree_itor[tree_no].super)) {
@@ -1900,7 +1905,8 @@ test_btree_merge_perf(cache             *cc,
                                      min_key,
                                      TRUE,
                                      FALSE,
-                                     0);
+                                     0,
+                                     1);
             platform_assert_status_ok(rc);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }

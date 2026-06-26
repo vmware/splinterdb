@@ -72,6 +72,17 @@ typedef enum bundle_compaction_phase {
 
 typedef VECTOR(trunk_branch_info) trunk_branch_info_vector;
 
+typedef struct trunk_branch_merger {
+   platform_heap_id         hid;
+   const trunk_config      *cfg;
+   key                      min_key;
+   key                      max_key;
+   uint64                   height;
+   trunk_branch_info_vector branches;
+   merge_iterator          *merge_itor;
+   iterator_vector          itors;
+} trunk_branch_merger;
+
 typedef struct bundle_compaction {
    struct bundle_compaction *next;
    task                      tsk; // bundle_comaction_task
@@ -2308,67 +2319,42 @@ finish:
 static void
 trunk_branch_merger_init(trunk_branch_merger *merger,
                          platform_heap_id     hid,
-                         const data_config   *data_cfg,
-                         cache               *cc,
-                         uint64               prefetch_budget,
+                         const trunk_config  *cfg,
                          key                  min_key,
                          key                  max_key,
                          uint64               height)
 {
-   merger->hid             = hid;
-   merger->data_cfg        = data_cfg;
-   merger->cc              = cc;
-   merger->prefetch_budget = prefetch_budget;
-   merger->min_key         = min_key;
-   merger->max_key         = max_key;
-   merger->height          = height;
-   merger->merge_itor      = NULL;
+   platform_assert(cfg != NULL);
+   platform_assert(cfg->data_cfg != NULL);
+   platform_assert(cfg->btree_cfg != NULL);
+   platform_assert(cfg->btree_cfg->cache_cfg != NULL);
+
+   merger->hid        = hid;
+   merger->cfg        = cfg;
+   merger->min_key    = min_key;
+   merger->max_key    = max_key;
+   merger->height     = height;
+   merger->merge_itor = NULL;
+   vector_init(&merger->branches, hid);
    vector_init(&merger->itors, hid);
 }
 
 static platform_status
 trunk_branch_merger_add_branch(trunk_branch_merger *merger,
-                               cache               *cc,
-                               const btree_config  *btree_cfg,
                                uint64               addr,
                                page_type            type)
 {
-   btree_iterator *iter = TYPED_MALLOC(merger->hid, iter);
-   if (iter == NULL) {
-      platform_error_log(
-         "%s():%d: platform_malloc() failed", __func__, __LINE__);
-      return STATUS_NO_MEMORY;
-   }
-   platform_status rc = btree_iterator_init(cc,
-                                            btree_cfg,
-                                            iter,
-                                            addr,
-                                            type,
-                                            greater_than_or_equal,
-                                            merger->min_key,
-                                            less_than,
-                                            merger->max_key,
-                                            greater_than_or_equal,
-                                            merger->min_key,
-                                            TRUE,
-                                            FALSE,
-                                            merger->height);
-   if (!SUCCESS(rc)) {
-      platform_error_log("%s():%d: btree_iterator_init() failed: %s",
-                         __func__,
-                         __LINE__,
-                         platform_status_to_string(rc));
-      platform_free(merger->hid, iter);
-      return rc;
-   }
-   rc = vector_append(&merger->itors, (iterator *)iter);
+   platform_assert(merger != NULL);
+   platform_assert(addr != 0);
+   platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
+
+   trunk_branch_info branch = {addr, type};
+   platform_status   rc     = vector_append(&merger->branches, branch);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_append() failed: %s",
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
-      btree_iterator_deinit(iter);
-      platform_free(merger->hid, iter);
    }
    return rc;
 }
@@ -2376,13 +2362,14 @@ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
 
 static platform_status
 trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
-                                 cache                   *cc,
-                                 const btree_config      *btree_cfg,
                                  uint64                   num_branches,
                                  const trunk_branch_info *branches)
 {
+   platform_assert(merger != NULL);
+   platform_assert(branches != NULL || num_branches == 0);
+
    platform_status rc = vector_ensure_capacity(
-      &merger->itors, vector_length(&merger->itors) + num_branches);
+      &merger->branches, vector_length(&merger->branches) + num_branches);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
                          __func__,
@@ -2393,7 +2380,7 @@ trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
 
    for (uint64 i = 0; i < num_branches; i++) {
       rc = trunk_branch_merger_add_branch(
-         merger, cc, btree_cfg, branches[i].addr, branches[i].type);
+         merger, branches[i].addr, branches[i].type);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
                             __func__,
@@ -2407,13 +2394,14 @@ trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
 
 static platform_status
 trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
-                               cache               *cc,
-                               const btree_config  *btree_cfg,
                                const bundle        *routed)
 {
+   platform_assert(merger != NULL);
+   platform_assert(routed != NULL);
+
    platform_status rc = vector_ensure_capacity(
-      &merger->itors,
-      vector_length(&merger->itors) + bundle_num_branches(routed));
+      &merger->branches,
+      vector_length(&merger->branches) + bundle_num_branches(routed));
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
                          __func__,
@@ -2425,8 +2413,6 @@ trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
    for (uint64 i = 0; i < bundle_num_branches(routed); i++) {
       branch_ref bref = vector_get(&routed->branches, i);
       rc              = trunk_branch_merger_add_branch(merger,
-                                          cc,
-                                          btree_cfg,
                                           branch_ref_addr(bref),
                                           bundle_branch_type(routed));
       if (!SUCCESS(rc)) {
@@ -2442,24 +2428,79 @@ trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
 
 static platform_status
 trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
+                                     cache               *cc,
                                      merge_behavior       merge_mode)
 {
+   platform_assert(merger != NULL);
+   platform_assert(cc != NULL);
    platform_assert(merger->merge_itor == NULL);
 
    // A compaction/leaf-split merge reads each input branch end to end, so give
    // the branches a soft share of the read-ahead budget.
-   uint64 num_branches = vector_length(&merger->itors);
+   uint64 num_branches = vector_length(&merger->branches);
+   uint64 extent_size  = cache_config_extent_size(
+      merger->cfg->btree_cfg->cache_cfg);
    uint32 lookahead    = prefetch_budget_to_extent_lookahead(
-      merger->cc, merger->prefetch_budget, num_branches);
-   if (lookahead > 0) {
-      for (uint64 i = 0; i < num_branches; i++) {
-         btree_iterator *itor = (btree_iterator *)vector_get(&merger->itors, i);
-         btree_iterator_set_prefetch_lookahead(itor, lookahead);
+      extent_size, merger->cfg->prefetch_budget, num_branches);
+   if (lookahead == 0) {
+      lookahead = 1;
+   }
+
+   platform_status rc = vector_ensure_capacity(&merger->itors, num_branches);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s():%d: vector_ensure_capacity() failed: %s",
+                         __func__,
+                         __LINE__,
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   for (uint64 i = 0; i < num_branches; i++) {
+      trunk_branch_info branch = vector_get(&merger->branches, i);
+      btree_iterator   *itor   = TYPED_MALLOC(merger->hid, itor);
+      if (itor == NULL) {
+         platform_error_log(
+            "%s():%d: platform_malloc() failed", __func__, __LINE__);
+         return STATUS_NO_MEMORY;
+      }
+      rc = btree_iterator_init(cc,
+                               merger->cfg->btree_cfg,
+                               itor,
+                               branch.addr,
+                               branch.type,
+                               greater_than_or_equal,
+                               merger->min_key,
+                               less_than,
+                               merger->max_key,
+                               greater_than_or_equal,
+                               merger->min_key,
+                               TRUE,
+                               FALSE,
+                               merger->height,
+                               lookahead);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s():%d: btree_iterator_init() failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_to_string(rc));
+         platform_free(merger->hid, itor);
+         return rc;
+      }
+
+      rc = vector_append(&merger->itors, (iterator *)itor);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s():%d: vector_append() failed: %s",
+                            __func__,
+                            __LINE__,
+                            platform_status_to_string(rc));
+         btree_iterator_deinit(itor);
+         platform_free(merger->hid, itor);
+         return rc;
       }
    }
 
    return merge_iterator_create(merger->hid,
-                                merger->data_cfg,
+                                merger->cfg->data_cfg,
                                 num_branches,
                                 vector_data(&merger->itors),
                                 merge_mode,
@@ -2470,7 +2511,7 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
 static platform_status
 trunk_branch_merger_deinit(trunk_branch_merger *merger)
 {
-   platform_status rc;
+   platform_status rc = STATUS_OK;
    if (merger->merge_itor != NULL) {
       rc = merge_iterator_destroy(merger->hid, &merger->merge_itor);
    }
@@ -2481,6 +2522,7 @@ trunk_branch_merger_deinit(trunk_branch_merger *merger)
       platform_free(merger->hid, itor);
    }
    vector_deinit(&merger->itors);
+   vector_deinit(&merger->branches);
 
    return rc;
 }
@@ -3962,15 +4004,11 @@ bundle_compaction_task(task *arg)
    trunk_branch_merger merger;
    trunk_branch_merger_init(&merger,
                             PROCESS_PRIVATE_HEAP_ID,
-                            context->cfg->data_cfg,
-                            context->cc,
-                            context->cfg->prefetch_budget,
+                            context->cfg,
                             key_buffer_key(&state->key),
                             key_buffer_key(&state->ubkey),
                             0);
    rc = trunk_branch_merger_add_branches(&merger,
-                                         context->cc,
-                                         context->cfg->btree_cfg,
                                          vector_length(&bc->input.branches),
                                          vector_data(&bc->input.branches));
    if (!SUCCESS(rc)) {
@@ -3997,7 +4035,9 @@ bundle_compaction_task(task *arg)
       goto cleanup_branch_merger;
    }
 
-   rc = trunk_branch_merger_build_merge_itor(&merger, bc->input.merge_mode);
+   rc = trunk_branch_merger_build_merge_itor(&merger,
+                                             context->cc,
+                                             bc->input.merge_mode);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "branch_merger_build_merge_itor failed for state: %p bc: %p: %s\n",
@@ -4571,17 +4611,13 @@ leaf_split_select_pivots(trunk_context     *context,
    trunk_branch_merger merger;
    trunk_branch_merger_init(&merger,
                             PROCESS_PRIVATE_HEAP_ID,
-                            context->cfg->data_cfg,
-                            context->cc,
-                            context->cfg->prefetch_budget,
+                            context->cfg,
                             min_key,
                             max_key,
                             context->cfg->branch_rough_count_height);
 
-   rc = trunk_branch_merger_add_bundle(&merger,
-                                       context->cc,
-                                       context->cfg->btree_cfg,
-                                       vector_get_ptr(&leaf->pivot_bundles, 0));
+   rc = trunk_branch_merger_add_bundle(
+      &merger, vector_get_ptr(&leaf->pivot_bundles, 0));
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "branch_merger_add_bundle failed: %d\n",
@@ -4594,8 +4630,7 @@ leaf_split_select_pivots(trunk_context     *context,
         bundle_num++)
    {
       bundle *bndl = vector_get_ptr(&leaf->inflight_bundles, bundle_num);
-      rc           = trunk_branch_merger_add_bundle(
-         &merger, context->cc, context->cfg->btree_cfg, bndl);
+      rc           = trunk_branch_merger_add_bundle(&merger, bndl);
       if (!SUCCESS(rc)) {
          platform_error_log("leaf_split_select_pivots: "
                             "branch_merger_add_bundle failed: %d\n",
@@ -4604,7 +4639,7 @@ leaf_split_select_pivots(trunk_context     *context,
       }
    }
 
-   rc = trunk_branch_merger_build_merge_itor(&merger, MERGE_RAW);
+   rc = trunk_branch_merger_build_merge_itor(&merger, context->cc, MERGE_RAW);
    if (!SUCCESS(rc)) {
       platform_error_log("leaf_split_select_pivots: "
                          "branch_merger_build_merge_itor failed: %d\n",

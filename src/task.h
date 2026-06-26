@@ -58,8 +58,6 @@ typedef void (*task_tracker_callback)(task_tracker *tracker);
  * outstanding reference owned by the launcher.  Call task_tracker_add() before
  * publishing each new unit of work, including follow-up work published by a
  * tracked task.  Each unit must call task_tracker_done() exactly once.
- * Pass a non-NULL tracker to the task_tracker_* functions; callers that
- * support untracked work should check for NULL at the call site.
  *
  * The final caller of task_tracker_done() links the tracker onto the supplied
  * completion list.  Call task_tracker_notify_all() after dropping any locks

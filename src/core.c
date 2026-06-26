@@ -391,7 +391,8 @@ core_memtable_iterator_init(core_handle    *spl,
                               start_key,
                               FALSE,
                               FALSE,
-                              0);
+                              0,
+                              1);
 }
 
 static void
@@ -1200,7 +1201,9 @@ core_range_iterator_init(core_handle         *spl,
       }
    }
    uint32 deep_lookahead = prefetch_budget_to_extent_lookahead(
-      spl->cc, spl->cfg.prefetch_budget, n_prefetch_branches);
+      cache_extent_size(spl->cc),
+      spl->cfg.prefetch_budget,
+      n_prefetch_branches);
 
    uint64 started_inits = 0;
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
