@@ -881,8 +881,7 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
                                                  max_key_comparison,
                                                  max_key,
                                                  start_key_comparison,
-                                                 start_key,
-                                                 UINT64_MAX);
+                                                 start_key);
    if (!SUCCESS(rc)) {
       merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);

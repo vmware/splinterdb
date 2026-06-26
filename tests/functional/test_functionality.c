@@ -40,8 +40,7 @@ search_for_key_via_iterator(core_handle *spl, key target)
                             less_than,
                             POSITIVE_INFINITY_KEY,
                             greater_than_or_equal,
-                            NEGATIVE_INFINITY_KEY,
-                            UINT64_MAX);
+                            NEGATIVE_INFINITY_KEY);
    uint64 count = 0;
    while (iterator_can_curr((iterator *)&iter)) {
       key     curr_key;
@@ -248,8 +247,7 @@ verify_range_against_shadow(core_handle                *spl,
                                      less_than,
                                      end_key,
                                      greater_than_or_equal,
-                                     start_key,
-                                     end_index - start_index);
+                                     start_key);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
                          platform_status_to_string(status));

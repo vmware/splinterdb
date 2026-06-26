@@ -127,7 +127,6 @@ struct core_handle {
 typedef struct core_range_iterator {
    iterator          super;
    core_handle      *spl;
-   uint64            num_tuples;
    uint64            num_branches;
    uint64            num_memtable_branches;
    uint64            memtable_start_gen;
@@ -206,8 +205,7 @@ core_range_iterator_init(core_handle         *spl,
                          comparison           max_key_comparison,
                          key                  max_key,
                          comparison           start_key_comparison,
-                         key                  start_key,
-                         uint64               num_tuples);
+                         key                  start_key);
 void
 core_range_iterator_deinit(core_range_iterator *range_itor);
 

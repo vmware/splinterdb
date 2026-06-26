@@ -46,14 +46,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
                "CORE_NUM_MEMTABLES <= MAX_MEMTABLES");
 
-/*
- * For a "small" range query, you don't want to prefetch pages.
- * This is the minimal # of items requested before we turn ON prefetching.
- * (Empirically established through past experiments, for small key-value
- * pairs. So, _may_ be less efficient in general cases. Needs a revisit.)
- */
-#define CORE_PREFETCH_MIN (16384)
-
 /* Some randomly chosen Splinter super-block checksum seed. */
 #define CORE_SUPER_CSUM_SEED (42)
 
@@ -1005,8 +997,7 @@ core_range_iterator_init(core_handle         *spl,
                          comparison           max_key_comparison,
                          key                  max_key,
                          comparison           start_key_comparison,
-                         key                  start_key,
-                         uint64               num_tuples)
+                         key                  start_key)
 {
    platform_status rc;
 
@@ -1021,7 +1012,6 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->spl                = spl;
    range_itor->super.ops          = &core_range_iterator_ops;
    range_itor->num_branches       = 0;
-   range_itor->num_tuples         = num_tuples;
    range_itor->merge_itor         = NULL;
    range_itor->can_prev           = TRUE;
    range_itor->can_next           = TRUE;
@@ -1187,13 +1177,12 @@ core_range_iterator_init(core_handle         *spl,
       return STATUS_NO_MEMORY;
    }
 
-   // Deep extent-prefetch for the scan: count the branches eligible to prefetch
-   // (compacted, and only when the scan is large enough to be worth it), then
-   // give each a soft share of the prefetch budget.
+   // Deep extent-prefetch for the scan: count compacted branches and give each
+   // a soft share of the prefetch budget.
    uint64 n_prefetch_branches = 0;
    for (uint64 branch_no = 0; branch_no < range_itor->num_branches; branch_no++)
    {
-      if (range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN) {
+      if (range_itor->compacted[branch_no]) {
          n_prefetch_branches++;
       }
    }
@@ -1209,7 +1198,7 @@ core_range_iterator_init(core_handle         *spl,
       uint64          branch_addr        = range_itor->branch[branch_no].addr;
       page_type       page_type          = range_itor->branch[branch_no].type;
       uint32          prefetch_lookahead = 0;
-      if (range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN) {
+      if (range_itor->compacted[branch_no]) {
          prefetch_lookahead = deep_lookahead;
       }
       rc = core_start_btree_iterator_init_async(
@@ -1276,7 +1265,6 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer local_max_buffer;
          rc = key_buffer_init_from_key(
             &local_max_buffer, PROCESS_PRIVATE_HEAP_ID, local_max);
-         uint64 num_tuples = range_itor->num_tuples;
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1289,8 +1277,7 @@ core_range_iterator_init(core_handle         *spl,
                                        max_key_comparison,
                                        max_key,
                                        greater_than_or_equal,
-                                       local_max,
-                                       num_tuples);
+                                       local_max);
          key_buffer_deinit(&local_max_buffer);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1308,7 +1295,6 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer local_min_buffer;
          rc = key_buffer_init_from_key(
             &local_min_buffer, PROCESS_PRIVATE_HEAP_ID, local_min);
-         uint64 num_tuples = range_itor->num_tuples;
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1321,8 +1307,7 @@ core_range_iterator_init(core_handle         *spl,
                                        max_key_comparison,
                                        max_key,
                                        less_than,
-                                       local_min,
-                                       num_tuples);
+                                       local_min);
          key_buffer_deinit(&local_min_buffer);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1356,7 +1341,6 @@ core_range_iterator_next(iterator *itor)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   range_itor->num_tuples++;
    range_itor->can_prev = TRUE;
    range_itor->can_next = iterator_can_next(&range_itor->merge_itor->super);
    if (!range_itor->can_next) {
@@ -1385,7 +1369,6 @@ core_range_iterator_next(iterator *itor)
       // if there is more data to get, rebuild the iterator for next leaf
       if (core_range_iterator_has_next_leaf(range_itor)) {
          core_handle *spl                = range_itor->spl;
-         uint64       temp_tuples        = range_itor->num_tuples;
          comparison   min_key_comparison = range_itor->min_key_comparison;
          comparison   max_key_comparison = range_itor->max_key_comparison;
          core_range_iterator_deinit(range_itor);
@@ -1396,8 +1379,7 @@ core_range_iterator_next(iterator *itor)
                                        max_key_comparison,
                                        max_key,
                                        greater_than_or_equal,
-                                       local_max_key,
-                                       temp_tuples);
+                                       local_max_key);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1420,7 +1402,6 @@ core_range_iterator_prev(iterator *itor)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   range_itor->num_tuples++;
    range_itor->can_next = TRUE;
    range_itor->can_prev = iterator_can_prev(&range_itor->merge_itor->super);
    if (!range_itor->can_prev) {
@@ -1449,7 +1430,6 @@ core_range_iterator_prev(iterator *itor)
       // if there is more data to get, rebuild the iterator for prev leaf
       if (core_key_compare(range_itor->spl, local_min_key, min_key) > 0) {
          core_handle *spl                = range_itor->spl;
-         uint64       temp_tuples        = range_itor->num_tuples;
          comparison   min_key_comparison = range_itor->min_key_comparison;
          comparison   max_key_comparison = range_itor->max_key_comparison;
          core_range_iterator_deinit(range_itor);
@@ -1460,8 +1440,7 @@ core_range_iterator_prev(iterator *itor)
                                        max_key_comparison,
                                        max_key,
                                        less_than,
-                                       local_min_key,
-                                       temp_tuples);
+                                       local_min_key);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1766,8 +1745,7 @@ core_apply_to_range(core_handle   *spl,
                                                  less_than,
                                                  POSITIVE_INFINITY_KEY,
                                                  greater_than_or_equal,
-                                                 start_key,
-                                                 num_tuples);
+                                                 start_key);
    if (!SUCCESS(rc)) {
       platform_error_log("core_apply_to_range: range iterator init failed: "
                          "%s\n",
