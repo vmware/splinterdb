@@ -2948,12 +2948,7 @@ btree_prefetch_cursor_pump(btree_iterator *itor)
    if (status == MINI_META_CURSOR_WOULD_BLOCK) {
       return FALSE;
    }
-   if (status != MINI_META_CURSOR_ENTRY) {
-      // No extent list entry is available; use the header extent links.
-      mini_meta_cursor_deinit(&pf->meta_cursor);
-      pf->state = BTREE_PREFETCH_DISABLED;
-      return FALSE;
-   }
+   platform_assert(status == MINI_META_CURSOR_ENTRY);
 
    pf->state            = BTREE_PREFETCH_ACTIVE;
    pf->at_end           = FALSE;
