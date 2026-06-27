@@ -131,53 +131,48 @@ typedef struct mini_meta_cursor {
    page_type    meta_type;
    page_handle *meta_page;   // currently held meta page, or NULL
    uint64       meta_addr;   // addr of meta_page, or the next page to load
-   uint64       entry_idx;   // index of the next entry to read on meta_page
+   uint64       entry_idx;   // index of the current entry on meta_page
    uint64       num_entries; // number of entries on meta_page
 } mini_meta_cursor;
 
-// Result of a non-blocking cursor step.
+// Result of a non-blocking cursor operation.
 typedef enum mini_meta_cursor_status {
-   MINI_META_CURSOR_ENTRY,       // produced an entry
-   MINI_META_CURSOR_END,         // stream exhausted
-   MINI_META_CURSOR_WOULD_BLOCK, // next meta page not resident (prefetch
+   MINI_META_CURSOR_ENTRY,       // cursor is positioned on an entry
+   MINI_META_CURSOR_END,         // stream exhausted, or requested entry absent
+   MINI_META_CURSOR_WOULD_BLOCK, // needed meta page not resident (prefetch
                                  // issued)
 } mini_meta_cursor_status;
 
-void
+// Initialize cursor on target_extent_addr. Non-blocking: returns
+// MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if a needed meta
+// page is not yet resident. On MINI_META_CURSOR_ENTRY, curr is valid.
+mini_meta_cursor_status
 mini_meta_cursor_init(mini_meta_cursor *cursor,
                       cache            *cc,
                       page_type         meta_type,
-                      uint64            meta_addr);
+                      uint64            meta_addr,
+                      uint64            target_extent_addr);
 
 void
 mini_meta_cursor_deinit(mini_meta_cursor *cursor);
 
-// Emit the next extent entry (its extent address and originating batch) in
-// allocation order. Non-blocking: returns MINI_META_CURSOR_WOULD_BLOCK (and
-// issues a prefetch for it) if the next meta page is not yet resident.
-mini_meta_cursor_status
-mini_meta_cursor_next(mini_meta_cursor *cursor,
+// Get the current extent entry. Requires a successful init, next, or prev.
+void
+mini_meta_cursor_curr(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
                       uint64           *batch);
 
-// Advance the cursor until it emits the entry for target_extent_addr, leaving
-// the cursor positioned just after it. Returns MINI_META_CURSOR_ENTRY if found,
-// MINI_META_CURSOR_END if the stream ends first, or
-// MINI_META_CURSOR_WOULD_BLOCK if a needed meta page is not yet resident.
+// Move to the next extent entry in allocation order. Non-blocking: returns
+// MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if the next meta
+// page is not yet resident. END and WOULD_BLOCK leave curr unchanged.
 mini_meta_cursor_status
-mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
-                             uint64            target_extent_addr);
+mini_meta_cursor_next(mini_meta_cursor *cursor);
 
-// Emit the previous extent entry (reverse allocation order). The cursor must
-// have been positioned by mini_meta_cursor_seek_extent() or a prior call to
-// mini_meta_cursor_prev() — calling on a freshly-initialized cursor returns
-// END. Non-blocking: if the previous meta page isn't resident, issues a
-// single-page prefetch and returns MINI_META_CURSOR_WOULD_BLOCK; the current
-// page is kept alive so the retry can follow prev_meta_addr without re-reading.
+// Move to the previous extent entry in allocation order. Non-blocking: returns
+// MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if the previous
+// meta page is not yet resident. END and WOULD_BLOCK leave curr unchanged.
 mini_meta_cursor_status
-mini_meta_cursor_prev(mini_meta_cursor *cursor,
-                      uint64           *extent_addr,
-                      uint64           *batch);
+mini_meta_cursor_prev(mini_meta_cursor *cursor);
 
 /* Return total bytes allocated by the mini_allocator, including space used by
  * the mini_allocator itself.*/

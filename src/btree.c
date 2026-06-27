@@ -2876,10 +2876,13 @@ btree_prefetch_cursor_step(btree_prefetch_cursor *pf,
                            uint64                *extent_addr,
                            uint64                *batch)
 {
-   if (pf->going_forward) {
-      return mini_meta_cursor_next(&pf->meta_cursor, extent_addr, batch);
+   mini_meta_cursor_status status =
+      pf->going_forward ? mini_meta_cursor_next(&pf->meta_cursor)
+                        : mini_meta_cursor_prev(&pf->meta_cursor);
+   if (status == MINI_META_CURSOR_ENTRY) {
+      mini_meta_cursor_curr(&pf->meta_cursor, extent_addr, batch);
    }
-   return mini_meta_cursor_prev(&pf->meta_cursor, extent_addr, batch);
+   return status;
 }
 
 /*
@@ -2922,12 +2925,12 @@ btree_prefetch_cursor_fill(btree_iterator *itor)
 }
 
 /*
- * Try to position the (PRIMING) cursor at the iterator's current leaf extent.
+ * Try to position the (PRIMING) cursor on the iterator's current leaf extent.
  * Non-blocking: kicks off meta-page IO and leaves the cursor PRIMING when the
  * page is not resident yet. Reads the current leaf's meta_page_addr every call,
- * so it positions correctly even if the iterator advanced while priming. For
- * backward scans, consumes the current extent after seeking so fill starts with
- * the previous extent. Returns TRUE iff the cursor just became ACTIVE.
+ * so it positions correctly even if the iterator advanced while priming. Fill
+ * starts by moving in the scan direction, so the current extent is not
+ * prefetched. Returns TRUE iff the cursor just became ACTIVE.
  */
 static bool32
 btree_prefetch_cursor_pump(btree_iterator *itor)
@@ -2942,11 +2945,9 @@ btree_prefetch_cursor_pump(btree_iterator *itor)
    }
 
    mini_meta_cursor_deinit(&pf->meta_cursor);
-   mini_meta_cursor_init(
-      &pf->meta_cursor, itor->cc, itor->page_type, meta_page_addr);
    uint64 cur_extent = btree_extent_base_addr(itor->cc, itor->curr.addr);
-   mini_meta_cursor_status status =
-      mini_meta_cursor_seek_extent(&pf->meta_cursor, cur_extent);
+   mini_meta_cursor_status status = mini_meta_cursor_init(
+      &pf->meta_cursor, itor->cc, itor->page_type, meta_page_addr, cur_extent);
    if (status == MINI_META_CURSOR_WOULD_BLOCK) {
       return FALSE;
    }
@@ -2955,13 +2956,6 @@ btree_prefetch_cursor_pump(btree_iterator *itor)
       mini_meta_cursor_deinit(&pf->meta_cursor);
       pf->state = BTREE_PREFETCH_DISABLED;
       return FALSE;
-   }
-
-   if (!pf->going_forward) {
-      uint64 ignored_addr, ignored_batch;
-      status =
-         mini_meta_cursor_prev(&pf->meta_cursor, &ignored_addr, &ignored_batch);
-      platform_assert(status == MINI_META_CURSOR_ENTRY);
    }
 
    pf->state            = BTREE_PREFETCH_ACTIVE;

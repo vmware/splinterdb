@@ -922,16 +922,19 @@ mini_prefetch(cache *cc, page_type type, uint64 meta_head)
  * mini_meta_cursor -- cursor over a mini_allocator's extent entries.
  *-----------------------------------------------------------------------------
  */
-void
+mini_meta_cursor_status
 mini_meta_cursor_init(mini_meta_cursor *cursor,
                       cache            *cc,
                       page_type         meta_type,
-                      uint64            meta_addr)
+                      uint64            meta_addr,
+                      uint64            target_extent_addr)
 {
    platform_assert(cursor != NULL);
    platform_assert(cc != NULL);
    platform_assert(PAGE_TYPE_FIRST <= meta_type && meta_type < NUM_PAGE_TYPES);
    platform_assert(meta_addr != 0);
+   platform_assert(target_extent_addr != 0);
+   platform_assert(target_extent_addr % cache_extent_size(cc) == 0);
 
    cursor->cc          = cc;
    cursor->meta_type   = meta_type;
@@ -939,6 +942,36 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
    cursor->meta_addr   = meta_addr;
    cursor->entry_idx   = 0;
    cursor->num_entries = 0;
+
+   while (TRUE) {
+      if (cursor->meta_addr == 0) {
+         return MINI_META_CURSOR_END;
+      }
+
+      cursor->meta_page =
+         cache_get(cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
+      if (cursor->meta_page == NULL) {
+         cache_prefetch_page(cursor->cc, cursor->meta_addr, cursor->meta_type);
+         return MINI_META_CURSOR_WOULD_BLOCK;
+      }
+
+      cursor->num_entries = mini_num_entries(cursor->meta_page);
+      cursor->entry_idx   = 0;
+      while (cursor->entry_idx < cursor->num_entries) {
+         meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
+         if (meta_entry_extent_addr(cursor->cc, entry) == target_extent_addr) {
+            return MINI_META_CURSOR_ENTRY;
+         }
+         cursor->entry_idx++;
+      }
+
+      uint64 next_meta_addr = mini_get_next_meta_addr(cursor->meta_page);
+      cache_unget(cursor->cc, cursor->meta_page);
+      cursor->meta_page   = NULL;
+      cursor->meta_addr   = next_meta_addr;
+      cursor->entry_idx   = 0;
+      cursor->num_entries = 0;
+   }
 }
 
 void
@@ -950,10 +983,13 @@ mini_meta_cursor_deinit(mini_meta_cursor *cursor)
       cache_unget(cursor->cc, cursor->meta_page);
       cursor->meta_page = NULL;
    }
+   cursor->meta_addr   = 0;
+   cursor->entry_idx   = 0;
+   cursor->num_entries = 0;
 }
 
-mini_meta_cursor_status
-mini_meta_cursor_next(mini_meta_cursor *cursor,
+void
+mini_meta_cursor_curr(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
                       uint64           *batch)
 {
@@ -963,112 +999,85 @@ mini_meta_cursor_next(mini_meta_cursor *cursor,
    platform_assert(batch != NULL);
    platform_assert(PAGE_TYPE_FIRST <= cursor->meta_type
                    && cursor->meta_type < NUM_PAGE_TYPES);
+   platform_assert(cursor->meta_page != NULL);
+   platform_assert(cursor->entry_idx < cursor->num_entries);
 
-   while (TRUE) {
-      if (cursor->meta_page == NULL) {
-         if (cursor->meta_addr == 0) {
-            return MINI_META_CURSOR_END;
-         }
-         // Non-blocking: if the meta page isn't resident, kick off a
-         // single-page prefetch and let the caller retry later.
-         cursor->meta_page =
-            cache_get(cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
-         if (cursor->meta_page == NULL) {
-            cache_prefetch_page(
-               cursor->cc, cursor->meta_addr, cursor->meta_type);
-            return MINI_META_CURSOR_WOULD_BLOCK;
-         }
-         cursor->num_entries = mini_num_entries(cursor->meta_page);
-         cursor->entry_idx   = 0;
-      }
-
-      if (cursor->entry_idx < cursor->num_entries) {
-         meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
-         *extent_addr      = meta_entry_extent_addr(cursor->cc, entry);
-         *batch            = meta_entry_batch(entry);
-         cursor->entry_idx++;
-         return MINI_META_CURSOR_ENTRY;
-      }
-
-      // Exhausted this page; advance to the next one (if any).
-      uint64 next_meta_addr = mini_get_next_meta_addr(cursor->meta_page);
-      cache_unget(cursor->cc, cursor->meta_page);
-      cursor->meta_page = NULL;
-      cursor->meta_addr = next_meta_addr;
-   }
+   meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
+   *extent_addr      = meta_entry_extent_addr(cursor->cc, entry);
+   *batch            = meta_entry_batch(entry);
 }
 
 mini_meta_cursor_status
-mini_meta_cursor_seek_extent(mini_meta_cursor *cursor,
-                             uint64            target_extent_addr)
+mini_meta_cursor_next(mini_meta_cursor *cursor)
 {
    platform_assert(cursor != NULL);
    platform_assert(cursor->cc != NULL);
-   platform_assert(target_extent_addr != 0);
-   platform_assert(target_extent_addr % cache_extent_size(cursor->cc) == 0);
-
-   uint64 extent_addr;
-   uint64 batch;
-   while (TRUE) {
-      mini_meta_cursor_status status =
-         mini_meta_cursor_next(cursor, &extent_addr, &batch);
-      if (status != MINI_META_CURSOR_ENTRY) {
-         return status; // END or WOULD_BLOCK
-      }
-      if (extent_addr == target_extent_addr) {
-         return MINI_META_CURSOR_ENTRY;
-      }
-   }
-}
-
-mini_meta_cursor_status
-mini_meta_cursor_prev(mini_meta_cursor *cursor,
-                      uint64           *extent_addr,
-                      uint64           *batch)
-{
-   platform_assert(cursor != NULL);
-   platform_assert(cursor->cc != NULL);
-   platform_assert(extent_addr != NULL);
-   platform_assert(batch != NULL);
    platform_assert(PAGE_TYPE_FIRST <= cursor->meta_type
                    && cursor->meta_type < NUM_PAGE_TYPES);
+   platform_assert(cursor->meta_page != NULL);
+   platform_assert(cursor->entry_idx < cursor->num_entries);
 
-   while (TRUE) {
-      if (cursor->meta_page == NULL) {
-         return MINI_META_CURSOR_END;
-      }
-
-      if (cursor->entry_idx > 0) {
-         cursor->entry_idx--;
-         meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
-         *extent_addr      = meta_entry_extent_addr(cursor->cc, entry);
-         *batch            = meta_entry_batch(entry);
-         return MINI_META_CURSOR_ENTRY;
-      }
-
-      // entry_idx == 0: exhausted this page going backward.
-      mini_meta_hdr *hdr       = (mini_meta_hdr *)cursor->meta_page->data;
-      uint64         prev_addr = hdr->prev_meta_addr;
-      if (prev_addr == 0) {
-         return MINI_META_CURSOR_END;
-      }
-
-      // Non-blocking: keep the current page alive so prev_meta_addr remains
-      // accessible on a WOULD_BLOCK retry — do NOT release before the load.
-      page_handle *prev_page =
-         cache_get(cursor->cc, prev_addr, FALSE, cursor->meta_type);
-      if (prev_page == NULL) {
-         cache_prefetch_page(cursor->cc, prev_addr, cursor->meta_type);
-         return MINI_META_CURSOR_WOULD_BLOCK;
-      }
-
-      cache_unget(cursor->cc, cursor->meta_page);
-      cursor->meta_page   = prev_page;
-      cursor->meta_addr   = prev_addr;
-      cursor->num_entries = mini_num_entries(cursor->meta_page);
-      cursor->entry_idx   = cursor->num_entries;
-      // Loop: entry_idx == num_entries > 0, will decrement and read.
+   if (cursor->entry_idx + 1 < cursor->num_entries) {
+      cursor->entry_idx++;
+      return MINI_META_CURSOR_ENTRY;
    }
+
+   uint64 next_meta_addr = mini_get_next_meta_addr(cursor->meta_page);
+   if (next_meta_addr == 0) {
+      return MINI_META_CURSOR_END;
+   }
+
+   page_handle *next_page =
+      cache_get(cursor->cc, next_meta_addr, FALSE, cursor->meta_type);
+   if (next_page == NULL) {
+      cache_prefetch_page(cursor->cc, next_meta_addr, cursor->meta_type);
+      return MINI_META_CURSOR_WOULD_BLOCK;
+   }
+
+   cache_unget(cursor->cc, cursor->meta_page);
+   cursor->meta_page   = next_page;
+   cursor->meta_addr   = next_meta_addr;
+   cursor->num_entries = mini_num_entries(cursor->meta_page);
+   platform_assert(cursor->num_entries > 0);
+   cursor->entry_idx = 0;
+   return MINI_META_CURSOR_ENTRY;
+}
+
+mini_meta_cursor_status
+mini_meta_cursor_prev(mini_meta_cursor *cursor)
+{
+   platform_assert(cursor != NULL);
+   platform_assert(cursor->cc != NULL);
+   platform_assert(PAGE_TYPE_FIRST <= cursor->meta_type
+                   && cursor->meta_type < NUM_PAGE_TYPES);
+   platform_assert(cursor->meta_page != NULL);
+   platform_assert(cursor->entry_idx < cursor->num_entries);
+
+   if (cursor->entry_idx > 0) {
+      cursor->entry_idx--;
+      return MINI_META_CURSOR_ENTRY;
+   }
+
+   mini_meta_hdr *hdr       = (mini_meta_hdr *)cursor->meta_page->data;
+   uint64         prev_addr = hdr->prev_meta_addr;
+   if (prev_addr == 0) {
+      return MINI_META_CURSOR_END;
+   }
+
+   page_handle *prev_page =
+      cache_get(cursor->cc, prev_addr, FALSE, cursor->meta_type);
+   if (prev_page == NULL) {
+      cache_prefetch_page(cursor->cc, prev_addr, cursor->meta_type);
+      return MINI_META_CURSOR_WOULD_BLOCK;
+   }
+
+   cache_unget(cursor->cc, cursor->meta_page);
+   cursor->meta_page   = prev_page;
+   cursor->meta_addr   = prev_addr;
+   cursor->num_entries = mini_num_entries(cursor->meta_page);
+   platform_assert(cursor->num_entries > 0);
+   cursor->entry_idx = cursor->num_entries - 1;
+   return MINI_META_CURSOR_ENTRY;
 }
 
 static void
