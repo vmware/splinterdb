@@ -90,6 +90,7 @@ config_set_defaults(master_config *cfg)
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
       .queue_scale_percent      = TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT,
+      .prefetch_budget          = MiB_TO_B(1),
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
 
@@ -380,6 +381,9 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_gib("cache-capacity", cfg, cache_capacity) {}
          config_set_string("cache-debug-log", cfg, cache_logfile) {}
          config_set_uint64("queue-scale-percent", cfg, queue_scale_percent) {}
+         config_set_mib("prefetch-budget", cfg, prefetch_budget) {}
+         config_set_gib("prefetch-budget", cfg, prefetch_budget) {}
+         config_set_uint64("prefetch-budget-bytes", cfg, prefetch_budget) {}
          config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_gib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_uint64("rough-count-height", cfg, btree_rough_count_height)

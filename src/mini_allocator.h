@@ -45,6 +45,12 @@ typedef struct mini_allocator {
    volatile uint64 next_addr[MINI_MAX_BATCHES];
    uint64          saved_next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
+   // For each batch, the meta page that holds the entry for the extent the
+   // batch is currently allocating from. Lets a caller (e.g. the btree) record,
+   // in each page it allocates, where that page's extent is listed in the meta
+   // stream, so a prefetch cursor can start there without scanning from
+   // meta_head. See mini_current_extent_meta_page().
+   uint64 cur_extent_meta_page[MINI_MAX_BATCHES];
 } mini_allocator;
 
 uint64
@@ -107,6 +113,68 @@ mini_unblock_dec_ref(cache *cc, uint64 meta_head);
 void
 mini_prefetch(cache *cc, page_type type, uint64 meta_head);
 
+/*
+ * mini_meta_cursor: a non-blocking cursor over the extent entries of a
+ * finalized mini_allocator. Entries from all batches are interleaved in
+ * allocation order; the caller filters by batch as needed (each entry reports
+ * its batch). The btree iterator uses this to read extent addresses ahead of or
+ * behind itself for prefetching.
+ *
+ * The cursor holds a read reference on the meta page it is currently reading;
+ * call mini_meta_cursor_deinit() to release it. The cursor is non-blocking: it
+ * reads meta pages with a non-blocking cache_get() and, on a miss, issues a
+ * single-page prefetch and reports MINI_META_CURSOR_WOULD_BLOCK so the caller
+ * can do other work and retry later (the meta page lands shortly).
+ */
+typedef struct mini_meta_cursor {
+   cache       *cc;
+   page_type    meta_type;
+   page_handle *meta_page;   // currently held meta page, or NULL
+   uint64       meta_addr;   // addr of meta_page, or the next page to load
+   uint64       entry_idx;   // index of the current entry on meta_page
+   uint64       num_entries; // number of entries on meta_page
+} mini_meta_cursor;
+
+// Result of a non-blocking cursor operation.
+typedef enum mini_meta_cursor_status {
+   MINI_META_CURSOR_ENTRY,       // cursor is positioned on an entry
+   MINI_META_CURSOR_END,         // stream exhausted
+   MINI_META_CURSOR_WOULD_BLOCK, // needed meta page not resident (prefetch
+                                 // issued)
+} mini_meta_cursor_status;
+
+// Initialize cursor on target_extent_addr, which must be listed on meta_addr.
+// Non-blocking: returns MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for
+// it) if meta_addr is not yet resident. On MINI_META_CURSOR_ENTRY, curr is
+// valid. Asserts if target_extent_addr is not listed on meta_addr.
+mini_meta_cursor_status
+mini_meta_cursor_init(mini_meta_cursor *cursor,
+                      cache            *cc,
+                      page_type         meta_type,
+                      uint64            meta_addr,
+                      uint64            target_extent_addr);
+
+void
+mini_meta_cursor_deinit(mini_meta_cursor *cursor);
+
+// Get the current extent entry. Requires a successful init, next, or prev.
+void
+mini_meta_cursor_curr(mini_meta_cursor *cursor,
+                      uint64           *extent_addr,
+                      uint64           *batch);
+
+// Move to the next extent entry in allocation order. Non-blocking: returns
+// MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if the next meta
+// page is not yet resident. END and WOULD_BLOCK leave curr unchanged.
+mini_meta_cursor_status
+mini_meta_cursor_next(mini_meta_cursor *cursor);
+
+// Move to the previous extent entry in allocation order. Non-blocking: returns
+// MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if the previous
+// meta page is not yet resident. END and WOULD_BLOCK leave curr unchanged.
+mini_meta_cursor_status
+mini_meta_cursor_prev(mini_meta_cursor *cursor);
+
 /* Return total bytes allocated by the mini_allocator, including space used by
  * the mini_allocator itself.*/
 uint64
@@ -119,6 +187,21 @@ static inline uint64
 mini_meta_tail(mini_allocator *mini)
 {
    return mini->meta_tail;
+}
+
+/*
+ * Address of the meta page holding the extent entry for the extent that batch
+ * is currently allocating from. Valid immediately after an allocation from
+ * batch (e.g. mini_alloc_page), for the thread that performed it.
+ */
+static inline uint64
+mini_current_extent_meta_page(mini_allocator *mini, uint64 batch)
+{
+   platform_assert(mini != NULL);
+   platform_assert(batch < mini->num_batches);
+   platform_assert(mini->cur_extent_meta_page[batch] != 0);
+
+   return mini->cur_extent_meta_page[batch];
 }
 
 

@@ -131,13 +131,51 @@ typedef struct ONDISK btree_pivot_data {
 } btree_pivot_data;
 
 /*
+ * Drives extent prefetching for a btree_iterator in either direction. Reads
+ * extent addresses ahead of (or behind) the iterator from the branch's
+ * mini_allocator (via a mini_meta_cursor, exploiting that extents within a
+ * batch are in key order) and issues cache_prefetch for them, keeping up to
+ * ~depth leaf extents of IO in flight. Internal-node extents are skipped; blob
+ * extents are prefetched (for height-0 scans).
+ *
+ * Priming is non-blocking: the cursor's meta page is fetched lazily (PRIMING
+ * state) so the iterator's async init never waits on it and the first tuple is
+ * not delayed. The leaf header's extent links are used for prefetching until
+ * the cursor becomes ACTIVE.
+ *
+ * Depth ramps up (slow-start) from BTREE_PREFETCH_RAMP_MIN toward `lookahead`
+ * as the scan proves long, so short scans don't waste bandwidth reading far
+ * ahead. On a direction change the ramp resets so both forward and backward
+ * scans get the same slow-start treatment.
+ */
+typedef enum btree_prefetch_state {
+   BTREE_PREFETCH_DISABLED = 0, // deep prefetch inactive
+   BTREE_PREFETCH_PRIMING,      // meta-page IO kicked off; not yet positioned
+   BTREE_PREFETCH_ACTIVE,       // positioned; issuing deep prefetches
+} btree_prefetch_state;
+
+// Initial (and minimum) ramp-up depth; depth doubles toward `lookahead`.
+#define BTREE_PREFETCH_RAMP_MIN (1)
+
+typedef struct btree_prefetch_cursor {
+   btree_prefetch_state state;
+   bool32               at_end; // prefetched through the last in-range extent
+   bool32 going_forward;        // current scan direction; reset resets ramp
+   uint32 lookahead;            // K: max leaf extents in flight (the cap)
+   uint32 depth;                // current ramp-up depth (<= lookahead)
+   uint64 leaf_batch;           // mini batch of this iterator's level
+   bool32 prefetch_blobs;       // also prefetch blob extents (height 0)
+   uint64 prefetched_ahead;     // leaf extents prefetched, not yet consumed
+   mini_meta_cursor meta_cursor;
+} btree_prefetch_cursor;
+
+/*
  * A BTree iterator:
  */
 typedef struct btree_iterator {
    iterator            super;
    cache              *cc;
    const btree_config *cfg;
-   bool32              do_prefetch;
    uint32              height;
    page_type           page_type;
    // Active memtable iterators copy nodes here and release page locks.
@@ -155,6 +193,8 @@ typedef struct btree_iterator {
    uint64     end_addr;
    int64      end_idx;
    bool32     end_idx_valid;
+
+   btree_prefetch_cursor prefetch;
 } btree_iterator;
 
 typedef struct btree_pack_req {
@@ -171,6 +211,7 @@ typedef struct btree_pack_req {
    btree_node        edge[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    uint32            num_edges[BTREE_MAX_HEIGHT];
+   bool32            level_has_nodes[BTREE_MAX_HEIGHT];
    merge_accumulator blob_buffer;
 
    mini_allocator mini;
@@ -300,6 +341,11 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state);
 async_status
 btree_lookup_async(btree_lookup_async_state *state);
 
+/*
+ * prefetch_lookahead is measured in leaf extents. 0 disables prefetch, 1
+ * prefetches at most the next extent, and values >= 2 enable deep extent
+ * prefetch.
+ */
 platform_status
 btree_iterator_init(cache              *cc,
                     const btree_config *cfg,
@@ -312,9 +358,9 @@ btree_iterator_init(cache              *cc,
                     key                 max_key,
                     comparison          start_type,
                     key                 start_key,
-                    bool32              do_prefetch,
                     bool32              copy_nodes,
-                    uint32              height);
+                    uint32              height,
+                    uint32              prefetch_lookahead);
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
@@ -329,9 +375,9 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    param, key,                          max_key,
    param, comparison,                   start_type,
    param, key,                          start_key,
-   param, bool32,                       do_prefetch,
    param, bool32,                       copy_nodes,
    param, uint32,                       height,
+   param, uint32,                       prefetch_lookahead,
    param, async_callback_fn,            callback,
    param, void *,                       callback_arg,
    local, platform_status,              __async_result,
@@ -341,7 +387,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    local, key,                          target,
    local, comparison,                   position_rule,
    local, bool32,                       found,
-   local, bool32,                       forward,
    local, int64,                        tmp,
    local, uint64,                       curr_addr,
    local, uint64,                       last_addr,

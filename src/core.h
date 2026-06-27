@@ -28,12 +28,21 @@
  * Splinter Configuration structure
  *----------------------------------------------------------------------
  */
+// Default range-scan prefetch budget (total extent read-ahead kept in flight),
+// ~1 MiB == 8 extents at the default 128 KiB extent size.
+#define CORE_DEFAULT_PREFETCH_BUDGET (1024UL * 1024)
+
 typedef struct core_config {
    cache_config *cache_cfg;
 
    // parameters
    uint64 queue_scale_percent; // Governs when inserters perform bg tasks.  See
                                // task.h
+
+   // Soft byte budget for range-scan extent read-ahead, divided across the
+   // branches being merged. Roughly the storage's bandwidth-delay product;
+   // raise it for higher-latency devices.
+   uint64 prefetch_budget;
 
    bool32          use_stats; // stats
    memtable_config mt_cfg;
@@ -118,7 +127,6 @@ struct core_handle {
 typedef struct core_range_iterator {
    iterator          super;
    core_handle      *spl;
-   uint64            num_tuples;
    uint64            num_branches;
    uint64            num_memtable_branches;
    uint64            memtable_start_gen;
@@ -197,8 +205,7 @@ core_range_iterator_init(core_handle         *spl,
                          comparison           max_key_comparison,
                          key                  max_key,
                          comparison           start_key_comparison,
-                         key                  start_key,
-                         uint64               num_tuples);
+                         key                  start_key);
 void
 core_range_iterator_deinit(core_range_iterator *range_itor);
 
@@ -291,6 +298,7 @@ core_config_init(core_config         *trunk_cfg,
                  log_config          *log_cfg,
                  trunk_config        *trunk_node_cfg,
                  uint64               queue_scale_percent,
+                 uint64               prefetch_budget,
                  bool32               use_log,
                  bool32               use_stats,
                  bool32               verbose_logging,

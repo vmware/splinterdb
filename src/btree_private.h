@@ -32,15 +32,30 @@ typedef node_offset table_entry;
  * *************************************************************************
  */
 struct ONDISK btree_hdr {
-   uint64      prev_addr;
-   uint64      next_addr;
-   uint64      next_extent_addr;
-   uint64      generation;
+   /*
+    * Memtables store literal previous/next node addresses. Branches compute
+    * same-extent neighbors from the page address; every branch page in an
+    * extent stores the adjacent previous/next extent base addresses for its
+    * level. FIRST_IN_LEVEL and LAST_IN_LEVEL stop logical neighbor computation
+    * at level edges.
+    */
+   uint64 prev_addr;
+   uint64 next_addr;
+   union {
+      // Branch: mini_allocator meta page that lists this node's extent.
+      uint64 meta_page_addr;
+      // Memtable: generation used to detect stale copied nodes.
+      uint64 generation;
+   };
    uint8       height;
+   uint8       flags;
    node_offset next_entry;
    table_index num_entries;
    table_entry offsets[];
 };
+
+#define BTREE_HDR_FIRST_IN_LEVEL (1 << 0)
+#define BTREE_HDR_LAST_IN_LEVEL  (1 << 1)
 
 /*
  * *************************************************************************
@@ -165,6 +180,162 @@ static inline uint64
 btree_extent_size(const btree_config *cfg)
 {
    return cache_config_extent_size(cfg->cache_cfg);
+}
+
+static inline bool32
+btree_page_is_first_in_extent(const btree_config *cfg, uint64 addr)
+{
+   return addr % btree_extent_size(cfg) == 0;
+}
+
+static inline bool32
+btree_page_is_last_in_extent(const btree_config *cfg, uint64 addr)
+{
+   return (addr + btree_page_size(cfg)) % btree_extent_size(cfg) == 0;
+}
+
+static inline void
+btree_hdr_set_first_in_level(btree_hdr *hdr)
+{
+   hdr->flags |= BTREE_HDR_FIRST_IN_LEVEL;
+}
+
+static inline void
+btree_hdr_set_last_in_level(btree_hdr *hdr)
+{
+   hdr->flags |= BTREE_HDR_LAST_IN_LEVEL;
+}
+
+static inline bool32
+btree_hdr_is_first_in_level(const btree_hdr *hdr)
+{
+   return hdr->flags & BTREE_HDR_FIRST_IN_LEVEL;
+}
+
+static inline bool32
+btree_hdr_is_last_in_level(const btree_hdr *hdr)
+{
+   return hdr->flags & BTREE_HDR_LAST_IN_LEVEL;
+}
+
+static inline uint64
+btree_hdr_next_addr(const btree_config *cfg,
+                    const btree_hdr    *hdr,
+                    uint64              addr,
+                    page_type           type)
+{
+   if (type == PAGE_TYPE_MEMTABLE) {
+      return hdr->next_addr;
+   }
+   platform_assert(type == PAGE_TYPE_BRANCH);
+
+   if (btree_hdr_is_last_in_level(hdr)) {
+      return 0;
+   }
+   if (!btree_page_is_last_in_extent(cfg, addr)) {
+      return addr + btree_page_size(cfg);
+   }
+   debug_assert(hdr->next_addr != 0);
+   return hdr->next_addr;
+}
+
+static inline uint64
+btree_hdr_prev_addr(const btree_config *cfg,
+                    const btree_hdr    *hdr,
+                    uint64              addr,
+                    page_type           type)
+{
+   if (type == PAGE_TYPE_MEMTABLE) {
+      return hdr->prev_addr;
+   }
+   platform_assert(type == PAGE_TYPE_BRANCH);
+
+   if (btree_hdr_is_first_in_level(hdr)) {
+      return 0;
+   }
+   if (!btree_page_is_first_in_extent(cfg, addr)) {
+      return addr - btree_page_size(cfg);
+   }
+   debug_assert(hdr->prev_addr != 0);
+   return hdr->prev_addr + btree_extent_size(cfg) - btree_page_size(cfg);
+}
+
+static inline uint64
+btree_hdr_next_extent_addr(const btree_config *cfg,
+                           const btree_hdr    *hdr,
+                           uint64              addr,
+                           page_type           type)
+{
+   (void)cfg;
+   (void)addr;
+
+   if (type != PAGE_TYPE_BRANCH || btree_hdr_is_last_in_level(hdr)
+       || hdr->next_addr == 0)
+   {
+      return 0;
+   }
+   return hdr->next_addr;
+}
+
+static inline uint64
+btree_hdr_prev_extent_addr(const btree_config *cfg,
+                           const btree_hdr    *hdr,
+                           uint64              addr,
+                           page_type           type)
+{
+   (void)cfg;
+   (void)addr;
+
+   if (type != PAGE_TYPE_BRANCH || btree_hdr_is_first_in_level(hdr)
+       || hdr->prev_addr == 0)
+   {
+      return 0;
+   }
+   return hdr->prev_addr;
+}
+
+static inline uint64
+btree_node_next_addr(const btree_config *cfg,
+                     const btree_node   *node,
+                     page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_next_addr(cfg, node->hdr, node->addr, type);
+}
+
+static inline uint64
+btree_node_prev_addr(const btree_config *cfg,
+                     const btree_node   *node,
+                     page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_prev_addr(cfg, node->hdr, node->addr, type);
+}
+
+static inline uint64
+btree_node_next_extent_addr(const btree_config *cfg,
+                            const btree_node   *node,
+                            page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_next_extent_addr(cfg, node->hdr, node->addr, type);
+}
+
+static inline uint64
+btree_node_prev_extent_addr(const btree_config *cfg,
+                            const btree_node   *node,
+                            page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_prev_extent_addr(cfg, node->hdr, node->addr, type);
 }
 
 static inline void

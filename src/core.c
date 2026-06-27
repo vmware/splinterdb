@@ -13,6 +13,7 @@
 #include "platform_sleep.h"
 #include "platform_time.h"
 #include "platform_util.h"
+#include "prefetch.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
@@ -44,14 +45,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 #define CORE_NUM_MEMTABLES (4)
 _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
                "CORE_NUM_MEMTABLES <= MAX_MEMTABLES");
-
-/*
- * For a "small" range query, you don't want to prefetch pages.
- * This is the minimal # of items requested before we turn ON prefetching.
- * (Empirically established through past experiments, for small key-value
- * pairs. So, _may_ be less efficient in general cases. Needs a revisit.)
- */
-#define CORE_PREFETCH_MIN (16384)
 
 /* Some randomly chosen Splinter super-block checksum seed. */
 #define CORE_SUPER_CSUM_SEED (42)
@@ -389,7 +382,7 @@ core_memtable_iterator_init(core_handle    *spl,
                               start_key_comparison,
                               start_key,
                               FALSE,
-                              FALSE,
+                              0,
                               0);
 }
 
@@ -877,8 +870,8 @@ core_start_btree_iterator_init_async(
    key                                     max_key,
    comparison                              start_key_comparison,
    key                                     start_key,
-   bool32                                  do_prefetch,
-   bool32                                  copy_nodes)
+   bool32                                  copy_nodes,
+   uint32                                  prefetch_lookahead)
 {
    btree_iterator_async_state_init(&ctxt->state,
                                    spl->cc,
@@ -892,9 +885,9 @@ core_start_btree_iterator_init_async(
                                    max_key,
                                    start_key_comparison,
                                    start_key,
-                                   do_prefetch,
                                    copy_nodes,
                                    0,
+                                   prefetch_lookahead,
                                    core_btree_iterator_init_async_callback,
                                    ctxt);
    ctxt->ready = FALSE;
@@ -1004,8 +997,7 @@ core_range_iterator_init(core_handle         *spl,
                          comparison           max_key_comparison,
                          key                  max_key,
                          comparison           start_key_comparison,
-                         key                  start_key,
-                         uint64               num_tuples)
+                         key                  start_key)
 {
    platform_status rc;
 
@@ -1020,7 +1012,6 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->spl                = spl;
    range_itor->super.ops          = &core_range_iterator_ops;
    range_itor->num_branches       = 0;
-   range_itor->num_tuples         = num_tuples;
    range_itor->merge_itor         = NULL;
    range_itor->can_prev           = TRUE;
    range_itor->can_next           = TRUE;
@@ -1186,18 +1177,29 @@ core_range_iterator_init(core_handle         *spl,
       return STATUS_NO_MEMORY;
    }
 
+   // Deep extent-prefetch for the scan: count compacted branches and give each
+   // a soft share of the prefetch budget.
+   uint64 n_prefetch_branches = 0;
+   for (uint64 branch_no = 0; branch_no < range_itor->num_branches; branch_no++)
+   {
+      if (range_itor->compacted[branch_no]) {
+         n_prefetch_branches++;
+      }
+   }
+   uint32 deep_lookahead =
+      prefetch_budget_to_extent_lookahead(cache_extent_size(spl->cc),
+                                          spl->cfg.prefetch_budget,
+                                          n_prefetch_branches);
+
    uint64 started_inits = 0;
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
-      uint64          branch_no   = range_itor->num_branches - i - 1;
-      btree_iterator *btree_itor  = &range_itor->btree_itor[branch_no];
-      uint64          branch_addr = range_itor->branch[branch_no].addr;
-      page_type       page_type   = range_itor->branch[branch_no].type;
-      bool32          do_prefetch = FALSE;
+      uint64          branch_no          = range_itor->num_branches - i - 1;
+      btree_iterator *btree_itor         = &range_itor->btree_itor[branch_no];
+      uint64          branch_addr        = range_itor->branch[branch_no].addr;
+      page_type       page_type          = range_itor->branch[branch_no].type;
+      uint32          prefetch_lookahead = 0;
       if (range_itor->compacted[branch_no]) {
-         do_prefetch =
-            range_itor->compacted[branch_no] && num_tuples > CORE_PREFETCH_MIN
-               ? TRUE
-               : FALSE;
+         prefetch_lookahead = deep_lookahead;
       }
       rc = core_start_btree_iterator_init_async(
          spl,
@@ -1211,8 +1213,8 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer_key(&range_itor->local_max_key),
          start_key_comparison,
          start_key,
-         do_prefetch,
-         branch_no == 0 ? first_memtable_copy_nodes : FALSE);
+         branch_no == 0 ? first_memtable_copy_nodes : FALSE,
+         prefetch_lookahead);
       started_inits++;
       if (!SUCCESS(rc)) {
          break;
@@ -1263,7 +1265,6 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer local_max_buffer;
          rc = key_buffer_init_from_key(
             &local_max_buffer, PROCESS_PRIVATE_HEAP_ID, local_max);
-         uint64 num_tuples = range_itor->num_tuples;
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1276,8 +1277,7 @@ core_range_iterator_init(core_handle         *spl,
                                        max_key_comparison,
                                        max_key,
                                        greater_than_or_equal,
-                                       local_max,
-                                       num_tuples);
+                                       local_max);
          key_buffer_deinit(&local_max_buffer);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1295,7 +1295,6 @@ core_range_iterator_init(core_handle         *spl,
          key_buffer local_min_buffer;
          rc = key_buffer_init_from_key(
             &local_min_buffer, PROCESS_PRIVATE_HEAP_ID, local_min);
-         uint64 num_tuples = range_itor->num_tuples;
          core_range_iterator_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1308,8 +1307,7 @@ core_range_iterator_init(core_handle         *spl,
                                        max_key_comparison,
                                        max_key,
                                        less_than,
-                                       local_min,
-                                       num_tuples);
+                                       local_min);
          key_buffer_deinit(&local_min_buffer);
          if (!SUCCESS(rc)) {
             return rc;
@@ -1343,7 +1341,6 @@ core_range_iterator_next(iterator *itor)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   range_itor->num_tuples++;
    range_itor->can_prev = TRUE;
    range_itor->can_next = iterator_can_next(&range_itor->merge_itor->super);
    if (!range_itor->can_next) {
@@ -1372,7 +1369,6 @@ core_range_iterator_next(iterator *itor)
       // if there is more data to get, rebuild the iterator for next leaf
       if (core_range_iterator_has_next_leaf(range_itor)) {
          core_handle *spl                = range_itor->spl;
-         uint64       temp_tuples        = range_itor->num_tuples;
          comparison   min_key_comparison = range_itor->min_key_comparison;
          comparison   max_key_comparison = range_itor->max_key_comparison;
          core_range_iterator_deinit(range_itor);
@@ -1383,8 +1379,7 @@ core_range_iterator_next(iterator *itor)
                                        max_key_comparison,
                                        max_key,
                                        greater_than_or_equal,
-                                       local_max_key,
-                                       temp_tuples);
+                                       local_max_key);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1407,7 +1402,6 @@ core_range_iterator_prev(iterator *itor)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   range_itor->num_tuples++;
    range_itor->can_next = TRUE;
    range_itor->can_prev = iterator_can_prev(&range_itor->merge_itor->super);
    if (!range_itor->can_prev) {
@@ -1436,7 +1430,6 @@ core_range_iterator_prev(iterator *itor)
       // if there is more data to get, rebuild the iterator for prev leaf
       if (core_key_compare(range_itor->spl, local_min_key, min_key) > 0) {
          core_handle *spl                = range_itor->spl;
-         uint64       temp_tuples        = range_itor->num_tuples;
          comparison   min_key_comparison = range_itor->min_key_comparison;
          comparison   max_key_comparison = range_itor->max_key_comparison;
          core_range_iterator_deinit(range_itor);
@@ -1447,8 +1440,7 @@ core_range_iterator_prev(iterator *itor)
                                        max_key_comparison,
                                        max_key,
                                        less_than,
-                                       local_min_key,
-                                       temp_tuples);
+                                       local_min_key);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -1753,8 +1745,7 @@ core_apply_to_range(core_handle   *spl,
                                                  less_than,
                                                  POSITIVE_INFINITY_KEY,
                                                  greater_than_or_equal,
-                                                 start_key,
-                                                 num_tuples);
+                                                 start_key);
    if (!SUCCESS(rc)) {
       platform_error_log("core_apply_to_range: range iterator init failed: "
                          "%s\n",
@@ -2483,6 +2474,7 @@ core_config_init(core_config         *core_cfg,
                  log_config          *log_cfg,
                  trunk_config        *trunk_node_cfg,
                  uint64               queue_scale_percent,
+                 uint64               prefetch_budget,
                  bool32               use_log,
                  bool32               use_stats,
                  bool32               verbose_logging,
@@ -2499,6 +2491,7 @@ core_config_init(core_config         *core_cfg,
    core_cfg->log_cfg        = log_cfg;
 
    core_cfg->queue_scale_percent     = queue_scale_percent;
+   core_cfg->prefetch_budget         = prefetch_budget;
    core_cfg->use_log                 = use_log;
    core_cfg->use_stats               = use_stats;
    core_cfg->verbose_logging_enabled = verbose_logging;

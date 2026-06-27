@@ -96,6 +96,9 @@ typedef struct master_config {
 
    platform_log_handle *log_handle;
 
+   // prefetch
+   uint64 prefetch_budget;
+
    // data
    uint64 key_size;
    uint64 message_size;

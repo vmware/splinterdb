@@ -160,6 +160,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    if (!cfg->reclaim_threshold) {
       cfg->reclaim_threshold = UINT64_MAX;
    }
+   if (!cfg->prefetch_budget) {
+      cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
+   }
 }
 
 static platform_status
@@ -281,6 +284,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      cfg.memtable_capacity,
                      cfg.fanout,
                      cfg.btree_rough_count_height,
+                     cfg.prefetch_budget,
                      cfg.use_stats);
 
    rc = core_config_init(&kvs->trunk_cfg,
@@ -290,6 +294,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                          (log_config *)&kvs->log_cfg,
                          &kvs->trunk_node_cfg,
                          cfg.queue_scale_percent,
+                         cfg.prefetch_budget,
                          cfg.use_log,
                          cfg.use_stats,
                          FALSE,
@@ -876,8 +881,7 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
                                                  max_key_comparison,
                                                  max_key,
                                                  start_key_comparison,
-                                                 start_key,
-                                                 UINT64_MAX);
+                                                 start_key);
    if (!SUCCESS(rc)) {
       merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);

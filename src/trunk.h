@@ -26,6 +26,7 @@ typedef struct trunk_config {
    uint64                incorporation_size_kv_bytes;
    uint64                target_fanout;
    uint64                branch_rough_count_height;
+   uint64                prefetch_budget; // soft read-ahead bytes per merge
    bool32                use_stats;
 } trunk_config;
 
@@ -180,16 +181,6 @@ typedef struct trunk_ondisk_node_handle {
    page_handle *inflight_bundle_page;
 } trunk_ondisk_node_handle;
 
-typedef struct trunk_branch_merger {
-   platform_heap_id   hid;
-   const data_config *data_cfg;
-   key                min_key;
-   key                max_key;
-   uint64             height;
-   merge_iterator    *merge_itor;
-   iterator_vector    itors;
-} trunk_branch_merger;
-
 /********************************
  * Lifecycle
  ********************************/
@@ -202,6 +193,7 @@ trunk_config_init(trunk_config         *config,
                   uint64                incorporation_size_kv_bytes,
                   uint64                target_fanout,
                   uint64                branch_rough_count_height,
+                  uint64                prefetch_budget,
                   bool32                use_stats);
 
 platform_status

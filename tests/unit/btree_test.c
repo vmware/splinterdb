@@ -188,6 +188,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
     * about this number. If you change the size of a btree leaf header
     * or the size of a btree leafy entry, then this number will need
     * to be changed, and that's fine.
+    * (The header currently has room for 208 such entries.)
     */
    int nkvs = 208;
 

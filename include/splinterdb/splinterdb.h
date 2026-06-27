@@ -146,6 +146,13 @@ typedef struct splinterdb_config {
    // work to be performed on foreground threads, increasing tail
    // latencies.
    uint64 queue_scale_percent;
+
+   // Soft byte budget for extent read-ahead in range scans and compactions,
+   // divided across the branches being merged. Roughly the storage's
+   // bandwidth-delay product (bandwidth x latency); raise it for higher-latency
+   // devices such as networked/cloud volumes. Zero selects a default suited to
+   // local SSDs.
+   uint64 prefetch_budget;
 } splinterdb_config;
 
 ///////////////////////////////////////

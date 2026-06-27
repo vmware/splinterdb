@@ -35,6 +35,7 @@ typedef struct btree_scan_perf_options {
    bool32 random_bounds;
    bool32 memtable_no_copy_nodes;
    bool32 memtable_copy_nodes;
+   uint32 prefetch_lookahead; // 0=off, 1=next extent, >=2 deep
 } btree_scan_perf_options;
 
 static const char *
@@ -365,6 +366,7 @@ test_btree_scan_once(cache        *cc,
                      key           min_key,
                      key           max_key,
                      bool32        copy_nodes,
+                     uint32        prefetch_lookahead,
                      uint64        expected_tuples,
                      uint64       *init_elapsed_ns,
                      uint64       *scan_elapsed_ns,
@@ -384,9 +386,9 @@ test_btree_scan_once(cache        *cc,
                                             max_key,
                                             greater_than_or_equal,
                                             min_key,
-                                            FALSE,
                                             copy_nodes,
-                                            0);
+                                            0,
+                                            prefetch_lookahead);
    *init_elapsed_ns += platform_timestamp_elapsed(start_time);
    if (!SUCCESS(rc)) {
       return rc;
@@ -540,6 +542,7 @@ test_btree_scan_benchmark_tree(cache                         *cc,
                                                 min_key,
                                                 max_key,
                                                 copy_nodes,
+                                                options->prefetch_lookahead,
                                                 expected_tuples,
                                                 &init_elapsed_ns,
                                                 &scan_elapsed_ns,
@@ -683,7 +686,7 @@ test_btree_scan_perf(cache                         *cc,
                             greater_than_or_equal,
                             NEGATIVE_INFINITY_KEY,
                             FALSE,
-                            FALSE,
+                            0,
                             0);
    if (!SUCCESS(rc)) {
       goto out;
@@ -1080,7 +1083,7 @@ test_btree_basic(cache             *cc,
                             greater_than_or_equal,
                             NEGATIVE_INFINITY_KEY,
                             FALSE,
-                            FALSE,
+                            0,
                             0);
    platform_assert_status_ok(rc);
    platform_default_log("btree iterator init time %luns\n",
@@ -1265,7 +1268,7 @@ test_btree_create_packed_trees(cache             *cc,
                                greater_than_or_equal,
                                NEGATIVE_INFINITY_KEY,
                                FALSE,
-                               FALSE,
+                               0,
                                0);
       platform_assert_status_ok(rc);
 
@@ -1322,9 +1325,9 @@ test_count_tuples_in_range(cache        *cc,
                                high_key,
                                greater_than_or_equal,
                                low_key,
-                               TRUE,
                                FALSE,
-                               0);
+                               0,
+                               1);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -1421,9 +1424,9 @@ test_btree_print_all_keys(cache        *cc,
                                                high_key,
                                                greater_than_or_equal,
                                                low_key,
-                                               TRUE,
                                                FALSE,
-                                               0);
+                                               0,
+                                               1);
       platform_assert_status_ok(rc);
       while (iterator_can_curr(&itor.super)) {
          key     curr_key;
@@ -1500,9 +1503,9 @@ test_btree_merge_basic(cache             *cc,
                                   hi,
                                   greater_than_or_equal,
                                   lo,
-                                  TRUE,
                                   FALSE,
-                                  0);
+                                  0,
+                                  1);
          platform_assert_status_ok(rc);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
@@ -1724,7 +1727,7 @@ test_btree_rough_iterator(cache             *cc,
                                greater_than_or_equal,
                                NEGATIVE_INFINITY_KEY,
                                TRUE,
-                               TRUE,
+                               1,
                                1);
       platform_assert_status_ok(rc);
       if (iterator_can_curr(&rough_btree_itor[tree_no].super)) {
@@ -1889,9 +1892,9 @@ test_btree_merge_perf(cache             *cc,
                                      max_key,
                                      greater_than_or_equal,
                                      min_key,
-                                     TRUE,
                                      FALSE,
-                                     0);
+                                     0,
+                                     1);
             platform_assert_status_ok(rc);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
@@ -1961,6 +1964,7 @@ btree_scan_perf_options_default(btree_scan_perf_options *options)
       .random_bounds          = FALSE,
       .memtable_no_copy_nodes = TRUE,
       .memtable_copy_nodes    = TRUE,
+      .prefetch_lookahead     = 0,
    };
 }
 
@@ -2018,6 +2022,15 @@ btree_scan_perf_parse_args(int                      argc,
             platform_free(platform_get_heap_id(), filtered);
             return STATUS_BAD_PARAM;
          }
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--prefetch-lookahead")) {
+         uint64 lookahead;
+         if (i + 1 == argc || !try_string_to_uint64(argv[++i], &lookahead)) {
+            platform_error_log(
+               "btree_test: failed to parse --prefetch-lookahead\n");
+            platform_free(platform_get_heap_id(), filtered);
+            return STATUS_BAD_PARAM;
+         }
+         options->prefetch_lookahead = (uint32)lookahead;
       } else if (STRING_EQUALS_LITERAL(argv[i], "--random-scan-bounds")
                  || STRING_EQUALS_LITERAL(argv[i], "--random-scan-starts"))
       {
@@ -2087,6 +2100,8 @@ usage(const char *argv0)
                       "for each scan\n");
    platform_error_log("\t--memtable-scan-mode   choose which memtable "
                       "iterator mode(s) to benchmark (default both)\n");
+   platform_error_log("\t--prefetch-lookahead   extents to prefetch ahead "
+                      "(0=off, 1=next extent, >=2 deep; default 0)\n");
    config_usage();
 }
 

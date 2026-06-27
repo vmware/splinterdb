@@ -18,6 +18,7 @@ typedef enum scan_benchmark_mode {
    SCAN_BENCHMARK_LOAD_AND_SCAN,
    SCAN_BENCHMARK_INIT_ONLY,
    SCAN_BENCHMARK_SCAN_ONLY,
+   SCAN_BENCHMARK_OPTIMIZE_ONLY,
 } scan_benchmark_mode;
 
 typedef struct scan_benchmark_options {
@@ -117,6 +118,10 @@ scan_benchmark_parse_args(int                     argc,
             return STATUS_BAD_PARAM;
          }
          options->mode = SCAN_BENCHMARK_SCAN_ONLY;
+      } else if (STRING_EQUALS_LITERAL(argv[i], "--optimize-only")) {
+         // Open an existing DB (cold cache) and time a blocking full-leaf
+         // optimize -- a compaction-throughput benchmark.
+         options->mode = SCAN_BENCHMARK_OPTIMIZE_ONLY;
       } else if (STRING_EQUALS_LITERAL(argv[i], "--random-load-order")) {
          options->random_load_order = TRUE;
       } else if (STRING_EQUALS_LITERAL(argv[i], "--splinter-random-keys")) {
@@ -408,6 +413,7 @@ scan_benchmark_make_config(const master_config *master_cfg,
       .use_stats                = master_cfg->use_stats,
       .reclaim_threshold        = master_cfg->reclaim_threshold,
       .queue_scale_percent      = master_cfg->queue_scale_percent,
+      .prefetch_budget          = master_cfg->prefetch_budget,
    };
 
    if (open_existing) {
@@ -483,6 +489,43 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
    }
 
    platform_free(platform_get_heap_id(), value_buf);
+   splinterdb_close(&kvs);
+   return rc;
+}
+
+/*
+ * Compaction-throughput benchmark: open an existing DB (cold cache) and time a
+ * single blocking full-leaf optimize over the whole key range. With data >
+ * cache and O_DIRECT, the branch reads done by compaction's merge iterators are
+ * cold, so this exercises the btree-iterator prefetch path under compaction.
+ */
+static int
+scan_benchmark_run_optimize(const splinterdb_config *cfg)
+{
+   splinterdb *kvs = NULL;
+   int         rc  = splinterdb_open(cfg, &kvs);
+   if (rc != 0) {
+      return rc;
+   }
+
+   io_reset_stats((io_handle *)splinterdb_get_io_handle(kvs));
+
+   splinterdb_notification notification;
+   splinterdb_notification_init_blocking(&notification);
+
+   platform_default_log(
+      "scan_benchmark: running blocking full-leaf optimize\n");
+   timestamp start_time = platform_get_timestamp();
+   rc = splinterdb_optimize(kvs, NULL_SLICE, NULL_SLICE, TRUE, &notification);
+   uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   splinterdb_notification_deinit(&notification);
+
+   platform_default_log("optimize complete: rc=%d, %.3fs elapsed\n",
+                        rc,
+                        (double)elapsed_ns / BILLION);
+   io_print_stats((io_handle *)splinterdb_get_io_handle(kvs),
+                  Platform_default_log_handle);
+
    splinterdb_close(&kvs);
    return rc;
 }
@@ -782,7 +825,9 @@ scan_benchmark(int argc, char *argv[])
       goto out;
    }
 
-   if (options.mode != SCAN_BENCHMARK_SCAN_ONLY && master_cfg.num_inserts == 0)
+   if (options.mode != SCAN_BENCHMARK_SCAN_ONLY
+       && options.mode != SCAN_BENCHMARK_OPTIMIZE_ONLY
+       && master_cfg.num_inserts == 0)
    {
       platform_error_log(
          "scan_benchmark: --num-inserts must be set for load modes\n");
@@ -818,7 +863,9 @@ scan_benchmark(int argc, char *argv[])
       options.backwards_scan,
       master_cfg.seed);
 
-   if (options.mode != SCAN_BENCHMARK_SCAN_ONLY) {
+   if (options.mode == SCAN_BENCHMARK_LOAD_AND_SCAN
+       || options.mode == SCAN_BENCHMARK_INIT_ONLY)
+   {
       scan_benchmark_make_config(&master_cfg, &default_data_cfg, &cfg, FALSE);
       rc = scan_benchmark_load_database(&cfg,
                                         master_cfg.num_inserts,
@@ -832,8 +879,10 @@ scan_benchmark(int argc, char *argv[])
    }
 
    scan_benchmark_make_config(&master_cfg, &default_data_cfg, &cfg, TRUE);
-   if (options.scan_count == 1 && options.scan_length == 0
-       && !options.random_scan_starts)
+   if (options.mode == SCAN_BENCHMARK_OPTIMIZE_ONLY) {
+      rc = scan_benchmark_run_optimize(&cfg);
+   } else if (options.scan_count == 1 && options.scan_length == 0
+              && !options.random_scan_starts)
    {
       rc = scan_benchmark_run_scan(&cfg,
                                    master_cfg.use_stats,
