@@ -138,14 +138,15 @@ typedef struct mini_meta_cursor {
 // Result of a non-blocking cursor operation.
 typedef enum mini_meta_cursor_status {
    MINI_META_CURSOR_ENTRY,       // cursor is positioned on an entry
-   MINI_META_CURSOR_END,         // stream exhausted, or requested entry absent
+   MINI_META_CURSOR_END,         // stream exhausted
    MINI_META_CURSOR_WOULD_BLOCK, // needed meta page not resident (prefetch
                                  // issued)
 } mini_meta_cursor_status;
 
-// Initialize cursor on target_extent_addr. Non-blocking: returns
-// MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if a needed meta
-// page is not yet resident. On MINI_META_CURSOR_ENTRY, curr is valid.
+// Initialize cursor on target_extent_addr, which must be listed on meta_addr.
+// Non-blocking: returns MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for
+// it) if meta_addr is not yet resident. On MINI_META_CURSOR_ENTRY, curr is
+// valid. Asserts if target_extent_addr is not listed on meta_addr.
 mini_meta_cursor_status
 mini_meta_cursor_init(mini_meta_cursor *cursor,
                       cache            *cc,

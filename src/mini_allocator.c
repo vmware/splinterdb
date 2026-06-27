@@ -943,35 +943,28 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
    cursor->entry_idx   = 0;
    cursor->num_entries = 0;
 
-   while (TRUE) {
-      if (cursor->meta_addr == 0) {
-         return MINI_META_CURSOR_END;
-      }
-
-      cursor->meta_page =
-         cache_get(cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
-      if (cursor->meta_page == NULL) {
-         cache_prefetch_page(cursor->cc, cursor->meta_addr, cursor->meta_type);
-         return MINI_META_CURSOR_WOULD_BLOCK;
-      }
-
-      cursor->num_entries = mini_num_entries(cursor->meta_page);
-      cursor->entry_idx   = 0;
-      while (cursor->entry_idx < cursor->num_entries) {
-         meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
-         if (meta_entry_extent_addr(cursor->cc, entry) == target_extent_addr) {
-            return MINI_META_CURSOR_ENTRY;
-         }
-         cursor->entry_idx++;
-      }
-
-      uint64 next_meta_addr = mini_get_next_meta_addr(cursor->meta_page);
-      cache_unget(cursor->cc, cursor->meta_page);
-      cursor->meta_page   = NULL;
-      cursor->meta_addr   = next_meta_addr;
-      cursor->entry_idx   = 0;
-      cursor->num_entries = 0;
+   cursor->meta_page =
+      cache_get(cursor->cc, cursor->meta_addr, FALSE, cursor->meta_type);
+   if (cursor->meta_page == NULL) {
+      cache_prefetch_page(cursor->cc, cursor->meta_addr, cursor->meta_type);
+      return MINI_META_CURSOR_WOULD_BLOCK;
    }
+
+   cursor->num_entries = mini_num_entries(cursor->meta_page);
+   cursor->entry_idx   = 0;
+   while (cursor->entry_idx < cursor->num_entries) {
+      meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
+      if (meta_entry_extent_addr(cursor->cc, entry) == target_extent_addr) {
+         return MINI_META_CURSOR_ENTRY;
+      }
+      cursor->entry_idx++;
+   }
+
+   platform_assert(FALSE,
+                   "target extent %lu not found on meta page %lu",
+                   target_extent_addr,
+                   meta_addr);
+   return MINI_META_CURSOR_END;
 }
 
 void

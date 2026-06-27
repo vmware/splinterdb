@@ -4104,8 +4104,10 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    debug_assert(success);
    btree_node_lock(cc, cfg, &root);
    memmove(root.hdr, req->edge[req->height][0].hdr, btree_page_size(cfg));
-   root.hdr->prev_addr = 0;
-   root.hdr->next_addr = 0;
+   // The root is allocated outside the mini allocator's extent stream.
+   root.hdr->meta_page_addr = 0;
+   root.hdr->prev_addr      = 0;
+   root.hdr->next_addr      = 0;
    btree_hdr_set_first_in_level(root.hdr);
    btree_hdr_set_last_in_level(root.hdr);
    btree_node_full_unlock(cc, cfg, &root);
