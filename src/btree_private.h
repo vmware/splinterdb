@@ -294,6 +294,50 @@ btree_hdr_prev_extent_addr(const btree_config *cfg,
    return hdr->prev_addr;
 }
 
+static inline uint64
+btree_node_next_addr(const btree_config *cfg,
+                     const btree_node   *node,
+                     page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_next_addr(cfg, node->hdr, node->addr, type);
+}
+
+static inline uint64
+btree_node_prev_addr(const btree_config *cfg,
+                     const btree_node   *node,
+                     page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_prev_addr(cfg, node->hdr, node->addr, type);
+}
+
+static inline uint64
+btree_node_next_extent_addr(const btree_config *cfg,
+                            const btree_node   *node,
+                            page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_next_extent_addr(cfg, node->hdr, node->addr, type);
+}
+
+static inline uint64
+btree_node_prev_extent_addr(const btree_config *cfg,
+                            const btree_node   *node,
+                            page_type           type)
+{
+   platform_assert(node != NULL);
+   platform_assert(node->hdr != NULL);
+
+   return btree_hdr_prev_extent_addr(cfg, node->hdr, node->addr, type);
+}
+
 static inline void
 btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 {
