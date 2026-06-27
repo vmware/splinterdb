@@ -2687,21 +2687,18 @@ btree_iterator_end_key_beyond_curr(btree_iterator *itor)
    uint64 num_entries = btree_num_entries(itor->curr.hdr);
 
    if (key_is_positive_infinity(itor->max_key)) {
-      return btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type)
-             != 0;
+      return btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type) != 0;
    }
    if (num_entries == 0 || itor->height > btree_height(itor->curr.hdr)) {
       return num_entries == 0
-             && btree_node_next_addr(
-                   itor->cfg, &itor->curr, itor->page_type)
+             && btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type)
                    != 0;
    }
 
    key last_key =
       btree_iterator_get_node_key(itor, itor->curr.hdr, num_entries - 1);
    return btree_key_compare(itor->cfg, itor->max_key, last_key) > 0
-          && btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type)
-                != 0;
+          && btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type) != 0;
 }
 
 static void
@@ -3062,12 +3059,11 @@ btree_iterator_prefetch_on_advance(btree_iterator *itor,
    } else if (btree_iterator_prefetch_enabled(itor)
               && (crossed_extent || restarted))
    {
-      uint64 extent_addr =
-         going_forward
-            ? btree_node_next_extent_addr(
-                 itor->cfg, &itor->curr, itor->page_type)
-            : btree_node_prev_extent_addr(
-                 itor->cfg, &itor->curr, itor->page_type);
+      uint64 extent_addr = going_forward
+                              ? btree_node_next_extent_addr(
+                                   itor->cfg, &itor->curr, itor->page_type)
+                              : btree_node_prev_extent_addr(
+                                   itor->cfg, &itor->curr, itor->page_type);
 
       if (extent_addr != 0
           && (!going_forward
@@ -3105,9 +3101,8 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
    async_begin(state, depth);
 
    state->last_addr = state->itor->curr.addr;
-   state->next_addr = btree_node_next_addr(state->itor->cfg,
-                                           &state->itor->curr,
-                                           state->itor->page_type);
+   state->next_addr = btree_node_next_addr(
+      state->itor->cfg, &state->itor->curr, state->itor->page_type);
    btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->next_addr;
 
@@ -3204,14 +3199,12 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       state->live_curr.page =
          cache_get_async_state_result(&state->cache_get_state);
       state->live_curr.hdr = (btree_hdr *)state->live_curr.page->data;
-      state->prev_addr     = btree_node_prev_addr(state->itor->cfg,
-                                                  &state->live_curr,
-                                                  state->itor->page_type);
+      state->prev_addr     = btree_node_prev_addr(
+         state->itor->cfg, &state->live_curr, state->itor->page_type);
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
    } else {
-      state->prev_addr = btree_node_prev_addr(state->itor->cfg,
-                                              &state->itor->curr,
-                                              state->itor->page_type);
+      state->prev_addr = btree_node_prev_addr(
+         state->itor->cfg, &state->itor->curr, state->itor->page_type);
    }
    btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->prev_addr;
@@ -3234,14 +3227,12 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
     * old curr node and the new one.  In this case, we can just walk
     * forward until we find the leaf whose successor is our old leaf.
     */
-   while (btree_node_next_addr(state->itor->cfg,
-                               &state->itor->curr,
-                               state->itor->page_type)
+   while (btree_node_next_addr(
+             state->itor->cfg, &state->itor->curr, state->itor->page_type)
           != state->curr_addr)
    {
-      state->next_addr = btree_node_next_addr(state->itor->cfg,
-                                              &state->itor->curr,
-                                              state->itor->page_type);
+      state->next_addr = btree_node_next_addr(
+         state->itor->cfg, &state->itor->curr, state->itor->page_type);
       btree_iterator_release_curr(state->itor);
       state->itor->curr.addr = state->next_addr;
 
@@ -3279,9 +3270,8 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                           state->itor->min_key_comparison,
                           NULL);
    }
-   if (btree_node_prev_addr(state->itor->cfg,
-                            &state->itor->curr,
-                            state->itor->page_type)
+   if (btree_node_prev_addr(
+          state->itor->cfg, &state->itor->curr, state->itor->page_type)
           == 0
        && state->itor->curr_min_idx == -1)
    {
@@ -3449,8 +3439,7 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    // if min_key is not within the current node but there is no previous node
    // then set curr_min_idx to 0
    if (itor->curr_min_idx == -1
-       && btree_node_prev_addr(itor->cfg, &itor->curr, itor->page_type)
-             == 0)
+       && btree_node_prev_addr(itor->cfg, &itor->curr, itor->page_type) == 0)
    {
       itor->curr_min_idx = 0;
    }
@@ -3542,9 +3531,8 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
    // if min_key is not within the current node but there is no previous node
    // then set curr_min_idx to 0
    if (state->itor->curr_min_idx == -1
-       && btree_node_prev_addr(state->itor->cfg,
-                               &state->itor->curr,
-                               state->itor->page_type)
+       && btree_node_prev_addr(
+             state->itor->cfg, &state->itor->curr, state->itor->page_type)
              == 0)
    {
       state->itor->curr_min_idx = 0;
@@ -3801,10 +3789,8 @@ btree_iterator_init_async(btree_iterator_async_state *state)
    btree_prefetch_cursor_start(state->itor, TRUE);
    // While the deep cursor is priming or disabled, keep the next forward extent
    // warm when the leaf header names one.
-   uint64 next_extent_addr =
-      btree_node_next_extent_addr(state->itor->cfg,
-                                  &state->itor->curr,
-                                  state->itor->page_type);
+   uint64 next_extent_addr = btree_node_next_extent_addr(
+      state->itor->cfg, &state->itor->curr, state->itor->page_type);
    if (state->itor->prefetch.state != BTREE_PREFETCH_ACTIVE
        && btree_iterator_prefetch_enabled(state->itor) && next_extent_addr != 0
        && !btree_addrs_share_extent(
