@@ -432,7 +432,7 @@ async_wait_queue_release_all(async_wait_queue *q)
 
    while (waiter != NULL) {
       async_waiter_assert_queued(q, (async_waiter *)waiter);
-      async_waiter *next = waiter->next;
+      async_waiter     *next         = waiter->next;
       async_callback_fn callback     = waiter->callback;
       void             *callback_arg = waiter->callback_arg;
       async_waiter_mark_idle((async_waiter *)waiter);

@@ -923,8 +923,7 @@ core_drain_btree_iterator_init_async(
       bool32 made_progress = FALSE;
       for (uint64 i = 0; i < num_inits; i++) {
          if (ctxt[i].done
-             || !__atomic_exchange_n(
-                &ctxt[i].ready, FALSE, __ATOMIC_ACQUIRE))
+             || !__atomic_exchange_n(&ctxt[i].ready, FALSE, __ATOMIC_ACQUIRE))
          {
             continue;
          }
@@ -1174,8 +1173,8 @@ core_range_iterator_init(core_handle         *spl,
       /*
        * Async cache-load waiters embedded in these contexts can be released by
        * another process when the clockcache is shared.  The callback only marks
-       * ctxt->ready, so keep the context itself in the Splinter heap; the owning
-       * process remains responsible for resuming the iterator state.
+       * ctxt->ready, so keep the context itself in the Splinter heap; the
+       * owning process remains responsible for resuming the iterator state.
        */
       init_ctxt =
          TYPED_ARRAY_ZALLOC(spl->heap_id, init_ctxt, range_itor->num_branches);
