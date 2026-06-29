@@ -854,7 +854,7 @@ static void
 core_btree_iterator_init_async_callback(void *arg)
 {
    core_btree_iterator_init_async_context *ctxt = arg;
-   ctxt->ready                                  = TRUE;
+   __atomic_store_n(&ctxt->ready, TRUE, __ATOMIC_RELEASE);
 }
 
 static platform_status
@@ -890,8 +890,8 @@ core_start_btree_iterator_init_async(
                                    prefetch_lookahead,
                                    core_btree_iterator_init_async_callback,
                                    ctxt);
-   ctxt->ready = FALSE;
-   ctxt->done  = FALSE;
+   __atomic_store_n(&ctxt->ready, FALSE, __ATOMIC_RELAXED);
+   ctxt->done = FALSE;
 
    if (btree_iterator_init_async(&ctxt->state) == ASYNC_STATUS_DONE) {
       ctxt->done = TRUE;
@@ -922,11 +922,12 @@ core_drain_btree_iterator_init_async(
    while (done_count < num_inits) {
       bool32 made_progress = FALSE;
       for (uint64 i = 0; i < num_inits; i++) {
-         if (ctxt[i].done || !ctxt[i].ready) {
+         if (ctxt[i].done
+             || !__atomic_exchange_n(&ctxt[i].ready, FALSE, __ATOMIC_ACQUIRE))
+         {
             continue;
          }
 
-         ctxt[i].ready = FALSE;
          made_progress = TRUE;
          if (btree_iterator_init_async(&ctxt[i].state) == ASYNC_STATUS_DONE) {
             ctxt[i].done = TRUE;
@@ -1169,8 +1170,14 @@ core_range_iterator_init(core_handle         *spl,
 
    core_btree_iterator_init_async_context *init_ctxt = NULL;
    if (range_itor->num_branches != 0) {
-      init_ctxt = TYPED_ARRAY_ZALLOC(
-         PROCESS_PRIVATE_HEAP_ID, init_ctxt, range_itor->num_branches);
+      /*
+       * Async cache-load waiters embedded in these contexts can be released by
+       * another process when the clockcache is shared.  The callback only marks
+       * ctxt->ready, so keep the context itself in the Splinter heap; the
+       * owning process remains responsible for resuming the iterator state.
+       */
+      init_ctxt =
+         TYPED_ARRAY_ZALLOC(spl->heap_id, init_ctxt, range_itor->num_branches);
    }
    if (range_itor->num_branches != 0 && init_ctxt == NULL) {
       core_range_iterator_deinit(range_itor);
@@ -1234,7 +1241,7 @@ core_range_iterator_init(core_handle         *spl,
       }
    }
    if (init_ctxt != NULL) {
-      platform_free(PROCESS_PRIVATE_HEAP_ID, init_ctxt);
+      platform_free(spl->heap_id, init_ctxt);
    }
    if (!SUCCESS(rc)) {
       core_range_iterator_deinit(range_itor);

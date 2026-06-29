@@ -1986,9 +1986,7 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
       state->io_start_time = platform_get_timestamp();
    }
 
-   while (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
-      async_yield(state);
-   }
+   async_await(state, io_async_run(state->iostate) == ASYNC_STATUS_DONE);
    state->rc = io_async_state_get_result(state->iostate);
    if (!SUCCESS(state->rc)) {
       platform_error_log("clockcache_get_from_disk_async: async read failed "
@@ -3126,12 +3124,14 @@ clockcache_get_async_state_init_virtual(void             *payload,
                                         async_callback_fn callback,
                                         void             *callback_arg)
 {
-   clockcache_get_async_state_init((clockcache_get_async_state *)payload,
-                                   (clockcache *)cc,
-                                   addr,
-                                   type,
-                                   callback,
-                                   callback_arg);
+   clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
+   clockcache_get_async_state_init(
+      state, (clockcache *)cc, addr, type, callback, callback_arg);
+   // We initialize wait_node here, rather than right before the call to enqueue
+   // the waiter on the wait queue, because the async wait system has internal
+   // instrumentation that can catch double enqueues, which could break if we
+   // re-init before submission.
+   async_waiter_init(&state->wait_node);
 }
 
 static async_status

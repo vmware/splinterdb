@@ -239,17 +239,34 @@ typedef void (*async_callback_fn)(void *);
 /*
  * Wait queues for exections awaiting some condition.
  */
+typedef struct async_wait_queue async_wait_queue;
+
+#define ASYNC_WAITER_MAGIC_QUEUED 0x4153594e43575144ULL
+#define ASYNC_WAITER_MAGIC_IDLE   0x4153594e43574944ULL
+
 typedef struct async_waiter {
    struct async_waiter *next;
    async_callback_fn    callback;
    void                *callback_arg;
+   async_wait_queue    *queue;
+   uint64               magic;
 } async_waiter;
 
-typedef struct async_wait_queue {
+struct async_wait_queue {
    volatile uint64        lock;
    volatile async_waiter *head;
    async_waiter          *tail;
-} async_wait_queue;
+};
+
+static inline void
+async_waiter_init(async_waiter *waiter)
+{
+   waiter->next         = NULL;
+   waiter->callback     = NULL;
+   waiter->callback_arg = NULL;
+   waiter->queue        = NULL;
+   waiter->magic        = ASYNC_WAITER_MAGIC_IDLE;
+}
 
 static inline void
 async_wait_queue_init(async_wait_queue *queue)
@@ -293,9 +310,21 @@ async_wait_queue_append(async_wait_queue *q,
                         async_callback_fn callback,
                         void             *callback_arg)
 {
+   platform_assert(q != NULL);
+   platform_assert(waiter != NULL);
+   platform_assert(callback != NULL);
+   platform_assert(callback_arg != NULL);
+   platform_assert(waiter->magic != ASYNC_WAITER_MAGIC_QUEUED,
+                   "waiter %p is already queued on %p; appending to %p\n",
+                   waiter,
+                   waiter->queue,
+                   q);
+
    waiter->callback     = callback;
    waiter->callback_arg = callback_arg;
    waiter->next         = NULL;
+   waiter->queue        = q;
+   waiter->magic        = ASYNC_WAITER_MAGIC_QUEUED;
 
    async_waiter *result;
    if (q->head == NULL) {
@@ -310,11 +339,42 @@ async_wait_queue_append(async_wait_queue *q,
 }
 
 static inline void
+async_waiter_assert_queued(async_wait_queue *queue, async_waiter *waiter)
+{
+   platform_assert(waiter != NULL);
+   platform_assert(waiter->magic == ASYNC_WAITER_MAGIC_QUEUED,
+                   "waiter %p has bad magic 0x%lx, queue %p, expected queue "
+                   "%p, next %p, callback %p, callback_arg %p\n",
+                   waiter,
+                   waiter->magic,
+                   waiter->queue,
+                   queue,
+                   waiter->next,
+                   waiter->callback,
+                   waiter->callback_arg);
+   platform_assert(waiter->queue == queue,
+                   "waiter %p belongs to queue %p, expected queue %p\n",
+                   waiter,
+                   waiter->queue,
+                   queue);
+   platform_assert(waiter->callback != NULL);
+   platform_assert(waiter->callback_arg != NULL);
+}
+
+static inline void
+async_waiter_mark_idle(async_waiter *waiter)
+{
+   async_waiter_init(waiter);
+}
+
+static inline void
 async_wait_queue_remove(async_wait_queue *queue,
                         async_waiter     *pred,
                         async_waiter     *waiter)
 {
+   async_waiter_assert_queued(queue, waiter);
    if (pred != NULL) {
+      async_waiter_assert_queued(queue, pred);
       platform_assert(pred->next == waiter);
       pred->next = waiter->next;
       if (queue->tail == waiter) {
@@ -327,6 +387,7 @@ async_wait_queue_remove(async_wait_queue *queue,
          queue->tail = NULL;
       }
    }
+   async_waiter_mark_idle(waiter);
 }
 
 /* Public: notify one waiter that the condition has become true. */
@@ -343,6 +404,7 @@ async_wait_queue_release_one(async_wait_queue *q)
 
    waiter = q->head;
    if (waiter) {
+      async_waiter_assert_queued(q, (async_waiter *)waiter);
       q->head = waiter->next;
       if (q->head == NULL) {
          q->tail = NULL;
@@ -351,7 +413,10 @@ async_wait_queue_release_one(async_wait_queue *q)
    async_wait_queue_unlock(q);
 
    if (waiter) {
-      waiter->callback(waiter->callback_arg);
+      async_callback_fn callback     = waiter->callback;
+      void             *callback_arg = waiter->callback_arg;
+      async_waiter_mark_idle((async_waiter *)waiter);
+      callback(callback_arg);
    }
 }
 
@@ -372,8 +437,12 @@ async_wait_queue_release_all(async_wait_queue *q)
    async_wait_queue_unlock(q);
 
    while (waiter != NULL) {
-      async_waiter *next = waiter->next;
-      waiter->callback(waiter->callback_arg);
+      async_waiter_assert_queued(q, (async_waiter *)waiter);
+      async_waiter     *next         = waiter->next;
+      async_callback_fn callback     = waiter->callback;
+      void             *callback_arg = waiter->callback_arg;
+      async_waiter_mark_idle((async_waiter *)waiter);
+      callback(callback_arg);
       waiter = next;
    }
 }

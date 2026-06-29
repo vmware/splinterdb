@@ -542,9 +542,10 @@ laio_async_state_init(io_async_state   *state,
    ios->addr                   = addr;
    ios->callback               = callback;
    ios->callback_arg           = callback_arg;
-   ios->reqs[0]                = &ios->req;
-   ios->iovlen                 = 0;
-   ios->status                 = 0;
+   async_waiter_init(&ios->waiter_node);
+   ios->reqs[0] = &ios->req;
+   ios->iovlen  = 0;
+   ios->status  = 0;
    return STATUS_OK;
 }
 
