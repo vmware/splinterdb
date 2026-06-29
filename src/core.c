@@ -1171,8 +1171,14 @@ core_range_iterator_init(core_handle         *spl,
 
    core_btree_iterator_init_async_context *init_ctxt = NULL;
    if (range_itor->num_branches != 0) {
-      init_ctxt = TYPED_ARRAY_ZALLOC(
-         PROCESS_PRIVATE_HEAP_ID, init_ctxt, range_itor->num_branches);
+      /*
+       * Async cache-load waiters embedded in these contexts can be released by
+       * another process when the clockcache is shared.  The callback only marks
+       * ctxt->ready, so keep the context itself in the Splinter heap; the owning
+       * process remains responsible for resuming the iterator state.
+       */
+      init_ctxt =
+         TYPED_ARRAY_ZALLOC(spl->heap_id, init_ctxt, range_itor->num_branches);
    }
    if (range_itor->num_branches != 0 && init_ctxt == NULL) {
       core_range_iterator_deinit(range_itor);
@@ -1236,7 +1242,7 @@ core_range_iterator_init(core_handle         *spl,
       }
    }
    if (init_ctxt != NULL) {
-      platform_free(PROCESS_PRIVATE_HEAP_ID, init_ctxt);
+      platform_free(spl->heap_id, init_ctxt);
    }
    if (!SUCCESS(rc)) {
       core_range_iterator_deinit(range_itor);

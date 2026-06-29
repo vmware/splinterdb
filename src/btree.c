@@ -3489,24 +3489,16 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
       {
          btree_node_unget(
             state->itor->cc, state->itor->cfg, &state->itor->curr);
-         debug_assert(state->callback != NULL);
-         async_yield_after(state, state->callback(state->callback_arg));
-         btree_lookup_async_state_init(&state->lookup_state,
-                                       state->itor->cc,
-                                       state->itor->cfg,
-                                       state->itor->root_addr,
-                                       state->itor->page_type,
-                                       state->target,
-                                       NULL,
-                                       state->callback,
-                                       state->callback_arg);
-         state->lookup_state.stop_at_height = state->itor->height;
-         state->lookup_state.stats          = NULL;
-         state->lookup_state.get_node       = TRUE;
-         async_await(state,
-                     btree_lookup_node_async(&state->lookup_state, 0)
-                        == ASYNC_STATUS_DONE);
-         state->itor->curr = state->lookup_state.node;
+         platform_status rc = btree_lookup_node(state->itor->cc,
+                                                state->itor->cfg,
+                                                state->itor->root_addr,
+                                                state->target,
+                                                state->itor->height,
+                                                state->itor->page_type,
+                                                TRUE,
+                                                &state->itor->curr,
+                                                NULL);
+         platform_assert_status_ok(rc);
       }
    }
 

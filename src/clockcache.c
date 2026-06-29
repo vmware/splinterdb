@@ -1986,9 +1986,7 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
       state->io_start_time = platform_get_timestamp();
    }
 
-   while (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
-      async_yield(state);
-   }
+   async_await(state, io_async_run(state->iostate) == ASYNC_STATUS_DONE);
    state->rc = io_async_state_get_result(state->iostate);
    if (!SUCCESS(state->rc)) {
       platform_error_log("clockcache_get_from_disk_async: async read failed "
