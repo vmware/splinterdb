@@ -259,6 +259,16 @@ struct async_wait_queue {
 };
 
 static inline void
+async_waiter_init(async_waiter *waiter)
+{
+   waiter->next         = NULL;
+   waiter->callback     = NULL;
+   waiter->callback_arg = NULL;
+   waiter->queue        = NULL;
+   waiter->magic        = ASYNC_WAITER_MAGIC_IDLE;
+}
+
+static inline void
 async_wait_queue_init(async_wait_queue *queue)
 {
    // memset(queue, 0, sizeof(*queue));
@@ -354,11 +364,7 @@ async_waiter_assert_queued(async_wait_queue *queue, async_waiter *waiter)
 static inline void
 async_waiter_mark_idle(async_waiter *waiter)
 {
-   waiter->next         = NULL;
-   waiter->callback     = NULL;
-   waiter->callback_arg = NULL;
-   waiter->queue        = NULL;
-   waiter->magic        = ASYNC_WAITER_MAGIC_IDLE;
+   async_waiter_init(waiter);
 }
 
 static inline void

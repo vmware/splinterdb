@@ -3124,12 +3124,14 @@ clockcache_get_async_state_init_virtual(void             *payload,
                                         async_callback_fn callback,
                                         void             *callback_arg)
 {
-   clockcache_get_async_state_init((clockcache_get_async_state *)payload,
-                                   (clockcache *)cc,
-                                   addr,
-                                   type,
-                                   callback,
-                                   callback_arg);
+   clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
+   clockcache_get_async_state_init(
+      state, (clockcache *)cc, addr, type, callback, callback_arg);
+   // We initialize wait_node here, rather than right before the call to enqueue
+   // the waiter on the wait queue, because the async wait system has internal
+   // instrumentation that can catch double enqueues, which could break if we
+   // re-init before submission.
+   async_waiter_init(&state->wait_node);
 }
 
 static async_status
