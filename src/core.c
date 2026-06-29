@@ -854,7 +854,7 @@ static void
 core_btree_iterator_init_async_callback(void *arg)
 {
    core_btree_iterator_init_async_context *ctxt = arg;
-   ctxt->ready                                  = TRUE;
+   __atomic_store_n(&ctxt->ready, TRUE, __ATOMIC_RELEASE);
 }
 
 static platform_status
@@ -890,8 +890,8 @@ core_start_btree_iterator_init_async(
                                    prefetch_lookahead,
                                    core_btree_iterator_init_async_callback,
                                    ctxt);
-   ctxt->ready = FALSE;
-   ctxt->done  = FALSE;
+   __atomic_store_n(&ctxt->ready, FALSE, __ATOMIC_RELAXED);
+   ctxt->done = FALSE;
 
    if (btree_iterator_init_async(&ctxt->state) == ASYNC_STATUS_DONE) {
       ctxt->done = TRUE;
@@ -922,11 +922,13 @@ core_drain_btree_iterator_init_async(
    while (done_count < num_inits) {
       bool32 made_progress = FALSE;
       for (uint64 i = 0; i < num_inits; i++) {
-         if (ctxt[i].done || !ctxt[i].ready) {
+         if (ctxt[i].done
+             || !__atomic_exchange_n(
+                &ctxt[i].ready, FALSE, __ATOMIC_ACQUIRE))
+         {
             continue;
          }
 
-         ctxt[i].ready = FALSE;
          made_progress = TRUE;
          if (btree_iterator_init_async(&ctxt[i].state) == ASYNC_STATUS_DONE) {
             ctxt[i].done = TRUE;
