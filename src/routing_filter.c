@@ -621,6 +621,8 @@ routing_filter_add(cache                *cc,
 
          routing_hdr *hdr    = (routing_hdr *)filter_cursor;
          hdr->num_remainders = fps_added;
+         platform_assert(encoding_size
+                         <= ROUTING_FPS_PER_PAGE / 32 * sizeof(uint32));
          memmove(hdr->encoding, encoding_buffer, encoding_size);
          memset(encoding_buffer, 0xff, encoding_size);
          filter_cursor += header_size;
