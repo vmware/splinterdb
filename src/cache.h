@@ -165,37 +165,36 @@ typedef struct cache_ops {
    page_get_async_fn              page_get_async;
    page_get_async_state_result_fn page_get_async_result;
 
-   page_generic_fn      page_unget;
-   page_try_claim_fn    page_try_claim;
-   page_generic_fn      page_unclaim;
-   page_generic_fn      page_lock;
-   page_generic_fn      page_unlock;
-   page_prefetch_fn     page_prefetch;
-   page_prefetch_fn     page_prefetch_page;
-   page_generic_fn      page_mark_dirty;
-   page_generic_fn      page_pin;
-   page_generic_fn      page_unpin;
-   page_writeback_fn    page_writeback;
-   extent_writeback_fn  extent_writeback;
-   cache_generic_fn     flush;
+   page_generic_fn          page_unget;
+   page_try_claim_fn        page_try_claim;
+   page_generic_fn          page_unclaim;
+   page_generic_fn          page_lock;
+   page_generic_fn          page_unlock;
+   page_prefetch_fn         page_prefetch;
+   page_prefetch_fn         page_prefetch_page;
+   page_generic_fn          page_pin;
+   page_generic_fn          page_unpin;
+   page_writeback_fn        page_writeback;
+   extent_writeback_fn      extent_writeback;
+   cache_generic_fn         flush;
    cache_writeback_fence_fn writeback_fence;
    cache_durable_barrier_fn durable_barrier;
-   evict_fn             evict;
-   cache_generic_fn     cleanup;
-   page_addr_pred_fn    in_use;
-   page_addr_fn         assert_ungot;
-   cache_generic_fn     assert_free;
-   validate_page_fn     validate_page;
-   cache_present_fn     cache_present;
-   cache_print_fn       print;
-   cache_print_fn       print_stats;
-   io_stats_fn          io_stats;
-   cache_generic_fn     reset_stats;
-   count_dirty_fn       count_dirty;
-   page_get_read_ref_fn page_get_read_ref;
-   enable_sync_get_fn   enable_sync_get;
-   get_allocator_fn     get_allocator;
-   cache_config_fn      get_config;
+   evict_fn                 evict;
+   cache_generic_fn         cleanup;
+   page_addr_pred_fn        in_use;
+   page_addr_fn             assert_ungot;
+   cache_generic_fn         assert_free;
+   validate_page_fn         validate_page;
+   cache_present_fn         cache_present;
+   cache_print_fn           print;
+   cache_print_fn           print_stats;
+   io_stats_fn              io_stats;
+   cache_generic_fn         reset_stats;
+   count_dirty_fn           count_dirty;
+   page_get_read_ref_fn     page_get_read_ref;
+   enable_sync_get_fn       enable_sync_get;
+   get_allocator_fn         get_allocator;
+   cache_config_fn          get_config;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -370,10 +369,11 @@ cache_unclaim(cache *cc, page_handle *page)
  *
  * Blocks until outstanding read locks are released by other threads.
  *
- * Clockcache conservatively begins a dirty interval on this transition, so a
- * checkpoint fence cannot miss a caller that makes its first change before
- * calling cache_mark_dirty(). cache_mark_dirty() remains the explicit,
- * idempotent declaration of intent to modify the page.
+ * Acquiring the write lock marks the page dirty: it begins a dirty interval on
+ * this transition (before the caller's first change), so a checkpoint fence
+ * cannot miss the modification. A page obtained write-locked from cache_alloc()
+ * is likewise already dirty. Callers therefore do not separately declare the
+ * mutation.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -431,26 +431,6 @@ static inline void
 cache_prefetch_page(cache *cc, uint64 addr, page_type type)
 {
    return cc->ops->page_prefetch_page(cc, addr, type);
-}
-
-/*
- *----------------------------------------------------------------------
- * cache_mark_dirty
- *
- * Marks a page changed, to be written back.
- * The caller had better have the write lock on the page via cache_lock()
- * before changing its value.
- *
- * Clockcache already begins a dirty interval when the caller acquires the
- * write lock; this call is therefore idempotent there. It remains part of the
- * cache API to document the mutation and preserve the contract for other
- * implementations.
- *----------------------------------------------------------------------
- */
-static inline void
-cache_mark_dirty(cache *cc, page_handle *page)
-{
-   return cc->ops->page_mark_dirty(cc, page);
 }
 
 /*
@@ -560,11 +540,7 @@ cache_flush(cache *cc)
  *
  * Wait until every page whose current dirty interval began before this call's
  * cut has completed writeback. Pages dirtied after the cut do not delay the
- * call. The cache implementation must inspect resident metadata only; it must
- * not fault pages in merely to satisfy the fence.
- *
- * This is the checkpointing primitive. It is intentionally narrower than
- * cache_flush(), which attempts to leave the entire cache clean.
+ * call.
  *-----------------------------------------------------------------------------
  */
 static inline platform_status

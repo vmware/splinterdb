@@ -226,7 +226,6 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                   iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
             }
             cache_lock(iter->cc, iter->page);
-            cache_mark_dirty(iter->cc, iter->page);
          }
       }
    }

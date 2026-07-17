@@ -434,7 +434,6 @@ shard_log_seal(log_handle *logh)
          log_entry_set_terminal(cursor);
       }
       hdr->checksum = shard_log_checksum(log->cfg, page);
-      cache_mark_dirty(cc, page);
 
       cache_unlock(cc, page);
       cache_unclaim(cc, page);

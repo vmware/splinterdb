@@ -198,7 +198,6 @@ mini_full_lock_meta_tail(mini_allocator *mini)
 static void
 mini_full_unlock_meta_page(mini_allocator *mini, page_handle *meta_page)
 {
-   cache_mark_dirty(mini->cc, meta_page);
    cache_unlock(mini->cc, meta_page);
    cache_unclaim(mini->cc, meta_page);
    cache_unget(mini->cc, meta_page);

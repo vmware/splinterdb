@@ -2008,7 +2008,6 @@ trunk_node_serialize_maybe_setup_next_page(cache        *cc,
             "%s():%d: cache_alloc() failed", __func__, __LINE__);
          return STATUS_NO_MEMORY;
       }
-      cache_mark_dirty(cc, *current_page);
       *page_offset = 0;
    }
 
@@ -2131,7 +2130,6 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       rc = STATUS_NO_MEMORY;
       goto cleanup;
    }
-   cache_mark_dirty(context->cc, header_page);
 
    int64 min_inflight_bundle_start =
       trunk_node_first_live_inflight_bundle(node);

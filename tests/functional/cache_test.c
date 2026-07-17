@@ -489,7 +489,6 @@ test_cache_writeback_fence(cache             *cc,
    memset(old_page->data,
           old_value,
           cache_config_page_size(&cfg->super));
-   cache_mark_dirty(cc, old_page);
 
    clockcache *clock = (clockcache *)cc;
    uint64 initial_generation =
@@ -528,7 +527,6 @@ test_cache_writeback_fence(cache             *cc,
    memset(new_page->data,
           new_value,
           cache_config_page_size(&cfg->super));
-   cache_mark_dirty(cc, new_page);
    cache_unlock(cc, new_page);
    new_locked = FALSE;
    cache_unclaim(cc, new_page);
@@ -924,7 +922,6 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
          }
       }
       for (i = 0; i < cfg->page_capacity; i++) {
-         cache_mark_dirty(cc, page_arr[i]);
          cache_unlock(cc, page_arr[i]);
          cache_unclaim(cc, page_arr[i]);
          cache_unget(cc, page_arr[i]);
@@ -1110,7 +1107,6 @@ cache_test_dirty_flush(cache                 *cc,
          rc = STATUS_TEST_FAILED;
          break;
       }
-      cache_mark_dirty(cc, ph);
       cache_unlock(cc, ph);
       cache_unclaim(cc, ph);
       cache_unget(cc, ph);

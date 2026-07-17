@@ -274,7 +274,6 @@ core_write_checkpoint_page(core_handle *spl,
    platform_assert(contents_size <= cache_page_size(spl->cc));
    memset(page->data, 0, cache_page_size(spl->cc));
    memcpy(page->data, contents, contents_size);
-   cache_mark_dirty(spl->cc, page);
    cache_unlock(spl->cc, page);
    cache_unclaim(spl->cc, page);
    cache_page_writeback(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
@@ -287,7 +286,6 @@ core_initialize_checkpoint_record_page(core_handle *spl, uint64 page_addr)
    page_handle *page = cache_alloc(spl->cc, page_addr, PAGE_TYPE_SUPERBLOCK);
    platform_assert(page != NULL);
    memset(page->data, 0, cache_page_size(spl->cc));
-   cache_mark_dirty(spl->cc, page);
    cache_unlock(spl->cc, page);
    cache_unclaim(spl->cc, page);
    cache_page_writeback(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);

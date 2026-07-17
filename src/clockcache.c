@@ -2477,27 +2477,6 @@ clockcache_unlock(clockcache *cc, page_handle *page)
 }
 
 
-/*----------------------------------------------------------------------
- * clockcache_mark_dirty --
- *
- *      Marks the entry dirty.
- *----------------------------------------------------------------------
- */
-void
-clockcache_mark_dirty(clockcache *cc, page_handle *page)
-{
-   debug_only clockcache_entry *entry = clockcache_page_to_entry(cc, page);
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
-
-   clockcache_log(entry->page.disk_addr,
-                  entry_number,
-                  "mark_dirty: entry %u addr %lu\n",
-                  entry_number,
-                  entry->page.disk_addr);
-   clockcache_dirty_begin(cc, entry_number);
-   return;
-}
-
 /*
  *----------------------------------------------------------------------
  * clockcache_pin --
@@ -3410,13 +3389,6 @@ clockcache_prefetch_page_virtual(cache *c, uint64 addr, page_type type)
 }
 
 void
-clockcache_mark_dirty_virtual(cache *c, page_handle *page)
-{
-   clockcache *cc = (clockcache *)c;
-   clockcache_mark_dirty(cc, page);
-}
-
-void
 clockcache_pin_virtual(cache *c, page_handle *page)
 {
    clockcache *cc = (clockcache *)c;
@@ -3629,7 +3601,6 @@ static cache_ops clockcache_ops = {
    .page_unlock        = clockcache_unlock_virtual,
    .page_prefetch      = clockcache_prefetch_virtual,
    .page_prefetch_page = clockcache_prefetch_page_virtual,
-   .page_mark_dirty    = clockcache_mark_dirty_virtual,
    .page_pin           = clockcache_pin_virtual,
    .page_unpin         = clockcache_unpin_virtual,
    .page_writeback     = clockcache_page_writeback_virtual,
