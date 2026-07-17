@@ -411,9 +411,6 @@ typedef struct {
    platform_status status;
 } cache_fence_test_context;
 
-/* Mirrors clockcache's private CC_WRITEBACK_REQUESTED status bit. */
-#define CACHE_TEST_WRITEBACK_REQUESTED (1u << 7)
-
 static void
 cache_test_writeback_fence_thread(void *arg)
 {
@@ -423,10 +420,11 @@ cache_test_writeback_fence_thread(void *arg)
 }
 
 /*
- * Verify that a fence drains an already-dirty page without waiting for a page
- * dirtied after its cut. Keeping old_page write-locked forces the fence to
- * remain in progress long enough to deterministically dirty new_page after
- * the dirty-generation rotation.
+ * Verify the simplified writeback-fence contract: a single pass flushes every
+ * dirty, unlocked page and completes even while another page is write-locked,
+ * skipping the locked page rather than waiting for it. old_page is left dirty
+ * and unlocked so the fence must flush it; new_page is held write-locked so the
+ * fence must skip it and still finish promptly.
  */
 static platform_status
 test_cache_writeback_fence(cache             *cc,
@@ -439,7 +437,6 @@ test_cache_writeback_fence(cache             *cc,
    uint64                  *addr_arr = NULL;
    page_handle             *old_page = NULL;
    page_handle             *new_page = NULL;
-   bool32                   old_claimed = FALSE, old_locked = FALSE;
    bool32                   new_claimed = FALSE, new_locked = FALSE;
    bool32                   fence_thread_started = FALSE;
    const uint8              old_baseline = 0x11, old_value = 0x22;
@@ -478,21 +475,30 @@ test_cache_writeback_fence(cache             *cc,
    }
    cache_flush(cc);
 
+   /* Dirty old_page and leave it unlocked: the fence must flush it. */
    old_page = cache_get(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
    if (!cache_try_claim(cc, old_page)) {
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
-   old_claimed = TRUE;
    cache_lock(cc, old_page);
-   old_locked = TRUE;
-   memset(old_page->data,
-          old_value,
-          cache_config_page_size(&cfg->super));
+   memset(old_page->data, old_value, cache_config_page_size(&cfg->super));
+   cache_unlock(cc, old_page);
+   cache_unclaim(cc, old_page);
+   cache_unget(cc, old_page);
+   old_page = NULL;
 
-   clockcache *clock = (clockcache *)cc;
-   uint64 initial_generation =
-      __atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE);
+   /* Hold new_page write-locked: the fence must skip it and still complete. */
+   new_page = cache_get(cc, addr_arr[pages_per_extent], TRUE, PAGE_TYPE_MISC);
+   if (!cache_try_claim(cc, new_page)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   new_claimed = TRUE;
+   cache_lock(cc, new_page);
+   new_locked = TRUE;
+   memset(new_page->data, new_value, cache_config_page_size(&cfg->super));
+
    rc = platform_thread_create(&fence_thread,
                                FALSE,
                                cache_test_writeback_fence_thread,
@@ -503,41 +509,16 @@ test_cache_writeback_fence(cache             *cc,
    }
    fence_thread_started = TRUE;
 
+   /* The fence must finish without waiting for the write-locked new_page. */
    timestamp wait_start = platform_get_timestamp();
-   while (__atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE)
-          == initial_generation)
-   {
+   while (!__atomic_load_n(&fence_ctxt.finished, __ATOMIC_ACQUIRE)) {
       if (platform_timestamp_elapsed(wait_start) > SEC_TO_NSEC(5)) {
-         platform_error_log("cache_test: writeback fence did not take a cut\n");
+         platform_error_log(
+            "cache_test: fence did not complete while a page was locked\n");
          rc = STATUS_TIMEDOUT;
          goto cleanup;
       }
       platform_sleep_ns(1000);
-   }
-
-   new_page = cache_get(
-      cc, addr_arr[pages_per_extent], TRUE, PAGE_TYPE_MISC);
-   if (!cache_try_claim(cc, new_page)) {
-      rc = STATUS_TEST_FAILED;
-      goto cleanup;
-   }
-   new_claimed = TRUE;
-   cache_lock(cc, new_page);
-   new_locked = TRUE;
-   memset(new_page->data,
-          new_value,
-          cache_config_page_size(&cfg->super));
-   cache_unlock(cc, new_page);
-   new_locked = FALSE;
-   cache_unclaim(cc, new_page);
-   new_claimed = FALSE;
-   cache_unget(cc, new_page);
-   new_page = NULL;
-
-   if (__atomic_load_n(&fence_ctxt.finished, __ATOMIC_ACQUIRE)) {
-      platform_error_log("cache_test: fence completed while old page was locked\n");
-      rc = STATUS_TEST_FAILED;
-      goto cleanup;
    }
 
 cleanup:
@@ -549,12 +530,6 @@ cleanup:
    }
    if (new_page != NULL) {
       cache_unget(cc, new_page);
-   }
-   if (old_locked) {
-      cache_unlock(cc, old_page);
-   }
-   if (old_claimed) {
-      cache_unclaim(cc, old_page);
    }
    if (old_page != NULL) {
       cache_unget(cc, old_page);
@@ -569,10 +544,11 @@ cleanup:
       }
    }
 
+   /* Only new_page, write-locked throughout the fence, remains dirty. */
    if (SUCCESS(rc)) {
       uint32 dirty_count = cache_count_dirty(cc);
       if (dirty_count != 1) {
-         platform_error_log("cache_test: expected one post-cut dirty page, "
+         platform_error_log("cache_test: expected one dirty page after fence, "
                             "found %u\n",
                             dirty_count);
          rc = STATUS_TEST_FAILED;
@@ -581,14 +557,15 @@ cleanup:
    if (SUCCESS(rc)) {
       rc = cache_durable_barrier(cc);
    }
+   /* The dirty, unlocked page was flushed by the fence. */
    if (SUCCESS(rc)) {
       rc = cache_test_verify_disk_page(cc,
                                        addr_arr[0],
                                        cache_config_page_size(&cfg->super),
                                        old_value);
    }
+   /* The write-locked page was skipped, so its baseline is still on disk. */
    if (SUCCESS(rc)) {
-      /* The post-cut page remains dirty, so its baseline must still be disk. */
       rc = cache_test_verify_disk_page(cc,
                                        addr_arr[pages_per_extent],
                                        cache_config_page_size(&cfg->super),
@@ -618,8 +595,9 @@ cleanup:
 }
 
 /*
- * A fence must allow an already-claimed writer to finish its selected dirty
- * interval, but it must not complete before that writer releases the claim.
+ * A page that is only claimed (not write-locked) is not cleanable, so a fence
+ * skips it and completes; the page's baseline is therefore still what is on
+ * disk. Once the claim is dropped, a second fence flushes the page.
  */
 static platform_status
 test_cache_writeback_fence_claimed_page(cache             *cc,
@@ -657,6 +635,7 @@ test_cache_writeback_fence_claimed_page(cache             *cc,
    }
    cache_flush(cc);
 
+   /* Dirty the page, then keep only a claim (release the write lock). */
    page = cache_get(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
    if (!cache_try_claim(cc, page)) {
       rc = STATUS_TEST_FAILED;
@@ -669,9 +648,6 @@ test_cache_writeback_fence_claimed_page(cache             *cc,
    cache_unlock(cc, page);
    locked = FALSE;
 
-   clockcache *clock = (clockcache *)cc;
-   uint64 initial_generation =
-      __atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE);
    rc = platform_thread_create(&fence_thread,
                                FALSE,
                                cache_test_writeback_fence_thread,
@@ -682,40 +658,57 @@ test_cache_writeback_fence_claimed_page(cache             *cc,
    }
    fence_thread_started = TRUE;
 
-   uint64 entry_no =
-      clock->lookup[addr_arr[0] >> clock->cfg->log_page_size];
-   platform_assert(entry_no < clock->cfg->page_capacity);
+   /* A claimed page is not cleanable, so the fence skips it and completes. */
    timestamp wait_start = platform_get_timestamp();
-   while ((__atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE)
-           == initial_generation)
-          || !(__atomic_load_n(&clock->entry[entry_no].status,
-                                __ATOMIC_ACQUIRE)
-               & CACHE_TEST_WRITEBACK_REQUESTED))
-   {
+   while (!__atomic_load_n(&fence_ctxt.finished, __ATOMIC_ACQUIRE)) {
       if (platform_timestamp_elapsed(wait_start) > SEC_TO_NSEC(5)) {
-         platform_error_log("cache_test: fence did not request claimed page\n");
+         platform_error_log(
+            "cache_test: fence did not complete while page was claimed\n");
          rc = STATUS_TIMEDOUT;
          goto cleanup;
       }
       platform_sleep_ns(1000);
    }
 
-   if (__atomic_load_n(&fence_ctxt.finished, __ATOMIC_ACQUIRE)) {
-      platform_error_log("cache_test: fence completed while page was claimed\n");
-      rc = STATUS_TEST_FAILED;
+   platform_status join_rc = platform_thread_join(&fence_thread);
+   fence_thread_started = FALSE;
+   if (!SUCCESS(join_rc)) {
+      rc = join_rc;
+      goto cleanup;
+   }
+   if (!SUCCESS(fence_ctxt.status)) {
+      rc = fence_ctxt.status;
       goto cleanup;
    }
 
-   /* This claim predates the request, so it is permitted to finish. */
-   cache_lock(cc, page);
-   locked = TRUE;
-   memset(page->data, final_value, cache_config_page_size(&cfg->super));
-   cache_unlock(cc, page);
-   locked = FALSE;
+   /* The skipped page was not written, so its baseline is still on disk. */
+   rc = cache_test_verify_disk_page(
+      cc, addr_arr[0], cache_config_page_size(&cfg->super), baseline);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   /* Drop the claim; the page is now cleanable and a second fence flushes it. */
    cache_unclaim(cc, page);
    claimed = FALSE;
    cache_unget(cc, page);
    page = NULL;
+
+   rc = cache_writeback_fence(cc);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   if (cache_count_dirty(cc) != 0) {
+      platform_error_log("cache_test: second fence left dirty pages\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = cache_durable_barrier(cc);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = cache_test_verify_disk_page(
+      cc, addr_arr[0], cache_config_page_size(&cfg->super), final_value);
 
 cleanup:
    if (locked) {
@@ -728,27 +721,13 @@ cleanup:
       cache_unget(cc, page);
    }
    if (fence_thread_started) {
-      platform_status join_rc = platform_thread_join(&fence_thread);
-      if (!SUCCESS(join_rc) && SUCCESS(rc)) {
-         rc = join_rc;
+      platform_status jrc = platform_thread_join(&fence_thread);
+      if (!SUCCESS(jrc) && SUCCESS(rc)) {
+         rc = jrc;
       }
       if (!SUCCESS(fence_ctxt.status) && SUCCESS(rc)) {
          rc = fence_ctxt.status;
       }
-   }
-
-   if (SUCCESS(rc) && cache_count_dirty(cc) != 0) {
-      platform_error_log("cache_test: claimed-page fence left dirty pages\n");
-      rc = STATUS_TEST_FAILED;
-   }
-   if (SUCCESS(rc)) {
-      rc = cache_durable_barrier(cc);
-   }
-   if (SUCCESS(rc)) {
-      rc = cache_test_verify_disk_page(cc,
-                                       addr_arr[0],
-                                       cache_config_page_size(&cfg->super),
-                                       final_value);
    }
 
    if (addr_arr != NULL) {
