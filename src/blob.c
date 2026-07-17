@@ -327,7 +327,7 @@ blob_sync(cache *cc, slice sblob)
       if (!SUCCESS(rc)) {
          break;
       }
-      cache_page_sync(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
+      cache_page_writeback(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
       blob_page_iterator_advance_page(&itor);
    }
 

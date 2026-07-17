@@ -277,7 +277,7 @@ core_write_checkpoint_page(core_handle *spl,
    cache_mark_dirty(spl->cc, page);
    cache_unlock(spl->cc, page);
    cache_unclaim(spl->cc, page);
-   cache_page_sync(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_page_writeback(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
    cache_unget(spl->cc, page);
 }
 
@@ -290,7 +290,7 @@ core_initialize_checkpoint_record_page(core_handle *spl, uint64 page_addr)
    cache_mark_dirty(spl->cc, page);
    cache_unlock(spl->cc, page);
    cache_unclaim(spl->cc, page);
-   cache_page_sync(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_page_writeback(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
    cache_unget(spl->cc, page);
 }
 

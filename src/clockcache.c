@@ -2540,17 +2540,22 @@ clockcache_unpin(clockcache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * clockcache_page_sync --
+ * clockcache_page_writeback --
  *
- *      Asynchronously syncs the page. Currently there is no way to check
- *when the writeback has completed.
+ *      Issues writeback of the page. This does not make the page durable; it
+ *      only hands the write to the I/O layer.
+ *
+ *      With is_blocking == FALSE the writeback is issued asynchronously and
+ *      this returns without waiting for completion. With is_blocking == TRUE
+ *      the page is written synchronously and has completed by the time this
+ *      returns.
  *-----------------------------------------------------------------------------
  */
 void
-clockcache_page_sync(clockcache  *cc,
-                     page_handle *page,
-                     bool32       is_blocking,
-                     page_type    type)
+clockcache_page_writeback(clockcache  *cc,
+                          page_handle *page,
+                          bool32       is_blocking,
+                          page_type    type)
 {
    uint32          entry_number = clockcache_page_to_entry_number(cc, page);
    async_io_state *state;
@@ -2574,7 +2579,7 @@ clockcache_page_sync(clockcache  *cc,
       }
 
       platform_assert(0,
-                      "page_sync requires a cleanable page: entry=%u "
+                      "page_writeback requires a cleanable page: entry=%u "
                       "status=%u\n",
                       entry_number,
                       clockcache_get_status(cc, entry_number));
@@ -2588,7 +2593,7 @@ clockcache_page_sync(clockcache  *cc,
    if (!is_blocking) {
       state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
       if (state == NULL) {
-         platform_error_log("clockcache_page_sync: async_io_state allocation "
+         platform_error_log("clockcache_page_writeback: async_io_state allocation "
                             "failed for addr %lu, entry %u, type %u\n",
                             addr,
                             entry_number,
@@ -2604,7 +2609,7 @@ clockcache_page_sync(clockcache  *cc,
                                    clockcache_write_callback,
                                    state);
       if (!SUCCESS(status)) {
-         platform_error_log("clockcache_page_sync: io_async_state_init failed "
+         platform_error_log("clockcache_page_writeback: io_async_state_init failed "
                             "for addr %lu, entry %u, type %u: %s\n",
                             addr,
                             entry_number,
@@ -2614,7 +2619,7 @@ clockcache_page_sync(clockcache  *cc,
       platform_assert_status_ok(status);
       status = io_async_state_append_page(state->iostate, page->data);
       if (!SUCCESS(status)) {
-         platform_error_log("clockcache_page_sync: io_async_state_append_page "
+         platform_error_log("clockcache_page_writeback: io_async_state_append_page "
                             "failed for addr %lu, entry %u, type %u: %s\n",
                             addr,
                             entry_number,
@@ -2626,7 +2631,7 @@ clockcache_page_sync(clockcache  *cc,
    } else {
       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
       if (!SUCCESS(status)) {
-         platform_error_log("clockcache_page_sync: io_write failed for addr "
+         platform_error_log("clockcache_page_writeback: io_write failed for addr "
                             "%lu, entry %u, type %u: %s\n",
                             addr,
                             entry_number,
@@ -2636,7 +2641,7 @@ clockcache_page_sync(clockcache  *cc,
       platform_assert_status_ok(status);
       clockcache_log(addr,
                      entry_number,
-                     "page_sync write entry %u addr %lu\n",
+                     "page_writeback write entry %u addr %lu\n",
                      entry_number,
                      addr);
       clockcache_dirty_complete_writeback(cc, entry_number);
@@ -2645,20 +2650,24 @@ clockcache_page_sync(clockcache  *cc,
 
 /*
  *-----------------------------------------------------------------------------
- * clockcache_extent_sync --
+ * clockcache_extent_writeback --
  *
- *      Asynchronously syncs the extent.
+ *      Asynchronously issues writeback of the extent. This does not make the
+ *      extent durable; it only hands the writes to the I/O layer and returns
+ *      without waiting for completion.
  *
  *      Adds the number of pages issued writeback to the counter pointed to
  *      by pages_outstanding. When the writes complete, a callback subtracts
  *      them off, so that the caller may track how many pages are in
- *writeback.
+ *      writeback.
  *
  *      Assumes all pages in the extent are clean or cleanable
  *-----------------------------------------------------------------------------
  */
 void
-clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
+clockcache_extent_writeback(clockcache *cc,
+                            uint64      addr,
+                            uint64     *pages_outstanding)
 {
    async_io_state *state = NULL;
    uint64          i;
@@ -2677,7 +2686,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
             req_addr = page_addr;
             state    = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
             if (state == NULL) {
-               platform_error_log("clockcache_extent_sync: async_io_state "
+               platform_error_log("clockcache_extent_writeback: async_io_state "
                                   "allocation failed for extent addr %lu, "
                                   "page addr %lu, entry %u\n",
                                   addr,
@@ -2694,7 +2703,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
                                                      clockcache_write_callback,
                                                      state);
             if (!SUCCESS(rc)) {
-               platform_error_log("clockcache_extent_sync: "
+               platform_error_log("clockcache_extent_writeback: "
                                   "io_async_state_init failed for extent addr "
                                   "%lu, req addr %lu, entry %u: %s\n",
                                   addr,
@@ -2707,7 +2716,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
          platform_status rc = io_async_state_append_page(
             state->iostate, clockcache_get_entry(cc, entry_number)->page.data);
          if (!SUCCESS(rc)) {
-            platform_error_log("clockcache_extent_sync: "
+            platform_error_log("clockcache_extent_writeback: "
                                "io_async_state_append_page failed for extent "
                                "addr %lu, page addr %lu, entry %u: %s\n",
                                addr,
@@ -3453,20 +3462,22 @@ clockcache_get_async_state_result_virtual(void *payload)
 }
 
 void
-clockcache_page_sync_virtual(cache       *c,
-                             page_handle *page,
-                             bool32       is_blocking,
-                             page_type    type)
+clockcache_page_writeback_virtual(cache       *c,
+                                  page_handle *page,
+                                  bool32       is_blocking,
+                                  page_type    type)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_page_sync(cc, page, is_blocking, type);
+   clockcache_page_writeback(cc, page, is_blocking, type);
 }
 
 void
-clockcache_extent_sync_virtual(cache *c, uint64 addr, uint64 *pages_outstanding)
+clockcache_extent_writeback_virtual(cache  *c,
+                                    uint64  addr,
+                                    uint64 *pages_outstanding)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_extent_sync(cc, addr, pages_outstanding);
+   clockcache_extent_writeback(cc, addr, pages_outstanding);
 }
 
 void
@@ -3621,8 +3632,8 @@ static cache_ops clockcache_ops = {
    .page_mark_dirty    = clockcache_mark_dirty_virtual,
    .page_pin           = clockcache_pin_virtual,
    .page_unpin         = clockcache_unpin_virtual,
-   .page_sync          = clockcache_page_sync_virtual,
-   .extent_sync        = clockcache_extent_sync_virtual,
+   .page_writeback     = clockcache_page_writeback_virtual,
+   .extent_writeback   = clockcache_extent_writeback_virtual,
    .flush              = clockcache_flush_virtual,
    .writeback_fence    = clockcache_writeback_fence_virtual,
    .durable_barrier    = clockcache_durable_barrier_virtual,

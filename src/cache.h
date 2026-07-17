@@ -130,13 +130,13 @@ typedef async_status (*page_get_async_fn)(void *payload);
 typedef page_handle *(*page_get_async_state_result_fn)(void *payload);
 
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
-typedef void (*page_sync_fn)(cache       *cc,
-                             page_handle *page,
-                             bool32       is_blocking,
-                             page_type    type);
-typedef void (*extent_sync_fn)(cache  *cc,
-                               uint64  addr,
-                               uint64 *pages_outstanding);
+typedef void (*page_writeback_fn)(cache       *cc,
+                                  page_handle *page,
+                                  bool32       is_blocking,
+                                  page_type    type);
+typedef void (*extent_writeback_fn)(cache  *cc,
+                                    uint64  addr,
+                                    uint64 *pages_outstanding);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 typedef int (*evict_fn)(cache *cc, bool32 ignore_pinned);
 typedef bool32 (*page_addr_pred_fn)(cache *cc, uint64 addr);
@@ -175,8 +175,8 @@ typedef struct cache_ops {
    page_generic_fn      page_mark_dirty;
    page_generic_fn      page_pin;
    page_generic_fn      page_unpin;
-   page_sync_fn         page_sync;
-   extent_sync_fn       extent_sync;
+   page_writeback_fn    page_writeback;
+   extent_writeback_fn  extent_writeback;
    cache_generic_fn     flush;
    cache_writeback_fence_fn writeback_fence;
    cache_durable_barrier_fn durable_barrier;
@@ -489,37 +489,44 @@ cache_unpin(cache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * cache_page_sync
+ * cache_page_writeback
  *
- * Asynchronously writes the page back to disk.
+ * Issues writeback of the page to disk. This does NOT make the page durable;
+ * it only hands the write to the I/O layer (no device-cache flush).
  *
- * This is used to sync log pages opportunistically. The current API doesn't
- * inform the user when this happens. "It's not the ideal API." -- @aconway
+ * With is_blocking == FALSE the writeback is issued asynchronously and this
+ * returns without waiting for completion; there is no per-call way to observe
+ * when it finishes. With is_blocking == TRUE the page is written synchronously
+ * and the write has completed by the time this returns.
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_page_sync(cache       *cc,
-                page_handle *page,
-                bool32       is_blocking,
-                page_type    type)
+cache_page_writeback(cache       *cc,
+                     page_handle *page,
+                     bool32       is_blocking,
+                     page_type    type)
 {
-   return cc->ops->page_sync(cc, page, is_blocking, type);
+   return cc->ops->page_writeback(cc, page, is_blocking, type);
 }
 
 /*
  *-----------------------------------------------------------------------------
- * cache_extent_sync
+ * cache_extent_writeback
  *
- * Asynchronously syncs the extent beginning at addr.
+ * Asynchronously issues writeback of the extent beginning at addr. This does
+ * NOT make the extent durable; it only hands the writes to the I/O layer (no
+ * device-cache flush) and returns without waiting for completion.
  *
  * *pages_outstanding is immediately incremented by the number of pages
  * issued for writeback (the non-clean pages of the extent); as writebacks
- * complete, *pages_outstanding is decremented atomically.
+ * complete, *pages_outstanding is decremented atomically. This counter is the
+ * only way to observe when the issued writebacks finish.
  *
  * Assumes pages_outstanding is an aligned uint64, so (on x86) the caller
  * can access it and observe its value atomically.
  *
- * TODO: What happens if two callers call cache_extent_sync on the same extent?
+ * TODO: What happens if two callers call cache_extent_writeback on the same
+ * extent?
  *
  * All pages in the extent must be clean or cleanable.
  * The page may not be in writeback, loading, or locked, or claimed, otherwise
@@ -527,9 +534,9 @@ cache_page_sync(cache       *cc,
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
+cache_extent_writeback(cache *cc, uint64 addr, uint64 *pages_outstanding)
 {
-   cc->ops->extent_sync(cc, addr, pages_outstanding);
+   cc->ops->extent_writeback(cc, addr, pages_outstanding);
 }
 
 /*

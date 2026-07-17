@@ -199,7 +199,13 @@ io_cleanup(io_handle *io, uint64 count)
    return io->ops->cleanup(io, count);
 }
 
-// Guarantees all in-flight IOs are complete before return
+// Wait until we have seen each process's I/O be quiescent.
+//
+// This means that all I/Os that were in-flight at the start of this call are
+// guaranteed to have finished before this call returns.
+//
+// But I/Os that are issued after this call starts may not be complete when
+// this call returns.
 static inline void
 io_wait_all(io_handle *io)
 {

@@ -344,7 +344,7 @@ shard_log_write(log_handle *logh,
 
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
-      cache_page_sync(cc, page, FALSE, PAGE_TYPE_LOG);
+      cache_page_writeback(cc, page, FALSE, PAGE_TYPE_LOG);
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {
