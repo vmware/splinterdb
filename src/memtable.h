@@ -159,6 +159,17 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
 void
 memtable_end_insert(memtable_context *ctxt);
 
+/*
+ * Exclude all inserts, including an insert that has already acquired its
+ * shared insert lock.  A checkpoint uses this around sealing the log prefix
+ * that describes its snapshot.  Must be paired with memtable_unblock_inserts.
+ */
+void
+memtable_block_inserts(memtable_context *ctxt);
+
+void
+memtable_unblock_inserts(memtable_context *ctxt);
+
 void
 memtable_begin_lookup(memtable_context *ctxt);
 
@@ -210,6 +221,24 @@ memtable_context_init(memtable_context *ctxt,
                       memtable_config  *cfg,
                       process_fn        process,
                       void             *process_ctxt);
+
+/*
+ * Initialize the reusable memtable ring at first_generation.  Recovery passes
+ * the checkpoint's incorporated generation plus one; the trunk is understood
+ * to have incorporated all earlier generations.  In particular, slot
+ * first_generation % max_memtables is the active memtable and the other slots
+ * represent the following logical generations.  first_generation == 0 is the
+ * fresh-database case and has no incorporated generation.  A caller must not
+ * wrap a checkpoint generation of UINT64_MAX into zero.
+ */
+platform_status
+memtable_context_init_at_generation(memtable_context *ctxt,
+                                    platform_heap_id  hid,
+                                    cache            *cc,
+                                    memtable_config  *cfg,
+                                    process_fn        process,
+                                    void             *process_ctxt,
+                                    uint64            first_generation);
 
 void
 memtable_context_deinit(memtable_context *ctxt);

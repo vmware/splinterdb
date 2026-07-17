@@ -78,6 +78,7 @@ typedef platform_status (*io_async_state_init_fn)(io_async_state   *state,
 
 typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
 typedef void (*io_wait_all_fn)(io_handle *io);
+typedef platform_status (*io_durable_barrier_fn)(io_handle *io);
 typedef void (*io_register_thread_fn)(io_handle *io);
 typedef void (*io_deregister_thread_fn)(io_handle *io);
 typedef bool32 (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
@@ -95,6 +96,7 @@ typedef struct io_ops {
    io_async_state_init_fn    async_state_init;
    io_cleanup_fn             cleanup;
    io_wait_all_fn            wait_all;
+   io_durable_barrier_fn     durable_barrier;
    io_register_thread_fn     register_thread;
    io_deregister_thread_fn   deregister_thread;
    io_max_latency_elapsed_fn max_latency_elapsed;
@@ -202,6 +204,21 @@ static inline void
 io_wait_all(io_handle *io)
 {
    return io->ops->wait_all(io);
+}
+
+/*
+ *--------------------------------------------------------------------------
+ * io_durable_barrier
+ *
+ * Ensure that writes which completed before this call survive a power loss.
+ * This is deliberately distinct from io_wait_all(), which only waits for
+ * asynchronous I/O completion.
+ *--------------------------------------------------------------------------
+ */
+static inline platform_status
+io_durable_barrier(io_handle *io)
+{
+   return io->ops->durable_barrier(io);
 }
 
 static inline void

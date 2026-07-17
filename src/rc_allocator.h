@@ -33,7 +33,14 @@
  *----------------------------------------------------------------------
  */
 typedef struct ONDISK rc_allocator_meta_page {
-   disk_geometry     geometry;
+   disk_geometry geometry;
+   /*
+    * Identifies the immutable bootstrap layout.  In particular, it proves
+    * that the two fixed clean-state extents after the refcount map are owned
+    * by this allocator rather than by an older on-disk format.
+    */
+   uint64        format_magic;
+   uint64        format_version;
    allocator_root_id splinters[RC_ALLOCATOR_MAX_ROOT_IDS];
    checksum128       checksum;
 } rc_allocator_meta_page;
@@ -76,6 +83,13 @@ typedef struct rc_allocator {
    platform_mutex   lock;
    platform_heap_id heap_id;
 
+   /*
+    * True between rc_allocator_mount_recovery() and either
+    * rc_allocator_rebuild_finish() or rc_allocator_abort_recovery().  An
+    * incomplete rebuilt map must never be written back to disk.
+    */
+   bool32 recovery_in_progress;
+
    // Stats -- not distributed for now
    rc_allocator_stats stats;
 } rc_allocator;
@@ -90,12 +104,57 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al);
 
+/*
+ * Normal mount accepts only a durable clean-state record and publishes an
+ * unclean state record before returning.  Those records occupy two fixed,
+ * alternating extents after the persisted refcount map, so normal lifecycle
+ * operations never rewrite the sole allocator bootstrap page.
+ * STATUS_INVALID_STATE means callers must use the recovery-rebuild path
+ * instead of trusting the persisted refcount map.
+ */
 platform_status
 rc_allocator_mount(rc_allocator      *al,
                    allocator_config  *cfg,
                    io_handle         *io,
                    platform_heap_id   hid,
                    platform_module_id mid);
+
+/*
+ * Mount the allocator for crash recovery.  This validates and retains the
+ * allocator metadata page, but deliberately ignores the persisted refcount
+ * table.  The caller must rebuild the in-memory table from durable objects,
+ * then call rc_allocator_rebuild_finish() before using normal allocator
+ * lifecycle operations.
+ */
+platform_status
+rc_allocator_mount_recovery(rc_allocator      *al,
+                            allocator_config  *cfg,
+                            io_handle         *io,
+                            platform_heap_id   hid,
+                            platform_module_id mid);
+
+/*
+ * Add one logical ownership reference for an extent while rebuilding a
+ * recovery map.  The first reference establishes the allocator's nonzero
+ * allocation floor (AL_ONE_REF); later references increment it normally.
+ * extent_addr must be the base address of a non-reserved allocator extent.
+ */
+platform_status
+rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr);
+
+/*
+ * Complete a successful rebuild without performing I/O.  A later normal
+ * rc_allocator_unmount() may persist the rebuilt table on clean shutdown.
+ */
+void
+rc_allocator_rebuild_finish(rc_allocator *al);
+
+/*
+ * Discard a partially rebuilt recovery map.  Unlike rc_allocator_unmount(),
+ * this never writes allocator state to disk.
+ */
+void
+rc_allocator_abort_recovery(rc_allocator *al);
 
 platform_status
 rc_allocator_read_disk_geometry(const char *filename, disk_geometry *geometry);

@@ -250,6 +250,85 @@ CTEST2(splinter, test_inserts)
    core_destroy(&spl);
 }
 
+/*
+ * The second checkpoint slot is a torn-write fallback, not permission for a
+ * normal mount to silently roll back past a newer, valid active record.  A
+ * successful mount publishes such an active record; until crash recovery is
+ * implemented, a concurrent/restarted normal mount must reject it even
+ * though the preceding clean record remains valid in the other slot.
+ */
+CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
+{
+   allocator *alp = (allocator *)&data->al;
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       created, mounted, rejected, cleanup;
+   platform_status   rc;
+
+   rc = core_mkfs(&created,
+                  &data->system_cfg->splinter_cfg,
+                  alp,
+                  (cache *)data->clock_cache,
+                  &data->tasks,
+                  root_id,
+                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* Give the clean record a real COW root, not just the empty-tree root. */
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf,
+            TEST_RANDOM,
+            1,
+            0,
+            0,
+            data->workload_cfg->key_size,
+            0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(&created,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&msg),
+                    NULL);
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_unmount(&created);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* This mount advances the A/B sequence with an unmounted=FALSE record. */
+   rc = core_mount(&mounted,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_mount(&rejected,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+
+   /* Finish cleanly, then prove the same record pair is mountable again. */
+   rc = core_unmount(&mounted);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_mount(&cleanup,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   core_destroy(&cleanup);
+}
+
 static void
 trunk_shadow_init(trunk_shadow    *shadow,
                   data_config     *data_cfg,

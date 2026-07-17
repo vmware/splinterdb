@@ -90,6 +90,688 @@ cache_test_alloc_extents(cache             *cc,
    return rc;
 }
 
+static platform_status
+cache_test_fill_page(cache *cc, uint64 addr, uint64 page_size, uint8 value)
+{
+   page_handle *page = cache_get(cc, addr, TRUE, PAGE_TYPE_MISC);
+   if (!cache_try_claim(cc, page)) {
+      cache_unget(cc, page);
+      return STATUS_BUSY;
+   }
+
+   cache_lock(cc, page);
+   memset(page->data, value, page_size);
+   cache_unlock(cc, page);
+   cache_unclaim(cc, page);
+   cache_unget(cc, page);
+   return STATUS_OK;
+}
+
+static platform_status
+cache_test_verify_disk_page(cache *cc,
+                            uint64 addr,
+                            uint64 page_size,
+                            uint8  expected)
+{
+   clockcache   *clock = (clockcache *)cc;
+   buffer_handle buffer;
+   platform_status rc  = platform_buffer_init(&buffer, page_size);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = io_read(clock->io, platform_buffer_getaddr(&buffer), page_size, addr);
+   if (SUCCESS(rc)) {
+      const uint8 *bytes = platform_buffer_getaddr(&buffer);
+      for (uint64 i = 0; i < page_size; i++) {
+         if (bytes[i] != expected) {
+            platform_error_log("cache_test: unexpected byte at addr=%lu "
+                               "offset=%lu: got=%u expected=%u\n",
+                               addr,
+                               i,
+                               bytes[i],
+                               expected);
+            rc = STATUS_TEST_FAILED;
+            break;
+         }
+      }
+   }
+
+   platform_status deinit_rc = platform_buffer_deinit(&buffer);
+   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
+      rc = deinit_rc;
+   }
+   return rc;
+}
+
+/*
+ * Corrupt one full raw-I/O page and make that corruption durable.  The
+ * allocator clean-state records are intentionally outside the cache, so this
+ * lets the bootstrap test exercise A/B fallback without test-only allocator
+ * hooks.
+ */
+static platform_status
+cache_test_zero_disk_page(io_handle *io, uint64 addr, uint64 page_size)
+{
+   buffer_handle   buffer;
+   platform_status rc = platform_buffer_init(&buffer, page_size);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   void *page = platform_buffer_getaddr(&buffer);
+   memset(page, 0, page_size);
+   rc = io_write(io, page, page_size, addr);
+   if (SUCCESS(rc)) {
+      rc = io_durable_barrier(io);
+   }
+
+   platform_status deinit_rc = platform_buffer_deinit(&buffer);
+   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
+      rc = deinit_rc;
+   }
+   return rc;
+}
+
+/*
+ * The recovery allocator must bootstrap only the extents it owns itself, then
+ * let recovery walkers rebuild all other ownership.  In particular, it must
+ * not trust a refcount table persisted by an earlier clean shutdown.
+ */
+static platform_status
+test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
+                                     io_handle         *io,
+                                     platform_heap_id   hid)
+{
+   const allocator_root_id root_id = 1;
+   uint64                  refcount_buffer_size =
+      ROUNDUP(cfg->extent_capacity * sizeof(refcount), cfg->io_cfg->page_size);
+   uint64 refcount_extent_count =
+      (refcount_buffer_size + cfg->io_cfg->extent_size - 1)
+      / cfg->io_cfg->extent_size;
+   uint64 reserved_extent_count = 1 + refcount_extent_count + 2;
+   uint64 old_clean_state_addr =
+      (1 + refcount_extent_count + 1) * cfg->io_cfg->extent_size;
+   uint64 super_addr             = 0;
+   uint64 stale_extent_addr      = 0;
+   platform_status rc            = STATUS_OK;
+   rc_allocator   original, recovery, remounted;
+   bool32         original_live = FALSE;
+   bool32         recovery_live = FALSE;
+   bool32         remounted_live = FALSE;
+
+   ZERO_CONTENTS(&original);
+   ZERO_CONTENTS(&recovery);
+   ZERO_CONTENTS(&remounted);
+   platform_default_log("cache_test: allocator recovery bootstrap test started\n");
+
+   rc = rc_allocator_init(
+      &original, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   original_live = TRUE;
+
+   rc = allocator_alloc_super_addr(
+      (allocator *)&original, root_id, &super_addr);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = allocator_alloc(
+      (allocator *)&original, &stale_extent_addr, PAGE_TYPE_MISC);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   /* Persist a non-reserved extent that the recovery mount must ignore. */
+   rc_allocator_unmount(&original);
+   original_live = FALSE;
+
+   /*
+    * New allocator initialization writes false records with sequences 1 and
+    * 2.  The first clean close writes the true record into slot 0 (sequence
+    * 3), making slot 1 the older false record.  Destroying that older slot
+    * must not prevent a normal mount from trusting the surviving true slot.
+    */
+   rc = cache_test_zero_disk_page(
+      io, old_clean_state_addr, cfg->io_cfg->page_size);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   rc = rc_allocator_mount(
+      &remounted, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      platform_error_log("cache_test: normal mount did not fall back to its "
+                         "surviving clean-state record\n");
+      goto cleanup;
+   }
+   remounted_live = TRUE;
+   if (allocator_get_refcount((allocator *)&remounted, stale_extent_addr)
+       != AL_ONE_REF)
+   {
+      platform_error_log("cache_test: normal mount did not load the clean "
+                         "refcount map\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   /* Simulate a crash after normal mount durably marked the allocator dirty. */
+   rc_allocator_deinit(&remounted);
+   remounted_live = FALSE;
+
+   rc = rc_allocator_mount(
+      &remounted, cfg, io, hid, platform_get_module_id());
+   if (rc.r != STATUS_INVALID_STATE.r) {
+      platform_error_log("cache_test: normal mount trusted an allocator after "
+                         "a simulated mounted crash\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = STATUS_OK;
+
+   rc = rc_allocator_mount_recovery(
+      &recovery, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   recovery_live = TRUE;
+
+   uint64 mounted_super_addr = 0;
+   rc = allocator_get_super_addr(
+      (allocator *)&recovery, root_id, &mounted_super_addr);
+   if (!SUCCESS(rc) || mounted_super_addr != super_addr) {
+      platform_error_log("cache_test: recovery lost a persisted superblock "
+                         "mapping\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   if (allocator_in_use((allocator *)&recovery) != reserved_extent_count) {
+      platform_error_log("cache_test: recovery expected %lu reserved extents, "
+                         "found %lu\n",
+                         reserved_extent_count,
+                         allocator_in_use((allocator *)&recovery));
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++)
+   {
+      uint64 extent_addr = extent_no * cfg->io_cfg->extent_size;
+      if (allocator_get_refcount((allocator *)&recovery, extent_addr)
+          != AL_ONE_REF)
+      {
+         platform_error_log("cache_test: recovery did not reserve extent %lu\n",
+                            extent_no);
+         rc = STATUS_TEST_FAILED;
+         goto cleanup;
+      }
+   }
+   if (allocator_get_refcount((allocator *)&recovery, stale_extent_addr)
+       != AL_FREE)
+   {
+      platform_error_log("cache_test: recovery reused a persisted data "
+                         "refcount\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   rc = rc_allocator_rebuild_acquire_extent(&recovery, stale_extent_addr);
+   if (!SUCCESS(rc)
+       || allocator_get_refcount((allocator *)&recovery, stale_extent_addr)
+             != AL_ONE_REF)
+   {
+      platform_error_log("cache_test: first rebuilt extent reference was "
+                         "incorrect\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   /*
+    * Abort never persists a partial rebuild and leaves the allocator marked
+    * unclean, so a normal mount must refuse to trust the old refcount map.
+    */
+   rc_allocator_abort_recovery(&recovery);
+   recovery_live = FALSE;
+
+   rc = rc_allocator_mount(
+      &remounted, cfg, io, hid, platform_get_module_id());
+   if (rc.r != STATUS_INVALID_STATE.r) {
+      platform_error_log("cache_test: normal mount trusted an unclean "
+                         "allocator map\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = STATUS_OK;
+
+   rc = rc_allocator_mount_recovery(
+      &recovery, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   recovery_live = TRUE;
+
+   rc = rc_allocator_rebuild_acquire_extent(&recovery, stale_extent_addr);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = rc_allocator_rebuild_acquire_extent(&recovery, stale_extent_addr);
+   if (!SUCCESS(rc)
+       || allocator_get_refcount((allocator *)&recovery, stale_extent_addr)
+             != AL_ONE_REF + 1)
+   {
+      platform_error_log("cache_test: rebuilt extent reference did not "
+                         "increment\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc_allocator_rebuild_finish(&recovery);
+   rc_allocator_unmount(&recovery);
+   recovery_live = FALSE;
+
+   rc = rc_allocator_mount(
+      &remounted, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   remounted_live = TRUE;
+   if (allocator_get_refcount((allocator *)&remounted, stale_extent_addr)
+       != AL_ONE_REF + 1)
+   {
+      platform_error_log("cache_test: finished recovery was not persisted by "
+                         "clean unmount\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+cleanup:
+   if (remounted_live) {
+      rc_allocator_deinit(&remounted);
+   }
+   if (recovery_live) {
+      if (recovery.recovery_in_progress) {
+         rc_allocator_abort_recovery(&recovery);
+      } else {
+         rc_allocator_deinit(&recovery);
+      }
+   }
+   if (original_live) {
+      rc_allocator_deinit(&original);
+   }
+
+   if (SUCCESS(rc)) {
+      platform_default_log("cache_test: allocator recovery bootstrap test "
+                           "passed\n");
+   }
+   return rc;
+}
+
+typedef struct {
+   cache          *cc;
+   volatile bool32 finished;
+   platform_status status;
+} cache_fence_test_context;
+
+/* Mirrors clockcache's private CC_WRITEBACK_REQUESTED status bit. */
+#define CACHE_TEST_WRITEBACK_REQUESTED (1u << 7)
+
+static void
+cache_test_writeback_fence_thread(void *arg)
+{
+   cache_fence_test_context *ctxt = (cache_fence_test_context *)arg;
+   ctxt->status = cache_writeback_fence(ctxt->cc);
+   __atomic_store_n(&ctxt->finished, TRUE, __ATOMIC_RELEASE);
+}
+
+/*
+ * Verify that a fence drains an already-dirty page without waiting for a page
+ * dirtied after its cut. Keeping old_page write-locked forces the fence to
+ * remain in progress long enough to deterministically dirty new_page after
+ * the dirty-generation rotation.
+ */
+static platform_status
+test_cache_writeback_fence(cache             *cc,
+                           clockcache_config *cfg,
+                           platform_heap_id   hid)
+{
+   platform_status          rc = STATUS_OK;
+   uint64                   pages_per_extent =
+      cache_config_pages_per_extent(&cfg->super);
+   uint64                  *addr_arr = NULL;
+   page_handle             *old_page = NULL;
+   page_handle             *new_page = NULL;
+   bool32                   old_claimed = FALSE, old_locked = FALSE;
+   bool32                   new_claimed = FALSE, new_locked = FALSE;
+   bool32                   fence_thread_started = FALSE;
+   const uint8              old_baseline = 0x11, old_value = 0x22;
+   const uint8              new_baseline = 0x33, new_value = 0x44;
+   cache_fence_test_context fence_ctxt = {
+      .cc = cc, .finished = FALSE, .status = STATUS_OK};
+   platform_thread          fence_thread;
+
+   platform_default_log("cache_test: writeback fence test started\n");
+   platform_assert(cfg->page_capacity >= 2 * pages_per_extent);
+
+   addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, 2 * pages_per_extent);
+   if (addr_arr == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
+   }
+
+   rc = cache_test_alloc_extents(cc, cfg, addr_arr, 2);
+   if (!SUCCESS(rc)) {
+      platform_free(hid, addr_arr);
+      addr_arr = NULL;
+      goto cleanup;
+   }
+
+   rc = cache_test_fill_page(
+      cc, addr_arr[0], cache_config_page_size(&cfg->super), old_baseline);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = cache_test_fill_page(cc,
+                             addr_arr[pages_per_extent],
+                             cache_config_page_size(&cfg->super),
+                             new_baseline);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   cache_flush(cc);
+
+   old_page = cache_get(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
+   if (!cache_try_claim(cc, old_page)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   old_claimed = TRUE;
+   cache_lock(cc, old_page);
+   old_locked = TRUE;
+   memset(old_page->data,
+          old_value,
+          cache_config_page_size(&cfg->super));
+   cache_mark_dirty(cc, old_page);
+
+   clockcache *clock = (clockcache *)cc;
+   uint64 initial_generation =
+      __atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE);
+   rc = platform_thread_create(&fence_thread,
+                               FALSE,
+                               cache_test_writeback_fence_thread,
+                               &fence_ctxt,
+                               hid);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   fence_thread_started = TRUE;
+
+   timestamp wait_start = platform_get_timestamp();
+   while (__atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE)
+          == initial_generation)
+   {
+      if (platform_timestamp_elapsed(wait_start) > SEC_TO_NSEC(5)) {
+         platform_error_log("cache_test: writeback fence did not take a cut\n");
+         rc = STATUS_TIMEDOUT;
+         goto cleanup;
+      }
+      platform_sleep_ns(1000);
+   }
+
+   new_page = cache_get(
+      cc, addr_arr[pages_per_extent], TRUE, PAGE_TYPE_MISC);
+   if (!cache_try_claim(cc, new_page)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   new_claimed = TRUE;
+   cache_lock(cc, new_page);
+   new_locked = TRUE;
+   memset(new_page->data,
+          new_value,
+          cache_config_page_size(&cfg->super));
+   cache_mark_dirty(cc, new_page);
+   cache_unlock(cc, new_page);
+   new_locked = FALSE;
+   cache_unclaim(cc, new_page);
+   new_claimed = FALSE;
+   cache_unget(cc, new_page);
+   new_page = NULL;
+
+   if (__atomic_load_n(&fence_ctxt.finished, __ATOMIC_ACQUIRE)) {
+      platform_error_log("cache_test: fence completed while old page was locked\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+cleanup:
+   if (new_locked) {
+      cache_unlock(cc, new_page);
+   }
+   if (new_claimed) {
+      cache_unclaim(cc, new_page);
+   }
+   if (new_page != NULL) {
+      cache_unget(cc, new_page);
+   }
+   if (old_locked) {
+      cache_unlock(cc, old_page);
+   }
+   if (old_claimed) {
+      cache_unclaim(cc, old_page);
+   }
+   if (old_page != NULL) {
+      cache_unget(cc, old_page);
+   }
+   if (fence_thread_started) {
+      platform_status join_rc = platform_thread_join(&fence_thread);
+      if (!SUCCESS(join_rc) && SUCCESS(rc)) {
+         rc = join_rc;
+      }
+      if (!SUCCESS(fence_ctxt.status) && SUCCESS(rc)) {
+         rc = fence_ctxt.status;
+      }
+   }
+
+   if (SUCCESS(rc)) {
+      uint32 dirty_count = cache_count_dirty(cc);
+      if (dirty_count != 1) {
+         platform_error_log("cache_test: expected one post-cut dirty page, "
+                            "found %u\n",
+                            dirty_count);
+         rc = STATUS_TEST_FAILED;
+      }
+   }
+   if (SUCCESS(rc)) {
+      rc = cache_durable_barrier(cc);
+   }
+   if (SUCCESS(rc)) {
+      rc = cache_test_verify_disk_page(cc,
+                                       addr_arr[0],
+                                       cache_config_page_size(&cfg->super),
+                                       old_value);
+   }
+   if (SUCCESS(rc)) {
+      /* The post-cut page remains dirty, so its baseline must still be disk. */
+      rc = cache_test_verify_disk_page(cc,
+                                       addr_arr[pages_per_extent],
+                                       cache_config_page_size(&cfg->super),
+                                       new_baseline);
+   }
+
+   if (addr_arr != NULL) {
+      cache_flush(cc);
+      for (uint32 i = 0; i < 2; i++) {
+         uint64     addr = addr_arr[i * pages_per_extent];
+         allocator *al   = cache_get_allocator(cc);
+         refcount   ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+         platform_assert(ref == AL_NO_REFS);
+         cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
+         ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+         platform_assert(ref == AL_FREE);
+      }
+      platform_free(hid, addr_arr);
+   }
+
+   if (SUCCESS(rc)) {
+      platform_default_log("cache_test: writeback fence test passed\n");
+   } else {
+      platform_default_log("cache_test: writeback fence test failed\n");
+   }
+   return rc;
+}
+
+/*
+ * A fence must allow an already-claimed writer to finish its selected dirty
+ * interval, but it must not complete before that writer releases the claim.
+ */
+static platform_status
+test_cache_writeback_fence_claimed_page(cache             *cc,
+                                        clockcache_config *cfg,
+                                        platform_heap_id   hid)
+{
+   platform_status          rc = STATUS_OK;
+   uint64                   pages_per_extent =
+      cache_config_pages_per_extent(&cfg->super);
+   uint64                  *addr_arr = NULL;
+   page_handle             *page = NULL;
+   bool32                   claimed = FALSE, locked = FALSE;
+   bool32                   fence_thread_started = FALSE;
+   const uint8              baseline = 0x55, final_value = 0x66;
+   cache_fence_test_context fence_ctxt = {
+      .cc = cc, .finished = FALSE, .status = STATUS_OK};
+   platform_thread          fence_thread;
+
+   platform_default_log("cache_test: claimed-page fence test started\n");
+
+   addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_per_extent);
+   if (addr_arr == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto cleanup;
+   }
+
+   rc = cache_test_alloc_extents(cc, cfg, addr_arr, 1);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = cache_test_fill_page(
+      cc, addr_arr[0], cache_config_page_size(&cfg->super), baseline);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   cache_flush(cc);
+
+   page = cache_get(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
+   if (!cache_try_claim(cc, page)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   claimed = TRUE;
+   cache_lock(cc, page);
+   locked = TRUE;
+   memset(page->data, final_value, cache_config_page_size(&cfg->super));
+   cache_unlock(cc, page);
+   locked = FALSE;
+
+   clockcache *clock = (clockcache *)cc;
+   uint64 initial_generation =
+      __atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE);
+   rc = platform_thread_create(&fence_thread,
+                               FALSE,
+                               cache_test_writeback_fence_thread,
+                               &fence_ctxt,
+                               hid);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   fence_thread_started = TRUE;
+
+   uint64 entry_no =
+      clock->lookup[addr_arr[0] >> clock->cfg->log_page_size];
+   platform_assert(entry_no < clock->cfg->page_capacity);
+   timestamp wait_start = platform_get_timestamp();
+   while ((__atomic_load_n(&clock->dirty_generation, __ATOMIC_ACQUIRE)
+           == initial_generation)
+          || !(__atomic_load_n(&clock->entry[entry_no].status,
+                                __ATOMIC_ACQUIRE)
+               & CACHE_TEST_WRITEBACK_REQUESTED))
+   {
+      if (platform_timestamp_elapsed(wait_start) > SEC_TO_NSEC(5)) {
+         platform_error_log("cache_test: fence did not request claimed page\n");
+         rc = STATUS_TIMEDOUT;
+         goto cleanup;
+      }
+      platform_sleep_ns(1000);
+   }
+
+   if (__atomic_load_n(&fence_ctxt.finished, __ATOMIC_ACQUIRE)) {
+      platform_error_log("cache_test: fence completed while page was claimed\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   /* This claim predates the request, so it is permitted to finish. */
+   cache_lock(cc, page);
+   locked = TRUE;
+   memset(page->data, final_value, cache_config_page_size(&cfg->super));
+   cache_unlock(cc, page);
+   locked = FALSE;
+   cache_unclaim(cc, page);
+   claimed = FALSE;
+   cache_unget(cc, page);
+   page = NULL;
+
+cleanup:
+   if (locked) {
+      cache_unlock(cc, page);
+   }
+   if (claimed) {
+      cache_unclaim(cc, page);
+   }
+   if (page != NULL) {
+      cache_unget(cc, page);
+   }
+   if (fence_thread_started) {
+      platform_status join_rc = platform_thread_join(&fence_thread);
+      if (!SUCCESS(join_rc) && SUCCESS(rc)) {
+         rc = join_rc;
+      }
+      if (!SUCCESS(fence_ctxt.status) && SUCCESS(rc)) {
+         rc = fence_ctxt.status;
+      }
+   }
+
+   if (SUCCESS(rc) && cache_count_dirty(cc) != 0) {
+      platform_error_log("cache_test: claimed-page fence left dirty pages\n");
+      rc = STATUS_TEST_FAILED;
+   }
+   if (SUCCESS(rc)) {
+      rc = cache_durable_barrier(cc);
+   }
+   if (SUCCESS(rc)) {
+      rc = cache_test_verify_disk_page(cc,
+                                       addr_arr[0],
+                                       cache_config_page_size(&cfg->super),
+                                       final_value);
+   }
+
+   if (addr_arr != NULL) {
+      cache_flush(cc);
+      allocator *al = cache_get_allocator(cc);
+      refcount ref = allocator_dec_ref(al, addr_arr[0], PAGE_TYPE_MISC);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(cc, addr_arr[0], PAGE_TYPE_MISC);
+      ref = allocator_dec_ref(al, addr_arr[0], PAGE_TYPE_MISC);
+      platform_assert(ref == AL_FREE);
+      platform_free(hid, addr_arr);
+   }
+
+   if (SUCCESS(rc)) {
+      platform_default_log("cache_test: claimed-page fence test passed\n");
+   } else {
+      platform_default_log("cache_test: claimed-page fence test failed\n");
+   }
+   return rc;
+}
+
 platform_status
 test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 {
@@ -97,6 +779,16 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    platform_status rc       = STATUS_OK;
    page_handle   **page_arr = NULL;
    uint64         *addr_arr = NULL;
+
+   rc = test_cache_writeback_fence(cc, cfg, hid);
+   if (!SUCCESS(rc)) {
+      goto exit;
+   }
+
+   rc = test_cache_writeback_fence_claimed_page(cc, cfg, hid);
+   if (!SUCCESS(rc)) {
+      goto exit;
+   }
 
    /* allocate twice as many pages as the cache capacity */
    uint64 pages_per_extent    = cache_config_pages_per_extent(&cfg->super);
@@ -975,6 +1667,12 @@ cache_test(int argc, char *argv[])
       platform_error_log("Failed to create IO handle\n");
       rc = STATUS_NO_MEMORY;
       goto cleanup;
+   }
+
+   rc = test_rc_allocator_recovery_bootstrap(
+      &system_cfg.allocator_cfg, io, hid);
+   if (!SUCCESS(rc)) {
+      goto destroy_iohandle;
    }
 
    rc = test_init_task_system(&ts, hid, &system_cfg.task_cfg);

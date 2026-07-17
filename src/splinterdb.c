@@ -498,7 +498,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 deinit_cache:
    clockcache_deinit(&kvs->cache_handle);
 deinit_allocator:
-   rc_allocator_unmount(&kvs->allocator_handle);
+   /* Initialization/open failed before a successful clean core shutdown. */
+   rc_allocator_deinit(&kvs->allocator_handle);
 deinit_system:
    task_system_deinit(&kvs->task_sys);
 deinit_iohandle:
@@ -578,7 +579,13 @@ splinterdb_close(splinterdb **kvs_in) // IN
    }
    io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
-   rc_allocator_unmount(&kvs->allocator_handle);
+   if (SUCCESS(status)) {
+      /* This writes the map and only then publishes allocator clean state. */
+      rc_allocator_unmount(&kvs->allocator_handle);
+   } else {
+      /* Keep the durable clean marker cleared; the next open must rebuild. */
+      rc_allocator_deinit(&kvs->allocator_handle);
+   }
    task_system_deinit(&kvs->task_sys);
    io_handle_destroy(kvs->io_handle);
 

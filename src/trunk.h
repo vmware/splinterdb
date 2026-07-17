@@ -174,6 +174,15 @@ typedef struct trunk_context {
    incorporation_tasks    tasks;
 } trunk_context;
 
+/*
+ * An owned, point-in-time reference to a COW trunk root. The reference keeps
+ * the root (and therefore its reachable subtree) alive until it is either
+ * released or transferred to a durable checkpoint record.
+ */
+typedef struct trunk_snapshot {
+   uint64 root_addr;
+} trunk_snapshot;
+
 typedef struct trunk_ondisk_node_handle {
    cache       *cc;
    page_handle *header_page;
@@ -222,6 +231,14 @@ trunk_context_deinit(trunk_context *context);
 /* Create a writable snapshot of a trunk */
 platform_status
 trunk_context_clone(trunk_context *dst, trunk_context *src);
+
+/* Capture an owned reference to the current COW root without reading it. */
+platform_status
+trunk_snapshot_acquire(trunk_context *context, trunk_snapshot *snapshot);
+
+/* Drop an owned snapshot reference that was not published. */
+platform_status
+trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot);
 
 /* Make a trunk durable */
 platform_status

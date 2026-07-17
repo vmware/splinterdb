@@ -2541,6 +2541,46 @@ trunk_read_end(trunk_context *context)
    batch_rwlock_unget(&context->root_lock, 0);
 }
 
+/*
+ * Capture the root address and acquire its allocator reference while the root
+ * lock prevents COW publication from dropping the live reference. This is
+ * deliberately metadata-only: checkpointing must not fault the root page just
+ * to take a snapshot.
+ */
+platform_status
+trunk_snapshot_acquire(trunk_context *context, trunk_snapshot *snapshot)
+{
+   snapshot->root_addr = 0;
+
+   trunk_read_begin(context);
+   if (context->root != NULL) {
+      snapshot->root_addr = context->root->ref.addr;
+      trunk_inc_ref(context->al, snapshot->root_addr);
+   }
+   trunk_read_end(context);
+
+   return STATUS_OK;
+}
+
+platform_status
+trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot)
+{
+   if (snapshot->root_addr == 0) {
+      return STATUS_OK;
+   }
+
+   platform_status rc = trunk_dec_ref(context->cfg,
+                                      context->hid,
+                                      context->cc,
+                                      context->al,
+                                      context->ts,
+                                      snapshot->root_addr);
+   if (SUCCESS(rc)) {
+      snapshot->root_addr = 0;
+   }
+   return rc;
+}
+
 platform_status
 trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
 {
@@ -6814,8 +6854,11 @@ trunk_context_clone(trunk_context *dst, trunk_context *src)
 platform_status
 trunk_make_durable(trunk_context *context)
 {
-   cache_flush(context->cc);
-   return STATUS_OK;
+   platform_status rc = cache_writeback_fence(context->cc);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return cache_durable_barrier(context->cc);
 }
 
 /************************************

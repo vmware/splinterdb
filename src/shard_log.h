@@ -46,6 +46,8 @@ typedef struct shard_log {
    uint64                addr;
    uint64                meta_head;
    uint64                magic;
+   /* Set once any log page has been allocated; survives sealing. */
+   bool32                has_pages;
 } shard_log;
 
 typedef struct log_entry log_entry;
@@ -76,8 +78,22 @@ typedef struct ONDISK shard_log_hdr {
 platform_status
 shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg);
 
+platform_status
+shard_log_rotate(log_handle       *log,
+                 log_segment_info *sealed,
+                 log_segment_info *fresh);
+
 void
 shard_log_zap(shard_log *log);
+
+/*
+ * Drop the external mini-allocator ownership transferred to a detached
+ * segment. It is for failed rotation cleanup and tests; persisted segment
+ * descriptors will eventually own and release this reference instead.
+ */
+void
+shard_log_segment_discard(cache                  *cc,
+                          const log_segment_info *segment);
 
 platform_status
 shard_log_iterator_init(cache              *cc,
@@ -89,6 +105,15 @@ shard_log_iterator_init(cache              *cc,
 
 void
 shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor);
+
+/*
+ * Return the generation metadata of the current record.  The caller must
+ * first establish that the iterator has a current record.
+ */
+void
+shard_log_iterator_curr_generations(shard_log_iterator *itor,
+                                    uint64             *memtable_generation,
+                                    uint64             *leaf_generation);
 
 void
 shard_log_config_init(shard_log_config *log_cfg,

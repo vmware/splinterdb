@@ -17,7 +17,15 @@
 #include "platform_typed_alloc.h"
 #include "poison.h"
 
-#define RC_ALLOCATOR_META_PAGE_CSUM_SEED (2718281828)
+#define RC_ALLOCATOR_META_PAGE_CSUM_SEED   (2718281828)
+#define RC_ALLOCATOR_CLEAN_STATE_CSUM_SEED (2718281829)
+
+#define RC_ALLOCATOR_FORMAT_MAGIC   (0x534442414C4C4F43ULL) // SDBALLOC
+#define RC_ALLOCATOR_FORMAT_VERSION (1)
+
+#define RC_ALLOCATOR_CLEAN_STATE_MAGIC   (0x534442434C45414EULL) // SDBCLEAN
+#define RC_ALLOCATOR_CLEAN_STATE_VERSION (1)
+#define RC_ALLOCATOR_CLEAN_STATE_SLOTS   (2)
 
 /*
  * Base offset from where the allocator starts. Currently hard coded to 0.
@@ -34,6 +42,28 @@
  * 339
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
+
+/*
+ * A/B clean-state records live in two fixed extents after the refcount map.
+ * They are deliberately separate from the sole allocator bootstrap page: a
+ * torn state update must leave an older valid state record available for the
+ * next mount or rebuild.
+ */
+typedef struct ONDISK rc_allocator_clean_state {
+   uint64      magic;
+   uint64      format_version;
+   uint64      sequence;
+   bool32      clean_shutdown;
+   checksum128 checksum;
+} rc_allocator_clean_state;
+
+typedef struct rc_allocator_clean_states {
+   rc_allocator_clean_state state[RC_ALLOCATOR_CLEAN_STATE_SLOTS];
+   bool32                   valid[RC_ALLOCATOR_CLEAN_STATE_SLOTS];
+   bool32                   have_newest;
+   uint64                   newest_slot;
+   bool32                   duplicate_sequence;
+} rc_allocator_clean_states;
 
 /*
  *------------------------------------------------------------------------------
@@ -231,6 +261,16 @@ rc_allocator_meta_page_checksum(const rc_allocator_meta_page *meta_page)
                                RC_ALLOCATOR_META_PAGE_CSUM_SEED);
 }
 
+static platform_status
+rc_allocator_write_meta_page(rc_allocator *al)
+{
+   al->meta_page->checksum = rc_allocator_meta_page_checksum(al->meta_page);
+   return io_write(al->io,
+                   al->meta_page,
+                   al->cfg->io_cfg->page_size,
+                   RC_ALLOCATOR_BASE_OFFSET);
+}
+
 static disk_geometry
 rc_allocator_config_get_disk_geometry(allocator_config *cfg)
 {
@@ -239,6 +279,260 @@ rc_allocator_config_get_disk_geometry(allocator_config *cfg)
       .page_size   = cfg->io_cfg->page_size,
       .extent_size = cfg->io_cfg->extent_size,
    };
+}
+
+static uint64
+rc_allocator_refcount_buffer_size(const allocator_config *cfg)
+{
+   uint64 buffer_size = cfg->extent_capacity * sizeof(refcount);
+   return ROUNDUP(buffer_size, cfg->io_cfg->page_size);
+}
+
+static uint64
+rc_allocator_refcount_extent_count(const allocator_config *cfg)
+{
+   uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
+   return (buffer_size + cfg->io_cfg->extent_size - 1)
+          / cfg->io_cfg->extent_size;
+}
+
+static uint64
+rc_allocator_clean_state_extent_no(const allocator_config *cfg, uint64 slot)
+{
+   platform_assert(slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS);
+   return 1 + rc_allocator_refcount_extent_count(cfg) + slot;
+}
+
+static uint64
+rc_allocator_clean_state_addr(const allocator_config *cfg, uint64 slot)
+{
+   return rc_allocator_clean_state_extent_no(cfg, slot)
+          * cfg->io_cfg->extent_size;
+}
+
+static uint64
+rc_allocator_reserved_extent_count(const allocator_config *cfg)
+{
+   return 1 + rc_allocator_refcount_extent_count(cfg)
+          + RC_ALLOCATOR_CLEAN_STATE_SLOTS;
+}
+
+static checksum128
+rc_allocator_clean_state_checksum(const rc_allocator_clean_state *state)
+{
+   return platform_checksum128(state,
+                               offsetof(rc_allocator_clean_state, checksum),
+                               RC_ALLOCATOR_CLEAN_STATE_CSUM_SEED);
+}
+
+static bool32
+rc_allocator_clean_state_is_valid(const rc_allocator_clean_state *state)
+{
+   return state->magic == RC_ALLOCATOR_CLEAN_STATE_MAGIC
+          && state->format_version == RC_ALLOCATOR_CLEAN_STATE_VERSION
+          && state->sequence != 0
+          && (state->clean_shutdown == FALSE || state->clean_shutdown == TRUE)
+          && platform_checksum_is_equal(
+             state->checksum, rc_allocator_clean_state_checksum(state));
+}
+
+static platform_status
+rc_allocator_read_clean_state(rc_allocator             *al,
+                              uint64                    slot,
+                              rc_allocator_clean_state *state,
+                              bool32                   *valid)
+{
+   platform_assert(slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS);
+   platform_assert(sizeof(*state) <= al->cfg->io_cfg->page_size);
+
+   buffer_handle   buffer;
+   platform_status rc =
+      platform_buffer_init(&buffer, al->cfg->io_cfg->page_size);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   void *page = platform_buffer_getaddr(&buffer);
+   rc = io_read(al->io,
+                page,
+                al->cfg->io_cfg->page_size,
+                rc_allocator_clean_state_addr(al->cfg, slot));
+   if (SUCCESS(rc)) {
+      memcpy(state, page, sizeof(*state));
+      *valid = rc_allocator_clean_state_is_valid(state);
+   }
+
+   platform_status deinit_rc = platform_buffer_deinit(&buffer);
+   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
+      rc = deinit_rc;
+   }
+   return rc;
+}
+
+static platform_status
+rc_allocator_write_clean_state(rc_allocator                   *al,
+                               uint64                          slot,
+                               const rc_allocator_clean_state *state,
+                               bool32                          durable)
+{
+   platform_assert(slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS);
+   platform_assert(sizeof(*state) <= al->cfg->io_cfg->page_size);
+
+   buffer_handle   buffer;
+   platform_status rc =
+      platform_buffer_init(&buffer, al->cfg->io_cfg->page_size);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   void *page = platform_buffer_getaddr(&buffer);
+   memset(page, 0, al->cfg->io_cfg->page_size);
+   memcpy(page, state, sizeof(*state));
+   rc = io_write(al->io,
+                 page,
+                 al->cfg->io_cfg->page_size,
+                 rc_allocator_clean_state_addr(al->cfg, slot));
+   if (SUCCESS(rc) && durable) {
+      rc = io_durable_barrier(al->io);
+   }
+
+   platform_status deinit_rc = platform_buffer_deinit(&buffer);
+   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
+      rc = deinit_rc;
+   }
+   return rc;
+}
+
+static platform_status
+rc_allocator_load_clean_states(rc_allocator              *al,
+                               rc_allocator_clean_states *states)
+{
+   ZERO_CONTENTS(states);
+   for (uint64 slot = 0; slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS; slot++) {
+      platform_status rc = rc_allocator_read_clean_state(
+         al, slot, &states->state[slot], &states->valid[slot]);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+
+      if (!states->valid[slot]) {
+         continue;
+      }
+      if (!states->have_newest
+          || states->state[states->newest_slot].sequence
+                < states->state[slot].sequence)
+      {
+         states->have_newest = TRUE;
+         states->newest_slot = slot;
+      } else if (states->state[states->newest_slot].sequence
+                 == states->state[slot].sequence)
+      {
+         states->duplicate_sequence = TRUE;
+      }
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+rc_allocator_publish_clean_state(rc_allocator *al, bool32 clean_shutdown)
+{
+   rc_allocator_clean_states states;
+   platform_status rc = rc_allocator_load_clean_states(al, &states);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (states.have_newest
+       && states.state[states.newest_slot].sequence == UINT64_MAX)
+   {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   uint64 target_slot = states.have_newest ? states.newest_slot ^ 1 : 0;
+   rc_allocator_clean_state state;
+   ZERO_CONTENTS(&state);
+   state.magic          = RC_ALLOCATOR_CLEAN_STATE_MAGIC;
+   state.format_version = RC_ALLOCATOR_CLEAN_STATE_VERSION;
+   state.sequence = states.have_newest
+                       ? states.state[states.newest_slot].sequence + 1
+                       : 1;
+   state.clean_shutdown = clean_shutdown;
+   state.checksum       = rc_allocator_clean_state_checksum(&state);
+   return rc_allocator_write_clean_state(al, target_slot, &state, TRUE);
+}
+
+static platform_status
+rc_allocator_initialize_clean_states(rc_allocator *al)
+{
+   for (uint64 slot = 0; slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS; slot++) {
+      rc_allocator_clean_state state;
+      ZERO_CONTENTS(&state);
+      state.magic          = RC_ALLOCATOR_CLEAN_STATE_MAGIC;
+      state.format_version = RC_ALLOCATOR_CLEAN_STATE_VERSION;
+      state.sequence       = slot + 1;
+      state.clean_shutdown = FALSE;
+      state.checksum       = rc_allocator_clean_state_checksum(&state);
+
+      platform_status rc =
+         rc_allocator_write_clean_state(al, slot, &state, FALSE);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return io_durable_barrier(al->io);
+}
+
+static void
+rc_allocator_record_allocated_extent(rc_allocator *al)
+{
+   int64 curr_allocated = __sync_add_and_fetch(&al->stats.curr_allocated, 1);
+   int64 max_allocated  = al->stats.max_allocated;
+   while (curr_allocated > max_allocated) {
+      __sync_bool_compare_and_swap(
+         &al->stats.max_allocated, max_allocated, curr_allocated);
+      max_allocated = al->stats.max_allocated;
+   }
+}
+
+static platform_status
+rc_allocator_recovery_initialize_refcounts(rc_allocator *al)
+{
+   uint64 reserved_extent_count = rc_allocator_reserved_extent_count(al->cfg);
+
+   if (reserved_extent_count > al->cfg->extent_capacity) {
+      platform_error_log("Allocator needs %lu reserved extents, but its "
+                         "configured capacity is only %lu extents.\n",
+                         reserved_extent_count,
+                         al->cfg->extent_capacity);
+      return STATUS_BAD_PARAM;
+   }
+
+   memset(al->ref_count,
+          0,
+          rc_allocator_refcount_buffer_size(al->cfg));
+
+   /*
+    * Extent 0 contains both the allocator meta page and every fixed table
+    * superblock.  The refcount table begins at extent 1; the two extents
+    * after it hold alternating clean-state records.
+    */
+   for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++)
+   {
+      platform_assert(al->ref_count[extent_no] == AL_FREE);
+      al->ref_count[extent_no] = AL_ONE_REF;
+      rc_allocator_record_allocated_extent(al);
+   }
+
+   /* Match a regular mount: the first post-recovery allocation scans at 0. */
+   al->hand = 0;
+   return STATUS_OK;
+}
+
+static bool32
+rc_allocator_recovery_extent_is_reserved(const rc_allocator *al,
+                                          uint64              extent_no)
+{
+   return extent_no < rc_allocator_reserved_extent_count(al->cfg);
 }
 
 static platform_status
@@ -309,7 +603,9 @@ rc_allocator_init_meta_page(rc_allocator *al)
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));
-   al->meta_page->geometry = rc_allocator_config_get_disk_geometry(al->cfg);
+   al->meta_page->geometry       = rc_allocator_config_get_disk_geometry(al->cfg);
+   al->meta_page->format_magic   = RC_ALLOCATOR_FORMAT_MAGIC;
+   al->meta_page->format_version = RC_ALLOCATOR_FORMAT_VERSION;
 
    return STATUS_OK;
 }
@@ -341,6 +637,15 @@ rc_allocator_valid_config(allocator_config *cfg)
    if (cfg->extent_capacity == 0) {
       platform_error_log("Configured extent capacity %lu bytes is invalid.\n",
                          cfg->extent_capacity);
+      return STATUS_BAD_PARAM;
+   }
+
+   if (rc_allocator_reserved_extent_count(cfg) > cfg->extent_capacity) {
+      platform_error_log("Configured allocator has %lu extents, but needs %lu "
+                         "reserved extents for metadata, refcounts, and clean "
+                         "state.\n",
+                         cfg->extent_capacity,
+                         rc_allocator_reserved_extent_count(cfg));
       return STATUS_BAD_PARAM;
    }
 
@@ -410,8 +715,7 @@ rc_allocator_init(rc_allocator      *al,
       return rc;
    }
    // To ensure alignment always allocate in multiples of page size.
-   uint64 buffer_size = cfg->extent_capacity * sizeof(refcount);
-   buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
+   uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
    rc                 = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(rc)) {
       platform_mutex_destroy(&al->lock);
@@ -431,14 +735,42 @@ rc_allocator_init(rc_allocator      *al,
     * Allocate room for the ref counts, use same rounded up size used in buffer
     * creation.
     */
-   rc_extent_count = (buffer_size + al->cfg->io_cfg->extent_size - 1)
-                     / al->cfg->io_cfg->extent_size;
+   rc_extent_count = rc_allocator_refcount_extent_count(cfg);
    for (uint64 i = 0; i < rc_extent_count; i++) {
       allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
       platform_assert(addr == cfg->io_cfg->extent_size * (i + 1));
    }
 
+   for (uint64 slot = 0; slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS; slot++) {
+      allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
+      platform_assert(addr == rc_allocator_clean_state_addr(cfg, slot));
+   }
+
+   /*
+    * Persist the immutable bootstrap layout and both initial false state
+    * records before returning a newly created allocator. A crash before a
+    * later clean close therefore enters rebuild recovery rather than trusting
+    * this freshly initialized refcount map.
+    */
+   rc = rc_allocator_initialize_clean_states(al);
+   if (!SUCCESS(rc)) {
+      goto deinit_allocator;
+   }
+   rc = rc_allocator_write_meta_page(al);
+   if (!SUCCESS(rc)) {
+      goto deinit_allocator;
+   }
+   rc = io_durable_barrier(al->io);
+   if (!SUCCESS(rc)) {
+      goto deinit_allocator;
+   }
+
    return STATUS_OK;
+
+deinit_allocator:
+   rc_allocator_deinit(al);
+   ZERO_CONTENTS(al);
+   return rc;
 }
 
 void
@@ -458,12 +790,13 @@ rc_allocator_deinit(rc_allocator *al)
  *      Write the file system to disk
  *----------------------------------------------------------------------
  */
-platform_status
-rc_allocator_mount(rc_allocator      *al,
-                   allocator_config  *cfg,
-                   io_handle         *io,
-                   platform_heap_id   hid,
-                   platform_module_id mid)
+static platform_status
+rc_allocator_mount_internal(rc_allocator      *al,
+                            allocator_config  *cfg,
+                            io_handle         *io,
+                            platform_heap_id   hid,
+                            platform_module_id mid,
+                            bool32             rebuild_refcounts)
 {
    platform_status status;
 
@@ -493,8 +826,7 @@ rc_allocator_mount(rc_allocator      *al,
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 
-   uint64 buffer_size = cfg->extent_capacity * sizeof(refcount);
-   buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
+   uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
    status             = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(status)) {
       platform_free(al->heap_id, al->meta_page);
@@ -508,45 +840,179 @@ rc_allocator_mount(rc_allocator      *al,
    status = io_read(
       io, al->meta_page, al->cfg->io_cfg->page_size, RC_ALLOCATOR_BASE_OFFSET);
    if (!SUCCESS(status)) {
-      platform_free(al->heap_id, al->meta_page);
-      platform_buffer_deinit(&al->bh);
-      platform_mutex_destroy(&al->lock);
-      return status;
+      goto deinit_buffer;
    }
 
    status = rc_allocator_validate_disk_geometry(al);
    if (!SUCCESS(status)) {
-      platform_free(al->heap_id, al->meta_page);
-      platform_buffer_deinit(&al->bh);
-      platform_mutex_destroy(&al->lock);
-      return status;
+      goto deinit_buffer;
    }
 
    // validate the checksum of the meta page.
    checksum128 currChecksum = rc_allocator_meta_page_checksum(al->meta_page);
    if (!platform_checksum_is_equal(al->meta_page->checksum, currChecksum)) {
       platform_error_log("Corrupt SplinterDB allocator meta page on mount\n");
-      platform_free(al->heap_id, al->meta_page);
-      platform_buffer_deinit(&al->bh);
-      platform_mutex_destroy(&al->lock);
-      return STATUS_BAD_PARAM;
+      status = STATUS_BAD_PARAM;
+      goto deinit_buffer;
    }
 
-   // load the ref counts from disk.
-   status = io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
-   if (!SUCCESS(status)) {
-      platform_free(al->heap_id, al->meta_page);
-      platform_buffer_deinit(&al->bh);
-      platform_mutex_destroy(&al->lock);
-      return status;
+   if (al->meta_page->format_magic != RC_ALLOCATOR_FORMAT_MAGIC
+       || al->meta_page->format_version != RC_ALLOCATOR_FORMAT_VERSION)
+   {
+      platform_error_log("Unsupported SplinterDB allocator bootstrap format "
+                         "on mount.\n");
+      status = STATUS_BAD_PARAM;
+      goto deinit_buffer;
    }
 
-   for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
-      if (al->ref_count[i] != 0) {
-         al->stats.curr_allocated++;
+   if (!rebuild_refcounts) {
+      rc_allocator_clean_states states;
+      status = rc_allocator_load_clean_states(al, &states);
+      if (!SUCCESS(status)) {
+         goto deinit_buffer;
+      }
+      if (!states.have_newest || states.duplicate_sequence
+          || !states.state[states.newest_slot].clean_shutdown)
+      {
+         platform_error_log("Allocator was not cleanly shut down; recovery "
+                            "rebuild is required.\n");
+         status = STATUS_INVALID_STATE;
+         goto deinit_buffer;
+      }
+   }
+
+   if (rebuild_refcounts) {
+      /* Do not leave a stale clean state if recovery itself is interrupted. */
+      status = rc_allocator_publish_clean_state(al, FALSE);
+      if (!SUCCESS(status)) {
+         goto deinit_buffer;
+      }
+      status = rc_allocator_recovery_initialize_refcounts(al);
+      if (!SUCCESS(status)) {
+         goto deinit_buffer;
+      }
+      al->recovery_in_progress = TRUE;
+   } else {
+      // Load the ref counts from disk during a normal, clean mount.
+      status = io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
+      if (!SUCCESS(status)) {
+         goto deinit_buffer;
+      }
+
+      for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
+         if (al->ref_count[i] != 0) {
+            al->stats.curr_allocated++;
+         }
+      }
+
+      /* Mark dirty before handing the trusted map to any mutating caller. */
+      status = rc_allocator_publish_clean_state(al, FALSE);
+      if (!SUCCESS(status)) {
+         goto deinit_buffer;
       }
    }
    return STATUS_OK;
+
+deinit_buffer:
+   platform_buffer_deinit(&al->bh);
+   al->ref_count = NULL;
+   platform_free(al->heap_id, al->meta_page);
+   al->meta_page = NULL;
+   platform_mutex_destroy(&al->lock);
+   return status;
+}
+
+platform_status
+rc_allocator_mount(rc_allocator      *al,
+                   allocator_config  *cfg,
+                   io_handle         *io,
+                   platform_heap_id   hid,
+                   platform_module_id mid)
+{
+   return rc_allocator_mount_internal(al, cfg, io, hid, mid, FALSE);
+}
+
+platform_status
+rc_allocator_mount_recovery(rc_allocator      *al,
+                            allocator_config  *cfg,
+                            io_handle         *io,
+                            platform_heap_id   hid,
+                            platform_module_id mid)
+{
+   return rc_allocator_mount_internal(al, cfg, io, hid, mid, TRUE);
+}
+
+platform_status
+rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr)
+{
+   if (!al->recovery_in_progress) {
+      platform_error_log("Cannot acquire allocator extent while recovery is "
+                         "not in progress.\n");
+      return STATUS_INVALID_STATE;
+   }
+
+   uint64 extent_size = al->cfg->io_cfg->extent_size;
+   if (extent_addr >= al->cfg->capacity || extent_addr % extent_size != 0) {
+      platform_error_log("Invalid allocator recovery extent address %lu.\n",
+                         extent_addr);
+      return STATUS_BAD_PARAM;
+   }
+
+   uint64 extent_no = rc_allocator_extent_number(al, extent_addr);
+   platform_assert(extent_no < al->cfg->extent_capacity);
+   if (rc_allocator_recovery_extent_is_reserved(al, extent_no)) {
+      platform_error_log("Cannot rebuild ownership of reserved allocator "
+                         "extent %lu.\n",
+                         extent_no);
+      return STATUS_BAD_PARAM;
+   }
+
+   while (TRUE) {
+      refcount old_ref = __atomic_load_n(&al->ref_count[extent_no],
+                                         __ATOMIC_RELAXED);
+      if (old_ref == (refcount)-1) {
+         platform_error_log("Allocator recovery refcount overflow for extent "
+                            "%lu.\n",
+                            extent_no);
+         return STATUS_LIMIT_EXCEEDED;
+      }
+
+      refcount new_ref =
+         old_ref == AL_FREE ? AL_ONE_REF : old_ref + 1;
+      if (!__sync_bool_compare_and_swap(
+             &al->ref_count[extent_no], old_ref, new_ref))
+      {
+         continue;
+      }
+
+      if (old_ref == AL_FREE) {
+         rc_allocator_record_allocated_extent(al);
+      }
+      return STATUS_OK;
+   }
+}
+
+void
+rc_allocator_rebuild_finish(rc_allocator *al)
+{
+   platform_assert(al != NULL);
+   platform_assert(al->recovery_in_progress);
+
+   /*
+    * Intentionally no I/O here.  A rebuilt map is durable only after a later
+    * clean unmount; another crash before then simply rebuilds it again.
+    */
+   al->recovery_in_progress = FALSE;
+}
+
+void
+rc_allocator_abort_recovery(rc_allocator *al)
+{
+   platform_assert(al != NULL);
+   platform_assert(al->recovery_in_progress);
+
+   rc_allocator_deinit(al);
+   ZERO_CONTENTS(al);
 }
 
 
@@ -555,11 +1021,31 @@ rc_allocator_unmount(rc_allocator *al)
 {
    platform_status status;
 
+   if (al->recovery_in_progress) {
+      platform_error_log("Discarding incomplete allocator recovery instead of "
+                         "persisting its partial refcount map.\n");
+      rc_allocator_abort_recovery(al);
+      return;
+   }
+
    // persist the ref counts upon unmount.
-   uint64 buffer_size = al->cfg->extent_capacity * sizeof(refcount);
+   uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
    uint32 io_size     = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
    status =
       io_write(al->io, al->ref_count, io_size, al->cfg->io_cfg->extent_size);
+   platform_assert_status_ok(status);
+
+   /*
+    * This is the sole normal persistence point for the allocator map. The
+    * checkpoint record was already made durable by core_unmount(); do not
+    * advertise a clean allocator snapshot until this write has crossed the
+    * device durability boundary as well.
+    */
+   status = io_durable_barrier(al->io);
+   platform_assert_status_ok(status);
+
+   /* Publish clean permission in the alternate durable state record. */
+   status = rc_allocator_publish_clean_state(al, TRUE);
    platform_assert_status_ok(status);
    rc_allocator_deinit(al);
 }
@@ -686,12 +1172,7 @@ rc_allocator_alloc_super_addr(rc_allocator     *al,
          // assign the first available slot and update the on disk metadata.
          al->meta_page->splinters[idx] = allocator_root_id;
          *addr                         = (1 + idx) * al->cfg->io_cfg->page_size;
-         al->meta_page->checksum =
-            rc_allocator_meta_page_checksum(al->meta_page);
-         platform_status io_status = io_write(al->io,
-                                              al->meta_page,
-                                              al->cfg->io_cfg->page_size,
-                                              RC_ALLOCATOR_BASE_OFFSET);
+         platform_status io_status = rc_allocator_write_meta_page(al);
          platform_assert_status_ok(io_status);
          status = STATUS_OK;
          break;
@@ -715,12 +1196,7 @@ rc_allocator_remove_super_addr(rc_allocator     *al,
        */
       if (al->meta_page->splinters[idx] == allocator_root_id) {
          al->meta_page->splinters[idx] = INVALID_ALLOCATOR_ROOT_ID;
-         al->meta_page->checksum =
-            rc_allocator_meta_page_checksum(al->meta_page);
-         platform_status status = io_write(al->io,
-                                           al->meta_page,
-                                           al->cfg->io_cfg->page_size,
-                                           RC_ALLOCATOR_BASE_OFFSET);
+         platform_status status = rc_allocator_write_meta_page(al);
          platform_assert_status_ok(status);
          platform_mutex_unlock(&al->lock);
          return;

@@ -46,8 +46,38 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
                "CORE_NUM_MEMTABLES <= MAX_MEMTABLES");
 
-/* Some randomly chosen Splinter super-block checksum seed. */
-#define CORE_SUPER_CSUM_SEED (42)
+/* Checkpoint metadata has independently checksummed directory and records. */
+#define CORE_CHECKPOINT_DIRECTORY_CSUM_SEED (42)
+#define CORE_CHECKPOINT_RECORD_CSUM_SEED    (43)
+
+#define CORE_CHECKPOINT_FORMAT_VERSION (2)
+#define CORE_CHECKPOINT_RECORD_COUNT   (2)
+
+#define CORE_CHECKPOINT_DIRECTORY_MAGIC (0x534442434B505444ULL) // SDBCKPTD
+#define CORE_CHECKPOINT_RECORD_MAGIC    (0x534442434B505452ULL) // SDBCKPTR
+
+static platform_status
+core_checkpoint_lock_init(core_handle *spl)
+{
+   platform_status rc = platform_mutex_init(&spl->checkpoint_lock,
+                                            platform_get_module_id(),
+                                            spl->heap_id);
+   if (SUCCESS(rc)) {
+      spl->checkpoint_lock_initialized = TRUE;
+   }
+   return rc;
+}
+
+static void
+core_checkpoint_lock_deinit(core_handle *spl)
+{
+   if (!spl->checkpoint_lock_initialized) {
+      return;
+   }
+   platform_status rc = platform_mutex_destroy(&spl->checkpoint_lock);
+   platform_assert_status_ok(rc);
+   spl->checkpoint_lock_initialized = FALSE;
+}
 
 /*
  * core logging functions.
@@ -107,95 +137,507 @@ core_close_log_stream_if_enabled(core_handle            *spl,
 
 /*
  *-----------------------------------------------------------------------------
- * Splinter Super Block: Disk-resident structure.
- * Super block lives on page of page type == PAGE_TYPE_SUPERBLOCK.
+ * Checkpoint metadata: disk-resident structures.
+ *
+ * allocator_get_super_addr() identifies a fixed page in the allocator's
+ * bootstrap extent.  That page is an immutable directory, written exactly
+ * once when the table is created.  The directory names two independently
+ * allocated record extents.  Checkpoint publication alternates between their
+ * first pages, leaving one formerly valid record untouched if a new write is
+ * torn.
+ *
+ * This is intentionally a new on-disk format.  Do not interpret a legacy
+ * core_super_block as a directory: doing so would turn arbitrary old fields
+ * into allocator-owned addresses.  Existing databases must be migrated or
+ * reformatted before using this checkpoint metadata format.
  *-----------------------------------------------------------------------------
  */
-typedef struct ONDISK core_super_block {
-   uint64 root_addr; // Address of the root of the trunk for the instance
-                     // referenced by this superblock.
-   uint64      log_addr;
-   uint64      log_meta_addr;
-   uint64      timestamp;
-   bool32      checkpointed;
-   bool32      unmounted;
+typedef struct ONDISK core_checkpoint_directory {
+   uint64      magic;
+   uint64      format_version;
+   uint64      table_id;
+   uint64      record_addr[CORE_CHECKPOINT_RECORD_COUNT];
    checksum128 checksum;
-} core_super_block;
+} core_checkpoint_directory;
 
-/*
- *-----------------------------------------------------------------------------
- * Super block functions
- *-----------------------------------------------------------------------------
- */
-static platform_status
-core_set_super_block(core_handle *spl,
-                     bool32       is_checkpoint,
-                     bool32       is_unmount,
-                     bool32       is_create)
+typedef struct ONDISK core_checkpoint_record {
+   /*
+    * The highest memtable generation incorporated in root_addr.  The boolean
+    * keeps the fresh-database case distinct from generation zero.
+    */
+   uint64 incorporated_generation;
+   bool32 has_incorporated_generation;
+   uint64 root_addr;
+   uint64 timestamp;
+   uint64 sequence;
+   uint64 table_id;
+   uint32 record_slot;
+   bool32 checkpointed;
+   bool32 unmounted;
+   uint64 magic;
+   uint64 format_version;
+   checksum128 checksum;
+} core_checkpoint_record;
+
+typedef struct core_checkpoint_records {
+   core_checkpoint_record record[CORE_CHECKPOINT_RECORD_COUNT];
+   bool32                 valid[CORE_CHECKPOINT_RECORD_COUNT];
+   bool32                 have_newest;
+   uint64                 newest_slot;
+   bool32                 have_newest_unmounted;
+   uint64                 newest_unmounted_slot;
+} core_checkpoint_records;
+
+static checksum128
+core_checkpoint_directory_checksum(const core_checkpoint_directory *directory)
 {
-   uint64            super_addr;
-   page_handle      *super_page;
-   core_super_block *super;
-   uint64            wait = 1;
-   platform_status   rc;
+   return platform_checksum128(directory,
+                               offsetof(core_checkpoint_directory, checksum),
+                               CORE_CHECKPOINT_DIRECTORY_CSUM_SEED);
+}
 
-   if (is_create) {
-      rc = allocator_alloc_super_addr(spl->al, spl->id, &super_addr);
-   } else {
-      rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
+static checksum128
+core_checkpoint_record_checksum(const core_checkpoint_record *record)
+{
+   return platform_checksum128(record,
+                               offsetof(core_checkpoint_record, checksum),
+                               CORE_CHECKPOINT_RECORD_CSUM_SEED);
+}
+
+static bool32
+core_checkpoint_record_addr_is_valid(core_handle *spl, uint64 addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(spl->al);
+   uint64            page_size     = cache_page_size(spl->cc);
+
+   return addr != 0 && addr % allocator_cfg->io_cfg->extent_size == 0
+          && addr < allocator_cfg->capacity
+          && page_size <= allocator_cfg->capacity - addr;
+}
+
+static bool32
+core_checkpoint_directory_is_valid(core_handle                        *spl,
+                                   const core_checkpoint_directory *directory)
+{
+   if (directory->magic != CORE_CHECKPOINT_DIRECTORY_MAGIC
+       || directory->format_version != CORE_CHECKPOINT_FORMAT_VERSION
+       || directory->table_id != spl->id
+       || !platform_checksum_is_equal(
+          directory->checksum, core_checkpoint_directory_checksum(directory)))
+   {
+      return FALSE;
    }
+
+   uint64 record0 = directory->record_addr[0];
+   uint64 record1 = directory->record_addr[1];
+   allocator_config *allocator_cfg = allocator_get_config(spl->al);
+   return core_checkpoint_record_addr_is_valid(spl, record0)
+          && core_checkpoint_record_addr_is_valid(spl, record1)
+          && record0 != record1
+          && !allocator_config_pages_share_extent(allocator_cfg, record0, record1);
+}
+
+static bool32
+core_checkpoint_record_is_valid(core_handle                     *spl,
+                                const core_checkpoint_record *record,
+                                uint64                           record_slot)
+{
+   return record->magic == CORE_CHECKPOINT_RECORD_MAGIC
+          && record->format_version == CORE_CHECKPOINT_FORMAT_VERSION
+          && record->table_id == spl->id && record->record_slot == record_slot
+          && record->sequence != 0
+          && (record->has_incorporated_generation == FALSE
+              || record->has_incorporated_generation == TRUE)
+          && (record->has_incorporated_generation
+                 ? record->incorporated_generation < UINT64_MAX
+                 : record->incorporated_generation == 0)
+          && platform_checksum_is_equal(
+             record->checksum, core_checkpoint_record_checksum(record));
+}
+
+static void
+core_write_checkpoint_page(core_handle *spl,
+                           uint64       page_addr,
+                           const void  *contents,
+                           uint64       contents_size)
+{
+   page_handle *page =
+      cache_get(spl->cc, page_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   uint64 wait = 1;
+   while (!cache_try_claim(spl->cc, page)) {
+      cache_unget(spl->cc, page);
+      platform_sleep_ns(wait);
+      wait = wait > 1024 ? wait : 2 * wait;
+      page = cache_get(spl->cc, page_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   }
+   cache_lock(spl->cc, page);
+   platform_assert(contents_size <= cache_page_size(spl->cc));
+   memset(page->data, 0, cache_page_size(spl->cc));
+   memcpy(page->data, contents, contents_size);
+   cache_mark_dirty(spl->cc, page);
+   cache_unlock(spl->cc, page);
+   cache_unclaim(spl->cc, page);
+   cache_page_sync(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_unget(spl->cc, page);
+}
+
+static void
+core_initialize_checkpoint_record_page(core_handle *spl, uint64 page_addr)
+{
+   page_handle *page = cache_alloc(spl->cc, page_addr, PAGE_TYPE_SUPERBLOCK);
+   platform_assert(page != NULL);
+   memset(page->data, 0, cache_page_size(spl->cc));
+   cache_mark_dirty(spl->cc, page);
+   cache_unlock(spl->cc, page);
+   cache_unclaim(spl->cc, page);
+   cache_page_sync(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_unget(spl->cc, page);
+}
+
+static platform_status
+core_create_checkpoint_directory(core_handle                 *spl,
+                                 core_checkpoint_directory *directory)
+{
+   uint64          directory_addr;
+   platform_status rc =
+      allocator_alloc_super_addr(spl->al, spl->id, &directory_addr);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_set_super_block: failed to %s super block "
-                         "address for root id %lu: %s\n",
-                         is_create ? "allocate" : "get",
+      platform_error_log("core_create_checkpoint_directory: failed to allocate "
+                         "directory address for root id %lu: %s\n",
                          spl->id,
                          platform_status_to_string(rc));
       return rc;
    }
-   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   while (!cache_try_claim(spl->cc, super_page)) {
-      platform_sleep_ns(wait);
-      wait *= 2;
+
+   ZERO_CONTENTS(directory);
+   directory->magic          = CORE_CHECKPOINT_DIRECTORY_MAGIC;
+   directory->format_version = CORE_CHECKPOINT_FORMAT_VERSION;
+   directory->table_id       = spl->id;
+
+   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
+      uint64 record_addr;
+      rc = allocator_alloc(spl->al, &record_addr, PAGE_TYPE_SUPERBLOCK);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_create_checkpoint_directory: failed to "
+                            "allocate record extent %lu: %s\n",
+                            slot,
+                            platform_status_to_string(rc));
+         return rc;
+      }
+      directory->record_addr[slot] = record_addr;
+      core_initialize_checkpoint_record_page(spl, record_addr);
    }
-   wait = 1;
-   cache_lock(spl->cc, super_page);
 
-   super                = (core_super_block *)super_page->data;
-   uint64 old_root_addr = super->root_addr;
+   directory->checksum = core_checkpoint_directory_checksum(directory);
+   core_write_checkpoint_page(
+      spl, directory_addr, directory, sizeof(*directory));
 
-   trunk_ondisk_node_handle root_handle;
-   trunk_init_root_handle(&spl->trunk_context, &root_handle);
-   uint64 root_addr = trunk_ondisk_node_handle_addr(&root_handle);
-   if (root_addr != 0) {
-      trunk_inc_ref(spl->al, root_addr);
+   /*
+    * Submit the newly initialized record and directory pages before the
+    * durable barrier. allocator_alloc() changes its refcount map only in
+    * memory; crash recovery deliberately rebuilds that map instead of relying
+    * on this publication. allocator_alloc_super_addr() does write the raw
+    * bootstrap mapping through the shared backing I/O handle, which the
+    * following durable barrier fdatasyncs with the directory page.
+    */
+   rc = cache_writeback_fence(spl->cc);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   super->root_addr = root_addr;
-   trunk_ondisk_node_handle_deinit(&root_handle);
+   return cache_durable_barrier(spl->cc);
+}
 
-   if (spl->cfg.use_log) {
-      if (spl->log) {
-         super->log_addr      = log_addr(spl->log);
-         super->log_meta_addr = log_meta_addr(spl->log);
-      } else {
-         super->log_addr      = 0;
-         super->log_meta_addr = 0;
+static platform_status
+core_get_checkpoint_directory(core_handle                 *spl,
+                              core_checkpoint_directory *directory)
+{
+   uint64          directory_addr;
+   platform_status rc =
+      allocator_get_super_addr(spl->al, spl->id, &directory_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   page_handle *page =
+      cache_get(spl->cc, directory_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   memcpy(directory, page->data, sizeof(*directory));
+   cache_unget(spl->cc, page);
+
+   if (!core_checkpoint_directory_is_valid(spl, directory)) {
+      platform_error_log("core_get_checkpoint_directory: no compatible "
+                         "checkpoint directory for root id %lu\n",
+                         spl->id);
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+core_load_checkpoint_records(core_handle                       *spl,
+                             const core_checkpoint_directory *directory,
+                             core_checkpoint_records          *records)
+{
+   ZERO_CONTENTS(records);
+   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
+      page_handle *page = cache_get(spl->cc,
+                                    directory->record_addr[slot],
+                                    TRUE,
+                                    PAGE_TYPE_SUPERBLOCK);
+      memcpy(&records->record[slot], page->data, sizeof(records->record[slot]));
+      cache_unget(spl->cc, page);
+
+      records->valid[slot] = core_checkpoint_record_is_valid(
+         spl, &records->record[slot], slot);
+      if (!records->valid[slot]) {
+         continue;
+      }
+
+      if (!records->have_newest
+          || records->record[records->newest_slot].sequence
+                < records->record[slot].sequence)
+      {
+         records->have_newest = TRUE;
+         records->newest_slot = slot;
+      }
+      if (records->record[slot].unmounted
+          && (!records->have_newest_unmounted
+              || records->record[records->newest_unmounted_slot].sequence
+                    < records->record[slot].sequence))
+      {
+         records->have_newest_unmounted = TRUE;
+         records->newest_unmounted_slot = slot;
       }
    }
-   super->timestamp    = platform_get_real_time();
-   super->checkpointed = is_checkpoint;
-   super->unmounted    = is_unmount;
-   super->checksum =
-      platform_checksum128(super,
-                           sizeof(core_super_block) - sizeof(checksum128),
-                           CORE_SUPER_CSUM_SEED);
 
-   cache_mark_dirty(spl->cc, super_page);
-   cache_unlock(spl->cc, super_page);
-   cache_unclaim(spl->cc, super_page);
-   cache_unget(spl->cc, super_page);
-   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   if (records->valid[0] && records->valid[1]
+       && records->record[0].sequence == records->record[1].sequence)
+   {
+      platform_error_log("core_load_checkpoint_records: duplicate record "
+                         "sequence %lu for root id %lu\n",
+                         records->record[0].sequence,
+                         spl->id);
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
+}
 
-   if (old_root_addr != 0 && !is_create) {
+static void
+core_destroy_checkpoint_record_extent(core_handle *spl, uint64 record_addr)
+{
+   refcount ref =
+      allocator_dec_ref(spl->al, record_addr, PAGE_TYPE_SUPERBLOCK);
+   if (ref != AL_NO_REFS) {
+      platform_error_log("core_destroy_checkpoint_record_extent: record extent "
+                         "%lu has unexpected refcount %u\n",
+                         record_addr,
+                         ref);
+      return;
+   }
+
+   cache_extent_discard(spl->cc, record_addr, PAGE_TYPE_SUPERBLOCK);
+   ref = allocator_dec_ref(spl->al, record_addr, PAGE_TYPE_SUPERBLOCK);
+   platform_assert(ref == AL_FREE);
+}
+
+static void
+core_destroy_checkpoint_storage(core_handle *spl)
+{
+   core_checkpoint_directory directory;
+   platform_status rc = core_get_checkpoint_directory(spl, &directory);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_destroy_checkpoint_storage: unable to load "
+                         "checkpoint directory for root id %lu: %s\n",
+                         spl->id,
+                         platform_status_to_string(rc));
+      return;
+   }
+
+   core_checkpoint_records records;
+   rc = core_load_checkpoint_records(spl, &directory, &records);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_destroy_checkpoint_storage: unable to load "
+                         "checkpoint records for root id %lu: %s\n",
+                         spl->id,
+                         platform_status_to_string(rc));
+      return;
+   }
+
+   /*
+    * Both valid slots own independent root references. Keeping the older
+    * record live makes it a real fallback if the next record write is torn;
+    * its reference is released only when that slot is successfully
+    * overwritten. This is clean destruction, so release both record owners.
+    */
+   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
+      if (!records.valid[slot] || records.record[slot].root_addr == 0) {
+         continue;
+      }
+      rc = trunk_dec_ref(spl->cfg.trunk_node_cfg,
+                         PROCESS_PRIVATE_HEAP_ID,
+                         spl->cc,
+                         spl->al,
+                         spl->ts,
+                         records.record[slot].root_addr);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_destroy_checkpoint_storage: failed to "
+                            "release record %lu root %lu: %s\n",
+                            slot,
+                            records.record[slot].root_addr,
+                            platform_status_to_string(rc));
+      }
+   }
+
+   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
+      core_destroy_checkpoint_record_extent(spl, directory.record_addr[slot]);
+   }
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * Checkpoint record functions
+ *-----------------------------------------------------------------------------
+ */
+static platform_status
+core_capture_checkpoint_cut(core_handle    *spl,
+                            trunk_snapshot *snapshot,
+                            bool32         *has_incorporated_generation,
+                            uint64         *incorporated_generation)
+{
+   /*
+    * Incorporation publishes its generation and root while holding lookup
+    * exclusion before taking the trunk root lock.  Take the checkpoint cut
+    * in the same order, so a record never combines a pre-incorporation
+    * generation with a post-incorporation root (or the converse).
+    */
+   memtable_block_lookups(&spl->mt_ctxt);
+   uint64 retired_generation = memtable_generation_retired(&spl->mt_ctxt);
+   platform_status rc = trunk_snapshot_acquire(&spl->trunk_context, snapshot);
+   memtable_unblock_lookups(&spl->mt_ctxt);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   *has_incorporated_generation = retired_generation != UINT64_MAX;
+   *incorporated_generation = *has_incorporated_generation
+                                 ? retired_generation
+                                 : 0;
+   return STATUS_OK;
+}
+
+static platform_status
+core_publish_checkpoint_record(core_handle *spl,
+                               bool32       is_checkpoint,
+                               bool32       is_unmount,
+                               bool32       is_create)
+{
+   uint64          old_root_addr;
+   platform_status rc;
+   trunk_snapshot snapshot;
+   bool32         has_incorporated_generation;
+   uint64         incorporated_generation;
+   core_checkpoint_directory directory;
+   core_checkpoint_records   records;
+   uint64                    target_slot;
+   core_checkpoint_record    record;
+
+   /*
+    * The snapshot, target-slot selection, durable record write, and old-slot
+    * release are one publication transaction. In particular, two concurrent
+    * publishers must never choose the same target slot or release the same
+    * former record owner.
+    */
+   rc = platform_mutex_lock(&spl->checkpoint_lock);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = core_capture_checkpoint_cut(spl,
+                                    &snapshot,
+                                    &has_incorporated_generation,
+                                    &incorporated_generation);
+   if (!SUCCESS(rc)) {
+      goto unlock_checkpoint;
+   }
+
+   /*
+    * The snapshot reference makes the root stable, but not necessarily
+    * durable. Drain only the cache intervals that existed at this cut before
+    * making a record that can name the root durable. This can incidentally
+    * persist newer log/data pages, but it does not seal or publish a logical
+    * durable-log tail; tail sync is a separate operation.
+    */
+   rc = trunk_make_durable(&spl->trunk_context);
+   if (!SUCCESS(rc)) {
+      goto release_snapshot;
+   }
+
+   if (is_create) {
+      rc = core_create_checkpoint_directory(spl, &directory);
+   } else {
+      rc = core_get_checkpoint_directory(spl, &directory);
+   }
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_publish_checkpoint_record: failed to %s "
+                         "checkpoint directory for root id %lu: %s\n",
+                         is_create ? "create" : "load",
+                         spl->id,
+                         platform_status_to_string(rc));
+      goto release_snapshot;
+   }
+
+   rc = core_load_checkpoint_records(spl, &directory, &records);
+   if (!SUCCESS(rc)) {
+      goto release_snapshot;
+   }
+
+   if (records.have_newest
+       && records.record[records.newest_slot].sequence == UINT64_MAX)
+   {
+      rc = STATUS_LIMIT_EXCEEDED;
+      goto release_snapshot;
+   }
+   target_slot = records.have_newest ? records.newest_slot ^ 1 : 0;
+   /*
+    * Each valid record owns its root reference. This publication overwrites
+    * target_slot, so retain that slot's old root until the replacement page
+    * is durable, then release only the overwritten owner. The newest record
+    * remains independently live as the torn-write fallback.
+    */
+   old_root_addr = records.valid[target_slot]
+                      ? records.record[target_slot].root_addr
+                      : 0;
+
+   ZERO_CONTENTS(&record);
+   record.incorporated_generation     = incorporated_generation;
+   record.has_incorporated_generation = has_incorporated_generation;
+   record.root_addr                    = snapshot.root_addr;
+   record.timestamp                    = platform_get_real_time();
+   record.sequence = records.have_newest
+                        ? records.record[records.newest_slot].sequence + 1
+                        : 1;
+   record.table_id                     = spl->id;
+   record.record_slot                  = target_slot;
+   record.checkpointed                 = is_checkpoint;
+   record.unmounted                    = is_unmount;
+   record.magic                        = CORE_CHECKPOINT_RECORD_MAGIC;
+   record.format_version               = CORE_CHECKPOINT_FORMAT_VERSION;
+
+   record.checksum = core_checkpoint_record_checksum(&record);
+
+   core_write_checkpoint_page(spl,
+                              directory.record_addr[target_slot],
+                              &record,
+                              sizeof(record));
+   /* The record now owns this reference, even if the barrier reports failure. */
+   snapshot.root_addr = 0;
+
+   rc = cache_durable_barrier(spl->cc);
+   if (!SUCCESS(rc)) {
+      /* The new record may be durable, so retain its transferred root ref. */
+      goto unlock_checkpoint;
+   }
+
+   if (old_root_addr != 0) {
       rc = trunk_dec_ref(spl->cfg.trunk_node_cfg,
                          PROCESS_PRIVATE_HEAP_ID,
                          spl->cc,
@@ -203,46 +645,34 @@ core_set_super_block(core_handle *spl,
                          spl->ts,
                          old_root_addr);
       if (!SUCCESS(rc)) {
-         platform_error_log("core_set_super_block: trunk_dec_ref failed for "
-                            "old root addr %lu: %s\n",
+         platform_error_log("core_publish_checkpoint_record: trunk_dec_ref "
+                            "failed for old root addr %lu: %s\n",
                             old_root_addr,
                             platform_status_to_string(rc));
-         return rc;
+         goto unlock_checkpoint;
       }
    }
 
-   return STATUS_OK;
-}
+   rc = STATUS_OK;
+   goto unlock_checkpoint;
 
-static core_super_block *
-core_get_super_block_if_valid(core_handle *spl, page_handle **super_page)
-{
-   uint64            super_addr;
-   core_super_block *super;
-
-   platform_status rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
-   platform_assert_status_ok(rc);
-   *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   super       = (core_super_block *)(*super_page)->data;
-
-   if (!platform_checksum_is_equal(
-          super->checksum,
-          platform_checksum128(super,
-                               sizeof(core_super_block) - sizeof(checksum128),
-                               CORE_SUPER_CSUM_SEED)))
+release_snapshot:
    {
-      cache_unget(spl->cc, *super_page);
-      *super_page = NULL;
-      return NULL;
+      platform_status release_rc =
+         trunk_snapshot_release(&spl->trunk_context, &snapshot);
+      if (SUCCESS(rc) && !SUCCESS(release_rc)) {
+         rc = release_rc;
+      }
    }
 
-   return super;
-}
-
-static void
-core_release_super_block(core_handle *spl, page_handle *super_page)
-{
-   cache_unget(spl->cc, super_page);
+unlock_checkpoint:
+   {
+      platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
+      if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
+         rc = unlock_rc;
+      }
+   }
+   return rc;
 }
 
 /*
@@ -418,6 +848,7 @@ core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
 
 static platform_status
 core_log_insert(core_handle                *spl,
+                uint64                      memtable_generation,
                 key                         tuple_key,
                 message                     msg,
                 const btree_insert_results *insert_results)
@@ -436,8 +867,11 @@ core_log_insert(core_handle                *spl,
       merge_accumulator_is_null(&insert_results->msg_blob)
          ? msg
          : merge_accumulator_to_message(&insert_results->msg_blob);
-   int log_rc =
-      log_write(spl->log, tuple_key, log_msg, insert_results->leaf_generation);
+   int log_rc = log_write(spl->log,
+                          tuple_key,
+                          log_msg,
+                          memtable_generation,
+                          insert_results->leaf_generation);
    return log_rc == 0 ? STATUS_OK : (platform_status){.r = log_rc};
 }
 
@@ -1554,7 +1988,7 @@ core_insert(core_handle   *spl,
       goto end_insert;
    }
 
-   rc = core_log_insert(spl, tuple_key, data, &insert_results);
+   rc = core_log_insert(spl, generation, tuple_key, data, &insert_results);
    if (!SUCCESS(rc)) {
       goto end_insert;
    }
@@ -1879,18 +2313,25 @@ core_mkfs(core_handle      *spl,
    spl->heap_id = hid;
    spl->ts      = ts;
 
+   platform_status rc = core_checkpoint_lock_init(spl);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: checkpoint lock initialization failed: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   platform_status  rc     = memtable_context_init(&spl->mt_ctxt,
-                                              spl->heap_id,
-                                              cc,
-                                              mt_cfg,
-                                              core_memtable_flush_virtual,
-                                              spl);
+   rc = memtable_context_init(&spl->mt_ctxt,
+                              spl->heap_id,
+                              cc,
+                              mt_cfg,
+                              core_memtable_flush_virtual,
+                              spl);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: memtable_context_init failed: %s\n",
                          platform_status_to_string(rc));
-      return rc;
+      goto deinit_checkpoint_lock;
    }
 
    // set up the log
@@ -1918,9 +2359,9 @@ core_mkfs(core_handle      *spl,
       goto deinit_trunk_context;
    }
 
-   rc = core_set_super_block(spl, FALSE, FALSE, TRUE);
+   rc = core_publish_checkpoint_record(spl, FALSE, FALSE, TRUE);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mkfs: core_set_super_block failed: %s\n",
+      platform_error_log("core_mkfs: core_publish_checkpoint_record failed: %s\n",
                          platform_status_to_string(rc));
       goto deinit_stats;
    }
@@ -1937,6 +2378,8 @@ deinit_log:
    }
 deinit_memtable_context:
    memtable_context_deinit(&spl->mt_ctxt);
+deinit_checkpoint_lock:
+   core_checkpoint_lock_deinit(spl);
    return rc;
 }
 
@@ -1962,30 +2405,71 @@ core_mount(core_handle      *spl,
    spl->heap_id = hid;
    spl->ts      = ts;
 
-   // find the unmounted super block
-   uint64            root_addr        = 0;
-   uint64            latest_timestamp = 0;
-   page_handle      *super_page;
-   core_super_block *super = core_get_super_block_if_valid(spl, &super_page);
-   if (super != NULL) {
-      if (super->unmounted && super->timestamp > latest_timestamp) {
-         root_addr        = super->root_addr;
-         latest_timestamp = super->timestamp;
-      }
-      core_release_super_block(spl, super_page);
-   }
-
-   memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   platform_status  rc     = memtable_context_init(&spl->mt_ctxt,
-                                              spl->heap_id,
-                                              cc,
-                                              mt_cfg,
-                                              core_memtable_flush_virtual,
-                                              spl);
+   platform_status rc = core_checkpoint_lock_init(spl);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: memtable_context_init failed: %s\n",
+      platform_error_log("core_mount: checkpoint lock initialization failed: %s\n",
                          platform_status_to_string(rc));
       return rc;
+   }
+
+   /*
+    * Preserve the historical clean-only mount rule for this first format
+    * slice: an interrupted run is not replayed yet, so only an explicitly
+    * unmounted record supplies the root.  We still validate both records and
+    * choose the newest clean one by sequence rather than wall-clock time.
+    */
+   uint64                    root_addr = 0;
+   bool32                    has_incorporated_generation = FALSE;
+   uint64                    incorporated_generation     = 0;
+   core_checkpoint_directory directory;
+   core_checkpoint_records   records;
+   rc = core_get_checkpoint_directory(spl, &directory);
+   if (!SUCCESS(rc)) {
+      goto deinit_checkpoint_lock;
+   }
+   rc = core_load_checkpoint_records(spl, &directory, &records);
+   if (!SUCCESS(rc)) {
+      goto deinit_checkpoint_lock;
+   }
+   if (!records.have_newest) {
+      platform_error_log("core_mount: checkpoint directory for root id %lu "
+                         "has no valid records\n",
+                         spl->id);
+      rc = STATUS_BAD_PARAM;
+      goto deinit_checkpoint_lock;
+   }
+   const core_checkpoint_record *record =
+      &records.record[records.newest_slot];
+   if (!record->unmounted) {
+      /*
+       * This is an interrupted run. An older clean record is only an A/B
+       * torn-write fallback, not permission to silently discard the newer
+       * checkpoint and its log suffix. Do not overwrite its metadata before
+       * log replay and allocator reconstruction are wired.
+       */
+      platform_error_log("core_mount: root id %lu requires crash recovery\n",
+                         spl->id);
+      rc = STATUS_INVALID_STATE;
+      goto deinit_checkpoint_lock;
+   }
+   root_addr                    = record->root_addr;
+   has_incorporated_generation = record->has_incorporated_generation;
+   incorporated_generation     = record->incorporated_generation;
+
+   memtable_config *mt_cfg = &spl->cfg.mt_cfg;
+   rc = memtable_context_init_at_generation(
+      &spl->mt_ctxt,
+      spl->heap_id,
+      cc,
+      mt_cfg,
+      core_memtable_flush_virtual,
+      spl,
+      has_incorporated_generation ? incorporated_generation + 1 : 0);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: memtable_context_init_at_generation "
+                         "failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_checkpoint_lock;
    }
 
    if (spl->cfg.use_log) {
@@ -2012,9 +2496,9 @@ core_mount(core_handle      *spl,
       goto deinit_trunk_context;
    }
 
-   rc = core_set_super_block(spl, FALSE, FALSE, FALSE);
+   rc = core_publish_checkpoint_record(spl, FALSE, FALSE, FALSE);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: core_set_super_block failed: %s\n",
+      platform_error_log("core_mount: core_publish_checkpoint_record failed: %s\n",
                          platform_status_to_string(rc));
       goto deinit_stats;
    }
@@ -2031,6 +2515,8 @@ deinit_log:
    }
 deinit_memtable_context:
    memtable_context_deinit(&spl->mt_ctxt);
+deinit_checkpoint_lock:
+   core_checkpoint_lock_deinit(spl);
    return rc;
 }
 
@@ -2082,9 +2568,11 @@ core_report_unincorporated_memtables(core_handle *spl)
 
 /*
  * This function is only safe to call when all other calls to spl have returned.
+ * It intentionally leaves the memtable and log contexts live: the clean
+ * checkpoint record needs both after final incorporation has quiesced.
  */
-void
-core_prepare_for_shutdown(core_handle *spl)
+static void
+core_quiesce_for_shutdown(core_handle *spl)
 {
    // write current memtable to disk
    // (any others must already be flushing/flushed)
@@ -2104,13 +2592,19 @@ core_prepare_for_shutdown(core_handle *spl)
    platform_assert_status_ok(rc);
 
    core_report_unincorporated_memtables(spl);
+}
 
-   // destroy memtable context (and its memtables)
+static void
+core_teardown_after_shutdown(core_handle *spl)
+{
+   // Keep this after checkpoint publication: it supplies the generation cut.
    memtable_context_deinit(&spl->mt_ctxt);
 
-   // release the log
+   // Keep the log alive through clean-record publication. A later explicit
+   // tail-sync protocol will own its immutable log metadata separately.
    if (spl->cfg.use_log) {
       platform_free(spl->heap_id, spl->log);
+      spl->log = NULL;
    }
 
    // flush all dirty pages in the cache
@@ -2126,14 +2620,21 @@ core_unmount(core_handle *spl)
 {
    platform_status rc;
 
-   core_prepare_for_shutdown(spl);
-   rc = core_set_super_block(spl, FALSE, TRUE, FALSE);
+   /*
+    * Quiescing leaves the memtable and log contexts live so publication can
+    * atomically capture the retired generation and root, then record log
+    * metadata. Teardown is safe regardless of publication success.
+    */
+   core_quiesce_for_shutdown(spl);
+   rc = core_publish_checkpoint_record(spl, FALSE, TRUE, FALSE);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_unmount: failed to update super block: %s\n",
+      platform_error_log("core_unmount: failed to publish checkpoint record: %s\n",
                          platform_status_to_string(rc));
    }
+   core_teardown_after_shutdown(spl);
    trunk_context_deinit(&spl->trunk_context);
    core_destroy_stats(spl);
+   core_checkpoint_lock_deinit(spl);
    return rc;
 }
 
@@ -2143,12 +2644,16 @@ core_unmount(core_handle *spl)
 void
 core_destroy(core_handle *spl)
 {
-   core_prepare_for_shutdown(spl);
+   core_quiesce_for_shutdown(spl);
+   core_teardown_after_shutdown(spl);
+   /* Records own trunk references and their two dedicated record extents. */
+   core_destroy_checkpoint_storage(spl);
    trunk_context_deinit(&spl->trunk_context);
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
    core_destroy_stats(spl);
+   core_checkpoint_lock_deinit(spl);
 }
 
 
@@ -2181,27 +2686,58 @@ core_print_space_use(platform_log_handle *log_handle, core_handle *spl)
 /*
  * core_print_super_block()
  *
- * Fetch a super-block for a running Splinter instance, and print its
- * contents.
+ * Print the fixed checkpoint directory and both independently written record
+ * slots for a running Splinter instance.
  */
 void
 core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 {
-   page_handle      *super_page;
-   core_super_block *super = core_get_super_block_if_valid(spl, &super_page);
-   if (super == NULL) {
+   core_checkpoint_directory directory;
+   platform_status rc = core_get_checkpoint_directory(spl, &directory);
+   if (!SUCCESS(rc)) {
+      platform_log(log_handle,
+                   "No compatible checkpoint directory for root id %lu\n",
+                   spl->id);
       return;
    }
 
-   platform_log(log_handle, "Superblock root_addr=%lu {\n", super->root_addr);
-   platform_log(log_handle, "log_meta_addr=%lu\n", super->log_meta_addr);
+   core_checkpoint_records records;
+   rc = core_load_checkpoint_records(spl, &directory, &records);
+   if (!SUCCESS(rc)) {
+      platform_log(log_handle,
+                   "Unable to load checkpoint records for root id %lu: %s\n",
+                   spl->id,
+                   platform_status_to_string(rc));
+      return;
+   }
+
    platform_log(log_handle,
-                "timestamp=%lu, checkpointed=%d, unmounted=%d\n",
-                super->timestamp,
-                super->checkpointed,
-                super->unmounted);
+                "Checkpoint directory root_id=%lu record_addr=[%lu, %lu] {\n",
+                directory.table_id,
+                directory.record_addr[0],
+                directory.record_addr[1]);
+   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
+      if (!records.valid[slot]) {
+         platform_log(log_handle, "  record[%lu]: invalid\n", slot);
+         continue;
+      }
+      core_checkpoint_record *record = &records.record[slot];
+      platform_log(log_handle,
+                   "  record[%lu]: sequence=%lu root_addr=%lu "
+                   "has_incorporated_generation=%d "
+                   "incorporated_generation=%lu "
+                   "timestamp=%lu "
+                   "checkpointed=%d unmounted=%d\n",
+                   slot,
+                   record->sequence,
+                   record->root_addr,
+                   record->has_incorporated_generation,
+                   record->incorporated_generation,
+                   record->timestamp,
+                   record->checkpointed,
+                   record->unmounted);
+   }
    platform_log(log_handle, "}\n\n");
-   core_release_super_block(spl, super_page);
 }
 
 // clang-format off

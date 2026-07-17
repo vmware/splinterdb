@@ -119,6 +119,10 @@ struct core_handle {
    trunk_context    trunk_context;
    memtable_context mt_ctxt;
 
+   /* Serializes snapshot cuts and A/B checkpoint-record publication. */
+   platform_mutex checkpoint_lock;
+   bool32         checkpoint_lock_initialized;
+
    core_stats *stats;
 
    core_compacted_memtable compacted_memtable[MAX_MEMTABLES];

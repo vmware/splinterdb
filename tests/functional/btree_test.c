@@ -17,6 +17,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
+#include "mini_allocator.h"
 #include "random.h"
 #include "task.h"
 
@@ -68,6 +69,198 @@ void
 test_btree_process_noop(void *arg, uint64 generation)
 {
    // really a no-op
+}
+
+static platform_status
+test_memtable_generation_init(cache             *cc,
+                              test_btree_config *cfg,
+                              platform_heap_id   hid)
+{
+   const uint64 first_generation = 17;
+   const uint64 max_memtables    = 4;
+   memtable_config mt_cfg        = *cfg->mt_cfg;
+   memtable_context mt_ctxt;
+
+   mt_cfg.max_memtables = max_memtables;
+
+   platform_status rc = memtable_context_init(
+      &mt_ctxt, hid, cc, &mt_cfg, test_btree_process_noop, NULL);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (mt_ctxt.generation != 0 || mt_ctxt.generation_to_incorporate != 0
+       || mt_ctxt.generation_retired != (uint64)-1)
+   {
+      platform_error_log("memtable fresh initialization has unexpected "
+                         "generation state\n");
+      rc = STATUS_TEST_FAILED;
+      goto deinit_fresh;
+   }
+
+   for (uint64 generation = 0; generation < max_memtables; generation++) {
+      uint64 mt_no = generation % max_memtables;
+      if (mt_ctxt.mt[mt_no].generation != generation) {
+         platform_error_log("memtable fresh initialization put generation "
+                            "%lu in the wrong slot\n",
+                            generation);
+         rc = STATUS_TEST_FAILED;
+         goto deinit_fresh;
+      }
+   }
+
+deinit_fresh:
+   memtable_context_deinit(&mt_ctxt);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = memtable_context_init_at_generation(&mt_ctxt,
+                                             hid,
+                                             cc,
+                                             &mt_cfg,
+                                             test_btree_process_noop,
+                                             NULL,
+                                             first_generation);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (mt_ctxt.generation != first_generation
+       || mt_ctxt.generation_to_incorporate != first_generation
+       || mt_ctxt.generation_retired != first_generation - 1)
+   {
+      platform_error_log("memtable recovery initialization has unexpected "
+                         "generation state\n");
+      rc = STATUS_TEST_FAILED;
+      goto deinit_recovery;
+   }
+
+   for (uint64 generation = first_generation;
+        generation < first_generation + max_memtables;
+        generation++)
+   {
+      uint64 mt_no = generation % max_memtables;
+      if (mt_ctxt.mt[mt_no].generation != generation) {
+         platform_error_log("memtable recovery initialization put generation "
+                            "%lu in the wrong slot\n",
+                            generation);
+         rc = STATUS_TEST_FAILED;
+         goto deinit_recovery;
+      }
+   }
+
+   memtable_block_inserts(&mt_ctxt);
+   memtable_unblock_inserts(&mt_ctxt);
+
+deinit_recovery:
+   memtable_context_deinit(&mt_ctxt);
+   if (SUCCESS(rc)) {
+      platform_default_log("btree_test: memtable generation init test passed\n");
+   }
+   return rc;
+}
+
+typedef struct test_mini_recovery_walk_state {
+   uint64 metadata_visits;
+   uint64 data_visits;
+   uint64 metadata_extent;
+   uint64 data_extent;
+   bool32 fail_data_visit;
+} test_mini_recovery_walk_state;
+
+static platform_status
+test_mini_recovery_walk_visit(uint64                    extent_addr,
+                              page_type                 type,
+                              mini_recovery_extent_kind kind,
+                              uint64                    batch,
+                              void                     *arg)
+{
+   test_mini_recovery_walk_state *state = arg;
+
+   if (type != PAGE_TYPE_MISC) {
+      return STATUS_TEST_FAILED;
+   }
+
+   if (kind == MINI_RECOVERY_EXTENT_METADATA) {
+      if (batch != MINI_RECOVERY_METADATA_BATCH) {
+         return STATUS_TEST_FAILED;
+      }
+      state->metadata_visits++;
+      state->metadata_extent = extent_addr;
+      return STATUS_OK;
+   }
+
+   if (kind != MINI_RECOVERY_EXTENT_DATA || batch != 0) {
+      return STATUS_TEST_FAILED;
+   }
+
+   state->data_visits++;
+   state->data_extent = extent_addr;
+   return state->fail_data_visit ? STATUS_TEST_FAILED : STATUS_OK;
+}
+
+static platform_status
+test_mini_recovery_walk(cache *cc)
+{
+   allocator                    *al = cache_get_allocator(cc);
+   mini_allocator                mini;
+   test_mini_recovery_walk_state state;
+   uint64                        meta_head = 0;
+   uint64                        data_extent = 0;
+   platform_status               rc =
+      allocator_alloc(al, &meta_head, PAGE_TYPE_MISC);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   mini_init(&mini, cc, meta_head, 0, 1, PAGE_TYPE_MISC);
+   data_extent = mini_alloc_extent(&mini, 0, NULL);
+   if (data_extent == 0) {
+      rc = STATUS_NO_SPACE;
+      goto cleanup;
+   }
+
+   ZERO_CONTENTS(&state);
+   rc = mini_recovery_walk(
+      cc, meta_head, PAGE_TYPE_MISC, test_mini_recovery_walk_visit, &state);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   if (state.metadata_visits != 1 || state.data_visits != 1
+       || state.metadata_extent != meta_head
+       || state.data_extent != data_extent)
+   {
+      platform_error_log("mini recovery walker returned unexpected extents\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   ZERO_CONTENTS(&state);
+   state.fail_data_visit = TRUE;
+   rc = mini_recovery_walk(
+      cc, meta_head, PAGE_TYPE_MISC, test_mini_recovery_walk_visit, &state);
+   if (!STATUS_IS_EQ(rc, STATUS_TEST_FAILED) || state.metadata_visits != 1
+       || state.data_visits != 1)
+   {
+      platform_error_log("mini recovery walker did not propagate callback "
+                         "failure\n");
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = STATUS_OK;
+
+cleanup:
+   mini_release(&mini);
+   refcount ref = mini_dec_ref(cc, meta_head, PAGE_TYPE_MISC);
+   if (ref != 0 && SUCCESS(rc)) {
+      platform_error_log("mini recovery walker left an unexpected mini ref\n");
+      rc = STATUS_TEST_FAILED;
+   }
+   if (SUCCESS(rc)) {
+      platform_default_log("btree_test: mini recovery walker test passed\n");
+   }
+   return rc;
 }
 
 test_memtable_context *
@@ -2257,6 +2450,12 @@ btree_test(int argc, char *argv[])
                         platform_get_module_id());
    platform_assert_status_ok(rc);
    cache *ccp = (cache *)cc;
+
+   rc = test_memtable_generation_init(ccp, &test_cfg, hid);
+   platform_assert_status_ok(rc);
+
+   rc = test_mini_recovery_walk(ccp);
+   platform_assert_status_ok(rc);
 
    uint64 max_tuples_per_memtable =
       test_cfg.mt_cfg->max_extents_per_memtable

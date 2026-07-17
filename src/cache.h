@@ -97,6 +97,8 @@ cache_config_extent_page(const cache_config *cfg, uint64 extent_addr, uint64 i)
 typedef void (*cache_generic_fn)(cache *cc);
 typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
 typedef void (*page_generic_fn)(cache *cc, page_handle *page);
+typedef platform_status (*cache_durable_barrier_fn)(cache *cc);
+typedef platform_status (*cache_writeback_fence_fn)(cache *cc);
 
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
@@ -176,6 +178,8 @@ typedef struct cache_ops {
    page_sync_fn         page_sync;
    extent_sync_fn       extent_sync;
    cache_generic_fn     flush;
+   cache_writeback_fence_fn writeback_fence;
+   cache_durable_barrier_fn durable_barrier;
    evict_fn             evict;
    cache_generic_fn     cleanup;
    page_addr_pred_fn    in_use;
@@ -366,8 +370,10 @@ cache_unclaim(cache *cc, page_handle *page)
  *
  * Blocks until outstanding read locks are released by other threads.
  *
- * If you call this method, you almost certainly want to call
- * cache_mark_dirty() immediately afterward.
+ * Clockcache conservatively begins a dirty interval on this transition, so a
+ * checkpoint fence cannot miss a caller that makes its first change before
+ * calling cache_mark_dirty(). cache_mark_dirty() remains the explicit,
+ * idempotent declaration of intent to modify the page.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -435,11 +441,10 @@ cache_prefetch_page(cache *cc, uint64 addr, page_type type)
  * The caller had better have the write lock on the page via cache_lock()
  * before changing its value.
  *
- * TODO This method should be removed; its effect should come automatically
- * with the acquisition of a write lock. @robj reports lots of bugs
- * due to forgetting to call this method. And we can't think of a case
- * where we'd want the "optimization" of taking a write lock but then
- * decide not to dirty it.
+ * Clockcache already begins a dirty interval when the caller acquires the
+ * write lock; this call is therefore idempotent there. It remains part of the
+ * cache API to document the mutation and preserve the contract for other
+ * implementations.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -540,6 +545,40 @@ static inline void
 cache_flush(cache *cc)
 {
    cc->ops->flush(cc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_writeback_fence
+ *
+ * Wait until every page whose current dirty interval began before this call's
+ * cut has completed writeback. Pages dirtied after the cut do not delay the
+ * call. The cache implementation must inspect resident metadata only; it must
+ * not fault pages in merely to satisfy the fence.
+ *
+ * This is the checkpointing primitive. It is intentionally narrower than
+ * cache_flush(), which attempts to leave the entire cache clean.
+ *-----------------------------------------------------------------------------
+ */
+static inline platform_status
+cache_writeback_fence(cache *cc)
+{
+   return cc->ops->writeback_fence(cc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_durable_barrier
+ *
+ * Ensure that writeback completed before this call is durable across a power
+ * loss. Callers normally use this after cache_writeback_fence(), and again
+ * after publishing a checkpoint superblock.
+ *-----------------------------------------------------------------------------
+ */
+static inline platform_status
+cache_durable_barrier(cache *cc)
+{
+   return cc->ops->durable_barrier(cc);
 }
 
 /*

@@ -25,8 +25,19 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int
-shard_log_write(log_handle *log, key tuple_key, message msg, uint64 generation);
+int shard_log_write(log_handle *log,
+                    key         tuple_key,
+                    message     msg,
+                    uint64      memtable_generation,
+                    uint64      leaf_generation);
+platform_status
+shard_log_seal(log_handle *log);
+platform_status
+shard_log_rotate(log_handle *log,
+                 log_segment_info *sealed,
+                 log_segment_info *fresh);
+void
+shard_log_release(log_handle *log);
 uint64
 shard_log_addr(log_handle *log);
 uint64
@@ -36,6 +47,9 @@ shard_log_magic(log_handle *log);
 
 static log_ops shard_log_ops = {
    .write     = shard_log_write,
+   .seal      = shard_log_seal,
+   .rotate    = shard_log_rotate,
+   .release   = shard_log_release,
    .addr      = shard_log_addr,
    .meta_addr = shard_log_meta_addr,
    .magic     = shard_log_magic,
@@ -93,6 +107,9 @@ page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
    uint64 addr = mini_alloc_page(&log->mini, 0, next_extent);
+   if (addr == 0) {
+      return NULL;
+   }
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
@@ -142,7 +159,15 @@ shard_log_zap(shard_log *log)
       thread_data->offset                = 0;
    }
 
-   mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
+   if (log->meta_head != 0) {
+      /* Drop unused per-batch reserves before releasing the mini root. */
+      mini_release(&log->mini);
+      refcount ref = mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
+      platform_assert(ref == 0);
+      log->meta_head = 0;
+      log->addr      = 0;
+      log->has_pages = FALSE;
+   }
 }
 
 /*
@@ -152,11 +177,12 @@ shard_log_zap(shard_log *log)
  * -------------------------------------------------------------------------
  */
 struct ONDISK log_entry {
-   uint64       generation;
+   uint64       memtable_generation;
+   uint64       leaf_generation;
    ondisk_tuple tuple;
 };
 
-#define INVALID_GENERATION ((uint64) - 1)
+#define INVALID_LOG_GENERATION ((uint64)-1)
 
 static key
 log_entry_key(log_entry *le)
@@ -200,7 +226,19 @@ static bool32
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
    return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
-          || le->generation == INVALID_GENERATION;
+          || le->memtable_generation == INVALID_LOG_GENERATION;
+}
+
+static inline void
+log_entry_set_terminal(log_entry *le)
+{
+   /*
+    * terminal_log_entry() tests memtable_generation.  Mark both generation
+    * fields invalid so the terminator cannot be confused with a record by
+    * diagnostics or a future format validator.
+    */
+   le->leaf_generation     = INVALID_LOG_GENERATION;
+   le->memtable_generation = INVALID_LOG_GENERATION;
 }
 
 static log_entry *
@@ -217,19 +255,29 @@ get_new_page_for_thread(shard_log             *log,
    uint64 next_extent;
 
    *page                 = shard_log_alloc(log, &next_extent);
+   if (*page == NULL) {
+      return -1;
+   }
    thread_data->addr     = (*page)->disk_addr;
    shard_log_hdr *hdr    = (shard_log_hdr *)(*page)->data;
    hdr->magic            = log->magic;
    hdr->next_extent_addr = next_extent;
    hdr->num_entries      = 0;
    thread_data->offset   = sizeof(shard_log_hdr);
+   log->has_pages        = TRUE;
    return 0;
 }
 
 int
-shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
+shard_log_write(log_handle *logh,
+                key         tuple_key,
+                message     msg,
+                uint64      memtable_generation,
+                uint64      leaf_generation)
 {
    debug_assert(key_is_user_key(tuple_key));
+   debug_assert(memtable_generation != INVALID_LOG_GENERATION);
+   debug_assert(leaf_generation != INVALID_LOG_GENERATION);
 
    shard_log        *log = (shard_log *)logh;
    cache            *cc  = log->cc;
@@ -290,7 +338,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 
    if (free_space < new_entry_size) {
       if (sizeof(log_entry) <= free_space) {
-         cursor->generation = INVALID_GENERATION;
+         log_entry_set_terminal(cursor);
       }
       hdr->checksum = shard_log_checksum(log->cfg, page);
 
@@ -309,7 +357,8 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
       hdr    = (shard_log_hdr *)page->data;
    }
 
-   cursor->generation = generation;
+   cursor->memtable_generation = memtable_generation;
+   cursor->leaf_generation     = leaf_generation;
    copy_tuple_to_ondisk_tuple(&cursor->tuple, tuple_key, msg);
 
    hdr->num_entries++;
@@ -330,6 +379,152 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    }
 
    return 0;
+}
+
+/*
+ * shard_log_seal --
+ *
+ *     Finalize every currently active per-thread append page.  This is
+ *     deliberately bounded by MAX_THREADS: it does not walk the historical
+ *     log.  A final terminal record (where there is room) and checksum make
+ *     each page readable by shard_log_iterator_init(), then clearing the
+ *     append cursor ensures a subsequent writer allocates a new page instead
+ *     of changing the sealed one.
+ *
+ *     The caller must prevent concurrent shard_log_write() and seal calls.
+ *     In particular, thread_data is otherwise only protected by the
+ *     per-thread writer convention, not by a log-wide lock. This function
+ *     intentionally does not issue writeback: after establishing that
+ *     exclusion, the caller takes cache_writeback_fence(), followed by a
+ *     durable barrier.
+ */
+platform_status
+shard_log_seal(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   cache     *cc  = log->cc;
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(log, thr_i);
+      uint64 addr = thread_data->addr;
+      if (addr == SHARD_UNMAPPED) {
+         continue;
+      }
+
+      page_handle *page = cache_get(cc, addr, TRUE, PAGE_TYPE_LOG);
+      uint64       wait = 1;
+      while (!cache_try_claim(cc, page)) {
+         cache_unget(cc, page);
+         platform_sleep_ns(wait);
+         wait = wait > 1024 ? wait : 2 * wait;
+         page = cache_get(cc, addr, TRUE, PAGE_TYPE_LOG);
+      }
+      cache_lock(cc, page);
+
+      debug_assert(thread_data->addr == addr);
+      debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
+      debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
+
+      shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+      log_entry *cursor =
+         (log_entry *)(page->data + thread_data->offset);
+      uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
+      if (sizeof(log_entry) <= free_space) {
+         log_entry_set_terminal(cursor);
+      }
+      hdr->checksum = shard_log_checksum(log->cfg, page);
+      cache_mark_dirty(cc, page);
+
+      cache_unlock(cc, page);
+      cache_unclaim(cc, page);
+      cache_unget(cc, page);
+
+      /* Subsequent writes must allocate a new append page. */
+      thread_data->addr   = SHARD_UNMAPPED;
+      thread_data->offset = 0;
+   }
+
+   return STATUS_OK;
+}
+
+/*
+ * Detach a sealed stream from the live log. The original allocation reference
+ * on its metadata extent is transferred to sealed; an eventual durable
+ * descriptor must own that reference. A fresh mini allocator is prepared
+ * before the old stream is sealed, so core can publish the fresh identity
+ * while inserts remain excluded. This only prepares a physical boundary; it
+ * does not publish or advance the logical durable-log tail.
+ */
+platform_status
+shard_log_rotate(log_handle       *logh,
+                 log_segment_info *sealed,
+                 log_segment_info *fresh_info)
+{
+   shard_log *log = (shard_log *)logh;
+   shard_log  fresh;
+
+   platform_assert(sealed != NULL);
+   platform_assert(fresh_info != NULL);
+   ZERO_CONTENTS(sealed);
+   ZERO_CONTENTS(fresh_info);
+
+   platform_status rc = shard_log_init(&fresh, log->cc, log->cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = shard_log_seal(logh);
+   if (!SUCCESS(rc)) {
+      shard_log_zap(&fresh);
+      return rc;
+   }
+
+   /* No future allocation may use the old mini allocator. */
+   mini_release(&log->mini);
+
+   if (log->has_pages) {
+      *sealed = (log_segment_info){
+         .addr      = log->addr,
+         .meta_addr = log->meta_head,
+         .magic     = log->magic,
+      };
+   } else {
+      /* An empty segment has no descriptor and no retained ownership. */
+      refcount ref = mini_dec_ref(log->cc, log->meta_head, PAGE_TYPE_LOG);
+      platform_assert(ref == 0);
+   }
+
+   log->mini      = fresh.mini;
+   log->addr      = fresh.addr;
+   log->meta_head = fresh.meta_head;
+   log->magic     = fresh.magic;
+   log->has_pages = FALSE;
+   memcpy(log->thread_data, fresh.thread_data, sizeof(log->thread_data));
+
+   *fresh_info = (log_segment_info){
+      .addr      = log->addr,
+      .meta_addr = log->meta_head,
+      .magic     = log->magic,
+   };
+   return STATUS_OK;
+}
+
+void
+shard_log_segment_discard(cache                  *cc,
+                          const log_segment_info *segment)
+{
+   if (segment->meta_addr == 0) {
+      return;
+   }
+   refcount ref = mini_dec_ref(cc, segment->meta_addr, PAGE_TYPE_LOG);
+   platform_assert(ref == 0);
+}
+
+void
+shard_log_release(log_handle *logh)
+{
+   shard_log_zap((shard_log *)logh);
 }
 
 uint64
@@ -374,7 +569,20 @@ shard_log_compare(const void *p1, const void *p2, void *unused)
 {
    log_entry **le1 = (log_entry **)p1;
    log_entry **le2 = (log_entry **)p2;
-   return (*le1)->generation - (*le2)->generation;
+
+   if ((*le1)->memtable_generation < (*le2)->memtable_generation) {
+      return -1;
+   }
+   if ((*le1)->memtable_generation > (*le2)->memtable_generation) {
+      return 1;
+   }
+   if ((*le1)->leaf_generation < (*le2)->leaf_generation) {
+      return -1;
+   }
+   if ((*le1)->leaf_generation > (*le2)->leaf_generation) {
+      return 1;
+   }
+   return 0;
 }
 
 log_handle *
@@ -527,6 +735,16 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
    *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
 }
 
+void
+shard_log_iterator_curr_generations(shard_log_iterator *itor,
+                                    uint64             *memtable_generation,
+                                    uint64             *leaf_generation)
+{
+   platform_assert(itor->pos < itor->num_entries);
+   *memtable_generation = itor->entries[itor->pos]->memtable_generation;
+   *leaf_generation     = itor->entries[itor->pos]->leaf_generation;
+}
+
 bool32
 shard_log_iterator_can_prev(iterator *itorh)
 {
@@ -597,11 +815,12 @@ shard_log_print(shard_log *log)
                  le = log_entry_next(le))
             {
                platform_default_log(
-                  "%s -- %s%s : %lu\n",
+                  "%s -- %s%s : memtable=%lu leaf=%lu\n",
                   key_string(dcfg, log_entry_key(le)),
                   log_entry_message_is_blob(le) ? "(blob) " : "",
                   message_string(dcfg, log_entry_message(cc, le)),
-                  le->generation);
+                  le->memtable_generation,
+                  le->leaf_generation);
             }
          }
          cache_unget(cc, page);

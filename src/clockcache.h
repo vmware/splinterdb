@@ -10,6 +10,7 @@
 #pragma once
 
 #include "platform_buffer.h"
+#include "platform_mutex.h"
 #include "platform_threads.h"
 #include "allocator.h"
 #include "cache.h"
@@ -72,6 +73,9 @@ typedef uint32 entry_status; // Saved in clockcache_entry->status
 struct clockcache_entry {
    page_handle           page;
    volatile entry_status status;
+   // Generation in which this page's current dirty interval began. Zero means
+   // no dirty interval (a clean page or an unpublished clean-load reservation).
+   volatile uint64       dirty_generation;
    page_type             type;
    async_wait_queue      waiters;
 #ifdef RECORD_ACQUISITION_STACKS
@@ -138,6 +142,17 @@ struct clockcache {
    buffer_handle    batch_bh;
    volatile bool32 *batch_busy; // Convenience pointer for batch_bh
    uint64           cleaner_gap;
+
+   /*
+    * Dirty-generation bookkeeping for checkpoint writeback fences. The dirty
+    * lock serializes the clean<->dirty transition with a fence cut and with
+    * writeback completion. Fence rounds are serialized separately so a page
+    * only needs one outstanding writeback-request bit.
+    */
+   platform_mutex dirty_lock;
+   platform_mutex writeback_fence_lock;
+   uint64         dirty_generation;
+   bool32         dirty_locks_initialized;
 
    volatile struct {
       volatile uint32 free_hand;
