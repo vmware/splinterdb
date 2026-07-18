@@ -1102,21 +1102,18 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             cc->stats[tid].writes_issued++;
          }
 
-         if (io_async_run(state->iostate) == ASYNC_STATUS_DONE) {
-            rc = io_async_state_get_result(state->iostate);
-            if (SUCCESS(rc)) {
-               platform_error_log(
-                  "clockcache_batch_start_writeback: async write for addr "
-                  "%lu completed without invoking its callback\n",
-                  first_addr);
-               rc = STATUS_IO_ERROR;
-            }
-            clockcache_abort_writeback_range(cc, first_addr, end_addr);
-            io_async_state_deinit(state->iostate);
-            platform_free(PROCESS_PRIVATE_HEAP_ID, state);
-            result = rc;
-            goto close_log;
-         }
+         // The IO layer must run writeback asynchronously and complete it via
+         // clockcache_write_callback (which does the dirty->clean bookkeeping).
+         // A synchronous completion would skip that callback and strand the
+         // pages in CC_WRITEBACK, so a broken contract is a fatal correctness
+         // error.
+         async_status arc = io_async_run(state->iostate);
+         platform_assert(
+            arc == ASYNC_STATUS_RUNNING,
+            "clockcache_batch_start_writeback: async writeback for addr %lu "
+            "completed synchronously; the IO layer must complete it via the "
+            "write callback",
+            first_addr);
       }
    }
 
