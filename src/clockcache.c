@@ -224,19 +224,40 @@ clockcache_test_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 
 /*
  *--------------------------------------------------------------------------
- * clockcache_dirty_complete_writeback --
+ * Dirty-generation bookkeeping
  *
+ * Each entry records the generation in which its current dirty interval began
+ * (0 when clean/free). A writeback fence takes a "cut" of the generation
+ * counter and drains every entry stamped at or below that cut. These
+ * transitions need no dedicated lock: clockcache_dirty_begin runs under the
+ * page's write lock, and a write lock cannot be held while CC_WRITEBACK is set
+ * (see clockcache_get_write), so a clean->dirty transition never races a
+ * writeback completion on the same entry.
+ *--------------------------------------------------------------------------
+ */
+static void
+clockcache_dirty_begin(clockcache *cc, uint32 entry_number)
+{
+   if (clockcache_test_flag(cc, entry_number, CC_CLEAN)) {
+      clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+      debug_assert(entry->dirty_generation == 0);
+      // Stamp before clearing CC_CLEAN so a fence that observes the page dirty
+      // always sees a valid generation. clear_flag is a full barrier.
+      entry->dirty_generation =
+         __atomic_load_n(&cc->dirty_generation, __ATOMIC_RELAXED);
+      clockcache_clear_flag(cc, entry_number, CC_CLEAN);
+   }
+}
+
+/*
  * Mark an entry clean once its writeback has completed. CC_CLEAN must be set
  * before CC_WRITEBACK is cleared: the intermediate CC_CLEAN|CC_WRITEBACK state
- * is not cleanable, so no thread can start a duplicate writeback in the gap. A
- * write lock cannot be held while CC_WRITEBACK is set (see
- * clockcache_get_write), so the clean<->dirty transitions never race and no
- * lock is needed here.
- *--------------------------------------------------------------------------
+ * is not cleanable, so no thread can start a duplicate writeback in the gap.
  */
 static void
 clockcache_dirty_complete_writeback(clockcache *cc, uint32 entry_number)
 {
+   clockcache_get_entry(cc, entry_number)->dirty_generation = 0;
    debug_only uint32 was_clean =
       clockcache_set_flag(cc, entry_number, CC_CLEAN);
    debug_assert(!was_clean);
@@ -820,6 +841,13 @@ clockcache_ok_to_writeback(clockcache *cc,
  *      status must be:
  *         -- CC_CLEANABLE1_STATUS (= 0)                  // dirty
  *         -- CC_CLEANABLE2_STATUS (= 0 | CC_ACCESSED)    // dirty
+ *
+ *      Returns FALSE only if the page is genuinely not writeback-able (locked,
+ *      claimed, already in writeback, clean, ...). The CC_ACCESSED bit can flip
+ *      (a reader sets it, the clock hand clears it) between the two
+ *compare-and- swaps, so we retry as long as the status remains one of the
+ *cleanable states rather than spuriously failing on a page that stayed
+ *cleanable.
  *----------------------------------------------------------------------
  */
 static inline bool32
@@ -834,19 +862,27 @@ clockcache_try_set_writeback(clockcache *cc,
                 cc->cfg->page_capacity);
 
    volatile uint32 *status = &cc->entry[entry_number].status;
-   if (__sync_bool_compare_and_swap(
-          status, CC_CLEANABLE1_STATUS, CC_WRITEBACK1_STATUS))
-   {
-      return TRUE;
+   while (TRUE) {
+      uint32 cur = *status;
+      if (cur == CC_CLEANABLE1_STATUS) {
+         if (__sync_bool_compare_and_swap(
+                status, CC_CLEANABLE1_STATUS, CC_WRITEBACK1_STATUS))
+         {
+            return TRUE;
+         }
+      } else if (with_access && cur == CC_CLEANABLE2_STATUS) {
+         if (__sync_bool_compare_and_swap(
+                status, CC_CLEANABLE2_STATUS, CC_WRITEBACK2_STATUS))
+         {
+            return TRUE;
+         }
+      } else {
+         // Not a cleanable state: the page cannot be written back right now.
+         return FALSE;
+      }
+      // The CAS failed because the status changed under us. If it is still
+      // cleanable, retry; otherwise the next iteration returns FALSE.
    }
-
-   if (with_access
-       && __sync_bool_compare_and_swap(
-             status, CC_CLEANABLE2_STATUS, CC_WRITEBACK2_STATUS))
-   {
-      return TRUE;
-   }
-   return FALSE;
 }
 
 typedef struct async_io_state {
@@ -1091,42 +1127,72 @@ close_log:
 
 /*
  *--------------------------------------------------------------------------
- * clockcache_writeback_fence --
+ * clockcache_writeback_dirty --
  *
- * Issue writeback for every dirty, unlocked page and wait for all of it to
- * complete, so that a subsequent durable_barrier can make it durable.
+ * Write back every page that was dirty when this call began, and wait for
+ * those writes (only those) to complete, so a subsequent durable_barrier can
+ * make them durable.
  *
- * A single pass over the cache suffices. Everything reachable from a published
- * checkpoint root is copy-on-write and therefore never write-locked while it is
- * reachable, so a dirty page that a writer currently holds locked cannot be
- * part of this checkpoint and is safely skipped (clockcache_ok_to_writeback
- * rejects locked pages). Pages that a concurrent cleaner already has in
- * writeback are not re-issued here but are still drained by the final
- * io_wait_all. The fence lock serializes checkpoints so that only one thread
- * drains the shared I/O contexts at a time.
+ * We take a "cut" by incrementing the dirty generation: pages dirtied before
+ * now carry a generation <= cutoff and must be drained; pages dirtied
+ * afterward carry a higher generation and never delay this call. This is what
+ * lets us avoid io_wait_all, which waits for *global* I/O quiescence -- a
+ * condition a busy cache (background cleaner writes, async reads) may never
+ * reach.
+ *
+ * A single scan of the entries suffices, because a generation only ever moves
+ * above the cut (a page must go clean before it can be re-dirtied), so an entry
+ * that has left the pre-cut set never re-enters it. We first issue writeback
+ * for every dirty, unlocked page in one bulk pass so the writes pipeline, then
+ * walk the entries once, waiting per entry for its pre-cut interval to drain.
+ *
+ * The bulk pass leaves every pre-cut page that belongs to this checkpoint in
+ * CC_WRITEBACK: such a page is dirty and, under copy-on-write, never locked or
+ * claimed, so clockcache_try_set_writeback issues it (or a concurrent cleaner
+ * already has). The drain therefore only has to wait on pages that are in
+ * writeback; a pre-cut page that is not in writeback is either already clean,
+ * or was held by a writer during the bulk pass and so cannot belong to this
+ * checkpoint -- either way we skip it, which is what keeps this deadlock-free.
+ * Per-context background reapers complete the issued writes; we also poll our
+ * own context via clockcache_wait to help things along.
+ *
+ * Termination: once a page is in writeback the writer is excluded (see
+ * clockcache_get_write), so it progresses to clean and, if re-dirtied, moves to
+ * a generation above the cut.
  *--------------------------------------------------------------------------
  */
 platform_status
-clockcache_writeback_fence(clockcache *cc)
+clockcache_writeback_dirty(clockcache *cc)
 {
-   platform_status rc = platform_mutex_lock(&cc->writeback_fence_lock);
-   platform_assert_status_ok(rc);
+   uint64 cutoff =
+      __atomic_fetch_add(&cc->dirty_generation, 1, __ATOMIC_SEQ_CST);
+   platform_assert(cutoff < UINT64_MAX);
 
-   platform_status result = STATUS_OK;
+   // Bulk-issue writeback for every dirty, unlocked page so the writes pipeline
+   // rather than draining one batch at a time.
    for (uint64 batch = 0; batch < cc->cfg->batch_capacity; batch++) {
-      result = clockcache_batch_start_writeback(cc, batch, TRUE);
+      platform_status result = clockcache_batch_start_writeback(cc, batch, TRUE);
       if (!SUCCESS(result)) {
-         break;
+         return result;
       }
    }
 
-   // Drain everything issued above (and any in-flight cleaner writeback) so the
-   // caller's durable_barrier sees completed writes.
-   io_wait_all(cc->io);
+   // Wait for each pre-cut interval's writeback to complete, in a single pass.
+   for (uint32 entry_no = 0; entry_no < cc->cfg->page_capacity; entry_no++) {
+      clockcache_entry *entry = clockcache_get_entry(cc, entry_no);
+      while (TRUE) {
+         uint64 gen =
+            __atomic_load_n(&entry->dirty_generation, __ATOMIC_RELAXED);
+         if (gen == 0 || gen > cutoff
+             || !clockcache_test_flag(cc, entry_no, CC_WRITEBACK))
+         {
+            break;
+         }
+         clockcache_wait(cc);
+      }
+   }
 
-   platform_status unlock_rc = platform_mutex_unlock(&cc->writeback_fence_lock);
-   platform_assert_status_ok(unlock_rc);
-   return result;
+   return STATUS_OK;
 }
 
 /*
@@ -1226,8 +1292,9 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
 
    /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
    platform_assert(entry->waiters.head == NULL);
-   entry->type   = PAGE_TYPE_INVALID;
-   entry->status = CC_FREE_STATUS;
+   entry->type             = PAGE_TYPE_INVALID;
+   entry->dirty_generation = 0;
+   entry->status           = CC_FREE_STATUS;
    clockcache_log(
       addr, entry_number, "evict: entry %u addr %lu\n", entry_number, addr);
 
@@ -1366,6 +1433,14 @@ clockcache_get_free_page(clockcache *cc,
                continue;
             }
 
+            // A page that begins dirty (a fresh allocation) must carry a dirty
+            // generation, just like a clean->dirty transition. The entry is
+            // write-locked here, so a concurrent fence skips it regardless.
+            if (!(status & CC_CLEAN)) {
+               debug_assert(entry->dirty_generation == 0);
+               entry->dirty_generation =
+                  __atomic_load_n(&cc->dirty_generation, __ATOMIC_RELAXED);
+            }
             entry->status = status;
             entry->type   = type;
 
@@ -1593,8 +1668,9 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       platform_assert(entry->waiters.head == NULL);
-      entry->type   = PAGE_TYPE_INVALID;
-      entry->status = CC_FREE_STATUS;
+      entry->type             = PAGE_TYPE_INVALID;
+      entry->dirty_generation = 0;
+      entry->status           = CC_FREE_STATUS;
 
       /* 7. reset pincount */
       clockcache_reset_pin(cc, entry_number);
@@ -1711,8 +1787,9 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
 static void
 clockcache_release_unpublished_entry(clockcache_entry *entry)
 {
-   entry->page.disk_addr = CC_UNMAPPED_ADDR;
-   entry->type           = PAGE_TYPE_INVALID;
+   entry->page.disk_addr   = CC_UNMAPPED_ADDR;
+   entry->type             = PAGE_TYPE_INVALID;
+   entry->dirty_generation = 0;
    platform_assert(entry->waiters.head == NULL);
    entry->status = CC_FREE_STATUS;
 }
@@ -2256,9 +2333,10 @@ clockcache_lock(clockcache *cc, page_handle *page)
                   entry_number,
                   page->disk_addr);
    clockcache_get_write(cc, entry_number);
-   // A write lock marks the page dirty; the CC_WRITEBACK exclusion in
-   // clockcache_get_write guarantees this cannot race a writeback completion.
-   clockcache_clear_flag(cc, entry_number, CC_CLEAN);
+   // A write lock marks the page dirty (and stamps its dirty generation). The
+   // CC_WRITEBACK exclusion in clockcache_get_write guarantees this cannot race
+   // a writeback completion.
+   clockcache_dirty_begin(cc, entry_number);
 }
 
 void
@@ -2373,11 +2451,12 @@ clockcache_page_writeback(clockcache  *cc,
    if (!is_blocking) {
       state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
       if (state == NULL) {
-         platform_error_log("clockcache_page_writeback: async_io_state allocation "
-                            "failed for addr %lu, entry %u, type %u\n",
-                            addr,
-                            entry_number,
-                            type);
+         platform_error_log(
+            "clockcache_page_writeback: async_io_state allocation "
+            "failed for addr %lu, entry %u, type %u\n",
+            addr,
+            entry_number,
+            type);
       }
       platform_assert(state);
       state->cc                = cc;
@@ -2389,34 +2468,37 @@ clockcache_page_writeback(clockcache  *cc,
                                    clockcache_write_callback,
                                    state);
       if (!SUCCESS(status)) {
-         platform_error_log("clockcache_page_writeback: io_async_state_init failed "
-                            "for addr %lu, entry %u, type %u: %s\n",
-                            addr,
-                            entry_number,
-                            type,
-                            platform_status_to_string(status));
+         platform_error_log(
+            "clockcache_page_writeback: io_async_state_init failed "
+            "for addr %lu, entry %u, type %u: %s\n",
+            addr,
+            entry_number,
+            type,
+            platform_status_to_string(status));
       }
       platform_assert_status_ok(status);
       status = io_async_state_append_page(state->iostate, page->data);
       if (!SUCCESS(status)) {
-         platform_error_log("clockcache_page_writeback: io_async_state_append_page "
-                            "failed for addr %lu, entry %u, type %u: %s\n",
-                            addr,
-                            entry_number,
-                            type,
-                            platform_status_to_string(status));
+         platform_error_log(
+            "clockcache_page_writeback: io_async_state_append_page "
+            "failed for addr %lu, entry %u, type %u: %s\n",
+            addr,
+            entry_number,
+            type,
+            platform_status_to_string(status));
       }
       platform_assert_status_ok(status);
       io_async_run(state->iostate);
    } else {
       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
       if (!SUCCESS(status)) {
-         platform_error_log("clockcache_page_writeback: io_write failed for addr "
-                            "%lu, entry %u, type %u: %s\n",
-                            addr,
-                            entry_number,
-                            type,
-                            platform_status_to_string(status));
+         platform_error_log(
+            "clockcache_page_writeback: io_write failed for addr "
+            "%lu, entry %u, type %u: %s\n",
+            addr,
+            entry_number,
+            type,
+            platform_status_to_string(status));
       }
       platform_assert_status_ok(status);
       clockcache_log(addr,
@@ -3261,10 +3343,10 @@ clockcache_flush_virtual(cache *c)
 }
 
 platform_status
-clockcache_writeback_fence_virtual(cache *c)
+clockcache_writeback_dirty_virtual(cache *c)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_writeback_fence(cc);
+   return clockcache_writeback_dirty(cc);
 }
 
 platform_status
@@ -3407,7 +3489,7 @@ static cache_ops clockcache_ops = {
    .page_writeback     = clockcache_page_writeback_virtual,
    .extent_writeback   = clockcache_extent_writeback_virtual,
    .flush              = clockcache_flush_virtual,
-   .writeback_fence    = clockcache_writeback_fence_virtual,
+   .writeback_dirty    = clockcache_writeback_dirty_virtual,
    .durable_barrier    = clockcache_durable_barrier_virtual,
    .evict              = clockcache_evict_all_virtual,
    .cleanup            = clockcache_wait_virtual,
@@ -3501,18 +3583,12 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->io      = io;
    cc->heap_id = hid;
 
-   platform_status rc =
-      platform_mutex_init(&cc->writeback_fence_lock, mid, hid);
-   if (!SUCCESS(rc)) {
-      platform_error_log(
-         "clockcache_init: failed to initialize writeback fence lock: %s\n",
-         platform_status_to_string(rc));
-      goto alloc_error;
-   }
-   cc->writeback_fence_lock_initialized = TRUE;
+   // Generation 0 is the sentinel for "clean/free", so dirty stamping starts
+   // at 1.
+   cc->dirty_generation = 1;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
-   rc = platform_buffer_init(&cc->lookup_bh,
+   platform_status rc = platform_buffer_init(&cc->lookup_bh,
                              allocator_page_capacity * sizeof(cc->lookup[0]));
    if (!SUCCESS(rc)) {
       platform_error_log("clockcache_init: failed to allocate lookup table "
@@ -3552,9 +3628,10 @@ clockcache_init(clockcache        *cc,   // OUT
    for (i = 0; i < cc->cfg->page_capacity; i++) {
       cc->entry[i].page.data =
          cc->data + clockcache_multiply_by_page_size(cc, i);
-      cc->entry[i].page.disk_addr = CC_UNMAPPED_ADDR;
-      cc->entry[i].status         = CC_FREE_STATUS;
-      cc->entry[i].type           = PAGE_TYPE_INVALID;
+      cc->entry[i].page.disk_addr   = CC_UNMAPPED_ADDR;
+      cc->entry[i].status           = CC_FREE_STATUS;
+      cc->entry[i].dirty_generation = 0;
+      cc->entry[i].type             = PAGE_TYPE_INVALID;
       async_wait_queue_init(&cc->entry[i].waiters);
    }
 
@@ -3634,12 +3711,6 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #if defined(CC_LOG) || defined(ADDR_TRACING)
       platform_close_log_file(cc->logfile);
 #endif
-   }
-
-   if (cc->writeback_fence_lock_initialized) {
-      rc = platform_mutex_destroy(&cc->writeback_fence_lock);
-      platform_assert_status_ok(rc);
-      cc->writeback_fence_lock_initialized = FALSE;
    }
 
    if (cc->lookup) {

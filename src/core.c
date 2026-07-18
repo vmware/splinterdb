@@ -59,9 +59,8 @@ _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
 static platform_status
 core_checkpoint_lock_init(core_handle *spl)
 {
-   platform_status rc = platform_mutex_init(&spl->checkpoint_lock,
-                                            platform_get_module_id(),
-                                            spl->heap_id);
+   platform_status rc = platform_mutex_init(
+      &spl->checkpoint_lock, platform_get_module_id(), spl->heap_id);
    if (SUCCESS(rc)) {
       spl->checkpoint_lock_initialized = TRUE;
    }
@@ -165,17 +164,17 @@ typedef struct ONDISK core_checkpoint_record {
     * The highest memtable generation incorporated in root_addr.  The boolean
     * keeps the fresh-database case distinct from generation zero.
     */
-   uint64 incorporated_generation;
-   bool32 has_incorporated_generation;
-   uint64 root_addr;
-   uint64 timestamp;
-   uint64 sequence;
-   uint64 table_id;
-   uint32 record_slot;
-   bool32 checkpointed;
-   bool32 unmounted;
-   uint64 magic;
-   uint64 format_version;
+   uint64      incorporated_generation;
+   bool32      has_incorporated_generation;
+   uint64      root_addr;
+   uint64      timestamp;
+   uint64      sequence;
+   uint64      table_id;
+   uint32      record_slot;
+   bool32      checkpointed;
+   bool32      unmounted;
+   uint64      magic;
+   uint64      format_version;
    checksum128 checksum;
 } core_checkpoint_record;
 
@@ -216,7 +215,7 @@ core_checkpoint_record_addr_is_valid(core_handle *spl, uint64 addr)
 }
 
 static bool32
-core_checkpoint_directory_is_valid(core_handle                        *spl,
+core_checkpoint_directory_is_valid(core_handle                     *spl,
                                    const core_checkpoint_directory *directory)
 {
    if (directory->magic != CORE_CHECKPOINT_DIRECTORY_MAGIC
@@ -228,19 +227,20 @@ core_checkpoint_directory_is_valid(core_handle                        *spl,
       return FALSE;
    }
 
-   uint64 record0 = directory->record_addr[0];
-   uint64 record1 = directory->record_addr[1];
+   uint64            record0       = directory->record_addr[0];
+   uint64            record1       = directory->record_addr[1];
    allocator_config *allocator_cfg = allocator_get_config(spl->al);
    return core_checkpoint_record_addr_is_valid(spl, record0)
           && core_checkpoint_record_addr_is_valid(spl, record1)
           && record0 != record1
-          && !allocator_config_pages_share_extent(allocator_cfg, record0, record1);
+          && !allocator_config_pages_share_extent(
+             allocator_cfg, record0, record1);
 }
 
 static bool32
-core_checkpoint_record_is_valid(core_handle                     *spl,
+core_checkpoint_record_is_valid(core_handle                  *spl,
                                 const core_checkpoint_record *record,
-                                uint64                           record_slot)
+                                uint64                        record_slot)
 {
    return record->magic == CORE_CHECKPOINT_RECORD_MAGIC
           && record->format_version == CORE_CHECKPOINT_FORMAT_VERSION
@@ -293,7 +293,7 @@ core_initialize_checkpoint_record_page(core_handle *spl, uint64 page_addr)
 }
 
 static platform_status
-core_create_checkpoint_directory(core_handle                 *spl,
+core_create_checkpoint_directory(core_handle               *spl,
                                  core_checkpoint_directory *directory)
 {
    uint64          directory_addr;
@@ -338,7 +338,7 @@ core_create_checkpoint_directory(core_handle                 *spl,
     * bootstrap mapping through the shared backing I/O handle, which the
     * following durable barrier fdatasyncs with the directory page.
     */
-   rc = cache_writeback_fence(spl->cc);
+   rc = cache_writeback_dirty(spl->cc);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -346,7 +346,7 @@ core_create_checkpoint_directory(core_handle                 *spl,
 }
 
 static platform_status
-core_get_checkpoint_directory(core_handle                 *spl,
+core_get_checkpoint_directory(core_handle               *spl,
                               core_checkpoint_directory *directory)
 {
    uint64          directory_addr;
@@ -371,21 +371,19 @@ core_get_checkpoint_directory(core_handle                 *spl,
 }
 
 static platform_status
-core_load_checkpoint_records(core_handle                       *spl,
+core_load_checkpoint_records(core_handle                     *spl,
                              const core_checkpoint_directory *directory,
-                             core_checkpoint_records          *records)
+                             core_checkpoint_records         *records)
 {
    ZERO_CONTENTS(records);
    for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
-      page_handle *page = cache_get(spl->cc,
-                                    directory->record_addr[slot],
-                                    TRUE,
-                                    PAGE_TYPE_SUPERBLOCK);
+      page_handle *page = cache_get(
+         spl->cc, directory->record_addr[slot], TRUE, PAGE_TYPE_SUPERBLOCK);
       memcpy(&records->record[slot], page->data, sizeof(records->record[slot]));
       cache_unget(spl->cc, page);
 
-      records->valid[slot] = core_checkpoint_record_is_valid(
-         spl, &records->record[slot], slot);
+      records->valid[slot] =
+         core_checkpoint_record_is_valid(spl, &records->record[slot], slot);
       if (!records->valid[slot]) {
          continue;
       }
@@ -422,8 +420,7 @@ core_load_checkpoint_records(core_handle                       *spl,
 static void
 core_destroy_checkpoint_record_extent(core_handle *spl, uint64 record_addr)
 {
-   refcount ref =
-      allocator_dec_ref(spl->al, record_addr, PAGE_TYPE_SUPERBLOCK);
+   refcount ref = allocator_dec_ref(spl->al, record_addr, PAGE_TYPE_SUPERBLOCK);
    if (ref != AL_NO_REFS) {
       platform_error_log("core_destroy_checkpoint_record_extent: record extent "
                          "%lu has unexpected refcount %u\n",
@@ -516,9 +513,8 @@ core_capture_checkpoint_cut(core_handle    *spl,
    }
 
    *has_incorporated_generation = retired_generation != UINT64_MAX;
-   *incorporated_generation = *has_incorporated_generation
-                                 ? retired_generation
-                                 : 0;
+   *incorporated_generation =
+      *has_incorporated_generation ? retired_generation : 0;
    return STATUS_OK;
 }
 
@@ -528,11 +524,11 @@ core_publish_checkpoint_record(core_handle *spl,
                                bool32       is_unmount,
                                bool32       is_create)
 {
-   uint64          old_root_addr;
-   platform_status rc;
-   trunk_snapshot snapshot;
-   bool32         has_incorporated_generation;
-   uint64         incorporated_generation;
+   uint64                    old_root_addr;
+   platform_status           rc;
+   trunk_snapshot            snapshot;
+   bool32                    has_incorporated_generation;
+   uint64                    incorporated_generation;
    core_checkpoint_directory directory;
    core_checkpoint_records   records;
    uint64                    target_slot;
@@ -549,10 +545,8 @@ core_publish_checkpoint_record(core_handle *spl,
       return rc;
    }
 
-   rc = core_capture_checkpoint_cut(spl,
-                                    &snapshot,
-                                    &has_incorporated_generation,
-                                    &incorporated_generation);
+   rc = core_capture_checkpoint_cut(
+      spl, &snapshot, &has_incorporated_generation, &incorporated_generation);
    if (!SUCCESS(rc)) {
       goto unlock_checkpoint;
    }
@@ -601,32 +595,30 @@ core_publish_checkpoint_record(core_handle *spl,
     * is durable, then release only the overwritten owner. The newest record
     * remains independently live as the torn-write fallback.
     */
-   old_root_addr = records.valid[target_slot]
-                      ? records.record[target_slot].root_addr
-                      : 0;
+   old_root_addr =
+      records.valid[target_slot] ? records.record[target_slot].root_addr : 0;
 
    ZERO_CONTENTS(&record);
    record.incorporated_generation     = incorporated_generation;
    record.has_incorporated_generation = has_incorporated_generation;
-   record.root_addr                    = snapshot.root_addr;
-   record.timestamp                    = platform_get_real_time();
-   record.sequence = records.have_newest
-                        ? records.record[records.newest_slot].sequence + 1
-                        : 1;
-   record.table_id                     = spl->id;
-   record.record_slot                  = target_slot;
-   record.checkpointed                 = is_checkpoint;
-   record.unmounted                    = is_unmount;
-   record.magic                        = CORE_CHECKPOINT_RECORD_MAGIC;
-   record.format_version               = CORE_CHECKPOINT_FORMAT_VERSION;
+   record.root_addr                   = snapshot.root_addr;
+   record.timestamp                   = platform_get_real_time();
+   record.sequence                    = records.have_newest
+                                           ? records.record[records.newest_slot].sequence + 1
+                                           : 1;
+   record.table_id                    = spl->id;
+   record.record_slot                 = target_slot;
+   record.checkpointed                = is_checkpoint;
+   record.unmounted                   = is_unmount;
+   record.magic                       = CORE_CHECKPOINT_RECORD_MAGIC;
+   record.format_version              = CORE_CHECKPOINT_FORMAT_VERSION;
 
    record.checksum = core_checkpoint_record_checksum(&record);
 
-   core_write_checkpoint_page(spl,
-                              directory.record_addr[target_slot],
-                              &record,
-                              sizeof(record));
-   /* The record now owns this reference, even if the barrier reports failure. */
+   core_write_checkpoint_page(
+      spl, directory.record_addr[target_slot], &record, sizeof(record));
+   /* The record now owns this reference, even if the barrier reports failure.
+    */
    snapshot.root_addr = 0;
 
    rc = cache_durable_barrier(spl->cc);
@@ -655,21 +647,21 @@ core_publish_checkpoint_record(core_handle *spl,
    goto unlock_checkpoint;
 
 release_snapshot:
-   {
-      platform_status release_rc =
-         trunk_snapshot_release(&spl->trunk_context, &snapshot);
-      if (SUCCESS(rc) && !SUCCESS(release_rc)) {
-         rc = release_rc;
-      }
+{
+   platform_status release_rc =
+      trunk_snapshot_release(&spl->trunk_context, &snapshot);
+   if (SUCCESS(rc) && !SUCCESS(release_rc)) {
+      rc = release_rc;
    }
+}
 
 unlock_checkpoint:
-   {
-      platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
-      if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
-         rc = unlock_rc;
-      }
+{
+   platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
+   if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
+      rc = unlock_rc;
    }
+}
    return rc;
 }
 
@@ -2313,14 +2305,15 @@ core_mkfs(core_handle      *spl,
 
    platform_status rc = core_checkpoint_lock_init(spl);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mkfs: checkpoint lock initialization failed: %s\n",
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "core_mkfs: checkpoint lock initialization failed: %s\n",
+         platform_status_to_string(rc));
       return rc;
    }
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   rc = memtable_context_init(&spl->mt_ctxt,
+   rc                      = memtable_context_init(&spl->mt_ctxt,
                               spl->heap_id,
                               cc,
                               mt_cfg,
@@ -2359,8 +2352,9 @@ core_mkfs(core_handle      *spl,
 
    rc = core_publish_checkpoint_record(spl, FALSE, FALSE, TRUE);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mkfs: core_publish_checkpoint_record failed: %s\n",
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "core_mkfs: core_publish_checkpoint_record failed: %s\n",
+         platform_status_to_string(rc));
       goto deinit_stats;
    }
    return STATUS_OK;
@@ -2405,8 +2399,9 @@ core_mount(core_handle      *spl,
 
    platform_status rc = core_checkpoint_lock_init(spl);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: checkpoint lock initialization failed: %s\n",
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "core_mount: checkpoint lock initialization failed: %s\n",
+         platform_status_to_string(rc));
       return rc;
    }
 
@@ -2416,7 +2411,7 @@ core_mount(core_handle      *spl,
     * unmounted record supplies the root.  We still validate both records and
     * choose the newest clean one by sequence rather than wall-clock time.
     */
-   uint64                    root_addr = 0;
+   uint64                    root_addr                   = 0;
    bool32                    has_incorporated_generation = FALSE;
    uint64                    incorporated_generation     = 0;
    core_checkpoint_directory directory;
@@ -2436,8 +2431,7 @@ core_mount(core_handle      *spl,
       rc = STATUS_BAD_PARAM;
       goto deinit_checkpoint_lock;
    }
-   const core_checkpoint_record *record =
-      &records.record[records.newest_slot];
+   const core_checkpoint_record *record = &records.record[records.newest_slot];
    if (!record->unmounted) {
       /*
        * This is an interrupted run. An older clean record is only an A/B
@@ -2450,12 +2444,12 @@ core_mount(core_handle      *spl,
       rc = STATUS_INVALID_STATE;
       goto deinit_checkpoint_lock;
    }
-   root_addr                    = record->root_addr;
+   root_addr                   = record->root_addr;
    has_incorporated_generation = record->has_incorporated_generation;
    incorporated_generation     = record->incorporated_generation;
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   rc = memtable_context_init_at_generation(
+   rc                      = memtable_context_init_at_generation(
       &spl->mt_ctxt,
       spl->heap_id,
       cc,
@@ -2496,8 +2490,9 @@ core_mount(core_handle      *spl,
 
    rc = core_publish_checkpoint_record(spl, FALSE, FALSE, FALSE);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: core_publish_checkpoint_record failed: %s\n",
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "core_mount: core_publish_checkpoint_record failed: %s\n",
+         platform_status_to_string(rc));
       goto deinit_stats;
    }
    return STATUS_OK;
@@ -2626,8 +2621,9 @@ core_unmount(core_handle *spl)
    core_quiesce_for_shutdown(spl);
    rc = core_publish_checkpoint_record(spl, FALSE, TRUE, FALSE);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_unmount: failed to publish checkpoint record: %s\n",
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "core_unmount: failed to publish checkpoint record: %s\n",
+         platform_status_to_string(rc));
    }
    core_teardown_after_shutdown(spl);
    trunk_context_deinit(&spl->trunk_context);

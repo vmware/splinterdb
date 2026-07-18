@@ -71,19 +71,18 @@ test_log_crash(clockcache             *cc,
           * (memtable_generation, leaf_generation) order below.
           */
          uint64 memtable_generation = 1 - i / LOG_TEST_LEAVES_PER_MEMTABLE;
-         uint64 leaf_generation = LOG_TEST_LEAVES_PER_MEMTABLE - 1
-                                  - i % LOG_TEST_LEAVES_PER_MEMTABLE;
+         uint64 leaf_generation =
+            LOG_TEST_LEAVES_PER_MEMTABLE - 1 - i % LOG_TEST_LEAVES_PER_MEMTABLE;
          entry_num = memtable_generation * LOG_TEST_LEAVES_PER_MEMTABLE
                      + leaf_generation;
       }
-      key skey =
-         test_key(&keybuffer,
-                  TEST_RANDOM,
-                  entry_num,
-                  0,
-                  0,
-                  1 + (entry_num % key_size),
-                  0);
+      key skey = test_key(&keybuffer,
+                          TEST_RANDOM,
+                          entry_num,
+                          0,
+                          0,
+                          1 + (entry_num % key_size),
+                          0);
       generate_test_message(gen, entry_num, &msg);
       int log_rc = log_write(logh,
                              skey,
@@ -95,7 +94,7 @@ test_log_crash(clockcache             *cc,
 
    rc = log_seal(logh);
    platform_assert_status_ok(rc);
-   rc = cache_writeback_fence((cache *)cc);
+   rc = cache_writeback_dirty((cache *)cc);
    platform_assert_status_ok(rc);
    rc = cache_durable_barrier((cache *)cc);
    platform_assert_status_ok(rc);
@@ -121,8 +120,7 @@ test_log_crash(clockcache             *cc,
       uint64 leaf_generation;
       shard_log_iterator_curr_generations(
          &itor, &memtable_generation, &leaf_generation);
-      platform_assert(
-         memtable_generation == i / LOG_TEST_LEAVES_PER_MEMTABLE);
+      platform_assert(memtable_generation == i / LOG_TEST_LEAVES_PER_MEMTABLE);
       platform_assert(leaf_generation == i % LOG_TEST_LEAVES_PER_MEMTABLE);
       if (data_key_compare(cfg->data_cfg, skey, returned_key)
           || message_lex_cmp(mmessage, returned_message))
@@ -166,7 +164,7 @@ test_log_write_range(log_handle             *logh,
 
    for (uint64 i = 0; i < num_entries; i++) {
       uint64 entry_num = first_entry + i;
-      key skey = test_key(&keybuffer,
+      key    skey      = test_key(&keybuffer,
                           TEST_RANDOM,
                           entry_num,
                           0,
@@ -174,11 +172,8 @@ test_log_write_range(log_handle             *logh,
                           1 + (entry_num % key_size),
                           0);
       generate_test_message(gen, entry_num, &msg);
-      int log_rc = log_write(logh,
-                             skey,
-                             merge_accumulator_to_message(&msg),
-                             entry_num,
-                             0);
+      int log_rc = log_write(
+         logh, skey, merge_accumulator_to_message(&msg), entry_num, 0);
       platform_assert(log_rc == 0);
    }
 
@@ -228,9 +223,9 @@ test_log_verify_segment(cache                  *cc,
       platform_assert(memtable_generation == entry_num);
       platform_assert(leaf_generation == 0);
       platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
-      platform_assert(message_lex_cmp(
-                         merge_accumulator_to_message(&msg), returned_message)
-                      == 0);
+      platform_assert(
+         message_lex_cmp(merge_accumulator_to_message(&msg), returned_message)
+         == 0);
       rc = iterator_next(itorh);
       platform_assert_status_ok(rc);
    }
@@ -257,8 +252,8 @@ test_log_rotate(clockcache             *cc,
                 test_message_generator *gen,
                 uint64                  key_size)
 {
-   const uint64 old_first = 1000, old_count = 16;
-   const uint64 new_first = 2000, new_count = 16;
+   const uint64     old_first = 1000, old_count = 16;
+   const uint64     new_first = 2000, new_count = 16;
    log_segment_info sealed, fresh;
 
    platform_status rc = shard_log_init(log, (cache *)cc, cfg);
@@ -275,7 +270,7 @@ test_log_rotate(clockcache             *cc,
    platform_assert(sealed.meta_addr != fresh.meta_addr);
    platform_assert(sealed.magic != fresh.magic);
 
-   rc = cache_writeback_fence((cache *)cc);
+   rc = cache_writeback_dirty((cache *)cc);
    platform_assert_status_ok(rc);
    rc = cache_durable_barrier((cache *)cc);
    platform_assert_status_ok(rc);
@@ -284,20 +279,14 @@ test_log_rotate(clockcache             *cc,
    rc = clockcache_init(
       cc, cache_cfg, io, al, "rotated-old", hid, platform_get_module_id());
    platform_assert_status_ok(rc);
-   test_log_verify_segment((cache *)cc,
-                           cfg,
-                           &sealed,
-                           gen,
-                           hid,
-                           key_size,
-                           old_first,
-                           old_count);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &sealed, gen, hid, key_size, old_first, old_count);
 
    test_log_write_range(
       (log_handle *)log, gen, hid, key_size, new_first, new_count);
    rc = log_seal((log_handle *)log);
    platform_assert_status_ok(rc);
-   rc = cache_writeback_fence((cache *)cc);
+   rc = cache_writeback_dirty((cache *)cc);
    platform_assert_status_ok(rc);
    rc = cache_durable_barrier((cache *)cc);
    platform_assert_status_ok(rc);
@@ -306,22 +295,10 @@ test_log_rotate(clockcache             *cc,
    rc = clockcache_init(
       cc, cache_cfg, io, al, "rotated-new", hid, platform_get_module_id());
    platform_assert_status_ok(rc);
-   test_log_verify_segment((cache *)cc,
-                           cfg,
-                           &sealed,
-                           gen,
-                           hid,
-                           key_size,
-                           old_first,
-                           old_count);
-   test_log_verify_segment((cache *)cc,
-                           cfg,
-                           &fresh,
-                           gen,
-                           hid,
-                           key_size,
-                           new_first,
-                           new_count);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &sealed, gen, hid, key_size, old_first, old_count);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &fresh, gen, hid, key_size, new_first, new_count);
 
    shard_log_segment_discard((cache *)cc, &sealed);
    shard_log_zap(log);
@@ -353,9 +330,8 @@ test_log_large_message(cache            *cc,
    merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
    memset(merge_accumulator_data(&msg), 'L', value_len);
 
-   int log_rc =
-      log_write(
-         (log_handle *)log, skey, merge_accumulator_to_message(&msg), 0, 0);
+   int log_rc = log_write(
+      (log_handle *)log, skey, merge_accumulator_to_message(&msg), 0, 0);
    platform_assert(log_rc == 0);
 
    merge_accumulator filler;
@@ -366,19 +342,18 @@ test_log_large_message(cache            *cc,
    memset(
       merge_accumulator_data(&filler), 'f', merge_accumulator_length(&filler));
    for (uint64 i = 1; i < 16; i++) {
-      log_rc = log_write(
-         (log_handle *)log,
-         skey,
-         merge_accumulator_to_message(&filler),
-         i / 4,
-         i % 4);
+      log_rc = log_write((log_handle *)log,
+                         skey,
+                         merge_accumulator_to_message(&filler),
+                         i / 4,
+                         i % 4);
       platform_assert(log_rc == 0);
    }
    merge_accumulator_deinit(&filler);
 
    rc = log_seal((log_handle *)log);
    platform_assert_status_ok(rc);
-   rc = cache_writeback_fence(cc);
+   rc = cache_writeback_dirty(cc);
    platform_assert_status_ok(rc);
    rc = cache_durable_barrier(cc);
    platform_assert_status_ok(rc);
@@ -433,11 +408,8 @@ test_log_thread(void *arg)
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       key skey = test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
       generate_test_message(gen, i, &msg);
-      int log_rc = log_write(logh,
-                             skey,
-                             merge_accumulator_to_message(&msg),
-                             i / 1024,
-                             i % 1024);
+      int log_rc = log_write(
+         logh, skey, merge_accumulator_to_message(&msg), i / 1024, i % 1024);
       platform_assert(log_rc == 0);
    }
 

@@ -98,7 +98,7 @@ typedef void (*cache_generic_fn)(cache *cc);
 typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
 typedef void (*page_generic_fn)(cache *cc, page_handle *page);
 typedef platform_status (*cache_durable_barrier_fn)(cache *cc);
-typedef platform_status (*cache_writeback_fence_fn)(cache *cc);
+typedef platform_status (*cache_writeback_dirty_fn)(cache *cc);
 
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
@@ -177,7 +177,7 @@ typedef struct cache_ops {
    page_writeback_fn        page_writeback;
    extent_writeback_fn      extent_writeback;
    cache_generic_fn         flush;
-   cache_writeback_fence_fn writeback_fence;
+   cache_writeback_dirty_fn writeback_dirty;
    cache_durable_barrier_fn durable_barrier;
    evict_fn                 evict;
    cache_generic_fn         cleanup;
@@ -369,11 +369,7 @@ cache_unclaim(cache *cc, page_handle *page)
  *
  * Blocks until outstanding read locks are released by other threads.
  *
- * Acquiring the write lock marks the page dirty: it begins a dirty interval on
- * this transition (before the caller's first change), so a checkpoint fence
- * cannot miss the modification. A page obtained write-locked from cache_alloc()
- * is likewise already dirty. Callers therefore do not separately declare the
- * mutation.
+ * Acquiring the write lock marks the page dirty.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -536,17 +532,16 @@ cache_flush(cache *cc)
 
 /*
  *-----------------------------------------------------------------------------
- * cache_writeback_fence
+ * cache_writeback_dirty
  *
- * Wait until every page whose current dirty interval began before this call's
- * cut has completed writeback. Pages dirtied after the cut do not delay the
- * call.
+ * Issues and wait for completion of writebacks for all pages that are dirty
+ * but not locked at the time of the call.  May writeback other pages, as well.
  *-----------------------------------------------------------------------------
  */
 static inline platform_status
-cache_writeback_fence(cache *cc)
+cache_writeback_dirty(cache *cc)
 {
-   return cc->ops->writeback_fence(cc);
+   return cc->ops->writeback_dirty(cc);
 }
 
 /*
@@ -554,7 +549,7 @@ cache_writeback_fence(cache *cc)
  * cache_durable_barrier
  *
  * Ensure that writeback completed before this call is durable across a power
- * loss. Callers normally use this after cache_writeback_fence(), and again
+ * loss. Callers normally use this after cache_writeback_dirty(), and again
  * after publishing a checkpoint superblock.
  *-----------------------------------------------------------------------------
  */

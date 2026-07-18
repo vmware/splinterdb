@@ -395,7 +395,7 @@ shard_log_write(log_handle *logh,
  *     In particular, thread_data is otherwise only protected by the
  *     per-thread writer convention, not by a log-wide lock. This function
  *     intentionally does not issue writeback: after establishing that
- *     exclusion, the caller takes cache_writeback_fence(), followed by a
+ *     exclusion, the caller takes cache_writeback_dirty(), followed by a
  *     durable barrier.
  */
 platform_status

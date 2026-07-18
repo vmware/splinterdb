@@ -73,6 +73,10 @@ typedef uint32 entry_status; // Saved in clockcache_entry->status
 struct clockcache_entry {
    page_handle           page;
    volatile entry_status status;
+   // Generation in which this page's current dirty interval began; 0 when the
+   // page is clean or free. A writeback fence drains every entry whose
+   // generation is at or below the cut it took (see clockcache_writeback_dirty).
+   volatile uint64       dirty_generation;
    page_type             type;
    async_wait_queue      waiters;
 #ifdef RECORD_ACQUISITION_STACKS
@@ -140,10 +144,11 @@ struct clockcache {
    volatile bool32 *batch_busy; // Convenience pointer for batch_bh
    uint64           cleaner_gap;
 
-   // Serializes checkpoint writeback fences so only one thread drains the
-   // shared I/O contexts at a time (see clockcache_writeback_fence).
-   platform_mutex writeback_fence_lock;
-   bool32         writeback_fence_lock_initialized;
+   // Monotonic generation counter. A writeback fence atomically increments it
+   // to take a "cut", then drains every entry stamped with a generation at or
+   // below that cut. Concurrent fences are safe: each takes a distinct cut and
+   // waits only on its own I/O context, so no lock is needed.
+   uint64 dirty_generation;
 
    volatile struct {
       volatile uint32 free_hand;

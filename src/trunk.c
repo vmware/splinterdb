@@ -6852,7 +6852,7 @@ trunk_context_clone(trunk_context *dst, trunk_context *src)
 platform_status
 trunk_make_durable(trunk_context *context)
 {
-   platform_status rc = cache_writeback_fence(context->cc);
+   platform_status rc = cache_writeback_dirty(context->cc);
    if (!SUCCESS(rc)) {
       return rc;
    }
