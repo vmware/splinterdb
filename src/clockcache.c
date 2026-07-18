@@ -845,9 +845,9 @@ clockcache_ok_to_writeback(clockcache *cc,
  *      Returns FALSE only if the page is genuinely not writeback-able (locked,
  *      claimed, already in writeback, clean, ...). The CC_ACCESSED bit can flip
  *      (a reader sets it, the clock hand clears it) between the two
- *compare-and- swaps, so we retry as long as the status remains one of the
- *cleanable states rather than spuriously failing on a page that stayed
- *cleanable.
+ *      compare-and- swaps, so we retry as long as the status remains one of the
+ *      cleanable states rather than spuriously failing on a page that stayed
+ *      cleanable.
  *----------------------------------------------------------------------
  */
 static inline bool32
@@ -1171,7 +1171,8 @@ clockcache_writeback_dirty(clockcache *cc)
    // Bulk-issue writeback for every dirty, unlocked page so the writes pipeline
    // rather than draining one batch at a time.
    for (uint64 batch = 0; batch < cc->cfg->batch_capacity; batch++) {
-      platform_status result = clockcache_batch_start_writeback(cc, batch, TRUE);
+      platform_status result =
+         clockcache_batch_start_writeback(cc, batch, TRUE);
       if (!SUCCESS(result)) {
          return result;
       }
@@ -3588,8 +3589,8 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->dirty_generation = 1;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
-   platform_status rc = platform_buffer_init(&cc->lookup_bh,
-                             allocator_page_capacity * sizeof(cc->lookup[0]));
+   platform_status rc = platform_buffer_init(
+      &cc->lookup_bh, allocator_page_capacity * sizeof(cc->lookup[0]));
    if (!SUCCESS(rc)) {
       platform_error_log("clockcache_init: failed to allocate lookup table "
                          "(%lu bytes): %s\n",
