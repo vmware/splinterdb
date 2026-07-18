@@ -98,9 +98,7 @@ log_seal(log_handle *log)
 }
 
 static inline platform_status
-log_rotate(log_handle       *log,
-           log_segment_info *sealed,
-           log_segment_info *fresh)
+log_rotate(log_handle *log, log_segment_info *sealed, log_segment_info *fresh)
 {
    return log->ops->rotate(log, sealed, fresh);
 }

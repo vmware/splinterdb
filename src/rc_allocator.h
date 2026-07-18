@@ -39,8 +39,8 @@ typedef struct ONDISK rc_allocator_meta_page {
     * that the two fixed clean-state extents after the refcount map are owned
     * by this allocator rather than by an older on-disk format.
     */
-   uint64        format_magic;
-   uint64        format_version;
+   uint64            format_magic;
+   uint64            format_version;
    allocator_root_id splinters[RC_ALLOCATOR_MAX_ROOT_IDS];
    checksum128       checksum;
 } rc_allocator_meta_page;

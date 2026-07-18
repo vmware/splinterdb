@@ -925,9 +925,8 @@ mini_prefetch(cache *cc, page_type type, uint64 meta_head)
 static platform_status
 mini_recovery_corruption(const char *reason, uint64 addr)
 {
-   platform_error_log("Malformed mini allocator metadata: %s (addr=%lu).\n",
-                      reason,
-                      addr);
+   platform_error_log(
+      "Malformed mini allocator metadata: %s (addr=%lu).\n", reason, addr);
    return STATUS_INVALID_STATE;
 }
 
@@ -936,8 +935,7 @@ mini_recovery_valid_geometry(const allocator_config *cfg)
 {
    if (cfg == NULL || cfg->io_cfg == NULL || cfg->capacity == 0
        || cfg->io_cfg->page_size == 0 || cfg->io_cfg->extent_size == 0
-       || cfg->io_cfg->page_size
-             < offsetof(mini_meta_hdr, entry_buffer)
+       || cfg->io_cfg->page_size < offsetof(mini_meta_hdr, entry_buffer)
        || cfg->io_cfg->extent_size < cfg->io_cfg->page_size
        || cfg->io_cfg->extent_size % cfg->io_cfg->page_size != 0
        || cfg->capacity % cfg->io_cfg->extent_size != 0)
@@ -990,8 +988,8 @@ mini_recovery_validate_meta_header(const mini_meta_hdr *hdr,
                                       meta_addr);
    }
 
-   uint64 expected_pos = first_entry_offset
-                         + (uint64)hdr->num_entries * sizeof(meta_entry);
+   uint64 expected_pos =
+      first_entry_offset + (uint64)hdr->num_entries * sizeof(meta_entry);
    if (hdr->pos != expected_pos) {
       return mini_recovery_corruption("metadata entry position is invalid",
                                       meta_addr);
@@ -1037,10 +1035,10 @@ mini_recovery_walk(cache                 *cc,
                    uint64                 meta_head,
                    page_type              meta_type,
                    mini_recovery_visit_fn visit,
-                   void                   *arg)
+                   void                  *arg)
 {
-   if (cc == NULL || visit == NULL
-       || meta_type < PAGE_TYPE_FIRST || meta_type >= NUM_PAGE_TYPES)
+   if (cc == NULL || visit == NULL || meta_type < PAGE_TYPE_FIRST
+       || meta_type >= NUM_PAGE_TYPES)
    {
       return STATUS_BAD_PARAM;
    }
@@ -1096,8 +1094,8 @@ mini_recovery_walk(cache                 *cc,
          return STATUS_IO_ERROR;
       }
 
-      mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
-      platform_status rc = mini_recovery_validate_meta_header(
+      mini_meta_hdr  *hdr = (mini_meta_hdr *)meta_page->data;
+      platform_status rc  = mini_recovery_validate_meta_header(
          hdr, cfg->io_cfg->page_size, expected_prev, meta_addr);
       if (!SUCCESS(rc)) {
          cache_unget(cc, meta_page);
@@ -1105,8 +1103,8 @@ mini_recovery_walk(cache                 *cc,
       }
 
       uint64 next_meta_addr = hdr->next_meta_addr;
-      rc = mini_recovery_validate_next_meta_addr(
-         cfg, meta_addr, next_meta_addr);
+      rc =
+         mini_recovery_validate_next_meta_addr(cfg, meta_addr, next_meta_addr);
       if (!SUCCESS(rc)) {
          cache_unget(cc, meta_page);
          return rc;
@@ -1116,12 +1114,11 @@ mini_recovery_walk(cache                 *cc,
       for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
          uint64    batch       = meta_entry_batch(entry);
          page_type extent_type = meta_entry_type(entry);
-         uint64 extent_number =
+         uint64    extent_number =
             entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
 
-         if (batch >= MINI_MAX_BATCHES
-             || extent_type < PAGE_TYPE_FIRST || extent_type >= NUM_PAGE_TYPES
-             || extent_number == 0
+         if (batch >= MINI_MAX_BATCHES || extent_type < PAGE_TYPE_FIRST
+             || extent_type >= NUM_PAGE_TYPES || extent_number == 0
              || extent_number > UINT64_MAX / cfg->io_cfg->extent_size)
          {
             cache_unget(cc, meta_page);
@@ -1136,11 +1133,8 @@ mini_recovery_walk(cache                 *cc,
                                             extent_addr);
          }
 
-         rc = visit(extent_addr,
-                    extent_type,
-                    MINI_RECOVERY_EXTENT_DATA,
-                    batch,
-                    arg);
+         rc = visit(
+            extent_addr, extent_type, MINI_RECOVERY_EXTENT_DATA, batch, arg);
          if (!SUCCESS(rc)) {
             cache_unget(cc, meta_page);
             return rc;

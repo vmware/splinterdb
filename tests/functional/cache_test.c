@@ -784,13 +784,12 @@ test_cache_writeback_fence_liveness(cache             *cc,
                                     clockcache_config *cfg,
                                     platform_heap_id   hid)
 {
-   platform_status          rc               = STATUS_OK;
-   uint64                   page_size        = cache_config_page_size(&cfg->super);
-   uint64                   pages_per_extent =
-      cache_config_pages_per_extent(&cfg->super);
-   uint64                  *addr_arr       = NULL;
-   const uint8              baseline       = 0x11, target_value = 0x77;
-   bool32                   hammer_started = FALSE, fence_started = FALSE;
+   platform_status rc           = STATUS_OK;
+   uint64          page_size    = cache_config_page_size(&cfg->super);
+   uint64      pages_per_extent = cache_config_pages_per_extent(&cfg->super);
+   uint64     *addr_arr         = NULL;
+   const uint8 baseline = 0x11, target_value = 0x77;
+   bool32      hammer_started = FALSE, fence_started = FALSE;
    cache_hammer_context     hammer_ctxt = {.cc = cc, .stop = FALSE};
    cache_fence_test_context fence_ctxt  = {
        .cc = cc, .finished = FALSE, .status = STATUS_OK};
@@ -833,8 +832,11 @@ test_cache_writeback_fence_liveness(cache             *cc,
    }
    hammer_started = TRUE;
 
-   rc = platform_thread_create(
-      &fence_thread, FALSE, cache_test_writeback_fence_thread, &fence_ctxt, hid);
+   rc = platform_thread_create(&fence_thread,
+                               FALSE,
+                               cache_test_writeback_fence_thread,
+                               &fence_ctxt,
+                               hid);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -876,7 +878,8 @@ cleanup:
       rc = cache_durable_barrier(cc);
    }
    if (SUCCESS(rc)) {
-      rc = cache_test_verify_disk_page(cc, addr_arr[0], page_size, target_value);
+      rc =
+         cache_test_verify_disk_page(cc, addr_arr[0], page_size, target_value);
    }
 
    if (addr_arr != NULL) {
@@ -894,9 +897,11 @@ cleanup:
    }
 
    if (SUCCESS(rc)) {
-      platform_default_log("cache_test: writeback fence liveness test passed\n");
+      platform_default_log(
+         "cache_test: writeback fence liveness test passed\n");
    } else {
-      platform_default_log("cache_test: writeback fence liveness test failed\n");
+      platform_default_log(
+         "cache_test: writeback fence liveness test failed\n");
    }
    return rc;
 }

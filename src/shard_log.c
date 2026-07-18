@@ -25,15 +25,16 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int shard_log_write(log_handle *log,
-                    key         tuple_key,
-                    message     msg,
-                    uint64      memtable_generation,
-                    uint64      leaf_generation);
+int
+shard_log_write(log_handle *log,
+                key         tuple_key,
+                message     msg,
+                uint64      memtable_generation,
+                uint64      leaf_generation);
 platform_status
 shard_log_seal(log_handle *log);
 platform_status
-shard_log_rotate(log_handle *log,
+shard_log_rotate(log_handle       *log,
                  log_segment_info *sealed,
                  log_segment_info *fresh);
 void
@@ -182,7 +183,7 @@ struct ONDISK log_entry {
    ondisk_tuple tuple;
 };
 
-#define INVALID_LOG_GENERATION ((uint64)-1)
+#define INVALID_LOG_GENERATION ((uint64) - 1)
 
 static key
 log_entry_key(log_entry *le)
@@ -254,7 +255,7 @@ get_new_page_for_thread(shard_log             *log,
 {
    uint64 next_extent;
 
-   *page                 = shard_log_alloc(log, &next_extent);
+   *page = shard_log_alloc(log, &next_extent);
    if (*page == NULL) {
       return -1;
    }
@@ -426,9 +427,8 @@ shard_log_seal(log_handle *logh)
       debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
       debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
 
-      shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-      log_entry *cursor =
-         (log_entry *)(page->data + thread_data->offset);
+      shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
+      log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
       uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
       if (sizeof(log_entry) <= free_space) {
          log_entry_set_terminal(cursor);
@@ -510,8 +510,7 @@ shard_log_rotate(log_handle       *logh,
 }
 
 void
-shard_log_segment_discard(cache                  *cc,
-                          const log_segment_info *segment)
+shard_log_segment_discard(cache *cc, const log_segment_info *segment)
 {
    if (segment->meta_addr == 0) {
       return;

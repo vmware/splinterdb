@@ -148,7 +148,7 @@ typedef enum mini_recovery_extent_kind {
    MINI_RECOVERY_EXTENT_DATA,
 } mini_recovery_extent_kind;
 
-#define MINI_RECOVERY_METADATA_BATCH ((uint64)-1)
+#define MINI_RECOVERY_METADATA_BATCH ((uint64) - 1)
 
 typedef platform_status (*mini_recovery_visit_fn)(
    uint64                    extent_addr,
@@ -158,11 +158,11 @@ typedef platform_status (*mini_recovery_visit_fn)(
    void                     *arg);
 
 platform_status
-mini_recovery_walk(cache                  *cc,
-                   uint64                  meta_head,
-                   page_type               meta_type,
-                   mini_recovery_visit_fn  visit,
-                   void                    *arg);
+mini_recovery_walk(cache                 *cc,
+                   uint64                 meta_head,
+                   page_type              meta_type,
+                   mini_recovery_visit_fn visit,
+                   void                  *arg);
 
 /*
  * mini_meta_cursor: a non-blocking cursor over the extent entries of a

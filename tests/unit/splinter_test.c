@@ -259,7 +259,7 @@ CTEST2(splinter, test_inserts)
  */
 CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
 {
-   allocator *alp = (allocator *)&data->al;
+   allocator        *alp     = (allocator *)&data->al;
    allocator_root_id root_id = test_generate_allocator_root_id();
    core_handle       created, mounted, rejected, cleanup;
    platform_status   rc;
@@ -277,13 +277,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
    merge_accumulator msg;
    merge_accumulator_init(&msg, data->hid);
-   test_key(&keybuf,
-            TEST_RANDOM,
-            1,
-            0,
-            0,
-            data->workload_cfg->key_size,
-            0);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
    generate_test_message(&data->gen, 1, &msg);
    rc = core_insert(&created,
                     key_buffer_key(&keybuf),

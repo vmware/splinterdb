@@ -353,7 +353,7 @@ rc_allocator_read_clean_state(rc_allocator             *al,
    }
 
    void *page = platform_buffer_getaddr(&buffer);
-   rc = io_read(al->io,
+   rc         = io_read(al->io,
                 page,
                 al->cfg->io_cfg->page_size,
                 rc_allocator_clean_state_addr(al->cfg, slot));
@@ -437,7 +437,7 @@ static platform_status
 rc_allocator_publish_clean_state(rc_allocator *al, bool32 clean_shutdown)
 {
    rc_allocator_clean_states states;
-   platform_status rc = rc_allocator_load_clean_states(al, &states);
+   platform_status           rc = rc_allocator_load_clean_states(al, &states);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -453,9 +453,8 @@ rc_allocator_publish_clean_state(rc_allocator *al, bool32 clean_shutdown)
    ZERO_CONTENTS(&state);
    state.magic          = RC_ALLOCATOR_CLEAN_STATE_MAGIC;
    state.format_version = RC_ALLOCATOR_CLEAN_STATE_VERSION;
-   state.sequence = states.have_newest
-                       ? states.state[states.newest_slot].sequence + 1
-                       : 1;
+   state.sequence =
+      states.have_newest ? states.state[states.newest_slot].sequence + 1 : 1;
    state.clean_shutdown = clean_shutdown;
    state.checksum       = rc_allocator_clean_state_checksum(&state);
    return rc_allocator_write_clean_state(al, target_slot, &state, TRUE);
@@ -507,17 +506,14 @@ rc_allocator_recovery_initialize_refcounts(rc_allocator *al)
       return STATUS_BAD_PARAM;
    }
 
-   memset(al->ref_count,
-          0,
-          rc_allocator_refcount_buffer_size(al->cfg));
+   memset(al->ref_count, 0, rc_allocator_refcount_buffer_size(al->cfg));
 
    /*
     * Extent 0 contains both the allocator meta page and every fixed table
     * superblock.  The refcount table begins at extent 1; the two extents
     * after it hold alternating clean-state records.
     */
-   for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++)
-   {
+   for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++) {
       platform_assert(al->ref_count[extent_no] == AL_FREE);
       al->ref_count[extent_no] = AL_ONE_REF;
       rc_allocator_record_allocated_extent(al);
@@ -530,7 +526,7 @@ rc_allocator_recovery_initialize_refcounts(rc_allocator *al)
 
 static bool32
 rc_allocator_recovery_extent_is_reserved(const rc_allocator *al,
-                                          uint64              extent_no)
+                                         uint64              extent_no)
 {
    return extent_no < rc_allocator_reserved_extent_count(al->cfg);
 }
@@ -603,8 +599,8 @@ rc_allocator_init_meta_page(rc_allocator *al)
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));
-   al->meta_page->geometry       = rc_allocator_config_get_disk_geometry(al->cfg);
-   al->meta_page->format_magic   = RC_ALLOCATOR_FORMAT_MAGIC;
+   al->meta_page->geometry     = rc_allocator_config_get_disk_geometry(al->cfg);
+   al->meta_page->format_magic = RC_ALLOCATOR_FORMAT_MAGIC;
    al->meta_page->format_version = RC_ALLOCATOR_FORMAT_VERSION;
 
    return STATUS_OK;
@@ -894,7 +890,8 @@ rc_allocator_mount_internal(rc_allocator      *al,
       al->recovery_in_progress = TRUE;
    } else {
       // Load the ref counts from disk during a normal, clean mount.
-      status = io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
+      status =
+         io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
       if (!SUCCESS(status)) {
          goto deinit_buffer;
       }
@@ -968,8 +965,8 @@ rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr)
    }
 
    while (TRUE) {
-      refcount old_ref = __atomic_load_n(&al->ref_count[extent_no],
-                                         __ATOMIC_RELAXED);
+      refcount old_ref =
+         __atomic_load_n(&al->ref_count[extent_no], __ATOMIC_RELAXED);
       if (old_ref == (refcount)-1) {
          platform_error_log("Allocator recovery refcount overflow for extent "
                             "%lu.\n",
@@ -977,8 +974,7 @@ rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr)
          return STATUS_LIMIT_EXCEEDED;
       }
 
-      refcount new_ref =
-         old_ref == AL_FREE ? AL_ONE_REF : old_ref + 1;
+      refcount new_ref = old_ref == AL_FREE ? AL_ONE_REF : old_ref + 1;
       if (!__sync_bool_compare_and_swap(
              &al->ref_count[extent_no], old_ref, new_ref))
       {
@@ -1172,7 +1168,7 @@ rc_allocator_alloc_super_addr(rc_allocator     *al,
          // assign the first available slot and update the on disk metadata.
          al->meta_page->splinters[idx] = allocator_root_id;
          *addr                         = (1 + idx) * al->cfg->io_cfg->page_size;
-         platform_status io_status = rc_allocator_write_meta_page(al);
+         platform_status io_status     = rc_allocator_write_meta_page(al);
          platform_assert_status_ok(io_status);
          status = STATUS_OK;
          break;
@@ -1196,7 +1192,7 @@ rc_allocator_remove_super_addr(rc_allocator     *al,
        */
       if (al->meta_page->splinters[idx] == allocator_root_id) {
          al->meta_page->splinters[idx] = INVALID_ALLOCATOR_ROOT_ID;
-         platform_status status = rc_allocator_write_meta_page(al);
+         platform_status status        = rc_allocator_write_meta_page(al);
          platform_assert_status_ok(status);
          platform_mutex_unlock(&al->lock);
          return;

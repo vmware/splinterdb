@@ -47,7 +47,7 @@ typedef struct shard_log {
    uint64                meta_head;
    uint64                magic;
    /* Set once any log page has been allocated; survives sealing. */
-   bool32                has_pages;
+   bool32 has_pages;
 } shard_log;
 
 typedef struct log_entry log_entry;
@@ -92,8 +92,7 @@ shard_log_zap(shard_log *log);
  * descriptors will eventually own and release this reference instead.
  */
 void
-shard_log_segment_discard(cache                  *cc,
-                          const log_segment_info *segment);
+shard_log_segment_discard(cache *cc, const log_segment_info *segment);
 
 platform_status
 shard_log_iterator_init(cache              *cc,

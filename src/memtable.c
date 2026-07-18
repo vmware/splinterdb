@@ -403,8 +403,7 @@ memtable_context_init_at_generation(memtable_context *ctxt,
 
    batch_rwlock_init(&ctxt->rwlock);
 
-   for (uint64 generation_offset = 0;
-        generation_offset < cfg->max_memtables;
+   for (uint64 generation_offset = 0; generation_offset < cfg->max_memtables;
         generation_offset++)
    {
       uint64 generation = first_generation + generation_offset;
@@ -420,8 +419,8 @@ memtable_context_init_at_generation(memtable_context *ctxt,
     * Otherwise, the checkpoint has incorporated every generation before
     * first_generation.
     */
-   ctxt->generation_retired = first_generation == 0 ? (uint64)-1
-                                                     : first_generation - 1;
+   ctxt->generation_retired =
+      first_generation == 0 ? (uint64)-1 : first_generation - 1;
 
    ctxt->is_empty = TRUE;
 

@@ -76,9 +76,9 @@ test_memtable_generation_init(cache             *cc,
                               test_btree_config *cfg,
                               platform_heap_id   hid)
 {
-   const uint64 first_generation = 17;
-   const uint64 max_memtables    = 4;
-   memtable_config mt_cfg        = *cfg->mt_cfg;
+   const uint64     first_generation = 17;
+   const uint64     max_memtables    = 4;
+   memtable_config  mt_cfg           = *cfg->mt_cfg;
    memtable_context mt_ctxt;
 
    mt_cfg.max_memtables = max_memtables;
@@ -116,12 +116,12 @@ deinit_fresh:
    }
 
    rc = memtable_context_init_at_generation(&mt_ctxt,
-                                             hid,
-                                             cc,
-                                             &mt_cfg,
-                                             test_btree_process_noop,
-                                             NULL,
-                                             first_generation);
+                                            hid,
+                                            cc,
+                                            &mt_cfg,
+                                            test_btree_process_noop,
+                                            NULL,
+                                            first_generation);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -156,7 +156,8 @@ deinit_fresh:
 deinit_recovery:
    memtable_context_deinit(&mt_ctxt);
    if (SUCCESS(rc)) {
-      platform_default_log("btree_test: memtable generation init test passed\n");
+      platform_default_log(
+         "btree_test: memtable generation init test passed\n");
    }
    return rc;
 }
@@ -206,10 +207,9 @@ test_mini_recovery_walk(cache *cc)
    allocator                    *al = cache_get_allocator(cc);
    mini_allocator                mini;
    test_mini_recovery_walk_state state;
-   uint64                        meta_head = 0;
+   uint64                        meta_head   = 0;
    uint64                        data_extent = 0;
-   platform_status               rc =
-      allocator_alloc(al, &meta_head, PAGE_TYPE_MISC);
+   platform_status rc = allocator_alloc(al, &meta_head, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -238,7 +238,7 @@ test_mini_recovery_walk(cache *cc)
 
    ZERO_CONTENTS(&state);
    state.fail_data_visit = TRUE;
-   rc = mini_recovery_walk(
+   rc                    = mini_recovery_walk(
       cc, meta_head, PAGE_TYPE_MISC, test_mini_recovery_walk_visit, &state);
    if (!STATUS_IS_EQ(rc, STATUS_TEST_FAILED) || state.metadata_visits != 1
        || state.data_visits != 1)
