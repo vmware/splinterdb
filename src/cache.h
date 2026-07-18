@@ -94,19 +94,6 @@ cache_config_extent_page(const cache_config *cfg, uint64 extent_addr, uint64 i)
    return extent_addr + i * cache_config_page_size(cfg);
 }
 
-typedef void (*cache_generic_fn)(cache *cc);
-typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
-typedef void (*page_generic_fn)(cache *cc, page_handle *page);
-typedef platform_status (*cache_durable_barrier_fn)(cache *cc);
-typedef platform_status (*cache_writeback_dirty_fn)(cache *cc);
-
-typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
-typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
-typedef page_handle *(*page_get_fn)(cache    *cc,
-                                    uint64    addr,
-                                    bool32    blocking,
-                                    page_type type);
-
 #define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (2048)
 typedef union page_get_async_state_payload {
    uint8       bytes[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
@@ -120,6 +107,11 @@ typedef struct page_get_async_state_buffer {
    page_get_async_state_payload payload;
 } page_get_async_state_buffer;
 
+typedef void (*cache_generic_void_fn)(cache *cc);
+typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
+typedef platform_status (*cache_generic_status_fn)(cache *cc);
+typedef void (*page_generic_fn)(cache *cc, page_handle *page);
+
 typedef void (*page_get_async_state_init_fn)(void             *payload,
                                              cache            *cc,
                                              uint64            addr,
@@ -129,6 +121,12 @@ typedef void (*page_get_async_state_init_fn)(void             *payload,
 typedef async_status (*page_get_async_fn)(void *payload);
 typedef page_handle *(*page_get_async_state_result_fn)(void *payload);
 
+typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
+typedef page_handle *(*page_get_fn)(cache    *cc,
+                                    uint64    addr,
+                                    bool32    blocking,
+                                    page_type type);
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_writeback_fn)(cache       *cc,
                                   page_handle *page,
@@ -165,36 +163,36 @@ typedef struct cache_ops {
    page_get_async_fn              page_get_async;
    page_get_async_state_result_fn page_get_async_result;
 
-   page_generic_fn          page_unget;
-   page_try_claim_fn        page_try_claim;
-   page_generic_fn          page_unclaim;
-   page_generic_fn          page_lock;
-   page_generic_fn          page_unlock;
-   page_prefetch_fn         page_prefetch;
-   page_prefetch_fn         page_prefetch_page;
-   page_generic_fn          page_pin;
-   page_generic_fn          page_unpin;
-   page_writeback_fn        page_writeback;
-   extent_writeback_fn      extent_writeback;
-   cache_generic_fn         flush;
-   cache_writeback_dirty_fn writeback_dirty;
-   cache_durable_barrier_fn durable_barrier;
-   evict_fn                 evict;
-   cache_generic_fn         cleanup;
-   page_addr_pred_fn        in_use;
-   page_addr_fn             assert_ungot;
-   cache_generic_fn         assert_free;
-   validate_page_fn         validate_page;
-   cache_present_fn         cache_present;
-   cache_print_fn           print;
-   cache_print_fn           print_stats;
-   io_stats_fn              io_stats;
-   cache_generic_fn         reset_stats;
-   count_dirty_fn           count_dirty;
-   page_get_read_ref_fn     page_get_read_ref;
-   enable_sync_get_fn       enable_sync_get;
-   get_allocator_fn         get_allocator;
-   cache_config_fn          get_config;
+   page_generic_fn         page_unget;
+   page_try_claim_fn       page_try_claim;
+   page_generic_fn         page_unclaim;
+   page_generic_fn         page_lock;
+   page_generic_fn         page_unlock;
+   page_prefetch_fn        page_prefetch;
+   page_prefetch_fn        page_prefetch_page;
+   page_generic_fn         page_pin;
+   page_generic_fn         page_unpin;
+   page_writeback_fn       page_writeback;
+   extent_writeback_fn     extent_writeback;
+   cache_generic_void_fn   flush;
+   cache_generic_status_fn writeback_dirty;
+   cache_generic_status_fn durable_barrier;
+   evict_fn                evict;
+   cache_generic_void_fn   cleanup;
+   page_addr_pred_fn       in_use;
+   page_addr_fn            assert_ungot;
+   cache_generic_void_fn   assert_free;
+   validate_page_fn        validate_page;
+   cache_present_fn        cache_present;
+   cache_print_fn          print;
+   cache_print_fn          print_stats;
+   io_stats_fn             io_stats;
+   cache_generic_void_fn   reset_stats;
+   count_dirty_fn          count_dirty;
+   page_get_read_ref_fn    page_get_read_ref;
+   enable_sync_get_fn      enable_sync_get;
+   get_allocator_fn        get_allocator;
+   cache_config_fn         get_config;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
