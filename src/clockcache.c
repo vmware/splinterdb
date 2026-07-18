@@ -1424,12 +1424,10 @@ clockcache_get_free_page(clockcache *cc,
       uint64 end_entry   = start_entry + CC_ENTRIES_PER_BATCH;
       for (entry_no = start_entry; entry_no < end_entry; entry_no++) {
          entry = &cc->entry[entry_no];
-         if (entry->status == CC_FREE_STATUS) {
-            bool32 reserved = __sync_bool_compare_and_swap(
-               &entry->status, CC_FREE_STATUS, CC_ALLOC_STATUS);
-            if (!reserved) {
-               continue;
-            }
+         if (entry->status == CC_FREE_STATUS
+             && __sync_bool_compare_and_swap(
+                &entry->status, CC_FREE_STATUS, CC_ALLOC_STATUS))
+         {
 
             // A page that begins dirty (a fresh allocation) must carry a dirty
             // generation, just like a clean->dirty transition. The entry is
