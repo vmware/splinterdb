@@ -124,6 +124,20 @@ rc_allocator_get_ref_virtual(allocator *a, uint64 addr)
 }
 
 platform_status
+rc_allocator_rebuild_acquire_extent(rc_allocator *al,
+                                    uint64        extent_addr,
+                                    page_type     type);
+
+platform_status
+rc_allocator_recovery_record_reference_virtual(allocator *a,
+                                               uint64     addr,
+                                               page_type  type)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_rebuild_acquire_extent(al, addr, type);
+}
+
+platform_status
 rc_allocator_get_super_addr(rc_allocator     *al,
                             allocator_root_id spl_id,
                             uint64           *addr);
@@ -217,6 +231,7 @@ const static allocator_ops rc_allocator_ops = {
    .inc_ref           = rc_allocator_inc_ref_virtual,
    .dec_ref           = rc_allocator_dec_ref_virtual,
    .get_ref           = rc_allocator_get_ref_virtual,
+   .recovery_record_reference = rc_allocator_recovery_record_reference_virtual,
    .get_super_addr    = rc_allocator_get_super_addr_virtual,
    .alloc_super_addr  = rc_allocator_alloc_super_addr_virtual,
    .remove_super_addr = rc_allocator_remove_super_addr_virtual,
@@ -940,7 +955,9 @@ rc_allocator_mount_recovery(rc_allocator      *al,
 }
 
 platform_status
-rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr)
+rc_allocator_rebuild_acquire_extent(rc_allocator *al,
+                                    uint64        extent_addr,
+                                    page_type     type)
 {
    if (!al->recovery_in_progress) {
       platform_error_log("Cannot acquire allocator extent while recovery is "
@@ -982,7 +999,9 @@ rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr)
       }
 
       if (old_ref == AL_FREE) {
+         platform_assert(type != PAGE_TYPE_INVALID);
          rc_allocator_record_allocated_extent(al);
+         __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
       }
       return STATUS_OK;
    }

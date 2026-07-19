@@ -162,107 +162,6 @@ deinit_recovery:
    return rc;
 }
 
-typedef struct test_mini_recovery_walk_state {
-   uint64 metadata_visits;
-   uint64 data_visits;
-   uint64 metadata_extent;
-   uint64 data_extent;
-   bool32 fail_data_visit;
-} test_mini_recovery_walk_state;
-
-static platform_status
-test_mini_recovery_walk_visit(uint64                    extent_addr,
-                              page_type                 type,
-                              mini_recovery_extent_kind kind,
-                              uint64                    batch,
-                              void                     *arg)
-{
-   test_mini_recovery_walk_state *state = arg;
-
-   if (type != PAGE_TYPE_MISC) {
-      return STATUS_TEST_FAILED;
-   }
-
-   if (kind == MINI_RECOVERY_EXTENT_METADATA) {
-      if (batch != MINI_RECOVERY_METADATA_BATCH) {
-         return STATUS_TEST_FAILED;
-      }
-      state->metadata_visits++;
-      state->metadata_extent = extent_addr;
-      return STATUS_OK;
-   }
-
-   if (kind != MINI_RECOVERY_EXTENT_DATA || batch != 0) {
-      return STATUS_TEST_FAILED;
-   }
-
-   state->data_visits++;
-   state->data_extent = extent_addr;
-   return state->fail_data_visit ? STATUS_TEST_FAILED : STATUS_OK;
-}
-
-static platform_status
-test_mini_recovery_walk(cache *cc)
-{
-   allocator                    *al = cache_get_allocator(cc);
-   mini_allocator                mini;
-   test_mini_recovery_walk_state state;
-   uint64                        meta_head   = 0;
-   uint64                        data_extent = 0;
-   platform_status rc = allocator_alloc(al, &meta_head, PAGE_TYPE_MISC);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   mini_init(&mini, cc, meta_head, 0, 1, PAGE_TYPE_MISC);
-   data_extent = mini_alloc_extent(&mini, 0, NULL);
-   if (data_extent == 0) {
-      rc = STATUS_NO_SPACE;
-      goto cleanup;
-   }
-
-   ZERO_CONTENTS(&state);
-   rc = mini_recovery_walk(
-      cc, meta_head, PAGE_TYPE_MISC, test_mini_recovery_walk_visit, &state);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-   if (state.metadata_visits != 1 || state.data_visits != 1
-       || state.metadata_extent != meta_head
-       || state.data_extent != data_extent)
-   {
-      platform_error_log("mini recovery walker returned unexpected extents\n");
-      rc = STATUS_TEST_FAILED;
-      goto cleanup;
-   }
-
-   ZERO_CONTENTS(&state);
-   state.fail_data_visit = TRUE;
-   rc                    = mini_recovery_walk(
-      cc, meta_head, PAGE_TYPE_MISC, test_mini_recovery_walk_visit, &state);
-   if (!STATUS_IS_EQ(rc, STATUS_TEST_FAILED) || state.metadata_visits != 1
-       || state.data_visits != 1)
-   {
-      platform_error_log("mini recovery walker did not propagate callback "
-                         "failure\n");
-      rc = STATUS_TEST_FAILED;
-      goto cleanup;
-   }
-   rc = STATUS_OK;
-
-cleanup:
-   mini_release(&mini);
-   refcount ref = mini_dec_ref(cc, meta_head, PAGE_TYPE_MISC);
-   if (ref != 0 && SUCCESS(rc)) {
-      platform_error_log("mini recovery walker left an unexpected mini ref\n");
-      rc = STATUS_TEST_FAILED;
-   }
-   if (SUCCESS(rc)) {
-      platform_default_log("btree_test: mini recovery walker test passed\n");
-   }
-   return rc;
-}
-
 test_memtable_context *
 test_memtable_context_create(cache             *cc,
                              test_btree_config *cfg,
@@ -2452,9 +2351,6 @@ btree_test(int argc, char *argv[])
    cache *ccp = (cache *)cc;
 
    rc = test_memtable_generation_init(ccp, &test_cfg, hid);
-   platform_assert_status_ok(rc);
-
-   rc = test_mini_recovery_walk(ccp);
    platform_assert_status_ok(rc);
 
    uint64 max_tuples_per_memtable =

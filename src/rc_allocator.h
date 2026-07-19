@@ -136,11 +136,14 @@ rc_allocator_mount_recovery(rc_allocator      *al,
 /*
  * Add one logical ownership reference for an extent while rebuilding a
  * recovery map.  The first reference establishes the allocator's nonzero
- * allocation floor (AL_ONE_REF); later references increment it normally.
- * extent_addr must be the base address of a non-reserved allocator extent.
+ * allocation floor (AL_ONE_REF) and records it in stats.extent_allocs[type];
+ * later references increment the refcount normally.  extent_addr must be the
+ * base address of a non-reserved allocator extent.
  */
 platform_status
-rc_allocator_rebuild_acquire_extent(rc_allocator *al, uint64 extent_addr);
+rc_allocator_rebuild_acquire_extent(rc_allocator *al,
+                                    uint64        extent_addr,
+                                    page_type     type);
 
 /*
  * Complete a successful rebuild without performing I/O.  A later normal

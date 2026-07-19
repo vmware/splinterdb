@@ -760,35 +760,78 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type)
  *-----------------------------------------------------------------------------
  * mini_for_each_meta_page --
  *
- *      Calls func on each meta_page in the mini_allocator.
+ *      Walks the meta_page chain of the mini_allocator, calling func on each
+ *      meta_page.
+ *
+ *      If before is non-NULL, it is called once per distinct meta extent --
+ *      before that extent's first page is cache_get()'d -- with just the
+ *      extent's address. This lets a caller that does not yet have allocator
+ *      ownership of these pages (e.g. crash recovery, rebuilding the refcount
+ *      table from scratch) establish it first, before cache_get()'s debug
+ *      allocation checks run. Ordinary callers, which already own everything
+ *      they are walking, pass NULL.
+ *
+ *      func and before may fail; the walk stops and returns the first failure.
  *
  * Results:
- *      None
+ *      STATUS_OK, the first failure from before/func, or STATUS_IO_ERROR if a
+ *      meta page could not be read.
  *
  * Side effects:
- *      func may store output in arg.
+ *      func/before may store output in arg.
  *-----------------------------------------------------------------------------
  */
 
-typedef void (*mini_for_each_meta_page_fn)(cache       *cc,
-                                           page_type    type,
-                                           page_handle *meta_page,
-                                           void        *arg);
+typedef platform_status (*mini_meta_extent_fn)(cache    *cc,
+                                               page_type type,
+                                               uint64    extent_addr,
+                                               void     *arg);
 
-static void
+typedef platform_status (*mini_for_each_meta_page_fn)(cache       *cc,
+                                                       page_type    type,
+                                                       page_handle *meta_page,
+                                                       void        *arg);
+
+static platform_status
 mini_for_each_meta_page(cache                     *cc,
                         uint64                     meta_head,
                         page_type                  type,
+                        mini_meta_extent_fn        before,
                         mini_for_each_meta_page_fn func,
                         void                      *arg)
 {
-   uint64 meta_addr = meta_head;
+   uint64 meta_addr    = meta_head;
+   uint64 extent_size  = cache_extent_size(cc);
+   uint64 prior_extent = (uint64)-1;
+
    while (meta_addr != 0) {
+      if (before != NULL) {
+         uint64 extent_addr = meta_addr - meta_addr % extent_size;
+         if (extent_addr != prior_extent) {
+            platform_status rc = before(cc, type, extent_addr, arg);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
+            prior_extent = extent_addr;
+         }
+      }
+
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
-      func(cc, type, meta_page, arg);
-      meta_addr = mini_get_next_meta_addr(meta_page);
+      if (meta_page == NULL) {
+         return STATUS_IO_ERROR;
+      }
+
+      platform_status rc =
+         func == NULL ? STATUS_OK : func(cc, type, meta_page, arg);
+      uint64 next_meta_addr =
+         SUCCESS(rc) ? mini_get_next_meta_addr(meta_page) : 0;
       cache_unget(cc, meta_page);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      meta_addr = next_meta_addr;
    }
+   return STATUS_OK;
 }
 
 /* mini_for_each(): call a function on each allocated extent in the
@@ -804,7 +847,7 @@ typedef struct for_each_func {
    void            *arg;
 } for_each_func;
 
-static void
+static platform_status
 mini_for_each_meta_page_func(cache       *cc,
                              page_type    type,
                              page_handle *meta_page,
@@ -821,6 +864,7 @@ mini_for_each_meta_page_func(cache       *cc,
                 fef->arg);
       entry = next_entry(entry);
    }
+   return STATUS_OK;
 }
 
 static void
@@ -832,7 +876,7 @@ mini_for_each(cache           *cc,
 {
    for_each_func fef = {func, out};
    mini_for_each_meta_page(
-      cc, meta_head, type, mini_for_each_meta_page_func, &fef);
+      cc, meta_head, type, NULL, mini_for_each_meta_page_func, &fef);
 }
 
 
@@ -918,7 +962,7 @@ mini_prefetch(cache *cc, page_type type, uint64 meta_head)
 
 /*
  * -----------------------------------------------------------------------------
- * mini_recovery_walk -- Read-only mini-allocator extent enumeration.
+ * mini_recover_allocations -- crash-recovery allocator-reference rebuild.
  * -----------------------------------------------------------------------------
  */
 
@@ -962,12 +1006,6 @@ mini_recovery_valid_extent_addr(const allocator_config *cfg, uint64 addr)
 
    return addr != 0 && addr % extent_size == 0
           && addr <= cfg->capacity - extent_size;
-}
-
-static uint64
-mini_recovery_extent_base_addr(const allocator_config *cfg, uint64 addr)
-{
-   return addr - addr % cfg->io_cfg->extent_size;
 }
 
 static platform_status
@@ -1030,15 +1068,131 @@ mini_recovery_validate_next_meta_addr(const allocator_config *cfg,
    return STATUS_OK;
 }
 
-platform_status
-mini_recovery_walk(cache                 *cc,
-                   uint64                 meta_head,
-                   page_type              meta_type,
-                   mini_recovery_visit_fn visit,
-                   void                  *arg)
+typedef struct mini_recover_state {
+   allocator        *al;
+   allocator_config *cfg;
+   uint64            expected_prev;
+   uint64            page_count;
+   uint64            max_meta_pages;
+} mini_recover_state;
+
+/*
+ * The "before" hook mini_for_each_meta_page() calls once per distinct meta
+ * extent, before that extent's first page is cache_get()'d. Recording the
+ * reference here -- ahead of the read -- is what lets a rebuilding allocator
+ * (which does not yet consider this extent allocated) satisfy cache_get()'s
+ * debug allocation check.
+ */
+static platform_status
+mini_recover_visit_meta_extent(cache    *cc,
+                               page_type type,
+                               uint64    extent_addr,
+                               void     *arg)
 {
-   if (cc == NULL || visit == NULL || meta_type < PAGE_TYPE_FIRST
-       || meta_type >= NUM_PAGE_TYPES)
+   mini_recover_state *state = (mini_recover_state *)arg;
+
+   if (!mini_recovery_valid_extent_addr(state->cfg, extent_addr)) {
+      return mini_recovery_corruption("metadata extent is out of range",
+                                      extent_addr);
+   }
+   return allocator_recovery_record_reference(state->al, extent_addr, type);
+}
+
+/*
+ * The "func" hook mini_for_each_meta_page() calls once per meta page, with the
+ * page held. Validates the page and every data-extent entry on it before
+ * trusting any of it, and records a reference for each data extent found (its
+ * type is self-describing on disk, unlike a meta page's).
+ */
+static platform_status
+mini_recover_visit_meta_page(cache       *cc,
+                             page_type    type,
+                             page_handle *meta_page,
+                             void        *arg)
+{
+   mini_recover_state *state    = (mini_recover_state *)arg;
+   uint64               meta_addr = meta_page->disk_addr;
+
+   if (state->page_count == state->max_meta_pages) {
+      return mini_recovery_corruption("metadata chain exceeds disk pages",
+                                      meta_addr);
+   }
+   state->page_count++;
+
+   mini_meta_hdr  *hdr = (mini_meta_hdr *)meta_page->data;
+   platform_status rc  = mini_recovery_validate_meta_header(
+      hdr, state->cfg->io_cfg->page_size, state->expected_prev, meta_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = mini_recovery_validate_next_meta_addr(
+      state->cfg, meta_addr, hdr->next_meta_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   meta_entry *entry = first_entry(meta_page);
+   for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
+      uint64    batch       = meta_entry_batch(entry);
+      page_type extent_type = meta_entry_type(entry);
+      uint64    extent_number =
+         entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
+
+      if (batch >= MINI_MAX_BATCHES || extent_type < PAGE_TYPE_FIRST
+          || extent_type >= NUM_PAGE_TYPES || extent_number == 0
+          || extent_number > UINT64_MAX / state->cfg->io_cfg->extent_size)
+      {
+         return mini_recovery_corruption("metadata extent entry is invalid",
+                                         meta_addr);
+      }
+
+      uint64 extent_addr = extent_number * state->cfg->io_cfg->extent_size;
+      if (!mini_recovery_valid_extent_addr(state->cfg, extent_addr)) {
+         return mini_recovery_corruption("metadata extent is out of range",
+                                         extent_addr);
+      }
+
+      rc = allocator_recovery_record_reference(
+         state->al, extent_addr, extent_type);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+
+      entry = next_entry(entry);
+   }
+
+   state->expected_prev = meta_addr;
+   return STATUS_OK;
+}
+
+/*
+ * mini_recover_allocations --
+ *
+ *     Rebuild allocator references for a finalized mini allocator without
+ *     trusting allocator refcounts -- the discovery primitive crash recovery
+ *     uses to reconstruct them. Records one reference for every metadata
+ *     extent and every data-extent entry found in the on-disk mini metadata
+ *     stream (data entries are not deduplicated: repeated entries mean
+ *     repeated references, and are recorded exactly as often as they occur).
+ *
+ *     meta_type is the page type of meta_head's own chain; each data extent's
+ *     type is read from its own metadata entry.
+ *
+ *     Validates the metadata-page chain, page-header bounds, page types,
+ *     batches, and extent addresses before using them. A malformed on-disk
+ *     stream returns STATUS_INVALID_STATE. This function performs no writes
+ *     and does not use allocator refcounts to decide what to traverse.
+ *
+ *     This is a physical enumeration only. Recovering logical reference
+ *     multiplicity, and deduplicating references shared by distinct mini
+ *     allocator roots, remains the responsibility of the higher-level
+ *     trunk/log recovery walker.
+ */
+platform_status
+mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type)
+{
+   if (cc == NULL || meta_type < PAGE_TYPE_FIRST || meta_type >= NUM_PAGE_TYPES)
    {
       return STATUS_BAD_PARAM;
    }
@@ -1055,100 +1209,19 @@ mini_recovery_walk(cache                 *cc,
       return mini_recovery_corruption("metadata head is not a page", meta_head);
    }
 
-   uint64 meta_addr         = meta_head;
-   uint64 expected_prev     = 0;
-   uint64 prior_meta_extent = (uint64)-1;
-   uint64 max_meta_pages    = cfg->capacity / cfg->io_cfg->page_size;
+   mini_recover_state state = {.al             = al,
+                               .cfg            = cfg,
+                               .expected_prev  = 0,
+                               .page_count     = 0,
+                               .max_meta_pages = cfg->capacity
+                                                 / cfg->io_cfg->page_size};
 
-   for (uint64 page_count = 0; meta_addr != 0; page_count++) {
-      if (page_count == max_meta_pages) {
-         return mini_recovery_corruption("metadata chain exceeds disk pages",
-                                         meta_addr);
-      }
-
-      /*
-       * Report a metadata extent before reading it.  The normal mini metadata
-       * layout is contiguous within an extent, so this is once per physical
-       * metadata extent; next-link and reciprocal-prev validation below reject
-       * a malformed chain before it can complete a loop.
-       */
-      uint64 meta_extent = mini_recovery_extent_base_addr(cfg, meta_addr);
-      if (!mini_recovery_valid_extent_addr(cfg, meta_extent)) {
-         return mini_recovery_corruption("metadata extent is out of range",
-                                         meta_extent);
-      }
-      if (meta_extent != prior_meta_extent) {
-         platform_status rc = visit(meta_extent,
-                                    meta_type,
-                                    MINI_RECOVERY_EXTENT_METADATA,
-                                    MINI_RECOVERY_METADATA_BATCH,
-                                    arg);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
-         prior_meta_extent = meta_extent;
-      }
-
-      page_handle *meta_page = cache_get(cc, meta_addr, TRUE, meta_type);
-      if (meta_page == NULL) {
-         return STATUS_IO_ERROR;
-      }
-
-      mini_meta_hdr  *hdr = (mini_meta_hdr *)meta_page->data;
-      platform_status rc  = mini_recovery_validate_meta_header(
-         hdr, cfg->io_cfg->page_size, expected_prev, meta_addr);
-      if (!SUCCESS(rc)) {
-         cache_unget(cc, meta_page);
-         return rc;
-      }
-
-      uint64 next_meta_addr = hdr->next_meta_addr;
-      rc =
-         mini_recovery_validate_next_meta_addr(cfg, meta_addr, next_meta_addr);
-      if (!SUCCESS(rc)) {
-         cache_unget(cc, meta_page);
-         return rc;
-      }
-
-      meta_entry *entry = first_entry(meta_page);
-      for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
-         uint64    batch       = meta_entry_batch(entry);
-         page_type extent_type = meta_entry_type(entry);
-         uint64    extent_number =
-            entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
-
-         if (batch >= MINI_MAX_BATCHES || extent_type < PAGE_TYPE_FIRST
-             || extent_type >= NUM_PAGE_TYPES || extent_number == 0
-             || extent_number > UINT64_MAX / cfg->io_cfg->extent_size)
-         {
-            cache_unget(cc, meta_page);
-            return mini_recovery_corruption("metadata extent entry is invalid",
-                                            meta_addr);
-         }
-
-         uint64 extent_addr = extent_number * cfg->io_cfg->extent_size;
-         if (!mini_recovery_valid_extent_addr(cfg, extent_addr)) {
-            cache_unget(cc, meta_page);
-            return mini_recovery_corruption("metadata extent is out of range",
-                                            extent_addr);
-         }
-
-         rc = visit(
-            extent_addr, extent_type, MINI_RECOVERY_EXTENT_DATA, batch, arg);
-         if (!SUCCESS(rc)) {
-            cache_unget(cc, meta_page);
-            return rc;
-         }
-
-         entry = next_entry(entry);
-      }
-
-      cache_unget(cc, meta_page);
-      expected_prev = meta_addr;
-      meta_addr     = next_meta_addr;
-   }
-
-   return STATUS_OK;
+   return mini_for_each_meta_page(cc,
+                                  meta_head,
+                                  meta_type,
+                                  mini_recover_visit_meta_extent,
+                                  mini_recover_visit_meta_page,
+                                  &state);
 }
 
 /*
@@ -1314,7 +1387,7 @@ space_use_add_extent(cache *cc, page_type type, uint64 extent_addr, void *out)
    *sum += cache_extent_size(cc);
 }
 
-static void
+static platform_status
 space_use_add_meta_page(cache       *cc,
                         page_type    type,
                         page_handle *meta_page,
@@ -1322,6 +1395,7 @@ space_use_add_meta_page(cache       *cc,
 {
    uint64 *sum = (uint64 *)out;
    *sum += cache_page_size(cc);
+   return STATUS_OK;
 }
 
 uint64
@@ -1330,7 +1404,7 @@ mini_space_use_bytes(cache *cc, uint64 meta_head, page_type type)
    uint64 total = 0;
    mini_for_each(cc, meta_head, type, space_use_add_extent, &total);
    mini_for_each_meta_page(
-      cc, meta_head, type, space_use_add_meta_page, &total);
+      cc, meta_head, type, NULL, space_use_add_meta_page, &total);
    return total;
 }
 

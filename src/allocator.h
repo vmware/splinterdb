@@ -136,6 +136,16 @@ typedef platform_status (*alloc_fn)(allocator *al,
 typedef refcount (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
 typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
 
+/*
+ * Record one logical reference to addr while rebuilding a recovery map (see
+ * rc_allocator_mount_recovery()). The first reference to a given extent
+ * establishes its nonzero allocation floor; later references increment it
+ * normally. addr must be the base address of a non-reserved extent.
+ */
+typedef platform_status (*recovery_record_reference_fn)(allocator *al,
+                                                         uint64     addr,
+                                                         page_type  type);
+
 typedef platform_status (*get_super_addr_fn)(allocator        *al,
                                              allocator_root_id spl_id,
                                              uint64           *addr);
@@ -157,9 +167,10 @@ typedef struct allocator_ops {
    allocator_get_config_fn get_config;
    alloc_fn                alloc;
 
-   generic_ref_fn inc_ref;
-   dec_ref_fn     dec_ref;
-   generic_ref_fn get_ref;
+   generic_ref_fn                inc_ref;
+   dec_ref_fn                    dec_ref;
+   generic_ref_fn                get_ref;
+   recovery_record_reference_fn  recovery_record_reference;
 
    alloc_super_addr_fn  alloc_super_addr;
    get_super_addr_fn    get_super_addr;
@@ -209,6 +220,12 @@ static inline refcount
 allocator_get_refcount(allocator *al, uint64 addr)
 {
    return al->ops->get_ref(al, addr);
+}
+
+static inline platform_status
+allocator_recovery_record_reference(allocator *al, uint64 addr, page_type type)
+{
+   return al->ops->recovery_record_reference(al, addr, type);
 }
 
 static inline platform_status
