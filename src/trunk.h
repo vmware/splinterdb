@@ -205,6 +205,14 @@ trunk_config_init(trunk_config         *config,
                   uint64                prefetch_budget,
                   bool32                use_stats);
 
+/*
+ * Initializes context with a root of snapshot. Consumes snapshot's owned
+ * reference regardless of outcome: on success the reference now lives in
+ * context (released by a later trunk_context_deinit); on failure it has
+ * already been discharged. Either way, the caller must not use or release
+ * snapshot again. A null snapshot (root_addr == 0) starts an empty trunk with
+ * no root, as for a freshly formatted table.
+ */
 platform_status
 trunk_context_init(trunk_context      *context,
                    const trunk_config *cfg,
@@ -212,44 +220,34 @@ trunk_context_init(trunk_context      *context,
                    cache              *cc,
                    allocator          *al,
                    task_system        *ts,
-                   uint64              root_addr);
-
-void
-trunk_inc_ref(allocator *al, uint64 root_addr);
-
-platform_status
-trunk_dec_ref(const trunk_config *cfg,
-              platform_heap_id    hid,
-              cache              *cc,
-              allocator          *al,
-              task_system        *ts,
-              uint64              root_addr);
+                   trunk_snapshot      snapshot);
 
 void
 trunk_context_deinit(trunk_context *context);
 
-/* Create a writable snapshot of a trunk */
-platform_status
-trunk_context_clone(trunk_context *dst, trunk_context *src);
-
 /* Capture an owned reference to the current COW root without reading it. */
 platform_status
-trunk_snapshot_acquire(trunk_context *context, trunk_snapshot *snapshot);
+trunk_snapshot_create(trunk_context *context, trunk_snapshot *snapshot);
+
+/*
+ * Capture an owned reference to a root_addr that is not (or not yet) any live
+ * context's root -- e.g. one just read out of a durable checkpoint record.
+ * root_addr must already be referenced by the caller (its persisted refcount
+ * accounts for it); this takes out an additional, independent reference. A
+ * null root_addr (0) produces a null snapshot without touching the allocator.
+ */
+platform_status
+trunk_snapshot_create_from_addr(allocator      *al,
+                                uint64          root_addr,
+                                trunk_snapshot *snapshot);
 
 /* Drop an owned snapshot reference that was not published. */
 platform_status
 trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot);
 
-/* Make a trunk durable */
-platform_status
-trunk_make_durable(trunk_context *context);
-
 /********************************
  * Mutations
  ********************************/
-
-void
-trunk_modification_begin(trunk_context *context);
 
 // Build a new trunk with the branch incorporated.  The new trunk is not yet
 // visible to queriers.
@@ -276,8 +274,6 @@ trunk_optimize(trunk_context                  *context,
                bool32                          full_leaf_compactions,
                struct splinterdb_notification *notification);
 
-void
-trunk_modification_end(trunk_context *context);
 
 /********************************
  * Queries
@@ -286,9 +282,6 @@ trunk_modification_end(trunk_context *context);
 platform_status
 trunk_init_root_handle(trunk_context            *context,
                        trunk_ondisk_node_handle *handle);
-
-uint64
-trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle);
 
 void
 trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle);

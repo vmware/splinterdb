@@ -467,12 +467,8 @@ core_destroy_checkpoint_storage(core_handle *spl)
       if (!records.valid[slot] || records.record[slot].root_addr == 0) {
          continue;
       }
-      rc = trunk_dec_ref(spl->cfg.trunk_node_cfg,
-                         PROCESS_PRIVATE_HEAP_ID,
-                         spl->cc,
-                         spl->al,
-                         spl->ts,
-                         records.record[slot].root_addr);
+      trunk_snapshot old_snapshot = {.root_addr = records.record[slot].root_addr};
+      rc = trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
       if (!SUCCESS(rc)) {
          platform_error_log("core_destroy_checkpoint_storage: failed to "
                             "release record %lu root %lu: %s\n",
@@ -506,7 +502,7 @@ core_capture_checkpoint_cut(core_handle    *spl,
     */
    memtable_block_lookups(&spl->mt_ctxt);
    uint64 retired_generation = memtable_generation_retired(&spl->mt_ctxt);
-   platform_status rc = trunk_snapshot_acquire(&spl->trunk_context, snapshot);
+   platform_status rc = trunk_snapshot_create(&spl->trunk_context, snapshot);
    memtable_unblock_lookups(&spl->mt_ctxt);
    if (!SUCCESS(rc)) {
       return rc;
@@ -558,7 +554,11 @@ core_publish_checkpoint_record(core_handle *spl,
     * persist newer log/data pages, but it does not seal or publish a logical
     * durable-log tail; tail sync is a separate operation.
     */
-   rc = trunk_make_durable(&spl->trunk_context);
+   rc = cache_writeback_dirty(spl->cc);
+   if (!SUCCESS(rc)) {
+      goto release_snapshot;
+   }
+   rc = cache_durable_barrier(spl->cc);
    if (!SUCCESS(rc)) {
       goto release_snapshot;
    }
@@ -628,15 +628,12 @@ core_publish_checkpoint_record(core_handle *spl,
    }
 
    if (old_root_addr != 0) {
-      rc = trunk_dec_ref(spl->cfg.trunk_node_cfg,
-                         PROCESS_PRIVATE_HEAP_ID,
-                         spl->cc,
-                         spl->al,
-                         spl->ts,
-                         old_root_addr);
+      trunk_snapshot old_snapshot = {.root_addr = old_root_addr};
+      rc = trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
       if (!SUCCESS(rc)) {
-         platform_error_log("core_publish_checkpoint_record: trunk_dec_ref "
-                            "failed for old root addr %lu: %s\n",
+         platform_error_log("core_publish_checkpoint_record: "
+                            "trunk_snapshot_release failed for old root addr "
+                            "%lu: %s\n",
                             old_root_addr,
                             platform_status_to_string(rc));
          goto unlock_checkpoint;
@@ -2335,8 +2332,13 @@ core_mkfs(core_handle      *spl,
       }
    }
 
-   rc = trunk_context_init(
-      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, 0);
+   rc = trunk_context_init(&spl->trunk_context,
+                           spl->cfg.trunk_node_cfg,
+                           hid,
+                           cc,
+                           al,
+                           ts,
+                           (trunk_snapshot){.root_addr = 0});
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: trunk_context_init failed: %s\n",
                          platform_status_to_string(rc));
@@ -2473,8 +2475,22 @@ core_mount(core_handle      *spl,
       }
    }
 
-   rc = trunk_context_init(
-      &spl->trunk_context, spl->cfg.trunk_node_cfg, hid, cc, al, ts, root_addr);
+   trunk_snapshot root_snapshot;
+   rc = trunk_snapshot_create_from_addr(al, root_addr, &root_snapshot);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "core_mount: trunk_snapshot_create_from_addr failed: %s\n",
+         platform_status_to_string(rc));
+      goto deinit_log;
+   }
+
+   rc = trunk_context_init(&spl->trunk_context,
+                           spl->cfg.trunk_node_cfg,
+                           hid,
+                           cc,
+                           al,
+                           ts,
+                           root_snapshot);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: trunk_context_init failed: %s\n",
                          platform_status_to_string(rc));

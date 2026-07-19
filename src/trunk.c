@@ -2546,17 +2546,29 @@ trunk_read_end(trunk_context *context)
  * to take a snapshot.
  */
 platform_status
-trunk_snapshot_acquire(trunk_context *context, trunk_snapshot *snapshot)
+trunk_snapshot_create(trunk_context *context, trunk_snapshot *snapshot)
 {
    snapshot->root_addr = 0;
 
    trunk_read_begin(context);
    if (context->root != NULL) {
       snapshot->root_addr = context->root->ref.addr;
-      trunk_inc_ref(context->al, snapshot->root_addr);
+      trunk_addr_inc_ref(context->al, snapshot->root_addr);
    }
    trunk_read_end(context);
 
+   return STATUS_OK;
+}
+
+platform_status
+trunk_snapshot_create_from_addr(allocator      *al,
+                                uint64          root_addr,
+                                trunk_snapshot *snapshot)
+{
+   snapshot->root_addr = root_addr;
+   if (root_addr != 0) {
+      trunk_addr_inc_ref(al, root_addr);
+   }
    return STATUS_OK;
 }
 
@@ -2567,16 +2579,23 @@ trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot)
       return STATUS_OK;
    }
 
-   platform_status rc = trunk_dec_ref(context->cfg,
-                                      context->hid,
-                                      context->cc,
-                                      context->al,
-                                      context->ts,
-                                      snapshot->root_addr);
-   if (SUCCESS(rc)) {
-      snapshot->root_addr = 0;
+   /*
+    * Route the release through a scratch context so the ordinary COW
+    * teardown path (trunk_context_deinit -> trunk_ondisk_node_ref_destroy)
+    * performs the single decrement snapshot's reference is owed. The scratch
+    * context only needs context's shared cfg/cc/al/ts; it does not need to
+    * share context's root.
+    */
+   trunk_context   scratch;
+   platform_status rc = trunk_context_init(
+      &scratch, context->cfg, context->hid, context->cc, context->al,
+      context->ts, *snapshot);
+   snapshot->root_addr = 0; // trunk_context_init consumes it regardless of rc
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   return rc;
+   trunk_context_deinit(&scratch);
+   return STATUS_OK;
 }
 
 platform_status
@@ -6743,7 +6762,7 @@ trunk_context_init(trunk_context      *context,
                    cache              *cc,
                    allocator          *al,
                    task_system        *ts,
-                   uint64              root_addr)
+                   trunk_snapshot      snapshot)
 {
    memset(context, 0, sizeof(trunk_context));
 
@@ -6753,12 +6772,20 @@ trunk_context_init(trunk_context      *context,
    context->al  = al;
    context->ts  = ts;
 
-   if (root_addr != 0) {
+   if (snapshot.root_addr != 0) {
+      // Adopt: snapshot already carries an owned reference (from
+      // trunk_snapshot_create or trunk_snapshot_create_from_addr), so this
+      // does not take a new one; it just gives that reference a home.
       context->root = trunk_ondisk_node_ref_create(
-         context, NEGATIVE_INFINITY_KEY, root_addr, FALSE);
+         context, NEGATIVE_INFINITY_KEY, snapshot.root_addr, TRUE /* adopt */);
       if (context->root == NULL) {
          platform_error_log("trunk_node_context_init: "
                             "ondisk_node_ref_create failed\n");
+         // The reference was never actually adopted (creation failed before
+         // that could happen), but the caller has already relinquished it.
+         // Discharge it here so this function always consumes its snapshot,
+         // regardless of outcome.
+         trunk_ondisk_node_dec_ref(context, snapshot.root_addr);
          return STATUS_NO_MEMORY;
       }
    }
@@ -6785,34 +6812,6 @@ trunk_context_init(trunk_context      *context,
 }
 
 void
-trunk_inc_ref(allocator *al, uint64 root_addr)
-{
-   trunk_addr_inc_ref(al, root_addr);
-}
-
-platform_status
-trunk_dec_ref(const trunk_config *cfg,
-              platform_heap_id    hid,
-              cache              *cc,
-              allocator          *al,
-              task_system        *ts,
-              uint64              root_addr)
-{
-   trunk_context   context;
-   platform_status rc =
-      trunk_context_init(&context, cfg, hid, cc, al, ts, root_addr);
-   if (!SUCCESS(rc)) {
-      platform_error_log("trunk_node_dec_ref: trunk_node_context_init failed: "
-                         "%d\n",
-                         rc.r);
-      return rc;
-   }
-   trunk_ondisk_node_dec_ref(&context, root_addr);
-   trunk_context_deinit(&context);
-   return STATUS_OK;
-}
-
-void
 trunk_context_deinit(trunk_context *context)
 {
    platform_assert(context->pivot_states.num_states == 0);
@@ -6826,37 +6825,6 @@ trunk_context_deinit(trunk_context *context)
    if (context->stats) {
       platform_free(context->hid, context->stats);
    }
-}
-
-
-platform_status
-trunk_context_clone(trunk_context *dst, trunk_context *src)
-{
-   platform_status          rc;
-   trunk_ondisk_node_handle handle;
-   rc = trunk_init_root_handle(src, &handle);
-   if (!SUCCESS(rc)) {
-      platform_error_log("trunk_node_context_clone: trunk_init_root_handle "
-                         "failed: %d\n",
-                         rc.r);
-      return rc;
-   }
-   uint64 root_addr = handle.header_page->disk_addr;
-
-   rc = trunk_context_init(
-      dst, src->cfg, src->hid, src->cc, src->al, src->ts, root_addr);
-   trunk_ondisk_node_handle_deinit(&handle);
-   return rc;
-}
-
-platform_status
-trunk_make_durable(trunk_context *context)
-{
-   platform_status rc = cache_writeback_dirty(context->cc);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   return cache_durable_barrier(context->cc);
 }
 
 /************************************
