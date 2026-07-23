@@ -138,21 +138,38 @@ typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
 
 /*
  * Record one logical reference to addr while rebuilding a recovery map (see
- * rc_allocator_mount_recovery()). The first reference to a given extent
- * establishes its nonzero allocation floor; later references increment it
- * normally. addr must be the base address of a non-reserved extent.
+ * allocator_open_refcounts() with rebuild == TRUE). The first reference to a
+ * given extent establishes its nonzero allocation floor; later references
+ * increment it normally. addr must be the base address of a non-reserved
+ * extent.
  */
 typedef platform_status (*recovery_record_reference_fn)(allocator *al,
                                                          uint64     addr,
                                                          page_type  type);
 
-typedef platform_status (*get_super_addr_fn)(allocator        *al,
-                                             allocator_root_id spl_id,
-                                             uint64           *addr);
-typedef platform_status (*alloc_super_addr_fn)(allocator        *al,
-                                               allocator_root_id spl_id,
-                                               uint64           *addr);
-typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
+/*
+ * Populate the in-memory refcount map of an allocator that has been attached
+ * (mounted) but whose map is not yet loaded.  rebuild == FALSE loads the
+ * trusted persisted map from its fixed durable location; rebuild == TRUE
+ * initializes an empty map that reserves only the allocator's own fixed extents
+ * and enters recovery mode (the caller then rebuilds via
+ * recovery_record_reference()).  Must be called exactly once, after the attach
+ * mount and before any allocation.  The caller learns which mode to request
+ * from durable metadata it owns (the superblock's allocation-state validity),
+ * so the allocator never reads the persisted map when it would be discarded.
+ */
+typedef platform_status (*open_refcounts_fn)(allocator *al, bool32 rebuild);
+
+/*
+ * Write the refcount map to its durable location and make it durable.  Returns
+ * the base address of the persisted map in *state_addr; the caller records that
+ * as the superblock's allocation_state_addr only after this returns, so the
+ * "map is trustworthy" flag never becomes durable before the map itself.  Not
+ * valid while a recovery rebuild is in progress.
+ */
+typedef platform_status (*persist_refcounts_fn)(allocator *al,
+                                                uint64    *state_addr);
+
 typedef uint64 (*get_size_fn)(allocator *al);
 typedef uint64 (*base_addr_fn)(const allocator *al, uint64 addr);
 
@@ -172,9 +189,8 @@ typedef struct allocator_ops {
    generic_ref_fn                get_ref;
    recovery_record_reference_fn  recovery_record_reference;
 
-   alloc_super_addr_fn  alloc_super_addr;
-   get_super_addr_fn    get_super_addr;
-   remove_super_addr_fn remove_super_addr;
+   open_refcounts_fn    open_refcounts;
+   persist_refcounts_fn persist;
 
    get_size_fn in_use;
 
@@ -229,23 +245,15 @@ allocator_recovery_record_reference(allocator *al, uint64 addr, page_type type)
 }
 
 static inline platform_status
-allocator_get_super_addr(allocator *al, allocator_root_id spl_id, uint64 *addr)
+allocator_open_refcounts(allocator *al, bool32 rebuild)
 {
-   return al->ops->get_super_addr(al, spl_id, addr);
+   return al->ops->open_refcounts(al, rebuild);
 }
 
 static inline platform_status
-allocator_alloc_super_addr(allocator        *al,
-                           allocator_root_id spl_id,
-                           uint64           *addr)
+allocator_persist(allocator *al, uint64 *state_addr)
 {
-   return al->ops->alloc_super_addr(al, spl_id, addr);
-}
-
-static inline void
-allocator_remove_super_addr(allocator *al, allocator_root_id spl_id)
-{
-   return al->ops->remove_super_addr(al, spl_id);
+   return al->ops->persist(al, state_addr);
 }
 
 static inline uint64

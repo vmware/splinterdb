@@ -146,255 +146,207 @@ cache_test_verify_disk_page(cache *cc,
 }
 
 /*
- * Corrupt one full raw-I/O page and make that corruption durable.  The
- * allocator clean-state records are intentionally outside the cache, so this
- * lets the bootstrap test exercise A/B fallback without test-only allocator
- * hooks.
- */
-static platform_status
-cache_test_zero_disk_page(io_handle *io, uint64 addr, uint64 page_size)
-{
-   buffer_handle   buffer;
-   platform_status rc = platform_buffer_init(&buffer, page_size);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   void *page = platform_buffer_getaddr(&buffer);
-   memset(page, 0, page_size);
-   rc = io_write(io, page, page_size, addr);
-   if (SUCCESS(rc)) {
-      rc = io_durable_barrier(io);
-   }
-
-   platform_status deinit_rc = platform_buffer_deinit(&buffer);
-   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
-      rc = deinit_rc;
-   }
-   return rc;
-}
-
-/*
- * The recovery allocator must bootstrap only the extents it owns itself, then
- * let recovery walkers rebuild all other ownership.  In particular, it must
- * not trust a refcount table persisted by an earlier clean shutdown.
+ * The refcount allocator is a pure store: mount() attaches without reading the
+ * persisted map, and the caller then chooses how to populate it via
+ * allocator_open_refcounts().  rebuild == FALSE loads the trusted persisted
+ * map; rebuild == TRUE ignores it and reserves only the allocator's own fixed
+ * extents, leaving all other ownership for a caller-driven rebuild.
+ * persist() writes the map durably; abort_recovery() never persists.  This
+ * exercises that contract end to end (clean-vs-rebuild is the caller's
+ * decision -- the superblock's -- not the allocator's).
  */
 static platform_status
 test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
                                      io_handle        *io,
                                      platform_heap_id  hid)
 {
-   const allocator_root_id root_id = 1;
-   uint64                  refcount_buffer_size =
+   uint64 refcount_buffer_size =
       ROUNDUP(cfg->extent_capacity * sizeof(refcount), cfg->io_cfg->page_size);
    uint64 refcount_extent_count =
       (refcount_buffer_size + cfg->io_cfg->extent_size - 1)
       / cfg->io_cfg->extent_size;
-   uint64 reserved_extent_count = 1 + refcount_extent_count + 2;
-   uint64 old_clean_state_addr =
-      (1 + refcount_extent_count + 1) * cfg->io_cfg->extent_size;
-   uint64          super_addr        = 0;
-   uint64          stale_extent_addr = 0;
-   platform_status rc                = STATUS_OK;
-   rc_allocator    original, recovery, remounted;
-   bool32          original_live  = FALSE;
-   bool32          recovery_live  = FALSE;
-   bool32          remounted_live = FALSE;
+   // Extent 0 (superblock) + the refcount-map extents.
+   uint64          reserved_extent_count = 1 + refcount_extent_count;
+   uint64          stale_extent_addr     = 0;
+   platform_status rc                     = STATUS_OK;
+   rc_allocator    al;
+   bool32          al_live = FALSE;
 
-   ZERO_CONTENTS(&original);
-   ZERO_CONTENTS(&recovery);
-   ZERO_CONTENTS(&remounted);
+   ZERO_CONTENTS(&al);
    platform_default_log(
       "cache_test: allocator recovery bootstrap test started\n");
 
-   rc = rc_allocator_init(&original, cfg, io, hid, platform_get_module_id());
+   // 1) Format, allocate a data extent, persist the map, tear down.
+   rc = rc_allocator_init(&al, cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   original_live = TRUE;
+   al_live = TRUE;
+   rc = allocator_alloc((allocator *)&al, &stale_extent_addr, PAGE_TYPE_MISC);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = allocator_persist((allocator *)&al, NULL);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc_allocator_deinit(&al);
+   al_live = FALSE;
 
-   rc =
-      allocator_alloc_super_addr((allocator *)&original, root_id, &super_addr);
+   // 2) Clean open: attach + open_refcounts(rebuild=FALSE) loads the map.
+   rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   rc = allocator_alloc(
-      (allocator *)&original, &stale_extent_addr, PAGE_TYPE_MISC);
+   al_live = TRUE;
+   rc = allocator_open_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-
-   /* Persist a non-reserved extent that the recovery mount must ignore. */
-   rc_allocator_unmount(&original);
-   original_live = FALSE;
-
-   /*
-    * New allocator initialization writes false records with sequences 1 and
-    * 2.  The first clean close writes the true record into slot 0 (sequence
-    * 3), making slot 1 the older false record.  Destroying that older slot
-    * must not prevent a normal mount from trusting the surviving true slot.
-    */
-   rc = cache_test_zero_disk_page(
-      io, old_clean_state_addr, cfg->io_cfg->page_size);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-
-   rc = rc_allocator_mount(&remounted, cfg, io, hid, platform_get_module_id());
-   if (!SUCCESS(rc)) {
-      platform_error_log("cache_test: normal mount did not fall back to its "
-                         "surviving clean-state record\n");
-      goto cleanup;
-   }
-   remounted_live = TRUE;
-   if (allocator_get_refcount((allocator *)&remounted, stale_extent_addr)
+   if (allocator_get_refcount((allocator *)&al, stale_extent_addr)
        != AL_ONE_REF)
    {
-      platform_error_log("cache_test: normal mount did not load the clean "
-                         "refcount map\n");
+      platform_error_log(
+         "cache_test: clean open did not load the persisted refcount map\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
+   rc_allocator_deinit(&al);
+   al_live = FALSE;
 
-   /* Simulate a crash after normal mount durably marked the allocator dirty. */
-   rc_allocator_deinit(&remounted);
-   remounted_live = FALSE;
-
-   rc = rc_allocator_mount(&remounted, cfg, io, hid, platform_get_module_id());
-   if (rc.r != STATUS_INVALID_STATE.r) {
-      platform_error_log("cache_test: normal mount trusted an allocator after "
-                         "a simulated mounted crash\n");
-      rc = STATUS_TEST_FAILED;
-      goto cleanup;
-   }
-   rc = STATUS_OK;
-
-   rc = rc_allocator_mount_recovery(
-      &recovery, cfg, io, hid, platform_get_module_id());
+   // 3) Rebuild open: attach + open_refcounts(rebuild=TRUE) ignores the
+   //    persisted map, reserving only the fixed extents.
+   rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   recovery_live = TRUE;
-
-   uint64 mounted_super_addr = 0;
-   rc                        = allocator_get_super_addr(
-      (allocator *)&recovery, root_id, &mounted_super_addr);
-   if (!SUCCESS(rc) || mounted_super_addr != super_addr) {
-      platform_error_log("cache_test: recovery lost a persisted superblock "
-                         "mapping\n");
-      rc = STATUS_TEST_FAILED;
+   al_live = TRUE;
+   rc = allocator_open_refcounts((allocator *)&al, TRUE);
+   if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   if (allocator_in_use((allocator *)&recovery) != reserved_extent_count) {
-      platform_error_log("cache_test: recovery expected %lu reserved extents, "
+   if (allocator_in_use((allocator *)&al) != reserved_extent_count) {
+      platform_error_log("cache_test: rebuild expected %lu reserved extents, "
                          "found %lu\n",
                          reserved_extent_count,
-                         allocator_in_use((allocator *)&recovery));
+                         allocator_in_use((allocator *)&al));
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
    for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++) {
       uint64 extent_addr = extent_no * cfg->io_cfg->extent_size;
-      if (allocator_get_refcount((allocator *)&recovery, extent_addr)
-          != AL_ONE_REF)
-      {
-         platform_error_log("cache_test: recovery did not reserve extent %lu\n",
-                            extent_no);
+      if (allocator_get_refcount((allocator *)&al, extent_addr) != AL_ONE_REF) {
+         platform_error_log(
+            "cache_test: rebuild did not reserve fixed extent %lu\n",
+            extent_no);
          rc = STATUS_TEST_FAILED;
          goto cleanup;
       }
    }
-   if (allocator_get_refcount((allocator *)&recovery, stale_extent_addr)
-       != AL_FREE)
-   {
-      platform_error_log("cache_test: recovery reused a persisted data "
-                         "refcount\n");
+   if (allocator_get_refcount((allocator *)&al, stale_extent_addr) != AL_FREE) {
+      platform_error_log(
+         "cache_test: rebuild trusted a persisted data refcount\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
 
+   // rebuild_acquire establishes the first reference.
    rc = rc_allocator_rebuild_acquire_extent(
-      &recovery, stale_extent_addr, PAGE_TYPE_MISC);
+      &al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)
-       || allocator_get_refcount((allocator *)&recovery, stale_extent_addr)
+       || allocator_get_refcount((allocator *)&al, stale_extent_addr)
              != AL_ONE_REF)
    {
-      platform_error_log("cache_test: first rebuilt extent reference was "
-                         "incorrect\n");
+      platform_error_log(
+         "cache_test: first rebuilt extent reference was incorrect\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
 
-   /*
-    * Abort never persists a partial rebuild and leaves the allocator marked
-    * unclean, so a normal mount must refuse to trust the old refcount map.
-    */
-   rc_allocator_abort_recovery(&recovery);
-   recovery_live = FALSE;
+   // 4) Abort never persists: a later clean open still sees the pre-rebuild
+   //    map (the aborted rebuild left no trace on disk).
+   rc_allocator_abort_recovery(&al);
+   al_live = FALSE;
 
-   rc = rc_allocator_mount(&remounted, cfg, io, hid, platform_get_module_id());
-   if (rc.r != STATUS_INVALID_STATE.r) {
-      platform_error_log("cache_test: normal mount trusted an unclean "
-                         "allocator map\n");
+   rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   al_live = TRUE;
+   rc = allocator_open_refcounts((allocator *)&al, FALSE);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   if (allocator_get_refcount((allocator *)&al, stale_extent_addr)
+       != AL_ONE_REF)
+   {
+      platform_error_log(
+         "cache_test: aborted rebuild leaked into the persisted map\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
-   rc = STATUS_OK;
+   rc_allocator_deinit(&al);
+   al_live = FALSE;
 
-   rc = rc_allocator_mount_recovery(
-      &recovery, cfg, io, hid, platform_get_module_id());
+   // 5) Rebuild + finish + persist round-trips the rebuilt refcount.
+   rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   recovery_live = TRUE;
-
-   rc = rc_allocator_rebuild_acquire_extent(
-      &recovery, stale_extent_addr, PAGE_TYPE_MISC);
+   al_live = TRUE;
+   rc = allocator_open_refcounts((allocator *)&al, TRUE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
    rc = rc_allocator_rebuild_acquire_extent(
-      &recovery, stale_extent_addr, PAGE_TYPE_MISC);
+      &al, stale_extent_addr, PAGE_TYPE_MISC);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = rc_allocator_rebuild_acquire_extent(
+      &al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)
-       || allocator_get_refcount((allocator *)&recovery, stale_extent_addr)
+       || allocator_get_refcount((allocator *)&al, stale_extent_addr)
              != AL_ONE_REF + 1)
    {
-      platform_error_log("cache_test: rebuilt extent reference did not "
-                         "increment\n");
+      platform_error_log(
+         "cache_test: rebuilt extent reference did not increment\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
-   rc_allocator_rebuild_finish(&recovery);
-   rc_allocator_unmount(&recovery);
-   recovery_live = FALSE;
-
-   rc = rc_allocator_mount(&remounted, cfg, io, hid, platform_get_module_id());
+   rc_allocator_rebuild_finish(&al);
+   rc = allocator_persist((allocator *)&al, NULL);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   remounted_live = TRUE;
-   if (allocator_get_refcount((allocator *)&remounted, stale_extent_addr)
+   rc_allocator_deinit(&al);
+   al_live = FALSE;
+
+   rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   al_live = TRUE;
+   rc = allocator_open_refcounts((allocator *)&al, FALSE);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   if (allocator_get_refcount((allocator *)&al, stale_extent_addr)
        != AL_ONE_REF + 1)
    {
-      platform_error_log("cache_test: finished recovery was not persisted by "
-                         "clean unmount\n");
+      platform_error_log(
+         "cache_test: finished recovery was not persisted\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
 
 cleanup:
-   if (remounted_live) {
-      rc_allocator_deinit(&remounted);
-   }
-   if (recovery_live) {
-      if (recovery.recovery_in_progress) {
-         rc_allocator_abort_recovery(&recovery);
+   if (al_live) {
+      if (al.recovery_in_progress) {
+         rc_allocator_abort_recovery(&al);
       } else {
-         rc_allocator_deinit(&recovery);
+         rc_allocator_deinit(&al);
       }
-   }
-   if (original_live) {
-      rc_allocator_deinit(&original);
    }
 
    if (SUCCESS(rc)) {
@@ -476,17 +428,25 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
    cache_flush(original_ccp);
    clockcache_deinit(&original_cc);
    original_cc_live = FALSE;
-   rc_allocator_unmount(&original);
+   rc = allocator_persist((allocator *)&original, NULL);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc_allocator_deinit(&original);
    original_al_live = FALSE;
 
-   rc = rc_allocator_mount_recovery(
+   rc = rc_allocator_mount(
       &recovery, allocator_cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
    recovery_al_live = TRUE;
+   rc = allocator_open_refcounts((allocator *)&recovery, TRUE /* rebuild */);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
 
-   /* mount_recovery deliberately ignores the persisted map: confirm that. */
+   /* open_refcounts(rebuild) deliberately ignores the persisted map. */
    if (allocator_get_refcount((allocator *)&recovery, meta_head) != AL_FREE) {
       platform_error_log(
          "cache_test: recovery mount trusted a persisted refcount\n");

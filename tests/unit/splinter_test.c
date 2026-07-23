@@ -235,6 +235,7 @@ CTEST2(splinter, test_inserts)
                                   &data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
+                                  data->io,
                                   &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
@@ -268,6 +269,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
                   &data->system_cfg->splinter_cfg,
                   alp,
                   (cache *)data->clock_cache,
+                  data->io,
                   &data->tasks,
                   root_id,
                   data->hid);
@@ -294,6 +296,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
                    &data->system_cfg->splinter_cfg,
                    alp,
                    (cache *)data->clock_cache,
+                   data->io,
                    &data->tasks,
                    root_id,
                    data->hid);
@@ -303,6 +306,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
                    &data->system_cfg->splinter_cfg,
                    alp,
                    (cache *)data->clock_cache,
+                   data->io,
                    &data->tasks,
                    root_id,
                    data->hid);
@@ -316,6 +320,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
                    &data->system_cfg->splinter_cfg,
                    alp,
                    (cache *)data->clock_cache,
+                   data->io,
                    &data->tasks,
                    root_id,
                    data->hid);
@@ -482,6 +487,7 @@ CTEST2(splinter, test_lookups)
                                        &data->system_cfg->splinter_cfg,
                                        alp,
                                        (cache *)data->clock_cache,
+                                       data->io,
                                        &data->tasks,
                                        test_generate_allocator_root_id(),
                                        data->hid);
@@ -707,6 +713,7 @@ CTEST2(splinter, test_splinter_print_diags)
                                   &data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
+                                  data->io,
                                   &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);

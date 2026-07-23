@@ -655,6 +655,17 @@ test_functionality(allocator            *al,
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
 
+   /*
+    * The unified superblock is per-device: core owns one superblock per
+    * device, so multiple tables sharing one device/allocator is not supported
+    * until the multi-tree machinery lands (the on-disk format already reserves
+    * room for it).  See the "core owns; 1 table/device" design decision.
+    */
+   platform_assert(num_tables == 1,
+                   "This test currently supports a single table per device "
+                   "(num_tables=%u); rerun with --num-tables 1.",
+                   num_tables);
+
    core_handle *spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
@@ -694,6 +705,7 @@ test_functionality(allocator            *al,
                          &cfg[idx].splinter_cfg,
                          al,
                          cache_to_use,
+                         io,
                          state,
                          splinters[idx],
                          hid);

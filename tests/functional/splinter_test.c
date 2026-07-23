@@ -789,6 +789,21 @@ test_trunk_create_tables(core_handle    **spl_handles,
                          uint8            num_tables,
                          uint8            num_caches)
 {
+   /*
+    * The unified superblock is per-device: core owns one superblock per
+    * device, so multiple tables sharing one device/allocator is not supported
+    * until the multi-tree machinery lands (the on-disk format already reserves
+    * room for it).  See the "core owns; 1 table/device" design decision.
+    */
+   platform_assert(num_tables == 1,
+                   "This test currently supports a single table per device "
+                   "(num_tables=%u); rerun with --num-tables 1.",
+                   num_tables);
+
+   // These functional tests use rc_allocator exclusively; core_mkfs needs the
+   // io handle, which the allocator holds.
+   io_handle *io = ((rc_allocator *)al)->io;
+
    core_handle *spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    if (spl_tables == NULL) {
       return STATUS_NO_MEMORY;
@@ -800,6 +815,7 @@ test_trunk_create_tables(core_handle    **spl_handles,
                                      &cfg[spl_idx].splinter_cfg,
                                      al,
                                      cache_to_use,
+                                     io,
                                      ts,
                                      test_generate_allocator_root_id(),
                                      hid);

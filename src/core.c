@@ -46,16 +46,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
                "CORE_NUM_MEMTABLES <= MAX_MEMTABLES");
 
-/* Checkpoint metadata has independently checksummed directory and records. */
-#define CORE_CHECKPOINT_DIRECTORY_CSUM_SEED (42)
-#define CORE_CHECKPOINT_RECORD_CSUM_SEED    (43)
-
-#define CORE_CHECKPOINT_FORMAT_VERSION (2)
-#define CORE_CHECKPOINT_RECORD_COUNT   (2)
-
-#define CORE_CHECKPOINT_DIRECTORY_MAGIC (0x534442434B505444ULL) // SDBCKPTD
-#define CORE_CHECKPOINT_RECORD_MAGIC    (0x534442434B505452ULL) // SDBCKPTR
-
 static platform_status
 core_checkpoint_lock_init(core_handle *spl)
 {
@@ -136,355 +126,6 @@ core_close_log_stream_if_enabled(core_handle            *spl,
 
 /*
  *-----------------------------------------------------------------------------
- * Checkpoint metadata: disk-resident structures.
- *
- * allocator_get_super_addr() identifies a fixed page in the allocator's
- * bootstrap extent.  That page is an immutable directory, written exactly
- * once when the table is created.  The directory names two independently
- * allocated record extents.  Checkpoint publication alternates between their
- * first pages, leaving one formerly valid record untouched if a new write is
- * torn.
- *
- * This is intentionally a new on-disk format.  Do not interpret a legacy
- * core_super_block as a directory: doing so would turn arbitrary old fields
- * into allocator-owned addresses.  Existing databases must be migrated or
- * reformatted before using this checkpoint metadata format.
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK core_checkpoint_directory {
-   uint64      magic;
-   uint64      format_version;
-   uint64      table_id;
-   uint64      record_addr[CORE_CHECKPOINT_RECORD_COUNT];
-   checksum128 checksum;
-} core_checkpoint_directory;
-
-typedef struct ONDISK core_checkpoint_record {
-   /*
-    * The highest memtable generation incorporated in root_addr.  The boolean
-    * keeps the fresh-database case distinct from generation zero.
-    */
-   uint64      incorporated_generation;
-   bool32      has_incorporated_generation;
-   uint64      root_addr;
-   uint64      timestamp;
-   uint64      sequence;
-   uint64      table_id;
-   uint32      record_slot;
-   bool32      checkpointed;
-   bool32      unmounted;
-   uint64      magic;
-   uint64      format_version;
-   checksum128 checksum;
-} core_checkpoint_record;
-
-typedef struct core_checkpoint_records {
-   core_checkpoint_record record[CORE_CHECKPOINT_RECORD_COUNT];
-   bool32                 valid[CORE_CHECKPOINT_RECORD_COUNT];
-   bool32                 have_newest;
-   uint64                 newest_slot;
-   bool32                 have_newest_unmounted;
-   uint64                 newest_unmounted_slot;
-} core_checkpoint_records;
-
-static checksum128
-core_checkpoint_directory_checksum(const core_checkpoint_directory *directory)
-{
-   return platform_checksum128(directory,
-                               offsetof(core_checkpoint_directory, checksum),
-                               CORE_CHECKPOINT_DIRECTORY_CSUM_SEED);
-}
-
-static checksum128
-core_checkpoint_record_checksum(const core_checkpoint_record *record)
-{
-   return platform_checksum128(record,
-                               offsetof(core_checkpoint_record, checksum),
-                               CORE_CHECKPOINT_RECORD_CSUM_SEED);
-}
-
-static bool32
-core_checkpoint_record_addr_is_valid(core_handle *spl, uint64 addr)
-{
-   allocator_config *allocator_cfg = allocator_get_config(spl->al);
-   uint64            page_size     = cache_page_size(spl->cc);
-
-   return addr != 0 && addr % allocator_cfg->io_cfg->extent_size == 0
-          && addr < allocator_cfg->capacity
-          && page_size <= allocator_cfg->capacity - addr;
-}
-
-static bool32
-core_checkpoint_directory_is_valid(core_handle                     *spl,
-                                   const core_checkpoint_directory *directory)
-{
-   if (directory->magic != CORE_CHECKPOINT_DIRECTORY_MAGIC
-       || directory->format_version != CORE_CHECKPOINT_FORMAT_VERSION
-       || directory->table_id != spl->id
-       || !platform_checksum_is_equal(
-          directory->checksum, core_checkpoint_directory_checksum(directory)))
-   {
-      return FALSE;
-   }
-
-   uint64            record0       = directory->record_addr[0];
-   uint64            record1       = directory->record_addr[1];
-   allocator_config *allocator_cfg = allocator_get_config(spl->al);
-   return core_checkpoint_record_addr_is_valid(spl, record0)
-          && core_checkpoint_record_addr_is_valid(spl, record1)
-          && record0 != record1
-          && !allocator_config_pages_share_extent(
-             allocator_cfg, record0, record1);
-}
-
-static bool32
-core_checkpoint_record_is_valid(core_handle                  *spl,
-                                const core_checkpoint_record *record,
-                                uint64                        record_slot)
-{
-   return record->magic == CORE_CHECKPOINT_RECORD_MAGIC
-          && record->format_version == CORE_CHECKPOINT_FORMAT_VERSION
-          && record->table_id == spl->id && record->record_slot == record_slot
-          && record->sequence != 0
-          && (record->has_incorporated_generation == FALSE
-              || record->has_incorporated_generation == TRUE)
-          && (record->has_incorporated_generation
-                 ? record->incorporated_generation < UINT64_MAX
-                 : record->incorporated_generation == 0)
-          && platform_checksum_is_equal(
-             record->checksum, core_checkpoint_record_checksum(record));
-}
-
-static void
-core_write_checkpoint_page(core_handle *spl,
-                           uint64       page_addr,
-                           const void  *contents,
-                           uint64       contents_size)
-{
-   page_handle *page =
-      cache_get(spl->cc, page_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   uint64 wait = 1;
-   while (!cache_try_claim(spl->cc, page)) {
-      cache_unget(spl->cc, page);
-      platform_sleep_ns(wait);
-      wait = wait > 1024 ? wait : 2 * wait;
-      page = cache_get(spl->cc, page_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   }
-   cache_lock(spl->cc, page);
-   platform_assert(contents_size <= cache_page_size(spl->cc));
-   memset(page->data, 0, cache_page_size(spl->cc));
-   memcpy(page->data, contents, contents_size);
-   cache_unlock(spl->cc, page);
-   cache_unclaim(spl->cc, page);
-   cache_page_writeback(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
-   cache_unget(spl->cc, page);
-}
-
-static void
-core_initialize_checkpoint_record_page(core_handle *spl, uint64 page_addr)
-{
-   page_handle *page = cache_alloc(spl->cc, page_addr, PAGE_TYPE_SUPERBLOCK);
-   platform_assert(page != NULL);
-   memset(page->data, 0, cache_page_size(spl->cc));
-   cache_unlock(spl->cc, page);
-   cache_unclaim(spl->cc, page);
-   cache_page_writeback(spl->cc, page, TRUE, PAGE_TYPE_SUPERBLOCK);
-   cache_unget(spl->cc, page);
-}
-
-static platform_status
-core_create_checkpoint_directory(core_handle               *spl,
-                                 core_checkpoint_directory *directory)
-{
-   uint64          directory_addr;
-   platform_status rc =
-      allocator_alloc_super_addr(spl->al, spl->id, &directory_addr);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_create_checkpoint_directory: failed to allocate "
-                         "directory address for root id %lu: %s\n",
-                         spl->id,
-                         platform_status_to_string(rc));
-      return rc;
-   }
-
-   ZERO_CONTENTS(directory);
-   directory->magic          = CORE_CHECKPOINT_DIRECTORY_MAGIC;
-   directory->format_version = CORE_CHECKPOINT_FORMAT_VERSION;
-   directory->table_id       = spl->id;
-
-   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
-      uint64 record_addr;
-      rc = allocator_alloc(spl->al, &record_addr, PAGE_TYPE_SUPERBLOCK);
-      if (!SUCCESS(rc)) {
-         platform_error_log("core_create_checkpoint_directory: failed to "
-                            "allocate record extent %lu: %s\n",
-                            slot,
-                            platform_status_to_string(rc));
-         return rc;
-      }
-      directory->record_addr[slot] = record_addr;
-      core_initialize_checkpoint_record_page(spl, record_addr);
-   }
-
-   directory->checksum = core_checkpoint_directory_checksum(directory);
-   core_write_checkpoint_page(
-      spl, directory_addr, directory, sizeof(*directory));
-
-   /*
-    * Submit the newly initialized record and directory pages before the
-    * durable barrier. allocator_alloc() changes its refcount map only in
-    * memory; crash recovery deliberately rebuilds that map instead of relying
-    * on this publication. allocator_alloc_super_addr() does write the raw
-    * bootstrap mapping through the shared backing I/O handle, which the
-    * following durable barrier fdatasyncs with the directory page.
-    */
-   rc = cache_writeback_dirty(spl->cc);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   return cache_durable_barrier(spl->cc);
-}
-
-static platform_status
-core_get_checkpoint_directory(core_handle               *spl,
-                              core_checkpoint_directory *directory)
-{
-   uint64          directory_addr;
-   platform_status rc =
-      allocator_get_super_addr(spl->al, spl->id, &directory_addr);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   page_handle *page =
-      cache_get(spl->cc, directory_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   memcpy(directory, page->data, sizeof(*directory));
-   cache_unget(spl->cc, page);
-
-   if (!core_checkpoint_directory_is_valid(spl, directory)) {
-      platform_error_log("core_get_checkpoint_directory: no compatible "
-                         "checkpoint directory for root id %lu\n",
-                         spl->id);
-      return STATUS_BAD_PARAM;
-   }
-   return STATUS_OK;
-}
-
-static platform_status
-core_load_checkpoint_records(core_handle                     *spl,
-                             const core_checkpoint_directory *directory,
-                             core_checkpoint_records         *records)
-{
-   ZERO_CONTENTS(records);
-   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
-      page_handle *page = cache_get(
-         spl->cc, directory->record_addr[slot], TRUE, PAGE_TYPE_SUPERBLOCK);
-      memcpy(&records->record[slot], page->data, sizeof(records->record[slot]));
-      cache_unget(spl->cc, page);
-
-      records->valid[slot] =
-         core_checkpoint_record_is_valid(spl, &records->record[slot], slot);
-      if (!records->valid[slot]) {
-         continue;
-      }
-
-      if (!records->have_newest
-          || records->record[records->newest_slot].sequence
-                < records->record[slot].sequence)
-      {
-         records->have_newest = TRUE;
-         records->newest_slot = slot;
-      }
-      if (records->record[slot].unmounted
-          && (!records->have_newest_unmounted
-              || records->record[records->newest_unmounted_slot].sequence
-                    < records->record[slot].sequence))
-      {
-         records->have_newest_unmounted = TRUE;
-         records->newest_unmounted_slot = slot;
-      }
-   }
-
-   if (records->valid[0] && records->valid[1]
-       && records->record[0].sequence == records->record[1].sequence)
-   {
-      platform_error_log("core_load_checkpoint_records: duplicate record "
-                         "sequence %lu for root id %lu\n",
-                         records->record[0].sequence,
-                         spl->id);
-      return STATUS_BAD_PARAM;
-   }
-   return STATUS_OK;
-}
-
-static void
-core_destroy_checkpoint_record_extent(core_handle *spl, uint64 record_addr)
-{
-   refcount ref = allocator_dec_ref(spl->al, record_addr, PAGE_TYPE_SUPERBLOCK);
-   if (ref != AL_NO_REFS) {
-      platform_error_log("core_destroy_checkpoint_record_extent: record extent "
-                         "%lu has unexpected refcount %u\n",
-                         record_addr,
-                         ref);
-      return;
-   }
-
-   cache_extent_discard(spl->cc, record_addr, PAGE_TYPE_SUPERBLOCK);
-   ref = allocator_dec_ref(spl->al, record_addr, PAGE_TYPE_SUPERBLOCK);
-   platform_assert(ref == AL_FREE);
-}
-
-static void
-core_destroy_checkpoint_storage(core_handle *spl)
-{
-   core_checkpoint_directory directory;
-   platform_status rc = core_get_checkpoint_directory(spl, &directory);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_destroy_checkpoint_storage: unable to load "
-                         "checkpoint directory for root id %lu: %s\n",
-                         spl->id,
-                         platform_status_to_string(rc));
-      return;
-   }
-
-   core_checkpoint_records records;
-   rc = core_load_checkpoint_records(spl, &directory, &records);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_destroy_checkpoint_storage: unable to load "
-                         "checkpoint records for root id %lu: %s\n",
-                         spl->id,
-                         platform_status_to_string(rc));
-      return;
-   }
-
-   /*
-    * Both valid slots own independent root references. Keeping the older
-    * record live makes it a real fallback if the next record write is torn;
-    * its reference is released only when that slot is successfully
-    * overwritten. This is clean destruction, so release both record owners.
-    */
-   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
-      if (!records.valid[slot] || records.record[slot].root_addr == 0) {
-         continue;
-      }
-      trunk_snapshot old_snapshot = {.root_addr = records.record[slot].root_addr};
-      rc = trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
-      if (!SUCCESS(rc)) {
-         platform_error_log("core_destroy_checkpoint_storage: failed to "
-                            "release record %lu root %lu: %s\n",
-                            slot,
-                            records.record[slot].root_addr,
-                            platform_status_to_string(rc));
-      }
-   }
-
-   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
-      core_destroy_checkpoint_record_extent(spl, directory.record_addr[slot]);
-   }
-}
-
-/*
- *-----------------------------------------------------------------------------
  * Checkpoint record functions
  *-----------------------------------------------------------------------------
  */
@@ -514,27 +155,29 @@ core_capture_checkpoint_cut(core_handle    *spl,
    return STATUS_OK;
 }
 
+/*
+ * Publish a tree-record root advance to the superblock: capture the current
+ * COW root, make it durable, record it (with the incorporated-generation cut
+ * and the unmounted flag), invalidate the persisted allocation state in the
+ * same atomic update, and release the previously published root.  Used by mkfs
+ * (empty root) and by unmount (Part A; unmount then persists the map and
+ * republishes a valid allocation state).  The snapshot's owned reference is
+ * transferred to the durable record on a successful publish.
+ */
 static platform_status
-core_publish_checkpoint_record(core_handle *spl,
-                               bool32       is_checkpoint,
-                               bool32       is_unmount,
-                               bool32       is_create)
+core_publish_root_record(core_handle *spl, bool32 is_unmount)
 {
-   uint64                    old_root_addr;
-   platform_status           rc;
-   trunk_snapshot            snapshot;
-   bool32                    has_incorporated_generation;
-   uint64                    incorporated_generation;
-   core_checkpoint_directory directory;
-   core_checkpoint_records   records;
-   uint64                    target_slot;
-   core_checkpoint_record    record;
+   platform_status        rc;
+   trunk_snapshot         snapshot;
+   bool32                 has_incorporated_generation;
+   uint64                 incorporated_generation;
+   uint64                 old_root_addr = 0;
+   superblock_tree_record old_rec;
+   superblock_tree_record rec;
 
    /*
-    * The snapshot, target-slot selection, durable record write, and old-slot
-    * release are one publication transaction. In particular, two concurrent
-    * publishers must never choose the same target slot or release the same
-    * former record owner.
+    * The snapshot cut, durable record write, and old-root release are one
+    * publication transaction; serialize against any concurrent publisher.
     */
    rc = platform_mutex_lock(&spl->checkpoint_lock);
    if (!SUCCESS(rc)) {
@@ -549,10 +192,10 @@ core_publish_checkpoint_record(core_handle *spl,
 
    /*
     * The snapshot reference makes the root stable, but not necessarily
-    * durable. Drain only the cache intervals that existed at this cut before
-    * making a record that can name the root durable. This can incidentally
-    * persist newer log/data pages, but it does not seal or publish a logical
-    * durable-log tail; tail sync is a separate operation.
+    * durable.  Drain the cache so the pages the record will name are durable
+    * before we publish a superblock that points at them.  This can
+    * incidentally persist newer log/data pages, but it does not seal or
+    * publish a logical durable-log tail; tail sync is a separate operation.
     */
    rc = cache_writeback_dirty(spl->cc);
    if (!SUCCESS(rc)) {
@@ -563,84 +206,77 @@ core_publish_checkpoint_record(core_handle *spl,
       goto release_snapshot;
    }
 
-   if (is_create) {
-      rc = core_create_checkpoint_directory(spl, &directory);
-   } else {
-      rc = core_get_checkpoint_directory(spl, &directory);
-   }
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_publish_checkpoint_record: failed to %s "
-                         "checkpoint directory for root id %lu: %s\n",
-                         is_create ? "create" : "load",
-                         spl->id,
-                         platform_status_to_string(rc));
-      goto release_snapshot;
-   }
-
-   rc = core_load_checkpoint_records(spl, &directory, &records);
-   if (!SUCCESS(rc)) {
-      goto release_snapshot;
-   }
-
-   if (records.have_newest
-       && records.record[records.newest_slot].sequence == UINT64_MAX)
+   // The previously published root, retained until the new one is durable.
+   if (SUCCESS(superblock_get_tree_record(&spl->superblock, spl->id, &old_rec)))
    {
-      rc = STATUS_LIMIT_EXCEEDED;
+      old_root_addr = old_rec.root_addr;
+   }
+
+   ZERO_CONTENTS(&rec);
+   rec.table_id      = spl->id;
+   rec.root_addr     = snapshot.root_addr;
+   rec.log_meta_head = 0; // set once the per-tree log is wired
+   rec.incorporated_generation =
+      has_incorporated_generation ? incorporated_generation
+                                  : SUPERBLOCK_NO_INCORPORATED_GENERATION;
+   rec.unmounted = is_unmount;
+
+   rc = superblock_set_tree_record(&spl->superblock, &rec);
+   if (!SUCCESS(rc)) {
       goto release_snapshot;
    }
-   target_slot = records.have_newest ? records.newest_slot ^ 1 : 0;
    /*
-    * Each valid record owns its root reference. This publication overwrites
-    * target_slot, so retain that slot's old root until the replacement page
-    * is durable, then release only the overwritten owner. The newest record
-    * remains independently live as the torn-write fallback.
+    * Advancing a root invalidates the persisted allocation map: the in-memory
+    * map now diverges from disk.  A clean unmount republishes a valid
+    * allocation state only after persisting the map (Part B).
     */
-   old_root_addr =
-      records.valid[target_slot] ? records.record[target_slot].root_addr : 0;
+   superblock_set_allocation_state_addr(&spl->superblock, 0);
 
-   ZERO_CONTENTS(&record);
-   record.incorporated_generation     = incorporated_generation;
-   record.has_incorporated_generation = has_incorporated_generation;
-   record.root_addr                   = snapshot.root_addr;
-   record.timestamp                   = platform_get_real_time();
-   record.sequence                    = records.have_newest
-                                           ? records.record[records.newest_slot].sequence + 1
-                                           : 1;
-   record.table_id                    = spl->id;
-   record.record_slot                 = target_slot;
-   record.checkpointed                = is_checkpoint;
-   record.unmounted                   = is_unmount;
-   record.magic                       = CORE_CHECKPOINT_RECORD_MAGIC;
-   record.format_version              = CORE_CHECKPOINT_FORMAT_VERSION;
-
-   record.checksum = core_checkpoint_record_checksum(&record);
-
-   core_write_checkpoint_page(
-      spl, directory.record_addr[target_slot], &record, sizeof(record));
-   /* The record now owns this reference, even if the barrier reports failure.
-    */
-   snapshot.root_addr = 0;
-
-   rc = cache_durable_barrier(spl->cc);
+   rc = superblock_publish(&spl->superblock);
    if (!SUCCESS(rc)) {
-      /* The new record may be durable, so retain its transferred root ref. */
-      goto unlock_checkpoint;
+      /* The old root is still the newest durable one; keep its reference. */
+      goto release_snapshot;
    }
 
-   if (old_root_addr != 0) {
-      trunk_snapshot old_snapshot = {.root_addr = old_root_addr};
-      rc = trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
-      if (!SUCCESS(rc)) {
-         platform_error_log("core_publish_checkpoint_record: "
-                            "trunk_snapshot_release failed for old root addr "
-                            "%lu: %s\n",
-                            old_root_addr,
-                            platform_status_to_string(rc));
-         goto unlock_checkpoint;
+   if (old_root_addr == rec.root_addr) {
+      /*
+       * Republishing the same root (e.g. a clean unmount with no advance since
+       * the last publish): the previously published record already accounts
+       * for a reference to it, so drop the redundant snapshot reference we
+       * captured rather than letting the root's refcount grow each cycle.
+       */
+      if (snapshot.root_addr != 0) {
+         platform_status release_rc =
+            trunk_snapshot_release(&spl->trunk_context, &snapshot);
+         if (SUCCESS(rc) && !SUCCESS(release_rc)) {
+            rc = release_rc;
+         }
+      }
+   } else {
+      /*
+       * New root: the snapshot reference becomes the record's durable one, and
+       * the previously published root's reference is released.  The publish
+       * barrier committed the new root to the newer superblock slot, so the
+       * old slot is no longer the mount choice and releasing it cannot strand a
+       * torn-write fallback.
+       */
+      snapshot.root_addr = 0; // transferred to the durable record
+      if (old_root_addr != 0) {
+         trunk_snapshot  old_snapshot = {.root_addr = old_root_addr};
+         platform_status release_rc =
+            trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
+         if (!SUCCESS(release_rc)) {
+            platform_error_log("core_publish_root_record: trunk_snapshot_release "
+                               "failed for old root addr %lu: %s\n",
+                               old_root_addr,
+                               platform_status_to_string(release_rc));
+            if (SUCCESS(rc)) {
+               rc = release_rc;
+            }
+         }
       }
    }
 
-   rc = STATUS_OK;
    goto unlock_checkpoint;
 
 release_snapshot:
@@ -2286,6 +1922,7 @@ core_mkfs(core_handle      *spl,
           core_config      *cfg,
           allocator        *al,
           cache            *cc,
+          io_handle        *io,
           task_system      *ts,
           allocator_root_id id,
           platform_heap_id  hid)
@@ -2308,6 +1945,21 @@ core_mkfs(core_handle      *spl,
       return rc;
    }
 
+   // Fresh superblock: geometry, empty tree table, allocation state invalid.
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   rc = superblock_context_init(&spl->superblock, io, allocator_cfg, hid);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: superblock_context_init failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_checkpoint_lock;
+   }
+   rc = superblock_format(&spl->superblock, allocator_cfg);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mkfs: superblock_format failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_superblock;
+   }
+
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    rc                      = memtable_context_init(&spl->mt_ctxt,
@@ -2319,7 +1971,7 @@ core_mkfs(core_handle      *spl,
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: memtable_context_init failed: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_checkpoint_lock;
+      goto deinit_superblock;
    }
 
    // set up the log
@@ -2352,11 +2004,11 @@ core_mkfs(core_handle      *spl,
       goto deinit_trunk_context;
    }
 
-   rc = core_publish_checkpoint_record(spl, FALSE, FALSE, TRUE);
+   // Establish the initial (empty) tree record; publish it durably.
+   rc = core_publish_root_record(spl, FALSE);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "core_mkfs: core_publish_checkpoint_record failed: %s\n",
-         platform_status_to_string(rc));
+      platform_error_log("core_mkfs: core_publish_root_record failed: %s\n",
+                         platform_status_to_string(rc));
       goto deinit_stats;
    }
    return STATUS_OK;
@@ -2372,6 +2024,8 @@ deinit_log:
    }
 deinit_memtable_context:
    memtable_context_deinit(&spl->mt_ctxt);
+deinit_superblock:
+   superblock_context_deinit(&spl->superblock);
 deinit_checkpoint_lock:
    core_checkpoint_lock_deinit(spl);
    return rc;
@@ -2385,6 +2039,7 @@ core_mount(core_handle      *spl,
            core_config      *cfg,
            allocator        *al,
            cache            *cc,
+           io_handle        *io,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid)
@@ -2407,48 +2062,60 @@ core_mount(core_handle      *spl,
       return rc;
    }
 
+   // Read the superblock (newest valid A/B copy; validates geometry).
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   rc = superblock_context_init(&spl->superblock, io, allocator_cfg, hid);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: superblock_context_init failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_checkpoint_lock;
+   }
+   rc = superblock_mount(&spl->superblock, allocator_cfg);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: superblock_mount failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_superblock;
+   }
+
+   superblock_tree_record rec;
+   rc = superblock_get_tree_record(&spl->superblock, spl->id, &rec);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: no tree record for root id %lu\n",
+                         spl->id);
+      goto deinit_superblock;
+   }
+
    /*
     * Preserve the historical clean-only mount rule for this first format
-    * slice: an interrupted run is not replayed yet, so only an explicitly
-    * unmounted record supplies the root.  We still validate both records and
-    * choose the newest clean one by sequence rather than wall-clock time.
+    * slice: crash recovery (log replay + allocator rebuild) is not wired yet,
+    * so only a clean unmount -- one whose tree record is flagged unmounted and
+    * whose allocation state is still valid -- may supply the root.
     */
-   uint64                    root_addr                   = 0;
-   bool32                    has_incorporated_generation = FALSE;
-   uint64                    incorporated_generation     = 0;
-   core_checkpoint_directory directory;
-   core_checkpoint_records   records;
-   rc = core_get_checkpoint_directory(spl, &directory);
-   if (!SUCCESS(rc)) {
-      goto deinit_checkpoint_lock;
-   }
-   rc = core_load_checkpoint_records(spl, &directory, &records);
-   if (!SUCCESS(rc)) {
-      goto deinit_checkpoint_lock;
-   }
-   if (!records.have_newest) {
-      platform_error_log("core_mount: checkpoint directory for root id %lu "
-                         "has no valid records\n",
-                         spl->id);
-      rc = STATUS_BAD_PARAM;
-      goto deinit_checkpoint_lock;
-   }
-   const core_checkpoint_record *record = &records.record[records.newest_slot];
-   if (!record->unmounted) {
-      /*
-       * This is an interrupted run. An older clean record is only an A/B
-       * torn-write fallback, not permission to silently discard the newer
-       * checkpoint and its log suffix. Do not overwrite its metadata before
-       * log replay and allocator reconstruction are wired.
-       */
+   bool32 rebuild = !superblock_allocation_state_valid(&spl->superblock);
+   if (rebuild || !rec.unmounted) {
       platform_error_log("core_mount: root id %lu requires crash recovery\n",
                          spl->id);
       rc = STATUS_INVALID_STATE;
-      goto deinit_checkpoint_lock;
+      goto deinit_superblock;
    }
-   root_addr                   = record->root_addr;
-   has_incorporated_generation = record->has_incorporated_generation;
-   incorporated_generation     = record->incorporated_generation;
+
+   /*
+    * Load the trusted refcount map (rebuild == FALSE on this path).  This must
+    * precede trunk_snapshot_create_from_addr(), which increments the root's
+    * refcount in the now-loaded map.
+    */
+   rc = allocator_open_refcounts(al, rebuild);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: allocator_open_refcounts failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_superblock;
+   }
+
+   uint64 root_addr = rec.root_addr;
+   uint64 resume_generation =
+      rec.incorporated_generation == SUPERBLOCK_NO_INCORPORATED_GENERATION
+         ? 0
+         : rec.incorporated_generation + 1;
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    rc                      = memtable_context_init_at_generation(
@@ -2458,12 +2125,12 @@ core_mount(core_handle      *spl,
       mt_cfg,
       core_memtable_flush_virtual,
       spl,
-      has_incorporated_generation ? incorporated_generation + 1 : 0);
+      resume_generation);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: memtable_context_init_at_generation "
                          "failed: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_checkpoint_lock;
+      goto deinit_superblock;
    }
 
    if (spl->cfg.use_log) {
@@ -2504,11 +2171,24 @@ core_mount(core_handle      *spl,
       goto deinit_trunk_context;
    }
 
-   rc = core_publish_checkpoint_record(spl, FALSE, FALSE, FALSE);
+   /*
+    * Mark dirty: flip the tree record to not-unmounted and invalidate the
+    * persisted allocation state, atomically, before any allocation diverges
+    * the in-memory map from disk.  A crash after this forces the next mount
+    * into recovery instead of silently reverting to this now-stale root.  This
+    * keeps the same root (no snapshot capture, no refcount change).
+    */
+   rec.unmounted = FALSE;
+   rc            = superblock_set_tree_record(&spl->superblock, &rec);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "core_mount: core_publish_checkpoint_record failed: %s\n",
-         platform_status_to_string(rc));
+      goto deinit_stats;
+   }
+   superblock_set_allocation_state_addr(&spl->superblock, 0);
+   rc = superblock_publish(&spl->superblock);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: mark-dirty superblock_publish failed: "
+                         "%s\n",
+                         platform_status_to_string(rc));
       goto deinit_stats;
    }
    return STATUS_OK;
@@ -2524,6 +2204,8 @@ deinit_log:
    }
 deinit_memtable_context:
    memtable_context_deinit(&spl->mt_ctxt);
+deinit_superblock:
+   superblock_context_deinit(&spl->superblock);
 deinit_checkpoint_lock:
    core_checkpoint_lock_deinit(spl);
    return rc;
@@ -2631,18 +2313,52 @@ core_unmount(core_handle *spl)
 
    /*
     * Quiescing leaves the memtable and log contexts live so publication can
-    * atomically capture the retired generation and root, then record log
-    * metadata. Teardown is safe regardless of publication success.
+    * atomically capture the retired generation and root.  Teardown is safe
+    * regardless of publication success.
     */
    core_quiesce_for_shutdown(spl);
-   rc = core_publish_checkpoint_record(spl, FALSE, TRUE, FALSE);
+
+   /*
+    * Part A: publish the clean-unmount root.  Allocation state stays invalid
+    * here; it becomes valid only in Part B, after the map is persisted.
+    */
+   rc = core_publish_root_record(spl, TRUE);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "core_unmount: failed to publish checkpoint record: %s\n",
-         platform_status_to_string(rc));
+      platform_error_log("core_unmount: failed to publish unmount root: %s\n",
+                         platform_status_to_string(rc));
    }
+
    core_teardown_after_shutdown(spl);
+   /*
+    * Release the context's live root reference before persisting the map, so
+    * the persisted refcounts reflect exactly the durable record's single
+    * reference to the root.
+    */
    trunk_context_deinit(&spl->trunk_context);
+
+   /*
+    * Part B: only after a clean Part A publish, persist the refcount map and
+    * republish a valid allocation state pointing at it.  The map is made
+    * durable before the "map is trustworthy" flag, and that flag becomes
+    * durable only after the root it must agree with (Part A).  On a Part A
+    * failure we leave the allocation state invalid so the next open rebuilds.
+    */
+   if (SUCCESS(rc)) {
+      uint64          map_addr;
+      platform_status prc = allocator_persist(spl->al, &map_addr);
+      if (SUCCESS(prc)) {
+         superblock_set_allocation_state_addr(&spl->superblock, map_addr);
+         prc = superblock_publish(&spl->superblock);
+      }
+      if (!SUCCESS(prc)) {
+         platform_error_log("core_unmount: failed to publish clean allocation "
+                            "state: %s\n",
+                            platform_status_to_string(prc));
+         rc = prc;
+      }
+   }
+
+   superblock_context_deinit(&spl->superblock);
    core_destroy_stats(spl);
    core_checkpoint_lock_deinit(spl);
    return rc;
@@ -2655,13 +2371,46 @@ void
 core_destroy(core_handle *spl)
 {
    core_quiesce_for_shutdown(spl);
-   core_teardown_after_shutdown(spl);
-   /* Records own trunk references and their two dedicated record extents. */
-   core_destroy_checkpoint_storage(spl);
-   trunk_context_deinit(&spl->trunk_context);
-   // clear out this splinter table from the meta page.
-   allocator_remove_super_addr(spl->al, spl->id);
 
+   /*
+    * Release the reference the published tree record holds on its root before
+    * tearing down the context (which releases the context's own live root
+    * reference).  Together these free the whole tree.  Release must precede
+    * trunk_context_deinit(): trunk_snapshot_release() needs the live context.
+    */
+   superblock_tree_record rec;
+   if (SUCCESS(superblock_get_tree_record(&spl->superblock, spl->id, &rec))
+       && rec.root_addr != 0)
+   {
+      trunk_snapshot  old_snapshot = {.root_addr = rec.root_addr};
+      platform_status rc =
+         trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "core_destroy: failed to release root addr %lu: %s\n",
+            rec.root_addr,
+            platform_status_to_string(rc));
+      }
+   }
+
+   core_teardown_after_shutdown(spl);
+   trunk_context_deinit(&spl->trunk_context);
+
+   // Erase this tree's record and persist a clean, valid allocation state.
+   superblock_remove_tree_record(&spl->superblock, spl->id);
+   uint64          map_addr;
+   platform_status prc = allocator_persist(spl->al, &map_addr);
+   if (SUCCESS(prc)) {
+      superblock_set_allocation_state_addr(&spl->superblock, map_addr);
+      prc = superblock_publish(&spl->superblock);
+   }
+   if (!SUCCESS(prc)) {
+      platform_error_log("core_destroy: failed to persist allocation state: "
+                         "%s\n",
+                         platform_status_to_string(prc));
+   }
+
+   superblock_context_deinit(&spl->superblock);
    core_destroy_stats(spl);
    core_checkpoint_lock_deinit(spl);
 }
@@ -2696,58 +2445,36 @@ core_print_space_use(platform_log_handle *log_handle, core_handle *spl)
 /*
  * core_print_super_block()
  *
- * Print the fixed checkpoint directory and both independently written record
- * slots for a running Splinter instance.
+ * Print this instance's superblock tree record and the persisted allocation
+ * state.
  */
 void
 core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 {
-   core_checkpoint_directory directory;
-   platform_status rc = core_get_checkpoint_directory(spl, &directory);
+   superblock_tree_record rec;
+   platform_status        rc =
+      superblock_get_tree_record(&spl->superblock, spl->id, &rec);
    if (!SUCCESS(rc)) {
       platform_log(log_handle,
-                   "No compatible checkpoint directory for root id %lu\n",
+                   "No superblock tree record for root id %lu\n",
                    spl->id);
       return;
    }
 
-   core_checkpoint_records records;
-   rc = core_load_checkpoint_records(spl, &directory, &records);
-   if (!SUCCESS(rc)) {
-      platform_log(log_handle,
-                   "Unable to load checkpoint records for root id %lu: %s\n",
-                   spl->id,
-                   platform_status_to_string(rc));
-      return;
-   }
-
    platform_log(log_handle,
-                "Checkpoint directory root_id=%lu record_addr=[%lu, %lu] {\n",
-                directory.table_id,
-                directory.record_addr[0],
-                directory.record_addr[1]);
-   for (uint64 slot = 0; slot < CORE_CHECKPOINT_RECORD_COUNT; slot++) {
-      if (!records.valid[slot]) {
-         platform_log(log_handle, "  record[%lu]: invalid\n", slot);
-         continue;
-      }
-      core_checkpoint_record *record = &records.record[slot];
-      platform_log(log_handle,
-                   "  record[%lu]: sequence=%lu root_addr=%lu "
-                   "has_incorporated_generation=%d "
-                   "incorporated_generation=%lu "
-                   "timestamp=%lu "
-                   "checkpointed=%d unmounted=%d\n",
-                   slot,
-                   record->sequence,
-                   record->root_addr,
-                   record->has_incorporated_generation,
-                   record->incorporated_generation,
-                   record->timestamp,
-                   record->checkpointed,
-                   record->unmounted);
-   }
-   platform_log(log_handle, "}\n\n");
+                "Superblock tree record root_id=%lu {\n"
+                "  root_addr=%lu log_meta_head=%lu\n"
+                "  incorporated_generation=%lu unmounted=%d\n"
+                "  allocation_state: %s (addr=%lu)\n"
+                "}\n\n",
+                rec.table_id,
+                rec.root_addr,
+                rec.log_meta_head,
+                rec.incorporated_generation,
+                rec.unmounted,
+                superblock_allocation_state_valid(&spl->superblock) ? "valid"
+                                                                    : "invalid",
+                superblock_allocation_state_addr(&spl->superblock));
 }
 
 // clang-format off

@@ -14,6 +14,7 @@
 #include "log.h"
 #include "trunk.h"
 #include "histogram.h"
+#include "superblock.h"
 
 /*
  * Upper-bound on most number of branches that we can find our lookup-key in.
@@ -109,7 +110,6 @@ struct core_handle {
    core_config      cfg;
    platform_heap_id heap_id;
 
-   uint64            super_block_idx;
    allocator_root_id id;
 
    allocator       *al;
@@ -119,7 +119,17 @@ struct core_handle {
    trunk_context    trunk_context;
    memtable_context mt_ctxt;
 
-   /* Serializes snapshot cuts and A/B checkpoint-record publication. */
+   /*
+    * Durable instance metadata.  core owns the in-memory superblock context
+    * (allocated at mkfs/mount, torn down at unmount/destroy): it borrows the
+    * geometry, reads its tree record, and publishes root advances plus
+    * allocation-state transitions.  For now the instance holds a single tree;
+    * when multi-tree support lands this ownership hoists to an instance level
+    * that per-tree cores borrow.
+    */
+   superblock_context superblock;
+
+   /* Serializes snapshot cuts and superblock publication. */
    platform_mutex checkpoint_lock;
    bool32         checkpoint_lock_initialized;
 
@@ -227,6 +237,7 @@ core_mkfs(core_handle      *spl,
           core_config      *cfg,
           allocator        *al,
           cache            *cc,
+          io_handle        *io,
           task_system      *ts,
           allocator_root_id id,
           platform_heap_id  hid);
@@ -236,6 +247,7 @@ core_mount(core_handle      *spl,
            core_config      *cfg,
            allocator        *al,
            cache            *cc,
+           io_handle        *io,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid);

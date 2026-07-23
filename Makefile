@@ -508,6 +508,11 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(COMMON_TESTOBJ)                        
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/superblock_test: $(COMMON_TESTOBJ)                             \
+                                      $(COMMON_UNIT_TESTOBJ)                        \
+                                      $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                      $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)                        \
                                          $(COMMON_UNIT_TESTOBJ)             \
                                          $(OBJDIR)/$(TESTS_DIR)/config.o    \
@@ -551,6 +556,7 @@ unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit/config_parse_test:            $(BINDIR)/$(UNITDIR)/config_parse_test
 unit/limitations_test:             $(BINDIR)/$(UNITDIR)/limitations_test
 unit/task_system_test:             $(BINDIR)/$(UNITDIR)/task_system_test
+unit/superblock_test:              $(BINDIR)/$(UNITDIR)/superblock_test
 unit/splinter_shmem_test:          $(BINDIR)/$(UNITDIR)/splinter_shmem_test
 unit/splinter_ipc_test:            $(BINDIR)/$(UNITDIR)/splinter_ipc_test
 unit_test:                         $(BINDIR)/unit_test

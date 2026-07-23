@@ -1295,6 +1295,7 @@ ycsb_test(int argc, char *argv[])
                       &system_cfg->splinter_cfg,
                       (allocator *)&al,
                       (cache *)cc,
+                      io,
                       &ts,
                       test_generate_allocator_root_id(),
                       hid);
@@ -1314,6 +1315,7 @@ ycsb_test(int argc, char *argv[])
                      &system_cfg->splinter_cfg,
                      (allocator *)&al,
                      (cache *)cc,
+                     io,
                      &ts,
                      test_generate_allocator_root_id(),
                      hid);
@@ -1325,7 +1327,8 @@ ycsb_test(int argc, char *argv[])
    core_unmount(&spl);
    clockcache_deinit(cc);
    platform_free(hid, cc);
-   rc_allocator_unmount(&al);
+   // core_unmount() already persisted the map and published the superblock.
+   rc_allocator_deinit(&al);
    test_deinit_task_system(&ts);
    rc = STATUS_OK;
 

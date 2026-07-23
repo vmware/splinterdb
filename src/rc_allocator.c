@@ -17,21 +17,17 @@
 #include "platform_typed_alloc.h"
 #include "poison.h"
 
-#define RC_ALLOCATOR_META_PAGE_CSUM_SEED   (2718281828)
-#define RC_ALLOCATOR_CLEAN_STATE_CSUM_SEED (2718281829)
-
-#define RC_ALLOCATOR_FORMAT_MAGIC   (0x534442414C4C4F43ULL) // SDBALLOC
-#define RC_ALLOCATOR_FORMAT_VERSION (1)
-
-#define RC_ALLOCATOR_CLEAN_STATE_MAGIC   (0x534442434C45414EULL) // SDBCLEAN
-#define RC_ALLOCATOR_CLEAN_STATE_VERSION (1)
-#define RC_ALLOCATOR_CLEAN_STATE_SLOTS   (2)
-
 /*
- * Base offset from where the allocator starts. Currently hard coded to 0.
+ * The refcount map is the allocator's only durable structure.  It lives in a
+ * fixed run of extents starting at extent 1 (extent 0 is reserved for the
+ * superblock).  Whether the persisted map is trustworthy is recorded by the
+ * superblock (allocation_state_addr), which the caller consults to choose a
+ * clean vs recovery mount -- the allocator itself no longer keeps a
+ * clean-state record or a bootstrap meta page.
  */
 
-#define RC_ALLOCATOR_BASE_OFFSET (0)
+/* Extent 0 holds the superblock; the refcount map begins at extent 1. */
+#define RC_ALLOCATOR_REFCOUNT_MAP_EXTENT (1)
 
 /* A predicate defining whether to trace allocations/ref-count changes
  * on a given address.
@@ -42,28 +38,6 @@
  * 339
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
-
-/*
- * A/B clean-state records live in two fixed extents after the refcount map.
- * They are deliberately separate from the sole allocator bootstrap page: a
- * torn state update must leave an older valid state record available for the
- * next mount or rebuild.
- */
-typedef struct ONDISK rc_allocator_clean_state {
-   uint64      magic;
-   uint64      format_version;
-   uint64      sequence;
-   bool32      clean_shutdown;
-   checksum128 checksum;
-} rc_allocator_clean_state;
-
-typedef struct rc_allocator_clean_states {
-   rc_allocator_clean_state state[RC_ALLOCATOR_CLEAN_STATE_SLOTS];
-   bool32                   valid[RC_ALLOCATOR_CLEAN_STATE_SLOTS];
-   bool32                   have_newest;
-   uint64                   newest_slot;
-   bool32                   duplicate_sequence;
-} rc_allocator_clean_states;
 
 /*
  *------------------------------------------------------------------------------
@@ -138,42 +112,25 @@ rc_allocator_recovery_record_reference_virtual(allocator *a,
 }
 
 platform_status
-rc_allocator_get_super_addr(rc_allocator     *al,
-                            allocator_root_id spl_id,
-                            uint64           *addr);
+rc_allocator_open_refcounts(rc_allocator *al, bool32 rebuild);
 
 platform_status
-rc_allocator_get_super_addr_virtual(allocator        *a,
-                                    allocator_root_id spl_id,
-                                    uint64           *addr)
+rc_allocator_open_refcounts_virtual(allocator *a, bool32 rebuild)
 {
    rc_allocator *al = (rc_allocator *)a;
-   return rc_allocator_get_super_addr(al, spl_id, addr);
+   return rc_allocator_open_refcounts(al, rebuild);
 }
 
 platform_status
-rc_allocator_alloc_super_addr(rc_allocator     *al,
-                              allocator_root_id spl_id,
-                              uint64           *addr);
+rc_allocator_persist(rc_allocator *al, uint64 *state_addr);
 
 platform_status
-rc_allocator_alloc_super_addr_virtual(allocator        *a,
-                                      allocator_root_id spl_id,
-                                      uint64           *addr)
+rc_allocator_persist_virtual(allocator *a, uint64 *state_addr)
 {
    rc_allocator *al = (rc_allocator *)a;
-   return rc_allocator_alloc_super_addr(al, spl_id, addr);
+   return rc_allocator_persist(al, state_addr);
 }
 
-void
-rc_allocator_remove_super_addr(rc_allocator *al, allocator_root_id spl_id);
-
-void
-rc_allocator_remove_super_addr_virtual(allocator *a, allocator_root_id spl_id)
-{
-   rc_allocator *al = (rc_allocator *)a;
-   rc_allocator_remove_super_addr(al, spl_id);
-}
 
 uint64
 rc_allocator_in_use(rc_allocator *al);
@@ -232,9 +189,8 @@ const static allocator_ops rc_allocator_ops = {
    .dec_ref           = rc_allocator_dec_ref_virtual,
    .get_ref           = rc_allocator_get_ref_virtual,
    .recovery_record_reference = rc_allocator_recovery_record_reference_virtual,
-   .get_super_addr    = rc_allocator_get_super_addr_virtual,
-   .alloc_super_addr  = rc_allocator_alloc_super_addr_virtual,
-   .remove_super_addr = rc_allocator_remove_super_addr_virtual,
+   .open_refcounts    = rc_allocator_open_refcounts_virtual,
+   .persist           = rc_allocator_persist_virtual,
    .in_use            = rc_allocator_in_use_virtual,
    .get_capacity      = rc_allocator_get_capacity_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
@@ -268,34 +224,6 @@ rc_allocator_extent_number(rc_allocator *al, uint64 addr)
    return (addr / al->cfg->io_cfg->extent_size);
 }
 
-static checksum128
-rc_allocator_meta_page_checksum(const rc_allocator_meta_page *meta_page)
-{
-   return platform_checksum128(meta_page,
-                               offsetof(rc_allocator_meta_page, checksum),
-                               RC_ALLOCATOR_META_PAGE_CSUM_SEED);
-}
-
-static platform_status
-rc_allocator_write_meta_page(rc_allocator *al)
-{
-   al->meta_page->checksum = rc_allocator_meta_page_checksum(al->meta_page);
-   return io_write(al->io,
-                   al->meta_page,
-                   al->cfg->io_cfg->page_size,
-                   RC_ALLOCATOR_BASE_OFFSET);
-}
-
-static disk_geometry
-rc_allocator_config_get_disk_geometry(allocator_config *cfg)
-{
-   return (disk_geometry){
-      .disk_size   = cfg->capacity,
-      .page_size   = cfg->io_cfg->page_size,
-      .extent_size = cfg->io_cfg->extent_size,
-   };
-}
-
 static uint64
 rc_allocator_refcount_buffer_size(const allocator_config *cfg)
 {
@@ -312,188 +240,11 @@ rc_allocator_refcount_extent_count(const allocator_config *cfg)
 }
 
 static uint64
-rc_allocator_clean_state_extent_no(const allocator_config *cfg, uint64 slot)
-{
-   platform_assert(slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS);
-   return 1 + rc_allocator_refcount_extent_count(cfg) + slot;
-}
-
-static uint64
-rc_allocator_clean_state_addr(const allocator_config *cfg, uint64 slot)
-{
-   return rc_allocator_clean_state_extent_no(cfg, slot)
-          * cfg->io_cfg->extent_size;
-}
-
-static uint64
 rc_allocator_reserved_extent_count(const allocator_config *cfg)
 {
-   return 1 + rc_allocator_refcount_extent_count(cfg)
-          + RC_ALLOCATOR_CLEAN_STATE_SLOTS;
-}
-
-static checksum128
-rc_allocator_clean_state_checksum(const rc_allocator_clean_state *state)
-{
-   return platform_checksum128(state,
-                               offsetof(rc_allocator_clean_state, checksum),
-                               RC_ALLOCATOR_CLEAN_STATE_CSUM_SEED);
-}
-
-static bool32
-rc_allocator_clean_state_is_valid(const rc_allocator_clean_state *state)
-{
-   return state->magic == RC_ALLOCATOR_CLEAN_STATE_MAGIC
-          && state->format_version == RC_ALLOCATOR_CLEAN_STATE_VERSION
-          && state->sequence != 0
-          && (state->clean_shutdown == FALSE || state->clean_shutdown == TRUE)
-          && platform_checksum_is_equal(
-             state->checksum, rc_allocator_clean_state_checksum(state));
-}
-
-static platform_status
-rc_allocator_read_clean_state(rc_allocator             *al,
-                              uint64                    slot,
-                              rc_allocator_clean_state *state,
-                              bool32                   *valid)
-{
-   platform_assert(slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS);
-   platform_assert(sizeof(*state) <= al->cfg->io_cfg->page_size);
-
-   buffer_handle   buffer;
-   platform_status rc =
-      platform_buffer_init(&buffer, al->cfg->io_cfg->page_size);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   void *page = platform_buffer_getaddr(&buffer);
-   rc         = io_read(al->io,
-                page,
-                al->cfg->io_cfg->page_size,
-                rc_allocator_clean_state_addr(al->cfg, slot));
-   if (SUCCESS(rc)) {
-      memcpy(state, page, sizeof(*state));
-      *valid = rc_allocator_clean_state_is_valid(state);
-   }
-
-   platform_status deinit_rc = platform_buffer_deinit(&buffer);
-   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
-      rc = deinit_rc;
-   }
-   return rc;
-}
-
-static platform_status
-rc_allocator_write_clean_state(rc_allocator                   *al,
-                               uint64                          slot,
-                               const rc_allocator_clean_state *state,
-                               bool32                          durable)
-{
-   platform_assert(slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS);
-   platform_assert(sizeof(*state) <= al->cfg->io_cfg->page_size);
-
-   buffer_handle   buffer;
-   platform_status rc =
-      platform_buffer_init(&buffer, al->cfg->io_cfg->page_size);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   void *page = platform_buffer_getaddr(&buffer);
-   memset(page, 0, al->cfg->io_cfg->page_size);
-   memcpy(page, state, sizeof(*state));
-   rc = io_write(al->io,
-                 page,
-                 al->cfg->io_cfg->page_size,
-                 rc_allocator_clean_state_addr(al->cfg, slot));
-   if (SUCCESS(rc) && durable) {
-      rc = io_durable_barrier(al->io);
-   }
-
-   platform_status deinit_rc = platform_buffer_deinit(&buffer);
-   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
-      rc = deinit_rc;
-   }
-   return rc;
-}
-
-static platform_status
-rc_allocator_load_clean_states(rc_allocator              *al,
-                               rc_allocator_clean_states *states)
-{
-   ZERO_CONTENTS(states);
-   for (uint64 slot = 0; slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS; slot++) {
-      platform_status rc = rc_allocator_read_clean_state(
-         al, slot, &states->state[slot], &states->valid[slot]);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-
-      if (!states->valid[slot]) {
-         continue;
-      }
-      if (!states->have_newest
-          || states->state[states->newest_slot].sequence
-                < states->state[slot].sequence)
-      {
-         states->have_newest = TRUE;
-         states->newest_slot = slot;
-      } else if (states->state[states->newest_slot].sequence
-                 == states->state[slot].sequence)
-      {
-         states->duplicate_sequence = TRUE;
-      }
-   }
-   return STATUS_OK;
-}
-
-static platform_status
-rc_allocator_publish_clean_state(rc_allocator *al, bool32 clean_shutdown)
-{
-   rc_allocator_clean_states states;
-   platform_status           rc = rc_allocator_load_clean_states(al, &states);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   if (states.have_newest
-       && states.state[states.newest_slot].sequence == UINT64_MAX)
-   {
-      return STATUS_LIMIT_EXCEEDED;
-   }
-
-   uint64 target_slot = states.have_newest ? states.newest_slot ^ 1 : 0;
-   rc_allocator_clean_state state;
-   ZERO_CONTENTS(&state);
-   state.magic          = RC_ALLOCATOR_CLEAN_STATE_MAGIC;
-   state.format_version = RC_ALLOCATOR_CLEAN_STATE_VERSION;
-   state.sequence =
-      states.have_newest ? states.state[states.newest_slot].sequence + 1 : 1;
-   state.clean_shutdown = clean_shutdown;
-   state.checksum       = rc_allocator_clean_state_checksum(&state);
-   return rc_allocator_write_clean_state(al, target_slot, &state, TRUE);
-}
-
-static platform_status
-rc_allocator_initialize_clean_states(rc_allocator *al)
-{
-   for (uint64 slot = 0; slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS; slot++) {
-      rc_allocator_clean_state state;
-      ZERO_CONTENTS(&state);
-      state.magic          = RC_ALLOCATOR_CLEAN_STATE_MAGIC;
-      state.format_version = RC_ALLOCATOR_CLEAN_STATE_VERSION;
-      state.sequence       = slot + 1;
-      state.clean_shutdown = FALSE;
-      state.checksum       = rc_allocator_clean_state_checksum(&state);
-
-      platform_status rc =
-         rc_allocator_write_clean_state(al, slot, &state, FALSE);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   }
-   return io_durable_barrier(al->io);
+   /* Extent 0 (superblock) + the refcount-map extents.  No clean-state
+    * extents: superblock allocation_state_addr now records map validity. */
+   return 1 + rc_allocator_refcount_extent_count(cfg);
 }
 
 static void
@@ -524,9 +275,8 @@ rc_allocator_recovery_initialize_refcounts(rc_allocator *al)
    memset(al->ref_count, 0, rc_allocator_refcount_buffer_size(al->cfg));
 
    /*
-    * Extent 0 contains both the allocator meta page and every fixed table
-    * superblock.  The refcount table begins at extent 1; the two extents
-    * after it hold alternating clean-state records.
+    * Extent 0 holds the superblock; the refcount map begins at extent 1.
+    * Reserve both so recovery never hands them out.
     */
    for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++) {
       platform_assert(al->ref_count[extent_no] == AL_FREE);
@@ -544,81 +294,6 @@ rc_allocator_recovery_extent_is_reserved(const rc_allocator *al,
                                          uint64              extent_no)
 {
    return extent_no < rc_allocator_reserved_extent_count(al->cfg);
-}
-
-static platform_status
-rc_allocator_validate_disk_geometry(rc_allocator *al)
-{
-   disk_geometry geometry = al->meta_page->geometry;
-
-   return rc_allocator_disk_geometry_matches_config(&geometry, al->cfg);
-}
-
-platform_status
-rc_allocator_disk_geometry_matches_config(const disk_geometry    *geometry,
-                                          const allocator_config *cfg)
-{
-   if (geometry->disk_size != cfg->capacity
-       || geometry->page_size != cfg->io_cfg->page_size
-       || geometry->extent_size != cfg->io_cfg->extent_size)
-   {
-      platform_error_log(
-         "SplinterDB disk geometry does not match configuration: "
-         "disk=(disk_size=%lu, page_size=%lu, extent_size=%lu), "
-         "config=(disk_size=%lu, page_size=%lu, extent_size=%lu)\n",
-         geometry->disk_size,
-         geometry->page_size,
-         geometry->extent_size,
-         cfg->capacity,
-         cfg->io_cfg->page_size,
-         cfg->io_cfg->extent_size);
-      return STATUS_BAD_PARAM;
-   }
-
-   return STATUS_OK;
-}
-
-platform_status
-rc_allocator_read_disk_geometry(const char *filename, disk_geometry *geometry)
-{
-   return io_read_bootstrap(
-      filename, geometry, sizeof(*geometry), RC_ALLOCATOR_BASE_OFFSET);
-}
-
-static platform_status
-rc_allocator_init_meta_page(rc_allocator *al)
-{
-   /*
-    * To make it easier to do aligned i/o's we allocate the meta page to
-    * always be page size. In the future we can use the remaining space
-    * for some other reserved information we may want to persist as part
-    * of the meta page.
-    */
-   platform_assert(sizeof(rc_allocator_meta_page)
-                   <= al->cfg->io_cfg->page_size);
-   /*
-    * Ensure that the meta page and  all the super blocks will fit in one
-    * extent.
-    */
-   platform_assert((1 + RC_ALLOCATOR_MAX_ROOT_IDS) * al->cfg->io_cfg->page_size
-                   <= al->cfg->io_cfg->extent_size);
-
-   al->meta_page = TYPED_ALIGNED_ZALLOC(al->heap_id,
-                                        al->cfg->io_cfg->page_size,
-                                        al->meta_page,
-                                        al->cfg->io_cfg->page_size);
-   if (al->meta_page == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-
-   memset(al->meta_page->splinters,
-          INVALID_ALLOCATOR_ROOT_ID,
-          sizeof(al->meta_page->splinters));
-   al->meta_page->geometry     = rc_allocator_config_get_disk_geometry(al->cfg);
-   al->meta_page->format_magic = RC_ALLOCATOR_FORMAT_MAGIC;
-   al->meta_page->format_version = RC_ALLOCATOR_FORMAT_VERSION;
-
-   return STATUS_OK;
 }
 
 /*
@@ -719,69 +394,36 @@ rc_allocator_init(rc_allocator      *al,
       platform_error_log("Failed to init mutex for the allocator\n");
       return rc;
    }
-   rc = rc_allocator_init_meta_page(al);
-   if (!SUCCESS(rc)) {
-      platform_error_log("Failed to init meta page for rc allocator\n");
-      platform_mutex_destroy(&al->lock);
-      return rc;
-   }
    // To ensure alignment always allocate in multiples of page size.
    uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
    rc                 = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(rc)) {
       platform_mutex_destroy(&al->lock);
-      platform_free(al->heap_id, al->meta_page);
       platform_error_log("Failed to create buffer for ref counts\n");
       return STATUS_NO_MEMORY;
    }
    al->ref_count = platform_buffer_getaddr(&al->bh);
    memset(al->ref_count, 0, buffer_size);
 
-   // allocate the super block
+   // Reserve extent 0 for the superblock; the superblock module owns its
+   // pages 0/1.
    allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
-   // super block extent should always start from address 0.
-   platform_assert(addr == RC_ALLOCATOR_BASE_OFFSET);
+   platform_assert(addr == 0);
 
-   /*
-    * Allocate room for the ref counts, use same rounded up size used in buffer
-    * creation.
-    */
+   // Reserve the refcount-map extents (extent 1 .. rc_extent_count).
    rc_extent_count = rc_allocator_refcount_extent_count(cfg);
    for (uint64 i = 0; i < rc_extent_count; i++) {
       allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
       platform_assert(addr == cfg->io_cfg->extent_size * (i + 1));
    }
 
-   for (uint64 slot = 0; slot < RC_ALLOCATOR_CLEAN_STATE_SLOTS; slot++) {
-      allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
-      platform_assert(addr == rc_allocator_clean_state_addr(cfg, slot));
-   }
-
    /*
-    * Persist the immutable bootstrap layout and both initial false state
-    * records before returning a newly created allocator. A crash before a
-    * later clean close therefore enters rebuild recovery rather than trusting
-    * this freshly initialized refcount map.
+    * A fresh allocator's refcount map is not persisted here.  The superblock
+    * that mkfs writes records allocation_state_addr == 0, so a crash before a
+    * later clean close enters rebuild recovery rather than trusting this
+    * in-memory map.  The map is persisted only by rc_allocator_persist().
     */
-   rc = rc_allocator_initialize_clean_states(al);
-   if (!SUCCESS(rc)) {
-      goto deinit_allocator;
-   }
-   rc = rc_allocator_write_meta_page(al);
-   if (!SUCCESS(rc)) {
-      goto deinit_allocator;
-   }
-   rc = io_durable_barrier(al->io);
-   if (!SUCCESS(rc)) {
-      goto deinit_allocator;
-   }
-
    return STATUS_OK;
-
-deinit_allocator:
-   rc_allocator_deinit(al);
-   ZERO_CONTENTS(al);
-   return rc;
 }
 
 void
@@ -790,24 +432,25 @@ rc_allocator_deinit(rc_allocator *al)
    platform_buffer_deinit(&al->bh);
    al->ref_count = NULL;
    platform_mutex_destroy(&al->lock);
-   platform_free(al->heap_id, al->meta_page);
 }
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_{mount,unmount} --
+ * rc_allocator_mount --
  *
- *      Loads the file system from disk
- *      Write the file system to disk
+ *      Attach an allocator to an existing device: initialize the in-memory
+ *      structures and allocate the (zeroed) refcount buffer, but do NOT read
+ *      the persisted map.  The caller populates the map exactly once via
+ *      allocator_open_refcounts() -- loading the trusted map or initializing a
+ *      rebuild -- so a rebuild never pays for a map read it would discard.
  *----------------------------------------------------------------------
  */
-static platform_status
-rc_allocator_mount_internal(rc_allocator      *al,
-                            allocator_config  *cfg,
-                            io_handle         *io,
-                            platform_heap_id   hid,
-                            platform_module_id mid,
-                            bool32             rebuild_refcounts)
+platform_status
+rc_allocator_mount(rc_allocator      *al,
+                   allocator_config  *cfg,
+                   io_handle         *io,
+                   platform_heap_id   hid,
+                   platform_module_id mid)
 {
    platform_status status;
 
@@ -824,13 +467,6 @@ rc_allocator_mount_internal(rc_allocator      *al,
       return status;
    }
 
-   status = rc_allocator_init_meta_page(al);
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to init meta page for rc allocator\n");
-      platform_mutex_destroy(&al->lock);
-      return status;
-   }
-
    platform_assert(cfg->io_cfg->page_size % 4096 == 0);
    platform_assert(cfg->capacity
                    == cfg->io_cfg->extent_size * cfg->extent_capacity);
@@ -840,118 +476,64 @@ rc_allocator_mount_internal(rc_allocator      *al,
    uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
    status             = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(status)) {
-      platform_free(al->heap_id, al->meta_page);
       platform_mutex_destroy(&al->lock);
       platform_error_log("Failed to create buffer to load ref counts\n");
       return STATUS_NO_MEMORY;
    }
    al->ref_count = platform_buffer_getaddr(&al->bh);
+   memset(al->ref_count, 0, buffer_size);
+   return STATUS_OK;
+}
 
-   // load the meta page from disk.
-   status = io_read(
-      io, al->meta_page, al->cfg->io_cfg->page_size, RC_ALLOCATOR_BASE_OFFSET);
-   if (!SUCCESS(status)) {
-      goto deinit_buffer;
-   }
+/*
+ *----------------------------------------------------------------------
+ * rc_allocator_open_refcounts --
+ *
+ *      Populate the refcount map of an attached allocator (see
+ *      allocator_open_refcounts()).  rebuild == FALSE loads the trusted
+ *      persisted map from its fixed reserved location; rebuild == TRUE
+ *      initializes an empty map that reserves only the fixed extents and enters
+ *      recovery mode.  Geometry and clean-vs-rebuild validity live in the
+ *      superblock, which the caller has already read; the allocator only
+ *      touches its own refcount map here.
+ *----------------------------------------------------------------------
+ */
+platform_status
+rc_allocator_open_refcounts(rc_allocator *al, bool32 rebuild)
+{
+   platform_assert(al != NULL);
+   platform_assert(al->ref_count != NULL);
 
-   status = rc_allocator_validate_disk_geometry(al);
-   if (!SUCCESS(status)) {
-      goto deinit_buffer;
-   }
-
-   // validate the checksum of the meta page.
-   checksum128 currChecksum = rc_allocator_meta_page_checksum(al->meta_page);
-   if (!platform_checksum_is_equal(al->meta_page->checksum, currChecksum)) {
-      platform_error_log("Corrupt SplinterDB allocator meta page on mount\n");
-      status = STATUS_BAD_PARAM;
-      goto deinit_buffer;
-   }
-
-   if (al->meta_page->format_magic != RC_ALLOCATOR_FORMAT_MAGIC
-       || al->meta_page->format_version != RC_ALLOCATOR_FORMAT_VERSION)
-   {
-      platform_error_log("Unsupported SplinterDB allocator bootstrap format "
-                         "on mount.\n");
-      status = STATUS_BAD_PARAM;
-      goto deinit_buffer;
-   }
-
-   if (!rebuild_refcounts) {
-      rc_allocator_clean_states states;
-      status = rc_allocator_load_clean_states(al, &states);
+   if (rebuild) {
+      platform_status status = rc_allocator_recovery_initialize_refcounts(al);
       if (!SUCCESS(status)) {
-         goto deinit_buffer;
-      }
-      if (!states.have_newest || states.duplicate_sequence
-          || !states.state[states.newest_slot].clean_shutdown)
-      {
-         platform_error_log("Allocator was not cleanly shut down; recovery "
-                            "rebuild is required.\n");
-         status = STATUS_INVALID_STATE;
-         goto deinit_buffer;
-      }
-   }
-
-   if (rebuild_refcounts) {
-      /* Do not leave a stale clean state if recovery itself is interrupted. */
-      status = rc_allocator_publish_clean_state(al, FALSE);
-      if (!SUCCESS(status)) {
-         goto deinit_buffer;
-      }
-      status = rc_allocator_recovery_initialize_refcounts(al);
-      if (!SUCCESS(status)) {
-         goto deinit_buffer;
+         return status;
       }
       al->recovery_in_progress = TRUE;
-   } else {
-      // Load the ref counts from disk during a normal, clean mount.
-      status =
-         io_read(io, al->ref_count, buffer_size, cfg->io_cfg->extent_size);
-      if (!SUCCESS(status)) {
-         goto deinit_buffer;
-      }
+      return STATUS_OK;
+   }
 
-      for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
-         if (al->ref_count[i] != 0) {
-            al->stats.curr_allocated++;
-         }
-      }
+   // Load the trusted refcount map from its fixed reserved location.
+   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
+   platform_status status      = io_read(al->io,
+                                    al->ref_count,
+                                    buffer_size,
+                                    RC_ALLOCATOR_REFCOUNT_MAP_EXTENT
+                                       * al->cfg->io_cfg->extent_size);
+   if (!SUCCESS(status)) {
+      return status;
+   }
 
-      /* Mark dirty before handing the trusted map to any mutating caller. */
-      status = rc_allocator_publish_clean_state(al, FALSE);
-      if (!SUCCESS(status)) {
-         goto deinit_buffer;
+   // Compute curr_allocated authoritatively from the loaded map (set, not
+   // accumulate), so this is correct even if the allocator's stats were not
+   // freshly zeroed.
+   al->stats.curr_allocated = 0;
+   for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
+      if (al->ref_count[i] != 0) {
+         al->stats.curr_allocated++;
       }
    }
    return STATUS_OK;
-
-deinit_buffer:
-   platform_buffer_deinit(&al->bh);
-   al->ref_count = NULL;
-   platform_free(al->heap_id, al->meta_page);
-   al->meta_page = NULL;
-   platform_mutex_destroy(&al->lock);
-   return status;
-}
-
-platform_status
-rc_allocator_mount(rc_allocator      *al,
-                   allocator_config  *cfg,
-                   io_handle         *io,
-                   platform_heap_id   hid,
-                   platform_module_id mid)
-{
-   return rc_allocator_mount_internal(al, cfg, io, hid, mid, FALSE);
-}
-
-platform_status
-rc_allocator_mount_recovery(rc_allocator      *al,
-                            allocator_config  *cfg,
-                            io_handle         *io,
-                            platform_heap_id   hid,
-                            platform_module_id mid)
-{
-   return rc_allocator_mount_internal(al, cfg, io, hid, mid, TRUE);
 }
 
 platform_status
@@ -1031,38 +613,40 @@ rc_allocator_abort_recovery(rc_allocator *al)
 }
 
 
-void
-rc_allocator_unmount(rc_allocator *al)
+/*
+ *----------------------------------------------------------------------
+ * rc_allocator_persist --
+ *
+ *      Write the refcount map to its fixed reserved location and make it
+ *      durable.  Returns the base address of the persisted map in *state_addr,
+ *      which the caller records as the superblock's allocation_state_addr only
+ *      after this returns -- so the "map is trustworthy" flag never becomes
+ *      durable before the map itself.  Does not tear down the allocator; the
+ *      caller invokes rc_allocator_deinit() separately.
+ *----------------------------------------------------------------------
+ */
+platform_status
+rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
 {
-   platform_status status;
+   platform_assert(!al->recovery_in_progress);
 
-   if (al->recovery_in_progress) {
-      platform_error_log("Discarding incomplete allocator recovery instead of "
-                         "persisting its partial refcount map.\n");
-      rc_allocator_abort_recovery(al);
-      return;
-   }
-
-   // persist the ref counts upon unmount.
+   uint64 map_addr =
+      RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size;
    uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
    uint32 io_size     = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
-   status =
-      io_write(al->io, al->ref_count, io_size, al->cfg->io_cfg->extent_size);
-   platform_assert_status_ok(status);
 
-   /*
-    * This is the sole normal persistence point for the allocator map. The
-    * checkpoint record was already made durable by core_unmount(); do not
-    * advertise a clean allocator snapshot until this write has crossed the
-    * device durability boundary as well.
-    */
+   platform_status status = io_write(al->io, al->ref_count, io_size, map_addr);
+   if (!SUCCESS(status)) {
+      return status;
+   }
    status = io_durable_barrier(al->io);
-   platform_assert_status_ok(status);
-
-   /* Publish clean permission in the alternate durable state record. */
-   status = rc_allocator_publish_clean_state(al, TRUE);
-   platform_assert_status_ok(status);
-   rc_allocator_deinit(al);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+   if (state_addr != NULL) {
+      *state_addr = map_addr;
+   }
+   return STATUS_OK;
 }
 
 
@@ -1151,76 +735,6 @@ uint64
 rc_allocator_get_capacity(rc_allocator *al)
 {
    return al->cfg->capacity;
-}
-
-platform_status
-rc_allocator_get_super_addr(rc_allocator     *al,
-                            allocator_root_id allocator_root_id,
-                            uint64           *addr)
-{
-   platform_status status = STATUS_NOT_FOUND;
-
-   platform_mutex_lock(&al->lock);
-   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ROOT_IDS; idx++) {
-      if (al->meta_page->splinters[idx] == allocator_root_id) {
-         // have already seen this table before, return existing addr.
-         *addr  = (1 + idx) * al->cfg->io_cfg->page_size;
-         status = STATUS_OK;
-         break;
-      }
-   }
-
-   platform_mutex_unlock(&al->lock);
-   return status;
-}
-
-platform_status
-rc_allocator_alloc_super_addr(rc_allocator     *al,
-                              allocator_root_id allocator_root_id,
-                              uint64           *addr)
-{
-   platform_status status = STATUS_NOT_FOUND;
-
-   platform_mutex_lock(&al->lock);
-   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ROOT_IDS; idx++) {
-      if (al->meta_page->splinters[idx] == INVALID_ALLOCATOR_ROOT_ID) {
-         // assign the first available slot and update the on disk metadata.
-         al->meta_page->splinters[idx] = allocator_root_id;
-         *addr                         = (1 + idx) * al->cfg->io_cfg->page_size;
-         platform_status io_status     = rc_allocator_write_meta_page(al);
-         platform_assert_status_ok(io_status);
-         status = STATUS_OK;
-         break;
-      }
-   }
-
-   platform_mutex_unlock(&al->lock);
-   return status;
-}
-
-void
-rc_allocator_remove_super_addr(rc_allocator     *al,
-                               allocator_root_id allocator_root_id)
-{
-   platform_mutex_lock(&al->lock);
-
-   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ROOT_IDS; idx++) {
-      /*
-       * clear out the mapping for this splinter table and update on disk
-       * metadata.
-       */
-      if (al->meta_page->splinters[idx] == allocator_root_id) {
-         al->meta_page->splinters[idx] = INVALID_ALLOCATOR_ROOT_ID;
-         platform_status status        = rc_allocator_write_meta_page(al);
-         platform_assert_status_ok(status);
-         platform_mutex_unlock(&al->lock);
-         return;
-      }
-   }
-
-   platform_mutex_unlock(&al->lock);
-   // Couldn't find the splinter id in the meta page.
-   platform_assert(0, "Couldn't find existing splinter table in meta page");
 }
 
 uint64

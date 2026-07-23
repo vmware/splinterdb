@@ -17,6 +17,7 @@
 #include "clockcache.h"
 #include "data_internal.h"
 #include "rc_allocator.h"
+#include "superblock.h"
 #include "core.h"
 #include "lookup_result.h"
 #include "notification.h"
@@ -243,10 +244,24 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 
    allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
    if (geometry != NULL) {
-      rc = rc_allocator_disk_geometry_matches_config(geometry,
-                                                     &kvs->allocator_cfg);
-      if (!SUCCESS(rc)) {
-         return rc;
+      // The auto-read on-disk geometry must agree with the resolved config;
+      // core_mount re-validates it against the superblock, but check here for
+      // an early, clear error when the caller overrides a device field.
+      if (geometry->disk_size != kvs->allocator_cfg.capacity
+          || geometry->page_size != kvs->io_cfg.page_size
+          || geometry->extent_size != kvs->io_cfg.extent_size)
+      {
+         platform_error_log(
+            "On-disk geometry (disk_size=%lu page_size=%lu extent_size=%lu) "
+            "does not match the configured geometry (disk_size=%lu "
+            "page_size=%lu extent_size=%lu).\n",
+            geometry->disk_size,
+            geometry->page_size,
+            geometry->extent_size,
+            kvs->allocator_cfg.capacity,
+            kvs->io_cfg.page_size,
+            kvs->io_cfg.extent_size);
+         return STATUS_BAD_PARAM;
       }
    }
 
@@ -315,7 +330,7 @@ splinterdb_config_read_disk_geometry(const char    *filename,
       return STATUS_BAD_PARAM;
    }
 
-   platform_status status = rc_allocator_read_disk_geometry(filename, geometry);
+   platform_status status = superblock_read_geometry(filename, geometry);
    if (!SUCCESS(status)) {
       return status;
    }
@@ -473,6 +488,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                           &kvs->trunk_cfg,
                           (allocator *)&kvs->allocator_handle,
                           (cache *)&kvs->cache_handle,
+                          kvs->io_handle,
                           &kvs->task_sys,
                           kvs->trunk_id,
                           kvs->heap_id);
@@ -481,6 +497,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                          &kvs->trunk_cfg,
                          (allocator *)&kvs->allocator_handle,
                          (cache *)&kvs->cache_handle,
+                         kvs->io_handle,
                          &kvs->task_sys,
                          kvs->trunk_id,
                          kvs->heap_id);
@@ -579,13 +596,13 @@ splinterdb_close(splinterdb **kvs_in) // IN
    }
    io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
-   if (SUCCESS(status)) {
-      /* This writes the map and only then publishes allocator clean state. */
-      rc_allocator_unmount(&kvs->allocator_handle);
-   } else {
-      /* Keep the durable clean marker cleared; the next open must rebuild. */
-      rc_allocator_deinit(&kvs->allocator_handle);
-   }
+   /*
+    * core_unmount() already persisted the refcount map and published the
+    * superblock's allocation state (or, on failure, deliberately left it
+    * invalid so the next open rebuilds); the allocator now only tears down its
+    * in-memory structures.
+    */
+   rc_allocator_deinit(&kvs->allocator_handle);
    task_system_deinit(&kvs->task_sys);
    io_handle_destroy(kvs->io_handle);
 
