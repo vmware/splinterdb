@@ -418,11 +418,14 @@ rc_allocator_init(rc_allocator      *al,
    }
 
    /*
-    * A fresh allocator's refcount map is not persisted here.  The superblock
-    * that mkfs writes records allocation_state_addr == 0, so a crash before a
-    * later clean close enters rebuild recovery rather than trusting this
-    * in-memory map.  The map is persisted only by rc_allocator_persist().
+    * A fresh map is synthesized correctly in memory -- there is nothing to
+    * load, so it's trustworthy immediately, like a map that just finished a
+    * rebuild.  It is not persisted here, though: the superblock that mkfs
+    * writes records allocation_state_addr == 0, so a crash before a later
+    * clean close enters rebuild recovery rather than trusting this in-memory
+    * map.  The map is persisted only by rc_allocator_persist().
     */
+   al->map_is_valid = TRUE;
    return STATUS_OK;
 }
 
@@ -509,7 +512,6 @@ rc_allocator_open_refcounts(rc_allocator *al, bool32 rebuild)
       if (!SUCCESS(status)) {
          return status;
       }
-      al->recovery_in_progress = TRUE;
       return STATUS_OK;
    }
 
@@ -533,6 +535,7 @@ rc_allocator_open_refcounts(rc_allocator *al, bool32 rebuild)
          al->stats.curr_allocated++;
       }
    }
+   al->map_is_valid = TRUE;
    return STATUS_OK;
 }
 
@@ -541,9 +544,9 @@ rc_allocator_rebuild_acquire_extent(rc_allocator *al,
                                     uint64        extent_addr,
                                     page_type     type)
 {
-   if (!al->recovery_in_progress) {
-      platform_error_log("Cannot acquire allocator extent while recovery is "
-                         "not in progress.\n");
+   if (al->map_is_valid) {
+      platform_error_log(
+         "Cannot acquire allocator extent once the refcount map is valid.\n");
       return STATUS_INVALID_STATE;
    }
 
@@ -593,23 +596,14 @@ void
 rc_allocator_rebuild_finish(rc_allocator *al)
 {
    platform_assert(al != NULL);
-   platform_assert(al->recovery_in_progress);
+   platform_assert(!al->map_is_valid);
 
    /*
     * Intentionally no I/O here.  A rebuilt map is durable only after a later
-    * clean unmount; another crash before then simply rebuilds it again.
+    * rc_allocator_persist(); another crash before then simply rebuilds it
+    * again.
     */
-   al->recovery_in_progress = FALSE;
-}
-
-void
-rc_allocator_abort_recovery(rc_allocator *al)
-{
-   platform_assert(al != NULL);
-   platform_assert(al->recovery_in_progress);
-
-   rc_allocator_deinit(al);
-   ZERO_CONTENTS(al);
+   al->map_is_valid = TRUE;
 }
 
 
@@ -628,7 +622,7 @@ rc_allocator_abort_recovery(rc_allocator *al)
 platform_status
 rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
 {
-   platform_assert(!al->recovery_in_progress);
+   platform_assert(al->map_is_valid);
 
    uint64 map_addr =
       RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size;

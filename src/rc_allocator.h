@@ -45,11 +45,14 @@ typedef struct rc_allocator {
    platform_heap_id heap_id;
 
    /*
-    * True between rc_allocator_open_refcounts(al, rebuild=TRUE) and either
-    * rc_allocator_rebuild_finish() or rc_allocator_abort_recovery().  An
+    * True once the refcount map is trustworthy: set by a clean
+    * rc_allocator_open_refcounts(al, rebuild=FALSE) load, or by
+    * rc_allocator_rebuild_finish() after a rebuild completes.  False from
+    * rc_allocator_mount() (attach) until then, including throughout an
+    * in-progress rebuild.  rc_allocator_persist() asserts this is true: an
     * incomplete rebuilt map must never be written back to disk.
     */
-   bool32 recovery_in_progress;
+   bool32 map_is_valid;
 
    // Stats -- not distributed for now
    rc_allocator_stats stats;
@@ -97,14 +100,9 @@ rc_allocator_rebuild_acquire_extent(rc_allocator *al,
 
 /*
  * Complete a successful rebuild without performing I/O.  A later
- * rc_allocator_persist() may persist the rebuilt table on clean shutdown.
+ * rc_allocator_persist() may persist the rebuilt table on clean shutdown.  If
+ * the rebuild fails instead, there is nothing to undo: just
+ * rc_allocator_deinit() the allocator, since nothing has been persisted.
  */
 void
 rc_allocator_rebuild_finish(rc_allocator *al);
-
-/*
- * Discard a partially rebuilt recovery map.  Never writes allocator state to
- * disk; the caller follows with rc_allocator_deinit().
- */
-void
-rc_allocator_abort_recovery(rc_allocator *al);

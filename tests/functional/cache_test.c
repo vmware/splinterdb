@@ -151,7 +151,8 @@ cache_test_verify_disk_page(cache *cc,
  * allocator_open_refcounts().  rebuild == FALSE loads the trusted persisted
  * map; rebuild == TRUE ignores it and reserves only the allocator's own fixed
  * extents, leaving all other ownership for a caller-driven rebuild.
- * persist() writes the map durably; abort_recovery() never persists.  This
+ * persist() writes the map durably; if a rebuild fails there is nothing to
+ * undo -- deinit() alone discards it, since nothing has been persisted.  This
  * exercises that contract end to end (clean-vs-rebuild is the caller's
  * decision -- the superblock's -- not the allocator's).
  */
@@ -263,9 +264,9 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
 
-   // 4) Abort never persists: a later clean open still sees the pre-rebuild
-   //    map (the aborted rebuild left no trace on disk).
-   rc_allocator_abort_recovery(&al);
+   // 4) A failed/abandoned rebuild persists nothing: deinit alone discards it,
+   //    so a later clean open still sees the pre-rebuild map.
+   rc_allocator_deinit(&al);
    al_live = FALSE;
 
    rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
@@ -342,11 +343,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
 
 cleanup:
    if (al_live) {
-      if (al.recovery_in_progress) {
-         rc_allocator_abort_recovery(&al);
-      } else {
-         rc_allocator_deinit(&al);
-      }
+      rc_allocator_deinit(&al);
    }
 
    if (SUCCESS(rc)) {
@@ -516,11 +513,7 @@ cleanup:
       clockcache_deinit(&recovery_cc);
    }
    if (recovery_al_live) {
-      if (recovery.recovery_in_progress) {
-         rc_allocator_abort_recovery(&recovery);
-      } else {
-         rc_allocator_deinit(&recovery);
-      }
+      rc_allocator_deinit(&recovery);
    }
    if (original_cc_live) {
       clockcache_deinit(&original_cc);
