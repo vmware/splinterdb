@@ -46,7 +46,7 @@ typedef struct rc_allocator {
 
    /*
     * True once the refcount map is trustworthy: set by a clean
-    * rc_allocator_open_refcounts(al, rebuild=FALSE) load, or by
+    * rc_allocator_load_refcounts(al, rebuild=FALSE) load, or by
     * rc_allocator_rebuild_finish() after a rebuild completes.  False from
     * rc_allocator_mount() (attach) until then, including throughout an
     * in-progress rebuild.  rc_allocator_persist() asserts this is true: an
@@ -71,9 +71,9 @@ rc_allocator_deinit(rc_allocator *al);
 /*
  * Attach to an existing device: initialize the in-memory structures and the
  * (zeroed) refcount buffer, but do not read the persisted map.  The caller
- * then populates the map exactly once via allocator_open_refcounts() (see
- * allocator.h): open_refcounts(rebuild=FALSE) loads the trusted persisted map;
- * open_refcounts(rebuild=TRUE) initializes an empty map for a rebuild.  The
+ * then populates the map exactly once via allocator_load_refcounts() (see
+ * allocator.h): load_refcounts(rebuild=FALSE) loads the trusted persisted map;
+ * load_refcounts(rebuild=TRUE) initializes an empty map for a rebuild.  The
  * caller chooses the mode from the superblock's allocation-state validity,
  * which it has already read, so a rebuild never pays for a discarded map read.
  * Before any allocation mutates the loaded map, the caller publishes an

@@ -138,7 +138,7 @@ typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
 
 /*
  * Record one logical reference to addr while rebuilding a recovery map (see
- * allocator_open_refcounts() with rebuild == TRUE). The first reference to a
+ * allocator_load_refcounts() with rebuild == TRUE). The first reference to a
  * given extent establishes its nonzero allocation floor; later references
  * increment it normally. addr must be the base address of a non-reserved
  * extent.
@@ -158,7 +158,7 @@ typedef platform_status (*recovery_record_reference_fn)(allocator *al,
  * from durable metadata it owns (the superblock's allocation-state validity),
  * so the allocator never reads the persisted map when it would be discarded.
  */
-typedef platform_status (*open_refcounts_fn)(allocator *al, bool32 rebuild);
+typedef platform_status (*load_refcounts_fn)(allocator *al, bool32 rebuild);
 
 /*
  * Write the refcount map to its durable location and make it durable.  Returns
@@ -189,7 +189,7 @@ typedef struct allocator_ops {
    generic_ref_fn                get_ref;
    recovery_record_reference_fn  recovery_record_reference;
 
-   open_refcounts_fn    open_refcounts;
+   load_refcounts_fn    load_refcounts;
    persist_refcounts_fn persist;
 
    get_size_fn in_use;
@@ -245,9 +245,9 @@ allocator_recovery_record_reference(allocator *al, uint64 addr, page_type type)
 }
 
 static inline platform_status
-allocator_open_refcounts(allocator *al, bool32 rebuild)
+allocator_load_refcounts(allocator *al, bool32 rebuild)
 {
-   return al->ops->open_refcounts(al, rebuild);
+   return al->ops->load_refcounts(al, rebuild);
 }
 
 static inline platform_status

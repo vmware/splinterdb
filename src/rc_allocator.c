@@ -112,13 +112,13 @@ rc_allocator_recovery_record_reference_virtual(allocator *a,
 }
 
 platform_status
-rc_allocator_open_refcounts(rc_allocator *al, bool32 rebuild);
+rc_allocator_load_refcounts(rc_allocator *al, bool32 rebuild);
 
 platform_status
-rc_allocator_open_refcounts_virtual(allocator *a, bool32 rebuild)
+rc_allocator_load_refcounts_virtual(allocator *a, bool32 rebuild)
 {
    rc_allocator *al = (rc_allocator *)a;
-   return rc_allocator_open_refcounts(al, rebuild);
+   return rc_allocator_load_refcounts(al, rebuild);
 }
 
 platform_status
@@ -189,7 +189,7 @@ const static allocator_ops rc_allocator_ops = {
    .dec_ref           = rc_allocator_dec_ref_virtual,
    .get_ref           = rc_allocator_get_ref_virtual,
    .recovery_record_reference = rc_allocator_recovery_record_reference_virtual,
-   .open_refcounts    = rc_allocator_open_refcounts_virtual,
+   .load_refcounts    = rc_allocator_load_refcounts_virtual,
    .persist           = rc_allocator_persist_virtual,
    .in_use            = rc_allocator_in_use_virtual,
    .get_capacity      = rc_allocator_get_capacity_virtual,
@@ -444,7 +444,7 @@ rc_allocator_deinit(rc_allocator *al)
  *      Attach an allocator to an existing device: initialize the in-memory
  *      structures and allocate the (zeroed) refcount buffer, but do NOT read
  *      the persisted map.  The caller populates the map exactly once via
- *      allocator_open_refcounts() -- loading the trusted map or initializing a
+ *      allocator_load_refcounts() -- loading the trusted map or initializing a
  *      rebuild -- so a rebuild never pays for a map read it would discard.
  *----------------------------------------------------------------------
  */
@@ -490,10 +490,10 @@ rc_allocator_mount(rc_allocator      *al,
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_open_refcounts --
+ * rc_allocator_load_refcounts --
  *
  *      Populate the refcount map of an attached allocator (see
- *      allocator_open_refcounts()).  rebuild == FALSE loads the trusted
+ *      allocator_load_refcounts()).  rebuild == FALSE loads the trusted
  *      persisted map from its fixed reserved location; rebuild == TRUE
  *      initializes an empty map that reserves only the fixed extents and enters
  *      recovery mode.  Geometry and clean-vs-rebuild validity live in the
@@ -502,7 +502,7 @@ rc_allocator_mount(rc_allocator      *al,
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_open_refcounts(rc_allocator *al, bool32 rebuild)
+rc_allocator_load_refcounts(rc_allocator *al, bool32 rebuild)
 {
    platform_assert(al != NULL);
    platform_assert(al->ref_count != NULL);

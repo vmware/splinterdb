@@ -148,7 +148,7 @@ cache_test_verify_disk_page(cache *cc,
 /*
  * The refcount allocator is a pure store: mount() attaches without reading the
  * persisted map, and the caller then chooses how to populate it via
- * allocator_open_refcounts().  rebuild == FALSE loads the trusted persisted
+ * allocator_load_refcounts().  rebuild == FALSE loads the trusted persisted
  * map; rebuild == TRUE ignores it and reserves only the allocator's own fixed
  * extents, leaving all other ownership for a caller-driven rebuild.
  * persist() writes the map durably; if a rebuild fails there is nothing to
@@ -194,13 +194,13 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    rc_allocator_deinit(&al);
    al_live = FALSE;
 
-   // 2) Clean open: attach + open_refcounts(rebuild=FALSE) loads the map.
+   // 2) Clean open: attach + load_refcounts(rebuild=FALSE) loads the map.
    rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_open_refcounts((allocator *)&al, FALSE);
+   rc = allocator_load_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -215,14 +215,14 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    rc_allocator_deinit(&al);
    al_live = FALSE;
 
-   // 3) Rebuild open: attach + open_refcounts(rebuild=TRUE) ignores the
+   // 3) Rebuild open: attach + load_refcounts(rebuild=TRUE) ignores the
    //    persisted map, reserving only the fixed extents.
    rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_open_refcounts((allocator *)&al, TRUE);
+   rc = allocator_load_refcounts((allocator *)&al, TRUE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -274,7 +274,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_open_refcounts((allocator *)&al, FALSE);
+   rc = allocator_load_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -295,7 +295,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_open_refcounts((allocator *)&al, TRUE);
+   rc = allocator_load_refcounts((allocator *)&al, TRUE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -328,7 +328,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_open_refcounts((allocator *)&al, FALSE);
+   rc = allocator_load_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -438,12 +438,12 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
       goto cleanup;
    }
    recovery_al_live = TRUE;
-   rc = allocator_open_refcounts((allocator *)&recovery, TRUE /* rebuild */);
+   rc = allocator_load_refcounts((allocator *)&recovery, TRUE /* rebuild */);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
 
-   /* open_refcounts(rebuild) deliberately ignores the persisted map. */
+   /* load_refcounts(rebuild) deliberately ignores the persisted map. */
    if (allocator_get_refcount((allocator *)&recovery, meta_head) != AL_FREE) {
       platform_error_log(
          "cache_test: recovery mount trusted a persisted refcount\n");

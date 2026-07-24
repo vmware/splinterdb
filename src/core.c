@@ -2104,9 +2104,9 @@ core_mount(core_handle      *spl,
     * precede trunk_snapshot_create_from_addr(), which increments the root's
     * refcount in the now-loaded map.
     */
-   rc = allocator_open_refcounts(al, rebuild);
+   rc = allocator_load_refcounts(al, rebuild);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: allocator_open_refcounts failed: %s\n",
+      platform_error_log("core_mount: allocator_load_refcounts failed: %s\n",
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
