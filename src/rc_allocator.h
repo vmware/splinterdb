@@ -97,12 +97,3 @@ platform_status
 rc_allocator_recovery_record_reference(rc_allocator *al,
                                        uint64        extent_addr,
                                        page_type     type);
-
-/*
- * Complete a successful rebuild without performing I/O.  A later
- * rc_allocator_persist() may persist the rebuilt table on clean shutdown.  If
- * the rebuild fails instead, there is nothing to undo: just
- * rc_allocator_deinit() the allocator, since nothing has been persisted.
- */
-void
-rc_allocator_rebuild_finish(rc_allocator *al);

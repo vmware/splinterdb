@@ -200,7 +200,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc      = allocator_load_refcounts((allocator *)&al, FALSE);
+   rc      = allocator_load_refcounts((allocator *)&al);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -222,7 +222,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc      = allocator_load_refcounts((allocator *)&al, TRUE);
+   rc      = allocator_recovery_begin((allocator *)&al);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -274,7 +274,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc      = allocator_load_refcounts((allocator *)&al, FALSE);
+   rc      = allocator_load_refcounts((allocator *)&al);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -295,7 +295,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc      = allocator_load_refcounts((allocator *)&al, TRUE);
+   rc      = allocator_recovery_begin((allocator *)&al);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -315,7 +315,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
-   rc_allocator_rebuild_finish(&al);
+   allocator_recovery_finish((allocator *)&al);
    rc = allocator_persist((allocator *)&al, NULL);
    if (!SUCCESS(rc)) {
       goto cleanup;
@@ -328,7 +328,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc      = allocator_load_refcounts((allocator *)&al, FALSE);
+   rc      = allocator_load_refcounts((allocator *)&al);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -436,7 +436,7 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
       goto cleanup;
    }
    recovery_al_live = TRUE;
-   rc = allocator_load_refcounts((allocator *)&recovery, TRUE /* rebuild */);
+   rc               = allocator_recovery_begin((allocator *)&recovery);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -500,7 +500,7 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
          goto cleanup;
       }
    }
-   rc_allocator_rebuild_finish(&recovery);
+   allocator_recovery_finish((allocator *)&recovery);
 
 cleanup:
    if (mini_live) {

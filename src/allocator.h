@@ -144,21 +144,13 @@ typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
  * extent.
  */
 typedef platform_status (*recovery_record_reference_fn)(allocator *al,
-                                                         uint64     addr,
-                                                         page_type  type);
+                                                        uint64     addr,
+                                                        page_type  type);
 
 /*
- * Populate the in-memory refcount map of an allocator that has been attached
- * (mounted) but whose map is not yet loaded.  rebuild == FALSE loads the
- * trusted persisted map from its fixed durable location; rebuild == TRUE
- * initializes an empty map that reserves only the allocator's own fixed extents
- * and enters recovery mode (the caller then rebuilds via
- * recovery_record_reference()).  Must be called exactly once, after the attach
- * mount and before any allocation.  The caller learns which mode to request
- * from durable metadata it owns (the superblock's allocation-state validity),
- * so the allocator never reads the persisted map when it would be discarded.
+ *
  */
-typedef platform_status (*load_refcounts_fn)(allocator *al, bool32 rebuild);
+typedef platform_status (*generic_status_allocator_fn)(allocator *al);
 
 /*
  * Write the refcount map to its durable location and make it durable.  Returns
@@ -173,8 +165,7 @@ typedef platform_status (*persist_refcounts_fn)(allocator *al,
 typedef uint64 (*get_size_fn)(allocator *al);
 typedef uint64 (*base_addr_fn)(const allocator *al, uint64 addr);
 
-typedef void (*print_fn)(allocator *al);
-typedef void (*assert_fn)(allocator *al);
+typedef void (*generic_void_allocator_fn)(allocator *al);
 
 /*
  * Define an abstract allocator interface, holding different allocation-related
@@ -182,14 +173,20 @@ typedef void (*assert_fn)(allocator *al);
  */
 typedef struct allocator_ops {
    allocator_get_config_fn get_config;
-   alloc_fn                alloc;
 
-   generic_ref_fn                inc_ref;
-   dec_ref_fn                    dec_ref;
-   generic_ref_fn                get_ref;
-   recovery_record_reference_fn  recovery_record_reference;
+   alloc_fn       alloc;
+   generic_ref_fn inc_ref;
+   dec_ref_fn     dec_ref;
+   generic_ref_fn get_ref;
 
-   load_refcounts_fn    load_refcounts;
+   // After a mount, you must do either a recovery or a load
+
+   generic_status_allocator_fn  recovery_begin;
+   recovery_record_reference_fn recovery_record_reference;
+   generic_void_allocator_fn    recovery_finish;
+
+   generic_status_allocator_fn load_refcounts;
+
    persist_refcounts_fn persist;
 
    get_size_fn in_use;
@@ -197,13 +194,13 @@ typedef struct allocator_ops {
    get_size_fn  get_capacity;
    base_addr_fn extent_base_addr;
 
-   assert_fn assert_noleaks;
+   generic_void_allocator_fn assert_noleaks;
 
-   print_fn print_stats;
-   print_fn print_allocated;
+   generic_void_allocator_fn print_stats;
+   generic_void_allocator_fn print_allocated;
 } allocator_ops;
 
-// To sub-class cache, make a cache your first field;
+// To sub-class allocator, make an allocator your first field;
 struct allocator {
    const allocator_ops *ops;
 };
@@ -239,15 +236,28 @@ allocator_get_refcount(allocator *al, uint64 addr)
 }
 
 static inline platform_status
+allocator_recovery_begin(allocator *al)
+{
+   return al->ops->recovery_begin(al);
+}
+
+static inline platform_status
 allocator_recovery_record_reference(allocator *al, uint64 addr, page_type type)
 {
    return al->ops->recovery_record_reference(al, addr, type);
 }
 
-static inline platform_status
-allocator_load_refcounts(allocator *al, bool32 rebuild)
+static inline void
+allocator_recovery_finish(allocator *al)
 {
-   return al->ops->load_refcounts(al, rebuild);
+   al->ops->recovery_finish(al);
+}
+
+
+static inline platform_status
+allocator_load_refcounts(allocator *al)
+{
+   return al->ops->load_refcounts(al);
 }
 
 static inline platform_status

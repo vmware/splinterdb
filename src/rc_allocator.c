@@ -101,8 +101,18 @@ rc_allocator_record_allocated_extent(rc_allocator *al)
 }
 
 static platform_status
-rc_allocator_recovery_initialize_refcounts(rc_allocator *al)
+rc_allocator_init_refcounts(rc_allocator *al)
 {
+   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
+   platform_status status      = platform_buffer_init(&al->bh, buffer_size);
+   if (!SUCCESS(status)) {
+      platform_mutex_destroy(&al->lock);
+      platform_error_log("Failed to create buffer to load ref counts\n");
+      return STATUS_NO_MEMORY;
+   }
+   al->ref_count = platform_buffer_getaddr(&al->bh);
+   memset(al->ref_count, 0, buffer_size);
+
    uint64 reserved_extent_count = rc_allocator_reserved_extent_count(al->cfg);
 
    if (reserved_extent_count > al->cfg->extent_capacity) {
@@ -200,56 +210,10 @@ rc_allocator_valid_config(allocator_config *cfg)
    return rc;
 }
 
-
-/*
- *----------------------------------------------------------------------
- * rc_allocator_load_refcounts --
- *
- *      Populate the refcount map of an attached allocator (see
- *      allocator_load_refcounts()).  rebuild == FALSE loads the trusted
- *      persisted map from its fixed reserved location; rebuild == TRUE
- *      initializes an empty map that reserves only the fixed extents and enters
- *      recovery mode.  Geometry and clean-vs-rebuild validity live in the
- *      superblock, which the caller has already read; the allocator only
- *      touches its own refcount map here.
- *----------------------------------------------------------------------
- */
 platform_status
-rc_allocator_load_refcounts(rc_allocator *al, bool32 rebuild)
+rc_allocator_recovery_begin(rc_allocator *al)
 {
-   platform_assert(al != NULL);
-   platform_assert(al->ref_count != NULL);
-
-   if (rebuild) {
-      platform_status status = rc_allocator_recovery_initialize_refcounts(al);
-      if (!SUCCESS(status)) {
-         return status;
-      }
-      return STATUS_OK;
-   }
-
-   // Load the trusted refcount map from its fixed reserved location.
-   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
-   platform_status status =
-      io_read(al->io,
-              al->ref_count,
-              buffer_size,
-              RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size);
-   if (!SUCCESS(status)) {
-      return status;
-   }
-
-   // Compute curr_allocated authoritatively from the loaded map (set, not
-   // accumulate), so this is correct even if the allocator's stats were not
-   // freshly zeroed.
-   al->stats.curr_allocated = 0;
-   for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
-      if (al->ref_count[i] != 0) {
-         al->stats.curr_allocated++;
-      }
-   }
-   al->map_is_valid = TRUE;
-   return STATUS_OK;
+   return rc_allocator_init_refcounts(al);
 }
 
 platform_status
@@ -303,7 +267,7 @@ rc_allocator_recovery_record_reference(rc_allocator *al,
 }
 
 void
-rc_allocator_rebuild_finish(rc_allocator *al)
+rc_allocator_recovery_finish(rc_allocator *al)
 {
    platform_assert(al != NULL);
    platform_assert(!al->map_is_valid);
@@ -316,6 +280,49 @@ rc_allocator_rebuild_finish(rc_allocator *al)
    al->map_is_valid = TRUE;
 }
 
+
+/*
+ *----------------------------------------------------------------------
+ * rc_allocator_load_refcounts --
+ *
+ *      Populate the refcount map of an attached allocator (see
+ *      allocator_load_refcounts()).  rebuild == FALSE loads the trusted
+ *      persisted map from its fixed reserved location; rebuild == TRUE
+ *      initializes an empty map that reserves only the fixed extents and enters
+ *      recovery mode.  Geometry and clean-vs-rebuild validity live in the
+ *      superblock, which the caller has already read; the allocator only
+ *      touches its own refcount map here.
+ *----------------------------------------------------------------------
+ */
+platform_status
+rc_allocator_load_refcounts(rc_allocator *al)
+{
+   platform_assert(al != NULL);
+   platform_assert(al->ref_count != NULL);
+
+   // Load the trusted refcount map from its fixed reserved location.
+   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
+   platform_status status =
+      io_read(al->io,
+              al->ref_count,
+              buffer_size,
+              RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   // Compute curr_allocated authoritatively from the loaded map (set, not
+   // accumulate), so this is correct even if the allocator's stats were not
+   // freshly zeroed.
+   al->stats.curr_allocated = 0;
+   for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
+      if (al->ref_count[i] != 0) {
+         al->stats.curr_allocated++;
+      }
+   }
+   al->map_is_valid = TRUE;
+   return STATUS_OK;
+}
 
 /*
  *----------------------------------------------------------------------
@@ -699,6 +706,13 @@ rc_allocator_get_ref_virtual(allocator *a, uint64 addr)
 }
 
 platform_status
+rc_allocator_recovery_begin_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_recovery_begin(al);
+}
+
+platform_status
 rc_allocator_recovery_record_reference_virtual(allocator *a,
                                                uint64     addr,
                                                page_type  type)
@@ -707,11 +721,19 @@ rc_allocator_recovery_record_reference_virtual(allocator *a,
    return rc_allocator_recovery_record_reference(al, addr, type);
 }
 
-platform_status
-rc_allocator_load_refcounts_virtual(allocator *a, bool32 rebuild)
+void
+rc_allocator_recovery_finish_virtual(allocator *a)
 {
    rc_allocator *al = (rc_allocator *)a;
-   return rc_allocator_load_refcounts(al, rebuild);
+   return rc_allocator_recovery_finish(al);
+}
+
+
+platform_status
+rc_allocator_load_refcounts_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_load_refcounts(al);
 }
 
 platform_status
@@ -763,7 +785,9 @@ const static allocator_ops rc_allocator_ops = {
    .inc_ref                   = rc_allocator_inc_ref_virtual,
    .dec_ref                   = rc_allocator_dec_ref_virtual,
    .get_ref                   = rc_allocator_get_ref_virtual,
+   .recovery_begin            = rc_allocator_recovery_begin_virtual,
    .recovery_record_reference = rc_allocator_recovery_record_reference_virtual,
+   .recovery_finish           = rc_allocator_recovery_finish_virtual,
    .load_refcounts            = rc_allocator_load_refcounts_virtual,
    .persist                   = rc_allocator_persist_virtual,
    .in_use                    = rc_allocator_in_use_virtual,
@@ -787,8 +811,6 @@ rc_allocator_init(rc_allocator      *al,
                   platform_heap_id   hid,
                   platform_module_id mid)
 {
-   uint64          rc_extent_count;
-   uint64          addr;
    platform_status rc;
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
@@ -807,27 +829,11 @@ rc_allocator_init(rc_allocator      *al,
       platform_error_log("Failed to init mutex for the allocator\n");
       return rc;
    }
-   // To ensure alignment always allocate in multiples of page size.
-   uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
-   rc                 = platform_buffer_init(&al->bh, buffer_size);
+
+   rc = rc_allocator_init_refcounts(al);
    if (!SUCCESS(rc)) {
       platform_mutex_destroy(&al->lock);
-      platform_error_log("Failed to create buffer for ref counts\n");
-      return STATUS_NO_MEMORY;
-   }
-   al->ref_count = platform_buffer_getaddr(&al->bh);
-   memset(al->ref_count, 0, buffer_size);
-
-   // Reserve extent 0 for the superblock; the superblock module owns its
-   // pages 0/1.
-   allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
-   platform_assert(addr == 0);
-
-   // Reserve the refcount-map extents (extent 1 .. rc_extent_count).
-   rc_extent_count = rc_allocator_refcount_extent_count(cfg);
-   for (uint64 i = 0; i < rc_extent_count; i++) {
-      allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
-      platform_assert(addr == cfg->io_cfg->extent_size * (i + 1));
+      return rc;
    }
 
    /*
@@ -845,8 +851,10 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al)
 {
-   platform_buffer_deinit(&al->bh);
-   al->ref_count = NULL;
+   if (al->ref_count) {
+      platform_buffer_deinit(&al->bh);
+      al->ref_count = NULL;
+   }
    platform_mutex_destroy(&al->lock);
 }
 
@@ -889,14 +897,5 @@ rc_allocator_mount(rc_allocator      *al,
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 
-   uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
-   status             = platform_buffer_init(&al->bh, buffer_size);
-   if (!SUCCESS(status)) {
-      platform_mutex_destroy(&al->lock);
-      platform_error_log("Failed to create buffer to load ref counts\n");
-      return STATUS_NO_MEMORY;
-   }
-   al->ref_count = platform_buffer_getaddr(&al->bh);
-   memset(al->ref_count, 0, buffer_size);
    return STATUS_OK;
 }

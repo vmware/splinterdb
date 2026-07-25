@@ -213,13 +213,13 @@ core_publish_root_record(core_handle *spl, bool32 is_unmount)
    }
 
    ZERO_CONTENTS(&rec);
-   rec.table_id      = spl->id;
-   rec.root_addr     = snapshot.root_addr;
-   rec.log_meta_head = 0; // set once the per-tree log is wired
-   rec.incorporated_generation =
-      has_incorporated_generation ? incorporated_generation
-                                  : SUPERBLOCK_NO_INCORPORATED_GENERATION;
-   rec.unmounted = is_unmount;
+   rec.table_id                = spl->id;
+   rec.root_addr               = snapshot.root_addr;
+   rec.log_meta_head           = 0; // set once the per-tree log is wired
+   rec.incorporated_generation = has_incorporated_generation
+                                    ? incorporated_generation
+                                    : SUPERBLOCK_NO_INCORPORATED_GENERATION;
+   rec.unmounted               = is_unmount;
 
    rc = superblock_set_tree_record(&spl->superblock, &rec);
    if (!SUCCESS(rc)) {
@@ -266,10 +266,11 @@ core_publish_root_record(core_handle *spl, bool32 is_unmount)
          platform_status release_rc =
             trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
          if (!SUCCESS(release_rc)) {
-            platform_error_log("core_publish_root_record: trunk_snapshot_release "
-                               "failed for old root addr %lu: %s\n",
-                               old_root_addr,
-                               platform_status_to_string(release_rc));
+            platform_error_log(
+               "core_publish_root_record: trunk_snapshot_release "
+               "failed for old root addr %lu: %s\n",
+               old_root_addr,
+               platform_status_to_string(release_rc));
             if (SUCCESS(rc)) {
                rc = release_rc;
             }
@@ -2104,7 +2105,7 @@ core_mount(core_handle      *spl,
     * precede trunk_snapshot_create_from_addr(), which increments the root's
     * refcount in the now-loaded map.
     */
-   rc = allocator_load_refcounts(al, rebuild);
+   rc = allocator_load_refcounts(al);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: allocator_load_refcounts failed: %s\n",
                          platform_status_to_string(rc));
@@ -2118,14 +2119,13 @@ core_mount(core_handle      *spl,
          : rec.incorporated_generation + 1;
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   rc                      = memtable_context_init_at_generation(
-      &spl->mt_ctxt,
-      spl->heap_id,
-      cc,
-      mt_cfg,
-      core_memtable_flush_virtual,
-      spl,
-      resume_generation);
+   rc                      = memtable_context_init_at_generation(&spl->mt_ctxt,
+                                            spl->heap_id,
+                                            cc,
+                                            mt_cfg,
+                                            core_memtable_flush_virtual,
+                                            spl,
+                                            resume_generation);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: memtable_context_init_at_generation "
                          "failed: %s\n",
@@ -2455,9 +2455,8 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
    platform_status        rc =
       superblock_get_tree_record(&spl->superblock, spl->id, &rec);
    if (!SUCCESS(rc)) {
-      platform_log(log_handle,
-                   "No superblock tree record for root id %lu\n",
-                   spl->id);
+      platform_log(
+         log_handle, "No superblock tree record for root id %lu\n", spl->id);
       return;
    }
 
