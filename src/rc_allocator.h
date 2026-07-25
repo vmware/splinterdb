@@ -94,9 +94,9 @@ rc_allocator_mount(rc_allocator      *al,
  * base address of a non-reserved allocator extent.
  */
 platform_status
-rc_allocator_rebuild_acquire_extent(rc_allocator *al,
-                                    uint64        extent_addr,
-                                    page_type     type);
+rc_allocator_recovery_record_reference(rc_allocator *al,
+                                       uint64        extent_addr,
+                                       page_type     type);
 
 /*
  * Complete a successful rebuild without performing I/O.  A later

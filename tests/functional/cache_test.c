@@ -169,7 +169,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    // Extent 0 (superblock) + the refcount-map extents.
    uint64          reserved_extent_count = 1 + refcount_extent_count;
    uint64          stale_extent_addr     = 0;
-   platform_status rc                     = STATUS_OK;
+   platform_status rc                    = STATUS_OK;
    rc_allocator    al;
    bool32          al_live = FALSE;
 
@@ -200,7 +200,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_load_refcounts((allocator *)&al, FALSE);
+   rc      = allocator_load_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -222,7 +222,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_load_refcounts((allocator *)&al, TRUE);
+   rc      = allocator_load_refcounts((allocator *)&al, TRUE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -252,7 +252,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    }
 
    // rebuild_acquire establishes the first reference.
-   rc = rc_allocator_rebuild_acquire_extent(
+   rc = rc_allocator_recovery_record_reference(
       &al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)
        || allocator_get_refcount((allocator *)&al, stale_extent_addr)
@@ -274,7 +274,7 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_load_refcounts((allocator *)&al, FALSE);
+   rc      = allocator_load_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -295,16 +295,16 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_load_refcounts((allocator *)&al, TRUE);
+   rc      = allocator_load_refcounts((allocator *)&al, TRUE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   rc = rc_allocator_rebuild_acquire_extent(
+   rc = rc_allocator_recovery_record_reference(
       &al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   rc = rc_allocator_rebuild_acquire_extent(
+   rc = rc_allocator_recovery_record_reference(
       &al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)
        || allocator_get_refcount((allocator *)&al, stale_extent_addr)
@@ -328,15 +328,14 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
       goto cleanup;
    }
    al_live = TRUE;
-   rc = allocator_load_refcounts((allocator *)&al, FALSE);
+   rc      = allocator_load_refcounts((allocator *)&al, FALSE);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
    if (allocator_get_refcount((allocator *)&al, stale_extent_addr)
        != AL_ONE_REF + 1)
    {
-      platform_error_log(
-         "cache_test: finished recovery was not persisted\n");
+      platform_error_log("cache_test: finished recovery was not persisted\n");
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
@@ -372,17 +371,16 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
                               platform_heap_id   hid)
 {
    platform_status rc = STATUS_OK;
-   rc_allocator     original, recovery;
-   clockcache       original_cc, recovery_cc;
-   bool32           original_al_live = FALSE, original_cc_live = FALSE;
-   bool32           recovery_al_live = FALSE, recovery_cc_live = FALSE;
-   mini_allocator   mini;
-   bool32           mini_live = FALSE;
-   uint64           meta_head = 0;
-   uint64 data_extents[TEST_MINI_RECOVER_NUM_DATA_EXTENTS] = {0};
+   rc_allocator    original, recovery;
+   clockcache      original_cc, recovery_cc;
+   bool32          original_al_live = FALSE, original_cc_live = FALSE;
+   bool32          recovery_al_live = FALSE, recovery_cc_live = FALSE;
+   mini_allocator  mini;
+   bool32          mini_live                                        = FALSE;
+   uint64          meta_head                                        = 0;
+   uint64          data_extents[TEST_MINI_RECOVER_NUM_DATA_EXTENTS] = {0};
 
-   platform_default_log(
-      "cache_test: mini_recover_allocations test started\n");
+   platform_default_log("cache_test: mini_recover_allocations test started\n");
 
    rc = rc_allocator_init(
       &original, allocator_cfg, io, hid, platform_get_module_id());
@@ -401,7 +399,7 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   original_cc_live = TRUE;
+   original_cc_live    = TRUE;
    cache *original_ccp = (cache *)&original_cc;
 
    rc = allocator_alloc((allocator *)&original, &meta_head, PAGE_TYPE_MISC);
@@ -425,7 +423,7 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
    cache_flush(original_ccp);
    clockcache_deinit(&original_cc);
    original_cc_live = FALSE;
-   rc = allocator_persist((allocator *)&original, NULL);
+   rc               = allocator_persist((allocator *)&original, NULL);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -483,8 +481,7 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
     * refcount (which may include self-references beyond this) is explicitly
     * the job of a higher-level recovery walker, not this function.
     */
-   if (allocator_get_refcount((allocator *)&recovery, meta_head)
-       != AL_ONE_REF)
+   if (allocator_get_refcount((allocator *)&recovery, meta_head) != AL_ONE_REF)
    {
       platform_error_log(
          "cache_test: mini_recover_allocations did not recover the metadata "
