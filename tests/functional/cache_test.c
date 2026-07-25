@@ -252,8 +252,8 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    }
 
    // rebuild_acquire establishes the first reference.
-   rc = rc_allocator_recovery_record_reference(
-      &al, stale_extent_addr, PAGE_TYPE_MISC);
+   rc = allocator_recovery_record_reference(
+      (allocator *)&al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)
        || allocator_get_refcount((allocator *)&al, stale_extent_addr)
              != AL_ONE_REF)
@@ -299,13 +299,13 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   rc = rc_allocator_recovery_record_reference(
-      &al, stale_extent_addr, PAGE_TYPE_MISC);
+   rc = allocator_recovery_record_reference(
+      (allocator *)&al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   rc = rc_allocator_recovery_record_reference(
-      &al, stale_extent_addr, PAGE_TYPE_MISC);
+   rc = allocator_recovery_record_reference(
+      (allocator *)&al, stale_extent_addr, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)
        || allocator_get_refcount((allocator *)&al, stale_extent_addr)
              != AL_ONE_REF + 1)

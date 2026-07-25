@@ -69,15 +69,9 @@ void
 rc_allocator_deinit(rc_allocator *al);
 
 /*
- * Attach to an existing device: initialize the in-memory structures and the
- * (zeroed) refcount buffer, but do not read the persisted map.  The caller
- * then populates the map exactly once via allocator_load_refcounts() (see
- * allocator.h): load_refcounts(rebuild=FALSE) loads the trusted persisted map;
- * load_refcounts(rebuild=TRUE) initializes an empty map for a rebuild.  The
- * caller chooses the mode from the superblock's allocation-state validity,
- * which it has already read, so a rebuild never pays for a discarded map read.
- * Before any allocation mutates the loaded map, the caller publishes an
- * invalidated superblock so a crash forces a rebuild.
+ * Attach to an existing device but do not read the persisted map.  The caller
+ * then populates the map exactly once via allocator_load_refcounts() or
+ * allocator_recovery_begin/finish.
  */
 platform_status
 rc_allocator_mount(rc_allocator      *al,
@@ -85,15 +79,3 @@ rc_allocator_mount(rc_allocator      *al,
                    io_handle         *io,
                    platform_heap_id   hid,
                    platform_module_id mid);
-
-/*
- * Add one logical ownership reference for an extent while rebuilding a
- * recovery map.  The first reference establishes the allocator's nonzero
- * allocation floor (AL_ONE_REF) and records it in stats.extent_allocs[type];
- * later references increment the refcount normally.  extent_addr must be the
- * base address of a non-reserved allocator extent.
- */
-platform_status
-rc_allocator_recovery_record_reference(rc_allocator *al,
-                                       uint64        extent_addr,
-                                       page_type     type);
