@@ -181,9 +181,9 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg)
    ctx->image->format_version       = SUPERBLOCK_FORMAT_VERSION;
    ctx->image->generation           = 0;
    ctx->image->allocation_state_addr = 0; // fresh DB: rebuild on crash
-   for (uint64 i = 0; i < SUPERBLOCK_MAX_TREES; i++) {
-      ctx->image->trees[i].table_id = INVALID_ALLOCATOR_ROOT_ID;
-   }
+   // A fresh, empty tree: no root and nothing incorporated yet.
+   ctx->image->tree.incorporated_generation =
+      SUPERBLOCK_NO_INCORPORATED_GENERATION;
 
    /*
     * Write both physical copies so torn-write protection is in force from the
@@ -217,67 +217,16 @@ superblock_set_allocation_state_addr(superblock_context *ctx, uint64 addr)
    ctx->image->allocation_state_addr = addr;
 }
 
-platform_status
+void
 superblock_get_tree_record(const superblock_context *ctx,
-                           allocator_root_id         table_id,
                            superblock_tree_record   *out)
 {
-   platform_assert(table_id != INVALID_ALLOCATOR_ROOT_ID);
-   for (uint64 i = 0; i < SUPERBLOCK_MAX_TREES; i++) {
-      if (ctx->image->trees[i].table_id == table_id) {
-         *out = ctx->image->trees[i];
-         return STATUS_OK;
-      }
-   }
-   return STATUS_NOT_FOUND;
+   *out = ctx->image->tree;
 }
 
-platform_status
+void
 superblock_set_tree_record(superblock_context           *ctx,
                            const superblock_tree_record *rec)
 {
-   platform_assert(rec->table_id != INVALID_ALLOCATOR_ROOT_ID);
-
-   // Overwrite an existing record for this table_id if present.
-   for (uint64 i = 0; i < SUPERBLOCK_MAX_TREES; i++) {
-      if (ctx->image->trees[i].table_id == rec->table_id) {
-         ctx->image->trees[i] = *rec;
-         return STATUS_OK;
-      }
-   }
-   // Otherwise claim the first free slot.
-   for (uint64 i = 0; i < SUPERBLOCK_MAX_TREES; i++) {
-      if (ctx->image->trees[i].table_id == INVALID_ALLOCATOR_ROOT_ID) {
-         ctx->image->trees[i] = *rec;
-         return STATUS_OK;
-      }
-   }
-   return STATUS_NO_SPACE;
-}
-
-platform_status
-superblock_remove_tree_record(superblock_context *ctx,
-                              allocator_root_id   table_id)
-{
-   platform_assert(table_id != INVALID_ALLOCATOR_ROOT_ID);
-   for (uint64 i = 0; i < SUPERBLOCK_MAX_TREES; i++) {
-      if (ctx->image->trees[i].table_id == table_id) {
-         ZERO_CONTENTS(&ctx->image->trees[i]);
-         ctx->image->trees[i].table_id = INVALID_ALLOCATOR_ROOT_ID;
-         return STATUS_OK;
-      }
-   }
-   return STATUS_NOT_FOUND;
-}
-
-uint64
-superblock_num_trees(const superblock_context *ctx)
-{
-   uint64 count = 0;
-   for (uint64 i = 0; i < SUPERBLOCK_MAX_TREES; i++) {
-      if (ctx->image->trees[i].table_id != INVALID_ALLOCATOR_ROOT_ID) {
-         count++;
-      }
-   }
-   return count;
+   ctx->image->tree = *rec;
 }

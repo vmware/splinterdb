@@ -93,15 +93,20 @@ CTEST2(superblock, test_format_sets_fresh_state)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_FALSE(superblock_allocation_state_valid(&ctx));
-   ASSERT_EQUAL(0, superblock_num_trees(&ctx));
+   superblock_tree_record rec;
+   superblock_get_tree_record(&ctx, &rec);
+   ASSERT_EQUAL(0, rec.root_addr); // empty tree
+   ASSERT_EQUAL(SUPERBLOCK_NO_INCORPORATED_GENERATION,
+                rec.incorporated_generation);
    superblock_context_deinit(&ctx);
 
    rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
-   ASSERT_EQUAL(0, superblock_num_trees(&ctx));
    ASSERT_FALSE(superblock_allocation_state_valid(&ctx));
+   superblock_get_tree_record(&ctx, &rec);
+   ASSERT_EQUAL(0, rec.root_addr);
    superblock_context_deinit(&ctx);
 }
 
@@ -119,14 +124,11 @@ CTEST2(superblock, test_publish_persists_tree_record)
    ASSERT_TRUE(SUCCESS(rc));
 
    superblock_tree_record rec = {
-      .table_id                = 1,
       .root_addr               = 0x4000,
       .log_meta_head           = 0,
       .incorporated_generation = SUPERBLOCK_NO_INCORPORATED_GENERATION,
-      .unmounted               = TRUE,
    };
-   rc = superblock_set_tree_record(&ctx, &rec);
-   ASSERT_TRUE(SUCCESS(rc));
+   superblock_set_tree_record(&ctx, &rec);
    superblock_set_allocation_state_addr(&ctx, 0x8000);
    rc = superblock_publish(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
@@ -136,15 +138,12 @@ CTEST2(superblock, test_publish_persists_tree_record)
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
-   ASSERT_EQUAL(1, superblock_num_trees(&ctx));
    ASSERT_TRUE(superblock_allocation_state_valid(&ctx));
    ASSERT_EQUAL(0x8000, superblock_allocation_state_addr(&ctx));
 
    superblock_tree_record got;
-   rc = superblock_get_tree_record(&ctx, 1, &got);
-   ASSERT_TRUE(SUCCESS(rc));
+   superblock_get_tree_record(&ctx, &got);
    ASSERT_EQUAL(0x4000, got.root_addr);
-   ASSERT_TRUE(got.unmounted);
    superblock_context_deinit(&ctx);
 }
 
@@ -165,13 +164,10 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
 
    // After format the image is gen 2 in slot 1, so this publish targets slot 0.
    superblock_tree_record rec = {
-      .table_id                = 1,
       .root_addr               = 0x4000,
       .incorporated_generation = SUPERBLOCK_NO_INCORPORATED_GENERATION,
-      .unmounted               = TRUE,
    };
-   rc = superblock_set_tree_record(&ctx, &rec);
-   ASSERT_TRUE(SUCCESS(rc));
+   superblock_set_tree_record(&ctx, &rec);
    rc = superblock_publish(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
@@ -179,17 +175,17 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
    // Simulate a torn write of the newest slot (slot 0, gen 3).
    superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
 
-   // Mount must still succeed, falling back to slot 1 (gen 2) -- which has no
-   // tree record, proving the older generation was left intact.
+   // Mount must still succeed, falling back to slot 1 (gen 2), which carries the
+   // format's empty tree (root_addr 0), not the published root -- proving the
+   // older generation was left intact by the torn write.
    rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
-   ASSERT_EQUAL(0, superblock_num_trees(&ctx));
 
    superblock_tree_record got;
-   rc = superblock_get_tree_record(&ctx, 1, &got);
-   ASSERT_FALSE(SUCCESS(rc));
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_EQUAL(0, got.root_addr);
    superblock_context_deinit(&ctx);
 }
 

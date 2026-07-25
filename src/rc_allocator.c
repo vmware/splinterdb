@@ -100,18 +100,39 @@ rc_allocator_record_allocated_extent(rc_allocator *al)
    }
 }
 
+/*
+ * Allocate the (zeroed) in-memory refcount buffer, if it is not already
+ * allocated.  mkfs (rc_allocator_init), a clean load (rc_allocator_load_
+ * refcounts), and a recovery rebuild (rc_allocator_recovery_begin) each ensure
+ * the buffer exists before populating it.  Attach (rc_allocator_mount)
+ * deliberately does NOT: it leaves ref_count NULL so that using the allocator
+ * before a load/recovery faults immediately.  Idempotent so it tolerates an
+ * allocator reused across mount cycles without re-attaching.
+ */
 static platform_status
-rc_allocator_init_refcounts(rc_allocator *al)
+rc_allocator_alloc_refcount_buffer(rc_allocator *al)
 {
+   if (al->ref_count != NULL) {
+      return STATUS_OK;
+   }
    uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
    platform_status status      = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(status)) {
-      platform_mutex_destroy(&al->lock);
-      platform_error_log("Failed to create buffer to load ref counts\n");
-      return STATUS_NO_MEMORY;
+      platform_error_log("Failed to create buffer for ref counts\n");
+      return status;
    }
    al->ref_count = platform_buffer_getaddr(&al->bh);
    memset(al->ref_count, 0, buffer_size);
+   return STATUS_OK;
+}
+
+static platform_status
+rc_allocator_init_refcounts(rc_allocator *al)
+{
+   platform_status status = rc_allocator_alloc_refcount_buffer(al);
+   if (!SUCCESS(status)) {
+      return status;
+   }
 
    uint64 reserved_extent_count = rc_allocator_reserved_extent_count(al->cfg);
 
@@ -285,24 +306,27 @@ rc_allocator_recovery_finish(rc_allocator *al)
  *----------------------------------------------------------------------
  * rc_allocator_load_refcounts --
  *
- *      Populate the refcount map of an attached allocator (see
- *      allocator_load_refcounts()).  rebuild == FALSE loads the trusted
- *      persisted map from its fixed reserved location; rebuild == TRUE
- *      initializes an empty map that reserves only the fixed extents and enters
- *      recovery mode.  Geometry and clean-vs-rebuild validity live in the
- *      superblock, which the caller has already read; the allocator only
- *      touches its own refcount map here.
+ *      Populate an attached allocator's refcount map by loading the trusted
+ *      persisted map from its fixed reserved location (the clean-mount path;
+ *      see allocator_load_refcounts()).  Allocates the refcount buffer that
+ *      attach (rc_allocator_mount) deliberately left NULL.  The caller has
+ *      already confirmed via the superblock that the persisted map is valid;
+ *      the allocator only touches its own map here.
  *----------------------------------------------------------------------
  */
 platform_status
 rc_allocator_load_refcounts(rc_allocator *al)
 {
    platform_assert(al != NULL);
-   platform_assert(al->ref_count != NULL);
+
+   platform_status status = rc_allocator_alloc_refcount_buffer(al);
+   if (!SUCCESS(status)) {
+      return status;
+   }
 
    // Load the trusted refcount map from its fixed reserved location.
-   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
-   platform_status status =
+   uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
+   status =
       io_read(al->io,
               al->ref_count,
               buffer_size,
@@ -863,10 +887,12 @@ rc_allocator_deinit(rc_allocator *al)
  * rc_allocator_mount --
  *
  *      Attach an allocator to an existing device: initialize the in-memory
- *      structures and allocate the (zeroed) refcount buffer, but do NOT read
- *      the persisted map.  The caller populates the map exactly once via
- *      allocator_load_refcounts() -- loading the trusted map or initializing a
- *      rebuild -- so a rebuild never pays for a map read it would discard.
+ *      structures only.  The refcount buffer is deliberately left NULL so that
+ *      using the allocator before its map is populated faults immediately; the
+ *      caller MUST next call rc_allocator_load_refcounts() (clean mount) or
+ *      rc_allocator_recovery_begin() (rebuild), each of which allocates and
+ *      populates the buffer.  A rebuild therefore never reads a map it would
+ *      discard.
  *----------------------------------------------------------------------
  */
 platform_status
@@ -897,5 +923,8 @@ rc_allocator_mount(rc_allocator      *al,
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 
+   // Attach only: ref_count is left NULL (and map_is_valid FALSE) until
+   // load_refcounts / recovery_begin populates the map, so a premature use of
+   // the allocator faults at once.
    return STATUS_OK;
 }

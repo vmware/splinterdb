@@ -24,8 +24,10 @@
  *     (recovered from the other page), never the geometry the bootstrap read
  *     depends on.
  *
- *     This is intentionally a new on-disk format; older databases must be
- *     reformatted.
+ *     The instance holds a single tree today: its per-tree record is embedded
+ *     directly rather than as an array.  Supporting multiple trees would be an
+ *     on-disk format change (version bump + reformat), not just a machinery
+ *     change.
  */
 
 #pragma once
@@ -36,13 +38,6 @@
 #include "platform_io.h"
 #include "util.h"
 
-/*
- * Format headroom for multiple trees.  The current system asserts at most one
- * occupied record (see the caller's claim path); the array is sized so that
- * multi-tree support becomes a machinery change, not a format change.
- */
-#define SUPERBLOCK_MAX_TREES (30)
-
 #define SUPERBLOCK_FORMAT_MAGIC   (0x5344425355504552ULL) // SDBSUPER
 #define SUPERBLOCK_FORMAT_VERSION (1)
 
@@ -50,15 +45,17 @@
 #define SUPERBLOCK_NUM_SLOTS (2)
 
 /*
- * A per-tree durable record.  table_id == INVALID_ALLOCATOR_ROOT_ID marks an
- * empty slot.  log_meta_head is format headroom for the per-tree segmented log
- * (the oldest live segment, from whose start recovery replays); it is 0 until
- * the log is wired.  No intra-segment replay offset is stored: recovery replays
+ * The durable per-tree record.  The instance always has exactly one tree (from
+ * mkfs onward), so the record carries no id or occupancy marker.  log_meta_head
+ * is format headroom for the segmented log (the oldest live segment, from whose
+ * start recovery replays); it is 0 until the log is wired.
+ *
+ * There is intentionally no clean/dirty ("unmounted") flag: recovery replays
  * from a segment boundary and skips records whose generation is at or below
- * incorporated_generation.
+ * incorporated_generation, which makes a clean root's replay a no-op.  So the
+ * superblock's allocation_state_addr validity is the single at-rest signal.
  */
 typedef struct ONDISK superblock_tree_record {
-   uint64 table_id;
    uint64 root_addr;
    uint64 log_meta_head; // oldest live log segment = replay start (0 until wired)
    /*
@@ -68,8 +65,6 @@ typedef struct ONDISK superblock_tree_record {
     * the log is wired, the replay-skip boundary.
     */
    uint64 incorporated_generation;
-   bool32 unmounted; // TRUE iff root_addr is a clean-unmount root
-   uint32 pad;       // explicit: keep trailing on-disk bytes deterministic
 } superblock_tree_record;
 
 /* Sentinel for superblock_tree_record.incorporated_generation. */
@@ -87,7 +82,7 @@ typedef struct ONDISK superblock {
     * root; a clean unmount writes it nonzero after the map is durable.
     */
    uint64                 allocation_state_addr;
-   superblock_tree_record trees[SUPERBLOCK_MAX_TREES];
+   superblock_tree_record tree;
    checksum128            checksum;
 } superblock;
 
@@ -106,8 +101,8 @@ typedef struct superblock_context {
    platform_heap_id heap_id;
    uint64           page_size;
    buffer_handle    image_buffer;
-   superblock      *image;        // page-aligned, page-sized
-   uint64           current_slot; // slot the in-memory image was last read/written
+   superblock      *image; // page-aligned, page-sized
+   uint64 current_slot;    // slot the in-memory image was last read/written
 } superblock_context;
 
 /*
@@ -120,10 +115,10 @@ superblock_read_geometry(const char *filename, disk_geometry *geometry);
 
 /* Allocate the in-memory image.  Does no I/O. */
 platform_status
-superblock_context_init(superblock_context *ctx,
-                        io_handle          *io,
+superblock_context_init(superblock_context     *ctx,
+                        io_handle              *io,
                         const allocator_config *cfg,
-                        platform_heap_id    hid);
+                        platform_heap_id        hid);
 
 void
 superblock_context_deinit(superblock_context *ctx);
@@ -165,33 +160,15 @@ superblock_allocation_state_addr(const superblock_context *ctx);
 void
 superblock_set_allocation_state_addr(superblock_context *ctx, uint64 addr);
 
-/*
- * Copy the tree record for table_id into *out.  Returns STATUS_NOT_FOUND if
- * table_id has no record.
- */
-platform_status
+/* Copy the (always-present) tree record into *out. */
+void
 superblock_get_tree_record(const superblock_context *ctx,
-                           allocator_root_id         table_id,
                            superblock_tree_record   *out);
 
 /*
- * Upsert rec into the in-memory image, matched by rec->table_id.  A new
- * table_id claims a free slot; STATUS_NO_SPACE if none remain.  In-memory
- * only; not durable until superblock_publish().
+ * Store rec as the tree record.  In-memory only; not durable until
+ * superblock_publish().
  */
-platform_status
+void
 superblock_set_tree_record(superblock_context           *ctx,
                            const superblock_tree_record *rec);
-
-/*
- * Remove the tree record for table_id from the in-memory image, freeing its
- * slot.  Returns STATUS_NOT_FOUND if table_id has no record.  In-memory only;
- * not durable until superblock_publish().
- */
-platform_status
-superblock_remove_tree_record(superblock_context *ctx,
-                              allocator_root_id   table_id);
-
-/* Number of occupied tree records in the in-memory image. */
-uint64
-superblock_num_trees(const superblock_context *ctx);

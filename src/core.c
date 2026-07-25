@@ -157,15 +157,15 @@ core_capture_checkpoint_cut(core_handle    *spl,
 
 /*
  * Publish a tree-record root advance to the superblock: capture the current
- * COW root, make it durable, record it (with the incorporated-generation cut
- * and the unmounted flag), invalidate the persisted allocation state in the
- * same atomic update, and release the previously published root.  Used by mkfs
- * (empty root) and by unmount (Part A; unmount then persists the map and
- * republishes a valid allocation state).  The snapshot's owned reference is
- * transferred to the durable record on a successful publish.
+ * COW root, make it durable, record it (with the incorporated-generation cut),
+ * invalidate the persisted allocation state in the same atomic update, and
+ * release the previously published root.  Used by mkfs (empty root) and by
+ * unmount (Part A; unmount then persists the map and republishes a valid
+ * allocation state).  The snapshot's owned reference is transferred to the
+ * durable record on a successful publish.
  */
 static platform_status
-core_publish_root_record(core_handle *spl, bool32 is_unmount)
+core_publish_root_record(core_handle *spl)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
@@ -207,24 +207,17 @@ core_publish_root_record(core_handle *spl, bool32 is_unmount)
    }
 
    // The previously published root, retained until the new one is durable.
-   if (SUCCESS(superblock_get_tree_record(&spl->superblock, spl->id, &old_rec)))
-   {
-      old_root_addr = old_rec.root_addr;
-   }
+   superblock_get_tree_record(&spl->superblock, &old_rec);
+   old_root_addr = old_rec.root_addr;
 
    ZERO_CONTENTS(&rec);
-   rec.table_id                = spl->id;
    rec.root_addr               = snapshot.root_addr;
    rec.log_meta_head           = 0; // set once the per-tree log is wired
    rec.incorporated_generation = has_incorporated_generation
                                     ? incorporated_generation
                                     : SUPERBLOCK_NO_INCORPORATED_GENERATION;
-   rec.unmounted               = is_unmount;
 
-   rc = superblock_set_tree_record(&spl->superblock, &rec);
-   if (!SUCCESS(rc)) {
-      goto release_snapshot;
-   }
+   superblock_set_tree_record(&spl->superblock, &rec);
    /*
     * Advancing a root invalidates the persisted allocation map: the in-memory
     * map now diverges from disk.  A clean unmount republishes a valid
@@ -2006,7 +1999,7 @@ core_mkfs(core_handle      *spl,
    }
 
    // Establish the initial (empty) tree record; publish it durably.
-   rc = core_publish_root_record(spl, FALSE);
+   rc = core_publish_root_record(spl);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: core_publish_root_record failed: %s\n",
                          platform_status_to_string(rc));
@@ -2079,21 +2072,18 @@ core_mount(core_handle      *spl,
    }
 
    superblock_tree_record rec;
-   rc = superblock_get_tree_record(&spl->superblock, spl->id, &rec);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: no tree record for root id %lu\n",
-                         spl->id);
-      goto deinit_superblock;
-   }
+   superblock_get_tree_record(&spl->superblock, &rec);
 
    /*
     * Preserve the historical clean-only mount rule for this first format
     * slice: crash recovery (log replay + allocator rebuild) is not wired yet,
-    * so only a clean unmount -- one whose tree record is flagged unmounted and
-    * whose allocation state is still valid -- may supply the root.
+    * so only a clean at-rest instance -- one whose allocation state is still
+    * valid -- may supply the root.  A valid allocation state is published only
+    * at the end of a clean unmount, so it is the single at-rest signal (no
+    * separate per-tree clean flag is needed; see superblock.h).
     */
    bool32 rebuild = !superblock_allocation_state_valid(&spl->superblock);
-   if (rebuild || !rec.unmounted) {
+   if (rebuild) {
       platform_error_log("core_mount: root id %lu requires crash recovery\n",
                          spl->id);
       rc = STATUS_INVALID_STATE;
@@ -2172,17 +2162,12 @@ core_mount(core_handle      *spl,
    }
 
    /*
-    * Mark dirty: flip the tree record to not-unmounted and invalidate the
-    * persisted allocation state, atomically, before any allocation diverges
-    * the in-memory map from disk.  A crash after this forces the next mount
-    * into recovery instead of silently reverting to this now-stale root.  This
-    * keeps the same root (no snapshot capture, no refcount change).
+    * Mark dirty: invalidate the persisted allocation state before any
+    * allocation diverges the in-memory map from disk.  A crash after this
+    * forces the next mount into recovery instead of silently reverting to this
+    * now-stale root.  The tree record itself is unchanged (same root), so only
+    * the allocation state is republished.
     */
-   rec.unmounted = FALSE;
-   rc            = superblock_set_tree_record(&spl->superblock, &rec);
-   if (!SUCCESS(rc)) {
-      goto deinit_stats;
-   }
    superblock_set_allocation_state_addr(&spl->superblock, 0);
    rc = superblock_publish(&spl->superblock);
    if (!SUCCESS(rc)) {
@@ -2322,7 +2307,7 @@ core_unmount(core_handle *spl)
     * Part A: publish the clean-unmount root.  Allocation state stays invalid
     * here; it becomes valid only in Part B, after the map is persisted.
     */
-   rc = core_publish_root_record(spl, TRUE);
+   rc = core_publish_root_record(spl);
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
@@ -2379,9 +2364,8 @@ core_destroy(core_handle *spl)
     * trunk_context_deinit(): trunk_snapshot_release() needs the live context.
     */
    superblock_tree_record rec;
-   if (SUCCESS(superblock_get_tree_record(&spl->superblock, spl->id, &rec))
-       && rec.root_addr != 0)
-   {
+   superblock_get_tree_record(&spl->superblock, &rec);
+   if (rec.root_addr != 0) {
       trunk_snapshot  old_snapshot = {.root_addr = rec.root_addr};
       platform_status rc =
          trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
@@ -2396,20 +2380,13 @@ core_destroy(core_handle *spl)
    core_teardown_after_shutdown(spl);
    trunk_context_deinit(&spl->trunk_context);
 
-   // Erase this tree's record and persist a clean, valid allocation state.
-   superblock_remove_tree_record(&spl->superblock, spl->id);
-   uint64          map_addr;
-   platform_status prc = allocator_persist(spl->al, &map_addr);
-   if (SUCCESS(prc)) {
-      superblock_set_allocation_state_addr(&spl->superblock, map_addr);
-      prc = superblock_publish(&spl->superblock);
-   }
-   if (!SUCCESS(prc)) {
-      platform_error_log("core_destroy: failed to persist allocation state: "
-                         "%s\n",
-                         platform_status_to_string(prc));
-   }
-
+   /*
+    * A destroyed instance must not be reopened.  The mount-time mark-dirty
+    * already left the on-disk allocation state invalid, so we deliberately do
+    * not persist the map or publish a valid state here: the freed root and its
+    * subtree stay unreachable, and the next mount rejects the device
+    * (allocation state invalid) rather than trusting a now-freed root.
+    */
    superblock_context_deinit(&spl->superblock);
    core_destroy_stats(spl);
    core_checkpoint_lock_deinit(spl);
@@ -2452,25 +2429,18 @@ void
 core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 {
    superblock_tree_record rec;
-   platform_status        rc =
-      superblock_get_tree_record(&spl->superblock, spl->id, &rec);
-   if (!SUCCESS(rc)) {
-      platform_log(
-         log_handle, "No superblock tree record for root id %lu\n", spl->id);
-      return;
-   }
+   superblock_get_tree_record(&spl->superblock, &rec);
 
    platform_log(log_handle,
                 "Superblock tree record root_id=%lu {\n"
                 "  root_addr=%lu log_meta_head=%lu\n"
-                "  incorporated_generation=%lu unmounted=%d\n"
+                "  incorporated_generation=%lu\n"
                 "  allocation_state: %s (addr=%lu)\n"
                 "}\n\n",
-                rec.table_id,
+                spl->id,
                 rec.root_addr,
                 rec.log_meta_head,
                 rec.incorporated_generation,
-                rec.unmounted,
                 superblock_allocation_state_valid(&spl->superblock) ? "valid"
                                                                     : "invalid",
                 superblock_allocation_state_addr(&spl->superblock));
