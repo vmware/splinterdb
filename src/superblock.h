@@ -45,26 +45,47 @@
 #define SUPERBLOCK_NUM_SLOTS (2)
 
 /*
+ * A log's on-disk identity.  Mirrors log_segment_info's layout; the superblock
+ * stores it opaquely and does not depend on the log module.  meta_addr == 0
+ * means "no log present".
+ */
+typedef struct ONDISK superblock_log_info {
+   uint64 addr;
+   uint64 meta_addr;
+   uint64 magic;
+} superblock_log_info;
+
+/* An empty (absent) log slot: meta_addr == 0. */
+#define SUPERBLOCK_NO_LOG(info) ((info).meta_addr == 0)
+
+/*
  * The durable per-tree record.  The instance always has exactly one tree (from
- * mkfs onward), so the record carries no id or occupancy marker.  log_meta_head
- * is format headroom for the segmented log (the oldest live segment, from whose
- * start recovery replays); it is 0 until the log is wired.
+ * mkfs onward), so the record carries no id or occupancy marker.
  *
- * There is intentionally no clean/dirty ("unmounted") flag: recovery replays
- * from a segment boundary and skips records whose generation is at or below
- * incorporated_generation, which makes a clean root's replay a no-op.  So the
- * superblock's allocation_state_addr validity is the single at-rest signal.
+ * The two log pointers implement the two-log checkpoint protocol: live_log is
+ * the stream currently receiving inserts; sealed_log is set only while a
+ * checkpoint is in progress -- the just-sealed stream whose entries are being
+ * folded into the new root.  At rest (between checkpoints, and after a clean
+ * unmount) sealed_log is empty.  On crash recovery the sealed log (if present)
+ * then the live log are replayed onto root_addr, skipping entries at or below
+ * incorporated_generation.
+ *
+ * There is intentionally no clean/dirty ("unmounted") flag: replaying a clean
+ * root is a no-op because every entry is at or below incorporated_generation,
+ * so the superblock's allocation_state_addr validity is the single at-rest
+ * signal.
  */
 typedef struct ONDISK superblock_tree_record {
    uint64 root_addr;
-   uint64 log_meta_head; // oldest live log segment = replay start (0 until wired)
    /*
     * Highest memtable generation folded into root_addr; UINT64_MAX means none
     * has been incorporated yet (distinct from generation 0, which is a real,
-    * live generation).  Drives memtable-generation resume at mount and, once
-    * the log is wired, the replay-skip boundary.
+    * live generation).  Drives memtable-generation resume at mount and the
+    * replay-skip boundary.
     */
-   uint64 incorporated_generation;
+   uint64              incorporated_generation;
+   superblock_log_info live_log;
+   superblock_log_info sealed_log;
 } superblock_tree_record;
 
 /* Sentinel for superblock_tree_record.incorporated_generation. */

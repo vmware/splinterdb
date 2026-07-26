@@ -212,10 +212,12 @@ core_publish_root_record(core_handle *spl)
 
    ZERO_CONTENTS(&rec);
    rec.root_addr               = snapshot.root_addr;
-   rec.log_meta_head           = 0; // set once the per-tree log is wired
    rec.incorporated_generation = has_incorporated_generation
                                     ? incorporated_generation
                                     : SUPERBLOCK_NO_INCORPORATED_GENERATION;
+   // Carry the log pointers across a root advance (wired fully in Stage B/C).
+   rec.live_log   = old_rec.live_log;
+   rec.sealed_log = old_rec.sealed_log;
 
    superblock_set_tree_record(&spl->superblock, &rec);
    /*
@@ -2439,14 +2441,20 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 
    platform_log(log_handle,
                 "Superblock tree record root_id=%lu {\n"
-                "  root_addr=%lu log_meta_head=%lu\n"
-                "  incorporated_generation=%lu\n"
+                "  root_addr=%lu incorporated_generation=%lu\n"
+                "  live_log:   meta_addr=%lu addr=%lu magic=%lu\n"
+                "  sealed_log: meta_addr=%lu addr=%lu magic=%lu\n"
                 "  allocation_state: %s (addr=%lu)\n"
                 "}\n\n",
                 spl->id,
                 rec.root_addr,
-                rec.log_meta_head,
                 rec.incorporated_generation,
+                rec.live_log.meta_addr,
+                rec.live_log.addr,
+                rec.live_log.magic,
+                rec.sealed_log.meta_addr,
+                rec.sealed_log.addr,
+                rec.sealed_log.magic,
                 superblock_allocation_state_valid(&spl->superblock) ? "valid"
                                                                     : "invalid",
                 superblock_allocation_state_addr(&spl->superblock));

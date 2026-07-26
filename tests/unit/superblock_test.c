@@ -125,8 +125,8 @@ CTEST2(superblock, test_publish_persists_tree_record)
 
    superblock_tree_record rec = {
       .root_addr               = 0x4000,
-      .log_meta_head           = 0,
       .incorporated_generation = SUPERBLOCK_NO_INCORPORATED_GENERATION,
+      .live_log                = {.addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11},
    };
    superblock_set_tree_record(&ctx, &rec);
    superblock_set_allocation_state_addr(&ctx, 0x8000);
@@ -144,6 +144,124 @@ CTEST2(superblock, test_publish_persists_tree_record)
    superblock_tree_record got;
    superblock_get_tree_record(&ctx, &got);
    ASSERT_EQUAL(0x4000, got.root_addr);
+   ASSERT_EQUAL(0x6000, got.live_log.addr);
+   ASSERT_EQUAL(0x8000, got.live_log.meta_addr);
+   ASSERT_EQUAL(0x11, got.live_log.magic);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log)); // no checkpoint in progress
+   superblock_context_deinit(&ctx);
+}
+
+/* Steady, begin-checkpoint, and complete-checkpoint tree-record states. */
+static const superblock_log_info TEST_LOG_L1 = {
+   .addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11};
+static const superblock_log_info TEST_LOG_L2 = {
+   .addr = 0x10000, .meta_addr = 0x12000, .magic = 0x22};
+
+/*
+ * Walk the two-log checkpoint state machine through the superblock and confirm
+ * each published state reads back: steady {root R0, live L1, no sealed} ->
+ * begin {root R0, sealed L1, live L2} -> complete {root R1, live L2, no sealed}.
+ */
+CTEST2(superblock, test_two_log_checkpoint_transitions)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_tree_record rec = {
+      .root_addr               = 0x4000,
+      .incorporated_generation = 5,
+      .live_log                = TEST_LOG_L1,
+   };
+   superblock_set_tree_record(&ctx, &rec);
+   rc = superblock_publish(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // Begin: seal L1 -> sealed_log, new live L2.
+   rec.sealed_log = rec.live_log;
+   rec.live_log   = TEST_LOG_L2;
+   superblock_set_tree_record(&ctx, &rec);
+   rc = superblock_publish(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_tree_record got;
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_EQUAL(TEST_LOG_L1.meta_addr, got.sealed_log.meta_addr);
+   ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
+
+   // Complete: advance root, clear sealed_log.
+   rec.root_addr               = 0x4400;
+   rec.incorporated_generation = 9;
+   rec.sealed_log              = (superblock_log_info){0};
+   superblock_set_tree_record(&ctx, &rec);
+   rc = superblock_publish(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+
+   // A fresh mount reads the completed state.
+   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_mount(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_EQUAL(0x4400, got.root_addr);
+   ASSERT_EQUAL(9, got.incorporated_generation);
+   ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
+   superblock_context_deinit(&ctx);
+}
+
+/*
+ * A torn begin-checkpoint publish must leave the previous (steady) generation
+ * intact: mount falls back to {root R0, live L1, no sealed}, which recovery can
+ * replay -- never to a half-written checkpoint.
+ */
+CTEST2(superblock, test_two_log_checkpoint_torn_begin)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg); // slot0=gen1, slot1=gen2
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // Publish the steady state into BOTH slots (gen3->slot0, gen4->slot1), so the
+   // fallback below is unambiguously the steady state, not the empty format one.
+   superblock_tree_record rec = {
+      .root_addr               = 0x4000,
+      .incorporated_generation = 5,
+      .live_log                = TEST_LOG_L1,
+   };
+   superblock_set_tree_record(&ctx, &rec);
+   rc = superblock_publish(&ctx); // gen3 -> slot0
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_publish(&ctx); // gen4 -> slot1
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // Begin checkpoint: this publish (gen5) targets slot0.
+   rec.sealed_log = rec.live_log;
+   rec.live_log   = TEST_LOG_L2;
+   superblock_set_tree_record(&ctx, &rec);
+   rc = superblock_publish(&ctx); // gen5 -> slot0
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+
+   // Tear the begin publish (newest slot, slot0/gen5).
+   superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
+
+   // Mount falls back to slot1 (gen4) = steady: live L1, no sealed.
+   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_mount(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_tree_record got;
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_EQUAL(0x4000, got.root_addr);
+   ASSERT_EQUAL(TEST_LOG_L1.meta_addr, got.live_log.meta_addr);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
    superblock_context_deinit(&ctx);
 }
 
