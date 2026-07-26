@@ -767,11 +767,6 @@ core_memtable_flush_internal_virtual(task *arg)
 /*
  * Function to trigger a memtable incorporation. Called in the context of
  * the foreground doing insertions.
- * If background threads are not enabled, this function does the entire memtable
- * incorporation inline.
- * If background threads are enabled, this function just queues up the task to
- * carry out the incorporation, swaps the curr_memtable pointer, claims the
- * root and returns.
  */
 static void
 core_memtable_flush(core_handle *spl, uint64 generation)
@@ -2303,7 +2298,8 @@ core_teardown_after_shutdown(core_handle *spl)
    memtable_context_deinit(&spl->mt_ctxt);
 
    // flush all dirty pages in the cache.  The live log has already been sealed
-   // by the caller (core_seal_live_log); its extents are freed after this flush.
+   // by the caller (core_seal_live_log); its extents are freed after this
+   // flush.
    cache_flush(spl->cc);
 }
 
