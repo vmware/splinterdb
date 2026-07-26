@@ -41,6 +41,7 @@ typedef struct shard_log {
    log_handle            super; // handle to log I/O ops abstraction.
    cache                *cc;
    shard_log_config     *cfg;
+   platform_heap_id      heap_id; // heap the handle was allocated from; freed by seal
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
    uint64                addr;
@@ -75,24 +76,13 @@ typedef struct ONDISK shard_log_hdr {
    uint16      num_entries;
 } shard_log_hdr;
 
-platform_status
-shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg);
-
-platform_status
-shard_log_rotate(log_handle       *log,
-                 log_segment_info *sealed,
-                 log_segment_info *fresh);
-
-void
-shard_log_zap(shard_log *log);
-
 /*
- * Drop the external mini-allocator ownership transferred to a detached
- * segment. It is for failed rotation cleanup and tests; persisted segment
- * descriptors will eventually own and release this reference instead.
+ * Release a sealed log segment: drop the mini-allocator reference its metadata
+ * extent holds, freeing the segment's on-disk extents.  Identified by
+ * log_segment_info (no handle needed -- the handle was freed by log_seal()).
  */
 void
-shard_log_segment_discard(cache *cc, const log_segment_info *segment);
+shard_log_dec_ref(cache *cc, const log_segment_info *segment);
 
 platform_status
 shard_log_iterator_init(cache              *cc,

@@ -34,41 +34,29 @@ typedef int (*log_write_fn)(log_handle *log,
                             uint64      memtable_generation,
                             uint64      leaf_generation);
 /*
- * Finalize the current append pages into checksummed, immutable pages.
+ * Finalize and retire the log stream, terminally.  Finalizes the current
+ * append pages into checksummed, immutable pages, releases in-memory
+ * resources, and frees the handle (which is invalid afterward).
  *
- * The caller must exclude concurrent log_write() calls until it has taken the
- * cache writeback fence that is to make the pages durable.  It must also
- * serialize concurrent log_seal() calls.  seal() itself does not issue I/O or
- * a durable barrier.
- *
- * This is deliberately not a persisted replay-boundary descriptor.  A log
- * implementation whose metadata can grow after sealing needs an additional
- * boundary in the checkpoint record to exclude those later entries.
+ * The caller must exclude concurrent log_write() and log_seal() calls.  seal()
+ * itself issues no writeback or durable barrier: to make the sealed pages
+ * durable, the caller takes the cache writeback fence + a durable barrier
+ * afterward.  The stream's identity is fixed at log_create() and obtained then
+ * via log_get_segment_info(), so seal needs no identity out-parameter; the
+ * caller frees the on-disk extents later via log_dec_ref().
  */
 typedef platform_status (*log_seal_fn)(log_handle *log);
 /*
- * Detach the current stream after sealing it and prepare a distinct fresh
- * stream. The caller must exclude writes throughout the operation and make
- * the returned identities durable before allowing writes to the fresh stream.
- * A zero sealed.meta_addr means the old stream was empty and discarded.
- * Rotation alone does not advance the logical durable-log tail: that requires
- * a separate, durable tail/manifest publication by the caller.
+ * The stream's durable identity, fixed at creation.  The caller records it
+ * (e.g. in the superblock) as soon as the log is created, so that a crash
+ * mid-stream can find the stream for replay.
  */
-typedef platform_status (*log_rotate_fn)(log_handle       *log,
-                                         log_segment_info *sealed,
-                                         log_segment_info *fresh);
-typedef void (*log_release_fn)(log_handle *log);
-typedef uint64 (*log_addr_fn)(log_handle *log);
-typedef uint64 (*log_magic_fn)(log_handle *log);
+typedef log_segment_info (*log_segment_info_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_fn   write;
-   log_seal_fn    seal;
-   log_rotate_fn  rotate;
-   log_release_fn release;
-   log_addr_fn    addr;
-   log_addr_fn    meta_addr;
-   log_magic_fn   magic;
+   log_write_fn        write;
+   log_seal_fn         seal;
+   log_segment_info_fn segment_info;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -88,8 +76,10 @@ log_write(log_handle *log,
 }
 
 /*
- * Finalize the log's current append pages.  See log_seal_fn for the required
- * exclusion, boundary, and durability ordering.
+ * Finalize and retire the log, freeing the handle.  See log_seal_fn for the
+ * required exclusion and durability ordering; the handle is invalid after this
+ * returns.  Capture the identity via log_get_segment_info() beforehand (it is
+ * fixed at creation).
  */
 static inline platform_status
 log_seal(log_handle *log)
@@ -97,34 +87,11 @@ log_seal(log_handle *log)
    return log->ops->seal(log);
 }
 
-static inline platform_status
-log_rotate(log_handle *log, log_segment_info *sealed, log_segment_info *fresh)
+/* The stream's durable identity (fixed at creation).  See log_segment_info_fn. */
+static inline log_segment_info
+log_get_segment_info(log_handle *log)
 {
-   return log->ops->rotate(log, sealed, fresh);
-}
-
-static inline void
-log_release(log_handle *log)
-{
-   log->ops->release(log);
-}
-
-static inline uint64
-log_addr(log_handle *log)
-{
-   return log->ops->addr(log);
-}
-
-static inline uint64
-log_meta_addr(log_handle *log)
-{
-   return log->ops->meta_addr(log);
-}
-
-static inline uint64
-log_magic(log_handle *log)
-{
-   return log->ops->magic(log);
+   return log->ops->segment_info(log);
 }
 
 log_handle *

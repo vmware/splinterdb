@@ -2276,10 +2276,16 @@ core_teardown_after_shutdown(core_handle *spl)
    // Keep this after checkpoint publication: it supplies the generation cut.
    memtable_context_deinit(&spl->mt_ctxt);
 
-   // Keep the log alive through clean-record publication. A later explicit
-   // tail-sync protocol will own its immutable log metadata separately.
+   /*
+    * The log is not yet wired to the superblock, so we simply seal it -- which
+    * finalizes its pages, releases its in-memory resources, and frees the
+    * handle.  When the log is wired, the live log's identity (captured at
+    * creation via log_get_segment_info()) will already be recorded in the
+    * superblock, and unmount will free its extents (log_dec_ref) once the
+    * segment is no longer needed.
+    */
    if (spl->cfg.use_log) {
-      platform_free(spl->heap_id, spl->log);
+      log_seal(spl->log);
       spl->log = NULL;
    }
 

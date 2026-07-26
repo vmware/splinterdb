@@ -33,27 +33,13 @@ shard_log_write(log_handle *log,
                 uint64      leaf_generation);
 platform_status
 shard_log_seal(log_handle *log);
-platform_status
-shard_log_rotate(log_handle       *log,
-                 log_segment_info *sealed,
-                 log_segment_info *fresh);
-void
-shard_log_release(log_handle *log);
-uint64
-shard_log_addr(log_handle *log);
-uint64
-shard_log_meta_addr(log_handle *log);
-uint64
-shard_log_magic(log_handle *log);
+log_segment_info
+shard_log_get_segment_info(log_handle *log);
 
 static log_ops shard_log_ops = {
-   .write     = shard_log_write,
-   .seal      = shard_log_seal,
-   .rotate    = shard_log_rotate,
-   .release   = shard_log_release,
-   .addr      = shard_log_addr,
-   .meta_addr = shard_log_meta_addr,
-   .magic     = shard_log_magic,
+   .write        = shard_log_write,
+   .seal         = shard_log_seal,
+   .segment_info = shard_log_get_segment_info,
 };
 
 void
@@ -114,7 +100,7 @@ shard_log_alloc(shard_log *log, uint64 *next_extent)
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
-platform_status
+static platform_status
 shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
 {
    memset(log, 0, sizeof(shard_log));
@@ -147,28 +133,6 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
    // log->meta_head);
 
    return STATUS_OK;
-}
-
-void
-shard_log_zap(shard_log *log)
-{
-   cache *cc = log->cc;
-
-   for (threadid i = 0; i < MAX_THREADS; i++) {
-      shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
-      thread_data->addr                  = SHARD_UNMAPPED;
-      thread_data->offset                = 0;
-   }
-
-   if (log->meta_head != 0) {
-      /* Drop unused per-batch reserves before releasing the mini root. */
-      mini_release(&log->mini);
-      refcount ref = mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
-      platform_assert(ref == 0);
-      log->meta_head = 0;
-      log->addr      = 0;
-      log->has_pages = FALSE;
-   }
 }
 
 /*
@@ -385,18 +349,18 @@ shard_log_write(log_handle *logh,
 /*
  * shard_log_seal --
  *
- *     Finalize every currently active per-thread append page.  This is
- *     deliberately bounded by MAX_THREADS: it does not walk the historical
- *     log.  A final terminal record (where there is room) and checksum make
- *     each page readable by shard_log_iterator_init(), then clearing the
- *     append cursor ensures a subsequent writer allocates a new page instead
- *     of changing the sealed one.
+ *     Finalize and retire a log stream, terminally.  Finalizes every currently
+ *     active per-thread append page (bounded by MAX_THREADS; it does not walk
+ *     the historical log): a terminal record (where there is room) and checksum
+ *     make each page readable by shard_log_iterator_init().  Then it releases
+ *     the mini-allocator's unused reserve and frees the handle.  After seal the
+ *     handle is invalid; the caller retains the identity it captured earlier
+ *     (shard_log_get_segment_info(), fixed at creation) to reopen the stream
+ *     for replay and, eventually, to free its extents via shard_log_dec_ref().
  *
  *     The caller must prevent concurrent shard_log_write() and seal calls.
- *     In particular, thread_data is otherwise only protected by the
- *     per-thread writer convention, not by a log-wide lock. This function
- *     intentionally does not issue writeback: after establishing that
- *     exclusion, the caller takes cache_writeback_dirty(), followed by a
+ *     seal itself issues no writeback or durable barrier: to make the sealed
+ *     pages durable, the caller takes cache_writeback_dirty() followed by a
  *     durable barrier.
  */
 platform_status
@@ -444,73 +408,19 @@ shard_log_seal(log_handle *logh)
       thread_data->offset = 0;
    }
 
-   return STATUS_OK;
-}
-
-/*
- * Detach a sealed stream from the live log. The original allocation reference
- * on its metadata extent is transferred to sealed; an eventual durable
- * descriptor must own that reference. A fresh mini allocator is prepared
- * before the old stream is sealed, so core can publish the fresh identity
- * while inserts remain excluded. This only prepares a physical boundary; it
- * does not publish or advance the logical durable-log tail.
- */
-platform_status
-shard_log_rotate(log_handle       *logh,
-                 log_segment_info *sealed,
-                 log_segment_info *fresh_info)
-{
-   shard_log *log = (shard_log *)logh;
-   shard_log  fresh;
-
-   platform_assert(sealed != NULL);
-   platform_assert(fresh_info != NULL);
-   ZERO_CONTENTS(sealed);
-   ZERO_CONTENTS(fresh_info);
-
-   platform_status rc = shard_log_init(&fresh, log->cc, log->cfg);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   rc = shard_log_seal(logh);
-   if (!SUCCESS(rc)) {
-      shard_log_zap(&fresh);
-      return rc;
-   }
-
-   /* No future allocation may use the old mini allocator. */
+   /*
+    * The stream is now immutable.  Release the mini-allocator's unused
+    * per-batch reserve so no future allocation touches this stream, and free
+    * the handle.  The caller already holds the stream's identity (captured at
+    * creation) and later frees the on-disk extents via shard_log_dec_ref().
+    */
    mini_release(&log->mini);
-
-   if (log->has_pages) {
-      *sealed = (log_segment_info){
-         .addr      = log->addr,
-         .meta_addr = log->meta_head,
-         .magic     = log->magic,
-      };
-   } else {
-      /* An empty segment has no descriptor and no retained ownership. */
-      refcount ref = mini_dec_ref(log->cc, log->meta_head, PAGE_TYPE_LOG);
-      platform_assert(ref == 0);
-   }
-
-   log->mini      = fresh.mini;
-   log->addr      = fresh.addr;
-   log->meta_head = fresh.meta_head;
-   log->magic     = fresh.magic;
-   log->has_pages = FALSE;
-   memcpy(log->thread_data, fresh.thread_data, sizeof(log->thread_data));
-
-   *fresh_info = (log_segment_info){
-      .addr      = log->addr,
-      .meta_addr = log->meta_head,
-      .magic     = log->magic,
-   };
+   platform_free(log->heap_id, log);
    return STATUS_OK;
 }
 
 void
-shard_log_segment_discard(cache *cc, const log_segment_info *segment)
+shard_log_dec_ref(cache *cc, const log_segment_info *segment)
 {
    if (segment->meta_addr == 0) {
       return;
@@ -519,31 +429,15 @@ shard_log_segment_discard(cache *cc, const log_segment_info *segment)
    platform_assert(ref == 0);
 }
 
-void
-shard_log_release(log_handle *logh)
-{
-   shard_log_zap((shard_log *)logh);
-}
-
-uint64
-shard_log_addr(log_handle *logh)
+log_segment_info
+shard_log_get_segment_info(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   return log->addr;
-}
-
-uint64
-shard_log_meta_addr(log_handle *logh)
-{
-   shard_log *log = (shard_log *)logh;
-   return log->meta_head;
-}
-
-uint64
-shard_log_magic(log_handle *logh)
-{
-   shard_log *log = (shard_log *)logh;
-   return log->magic;
+   return (log_segment_info){
+      .addr      = log->addr,
+      .meta_addr = log->meta_head,
+      .magic     = log->magic,
+   };
 }
 
 bool32
@@ -599,6 +493,9 @@ log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
       platform_free(hid, slog);
       return NULL;
    }
+   // Remember the heap so log_seal() can free the handle without the caller
+   // touching platform_free() directly.
+   slog->heap_id = hid;
    return (log_handle *)slog;
 }
 
