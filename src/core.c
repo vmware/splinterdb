@@ -156,16 +156,30 @@ core_capture_checkpoint_cut(core_handle    *spl,
 }
 
 /*
+ * Translate between the log module's log_segment_info and the superblock's
+ * (layout-identical but module-independent) superblock_log_info.
+ */
+static superblock_log_info
+core_log_to_superblock(log_segment_info info)
+{
+   return (superblock_log_info){
+      .addr = info.addr, .meta_addr = info.meta_addr, .magic = info.magic};
+}
+
+/*
  * Publish a tree-record root advance to the superblock: capture the current
- * COW root, make it durable, record it (with the incorporated-generation cut),
- * invalidate the persisted allocation state in the same atomic update, and
- * release the previously published root.  Used by mkfs (empty root) and by
- * unmount (Part A; unmount then persists the map and republishes a valid
- * allocation state).  The snapshot's owned reference is transferred to the
- * durable record on a successful publish.
+ * COW root, make it durable, record it (with the incorporated-generation cut
+ * and the given live/sealed log pointers), invalidate the persisted allocation
+ * state in the same atomic update, and release the previously published root.
+ * Used by mkfs (empty root, records the new live log) and by unmount (Part A;
+ * unmount then persists the map and republishes a valid allocation state).  The
+ * snapshot's owned reference is transferred to the durable record on a
+ * successful publish.
  */
 static platform_status
-core_publish_root_record(core_handle *spl)
+core_publish_root_record(core_handle        *spl,
+                         superblock_log_info live_log,
+                         superblock_log_info sealed_log)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
@@ -215,9 +229,8 @@ core_publish_root_record(core_handle *spl)
    rec.incorporated_generation = has_incorporated_generation
                                     ? incorporated_generation
                                     : SUPERBLOCK_NO_INCORPORATED_GENERATION;
-   // Carry the log pointers across a root advance (wired fully in Stage B/C).
-   rec.live_log   = old_rec.live_log;
-   rec.sealed_log = old_rec.sealed_log;
+   rec.live_log                = live_log;
+   rec.sealed_log              = sealed_log;
 
    superblock_set_tree_record(&spl->superblock, &rec);
    /*
@@ -2000,8 +2013,13 @@ core_mkfs(core_handle      *spl,
       goto deinit_trunk_context;
    }
 
-   // Establish the initial (empty) tree record; publish it durably.
-   rc = core_publish_root_record(spl);
+   // Establish the initial (empty) tree record, recording the live log; publish
+   // it durably.  No sealed log at mkfs.
+   superblock_log_info live_log = {0};
+   if (spl->cfg.use_log) {
+      live_log = core_log_to_superblock(log_get_segment_info(spl->log));
+   }
+   rc = core_publish_root_record(spl, live_log, (superblock_log_info){0});
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: core_publish_root_record failed: %s\n",
                          platform_status_to_string(rc));
@@ -2164,12 +2182,18 @@ core_mount(core_handle      *spl,
    }
 
    /*
-    * Mark dirty: invalidate the persisted allocation state before any
-    * allocation diverges the in-memory map from disk.  A crash after this
-    * forces the next mount into recovery instead of silently reverting to this
-    * now-stale root.  The tree record itself is unchanged (same root), so only
-    * the allocation state is republished.
+    * Mark dirty: record this session's fresh live log and invalidate the
+    * persisted allocation state, before any allocation diverges the in-memory
+    * map from disk.  A crash after this forces the next mount into recovery
+    * instead of silently reverting to this now-stale root.  The root is
+    * unchanged; a clean mount has no sealed log.
     */
+   superblock_get_tree_record(&spl->superblock, &rec);
+   rec.sealed_log = (superblock_log_info){0};
+   rec.live_log   = spl->cfg.use_log
+                       ? core_log_to_superblock(log_get_segment_info(spl->log))
+                       : (superblock_log_info){0};
+   superblock_set_tree_record(&spl->superblock, &rec);
    superblock_set_allocation_state_addr(&spl->superblock, 0);
    rc = superblock_publish(&spl->superblock);
    if (!SUCCESS(rc)) {
@@ -2278,21 +2302,119 @@ core_teardown_after_shutdown(core_handle *spl)
    // Keep this after checkpoint publication: it supplies the generation cut.
    memtable_context_deinit(&spl->mt_ctxt);
 
-   /*
-    * The log is not yet wired to the superblock, so we simply seal it -- which
-    * finalizes its pages, releases its in-memory resources, and frees the
-    * handle.  When the log is wired, the live log's identity (captured at
-    * creation via log_get_segment_info()) will already be recorded in the
-    * superblock, and unmount will free its extents (log_dec_ref) once the
-    * segment is no longer needed.
-    */
+   // flush all dirty pages in the cache.  The live log has already been sealed
+   // by the caller (core_seal_live_log); its extents are freed after this flush.
+   cache_flush(spl->cc);
+}
+
+/*
+ * Seal the live log at shutdown -- finalizes its pages and frees the handle --
+ * and return its identity so the caller can free the extents with log_dec_ref()
+ * once the cache is flushed.  A clean shutdown has folded everything into the
+ * durable root, so the live log is fully incorporated and discardable.  Returns
+ * an empty descriptor when logging is disabled.
+ */
+static log_segment_info
+core_seal_live_log(core_handle *spl)
+{
+   if (!spl->cfg.use_log || spl->log == NULL) {
+      return (log_segment_info){0};
+   }
+   log_segment_info info = log_get_segment_info(spl->log);
+   log_seal(spl->log);
+   spl->log = NULL;
+   return info;
+}
+
+/*
+ * Take a checkpoint: advance the durable root, rotating the log via the two-log
+ * protocol.  Call at a quiescent point (no concurrent inserts).
+ *
+ * Two superblock publishes bracket the incorporation, so a crash mid-checkpoint
+ * recovers to a well-defined state:
+ *
+ *   begin    -> {root = C_prev, sealed = old live log, live = new log}
+ *   (fold the sealed log's entries into the trunk, advancing the COW root)
+ *   complete -> {root = C_new (incorporates the sealed log), sealed = empty}
+ *
+ * then the sealed log's extents are freed.  With logging disabled it is simply
+ * an incorporate + durable-root advance (no log to rotate).
+ */
+platform_status
+core_checkpoint(core_handle *spl)
+{
+   platform_status     rc;
+   superblock_log_info new_live = {0};
+   log_segment_info    sealed   = {0};
+
    if (spl->cfg.use_log) {
-      log_seal(spl->log);
+      // --- Begin: seal the live log, start a fresh one, and publish
+      // {sealed = old live, live = new} without advancing the root. ---
+      rc = platform_mutex_lock(&spl->checkpoint_lock);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+
+      sealed = log_get_segment_info(spl->log);
+      log_seal(spl->log); // finalizes the pages (dirty), frees the handle
       spl->log = NULL;
+
+      // The sealed log must be fully durable before it is recorded as the
+      // sealed segment (recovery replays it as-is).  Flush the finalized pages.
+      rc = cache_writeback_dirty(spl->cc);
+      if (SUCCESS(rc)) {
+         rc = cache_durable_barrier(spl->cc);
+      }
+      if (SUCCESS(rc)) {
+         spl->log = log_create(spl->cc, spl->cfg.log_cfg, spl->heap_id);
+         if (spl->log == NULL) {
+            platform_error_log("core_checkpoint: log_create failed\n");
+            rc = STATUS_NO_MEMORY;
+         }
+      }
+      if (SUCCESS(rc)) {
+         new_live = core_log_to_superblock(log_get_segment_info(spl->log));
+         superblock_tree_record rec;
+         superblock_get_tree_record(&spl->superblock, &rec);
+         rec.live_log   = new_live;
+         rec.sealed_log = core_log_to_superblock(sealed);
+         superblock_set_tree_record(&spl->superblock, &rec);
+         superblock_set_allocation_state_addr(&spl->superblock, 0);
+         rc = superblock_publish(&spl->superblock);
+      }
+
+      platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
+      if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
+         rc = unlock_rc;
+      }
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
 
-   // flush all dirty pages in the cache
-   cache_flush(spl->cc);
+   // --- Incorporate: fold everything logged so far into the trunk, advancing
+   // the in-memory COW root.  Synchronous (no concurrent inserts). ---
+   if (!memtable_is_empty(&spl->mt_ctxt)) {
+      uint64 generation = memtable_force_finalize(&spl->mt_ctxt);
+      core_memtable_flush(spl, generation);
+   }
+   rc = task_perform_until_quiescent(spl->ts);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   // --- Complete: advance the durable root to the incorporated state, keeping
+   // the new live log and clearing the sealed slot. ---
+   rc = core_publish_root_record(spl, new_live, (superblock_log_info){0});
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   // The sealed log's entries are now durably in the root; free its extents.
+   if (spl->cfg.use_log) {
+      log_dec_ref(spl->cc, &sealed);
+   }
+   return STATUS_OK;
 }
 
 /*
@@ -2312,16 +2434,28 @@ core_unmount(core_handle *spl)
    core_quiesce_for_shutdown(spl);
 
    /*
-    * Part A: publish the clean-unmount root.  Allocation state stays invalid
-    * here; it becomes valid only in Part B, after the map is persisted.
+    * The clean-unmount root incorporates everything, so the live log is fully
+    * folded and discardable.  Seal it (frees the handle) now; free its extents
+    * after the cache flush below.
     */
-   rc = core_publish_root_record(spl);
+   log_segment_info live_log = core_seal_live_log(spl);
+
+   /*
+    * Part A: publish the clean-unmount root with both log slots cleared (no
+    * live or sealed log at rest).  Allocation state stays invalid here; it
+    * becomes valid only in Part B, after the map is persisted.
+    */
+   rc = core_publish_root_record(
+      spl, (superblock_log_info){0}, (superblock_log_info){0});
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
    }
 
    core_teardown_after_shutdown(spl);
+   // Free the sealed live log's extents now that the cache is flushed, before
+   // the map is persisted (Part B) so the persisted map reflects the free.
+   log_dec_ref(spl->cc, &live_log);
    /*
     * Release the context's live root reference before persisting the map, so
     * the persisted refcounts reflect exactly the durable record's single
@@ -2385,7 +2519,11 @@ core_destroy(core_handle *spl)
       }
    }
 
+   // Discard the live log too: seal (frees the handle), then free its extents
+   // after the cache flush.
+   log_segment_info live_log = core_seal_live_log(spl);
    core_teardown_after_shutdown(spl);
+   log_dec_ref(spl->cc, &live_log);
    trunk_context_deinit(&spl->trunk_context);
 
    /*

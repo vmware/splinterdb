@@ -252,6 +252,13 @@ core_mount(core_handle      *spl,
            allocator_root_id id,
            platform_heap_id  hid);
 
+/*
+ * Take a checkpoint: advance the durable root and rotate the log (two-log
+ * protocol).  Must be called at a quiescent point (no concurrent inserts).
+ */
+platform_status
+core_checkpoint(core_handle *spl);
+
 platform_status
 core_unmount(core_handle *spl);
 

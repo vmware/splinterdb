@@ -356,7 +356,7 @@ shard_log_write(log_handle *logh,
  *     the mini-allocator's unused reserve and frees the handle.  After seal the
  *     handle is invalid; the caller retains the identity it captured earlier
  *     (shard_log_get_segment_info(), fixed at creation) to reopen the stream
- *     for replay and, eventually, to free its extents via shard_log_dec_ref().
+ *     for replay and, eventually, to free its extents via log_dec_ref().
  *
  *     The caller must prevent concurrent shard_log_write() and seal calls.
  *     seal itself issues no writeback or durable barrier: to make the sealed
@@ -412,7 +412,7 @@ shard_log_seal(log_handle *logh)
     * The stream is now immutable.  Release the mini-allocator's unused
     * per-batch reserve so no future allocation touches this stream, and free
     * the handle.  The caller already holds the stream's identity (captured at
-    * creation) and later frees the on-disk extents via shard_log_dec_ref().
+    * creation) and later frees the on-disk extents via log_dec_ref().
     */
    mini_release(&log->mini);
    platform_free(log->heap_id, log);
@@ -420,7 +420,7 @@ shard_log_seal(log_handle *logh)
 }
 
 void
-shard_log_dec_ref(cache *cc, const log_segment_info *segment)
+log_dec_ref(cache *cc, const log_segment_info *segment)
 {
    if (segment->meta_addr == 0) {
       return;

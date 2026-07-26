@@ -96,3 +96,12 @@ log_get_segment_info(log_handle *log)
 
 log_handle *
 log_create(cache *cc, log_config *cfg, platform_heap_id hid);
+
+/*
+ * Release a sealed log segment identified by its log_segment_info: drop the
+ * reference its metadata extent holds, freeing the segment's on-disk extents.
+ * Takes no handle -- the handle was freed by log_seal(); the caller retained
+ * only the identity (log_get_segment_info(), captured at creation).
+ */
+void
+log_dec_ref(cache *cc, const log_segment_info *segment);

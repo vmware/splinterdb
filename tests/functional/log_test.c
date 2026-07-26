@@ -143,7 +143,7 @@ test_log_crash(clockcache             *cc,
    merge_accumulator_deinit(&msg);
 
    shard_log_iterator_deinit(hid, &itor);
-   shard_log_dec_ref((cache *)cc, &segment);
+   log_dec_ref((cache *)cc, &segment);
 
    return 0;
 }
@@ -301,8 +301,8 @@ test_log_two_segments(clockcache             *cc,
    test_log_verify_segment(
       (cache *)cc, cfg, &fresh, gen, hid, key_size, new_first, new_count);
 
-   shard_log_dec_ref((cache *)cc, &sealed);
-   shard_log_dec_ref((cache *)cc, &fresh);
+   log_dec_ref((cache *)cc, &sealed);
+   log_dec_ref((cache *)cc, &fresh);
    return 0;
 }
 
@@ -370,7 +370,7 @@ test_log_large_message(cache            *cc,
 
    shard_log_iterator_deinit(hid, &itor);
    merge_accumulator_deinit(&msg);
-   shard_log_dec_ref(cc, &sealed);
+   log_dec_ref(cc, &sealed);
    return 0;
 }
 
@@ -462,7 +462,7 @@ test_log_perf(cache                  *cc,
 cleanup:
    // Seal (frees the handle) and release the segment's extents.
    log_seal(logh);
-   shard_log_dec_ref((cache *)cc, &sealed);
+   log_dec_ref((cache *)cc, &sealed);
    platform_free(hid, params);
 
    return ret;

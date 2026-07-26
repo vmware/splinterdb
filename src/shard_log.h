@@ -76,14 +76,6 @@ typedef struct ONDISK shard_log_hdr {
    uint16      num_entries;
 } shard_log_hdr;
 
-/*
- * Release a sealed log segment: drop the mini-allocator reference its metadata
- * extent holds, freeing the segment's on-disk extents.  Identified by
- * log_segment_info (no handle needed -- the handle was freed by log_seal()).
- */
-void
-shard_log_dec_ref(cache *cc, const log_segment_info *segment);
-
 platform_status
 shard_log_iterator_init(cache              *cc,
                         shard_log_config   *cfg,

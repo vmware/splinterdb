@@ -252,6 +252,66 @@ CTEST2(splinter, test_inserts)
 }
 
 /*
+ * With logging enabled, core_checkpoint() rotates the log via the two-log
+ * protocol and advances the durable root.  Data inserted before the checkpoint
+ * must survive it, a second (empty) checkpoint must be a clean rotate, and
+ * teardown's allocator_assert_noleaks() must pass (the sealed log's extents are
+ * freed, the root is not leaked or double-freed).
+ */
+CTEST2(splinter, test_two_log_checkpoint)
+{
+   allocator *alp = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE; // exercise the two-log lifecycle
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0, num_inserts);
+
+   // Checkpoint: seal the live log into the sealed slot, start a fresh live
+   // log, incorporate, advance the durable root, then clear + free the sealed
+   // log.
+   rc = core_checkpoint(&spl);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // A sample of keys must still be found after the checkpoint.
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   const size_t key_size     = data->workload_cfg->key_size;
+   uint64       verify_count = (num_inserts < 1000) ? num_inserts : 1000;
+   for (uint64 i = 0; i < verify_count; i++) {
+      test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      ASSERT_TRUE(SUCCESS(rc));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         i,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         TRUE);
+   }
+   lookup_result_deinit(&qdata);
+
+   // Second checkpoint with no new inserts is a clean rotate.
+   rc = core_checkpoint(&spl);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   core_destroy(&spl);
+}
+
+/*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
  * successful mount publishes such an active record; until crash recovery is
