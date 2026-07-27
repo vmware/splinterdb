@@ -51,21 +51,36 @@ core_checkpoint_lock_init(core_handle *spl)
 {
    platform_status rc = platform_mutex_init(
       &spl->checkpoint_lock, platform_get_module_id(), spl->heap_id);
-   if (SUCCESS(rc)) {
-      spl->checkpoint_lock_initialized = TRUE;
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   return rc;
+   spl->checkpoint_lock_initialized = TRUE;
+
+   rc = platform_mutex_init(
+      &spl->checkpoint_state_lock, platform_get_module_id(), spl->heap_id);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   spl->checkpoint_state_lock_initialized = TRUE;
+
+   ZERO_CONTENTS(&spl->checkpoint); // phase == CORE_CHECKPOINT_IDLE
+   spl->last_checkpoint_generation = 0;
+   return STATUS_OK;
 }
 
 static void
 core_checkpoint_lock_deinit(core_handle *spl)
 {
-   if (!spl->checkpoint_lock_initialized) {
-      return;
+   if (spl->checkpoint_state_lock_initialized) {
+      platform_status rc = platform_mutex_destroy(&spl->checkpoint_state_lock);
+      platform_assert_status_ok(rc);
+      spl->checkpoint_state_lock_initialized = FALSE;
    }
-   platform_status rc = platform_mutex_destroy(&spl->checkpoint_lock);
-   platform_assert_status_ok(rc);
-   spl->checkpoint_lock_initialized = FALSE;
+   if (spl->checkpoint_lock_initialized) {
+      platform_status rc = platform_mutex_destroy(&spl->checkpoint_lock);
+      platform_assert_status_ok(rc);
+      spl->checkpoint_lock_initialized = FALSE;
+   }
 }
 
 /*
@@ -305,6 +320,211 @@ unlock_checkpoint:
    }
 }
    return rc;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * Incorporation-driven checkpoint (two-log protocol)
+ *
+ * A checkpoint rotates the log and advances the durable root without stopping
+ * the world.  It is driven off memtable rotation and incorporation:
+ *
+ *   begin       (rotation): pre-create the next live log outside the critical
+ *               section, swap it in under the insert lock (so no writer can be
+ *               mid-write to the old log), then seal the old log just after.
+ *   complete    (incorporation): once the sealed log's generations are folded
+ *               into the trunk root, publish the advanced root with the sealed
+ *               slot cleared and free the sealed log's extents.
+ *
+ * See core_checkpoint_state in core.h for the phase machine and its locking.
+ *-----------------------------------------------------------------------------
+ */
+
+/* Policy: should the next memtable rotation start a checkpoint? */
+static bool32
+core_should_take_checkpoint(core_handle *spl)
+{
+   if (!spl->cfg.use_log || spl->cfg.checkpoint_generation_interval == 0) {
+      return FALSE;
+   }
+   uint64 current = spl->mt_ctxt.generation;
+   return current - spl->last_checkpoint_generation
+          >= spl->cfg.checkpoint_generation_interval;
+}
+
+/*
+ * Begin, step 1 (outside the rotation critical section): if no checkpoint is in
+ * progress and policy says so, pre-create the next live log and arm the swap.
+ * log_create does no disk I/O, but is kept off the insert-blocking path.
+ */
+static void
+core_checkpoint_maybe_begin(core_handle *spl)
+{
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   bool32 begin = spl->checkpoint.phase == CORE_CHECKPOINT_IDLE
+                  && core_should_take_checkpoint(spl);
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   if (!begin) {
+      return;
+   }
+
+   log_handle *next = log_create(spl->cc, spl->cfg.log_cfg, spl->heap_id);
+   if (next == NULL) {
+      platform_error_log(
+         "core_checkpoint_maybe_begin: log_create failed; skipping\n");
+      return;
+   }
+   log_segment_info next_info = log_get_segment_info(next);
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
+      spl->checkpoint.pending_log     = next;
+      spl->checkpoint.live_info       = next_info;
+      spl->checkpoint.phase           = CORE_CHECKPOINT_PENDING;
+      spl->last_checkpoint_generation = spl->mt_ctxt.generation;
+      next                            = NULL; // handed off to the checkpoint
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (next != NULL) {
+      // Lost a race with a concurrent rotation; discard the speculative log.
+      log_seal(next);
+      log_dec_ref(spl->cc, &next_info);
+   }
+}
+
+/*
+ * Begin, step 2 (inside the rotation critical section, insert lock held
+ * exclusively): swap the pre-created live log in.  Registered as
+ * mt_ctxt.rotate.  Every log writer holds the insert lock shared across its
+ * log_write, so once this store retires no writer is mid-write to, or will
+ * newly enter, the old log -- making the subsequent seal safe.
+ */
+static void
+core_rotate_log_virtual(void *arg, uint64 finalized_generation)
+{
+   core_handle *spl = arg;
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (spl->checkpoint.phase == CORE_CHECKPOINT_PENDING) {
+      spl->checkpoint.log_to_seal    = spl->log;
+      spl->checkpoint.sealed_info    = log_get_segment_info(spl->log);
+      spl->log                       = spl->checkpoint.pending_log;
+      spl->checkpoint.pending_log    = NULL;
+      spl->checkpoint.cut_generation = finalized_generation;
+      spl->checkpoint.phase          = CORE_CHECKPOINT_SEALING;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+}
+
+/*
+ * Begin, step 3 (just after the rotation critical section): seal the swapped-out
+ * log.  The swap drained and excluded all writers, so sealing is safe.  Seal
+ * finalizes the pages (dirty) and frees the handle; durability is deferred to
+ * completion (or a future sync), so no barrier here.
+ */
+static void
+core_checkpoint_seal_cut(core_handle *spl)
+{
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   log_handle *to_seal = NULL;
+   if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
+      to_seal                     = spl->checkpoint.log_to_seal;
+      spl->checkpoint.log_to_seal = NULL;
+      spl->checkpoint.phase       = CORE_CHECKPOINT_INCORPORATING;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (to_seal != NULL) {
+      log_seal(to_seal);
+   }
+}
+
+/*
+ * Complete (after an incorporation): if the sealed log's generations are all
+ * folded into the trunk root, advance the durable root with the sealed slot
+ * cleared (which makes the root and superblock durable) and free the sealed
+ * log's extents.  Called from the single-threaded incorporation path.
+ */
+static platform_status
+core_maybe_complete_checkpoint(core_handle *spl)
+{
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   uint64 retired = memtable_generation_retired(&spl->mt_ctxt);
+   bool32 complete =
+      spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
+      && retired != SUPERBLOCK_NO_INCORPORATED_GENERATION
+      && retired >= spl->checkpoint.cut_generation;
+   log_segment_info sealed = {0};
+   log_segment_info live   = {0};
+   if (complete) {
+      sealed                = spl->checkpoint.sealed_info;
+      live                  = spl->checkpoint.live_info;
+      spl->checkpoint.phase = CORE_CHECKPOINT_COMPLETING;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (!complete) {
+      return STATUS_OK;
+   }
+
+   platform_status rc = core_publish_root_record(
+      spl, core_log_to_superblock(live), (superblock_log_info){0});
+   if (SUCCESS(rc)) {
+      // The sealed log's entries are now durably in the root; free its extents.
+      log_dec_ref(spl->cc, &sealed);
+   } else {
+      platform_error_log(
+         "core_maybe_complete_checkpoint: publish failed: %s\n",
+         platform_status_to_string(rc));
+   }
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (SUCCESS(rc)) {
+      ZERO_CONTENTS(&spl->checkpoint.sealed_info);
+      ZERO_CONTENTS(&spl->checkpoint.live_info);
+      spl->checkpoint.cut_generation = 0;
+      spl->checkpoint.phase          = CORE_CHECKPOINT_IDLE;
+   } else {
+      // Leave the sealed slot intact and retry on a later incorporation.
+      spl->checkpoint.phase = CORE_CHECKPOINT_INCORPORATING;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   return rc;
+}
+
+/*
+ * Resolve any in-flight checkpoint during a quiesced shutdown, before the
+ * unmount/destroy publish.  No locking: the caller has quiesced all inserts and
+ * incorporations.  A completed checkpoint (INCORPORATING/COMPLETING) is normally
+ * already reaped by the quiesce drain; the residual cases below are defensive.
+ */
+static void
+core_finish_checkpoint_for_shutdown(core_handle *spl)
+{
+   core_checkpoint_state *cp = &spl->checkpoint;
+   switch (cp->phase) {
+      case CORE_CHECKPOINT_IDLE:
+         break;
+      case CORE_CHECKPOINT_PENDING:
+         // The next live log was pre-created but never installed; discard it.
+         log_seal(cp->pending_log);
+         log_dec_ref(spl->cc, &cp->live_info);
+         break;
+      case CORE_CHECKPOINT_INCORPORATING:
+      case CORE_CHECKPOINT_COMPLETING:
+         // The sealed log is fully incorporated after quiesce.  The shutdown
+         // publish records sealed=none, so just reclaim its extents here
+         // (before the map is persisted, so the map reflects the free).
+         log_dec_ref(spl->cc, &cp->sealed_info);
+         break;
+      case CORE_CHECKPOINT_SEALING:
+      default:
+         platform_assert(FALSE,
+                         "unexpected checkpoint phase %d at shutdown",
+                         cp->phase);
+   }
+   ZERO_CONTENTS(cp); // phase == CORE_CHECKPOINT_IDLE
 }
 
 /*
@@ -748,6 +968,9 @@ core_memtable_flush_internal(core_handle *spl, uint64 generation)
       }
       generation++;
    } while (core_try_continue_incorporate(spl, generation));
+
+   // A checkpoint's sealed log may now be fully incorporated; complete it.
+   core_maybe_complete_checkpoint(spl);
 out:
    return STATUS_OK;
 }
@@ -785,7 +1008,16 @@ static void
 core_memtable_flush_virtual(void *arg, uint64 generation)
 {
    core_handle *spl = arg;
+
+   // Begin, step 3: if this rotation's in-CS hook swapped the live log, seal
+   // the old one now that the critical section has been released.
+   core_checkpoint_seal_cut(spl);
+
    core_memtable_flush(spl, generation);
+
+   // Begin, step 1: decide whether the next rotation should start a checkpoint,
+   // pre-creating its live log outside any critical section.
+   core_checkpoint_maybe_begin(spl);
 }
 
 static inline uint64
@@ -1977,6 +2209,8 @@ core_mkfs(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
+   // Swap the checkpoint's live log in from inside the rotation critical section.
+   spl->mt_ctxt.rotate = core_rotate_log_virtual;
 
    // set up the log
    if (spl->cfg.use_log) {
@@ -2137,6 +2371,8 @@ core_mount(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
+   // Swap the checkpoint's live log in from inside the rotation critical section.
+   spl->mt_ctxt.rotate = core_rotate_log_virtual;
 
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -2429,6 +2665,9 @@ core_unmount(core_handle *spl)
     */
    core_quiesce_for_shutdown(spl);
 
+   // Reclaim any in-flight checkpoint's logs before the unmount publish.
+   core_finish_checkpoint_for_shutdown(spl);
+
    /*
     * The clean-unmount root incorporates everything, so the live log is fully
     * folded and discardable.  Seal it (frees the handle) now; free its extents
@@ -2494,6 +2733,9 @@ void
 core_destroy(core_handle *spl)
 {
    core_quiesce_for_shutdown(spl);
+
+   // Reclaim any in-flight checkpoint's logs before teardown.
+   core_finish_checkpoint_for_shutdown(spl);
 
    /*
     * Release the reference the published tree record holds on its root before

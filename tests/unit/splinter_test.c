@@ -312,6 +312,92 @@ CTEST2(splinter, test_two_log_checkpoint)
 }
 
 /*
+ * Shared workload for the automatic-checkpoint tests: create with auto
+ * checkpoints enabled, insert enough to drive several rotations, verify a
+ * sample of keys survives the mid-run log rotations, then destroy.  The
+ * teardown's allocator_assert_noleaks() must pass -- each sealed log's extents
+ * are freed as its checkpoint completes, and the root is neither leaked nor
+ * double-freed.  The caller sets up the task system (foreground or background).
+ */
+static void
+run_auto_checkpoint_workload(void *datap, uint64 interval)
+{
+   struct CTEST_IMPL_DATA_SNAME(splinter) *data =
+      (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
+
+   allocator *alp = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   // Rotate the log / advance the durable root every `interval` generations.
+   data->system_cfg->splinter_cfg.checkpoint_generation_interval = interval;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0, num_inserts);
+
+   // Drain so any in-flight checkpoint completes and the state settles.
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   if (interval != 0) {
+      // The inserts must have driven at least one automatic checkpoint.
+      ASSERT_NOT_EQUAL(0, spl.last_checkpoint_generation);
+
+      // At rest a checkpoint has either completed (IDLE) or been armed for a
+      // rotation that idle never triggered (PENDING); both leave no sealed log.
+      ASSERT_TRUE(spl.checkpoint.phase == CORE_CHECKPOINT_IDLE
+                  || spl.checkpoint.phase == CORE_CHECKPOINT_PENDING);
+      superblock_tree_record rec;
+      superblock_get_tree_record(&spl.superblock, &rec);
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+      // A checkpoint published an advanced, incorporated durable root mid-run.
+      ASSERT_NOT_EQUAL(SUPERBLOCK_NO_INCORPORATED_GENERATION,
+                       rec.incorporated_generation);
+   }
+
+   // A sample of keys must still be found after the rotations.
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   const size_t key_size     = data->workload_cfg->key_size;
+   uint64       verify_count = (num_inserts < 1000) ? num_inserts : 1000;
+   for (uint64 i = 0; i < verify_count; i++) {
+      test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      ASSERT_TRUE(SUCCESS(rc));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         i,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         TRUE);
+   }
+   lookup_result_deinit(&qdata);
+
+   core_destroy(&spl);
+}
+
+/*
+ * Automatic, incorporation-driven checkpoints (foreground): the log is rotated
+ * and the durable root advanced during normal inserts, with no stop-the-world.
+ */
+CTEST2(splinter, test_auto_checkpoint)
+{
+   run_auto_checkpoint_workload(data, 2);
+}
+
+/*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
  * successful mount publishes such an active record; until crash recovery is

@@ -127,6 +127,15 @@ typedef struct memtable_context {
    process_fn process;
    void      *process_ctxt;
 
+   /*
+    * Optional callback invoked inside the rotation critical section (insert
+    * lock held exclusively), after a memtable is finalized and the generation
+    * is advanced, before the lock is released.  A checkpoint uses this to swap
+    * in a new live log with the guarantee that no insert can be mid-log_write.
+    * Receives process_ctxt and the just-finalized generation.  NULL disables.
+    */
+   process_fn rotate;
+
    // batch distributed read/write locks protect the generation and
    // generation_retired counters
    batch_rwlock rwlock;

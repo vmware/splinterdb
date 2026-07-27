@@ -51,7 +51,11 @@ typedef struct core_config {
    data_config    *data_cfg;
    bool32          use_log;
    log_config     *log_cfg;
-   trunk_config   *trunk_node_cfg;
+   // Automatic-checkpoint policy: take a checkpoint (rotate the log and advance
+   // the durable root) once this many memtable generations have been finalized
+   // since the last one.  0 disables automatic checkpoints.
+   uint64        checkpoint_generation_interval;
+   trunk_config *trunk_node_cfg;
 
    // verbose logging
    bool32               verbose_logging_enabled;
@@ -94,6 +98,43 @@ typedef struct core_branch {
 
 typedef struct core_handle core_handle;
 
+/*
+ * Incorporation-driven checkpoint (two-log protocol) state machine.
+ *
+ *   IDLE          no checkpoint in progress.
+ *   PENDING       the next live log is pre-created; the next memtable rotation
+ *                 will swap it in under the insert lock.
+ *   SEALING       the rotation swapped the new live log in; the old log still
+ *                 needs sealing (done just after the rotation critical section).
+ *   INCORPORATING the old log is sealed; waiting for its generations to be
+ *                 incorporated into the trunk root.
+ *   COMPLETING    the completion publish (advance root, clear sealed slot) is
+ *                 in flight.
+ *
+ * The only transition that touches the shared spl->log pointer (PENDING ->
+ * SEALING) runs inside the memtable rotation critical section, where the insert
+ * lock is held exclusively; every log writer holds that lock shared across its
+ * log_write, so no writer can be mid-write to, or newly enter, the old log once
+ * it is swapped out.  All other fields are guarded by checkpoint_state_lock,
+ * which is only ever held for brief, I/O-free updates.
+ */
+typedef enum core_checkpoint_phase {
+   CORE_CHECKPOINT_IDLE = 0,
+   CORE_CHECKPOINT_PENDING,
+   CORE_CHECKPOINT_SEALING,
+   CORE_CHECKPOINT_INCORPORATING,
+   CORE_CHECKPOINT_COMPLETING,
+} core_checkpoint_phase;
+
+typedef struct core_checkpoint_state {
+   core_checkpoint_phase phase;
+   log_handle           *pending_log;    // next live log, pre-created (PENDING)
+   log_handle           *log_to_seal;    // old live log awaiting seal (SEALING)
+   log_segment_info      sealed_info;     // identity of the sealed log (reclaim)
+   log_segment_info      live_info;       // identity of the new live log
+   uint64                cut_generation;  // complete once retired >= this
+} core_checkpoint_state;
+
 typedef struct core_memtable_args {
    core_handle *spl;
    uint64       generation;
@@ -132,6 +173,17 @@ struct core_handle {
    /* Serializes snapshot cuts and superblock publication. */
    platform_mutex checkpoint_lock;
    bool32         checkpoint_lock_initialized;
+
+   /*
+    * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
+    * fields of `checkpoint` and last_checkpoint_generation; it is only ever
+    * held for brief, I/O-free updates (never across a barrier), so taking it
+    * inside the memtable rotation critical section cannot stall inserts on I/O.
+    */
+   platform_mutex        checkpoint_state_lock;
+   bool32                checkpoint_state_lock_initialized;
+   core_checkpoint_state checkpoint;
+   uint64                last_checkpoint_generation;
 
    core_stats *stats;
 

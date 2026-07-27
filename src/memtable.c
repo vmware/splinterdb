@@ -193,6 +193,14 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
                             current_generation);
 
             memtable_mark_empty(ctxt);
+            /*
+             * Still holding the insert lock exclusively: all in-flight inserts
+             * (and their log writes) have drained and none can start.  This is
+             * the one safe point to swap the checkpoint's live log.
+             */
+            if (ctxt->rotate != NULL) {
+               ctxt->rotate(ctxt->process_ctxt, current_generation);
+            }
             memtable_end_insert_rotation(ctxt);
             memtable_end_insert(ctxt);
             memtable_process(ctxt, current_generation);
