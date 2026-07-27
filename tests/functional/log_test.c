@@ -307,9 +307,7 @@ test_log_two_segments(clockcache             *cc,
 }
 
 static int
-test_log_large_message(cache            *cc,
-                       shard_log_config *cfg,
-                       platform_heap_id  hid)
+test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 {
    platform_status    rc;
    log_segment_info   sealed;
@@ -332,8 +330,7 @@ test_log_large_message(cache            *cc,
    merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
    memset(merge_accumulator_data(&msg), 'L', value_len);
 
-   int log_rc =
-      log_write(logh, skey, merge_accumulator_to_message(&msg), 0, 0);
+   int log_rc = log_write(logh, skey, merge_accumulator_to_message(&msg), 0, 0);
    platform_assert(log_rc == 0);
 
    merge_accumulator filler;
@@ -357,8 +354,7 @@ test_log_large_message(cache            *cc,
    rc = cache_durable_barrier(cc);
    platform_assert_status_ok(rc);
 
-   rc = shard_log_iterator_init(
-      cc, cfg, hid, sealed.addr, sealed.magic, &itor);
+   rc = shard_log_iterator_init(cc, cfg, hid, sealed.addr, sealed.magic, &itor);
    platform_assert_status_ok(rc);
    platform_assert(iterator_can_curr(itorh));
 

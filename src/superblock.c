@@ -42,8 +42,7 @@ superblock_is_valid(const superblock *sb, const allocator_config *cfg)
    return sb->format_magic == SUPERBLOCK_FORMAT_MAGIC
           && sb->format_version == SUPERBLOCK_FORMAT_VERSION
           && superblock_geometry_matches(geometry, cfg)
-          && platform_checksum_is_equal(sb->checksum,
-                                        superblock_checksum(sb));
+          && platform_checksum_is_equal(sb->checksum, superblock_checksum(sb));
 }
 
 platform_status
@@ -70,7 +69,8 @@ superblock_context_init(superblock_context     *ctx,
 
    platform_assert(sizeof(superblock) <= ctx->page_size);
 
-   platform_status rc = platform_buffer_init(&ctx->image_buffer, ctx->page_size);
+   platform_status rc =
+      platform_buffer_init(&ctx->image_buffer, ctx->page_size);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -103,8 +103,7 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
 
    bool32 have_valid = FALSE;
    for (uint64 s = 0; s < SUPERBLOCK_NUM_SLOTS; s++) {
-      rc = io_read(
-         ctx->io, slot, ctx->page_size, superblock_slot_addr(ctx, s));
+      rc = io_read(ctx->io, slot, ctx->page_size, superblock_slot_addr(ctx, s));
       if (!SUCCESS(rc)) {
          goto out;
       }
@@ -126,12 +125,12 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
    rc = STATUS_OK;
 
 out:
-   {
-      platform_status deinit_rc = platform_buffer_deinit(&slot_buffer);
-      if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
-         rc = deinit_rc;
-      }
+{
+   platform_status deinit_rc = platform_buffer_deinit(&slot_buffer);
+   if (SUCCESS(rc) && !SUCCESS(deinit_rc)) {
+      rc = deinit_rc;
    }
+}
    return rc;
 }
 
@@ -152,7 +151,7 @@ superblock_publish(superblock_context *ctx)
 {
    platform_assert(ctx->image != NULL);
 
-   uint64 target      = ctx->current_slot ^ 1;
+   uint64 target = ctx->current_slot ^ 1;
    ctx->image->generation += 1;
    platform_assert(ctx->image->generation != 0); // generation wraparound
 
@@ -174,12 +173,12 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg)
    platform_assert(ctx->image != NULL);
 
    memset(ctx->image, 0, ctx->page_size);
-   ctx->image->geometry.disk_size   = cfg->capacity;
-   ctx->image->geometry.page_size   = cfg->io_cfg->page_size;
-   ctx->image->geometry.extent_size = cfg->io_cfg->extent_size;
-   ctx->image->format_magic         = SUPERBLOCK_FORMAT_MAGIC;
-   ctx->image->format_version       = SUPERBLOCK_FORMAT_VERSION;
-   ctx->image->generation           = 0;
+   ctx->image->geometry.disk_size    = cfg->capacity;
+   ctx->image->geometry.page_size    = cfg->io_cfg->page_size;
+   ctx->image->geometry.extent_size  = cfg->io_cfg->extent_size;
+   ctx->image->format_magic          = SUPERBLOCK_FORMAT_MAGIC;
+   ctx->image->format_version        = SUPERBLOCK_FORMAT_VERSION;
+   ctx->image->generation            = 0;
    ctx->image->allocation_state_addr = 0; // fresh DB: rebuild on crash
    // A fresh, empty tree: no root and nothing incorporated yet.
    ctx->image->tree.incorporated_generation =
@@ -191,7 +190,7 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg)
     * initial current_slot is 1; the second targets slot 1 (generation 2),
     * leaving slot 1 newest.
     */
-   ctx->current_slot = 1;
+   ctx->current_slot  = 1;
    platform_status rc = superblock_publish(ctx);
    if (!SUCCESS(rc)) {
       return rc;

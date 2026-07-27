@@ -418,10 +418,10 @@ core_rotate_log_virtual(void *arg, uint64 finalized_generation)
 }
 
 /*
- * Begin, step 3 (just after the rotation critical section): seal the swapped-out
- * log.  The swap drained and excluded all writers, so sealing is safe.  Seal
- * finalizes the pages (dirty) and frees the handle; durability is deferred to
- * completion (or a future sync), so no barrier here.
+ * Begin, step 3 (just after the rotation critical section): seal the
+ * swapped-out log.  The swap drained and excluded all writers, so sealing is
+ * safe.  Seal finalizes the pages (dirty) and frees the handle; durability is
+ * deferred to completion (or a future sync), so no barrier here.
  */
 static void
 core_checkpoint_seal_cut(core_handle *spl)
@@ -450,11 +450,10 @@ static platform_status
 core_maybe_complete_checkpoint(core_handle *spl)
 {
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   uint64 retired = memtable_generation_retired(&spl->mt_ctxt);
-   bool32 complete =
-      spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
-      && retired != SUPERBLOCK_NO_INCORPORATED_GENERATION
-      && retired >= spl->checkpoint.cut_generation;
+   uint64 retired  = memtable_generation_retired(&spl->mt_ctxt);
+   bool32 complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
+                     && retired != SUPERBLOCK_NO_INCORPORATED_GENERATION
+                     && retired >= spl->checkpoint.cut_generation;
    log_segment_info sealed = {0};
    log_segment_info live   = {0};
    if (complete) {
@@ -474,9 +473,8 @@ core_maybe_complete_checkpoint(core_handle *spl)
       // The sealed log's entries are now durably in the root; free its extents.
       log_dec_ref(spl->cc, &sealed);
    } else {
-      platform_error_log(
-         "core_maybe_complete_checkpoint: publish failed: %s\n",
-         platform_status_to_string(rc));
+      platform_error_log("core_maybe_complete_checkpoint: publish failed: %s\n",
+                         platform_status_to_string(rc));
    }
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
@@ -496,8 +494,9 @@ core_maybe_complete_checkpoint(core_handle *spl)
 /*
  * Resolve any in-flight checkpoint during a quiesced shutdown, before the
  * unmount/destroy publish.  No locking: the caller has quiesced all inserts and
- * incorporations.  A completed checkpoint (INCORPORATING/COMPLETING) is normally
- * already reaped by the quiesce drain; the residual cases below are defensive.
+ * incorporations.  A completed checkpoint (INCORPORATING/COMPLETING) is
+ * normally already reaped by the quiesce drain; the residual cases below are
+ * defensive.
  */
 static void
 core_finish_checkpoint_for_shutdown(core_handle *spl)
@@ -520,9 +519,8 @@ core_finish_checkpoint_for_shutdown(core_handle *spl)
          break;
       case CORE_CHECKPOINT_SEALING:
       default:
-         platform_assert(FALSE,
-                         "unexpected checkpoint phase %d at shutdown",
-                         cp->phase);
+         platform_assert(
+            FALSE, "unexpected checkpoint phase %d at shutdown", cp->phase);
    }
    ZERO_CONTENTS(cp); // phase == CORE_CHECKPOINT_IDLE
 }
@@ -2209,7 +2207,8 @@ core_mkfs(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
-   // Swap the checkpoint's live log in from inside the rotation critical section.
+   // Swap the checkpoint's live log in from inside the rotation critical
+   // section.
    spl->mt_ctxt.rotate = core_rotate_log_virtual;
 
    // set up the log
@@ -2371,7 +2370,8 @@ core_mount(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
-   // Swap the checkpoint's live log in from inside the rotation critical section.
+   // Swap the checkpoint's live log in from inside the rotation critical
+   // section.
    spl->mt_ctxt.rotate = core_rotate_log_virtual;
 
    if (spl->cfg.use_log) {

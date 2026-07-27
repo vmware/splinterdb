@@ -261,7 +261,8 @@ CTEST2(splinter, test_inserts)
 CTEST2(splinter, test_two_log_checkpoint)
 {
    allocator *alp = (allocator *)&data->al;
-   data->system_cfg->splinter_cfg.use_log = TRUE; // exercise the two-log lifecycle
+   data->system_cfg->splinter_cfg.use_log =
+      TRUE; // exercise the two-log lifecycle
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -325,7 +326,7 @@ run_auto_checkpoint_workload(void *datap, uint64 interval)
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
 
-   allocator *alp = (allocator *)&data->al;
+   allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
    // Rotate the log / advance the durable root every `interval` generations.
    data->system_cfg->splinter_cfg.checkpoint_generation_interval = interval;

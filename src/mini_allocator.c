@@ -788,9 +788,9 @@ typedef platform_status (*mini_meta_extent_fn)(cache    *cc,
                                                void     *arg);
 
 typedef platform_status (*mini_for_each_meta_page_fn)(cache       *cc,
-                                                       page_type    type,
-                                                       page_handle *meta_page,
-                                                       void        *arg);
+                                                      page_type    type,
+                                                      page_handle *meta_page,
+                                                      void        *arg);
 
 static platform_status
 mini_for_each_meta_page(cache                     *cc,
@@ -1110,8 +1110,8 @@ mini_recover_visit_meta_page(cache       *cc,
                              page_handle *meta_page,
                              void        *arg)
 {
-   mini_recover_state *state    = (mini_recover_state *)arg;
-   uint64               meta_addr = meta_page->disk_addr;
+   mini_recover_state *state     = (mini_recover_state *)arg;
+   uint64              meta_addr = meta_page->disk_addr;
 
    if (state->page_count == state->max_meta_pages) {
       return mini_recovery_corruption("metadata chain exceeds disk pages",
@@ -1209,12 +1209,12 @@ mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type)
       return mini_recovery_corruption("metadata head is not a page", meta_head);
    }
 
-   mini_recover_state state = {.al             = al,
-                               .cfg            = cfg,
-                               .expected_prev  = 0,
-                               .page_count     = 0,
-                               .max_meta_pages = cfg->capacity
-                                                 / cfg->io_cfg->page_size};
+   mini_recover_state state = {.al            = al,
+                               .cfg           = cfg,
+                               .expected_prev = 0,
+                               .page_count    = 0,
+                               .max_meta_pages =
+                                  cfg->capacity / cfg->io_cfg->page_size};
 
    return mini_for_each_meta_page(cc,
                                   meta_head,

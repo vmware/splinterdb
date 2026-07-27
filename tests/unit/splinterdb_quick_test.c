@@ -1267,7 +1267,8 @@ CTEST2(splinterdb_quick, test_logged_close_and_reopen)
    slice        user_key = slice_create(strlen("logged-key"), "logged-key");
    const char  *val      = "logged-value";
    const size_t val_len  = strlen(val);
-   rc = splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val), NULL);
+   rc =
+      splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val), NULL);
    ASSERT_EQUAL(0, rc);
 
    splinterdb_close(&data->kvsb);

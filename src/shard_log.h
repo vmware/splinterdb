@@ -38,10 +38,11 @@ typedef struct shard_log_thread_data {
  * Sharded log context structure.
  */
 typedef struct shard_log {
-   log_handle            super; // handle to log I/O ops abstraction.
-   cache                *cc;
-   shard_log_config     *cfg;
-   platform_heap_id      heap_id; // heap the handle was allocated from; freed by seal
+   log_handle        super; // handle to log I/O ops abstraction.
+   cache            *cc;
+   shard_log_config *cfg;
+   platform_heap_id
+      heap_id; // heap the handle was allocated from; freed by seal
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
    uint64                addr;

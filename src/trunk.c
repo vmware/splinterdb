@@ -2587,9 +2587,13 @@ trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot)
     * share context's root.
     */
    trunk_context   scratch;
-   platform_status rc = trunk_context_init(
-      &scratch, context->cfg, context->hid, context->cc, context->al,
-      context->ts, *snapshot);
+   platform_status rc  = trunk_context_init(&scratch,
+                                           context->cfg,
+                                           context->hid,
+                                           context->cc,
+                                           context->al,
+                                           context->ts,
+                                           *snapshot);
    snapshot->root_addr = 0; // trunk_context_init consumes it regardless of rc
    if (!SUCCESS(rc)) {
       return rc;

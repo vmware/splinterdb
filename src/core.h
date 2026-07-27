@@ -105,11 +105,10 @@ typedef struct core_handle core_handle;
  *   PENDING       the next live log is pre-created; the next memtable rotation
  *                 will swap it in under the insert lock.
  *   SEALING       the rotation swapped the new live log in; the old log still
- *                 needs sealing (done just after the rotation critical section).
- *   INCORPORATING the old log is sealed; waiting for its generations to be
- *                 incorporated into the trunk root.
- *   COMPLETING    the completion publish (advance root, clear sealed slot) is
- *                 in flight.
+ *                 needs sealing (done just after the rotation critical
+ * section). INCORPORATING the old log is sealed; waiting for its generations to
+ * be incorporated into the trunk root. COMPLETING    the completion publish
+ * (advance root, clear sealed slot) is in flight.
  *
  * The only transition that touches the shared spl->log pointer (PENDING ->
  * SEALING) runs inside the memtable rotation critical section, where the insert
@@ -130,9 +129,9 @@ typedef struct core_checkpoint_state {
    core_checkpoint_phase phase;
    log_handle           *pending_log;    // next live log, pre-created (PENDING)
    log_handle           *log_to_seal;    // old live log awaiting seal (SEALING)
-   log_segment_info      sealed_info;     // identity of the sealed log (reclaim)
-   log_segment_info      live_info;       // identity of the new live log
-   uint64                cut_generation;  // complete once retired >= this
+   log_segment_info      sealed_info;    // identity of the sealed log (reclaim)
+   log_segment_info      live_info;      // identity of the new live log
+   uint64                cut_generation; // complete once retired >= this
 } core_checkpoint_state;
 
 typedef struct core_memtable_args {

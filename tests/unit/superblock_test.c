@@ -100,7 +100,8 @@ CTEST2(superblock, test_format_sets_fresh_state)
                 rec.incorporated_generation);
    superblock_context_deinit(&ctx);
 
-   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
@@ -126,7 +127,7 @@ CTEST2(superblock, test_publish_persists_tree_record)
    superblock_tree_record rec = {
       .root_addr               = 0x4000,
       .incorporated_generation = SUPERBLOCK_NO_INCORPORATED_GENERATION,
-      .live_log                = {.addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11},
+      .live_log = {.addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11},
    };
    superblock_set_tree_record(&ctx, &rec);
    superblock_set_allocation_state_addr(&ctx, 0x8000);
@@ -134,7 +135,8 @@ CTEST2(superblock, test_publish_persists_tree_record)
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
 
-   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
@@ -152,15 +154,18 @@ CTEST2(superblock, test_publish_persists_tree_record)
 }
 
 /* Steady, begin-checkpoint, and complete-checkpoint tree-record states. */
-static const superblock_log_info TEST_LOG_L1 = {
-   .addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11};
-static const superblock_log_info TEST_LOG_L2 = {
-   .addr = 0x10000, .meta_addr = 0x12000, .magic = 0x22};
+static const superblock_log_info TEST_LOG_L1 = {.addr      = 0x6000,
+                                                .meta_addr = 0x8000,
+                                                .magic     = 0x11};
+static const superblock_log_info TEST_LOG_L2 = {.addr      = 0x10000,
+                                                .meta_addr = 0x12000,
+                                                .magic     = 0x22};
 
 /*
  * Walk the two-log checkpoint state machine through the superblock and confirm
  * each published state reads back: steady {root R0, live L1, no sealed} ->
- * begin {root R0, sealed L1, live L2} -> complete {root R1, live L2, no sealed}.
+ * begin {root R0, sealed L1, live L2} -> complete {root R1, live L2, no
+ * sealed}.
  */
 CTEST2(superblock, test_two_log_checkpoint_transitions)
 {
@@ -202,7 +207,8 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    superblock_context_deinit(&ctx);
 
    // A fresh mount reads the completed state.
-   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
@@ -228,8 +234,9 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    rc = superblock_format(&ctx, &data->allocator_cfg); // slot0=gen1, slot1=gen2
    ASSERT_TRUE(SUCCESS(rc));
 
-   // Publish the steady state into BOTH slots (gen3->slot0, gen4->slot1), so the
-   // fallback below is unambiguously the steady state, not the empty format one.
+   // Publish the steady state into BOTH slots (gen3->slot0, gen4->slot1), so
+   // the fallback below is unambiguously the steady state, not the empty format
+   // one.
    superblock_tree_record rec = {
       .root_addr               = 0x4000,
       .incorporated_generation = 5,
@@ -253,7 +260,8 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
 
    // Mount falls back to slot1 (gen4) = steady: live L1, no sealed.
-   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
@@ -293,10 +301,11 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
    // Simulate a torn write of the newest slot (slot 0, gen 3).
    superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
 
-   // Mount must still succeed, falling back to slot 1 (gen 2), which carries the
-   // format's empty tree (root_addr 0), not the published root -- proving the
-   // older generation was left intact by the torn write.
-   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   // Mount must still succeed, falling back to slot 1 (gen 2), which carries
+   // the format's empty tree (root_addr 0), not the published root -- proving
+   // the older generation was left intact by the torn write.
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
@@ -321,7 +330,8 @@ CTEST2(superblock, test_both_slots_corrupt_is_not_found)
    superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
    superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 1);
 
-   rc = superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_FALSE(SUCCESS(rc));

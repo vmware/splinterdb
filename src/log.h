@@ -87,7 +87,8 @@ log_seal(log_handle *log)
    return log->ops->seal(log);
 }
 
-/* The stream's durable identity (fixed at creation).  See log_segment_info_fn. */
+/* The stream's durable identity (fixed at creation).  See log_segment_info_fn.
+ */
 static inline log_segment_info
 log_get_segment_info(log_handle *log)
 {
