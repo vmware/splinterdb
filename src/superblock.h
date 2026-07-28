@@ -161,16 +161,62 @@ platform_status
 superblock_format(superblock_context *ctx, const allocator_config *cfg);
 
 /*
- * Publish the current in-memory image: bump the generation, write it to the
- * physical slot not currently newest, and make it durable.  This is the single
- * atomic commit for a checkpoint or a clean-unmount transition; mutate the
- * image first via the setters below (tree records, allocation state), then
- * publish.
+ * ---- Durable-state transitions ----
+ *
+ * Each transition mutates the in-memory image only; nothing reaches disk until
+ * superblock_make_durable().  A checkpoint or clean unmount is a sequence of
+ * these transitions followed by one superblock_make_durable(), so the
+ * durability boundary is always explicit at the call site.
+ *
+ * The tree/log transitions encode the crash-safety invariant that the persisted
+ * allocation map is trustworthy only while it matches the durable tree:
+ * superblock_log_cut() and superblock_snapshot_tree() both invalidate it, and
+ * superblock_snapshot_allocator() is the only operation that re-validates it.
+ */
+
+/*
+ * Rotate the log: the current live log becomes the sealed log (its entries are
+ * being folded into the next root) and new_live receives subsequent inserts.
+ * Invalidates the allocation state.  Used at a checkpoint's begin, and to
+ * install a fresh live log at mkfs/mount (where there is no prior live log, so
+ * the sealed slot stays empty).
+ */
+void
+superblock_log_cut(superblock_context *ctx, superblock_log_info new_live);
+
+/*
+ * Advance the durable tree to root_addr (having incorporated up to
+ * incorporated_generation) and clear the sealed log -- a snapshot is taken only
+ * after the sealed log has been folded into the root.  new_live is the log
+ * carried forward (empty at a clean shutdown).  Invalidates the allocation
+ * state.  Used at a checkpoint's completion and at a clean unmount.
+ */
+void
+superblock_snapshot_tree(superblock_context *ctx,
+                         uint64              root_addr,
+                         uint64              incorporated_generation,
+                         superblock_log_info new_live);
+
+/*
+ * Record the persisted allocator refcount map at map_addr as trustworthy.  This
+ * is the only operation that validates the allocation state; the caller must
+ * have made the map itself durable first.  Used as the final step of a clean
+ * unmount.
+ */
+void
+superblock_snapshot_allocator(superblock_context *ctx, uint64 map_addr);
+
+/*
+ * Make the current in-memory image durable: bump the generation, write it to
+ * the physical slot not currently newest, and issue a durable barrier.  On
+ * success that slot becomes newest; a torn write leaves the previous generation
+ * intact in the other slot.  This is the single durability boundary for the
+ * transitions above.
  */
 platform_status
-superblock_publish(superblock_context *ctx);
+superblock_make_durable(superblock_context *ctx);
 
-/* ---- Accessors on the in-memory image ---- */
+/* ---- Read-only accessors on the in-memory image ---- */
 
 bool32
 superblock_allocation_state_valid(const superblock_context *ctx);
@@ -178,18 +224,7 @@ superblock_allocation_state_valid(const superblock_context *ctx);
 uint64
 superblock_allocation_state_addr(const superblock_context *ctx);
 
-void
-superblock_set_allocation_state_addr(superblock_context *ctx, uint64 addr);
-
 /* Copy the (always-present) tree record into *out. */
 void
 superblock_get_tree_record(const superblock_context *ctx,
                            superblock_tree_record   *out);
-
-/*
- * Store rec as the tree record.  In-memory only; not durable until
- * superblock_publish().
- */
-void
-superblock_set_tree_record(superblock_context           *ctx,
-                           const superblock_tree_record *rec);

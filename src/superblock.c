@@ -136,7 +136,7 @@ out:
 
 /*
  * Checksum the in-memory image and write it to a physical slot.  Does not make
- * it durable; superblock_publish() issues the barrier.
+ * it durable; superblock_make_durable() issues the barrier.
  */
 static platform_status
 superblock_write_slot(superblock_context *ctx, uint64 slot)
@@ -147,7 +147,7 @@ superblock_write_slot(superblock_context *ctx, uint64 slot)
 }
 
 platform_status
-superblock_publish(superblock_context *ctx)
+superblock_make_durable(superblock_context *ctx)
 {
    platform_assert(ctx->image != NULL);
 
@@ -191,11 +191,11 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg)
     * leaving slot 1 newest.
     */
    ctx->current_slot  = 1;
-   platform_status rc = superblock_publish(ctx);
+   platform_status rc = superblock_make_durable(ctx);
    if (!SUCCESS(rc)) {
       return rc;
    }
-   return superblock_publish(ctx);
+   return superblock_make_durable(ctx);
 }
 
 bool32
@@ -211,12 +211,6 @@ superblock_allocation_state_addr(const superblock_context *ctx)
 }
 
 void
-superblock_set_allocation_state_addr(superblock_context *ctx, uint64 addr)
-{
-   ctx->image->allocation_state_addr = addr;
-}
-
-void
 superblock_get_tree_record(const superblock_context *ctx,
                            superblock_tree_record   *out)
 {
@@ -224,8 +218,39 @@ superblock_get_tree_record(const superblock_context *ctx,
 }
 
 void
-superblock_set_tree_record(superblock_context           *ctx,
-                           const superblock_tree_record *rec)
+superblock_log_cut(superblock_context *ctx, superblock_log_info new_live)
 {
-   ctx->image->tree = *rec;
+   // The current live log becomes the sealed log (its entries are being folded
+   // into the next root); new_live receives subsequent inserts.  The persisted
+   // allocation map no longer matches the (log) state, so invalidate it.
+   ctx->image->tree.sealed_log       = ctx->image->tree.live_log;
+   ctx->image->tree.live_log         = new_live;
+   ctx->image->allocation_state_addr = 0;
+}
+
+void
+superblock_snapshot_tree(superblock_context *ctx,
+                         uint64              root_addr,
+                         uint64              incorporated_generation,
+                         superblock_log_info new_live)
+{
+   // The durable tree now includes everything folded into root_addr, so the
+   // sealed log (if any) is done with; new_live is the log carried forward
+   // (empty at a clean shutdown).  Advancing the root diverges the persisted
+   // allocation map, so invalidate it.
+   ctx->image->tree.root_addr               = root_addr;
+   ctx->image->tree.incorporated_generation = incorporated_generation;
+   ctx->image->tree.sealed_log              = (superblock_log_info){0};
+   ctx->image->tree.live_log                = new_live;
+   ctx->image->allocation_state_addr        = 0;
+}
+
+void
+superblock_snapshot_allocator(superblock_context *ctx, uint64 map_addr)
+{
+   // The only operation that validates the allocation state; every tree/log
+   // transition invalidates it.  The caller must have made the map itself
+   // durable first, then make the superblock durable after.
+   platform_assert(map_addr != 0);
+   ctx->image->allocation_state_addr = map_addr;
 }

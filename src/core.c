@@ -182,19 +182,18 @@ core_log_to_superblock(log_segment_info info)
 }
 
 /*
- * Publish a tree-record root advance to the superblock: capture the current
- * COW root, make it durable, record it (with the incorporated-generation cut
- * and the given live/sealed log pointers), invalidate the persisted allocation
- * state in the same atomic update, and release the previously published root.
- * Used by mkfs (empty root, records the new live log) and by unmount (Part A;
- * unmount then persists the map and republishes a valid allocation state).  The
- * snapshot's owned reference is transferred to the durable record on a
- * successful publish.
+ * Advance the durable tree to the current COW root and make it durable: capture
+ * the root, make its pages durable, snapshot it into the superblock (with the
+ * incorporated-generation cut, the given live log carried forward, and the
+ * sealed slot cleared -- a snapshot happens only after the sealed log is folded
+ * in), then release the previously published root.  snapshot_tree invalidates
+ * the persisted allocation state; a clean unmount revalidates it in a later
+ * step.  Used by mkfs (empty root, records the new live log), checkpoint
+ * completion, and unmount (Part A).  The snapshot's owned reference is
+ * transferred to the durable record on success.
  */
 static platform_status
-core_publish_root_record(core_handle        *spl,
-                         superblock_log_info live_log,
-                         superblock_log_info sealed_log)
+core_publish_root_record(core_handle *spl, superblock_log_info live_log)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
@@ -202,7 +201,6 @@ core_publish_root_record(core_handle        *spl,
    uint64                 incorporated_generation;
    uint64                 old_root_addr = 0;
    superblock_tree_record old_rec;
-   superblock_tree_record rec;
 
    /*
     * The snapshot cut, durable record write, and old-root release are one
@@ -239,29 +237,26 @@ core_publish_root_record(core_handle        *spl,
    superblock_get_tree_record(&spl->superblock, &old_rec);
    old_root_addr = old_rec.root_addr;
 
-   ZERO_CONTENTS(&rec);
-   rec.root_addr               = snapshot.root_addr;
-   rec.incorporated_generation = has_incorporated_generation
-                                    ? incorporated_generation
-                                    : SUPERBLOCK_NO_INCORPORATED_GENERATION;
-   rec.live_log                = live_log;
-   rec.sealed_log              = sealed_log;
-
-   superblock_set_tree_record(&spl->superblock, &rec);
    /*
-    * Advancing a root invalidates the persisted allocation map: the in-memory
-    * map now diverges from disk.  A clean unmount republishes a valid
-    * allocation state only after persisting the map (Part B).
+    * Snapshot the new root (clearing the sealed slot and carrying live_log
+    * forward) and make it durable.  snapshot_tree invalidates the persisted
+    * allocation map -- the in-memory map now diverges from disk; a clean unmount
+    * revalidates it only after persisting the map (Part B).
     */
-   superblock_set_allocation_state_addr(&spl->superblock, 0);
+   superblock_snapshot_tree(&spl->superblock,
+                            snapshot.root_addr,
+                            has_incorporated_generation
+                               ? incorporated_generation
+                               : SUPERBLOCK_NO_INCORPORATED_GENERATION,
+                            live_log);
 
-   rc = superblock_publish(&spl->superblock);
+   rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       /* The old root is still the newest durable one; keep its reference. */
       goto release_snapshot;
    }
 
-   if (old_root_addr == rec.root_addr) {
+   if (old_root_addr == snapshot.root_addr) {
       /*
        * Republishing the same root (e.g. a clean unmount with no advance since
        * the last publish): the previously published record already accounts
@@ -467,8 +462,8 @@ core_maybe_complete_checkpoint(core_handle *spl)
       return STATUS_OK;
    }
 
-   platform_status rc = core_publish_root_record(
-      spl, core_log_to_superblock(live), (superblock_log_info){0});
+   platform_status rc =
+      core_publish_root_record(spl, core_log_to_superblock(live));
    if (SUCCESS(rc)) {
       // The sealed log's entries are now durably in the root; free its extents.
       log_dec_ref(spl->cc, &sealed);
@@ -2247,7 +2242,7 @@ core_mkfs(core_handle      *spl,
    if (spl->cfg.use_log) {
       live_log = core_log_to_superblock(log_get_segment_info(spl->log));
    }
-   rc = core_publish_root_record(spl, live_log, (superblock_log_info){0});
+   rc = core_publish_root_record(spl, live_log);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: core_publish_root_record failed: %s\n",
                          platform_status_to_string(rc));
@@ -2413,23 +2408,20 @@ core_mount(core_handle      *spl,
    }
 
    /*
-    * Mark dirty: record this session's fresh live log and invalidate the
-    * persisted allocation state, before any allocation diverges the in-memory
-    * map from disk.  A crash after this forces the next mount into recovery
-    * instead of silently reverting to this now-stale root.  The root is
-    * unchanged; a clean mount has no sealed log.
+    * Mark dirty: cut this session's fresh live log and invalidate the persisted
+    * allocation state, before any allocation diverges the in-memory map from
+    * disk.  A crash after this forces the next mount into recovery instead of
+    * silently reverting to this now-stale root.  The root is unchanged; a clean
+    * mount has no prior live log, so the sealed slot stays empty.
     */
-   superblock_get_tree_record(&spl->superblock, &rec);
-   rec.sealed_log = (superblock_log_info){0};
-   rec.live_log   = spl->cfg.use_log
-                       ? core_log_to_superblock(log_get_segment_info(spl->log))
-                       : (superblock_log_info){0};
-   superblock_set_tree_record(&spl->superblock, &rec);
-   superblock_set_allocation_state_addr(&spl->superblock, 0);
-   rc = superblock_publish(&spl->superblock);
+   superblock_log_cut(
+      &spl->superblock,
+      spl->cfg.use_log ? core_log_to_superblock(log_get_segment_info(spl->log))
+                       : (superblock_log_info){0});
+   rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: mark-dirty superblock_publish failed: "
-                         "%s\n",
+      platform_error_log("core_mount: mark-dirty superblock_make_durable "
+                         "failed: %s\n",
                          platform_status_to_string(rc));
       goto deinit_stats;
    }
@@ -2605,14 +2597,11 @@ core_checkpoint(core_handle *spl)
          }
       }
       if (SUCCESS(rc)) {
+         // Cut the log: the just-sealed live log becomes the sealed slot and
+         // the fresh log becomes live.  Root unchanged until completion.
          new_live = core_log_to_superblock(log_get_segment_info(spl->log));
-         superblock_tree_record rec;
-         superblock_get_tree_record(&spl->superblock, &rec);
-         rec.live_log   = new_live;
-         rec.sealed_log = core_log_to_superblock(sealed);
-         superblock_set_tree_record(&spl->superblock, &rec);
-         superblock_set_allocation_state_addr(&spl->superblock, 0);
-         rc = superblock_publish(&spl->superblock);
+         superblock_log_cut(&spl->superblock, new_live);
+         rc = superblock_make_durable(&spl->superblock);
       }
 
       platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
@@ -2637,7 +2626,7 @@ core_checkpoint(core_handle *spl)
 
    // --- Complete: advance the durable root to the incorporated state, keeping
    // the new live log and clearing the sealed slot. ---
-   rc = core_publish_root_record(spl, new_live, (superblock_log_info){0});
+   rc = core_publish_root_record(spl, new_live);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -2680,8 +2669,7 @@ core_unmount(core_handle *spl)
     * live or sealed log at rest).  Allocation state stays invalid here; it
     * becomes valid only in Part B, after the map is persisted.
     */
-   rc = core_publish_root_record(
-      spl, (superblock_log_info){0}, (superblock_log_info){0});
+   rc = core_publish_root_record(spl, (superblock_log_info){0});
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
@@ -2709,8 +2697,8 @@ core_unmount(core_handle *spl)
       uint64          map_addr;
       platform_status prc = allocator_persist(spl->al, &map_addr);
       if (SUCCESS(prc)) {
-         superblock_set_allocation_state_addr(&spl->superblock, map_addr);
-         prc = superblock_publish(&spl->superblock);
+         superblock_snapshot_allocator(&spl->superblock, map_addr);
+         prc = superblock_make_durable(&spl->superblock);
       }
       if (!SUCCESS(prc)) {
          platform_error_log("core_unmount: failed to publish clean allocation "

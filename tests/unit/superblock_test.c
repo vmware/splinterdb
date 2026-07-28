@@ -112,10 +112,11 @@ CTEST2(superblock, test_format_sets_fresh_state)
 }
 
 /*
- * A published tree record and allocation state survive a deinit + re-mount:
- * the newest generation wins.
+ * A durable tree snapshot and a subsequent durable allocator snapshot (the
+ * clean-unmount Part A / Part B sequence) survive a deinit + re-mount: the
+ * newest generation wins.
  */
-CTEST2(superblock, test_publish_persists_tree_record)
+CTEST2(superblock, test_snapshot_persists_state)
 {
    superblock_context ctx;
    platform_status    rc =
@@ -124,14 +125,16 @@ CTEST2(superblock, test_publish_persists_tree_record)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   superblock_tree_record rec = {
-      .root_addr               = 0x4000,
-      .incorporated_generation = SUPERBLOCK_NO_INCORPORATED_GENERATION,
-      .live_log = {.addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11},
-   };
-   superblock_set_tree_record(&ctx, &rec);
-   superblock_set_allocation_state_addr(&ctx, 0x8000);
-   rc = superblock_publish(&ctx);
+   superblock_log_info live = {
+      .addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11};
+   superblock_snapshot_tree(
+      &ctx, 0x4000, SUPERBLOCK_NO_INCORPORATED_GENERATION, live);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_FALSE(superblock_allocation_state_valid(&ctx)); // snapshot invalidated
+
+   superblock_snapshot_allocator(&ctx, 0x8000);
+   rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
 
@@ -176,20 +179,14 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   superblock_tree_record rec = {
-      .root_addr               = 0x4000,
-      .incorporated_generation = 5,
-      .live_log                = TEST_LOG_L1,
-   };
-   superblock_set_tree_record(&ctx, &rec);
-   rc = superblock_publish(&ctx);
+   // Steady: root R0, live L1, no sealed log.
+   superblock_snapshot_tree(&ctx, 0x4000, 5, TEST_LOG_L1);
+   rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
-   // Begin: seal L1 -> sealed_log, new live L2.
-   rec.sealed_log = rec.live_log;
-   rec.live_log   = TEST_LOG_L2;
-   superblock_set_tree_record(&ctx, &rec);
-   rc = superblock_publish(&ctx);
+   // Begin: cut the log -- L1 becomes sealed, L2 becomes live.
+   superblock_log_cut(&ctx, TEST_LOG_L2);
+   rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
    superblock_tree_record got;
@@ -197,12 +194,9 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    ASSERT_EQUAL(TEST_LOG_L1.meta_addr, got.sealed_log.meta_addr);
    ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
 
-   // Complete: advance root, clear sealed_log.
-   rec.root_addr               = 0x4400;
-   rec.incorporated_generation = 9;
-   rec.sealed_log              = (superblock_log_info){0};
-   superblock_set_tree_record(&ctx, &rec);
-   rc = superblock_publish(&ctx);
+   // Complete: advance root, carry L2 forward, clear sealed_log.
+   superblock_snapshot_tree(&ctx, 0x4400, 9, TEST_LOG_L2);
+   rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
 
@@ -234,25 +228,18 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    rc = superblock_format(&ctx, &data->allocator_cfg); // slot0=gen1, slot1=gen2
    ASSERT_TRUE(SUCCESS(rc));
 
-   // Publish the steady state into BOTH slots (gen3->slot0, gen4->slot1), so
-   // the fallback below is unambiguously the steady state, not the empty format
-   // one.
-   superblock_tree_record rec = {
-      .root_addr               = 0x4000,
-      .incorporated_generation = 5,
-      .live_log                = TEST_LOG_L1,
-   };
-   superblock_set_tree_record(&ctx, &rec);
-   rc = superblock_publish(&ctx); // gen3 -> slot0
+   // Make the steady state durable into BOTH slots (gen3->slot0, gen4->slot1),
+   // so the fallback below is unambiguously the steady state, not the empty
+   // format one.
+   superblock_snapshot_tree(&ctx, 0x4000, 5, TEST_LOG_L1);
+   rc = superblock_make_durable(&ctx); // gen3 -> slot0
    ASSERT_TRUE(SUCCESS(rc));
-   rc = superblock_publish(&ctx); // gen4 -> slot1
+   rc = superblock_make_durable(&ctx); // gen4 -> slot1
    ASSERT_TRUE(SUCCESS(rc));
 
-   // Begin checkpoint: this publish (gen5) targets slot0.
-   rec.sealed_log = rec.live_log;
-   rec.live_log   = TEST_LOG_L2;
-   superblock_set_tree_record(&ctx, &rec);
-   rc = superblock_publish(&ctx); // gen5 -> slot0
+   // Begin checkpoint: cut the log; this make_durable (gen5) targets slot0.
+   superblock_log_cut(&ctx, TEST_LOG_L2);
+   rc = superblock_make_durable(&ctx); // gen5 -> slot0
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
 
@@ -288,13 +275,13 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   // After format the image is gen 2 in slot 1, so this publish targets slot 0.
-   superblock_tree_record rec = {
-      .root_addr               = 0x4000,
-      .incorporated_generation = SUPERBLOCK_NO_INCORPORATED_GENERATION,
-   };
-   superblock_set_tree_record(&ctx, &rec);
-   rc = superblock_publish(&ctx);
+   // After format the image is gen 2 in slot 1, so this make_durable targets
+   // slot 0.  Snapshot a nonempty root with no live log.
+   superblock_snapshot_tree(&ctx,
+                            0x4000,
+                            SUPERBLOCK_NO_INCORPORATED_GENERATION,
+                            (superblock_log_info){0});
+   rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
 
