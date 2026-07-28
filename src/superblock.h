@@ -141,6 +141,8 @@ superblock_context_init(superblock_context     *ctx,
                         const allocator_config *cfg,
                         platform_heap_id        hid);
 
+/* Release in-memory resources.  Does no I/O.  Specifically, does _not_ make the
+ * current in-memory superblock durable. */
 void
 superblock_context_deinit(superblock_context *ctx);
 
