@@ -125,7 +125,7 @@ CTEST2(superblock, test_snapshot_persists_state)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   superblock_log_info live = {
+   superblock_log_head live = {
       .addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11};
    superblock_snapshot_tree(
       &ctx, 0x4000, SUPERBLOCK_NO_INCORPORATED_GENERATION, live);
@@ -158,10 +158,10 @@ CTEST2(superblock, test_snapshot_persists_state)
 }
 
 /* Steady, begin-checkpoint, and complete-checkpoint tree-record states. */
-static const superblock_log_info TEST_LOG_L1 = {.addr      = 0x6000,
+static const superblock_log_head TEST_LOG_L1 = {.addr      = 0x6000,
                                                 .meta_addr = 0x8000,
                                                 .magic     = 0x11};
-static const superblock_log_info TEST_LOG_L2 = {.addr      = 0x10000,
+static const superblock_log_head TEST_LOG_L2 = {.addr      = 0x10000,
                                                 .meta_addr = 0x12000,
                                                 .magic     = 0x22};
 
@@ -281,7 +281,7 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
    superblock_snapshot_tree(&ctx,
                             0x4000,
                             SUPERBLOCK_NO_INCORPORATED_GENERATION,
-                            (superblock_log_info){0});
+                            (superblock_log_head){0});
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);

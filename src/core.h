@@ -129,8 +129,8 @@ typedef struct core_checkpoint_state {
    core_checkpoint_phase phase;
    log_handle           *pending_log;    // next live log, pre-created (PENDING)
    log_handle           *log_to_seal;    // old live log awaiting seal (SEALING)
-   log_segment_info      sealed_info;    // identity of the sealed log (reclaim)
-   log_segment_info      live_info;      // identity of the new live log
+   log_head      sealed_head;    // identity of the sealed log (reclaim)
+   log_head      live_head;      // identity of the new live log
    uint64                cut_generation; // complete once retired >= this
 } core_checkpoint_state;
 

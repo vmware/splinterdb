@@ -218,7 +218,7 @@ superblock_get_tree_record(const superblock_context *ctx,
 }
 
 void
-superblock_log_cut(superblock_context *ctx, superblock_log_info new_live)
+superblock_log_cut(superblock_context *ctx, superblock_log_head new_live)
 {
    // The current live log becomes the sealed log (its entries are being folded
    // into the next root); new_live receives subsequent inserts.  The persisted
@@ -232,7 +232,7 @@ void
 superblock_snapshot_tree(superblock_context *ctx,
                          uint64              root_addr,
                          uint64              incorporated_generation,
-                         superblock_log_info new_live)
+                         superblock_log_head new_live)
 {
    // The durable tree now includes everything folded into root_addr, so the
    // sealed log (if any) is done with; new_live is the log carried forward
@@ -240,7 +240,7 @@ superblock_snapshot_tree(superblock_context *ctx,
    // allocation map, so invalidate it.
    ctx->image->tree.root_addr               = root_addr;
    ctx->image->tree.incorporated_generation = incorporated_generation;
-   ctx->image->tree.sealed_log              = (superblock_log_info){0};
+   ctx->image->tree.sealed_log              = (superblock_log_head){0};
    ctx->image->tree.live_log                = new_live;
    ctx->image->allocation_state_addr        = 0;
 }

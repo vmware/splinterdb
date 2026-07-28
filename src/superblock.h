@@ -45,15 +45,15 @@
 #define SUPERBLOCK_NUM_SLOTS (2)
 
 /*
- * A log's on-disk identity.  Mirrors log_segment_info's layout; the superblock
- * stores it opaquely and does not depend on the log module.  meta_addr == 0
- * means "no log present".
+ * A log's on-disk head.  Mirrors log_head's layout; the superblock stores it
+ * opaquely and does not depend on the log module.  meta_addr == 0 means "no log
+ * present".
  */
-typedef struct ONDISK superblock_log_info {
+typedef struct ONDISK superblock_log_head {
    uint64 addr;
    uint64 meta_addr;
    uint64 magic;
-} superblock_log_info;
+} superblock_log_head;
 
 /* An empty (absent) log slot: meta_addr == 0. */
 #define SUPERBLOCK_NO_LOG(info) ((info).meta_addr == 0)
@@ -84,8 +84,8 @@ typedef struct ONDISK superblock_tree_record {
     * replay-skip boundary.
     */
    uint64              incorporated_generation;
-   superblock_log_info live_log;
-   superblock_log_info sealed_log;
+   superblock_log_head live_log;
+   superblock_log_head sealed_log;
 } superblock_tree_record;
 
 /* Sentinel for superblock_tree_record.incorporated_generation. */
@@ -188,7 +188,7 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg);
  * the sealed slot stays empty).
  */
 void
-superblock_log_cut(superblock_context *ctx, superblock_log_info new_live);
+superblock_log_cut(superblock_context *ctx, superblock_log_head new_live);
 
 /*
  * Advance the durable tree to root_addr (having incorporated up to
@@ -201,7 +201,7 @@ void
 superblock_snapshot_tree(superblock_context *ctx,
                          uint64              root_addr,
                          uint64              incorporated_generation,
-                         superblock_log_info new_live);
+                         superblock_log_head new_live);
 
 /*
  * Record the persisted allocator refcount map at map_addr as trustworthy.  This

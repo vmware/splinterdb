@@ -84,16 +84,16 @@ log_handle *
 shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid);
 
 /*
- * Create an iterator over the sharded log segment identified by `segment`,
- * reading its records in generation order.  Returns an abstract log_iterator
- * (or NULL on failure) to be driven through the log.h interface and freed with
+ * Create an iterator over the sharded log identified by `head`, reading its
+ * records in generation order.  Returns an abstract log_iterator (or NULL on
+ * failure) to be driven through the log.h interface and freed with
  * log_iterator_deinit().
  */
 log_iterator *
-shard_log_iterator_create(cache           *cc,
+shard_log_iterator_create(cache            *cc,
                           shard_log_config *cfg,
                           platform_heap_id  hid,
-                          log_segment_info  segment);
+                          log_head          head);
 
 void
 shard_log_config_init(shard_log_config *log_cfg,

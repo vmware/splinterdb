@@ -284,7 +284,7 @@ shard_log_write(log_handle *logh,
  *     make each page readable by shard_log_iterator_init().  Then it releases
  *     the mini-allocator's unused reserve and frees the handle.  After seal the
  *     handle is invalid; the caller retains the identity it captured earlier
- *     (shard_log_get_segment_info(), fixed at creation) to reopen the stream
+ *     (shard_log_get_head(), fixed at creation) to reopen the stream
  *     for replay and, eventually, to free its extents via log_dec_ref().
  *
  *     The caller must prevent concurrent shard_log_write() and seal calls.
@@ -355,7 +355,7 @@ shard_log_seal(log_handle *logh)
 }
 
 void
-log_dec_ref(cache *cc, const log_segment_info *segment)
+log_dec_ref(cache *cc, const log_head *segment)
 {
    if (segment->meta_addr == 0) {
       return;
@@ -364,11 +364,11 @@ log_dec_ref(cache *cc, const log_segment_info *segment)
    platform_assert(ref == 0);
 }
 
-log_segment_info
-shard_log_get_segment_info(log_handle *logh)
+log_head
+shard_log_get_head(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   return (log_segment_info){
+   return (log_head){
       .addr      = log->addr,
       .meta_addr = log->meta_head,
       .magic     = log->magic,
@@ -392,9 +392,9 @@ shard_log_next_extent_addr(shard_log_config *cfg, page_handle *page)
 }
 
 static log_ops shard_log_ops = {
-   .write        = shard_log_write,
-   .seal         = shard_log_seal,
-   .segment_info = shard_log_get_segment_info,
+   .write = shard_log_write,
+   .seal  = shard_log_seal,
+   .head  = shard_log_get_head,
 };
 
 static platform_status
@@ -722,7 +722,7 @@ log_iterator *
 shard_log_iterator_create(cache            *cc,
                           shard_log_config *cfg,
                           platform_heap_id  hid,
-                          log_segment_info  segment)
+                          log_head          head)
 {
    shard_log_iterator *itor = TYPED_MALLOC(hid, itor);
    if (itor == NULL) {
@@ -731,7 +731,7 @@ shard_log_iterator_create(cache            *cc,
       return NULL;
    }
    platform_status rc =
-      shard_log_iterator_init(cc, cfg, hid, segment.addr, segment.magic, itor);
+      shard_log_iterator_init(cc, cfg, hid, head.addr, head.magic, itor);
    if (!SUCCESS(rc)) {
       platform_error_log("shard_log_iterator_create: shard_log_iterator_init "
                          "failed: %s\n",

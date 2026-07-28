@@ -40,7 +40,7 @@ test_log_crash(clockcache             *cc,
    uint64             i;
    key                returned_key;
    message            returned_message;
-   log_segment_info   segment;
+   log_head   segment;
    log_iterator      *itor;
    char               key_str[128];
    char               data_str[128];
@@ -52,7 +52,7 @@ test_log_crash(clockcache             *cc,
    platform_assert(logh != NULL);
 
    // The identity is fixed at creation; capture it before writing/sealing.
-   segment = log_get_segment_info(logh);
+   segment = log_get_head(logh);
 
    merge_accumulator_init(&msg, hid);
 
@@ -178,7 +178,7 @@ test_log_write_range(log_handle             *logh,
 static void
 test_log_verify_segment(cache                  *cc,
                         shard_log_config       *cfg,
-                        const log_segment_info *segment,
+                        const log_head *segment,
                         test_message_generator *gen,
                         platform_heap_id        hid,
                         uint64                  key_size,
@@ -246,11 +246,11 @@ test_log_two_segments(clockcache             *cc,
 {
    const uint64     old_first = 1000, old_count = 16;
    const uint64     new_first = 2000, new_count = 16;
-   log_segment_info sealed, fresh;
+   log_head sealed, fresh;
 
    log_handle *log = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(log != NULL);
-   sealed = log_get_segment_info(log); // identity is fixed at creation
+   sealed = log_get_head(log); // identity is fixed at creation
    test_log_write_range(log, gen, hid, key_size, old_first, old_count);
 
    platform_status rc = log_seal(log); // frees log
@@ -273,7 +273,7 @@ test_log_two_segments(clockcache             *cc,
    // A fresh stream is a distinct segment: new mini allocator and new magic.
    log = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(log != NULL);
-   fresh = log_get_segment_info(log);
+   fresh = log_get_head(log);
    test_log_write_range(log, gen, hid, key_size, new_first, new_count);
    rc = log_seal(log); // frees log
    platform_assert_status_ok(rc);
@@ -305,7 +305,7 @@ static int
 test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 {
    platform_status    rc;
-   log_segment_info   sealed;
+   log_head   sealed;
    log_iterator      *itor;
    merge_accumulator  msg;
    key                returned_key;
@@ -316,7 +316,7 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 
    log_handle *logh = shard_log_create(cc, cfg, hid);
    platform_assert(logh != NULL);
-   sealed = log_get_segment_info(logh); // identity is fixed at creation
+   sealed = log_get_head(logh); // identity is fixed at creation
 
    merge_accumulator_init(&msg, hid);
    bool32 success = merge_accumulator_resize(&msg, value_len);
@@ -419,7 +419,7 @@ test_log_perf(cache                  *cc,
 
    log_handle *logh = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(logh != NULL);
-   log_segment_info sealed = log_get_segment_info(logh);
+   log_head sealed = log_get_head(logh);
 
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].logh        = logh;

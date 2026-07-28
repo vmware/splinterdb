@@ -18,16 +18,17 @@ typedef struct log_iterator log_iterator;
 typedef struct log_config   log_config;
 
 /*
- * Identity of one mini-allocator-backed log stream.  It is sufficient for a
- * higher-level checkpoint record to describe a stream, but not by itself a
- * durable descriptor: core will later persist this information in an
- * independently checksummed log-segment record.
+ * The on-disk head of one mini-allocator-backed log stream: the data head
+ * (where replay begins), the metadata head (which owns the stream's extents),
+ * and a per-stream magic that validates its pages.  Fixed at creation; a
+ * higher-level checkpoint record stores it to later find the stream for replay
+ * or reclaim it via log_dec_ref().
  */
-typedef struct log_segment_info {
-   uint64 addr;
-   uint64 meta_addr;
-   uint64 magic;
-} log_segment_info;
+typedef struct log_head {
+   uint64 addr;      // data head: first log page, where replay begins
+   uint64 meta_addr; // mini-allocator metadata head; owns the stream's extents
+   uint64 magic;     // per-stream magic; validates the stream's pages
+} log_head;
 
 typedef int (*log_write_fn)(log_handle *log,
                             key         tuple_key,
@@ -42,22 +43,22 @@ typedef int (*log_write_fn)(log_handle *log,
  * The caller must exclude concurrent log_write() and log_seal() calls.  seal()
  * itself issues no writeback or durable barrier: to make the sealed pages
  * durable, the caller takes the cache writeback fence + a durable barrier
- * afterward.  The stream's identity is fixed at creation and obtained then via
- * log_get_segment_info(), so seal needs no identity out-parameter; the
- * caller frees the on-disk extents later via log_dec_ref().
+ * afterward.  The stream's head is fixed at creation and obtained then via
+ * log_get_head(), so seal needs no out-parameter; the caller frees the on-disk
+ * extents later via log_dec_ref().
  */
 typedef platform_status (*log_seal_fn)(log_handle *log);
 /*
- * The stream's durable identity, fixed at creation.  The caller records it
+ * The stream's durable head, fixed at creation.  The caller records it
  * (e.g. in the superblock) as soon as the log is created, so that a crash
  * mid-stream can find the stream for replay.
  */
-typedef log_segment_info (*log_segment_info_fn)(log_handle *log);
+typedef log_head (*log_head_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_fn        write;
-   log_seal_fn         seal;
-   log_segment_info_fn segment_info;
+   log_write_fn write;
+   log_seal_fn  seal;
+   log_head_fn  head;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -79,8 +80,8 @@ log_write(log_handle *log,
 /*
  * Finalize and retire the log, freeing the handle.  See log_seal_fn for the
  * required exclusion and durability ordering; the handle is invalid after this
- * returns.  Capture the identity via log_get_segment_info() beforehand (it is
- * fixed at creation).
+ * returns.  Capture the head via log_get_head() beforehand (it is fixed at
+ * creation).
  */
 static inline platform_status
 log_seal(log_handle *log)
@@ -88,12 +89,11 @@ log_seal(log_handle *log)
    return log->ops->seal(log);
 }
 
-/* The stream's durable identity (fixed at creation).  See log_segment_info_fn.
- */
-static inline log_segment_info
-log_get_segment_info(log_handle *log)
+/* The stream's durable head (fixed at creation).  See log_head_fn. */
+static inline log_head
+log_get_head(log_handle *log)
 {
-   return log->ops->segment_info(log);
+   return log->ops->head(log);
 }
 
 /*
@@ -103,19 +103,19 @@ log_get_segment_info(log_handle *log)
  */
 
 /*
- * Release a sealed log segment identified by its log_segment_info: drop the
- * reference its metadata extent holds, freeing the segment's on-disk extents.
- * Takes no handle -- the handle was freed by log_seal(); the caller retained
- * only the identity (log_get_segment_info(), captured at creation).
+ * Release a sealed log identified by its log_head: drop the reference its
+ * metadata head holds, freeing the stream's on-disk extents.  Takes no handle
+ * -- the handle was freed by log_seal(); the caller retained only the head
+ * (log_get_head(), captured at creation).
  */
 void
-log_dec_ref(cache *cc, const log_segment_info *segment);
+log_dec_ref(cache *cc, const log_head *head);
 
 /*
  * ---- Abstract log iteration ----
  *
- * A log_iterator reads a sealed log segment's records in generation order (used
- * by crash recovery to replay a stream onto the durable root).  It is a generic
+ * A log_iterator reads a sealed log's records in generation order (used by
+ * crash recovery to replay a stream onto the durable root).  It is a generic
  * iterator (curr/can_next/next, via the embedded `super`) plus the log-specific
  * ops below.  To sub-class, make a log_iterator your first field.
  */

@@ -172,13 +172,13 @@ core_capture_checkpoint_cut(core_handle    *spl,
 }
 
 /*
- * Translate between the log module's log_segment_info and the superblock's
- * (layout-identical but module-independent) superblock_log_info.
+ * Translate between the log module's log_head and the superblock's
+ * (layout-identical but module-independent) superblock_log_head.
  */
-static superblock_log_info
-core_log_to_superblock(log_segment_info info)
+static superblock_log_head
+core_log_to_superblock(log_head info)
 {
-   return (superblock_log_info){
+   return (superblock_log_head){
       .addr = info.addr, .meta_addr = info.meta_addr, .magic = info.magic};
 }
 
@@ -194,7 +194,7 @@ core_log_to_superblock(log_segment_info info)
  * transferred to the durable record on success.
  */
 static platform_status
-core_publish_root_record(core_handle *spl, superblock_log_info live_log)
+core_publish_root_record(core_handle *spl, superblock_log_head live_log)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
@@ -371,12 +371,12 @@ core_checkpoint_maybe_begin(core_handle *spl)
          "core_checkpoint_maybe_begin: shard_log_create failed; skipping\n");
       return;
    }
-   log_segment_info next_info = log_get_segment_info(next);
+   log_head next_head = log_get_head(next);
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
       spl->checkpoint.pending_log     = next;
-      spl->checkpoint.live_info       = next_info;
+      spl->checkpoint.live_head       = next_head;
       spl->checkpoint.phase           = CORE_CHECKPOINT_PENDING;
       spl->last_checkpoint_generation = spl->mt_ctxt.generation;
       next                            = NULL; // handed off to the checkpoint
@@ -386,7 +386,7 @@ core_checkpoint_maybe_begin(core_handle *spl)
    if (next != NULL) {
       // Lost a race with a concurrent rotation; discard the speculative log.
       log_seal(next);
-      log_dec_ref(spl->cc, &next_info);
+      log_dec_ref(spl->cc, &next_head);
    }
 }
 
@@ -405,7 +405,7 @@ core_rotate_log_virtual(void *arg, uint64 finalized_generation)
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_PENDING) {
       spl->checkpoint.log_to_seal    = spl->log;
-      spl->checkpoint.sealed_info    = log_get_segment_info(spl->log);
+      spl->checkpoint.sealed_head    = log_get_head(spl->log);
       spl->log                       = spl->checkpoint.pending_log;
       spl->checkpoint.pending_log    = NULL;
       spl->checkpoint.cut_generation = finalized_generation;
@@ -451,11 +451,11 @@ core_maybe_complete_checkpoint(core_handle *spl)
    bool32 complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
                      && retired != SUPERBLOCK_NO_INCORPORATED_GENERATION
                      && retired >= spl->checkpoint.cut_generation;
-   log_segment_info sealed = {0};
-   log_segment_info live   = {0};
+   log_head sealed = {0};
+   log_head live   = {0};
    if (complete) {
-      sealed                = spl->checkpoint.sealed_info;
-      live                  = spl->checkpoint.live_info;
+      sealed                = spl->checkpoint.sealed_head;
+      live                  = spl->checkpoint.live_head;
       spl->checkpoint.phase = CORE_CHECKPOINT_COMPLETING;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
@@ -476,8 +476,8 @@ core_maybe_complete_checkpoint(core_handle *spl)
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (SUCCESS(rc)) {
-      ZERO_CONTENTS(&spl->checkpoint.sealed_info);
-      ZERO_CONTENTS(&spl->checkpoint.live_info);
+      ZERO_CONTENTS(&spl->checkpoint.sealed_head);
+      ZERO_CONTENTS(&spl->checkpoint.live_head);
       spl->checkpoint.cut_generation = 0;
       spl->checkpoint.phase          = CORE_CHECKPOINT_IDLE;
    } else {
@@ -505,14 +505,14 @@ core_finish_checkpoint_for_shutdown(core_handle *spl)
       case CORE_CHECKPOINT_PENDING:
          // The next live log was pre-created but never installed; discard it.
          log_seal(cp->pending_log);
-         log_dec_ref(spl->cc, &cp->live_info);
+         log_dec_ref(spl->cc, &cp->live_head);
          break;
       case CORE_CHECKPOINT_INCORPORATING:
       case CORE_CHECKPOINT_COMPLETING:
          // The sealed log is fully incorporated after quiesce.  The shutdown
          // publish records sealed=none, so just reclaim its extents here
          // (before the map is persisted, so the map reflects the free).
-         log_dec_ref(spl->cc, &cp->sealed_info);
+         log_dec_ref(spl->cc, &cp->sealed_head);
          break;
       case CORE_CHECKPOINT_SEALING:
       default:
@@ -2241,9 +2241,9 @@ core_mkfs(core_handle      *spl,
 
    // Establish the initial (empty) tree record, recording the live log; publish
    // it durably.  No sealed log at mkfs.
-   superblock_log_info live_log = {0};
+   superblock_log_head live_log = {0};
    if (spl->cfg.use_log) {
-      live_log = core_log_to_superblock(log_get_segment_info(spl->log));
+      live_log = core_log_to_superblock(log_get_head(spl->log));
    }
    rc = core_publish_root_record(spl, live_log);
    if (!SUCCESS(rc)) {
@@ -2420,8 +2420,8 @@ core_mount(core_handle      *spl,
     */
    superblock_log_cut(
       &spl->superblock,
-      spl->cfg.use_log ? core_log_to_superblock(log_get_segment_info(spl->log))
-                       : (superblock_log_info){0});
+      spl->cfg.use_log ? core_log_to_superblock(log_get_head(spl->log))
+                       : (superblock_log_head){0});
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
@@ -2542,13 +2542,13 @@ core_teardown_after_shutdown(core_handle *spl)
  * durable root, so the live log is fully incorporated and discardable.  Returns
  * an empty descriptor when logging is disabled.
  */
-static log_segment_info
+static log_head
 core_seal_live_log(core_handle *spl)
 {
    if (!spl->cfg.use_log || spl->log == NULL) {
-      return (log_segment_info){0};
+      return (log_head){0};
    }
-   log_segment_info info = log_get_segment_info(spl->log);
+   log_head info = log_get_head(spl->log);
    log_seal(spl->log);
    spl->log = NULL;
    return info;
@@ -2572,8 +2572,8 @@ platform_status
 core_checkpoint(core_handle *spl)
 {
    platform_status     rc;
-   superblock_log_info new_live = {0};
-   log_segment_info    sealed   = {0};
+   superblock_log_head new_live = {0};
+   log_head    sealed   = {0};
 
    if (spl->cfg.use_log) {
       // --- Begin: seal the live log, start a fresh one, and publish
@@ -2583,7 +2583,7 @@ core_checkpoint(core_handle *spl)
          return rc;
       }
 
-      sealed = log_get_segment_info(spl->log);
+      sealed = log_get_head(spl->log);
       log_seal(spl->log); // finalizes the pages (dirty), frees the handle
       spl->log = NULL;
 
@@ -2604,7 +2604,7 @@ core_checkpoint(core_handle *spl)
       if (SUCCESS(rc)) {
          // Cut the log: the just-sealed live log becomes the sealed slot and
          // the fresh log becomes live.  Root unchanged until completion.
-         new_live = core_log_to_superblock(log_get_segment_info(spl->log));
+         new_live = core_log_to_superblock(log_get_head(spl->log));
          superblock_log_cut(&spl->superblock, new_live);
          rc = superblock_make_durable(&spl->superblock);
       }
@@ -2667,14 +2667,14 @@ core_unmount(core_handle *spl)
     * folded and discardable.  Seal it (frees the handle) now; free its extents
     * after the cache flush below.
     */
-   log_segment_info live_log = core_seal_live_log(spl);
+   log_head live_log = core_seal_live_log(spl);
 
    /*
     * Part A: publish the clean-unmount root with both log slots cleared (no
     * live or sealed log at rest).  Allocation state stays invalid here; it
     * becomes valid only in Part B, after the map is persisted.
     */
-   rc = core_publish_root_record(spl, (superblock_log_info){0});
+   rc = core_publish_root_record(spl, (superblock_log_head){0});
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
@@ -2752,7 +2752,7 @@ core_destroy(core_handle *spl)
 
    // Discard the live log too: seal (frees the handle), then free its extents
    // after the cache flush.
-   log_segment_info live_log = core_seal_live_log(spl);
+   log_head live_log = core_seal_live_log(spl);
    core_teardown_after_shutdown(spl);
    log_dec_ref(spl->cc, &live_log);
    trunk_context_deinit(&spl->trunk_context);
