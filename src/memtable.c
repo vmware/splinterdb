@@ -83,7 +83,7 @@ memtable_end_insert(memtable_context *ctxt)
 /*
  * Exclude all inserts, including one that has already acquired its shared
  * insert lock, so the caller can safely mutate generation state.  Used by
- * memtable_force_finalize(); the normal rotation path instead upgrades its own
+ * memtable_force_rotation(); the normal rotation path instead upgrades its own
  * insert lock via memtable_try_begin_insert_rotation().  Pair with
  * memtable_unblock_inserts().
  */
@@ -310,7 +310,7 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status)
 }
 
 uint64
-memtable_force_finalize(memtable_context *ctxt)
+memtable_force_rotation(memtable_context *ctxt)
 {
    memtable_block_inserts(ctxt);
 
@@ -323,7 +323,22 @@ memtable_force_finalize(memtable_context *ctxt)
                    <= ctxt->cfg.max_memtables);
    memtable_mark_empty(ctxt);
 
+   /*
+    * Inserts are still excluded, exactly as in the natural (fullness-triggered)
+    * rotation: all in-flight inserts (and their log writes) have drained and
+    * none can start.  See memtable_maybe_rotate_and_begin_insert() for why this
+    * is the one safe point to swap the checkpoint's live log.
+    */
+   if (ctxt->rotate != NULL) {
+      ctxt->rotate(ctxt->process_ctxt, current_generation);
+   }
+
    memtable_unblock_inserts(ctxt);
+
+   // Dispatch the rotated memtable, outside the critical section, exactly as
+   // the natural rotation path does.
+   memtable_process(ctxt, current_generation);
+
    return current_generation;
 }
 

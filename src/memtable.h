@@ -205,8 +205,19 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status);
 const char *
 memtable_state_string(memtable_state state);
 
+/*
+ * Rotate the current memtable now, regardless of fullness.  Performs the same
+ * sequence as the natural (fullness-triggered) rotation: finalize the memtable,
+ * advance the generation, invoke the rotate callback under insert exclusion,
+ * then -- once inserts are unblocked -- invoke the process callback to dispatch
+ * the rotated memtable.  Returns the finalized generation.
+ *
+ * Callers therefore need do nothing further: whatever the rotate callback
+ * started (e.g. core's checkpoint log cut) is resolved by the process callback,
+ * just as it is for a natural rotation.
+ */
 uint64
-memtable_force_finalize(memtable_context *ctxt);
+memtable_force_rotation(memtable_context *ctxt);
 
 void
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation);

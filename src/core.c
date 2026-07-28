@@ -2502,12 +2502,12 @@ core_quiesce_for_shutdown(core_handle *spl)
 
    if (!memtable_is_empty(&spl->mt_ctxt)) {
       /*
-       * memtable_force_finalize is not thread safe. Note also, we do not hold
-       * the insert lock or rotate while flushing the memtable.
+       * memtable_force_rotation is not thread safe.  It dispatches the flush
+       * itself (via the process callback), which also resolves any checkpoint
+       * log cut its rotate hook just made.  That callback may arm a fresh
+       * checkpoint; core_checkpoint_cleanup_for_shutdown() discards it.
        */
-
-      uint64 generation = memtable_force_finalize(&spl->mt_ctxt);
-      core_memtable_flush(spl, generation);
+      memtable_force_rotation(&spl->mt_ctxt);
    }
 
    // finish any outstanding tasks and destroy task system for this table.
@@ -2603,8 +2603,7 @@ core_checkpoint(core_handle *spl)
    // --- Incorporate: fold everything logged so far into the trunk, advancing
    // the in-memory COW root.  Synchronous (no concurrent inserts). ---
    if (!memtable_is_empty(&spl->mt_ctxt)) {
-      uint64 generation = memtable_force_finalize(&spl->mt_ctxt);
-      core_memtable_flush(spl, generation);
+      memtable_force_rotation(&spl->mt_ctxt); // dispatches the flush itself
    }
    rc = task_perform_until_quiescent(spl->ts);
    if (!SUCCESS(rc)) {

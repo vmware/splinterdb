@@ -284,9 +284,8 @@ create_optimize_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 static void
 force_flush_current_memtable(splinterdb *kvsb)
 {
-   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(kvsb);
-   uint64       generation = memtable_force_finalize(&core->mt_ctxt);
-   core->mt_ctxt.process(core->mt_ctxt.process_ctxt, generation);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+   memtable_force_rotation(&core->mt_ctxt);
    platform_status rc = task_perform_until_quiescent(core->ts);
    ASSERT_TRUE(SUCCESS(rc));
 }
