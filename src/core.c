@@ -59,7 +59,8 @@ core_checkpoint_lock_init(core_handle *spl)
    rc = platform_mutex_init(
       &spl->checkpoint_state_lock, platform_get_module_id(), spl->heap_id);
    if (!SUCCESS(rc)) {
-      platform_status destroy_rc = platform_mutex_destroy(&spl->checkpoint_lock);
+      platform_status destroy_rc =
+         platform_mutex_destroy(&spl->checkpoint_lock);
       platform_assert_status_ok(destroy_rc);
       return rc;
    }
@@ -2412,10 +2413,10 @@ core_mount(core_handle      *spl,
     * silently reverting to this now-stale root.  The root is unchanged; a clean
     * mount has no prior live log, so the sealed slot stays empty.
     */
-   superblock_log_cut(
-      &spl->superblock,
-      spl->cfg.use_log ? core_log_to_superblock(log_get_head(spl->log))
-                       : (superblock_log_head){0});
+   superblock_log_cut(&spl->superblock,
+                      spl->cfg.use_log
+                         ? core_log_to_superblock(log_get_head(spl->log))
+                         : (superblock_log_head){0});
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
@@ -2567,7 +2568,7 @@ core_checkpoint(core_handle *spl)
 {
    platform_status     rc;
    superblock_log_head new_live = {0};
-   log_head    sealed   = {0};
+   log_head            sealed   = {0};
 
    if (spl->cfg.use_log) {
       // --- Begin: seal the live log, start a fresh one, and publish

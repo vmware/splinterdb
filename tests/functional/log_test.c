@@ -35,16 +35,16 @@ test_log_crash(clockcache             *cc,
                bool32                  crash)
 
 {
-   platform_status    rc;
-   log_handle        *logh;
-   uint64             i;
-   key                returned_key;
-   message            returned_message;
-   log_head   segment;
-   log_iterator      *itor;
-   char               key_str[128];
-   char               data_str[128];
-   merge_accumulator  msg;
+   platform_status   rc;
+   log_handle       *logh;
+   uint64            i;
+   key               returned_key;
+   message           returned_message;
+   log_head          segment;
+   log_iterator     *itor;
+   char              key_str[128];
+   char              data_str[128];
+   merge_accumulator msg;
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
 
    platform_assert(cc != NULL);
@@ -178,7 +178,7 @@ test_log_write_range(log_handle             *logh,
 static void
 test_log_verify_segment(cache                  *cc,
                         shard_log_config       *cfg,
-                        const log_head *segment,
+                        const log_head         *segment,
                         test_message_generator *gen,
                         platform_heap_id        hid,
                         uint64                  key_size,
@@ -244,9 +244,9 @@ test_log_two_segments(clockcache             *cc,
                       test_message_generator *gen,
                       uint64                  key_size)
 {
-   const uint64     old_first = 1000, old_count = 16;
-   const uint64     new_first = 2000, new_count = 16;
-   log_head sealed, fresh;
+   const uint64 old_first = 1000, old_count = 16;
+   const uint64 new_first = 2000, new_count = 16;
+   log_head     sealed, fresh;
 
    log_handle *log = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(log != NULL);
@@ -304,15 +304,15 @@ test_log_two_segments(clockcache             *cc,
 static int
 test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 {
-   platform_status    rc;
-   log_head   sealed;
-   log_iterator      *itor;
-   merge_accumulator  msg;
-   key                returned_key;
-   message            returned_message;
-   char               key_data[] = "large-log-key";
-   key                skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
-   uint64             value_len = 3 * cache_page_size(cc) + 123;
+   platform_status   rc;
+   log_head          sealed;
+   log_iterator     *itor;
+   merge_accumulator msg;
+   key               returned_key;
+   message           returned_message;
+   char              key_data[] = "large-log-key";
+   key               skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   uint64            value_len = 3 * cache_page_size(cc) + 123;
 
    log_handle *logh = shard_log_create(cc, cfg, hid);
    platform_assert(logh != NULL);
