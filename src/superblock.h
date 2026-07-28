@@ -150,6 +150,8 @@ superblock_context_deinit(superblock_context *ctx);
  * Read both physical copies, validate each (magic, version, checksum, and
  * geometry against cfg), and load the newest valid one into the in-memory
  * image.  Returns STATUS_NOT_FOUND if neither copy is a valid superblock.
+ *
+ * Must call superblock_init() first.
  */
 platform_status
 superblock_mount(superblock_context *ctx, const allocator_config *cfg);
@@ -158,6 +160,8 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg);
  * Initialize a fresh superblock in the in-memory image (empty tree table,
  * allocation state invalid) and write both physical copies durably.  Used by
  * mkfs.
+ *
+ * Must call superblock_init() first.
  */
 platform_status
 superblock_format(superblock_context *ctx, const allocator_config *cfg);
