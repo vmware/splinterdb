@@ -150,9 +150,6 @@ deinit_fresh:
       }
    }
 
-   memtable_block_inserts(&mt_ctxt);
-   memtable_unblock_inserts(&mt_ctxt);
-
 deinit_recovery:
    memtable_context_deinit(&mt_ctxt);
    if (SUCCESS(rc)) {

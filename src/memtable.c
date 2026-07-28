@@ -80,7 +80,14 @@ memtable_end_insert(memtable_context *ctxt)
    batch_rwlock_unget(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
-void
+/*
+ * Exclude all inserts, including one that has already acquired its shared
+ * insert lock, so the caller can safely mutate generation state.  Used by
+ * memtable_force_finalize(); the normal rotation path instead upgrades its own
+ * insert lock via memtable_try_begin_insert_rotation().  Pair with
+ * memtable_unblock_inserts().
+ */
+static void
 memtable_block_inserts(memtable_context *ctxt)
 {
    batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
@@ -88,7 +95,7 @@ memtable_block_inserts(memtable_context *ctxt)
    batch_rwlock_lock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
-void
+static void
 memtable_unblock_inserts(memtable_context *ctxt)
 {
    batch_rwlock_full_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);

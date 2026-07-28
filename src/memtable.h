@@ -168,17 +168,6 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
 void
 memtable_end_insert(memtable_context *ctxt);
 
-/*
- * Exclude all inserts, including an insert that has already acquired its
- * shared insert lock.  A checkpoint uses this around sealing the log prefix
- * that describes its snapshot.  Must be paired with memtable_unblock_inserts.
- */
-void
-memtable_block_inserts(memtable_context *ctxt);
-
-void
-memtable_unblock_inserts(memtable_context *ctxt);
-
 void
 memtable_begin_lookup(memtable_context *ctxt);
 
