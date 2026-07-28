@@ -55,14 +55,14 @@ core_checkpoint_lock_init(core_handle *spl)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   spl->checkpoint_lock_initialized = TRUE;
 
    rc = platform_mutex_init(
       &spl->checkpoint_state_lock, platform_get_module_id(), spl->heap_id);
    if (!SUCCESS(rc)) {
+      platform_status destroy_rc = platform_mutex_destroy(&spl->checkpoint_lock);
+      platform_assert_status_ok(destroy_rc);
       return rc;
    }
-   spl->checkpoint_state_lock_initialized = TRUE;
 
    ZERO_CONTENTS(&spl->checkpoint); // phase == CORE_CHECKPOINT_IDLE
    spl->last_checkpoint_generation = 0;
@@ -72,16 +72,10 @@ core_checkpoint_lock_init(core_handle *spl)
 static void
 core_checkpoint_lock_deinit(core_handle *spl)
 {
-   if (spl->checkpoint_state_lock_initialized) {
-      platform_status rc = platform_mutex_destroy(&spl->checkpoint_state_lock);
-      platform_assert_status_ok(rc);
-      spl->checkpoint_state_lock_initialized = FALSE;
-   }
-   if (spl->checkpoint_lock_initialized) {
-      platform_status rc = platform_mutex_destroy(&spl->checkpoint_lock);
-      platform_assert_status_ok(rc);
-      spl->checkpoint_lock_initialized = FALSE;
-   }
+   platform_status rc = platform_mutex_destroy(&spl->checkpoint_state_lock);
+   platform_assert_status_ok(rc);
+   rc = platform_mutex_destroy(&spl->checkpoint_lock);
+   platform_assert_status_ok(rc);
 }
 
 /*

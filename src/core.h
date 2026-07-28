@@ -173,7 +173,6 @@ struct core_handle {
 
    /* Serializes snapshot cuts and superblock publication. */
    platform_mutex checkpoint_lock;
-   bool32         checkpoint_lock_initialized;
 
    /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
@@ -182,7 +181,6 @@ struct core_handle {
     * inside the memtable rotation critical section cannot stall inserts on I/O.
     */
    platform_mutex        checkpoint_state_lock;
-   bool32                checkpoint_state_lock_initialized;
    core_checkpoint_state checkpoint;
    uint64                last_checkpoint_generation;
 
