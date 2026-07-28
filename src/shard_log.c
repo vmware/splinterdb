@@ -61,14 +61,14 @@ const static iterator_ops shard_log_iterator_ops = {
 };
 
 static void
-shard_log_log_iterator_curr_generations(log_iterator *itor,
-                                        uint64       *memtable_generation,
-                                        uint64       *leaf_generation);
+shard_log_iterator_curr_generations(log_iterator *itor,
+                                    uint64       *memtable_generation,
+                                    uint64       *leaf_generation);
 static void
 shard_log_iterator_deinit(log_iterator *itor);
 
 const static log_iterator_ops shard_log_log_iterator_ops = {
-   .curr_generations = shard_log_log_iterator_curr_generations,
+   .curr_generations = shard_log_iterator_curr_generations,
    .deinit           = shard_log_iterator_deinit,
 };
 
@@ -624,7 +624,7 @@ finished_second_pass:
 }
 
 log_iterator *
-shard_log_iterator_create(cache           *cc,
+shard_log_iterator_create(cache            *cc,
                           shard_log_config *cfg,
                           platform_heap_id  hid,
                           log_segment_info  segment)
@@ -670,9 +670,9 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 }
 
 static void
-shard_log_log_iterator_curr_generations(log_iterator *itorh,
-                                        uint64       *memtable_generation,
-                                        uint64       *leaf_generation)
+shard_log_iterator_curr_generations(log_iterator *itorh,
+                                    uint64       *memtable_generation,
+                                    uint64       *leaf_generation)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    platform_assert(itor->pos < itor->num_entries);
