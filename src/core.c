@@ -162,8 +162,8 @@ core_capture_checkpoint_cut(core_handle    *spl,
    /*
     * The first generation not folded into the root -- the exclusive replay
     * bound.  When nothing has been retired, memtable_generation_retired() is
-    * UINT64_MAX and this wraps to 0 ("replay from generation 0"), so no sentinel
-    * is needed.
+    * UINT64_MAX and this wraps to 0 ("replay from generation 0"), so no
+    * sentinel is needed.
     */
    *first_unincorporated_generation = retired_generation + 1;
    return STATUS_OK;
@@ -181,18 +181,19 @@ core_log_to_superblock(log_head info)
 }
 
 /*
- * Advance the durable tree to the current COW root and make it durable: capture
- * the root, make its pages durable, snapshot it into the superblock (with the
- * incorporated-generation cut, the given live log carried forward, and the
- * sealed slot cleared -- a snapshot happens only after the sealed log is folded
- * in), then release the previously published root.  snapshot_tree invalidates
- * the persisted allocation state; a clean unmount revalidates it in a later
- * step.  Used by mkfs (empty root, records the new live log), checkpoint
- * completion, and unmount (Part A).  The snapshot's owned reference is
- * transferred to the durable record on success.
+ * Commit the trunk's current COW root as the new durable tree root: capture the
+ * root, make its pages durable, snapshot it into the superblock (recording the
+ * first unincorporated generation, carrying the given live log forward, and
+ * clearing the sealed slot -- a snapshot happens only after the sealed log is
+ * folded in), then release the previously published root.  snapshot_tree
+ * invalidates the persisted allocation state; a clean unmount revalidates it in
+ * a later step.  Used by mkfs (empty root, records the new live log),
+ * checkpoint completion, and unmount (Part A).  The snapshot's owned reference
+ * is transferred to the durable record on success.
  */
 static platform_status
-core_publish_root_record(core_handle *spl, superblock_log_head live_log)
+core_checkpoint_commit_current_root(core_handle        *spl,
+                                    superblock_log_head live_log)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
@@ -281,7 +282,7 @@ core_publish_root_record(core_handle *spl, superblock_log_head live_log)
             trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
          if (!SUCCESS(release_rc)) {
             platform_error_log(
-               "core_publish_root_record: trunk_snapshot_release "
+               "core_commit_current_root: trunk_snapshot_release "
                "failed for old root addr %lu: %s\n",
                old_root_addr,
                platform_status_to_string(release_rc));
@@ -393,7 +394,7 @@ core_checkpoint_maybe_begin(core_handle *spl)
  * newly enter, the old log -- making the subsequent seal safe.
  */
 static void
-core_rotate_log_virtual(void *arg, uint64 finalized_generation)
+core_rotate_log(void *arg, uint64 finalized_generation)
 {
    core_handle *spl = arg;
 
@@ -463,7 +464,7 @@ core_maybe_complete_checkpoint(core_handle *spl)
    }
 
    platform_status rc =
-      core_publish_root_record(spl, core_log_to_superblock(live));
+      core_checkpoint_commit_current_root(spl, core_log_to_superblock(live));
    if (SUCCESS(rc)) {
       // The sealed log's entries are now durably in the root; free its extents.
       log_dec_ref(spl->cc, &sealed);
@@ -487,14 +488,14 @@ core_maybe_complete_checkpoint(core_handle *spl)
 }
 
 /*
- * Resolve any in-flight checkpoint during a quiesced shutdown, before the
- * unmount/destroy publish.  No locking: the caller has quiesced all inserts and
- * incorporations.  A completed checkpoint (INCORPORATING/COMPLETING) is
- * normally already reaped by the quiesce drain; the residual cases below are
- * defensive.
+ * Release any resources of an in-flight checkpoint during a quiesced shutdown,
+ * before the unmount/destroy publish.  No locking: the caller has quiesced all
+ * inserts and incorporations.  A completed checkpoint
+ * (INCORPORATING/COMPLETING) is normally already reaped by the quiesce drain;
+ * the residual cases below are defensive.
  */
 static void
-core_finish_checkpoint_for_shutdown(core_handle *spl)
+core_checkpoint_cleanup_for_shutdown(core_handle *spl)
 {
    core_checkpoint_state *cp = &spl->checkpoint;
    switch (cp->phase) {
@@ -2204,7 +2205,7 @@ core_mkfs(core_handle      *spl,
    }
    // Swap the checkpoint's live log in from inside the rotation critical
    // section.
-   spl->mt_ctxt.rotate = core_rotate_log_virtual;
+   spl->mt_ctxt.rotate = core_rotate_log;
 
    // set up the log
    if (spl->cfg.use_log) {
@@ -2243,9 +2244,9 @@ core_mkfs(core_handle      *spl,
    if (spl->cfg.use_log) {
       live_log = core_log_to_superblock(log_get_head(spl->log));
    }
-   rc = core_publish_root_record(spl, live_log);
+   rc = core_checkpoint_commit_current_root(spl, live_log);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mkfs: core_publish_root_record failed: %s\n",
+      platform_error_log("core_mkfs: core_commit_current_root failed: %s\n",
                          platform_status_to_string(rc));
       goto deinit_stats;
    }
@@ -2367,7 +2368,7 @@ core_mount(core_handle      *spl,
    }
    // Swap the checkpoint's live log in from inside the rotation critical
    // section.
-   spl->mt_ctxt.rotate = core_rotate_log_virtual;
+   spl->mt_ctxt.rotate = core_rotate_log;
 
    if (spl->cfg.use_log) {
       spl->log = shard_log_create(
@@ -2628,7 +2629,7 @@ core_checkpoint(core_handle *spl)
 
    // --- Complete: advance the durable root to the incorporated state, keeping
    // the new live log and clearing the sealed slot. ---
-   rc = core_publish_root_record(spl, new_live);
+   rc = core_checkpoint_commit_current_root(spl, new_live);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -2657,7 +2658,7 @@ core_unmount(core_handle *spl)
    core_quiesce_for_shutdown(spl);
 
    // Reclaim any in-flight checkpoint's logs before the unmount publish.
-   core_finish_checkpoint_for_shutdown(spl);
+   core_checkpoint_cleanup_for_shutdown(spl);
 
    /*
     * The clean-unmount root incorporates everything, so the live log is fully
@@ -2671,7 +2672,7 @@ core_unmount(core_handle *spl)
     * live or sealed log at rest).  Allocation state stays invalid here; it
     * becomes valid only in Part B, after the map is persisted.
     */
-   rc = core_publish_root_record(spl, (superblock_log_head){0});
+   rc = core_checkpoint_commit_current_root(spl, (superblock_log_head){0});
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
@@ -2725,7 +2726,7 @@ core_destroy(core_handle *spl)
    core_quiesce_for_shutdown(spl);
 
    // Reclaim any in-flight checkpoint's logs before teardown.
-   core_finish_checkpoint_for_shutdown(spl);
+   core_checkpoint_cleanup_for_shutdown(spl);
 
    /*
     * Release the reference the published tree record holds on its root before
