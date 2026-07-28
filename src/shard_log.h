@@ -38,24 +38,22 @@ typedef struct shard_log_thread_data {
  * Sharded log context structure.
  */
 typedef struct shard_log {
-   log_handle        super; // handle to log I/O ops abstraction.
-   cache            *cc;
-   shard_log_config *cfg;
-   platform_heap_id
-      heap_id; // heap the handle was allocated from; freed by seal
+   log_handle            super; // handle to log I/O ops abstraction.
+   cache                *cc;
+   shard_log_config     *cfg;
+   platform_heap_id      heap_id;
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
    uint64                addr;
    uint64                meta_head;
    uint64                magic;
-   /* Set once any log page has been allocated; survives sealing. */
-   bool32 has_pages;
 } shard_log;
 
 typedef struct log_entry log_entry;
 
 typedef struct shard_log_iterator {
-   iterator          super;
+   log_iterator      super; // IS-A log_iterator IS-A generic iterator
+   platform_heap_id  heap_id;
    cache            *cc;
    shard_log_config *cfg;
    char             *contents;
@@ -77,25 +75,25 @@ typedef struct ONDISK shard_log_hdr {
    uint16      num_entries;
 } shard_log_hdr;
 
-platform_status
-shard_log_iterator_init(cache              *cc,
-                        shard_log_config   *cfg,
-                        platform_heap_id    hid,
-                        uint64              addr,
-                        uint64              magic,
-                        shard_log_iterator *itor);
-
-void
-shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor);
+/*
+ * Create a fresh sharded write-ahead log stream.  Returns an abstract
+ * log_handle (or NULL on failure) to be driven through the log.h interface and
+ * retired with log_seal().
+ */
+log_handle *
+shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid);
 
 /*
- * Return the generation metadata of the current record.  The caller must
- * first establish that the iterator has a current record.
+ * Create an iterator over the sharded log segment identified by `segment`,
+ * reading its records in generation order.  Returns an abstract log_iterator
+ * (or NULL on failure) to be driven through the log.h interface and freed with
+ * log_iterator_deinit().
  */
-void
-shard_log_iterator_curr_generations(shard_log_iterator *itor,
-                                    uint64             *memtable_generation,
-                                    uint64             *leaf_generation);
+log_iterator *
+shard_log_iterator_create(cache           *cc,
+                          shard_log_config *cfg,
+                          platform_heap_id  hid,
+                          log_segment_info  segment);
 
 void
 shard_log_config_init(shard_log_config *log_cfg,

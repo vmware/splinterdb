@@ -41,15 +41,14 @@ test_log_crash(clockcache             *cc,
    key                returned_key;
    message            returned_message;
    log_segment_info   segment;
-   shard_log_iterator itor;
-   iterator          *itorh = (iterator *)&itor;
+   log_iterator      *itor;
    char               key_str[128];
    char               data_str[128];
    merge_accumulator  msg;
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
 
    platform_assert(cc != NULL);
-   logh = log_create((cache *)cc, (log_config *)cfg, hid);
+   logh = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(logh != NULL);
 
    // The identity is fixed at creation; capture it before writing/sealing.
@@ -103,21 +102,19 @@ test_log_crash(clockcache             *cc,
       platform_assert_status_ok(rc);
    }
 
-   rc = shard_log_iterator_init(
-      (cache *)cc, cfg, hid, segment.addr, segment.magic, &itor);
-   platform_assert_status_ok(rc);
-   itorh = (iterator *)&itor;
+   itor = shard_log_iterator_create((cache *)cc, cfg, hid, segment);
+   platform_assert(itor != NULL);
 
-   for (i = 0; i < num_entries && iterator_can_curr(itorh); i++) {
+   for (i = 0; i < num_entries && log_iterator_can_next(itor); i++) {
       key skey =
          test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
-      iterator_curr(itorh, &returned_key, &returned_message);
+      log_iterator_curr(itor, &returned_key, &returned_message);
       uint64 memtable_generation;
       uint64 leaf_generation;
-      shard_log_iterator_curr_generations(
-         &itor, &memtable_generation, &leaf_generation);
+      log_iterator_curr_generations(
+         itor, &memtable_generation, &leaf_generation);
       platform_assert(memtable_generation == i / LOG_TEST_LEAVES_PER_MEMTABLE);
       platform_assert(leaf_generation == i % LOG_TEST_LEAVES_PER_MEMTABLE);
       if (data_key_compare(cfg->data_cfg, skey, returned_key)
@@ -132,17 +129,17 @@ test_log_crash(clockcache             *cc,
          platform_default_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }
-      rc = iterator_next(itorh);
+      rc = log_iterator_next(itor);
       platform_assert_status_ok(rc);
    }
 
    platform_default_log("log returned %lu of %lu entries\n", i, num_entries);
    platform_assert(i == num_entries);
-   platform_assert(!iterator_can_curr(itorh));
+   platform_assert(!log_iterator_can_next(itor));
 
    merge_accumulator_deinit(&msg);
 
-   shard_log_iterator_deinit(hid, &itor);
+   log_iterator_deinit(itor);
    log_dec_ref((cache *)cc, &segment);
 
    return 0;
@@ -188,23 +185,21 @@ test_log_verify_segment(cache                  *cc,
                         uint64                  first_entry,
                         uint64                  num_entries)
 {
-   shard_log_iterator itor;
-   iterator          *itorh = (iterator *)&itor;
-   merge_accumulator  msg;
+   log_iterator     *itor;
+   merge_accumulator msg;
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
    key     returned_key;
    message returned_message;
 
    platform_assert(segment->addr != 0);
    platform_assert(segment->meta_addr != 0);
-   platform_status rc = shard_log_iterator_init(
-      cc, cfg, hid, segment->addr, segment->magic, &itor);
-   platform_assert_status_ok(rc);
+   itor = shard_log_iterator_create(cc, cfg, hid, *segment);
+   platform_assert(itor != NULL);
 
    merge_accumulator_init(&msg, hid);
    for (uint64 i = 0; i < num_entries; i++) {
       uint64 entry_num = first_entry + i;
-      platform_assert(iterator_can_curr(itorh));
+      platform_assert(log_iterator_can_next(itor));
       key skey = test_key(&keybuffer,
                           TEST_RANDOM,
                           entry_num,
@@ -213,24 +208,24 @@ test_log_verify_segment(cache                  *cc,
                           1 + (entry_num % key_size),
                           0);
       generate_test_message(gen, entry_num, &msg);
-      iterator_curr(itorh, &returned_key, &returned_message);
+      log_iterator_curr(itor, &returned_key, &returned_message);
       uint64 memtable_generation;
       uint64 leaf_generation;
-      shard_log_iterator_curr_generations(
-         &itor, &memtable_generation, &leaf_generation);
+      log_iterator_curr_generations(
+         itor, &memtable_generation, &leaf_generation);
       platform_assert(memtable_generation == entry_num);
       platform_assert(leaf_generation == 0);
       platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
       platform_assert(
          message_lex_cmp(merge_accumulator_to_message(&msg), returned_message)
          == 0);
-      rc = iterator_next(itorh);
+      platform_status rc = log_iterator_next(itor);
       platform_assert_status_ok(rc);
    }
-   platform_assert(!iterator_can_curr(itorh));
+   platform_assert(!log_iterator_can_next(itor));
 
    merge_accumulator_deinit(&msg);
-   shard_log_iterator_deinit(hid, &itor);
+   log_iterator_deinit(itor);
 }
 
 /*
@@ -253,7 +248,7 @@ test_log_two_segments(clockcache             *cc,
    const uint64     new_first = 2000, new_count = 16;
    log_segment_info sealed, fresh;
 
-   log_handle *log = log_create((cache *)cc, (log_config *)cfg, hid);
+   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(log != NULL);
    sealed = log_get_segment_info(log); // identity is fixed at creation
    test_log_write_range(log, gen, hid, key_size, old_first, old_count);
@@ -276,7 +271,7 @@ test_log_two_segments(clockcache             *cc,
       (cache *)cc, cfg, &sealed, gen, hid, key_size, old_first, old_count);
 
    // A fresh stream is a distinct segment: new mini allocator and new magic.
-   log = log_create((cache *)cc, (log_config *)cfg, hid);
+   log = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(log != NULL);
    fresh = log_get_segment_info(log);
    test_log_write_range(log, gen, hid, key_size, new_first, new_count);
@@ -311,8 +306,7 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 {
    platform_status    rc;
    log_segment_info   sealed;
-   shard_log_iterator itor;
-   iterator          *itorh = (iterator *)&itor;
+   log_iterator      *itor;
    merge_accumulator  msg;
    key                returned_key;
    message            returned_message;
@@ -320,7 +314,7 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    key                skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
    uint64             value_len = 3 * cache_page_size(cc) + 123;
 
-   log_handle *logh = log_create(cc, (log_config *)cfg, hid);
+   log_handle *logh = shard_log_create(cc, cfg, hid);
    platform_assert(logh != NULL);
    sealed = log_get_segment_info(logh); // identity is fixed at creation
 
@@ -354,17 +348,17 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    rc = cache_durable_barrier(cc);
    platform_assert_status_ok(rc);
 
-   rc = shard_log_iterator_init(cc, cfg, hid, sealed.addr, sealed.magic, &itor);
-   platform_assert_status_ok(rc);
-   platform_assert(iterator_can_curr(itorh));
+   itor = shard_log_iterator_create(cc, cfg, hid, sealed);
+   platform_assert(itor != NULL);
+   platform_assert(log_iterator_can_next(itor));
 
-   iterator_curr(itorh, &returned_key, &returned_message);
+   log_iterator_curr(itor, &returned_key, &returned_message);
    platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
    platform_assert(
       message_lex_cmp(merge_accumulator_to_message(&msg), returned_message)
       == 0);
 
-   shard_log_iterator_deinit(hid, &itor);
+   log_iterator_deinit(itor);
    merge_accumulator_deinit(&msg);
    log_dec_ref(cc, &sealed);
    return 0;
@@ -423,7 +417,7 @@ test_log_perf(cache                  *cc,
    uint64          start_time;
    platform_status ret;
 
-   log_handle *logh = log_create((cache *)cc, (log_config *)cfg, hid);
+   log_handle *logh = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(logh != NULL);
    log_segment_info sealed = log_get_segment_info(logh);
 

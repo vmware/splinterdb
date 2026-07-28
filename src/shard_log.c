@@ -60,6 +60,18 @@ const static iterator_ops shard_log_iterator_ops = {
    .print    = NULL,
 };
 
+static void
+shard_log_log_iterator_curr_generations(log_iterator *itor,
+                                        uint64       *memtable_generation,
+                                        uint64       *leaf_generation);
+static void
+shard_log_iterator_deinit(log_iterator *itor);
+
+const static log_iterator_ops shard_log_log_iterator_ops = {
+   .curr_generations = shard_log_log_iterator_curr_generations,
+   .deinit           = shard_log_iterator_deinit,
+};
+
 static const page_type shard_log_page_type_table[NUM_BLOB_BATCHES + 1] = {
    PAGE_TYPE_LOG,
    [1 ... NUM_BLOB_BATCHES] = PAGE_TYPE_BLOB,
@@ -229,7 +241,6 @@ get_new_page_for_thread(shard_log             *log,
    hdr->next_extent_addr = next_extent;
    hdr->num_entries      = 0;
    thread_data->offset   = sizeof(shard_log_hdr);
-   log->has_pages        = TRUE;
    return 0;
 }
 
@@ -478,17 +489,16 @@ shard_log_compare(const void *p1, const void *p2, void *unused)
 }
 
 log_handle *
-log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
+shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 {
-   shard_log_config *cfg  = (shard_log_config *)lcfg;
-   shard_log        *slog = TYPED_MALLOC(hid, slog);
+   shard_log *slog = TYPED_MALLOC(hid, slog);
    if (slog == NULL) {
-      platform_error_log("log_create: failed to allocate shard_log\n");
+      platform_error_log("shard_log_create: failed to allocate shard_log\n");
       return NULL;
    }
    platform_status rc = shard_log_init(slog, cc, cfg);
    if (!SUCCESS(rc)) {
-      platform_error_log("log_create: shard_log_init failed: %s\n",
+      platform_error_log("shard_log_create: shard_log_init failed: %s\n",
                          platform_status_to_string(rc));
       platform_free(hid, slog);
       return NULL;
@@ -499,7 +509,7 @@ log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
    return (log_handle *)slog;
 }
 
-platform_status
+static platform_status
 shard_log_iterator_init(cache              *cc,
                         shard_log_config   *cfg,
                         platform_heap_id    hid,
@@ -517,10 +527,12 @@ shard_log_iterator_init(cache              *cc,
    uint64       contents_size;
 
    memset(itor, 0, sizeof(shard_log_iterator));
-   itor->super.ops = &shard_log_iterator_ops;
-   itor->cc        = cc;
-   itor->cfg       = cfg;
-   allocator *al   = cache_get_allocator(cc);
+   itor->super.super.ops = &shard_log_iterator_ops;     // generic iterator
+   itor->super.ops       = &shard_log_log_iterator_ops; // log_iterator
+   itor->heap_id         = hid;
+   itor->cc              = cc;
+   itor->cfg             = cfg;
+   allocator *al         = cache_get_allocator(cc);
 
    // traverse the log extents and calculate the required space
    extent_addr = addr;
@@ -611,15 +623,42 @@ finished_second_pass:
    return STATUS_OK;
 }
 
-void
-shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
+log_iterator *
+shard_log_iterator_create(cache           *cc,
+                          shard_log_config *cfg,
+                          platform_heap_id  hid,
+                          log_segment_info  segment)
 {
+   shard_log_iterator *itor = TYPED_MALLOC(hid, itor);
+   if (itor == NULL) {
+      platform_error_log("shard_log_iterator_create: failed to allocate "
+                         "shard_log_iterator\n");
+      return NULL;
+   }
+   platform_status rc =
+      shard_log_iterator_init(cc, cfg, hid, segment.addr, segment.magic, itor);
+   if (!SUCCESS(rc)) {
+      platform_error_log("shard_log_iterator_create: shard_log_iterator_init "
+                         "failed: %s\n",
+                         platform_status_to_string(rc));
+      platform_free(hid, itor);
+      return NULL;
+   }
+   return &itor->super;
+}
+
+static void
+shard_log_iterator_deinit(log_iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   platform_heap_id    hid  = itor->heap_id;
    if (itor->contents != NULL) {
       platform_free(hid, itor->contents);
    }
    if (itor->entries != NULL) {
       platform_free(hid, itor->entries);
    }
+   platform_free(hid, itor); // the handle, from shard_log_iterator_create()
 }
 
 void
@@ -630,11 +669,12 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
    *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
 }
 
-void
-shard_log_iterator_curr_generations(shard_log_iterator *itor,
-                                    uint64             *memtable_generation,
-                                    uint64             *leaf_generation)
+static void
+shard_log_log_iterator_curr_generations(log_iterator *itorh,
+                                        uint64       *memtable_generation,
+                                        uint64       *leaf_generation)
 {
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
    platform_assert(itor->pos < itor->num_entries);
    *memtable_generation = itor->entries[itor->pos]->memtable_generation;
    *leaf_generation     = itor->entries[itor->pos]->leaf_generation;

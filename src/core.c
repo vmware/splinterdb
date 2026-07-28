@@ -8,6 +8,7 @@
  */
 
 #include "core.h"
+#include "shard_log.h" // core constructs the concrete log via shard_log_create()
 #include "data_internal.h"
 #include "notification.h"
 #include "platform_sleep.h"
@@ -350,7 +351,7 @@ core_should_take_checkpoint(core_handle *spl)
 /*
  * Begin, step 1 (outside the rotation critical section): if no checkpoint is in
  * progress and policy says so, pre-create the next live log and arm the swap.
- * log_create does no disk I/O, but is kept off the insert-blocking path.
+ * Log creation does no disk I/O, but is kept off the insert-blocking path.
  */
 static void
 core_checkpoint_maybe_begin(core_handle *spl)
@@ -363,10 +364,11 @@ core_checkpoint_maybe_begin(core_handle *spl)
       return;
    }
 
-   log_handle *next = log_create(spl->cc, spl->cfg.log_cfg, spl->heap_id);
+   log_handle *next = shard_log_create(
+      spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
    if (next == NULL) {
       platform_error_log(
-         "core_checkpoint_maybe_begin: log_create failed; skipping\n");
+         "core_checkpoint_maybe_begin: shard_log_create failed; skipping\n");
       return;
    }
    log_segment_info next_info = log_get_segment_info(next);
@@ -2208,9 +2210,10 @@ core_mkfs(core_handle      *spl,
 
    // set up the log
    if (spl->cfg.use_log) {
-      spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
+      spl->log = shard_log_create(
+         cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
       if (spl->log == NULL) {
-         platform_error_log("core_mkfs: log_create failed\n");
+         platform_error_log("core_mkfs: shard_log_create failed\n");
          rc = STATUS_NO_MEMORY;
          goto deinit_memtable_context;
       }
@@ -2370,9 +2373,10 @@ core_mount(core_handle      *spl,
    spl->mt_ctxt.rotate = core_rotate_log_virtual;
 
    if (spl->cfg.use_log) {
-      spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
+      spl->log = shard_log_create(
+         cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
       if (spl->log == NULL) {
-         platform_error_log("core_mount: log_create failed\n");
+         platform_error_log("core_mount: shard_log_create failed\n");
          rc = STATUS_NO_MEMORY;
          goto deinit_memtable_context;
       }
@@ -2590,9 +2594,10 @@ core_checkpoint(core_handle *spl)
          rc = cache_durable_barrier(spl->cc);
       }
       if (SUCCESS(rc)) {
-         spl->log = log_create(spl->cc, spl->cfg.log_cfg, spl->heap_id);
+         spl->log = shard_log_create(
+            spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
          if (spl->log == NULL) {
-            platform_error_log("core_checkpoint: log_create failed\n");
+            platform_error_log("core_checkpoint: shard_log_create failed\n");
             rc = STATUS_NO_MEMORY;
          }
       }
