@@ -143,8 +143,7 @@ core_close_log_stream_if_enabled(core_handle            *spl,
 static platform_status
 core_capture_checkpoint_cut(core_handle    *spl,
                             trunk_snapshot *snapshot,
-                            bool32         *has_incorporated_generation,
-                            uint64         *incorporated_generation)
+                            uint64         *first_unincorporated_generation)
 {
    /*
     * Incorporation publishes its generation and root while holding lookup
@@ -160,9 +159,13 @@ core_capture_checkpoint_cut(core_handle    *spl,
       return rc;
    }
 
-   *has_incorporated_generation = retired_generation != UINT64_MAX;
-   *incorporated_generation =
-      *has_incorporated_generation ? retired_generation : 0;
+   /*
+    * The first generation not folded into the root -- the exclusive replay
+    * bound.  When nothing has been retired, memtable_generation_retired() is
+    * UINT64_MAX and this wraps to 0 ("replay from generation 0"), so no sentinel
+    * is needed.
+    */
+   *first_unincorporated_generation = retired_generation + 1;
    return STATUS_OK;
 }
 
@@ -193,8 +196,7 @@ core_publish_root_record(core_handle *spl, superblock_log_head live_log)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
-   bool32                 has_incorporated_generation;
-   uint64                 incorporated_generation;
+   uint64                 first_unincorporated_generation;
    uint64                 old_root_addr = 0;
    superblock_tree_record old_rec;
 
@@ -208,7 +210,7 @@ core_publish_root_record(core_handle *spl, superblock_log_head live_log)
    }
 
    rc = core_capture_checkpoint_cut(
-      spl, &snapshot, &has_incorporated_generation, &incorporated_generation);
+      spl, &snapshot, &first_unincorporated_generation);
    if (!SUCCESS(rc)) {
       goto unlock_checkpoint;
    }
@@ -241,9 +243,7 @@ core_publish_root_record(core_handle *spl, superblock_log_head live_log)
     */
    superblock_snapshot_tree(&spl->superblock,
                             snapshot.root_addr,
-                            has_incorporated_generation
-                               ? incorporated_generation
-                               : SUPERBLOCK_NO_INCORPORATED_GENERATION,
+                            first_unincorporated_generation,
                             live_log);
 
    rc = superblock_make_durable(&spl->superblock);
@@ -442,10 +442,13 @@ static platform_status
 core_maybe_complete_checkpoint(core_handle *spl)
 {
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   uint64 retired  = memtable_generation_retired(&spl->mt_ctxt);
+   // The sealed log's cut generation is fully incorporated once it falls below
+   // the first unincorporated generation.  When nothing has been retired,
+   // memtable_generation_retired() is UINT64_MAX and this wraps to 0, so the
+   // comparison is false without a sentinel check.
+   uint64 first_unincorporated = memtable_generation_retired(&spl->mt_ctxt) + 1;
    bool32 complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
-                     && retired != SUPERBLOCK_NO_INCORPORATED_GENERATION
-                     && retired >= spl->checkpoint.cut_generation;
+                     && first_unincorporated > spl->checkpoint.cut_generation;
    log_head sealed = {0};
    log_head live   = {0};
    if (complete) {
@@ -2344,10 +2347,9 @@ core_mount(core_handle      *spl,
    }
 
    uint64 root_addr = rec.root_addr;
-   uint64 resume_generation =
-      rec.incorporated_generation == SUPERBLOCK_NO_INCORPORATED_GENERATION
-         ? 0
-         : rec.incorporated_generation + 1;
+   // The record already stores the first unincorporated generation, which is
+   // exactly where the memtable resumes (0 for a fresh, never-incorporated db).
+   uint64 resume_generation = rec.first_unincorporated_generation;
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    rc                      = memtable_context_init_at_generation(&spl->mt_ctxt,
@@ -2805,14 +2807,14 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 
    platform_log(log_handle,
                 "Superblock tree record root_id=%lu {\n"
-                "  root_addr=%lu incorporated_generation=%lu\n"
+                "  root_addr=%lu first_unincorporated_generation=%lu\n"
                 "  live_log:   meta_addr=%lu addr=%lu magic=%lu\n"
                 "  sealed_log: meta_addr=%lu addr=%lu magic=%lu\n"
                 "  allocation_state: %s (addr=%lu)\n"
                 "}\n\n",
                 spl->id,
                 rec.root_addr,
-                rec.incorporated_generation,
+                rec.first_unincorporated_generation,
                 rec.live_log.meta_addr,
                 rec.live_log.addr,
                 rec.live_log.magic,

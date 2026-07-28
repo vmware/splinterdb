@@ -96,8 +96,7 @@ CTEST2(superblock, test_format_sets_fresh_state)
    superblock_tree_record rec;
    superblock_get_tree_record(&ctx, &rec);
    ASSERT_EQUAL(0, rec.root_addr); // empty tree
-   ASSERT_EQUAL(SUPERBLOCK_NO_INCORPORATED_GENERATION,
-                rec.incorporated_generation);
+   ASSERT_EQUAL(0, rec.first_unincorporated_generation); // replay from the start
    superblock_context_deinit(&ctx);
 
    rc =
@@ -127,8 +126,7 @@ CTEST2(superblock, test_snapshot_persists_state)
 
    superblock_log_head live = {
       .addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11};
-   superblock_snapshot_tree(
-      &ctx, 0x4000, SUPERBLOCK_NO_INCORPORATED_GENERATION, live);
+   superblock_snapshot_tree(&ctx, 0x4000, 0, live);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_FALSE(
@@ -209,7 +207,7 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    ASSERT_TRUE(SUCCESS(rc));
    superblock_get_tree_record(&ctx, &got);
    ASSERT_EQUAL(0x4400, got.root_addr);
-   ASSERT_EQUAL(9, got.incorporated_generation);
+   ASSERT_EQUAL(9, got.first_unincorporated_generation);
    ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
    ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
    superblock_context_deinit(&ctx);
@@ -278,10 +276,7 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
 
    // After format the image is gen 2 in slot 1, so this make_durable targets
    // slot 0.  Snapshot a nonempty root with no live log.
-   superblock_snapshot_tree(&ctx,
-                            0x4000,
-                            SUPERBLOCK_NO_INCORPORATED_GENERATION,
-                            (superblock_log_head){0});
+   superblock_snapshot_tree(&ctx, 0x4000, 0, (superblock_log_head){0});
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);

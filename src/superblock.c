@@ -180,9 +180,9 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg)
    ctx->image->format_version        = SUPERBLOCK_FORMAT_VERSION;
    ctx->image->generation            = 0;
    ctx->image->allocation_state_addr = 0; // fresh DB: rebuild on crash
-   // A fresh, empty tree: no root and nothing incorporated yet.
-   ctx->image->tree.incorporated_generation =
-      SUPERBLOCK_NO_INCORPORATED_GENERATION;
+   // A fresh, empty tree: no root, and nothing incorporated yet -- replay from
+   // generation 0.
+   ctx->image->tree.first_unincorporated_generation = 0;
 
    /*
     * Write both physical copies so torn-write protection is in force from the
@@ -231,18 +231,19 @@ superblock_log_cut(superblock_context *ctx, superblock_log_head new_live)
 void
 superblock_snapshot_tree(superblock_context *ctx,
                          uint64              root_addr,
-                         uint64              incorporated_generation,
+                         uint64              first_unincorporated_generation,
                          superblock_log_head new_live)
 {
    // The durable tree now includes everything folded into root_addr, so the
    // sealed log (if any) is done with; new_live is the log carried forward
    // (empty at a clean shutdown).  Advancing the root diverges the persisted
    // allocation map, so invalidate it.
-   ctx->image->tree.root_addr               = root_addr;
-   ctx->image->tree.incorporated_generation = incorporated_generation;
-   ctx->image->tree.sealed_log              = (superblock_log_head){0};
-   ctx->image->tree.live_log                = new_live;
-   ctx->image->allocation_state_addr        = 0;
+   ctx->image->tree.root_addr = root_addr;
+   ctx->image->tree.first_unincorporated_generation =
+      first_unincorporated_generation;
+   ctx->image->tree.sealed_log       = (superblock_log_head){0};
+   ctx->image->tree.live_log         = new_live;
+   ctx->image->allocation_state_addr = 0;
 }
 
 void

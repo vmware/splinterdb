@@ -360,9 +360,10 @@ run_auto_checkpoint_workload(void *datap, uint64 interval)
       superblock_tree_record rec;
       superblock_get_tree_record(&spl.superblock, &rec);
       ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
-      // A checkpoint published an advanced, incorporated durable root mid-run.
-      ASSERT_NOT_EQUAL(SUPERBLOCK_NO_INCORPORATED_GENERATION,
-                       rec.incorporated_generation);
+      // A checkpoint published an advanced, incorporated durable root mid-run:
+      // at least one generation was folded in, so the first unincorporated
+      // generation has advanced past 0.
+      ASSERT_NOT_EQUAL(0, rec.first_unincorporated_generation);
    }
 
    // A sample of keys must still be found after the rotations.

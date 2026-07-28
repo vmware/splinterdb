@@ -67,29 +67,26 @@ typedef struct ONDISK superblock_log_head {
  * checkpoint is in progress -- the just-sealed stream whose entries are being
  * folded into the new root.  At rest (between checkpoints, and after a clean
  * unmount) sealed_log is empty.  On crash recovery the sealed log (if present)
- * then the live log are replayed onto root_addr, skipping entries at or below
- * incorporated_generation.
+ * then the live log are replayed onto root_addr, replaying entries at or above
+ * first_unincorporated_generation.
  *
  * There is intentionally no clean/dirty ("unmounted") flag: replaying a clean
- * root is a no-op because every entry is at or below incorporated_generation,
+ * root is a no-op because every entry is below first_unincorporated_generation,
  * so the superblock's allocation_state_addr validity is the single at-rest
  * signal.
  */
 typedef struct ONDISK superblock_tree_record {
    uint64 root_addr;
    /*
-    * Highest memtable generation folded into root_addr; UINT64_MAX means none
-    * has been incorporated yet (distinct from generation 0, which is a real,
-    * live generation).  Drives memtable-generation resume at mount and the
-    * replay-skip boundary.
+    * First memtable generation NOT folded into root_addr -- the exclusive
+    * replay bound and the generation to resume at on mount.  0 means nothing
+    * has been incorporated yet (replay from the start); no sentinel is needed
+    * because generation 0 being unincorporated is the natural fresh state.
     */
-   uint64              incorporated_generation;
+   uint64              first_unincorporated_generation;
    superblock_log_head live_log;
    superblock_log_head sealed_log;
 } superblock_tree_record;
-
-/* Sentinel for superblock_tree_record.incorporated_generation. */
-#define SUPERBLOCK_NO_INCORPORATED_GENERATION (UINT64_MAX)
 
 typedef struct ONDISK superblock {
    disk_geometry geometry; // MUST be first; see the bootstrap-read note above.
@@ -191,16 +188,16 @@ void
 superblock_log_cut(superblock_context *ctx, superblock_log_head new_live);
 
 /*
- * Advance the durable tree to root_addr (having incorporated up to
- * incorporated_generation) and clear the sealed log -- a snapshot is taken only
- * after the sealed log has been folded into the root.  new_live is the log
- * carried forward (empty at a clean shutdown).  Invalidates the allocation
- * state.  Used at a checkpoint's completion and at a clean unmount.
+ * Advance the durable tree to root_addr (with first_unincorporated_generation
+ * the first generation not folded in) and clear the sealed log -- a snapshot is
+ * taken only after the sealed log has been folded into the root.  new_live is
+ * the log carried forward (empty at a clean shutdown).  Invalidates the
+ * allocation state.  Used at a checkpoint's completion and at a clean unmount.
  */
 void
 superblock_snapshot_tree(superblock_context *ctx,
                          uint64              root_addr,
-                         uint64              incorporated_generation,
+                         uint64              first_unincorporated_generation,
                          superblock_log_head new_live);
 
 /*
