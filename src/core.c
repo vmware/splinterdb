@@ -2517,18 +2517,6 @@ core_quiesce_for_shutdown(core_handle *spl)
    core_report_unincorporated_memtables(spl);
 }
 
-static void
-core_teardown_after_shutdown(core_handle *spl)
-{
-   // Keep this after checkpoint publication: it supplies the generation cut.
-   memtable_context_deinit(&spl->mt_ctxt);
-
-   // flush all dirty pages in the cache.  The live log has already been sealed
-   // by the caller (core_seal_live_log); its extents are freed after this
-   // flush.
-   cache_flush(spl->cc);
-}
-
 /*
  * Seal the live log at shutdown -- finalizes its pages and frees the handle --
  * and return its identity so the caller can free the extents with log_dec_ref()
@@ -2674,9 +2662,13 @@ core_unmount(core_handle *spl)
                          platform_status_to_string(rc));
    }
 
-   core_teardown_after_shutdown(spl);
-   // Free the sealed live log's extents now that the cache is flushed, before
-   // the map is persisted (Part B) so the persisted map reflects the free.
+   // Keep this after publication above: it supplies the generation cut.
+   memtable_context_deinit(&spl->mt_ctxt);
+
+   // Flush all dirty pages.  The live log has already been sealed (above); free
+   // its extents now that the cache is flushed, before the map is persisted
+   // (Part B) so the persisted map reflects the free.
+   cache_flush(spl->cc);
    log_dec_ref(spl->cc, &live_log);
    /*
     * Release the context's live root reference before persisting the map, so
@@ -2747,7 +2739,8 @@ core_destroy(core_handle *spl)
    // Discard the live log too: seal (frees the handle), then free its extents
    // after the cache flush.
    log_head live_log = core_seal_live_log(spl);
-   core_teardown_after_shutdown(spl);
+   memtable_context_deinit(&spl->mt_ctxt);
+   cache_flush(spl->cc);
    log_dec_ref(spl->cc, &live_log);
    trunk_context_deinit(&spl->trunk_context);
 
