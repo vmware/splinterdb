@@ -240,8 +240,8 @@ core_publish_root_record(core_handle *spl, superblock_log_info live_log)
    /*
     * Snapshot the new root (clearing the sealed slot and carrying live_log
     * forward) and make it durable.  snapshot_tree invalidates the persisted
-    * allocation map -- the in-memory map now diverges from disk; a clean unmount
-    * revalidates it only after persisting the map (Part B).
+    * allocation map -- the in-memory map now diverges from disk; a clean
+    * unmount revalidates it only after persisting the map (Part B).
     */
    superblock_snapshot_tree(&spl->superblock,
                             snapshot.root_addr,

@@ -131,7 +131,8 @@ CTEST2(superblock, test_snapshot_persists_state)
       &ctx, 0x4000, SUPERBLOCK_NO_INCORPORATED_GENERATION, live);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
-   ASSERT_FALSE(superblock_allocation_state_valid(&ctx)); // snapshot invalidated
+   ASSERT_FALSE(
+      superblock_allocation_state_valid(&ctx)); // snapshot invalidated
 
    superblock_snapshot_allocator(&ctx, 0x8000);
    rc = superblock_make_durable(&ctx);
