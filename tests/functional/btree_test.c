@@ -84,7 +84,7 @@ test_memtable_generation_init(cache             *cc,
    mt_cfg.max_memtables = max_memtables;
 
    platform_status rc = memtable_context_init(
-      &mt_ctxt, hid, cc, &mt_cfg, test_btree_process_noop, NULL);
+      &mt_ctxt, hid, cc, &mt_cfg, NULL, test_btree_process_noop, NULL);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -119,6 +119,7 @@ deinit_fresh:
                                             hid,
                                             cc,
                                             &mt_cfg,
+                                            NULL,
                                             test_btree_process_noop,
                                             NULL,
                                             first_generation);
@@ -171,7 +172,7 @@ test_memtable_context_create(cache             *cc,
    ctxt->cfg          = cfg;
    ctxt->heap_id      = hid;
    platform_status rc = memtable_context_init(
-      &ctxt->mt_ctxt, hid, cc, cfg->mt_cfg, test_btree_process_noop, NULL);
+      &ctxt->mt_ctxt, hid, cc, cfg->mt_cfg, NULL, test_btree_process_noop, NULL);
    if (!SUCCESS(rc)) {
       platform_free(hid, ctxt);
       return NULL;

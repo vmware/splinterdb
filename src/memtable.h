@@ -124,9 +124,6 @@ typedef struct memtable_context {
    task_system      *ts;
    platform_heap_id *hid;
 
-   process_fn process;
-   void      *process_ctxt;
-
    /*
     * Optional callback invoked inside the rotation critical section (insert
     * lock held exclusively), after a memtable is finalized and the generation
@@ -135,6 +132,11 @@ typedef struct memtable_context {
     * Receives process_ctxt and the just-finalized generation.  NULL disables.
     */
    process_fn rotate;
+   /* Process a rotated memtable _outside the critical section of the rotation.
+    */
+   process_fn process;
+   void      *process_ctxt;
+
 
    // batch distributed read/write locks protect the generation and
    // generation_retired counters
@@ -217,6 +219,7 @@ memtable_context_init(memtable_context *ctxt,
                       platform_heap_id  hid,
                       cache            *cc,
                       memtable_config  *cfg,
+                      process_fn        rotate,
                       process_fn        process,
                       void             *process_ctxt);
 
@@ -234,6 +237,7 @@ memtable_context_init_at_generation(memtable_context *ctxt,
                                     platform_heap_id  hid,
                                     cache            *cc,
                                     memtable_config  *cfg,
+                                    process_fn        rotate,
                                     process_fn        process,
                                     void             *process_ctxt,
                                     uint64            first_generation);

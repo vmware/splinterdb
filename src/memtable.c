@@ -376,6 +376,7 @@ memtable_context_init_at_generation(memtable_context *ctxt,
                                     platform_heap_id  hid,
                                     cache            *cc,
                                     memtable_config  *cfg,
+                                    process_fn        rotate,
                                     process_fn        process,
                                     void             *process_ctxt,
                                     uint64            first_generation)
@@ -439,6 +440,7 @@ memtable_context_init_at_generation(memtable_context *ctxt,
 
    ctxt->is_empty = TRUE;
 
+   ctxt->rotate       = rotate;
    ctxt->process      = process;
    ctxt->process_ctxt = process_ctxt;
 
@@ -450,11 +452,12 @@ memtable_context_init(memtable_context *ctxt,
                       platform_heap_id  hid,
                       cache            *cc,
                       memtable_config  *cfg,
+                      process_fn        rotate,
                       process_fn        process,
                       void             *process_ctxt)
 {
    return memtable_context_init_at_generation(
-      ctxt, hid, cc, cfg, process, process_ctxt, 0);
+      ctxt, hid, cc, cfg, rotate, process, process_ctxt, 0);
 }
 
 void

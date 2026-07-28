@@ -141,7 +141,7 @@ core_close_log_stream_if_enabled(core_handle            *spl,
  *-----------------------------------------------------------------------------
  */
 static platform_status
-core_capture_checkpoint_cut(core_handle    *spl,
+core_checkpoint_capture_cut(core_handle    *spl,
                             trunk_snapshot *snapshot,
                             uint64         *first_unincorporated_generation)
 {
@@ -174,7 +174,7 @@ core_capture_checkpoint_cut(core_handle    *spl,
  * (layout-identical but module-independent) superblock_log_head.
  */
 static superblock_log_head
-core_log_to_superblock(log_head info)
+core_log_to_superblock_log_head(log_head info)
 {
    return (superblock_log_head){
       .addr = info.addr, .meta_addr = info.meta_addr, .magic = info.magic};
@@ -210,7 +210,7 @@ core_checkpoint_commit_current_root(core_handle        *spl,
       return rc;
    }
 
-   rc = core_capture_checkpoint_cut(
+   rc = core_checkpoint_capture_cut(
       spl, &snapshot, &first_unincorporated_generation);
    if (!SUCCESS(rc)) {
       goto unlock_checkpoint;
@@ -463,8 +463,8 @@ core_maybe_complete_checkpoint(core_handle *spl)
       return STATUS_OK;
    }
 
-   platform_status rc =
-      core_checkpoint_commit_current_root(spl, core_log_to_superblock(live));
+   platform_status rc = core_checkpoint_commit_current_root(
+      spl, core_log_to_superblock_log_head(live));
    if (SUCCESS(rc)) {
       // The sealed log's entries are now durably in the root; free its extents.
       log_dec_ref(spl->cc, &sealed);
@@ -2196,6 +2196,7 @@ core_mkfs(core_handle      *spl,
                               spl->heap_id,
                               cc,
                               mt_cfg,
+                              core_rotate_log,
                               core_memtable_flush_virtual,
                               spl);
    if (!SUCCESS(rc)) {
@@ -2203,9 +2204,6 @@ core_mkfs(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
-   // Swap the checkpoint's live log in from inside the rotation critical
-   // section.
-   spl->mt_ctxt.rotate = core_rotate_log;
 
    // set up the log
    if (spl->cfg.use_log) {
@@ -2242,7 +2240,7 @@ core_mkfs(core_handle      *spl,
    // it durably.  No sealed log at mkfs.
    superblock_log_head live_log = {0};
    if (spl->cfg.use_log) {
-      live_log = core_log_to_superblock(log_get_head(spl->log));
+      live_log = core_log_to_superblock_log_head(log_get_head(spl->log));
    }
    rc = core_checkpoint_commit_current_root(spl, live_log);
    if (!SUCCESS(rc)) {
@@ -2357,6 +2355,7 @@ core_mount(core_handle      *spl,
                                             spl->heap_id,
                                             cc,
                                             mt_cfg,
+                                            core_rotate_log,
                                             core_memtable_flush_virtual,
                                             spl,
                                             resume_generation);
@@ -2366,9 +2365,6 @@ core_mount(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_superblock;
    }
-   // Swap the checkpoint's live log in from inside the rotation critical
-   // section.
-   spl->mt_ctxt.rotate = core_rotate_log;
 
    if (spl->cfg.use_log) {
       spl->log = shard_log_create(
@@ -2416,10 +2412,10 @@ core_mount(core_handle      *spl,
     * silently reverting to this now-stale root.  The root is unchanged; a clean
     * mount has no prior live log, so the sealed slot stays empty.
     */
-   superblock_log_cut(&spl->superblock,
-                      spl->cfg.use_log
-                         ? core_log_to_superblock(log_get_head(spl->log))
-                         : (superblock_log_head){0});
+   superblock_log_cut(
+      &spl->superblock,
+      spl->cfg.use_log ? core_log_to_superblock_log_head(log_get_head(spl->log))
+                       : (superblock_log_head){0});
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
@@ -2602,7 +2598,7 @@ core_checkpoint(core_handle *spl)
       if (SUCCESS(rc)) {
          // Cut the log: the just-sealed live log becomes the sealed slot and
          // the fresh log becomes live.  Root unchanged until completion.
-         new_live = core_log_to_superblock(log_get_head(spl->log));
+         new_live = core_log_to_superblock_log_head(log_get_head(spl->log));
          superblock_log_cut(&spl->superblock, new_live);
          rc = superblock_make_durable(&spl->superblock);
       }
