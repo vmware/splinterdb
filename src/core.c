@@ -2742,6 +2742,12 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
        * Force a rotation if either half is still waiting on one: the target is
        * still the active generation, or our checkpoint has yet to cut.  Once
        * neither holds, the remaining work is just draining flushes.
+       *
+       * The second clause is not redundant.  Another thread can finalize the
+       * target in the window between reading it and arming, which leaves the
+       * first clause false while our checkpoint still needs a rotation to cut.
+       * On an otherwise idle system nothing would ever provide one, and the wait
+       * for our completion would never finish.
        */
       bool32 needs_rotation =
          memtable_generation(&spl->mt_ctxt) == target
