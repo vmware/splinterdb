@@ -206,10 +206,10 @@ core_log_to_superblock_log_head(log_head info, uint64 start_generation)
  * released; republishing an unchanged root is just the degenerate case of that,
  * so it needs no special handling.
  *
- * Note this always publishes, even when the root is unchanged: callers stage log
- * transitions into the image beforehand, and the generation bound can advance on
- * its own (an empty generation retires without changing the root), so the root
- * address alone is not a "nothing to do" test.
+ * Note this always publishes, even when the root is unchanged: callers stage
+ * log transitions into the image beforehand, and the generation bound can
+ * advance on its own (an empty generation retires without changing the root),
+ * so the root address alone is not a "nothing to do" test.
  */
 static platform_status
 core_checkpoint_commit_current_root(core_handle *spl)
@@ -270,14 +270,14 @@ core_checkpoint_commit_current_root(core_handle *spl)
    }
 
    /*
-    * The captured reference becomes the record's durable one, and the previously
-    * published root's reference is released.  This is uniform even when the root
-    * did not change: that root's count is momentarily 2 (the record's plus ours)
-    * and the release brings it back to the record's single reference, so a
-    * same-root republish needs no special case and cannot grow the count.  The
-    * publish barrier already committed the new root to the newer superblock slot,
-    * so the old slot is no longer the mount choice and releasing it cannot
-    * strand a torn-write fallback.
+    * The captured reference becomes the record's durable one, and the
+    * previously published root's reference is released.  This is uniform even
+    * when the root did not change: that root's count is momentarily 2 (the
+    * record's plus ours) and the release brings it back to the record's single
+    * reference, so a same-root republish needs no special case and cannot grow
+    * the count.  The publish barrier already committed the new root to the
+    * newer superblock slot, so the old slot is no longer the mount choice and
+    * releasing it cannot strand a torn-write fallback.
     */
    snapshot.root_addr = 0; // transferred to the durable record
    if (old_root_addr != 0) {
@@ -380,10 +380,10 @@ core_checkpoint_status_get(core_handle *spl)
  * Returns a completion ticket for the checkpoint this call armed: it has
  * finished, and freed its retired log, once checkpoint.completions reaches the
  * ticket.  The ticket is captured under the same lock acquisition that arms, so
- * it cannot miss or over-count a completion.  Returns 0 if this call did not arm
- * one, which is not an error -- only one checkpoint can be in flight at a time,
- * and declining is the normal outcome when one already is.  Tickets are 1-based,
- * so 0 is unambiguous.
+ * it cannot miss or over-count a completion.  Returns 0 if this call did not
+ * arm one, which is not an error -- only one checkpoint can be in flight at a
+ * time, and declining is the normal outcome when one already is.  Tickets are
+ * 1-based, so 0 is unambiguous.
  */
 static uint64
 core_checkpoint_begin(core_handle *spl, bool32 force)
@@ -2309,9 +2309,8 @@ core_mkfs(core_handle      *spl,
 
    platform_status rc = core_locks_init(spl);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "core_mkfs: lock initialization failed: %s\n",
-         platform_status_to_string(rc));
+      platform_error_log("core_mkfs: lock initialization failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
@@ -2439,9 +2438,8 @@ core_mount(core_handle      *spl,
 
    platform_status rc = core_locks_init(spl);
    if (!SUCCESS(rc)) {
-      platform_error_log(
-         "core_mount: lock initialization failed: %s\n",
-         platform_status_to_string(rc));
+      platform_error_log("core_mount: lock initialization failed: %s\n",
+                         platform_status_to_string(rc));
       return rc;
    }
 
@@ -2744,10 +2742,10 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
        * neither holds, the remaining work is just draining flushes.
        *
        * The second clause is not redundant.  Another thread can finalize the
-       * target in the window between reading it and arming, which leaves the
-       * first clause false while our checkpoint still needs a rotation to cut.
-       * On an otherwise idle system nothing would ever provide one, and the wait
-       * for our completion would never finish.
+       * target in the window between reading target and arming, which leaves
+       * the first clause false while our checkpoint still needs a rotation to
+       * cut. On an otherwise idle system nothing would ever provide one, and
+       * the wait for our completion would never finish.
        */
       bool32 needs_rotation =
          memtable_generation(&spl->mt_ctxt) == target
