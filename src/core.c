@@ -3322,6 +3322,7 @@ core_config_init(core_config         *core_cfg,
                  uint64               queue_scale_percent,
                  uint64               prefetch_budget,
                  bool32               use_log,
+                 uint64               checkpoint_log_size_bytes,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle)
@@ -3338,18 +3339,11 @@ core_config_init(core_config         *core_cfg,
 
    core_cfg->queue_scale_percent     = queue_scale_percent;
    core_cfg->prefetch_budget         = prefetch_budget;
-   core_cfg->use_log                 = use_log;
-   core_cfg->use_stats               = use_stats;
-   core_cfg->verbose_logging_enabled = verbose_logging;
-   core_cfg->log_handle              = log_handle;
-
-   /*
-    * Rotate the log once it is as large as the cache.  Replaying a log that far
-    * exceeds the cache gains nothing (the pages cannot stay resident), and this
-    * bounds both recovery time and the log's footprint.  Callers that manage
-    * checkpoints themselves set this to 0.
-    */
-   core_cfg->checkpoint_log_size_bytes = cache_config_capacity(cache_cfg);
+   core_cfg->use_log                   = use_log;
+   core_cfg->checkpoint_log_size_bytes = checkpoint_log_size_bytes;
+   core_cfg->use_stats                 = use_stats;
+   core_cfg->verbose_logging_enabled   = verbose_logging;
+   core_cfg->log_handle                = log_handle;
 
    memtable_config_init(&core_cfg->mt_cfg,
                         core_cfg->btree_cfg,

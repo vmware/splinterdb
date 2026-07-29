@@ -421,6 +421,7 @@ core_config_init(core_config         *trunk_cfg,
                  uint64               queue_scale_percent,
                  uint64               prefetch_budget,
                  bool32               use_log,
+                 uint64               checkpoint_log_size_bytes,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle);

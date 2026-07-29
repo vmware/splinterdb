@@ -308,6 +308,7 @@ test_config_init(system_config *system_cfg, // OUT
                          master_cfg->queue_scale_percent,
                          master_cfg->prefetch_budget,
                          master_cfg->use_log,
+                         master_cfg->cache_capacity,
                          master_cfg->use_stats,
                          master_cfg->verbose_logging_enabled,
                          master_cfg->log_handle);

@@ -164,6 +164,14 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    if (!cfg->prefetch_budget) {
       cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
    }
+   if (!cfg->checkpoint_log_size_bytes) {
+      /*
+       * Checkpoint once the log has grown by a cache's worth: replaying much
+       * more log than the cache can hold gains little, since those pages cannot
+       * stay resident anyway.
+       */
+      cfg->checkpoint_log_size_bytes = cfg->cache_size;
+   }
 }
 
 static platform_status
@@ -311,6 +319,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                          cfg.queue_scale_percent,
                          cfg.prefetch_budget,
                          cfg.use_log,
+                         cfg.checkpoint_log_size_bytes,
                          cfg.use_stats,
                          FALSE,
                          Platform_default_log_handle);
