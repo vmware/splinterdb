@@ -191,9 +191,9 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg);
 /*
  * Cut the log: the current live log becomes the sealed log -- its entries are
  * still being folded into the next root -- and new_live receives subsequent
- * inserts.  Invalidates the allocation state.  Used at a checkpoint's begin, and
- * to install this session's log at mkfs/mount (where the current live log is
- * empty, so the sealed slot stays empty).
+ * inserts.  Invalidates the allocation state.  Used at a checkpoint's begin,
+ * and to install this session's log at mkfs/mount (where the current live log
+ * is empty, so the sealed slot stays empty).
  *
  * This is the only operation that installs a log, which is what lets it derive
  * the sealed log from the image rather than taking it on trust.
@@ -203,19 +203,19 @@ superblock_log_cut(superblock_context *ctx, superblock_log_head new_live);
 
 /*
  * Advance the durable tree to root_addr, where first_unincorporated_generation
- * is the first generation not folded into it.  Invalidates the allocation state.
- * Used at a checkpoint's completion, at a durability checkpoint, and at a clean
- * unmount.
+ * is the first generation not folded into it.  Invalidates the allocation
+ * state. Used at a checkpoint's completion, at a durability checkpoint, and at
+ * a clean unmount.
  *
  * Deliberately does not touch the live log: which log is live is the cut
- * protocol's business (superblock_log_cut()), and a root advance that rewrote it
- * could orphan a log still holding unincorporated entries.
+ * protocol's business (superblock_log_cut()), and a root advance that rewrote
+ * it could orphan a log still holding unincorporated entries.
  *
  * The sealed log is dropped only once it is fully incorporated, which this
  * decides on its own: the sealed log covers generations up to
  * live_log.start_generation - 1, so it is droppable exactly when
- * first_unincorporated_generation >= live_log.start_generation.  Otherwise it is
- * preserved, because recovery would still need it.  Callers therefore cannot
+ * first_unincorporated_generation >= live_log.start_generation.  Otherwise it
+ * is preserved, because recovery would still need it.  Callers therefore cannot
  * drop a sealed log prematurely.
  */
 void
