@@ -236,7 +236,8 @@ superblock_snapshot_tree(superblock_context *ctx,
                          uint64              first_unincorporated_generation,
                          superblock_log_head new_live)
 {
-   // Advancing the root diverges the persisted allocation map, so invalidate it.
+   // Advancing the root diverges the persisted allocation map, so invalidate
+   // it.
    ctx->image->tree.root_addr = root_addr;
    ctx->image->tree.first_unincorporated_generation =
       first_unincorporated_generation;

@@ -379,17 +379,17 @@ core_checkpoint_phase_get(core_handle *spl)
 /*
  * Begin, step 1 (outside the rotation critical section): if no checkpoint is in
  * progress, and either the caller forces it or the interval policy says so,
- * pre-create the next live log and arm the swap.  Log creation does no disk I/O,
- * but is kept off the insert-blocking path.
+ * pre-create the next live log and arm the swap.  Log creation does no disk
+ * I/O, but is kept off the insert-blocking path.
  *
  * `force` bypasses only the interval policy, never the use_log precondition:
  * without a log there is nothing to cut, and arming would leave the rotate hook
  * dereferencing a NULL spl->log.
  *
  * Sets *armed (if non-NULL) to whether this call armed the checkpoint, so a
- * caller that wants to see its own checkpoint through can tell it did not merely
- * observe someone else's.  Declining because one is already in flight is not an
- * error: only one checkpoint can be in flight at a time.
+ * caller that wants to see its own checkpoint through can tell it did not
+ * merely observe someone else's.  Declining because one is already in flight is
+ * not an error: only one checkpoint can be in flight at a time.
  */
 static void
 core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
@@ -482,10 +482,10 @@ core_rotate_log(void *arg, uint64 finalized_generation)
  * writers, so sealing is safe.
  *
  * Publishing here is what makes the cut crash-safe.  The rotation moved inserts
- * to the new live log, but the superblock still names the old one, so until this
- * runs a crash would lose everything written to the new log.  Order matters: the
- * sealed log's pages must be durable before the superblock names it as sealed,
- * since recovery replays it as-is.
+ * to the new live log, but the superblock still names the old one, so until
+ * this runs a crash would lose everything written to the new log.  Order
+ * matters: the sealed log's pages must be durable before the superblock names
+ * it as sealed, since recovery replays it as-is.
  */
 static void
 core_checkpoint_seal_cut(core_handle *spl)
@@ -498,10 +498,10 @@ core_checkpoint_seal_cut(core_handle *spl)
       to_seal                     = spl->checkpoint.log_to_seal;
       spl->checkpoint.log_to_seal = NULL;
       spl->checkpoint.phase       = CORE_CHECKPOINT_INCORPORATING;
-      sealed = core_log_to_superblock_log_head(
+      sealed                      = core_log_to_superblock_log_head(
          spl->checkpoint.sealed_head, spl->checkpoint.sealed_start_generation);
       live = core_log_to_superblock_log_head(spl->checkpoint.live_head,
-                                            spl->live_log_start_generation);
+                                             spl->live_log_start_generation);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
@@ -893,12 +893,12 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    core_memtable_iterator_deinit(&btree_itor);
 
    /*
-    * A forced rotation (see memtable_force_rotation(), used by core_checkpoint()
-    * when nothing rotates on its own) can finalize a memtable that received no
-    * inserts.  btree_pack() already defines this case: an empty input yields
-    * num_tuples == 0 and root_addr == 0, allocating no page.  The generation
-    * still retires; core_memtable_incorporate() recognizes the missing branch
-    * and skips the trunk incorporation.
+    * A forced rotation (see memtable_force_rotation(), used by
+    * core_checkpoint() when nothing rotates on its own) can finalize a memtable
+    * that received no inserts.  btree_pack() already defines this case: an
+    * empty input yields num_tuples == 0 and root_addr == 0, allocating no page.
+    * The generation still retires; core_memtable_incorporate() recognizes the
+    * missing branch and skips the trunk incorporation.
     */
    new_branch->root_addr = req.root_addr;
 
@@ -1000,8 +1000,8 @@ core_memtable_incorporate(core_handle   *spl,
     */
    bool32 has_branch = (cmt->branch.root_addr != 0);
    if (has_branch) {
-      rc = trunk_incorporate_prepare(&spl->trunk_context,
-                                     cmt->branch.root_addr);
+      rc =
+         trunk_incorporate_prepare(&spl->trunk_context, cmt->branch.root_addr);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_incorporate_prepare failed: %s\n",
                             platform_status_to_string(rc));
@@ -2552,9 +2552,8 @@ core_mount(core_handle      *spl,
     * session's log receives generations from the resume generation onward.
     */
    spl->live_log_start_generation = resume_generation;
-   superblock_log_cut(&spl->superblock,
-                      (superblock_log_head){0},
-                      core_current_live_log(spl));
+   superblock_log_cut(
+      &spl->superblock, (superblock_log_head){0}, core_current_live_log(spl));
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
@@ -2677,31 +2676,32 @@ core_seal_live_log(core_handle *spl)
 
 /*
  * Take a checkpoint: make every modification that completed before this call
- * durable in the trunk root, reclaiming the retired log's space, and block until
- * that is done.  Safe to call on a running system with concurrent inserts.
+ * durable in the trunk root, reclaiming the retired log's space, and block
+ * until that is done.  Safe to call on a running system with concurrent
+ * inserts.
  *
  * Durability reduces to a generation bound.  Inserts land in the currently
- * active memtable generation and generations only advance, so everything already
- * inserted is in a generation at or below the one active at entry -- the target.
- * Once the target is incorporated, all of it is in the trunk's COW root, and
- * committing that root makes it durable.
+ * active memtable generation and generations only advance, so everything
+ * already inserted is in a generation at or below the one active at entry --
+ * the target. Once the target is incorporated, all of it is in the trunk's COW
+ * root, and committing that root makes it durable.
  *
- * Reclaiming log space needs a log cut, which happens only when a rotation finds
- * a checkpoint armed.  So we arm one up front and then see it through: its
- * completion frees the retired log's extents.  This is what lets an application
- * turn the interval policy off and manage log space entirely through this call.
- * Arming is best effort -- only one checkpoint can be in flight, so if one
- * already is we ride it out and leave reclamation to it.  Durability does not
- * depend on any of this.
+ * Reclaiming log space needs a log cut, which happens only when a rotation
+ * finds a checkpoint armed.  So we arm one up front and then see it through:
+ * its completion frees the retired log's extents.  This is what lets an
+ * application turn the interval policy off and manage log space entirely
+ * through this call. Arming is best effort -- only one checkpoint can be in
+ * flight, so if one already is we ride it out and leave reclamation to it.
+ * Durability does not depend on any of this.
  *
  * Both halves wait on a rotation: the target cannot be incorporated until
  * something finalizes it, and the cut cannot happen without one either.  Insert
  * traffic normally provides it; if none arrives within rotation_timeout_ns we
  * force one.  Forcing is safe even with an empty memtable -- that generation
- * retires with no branch at all (see core_memtable_compact()) -- but note that a
- * caller polling a quiescent database will force a rotation per call, spending a
- * generation and a log extent each time.  A longer timeout lets real traffic
- * drive the cut instead.
+ * retires with no branch at all (see core_memtable_compact()) -- but note that
+ * a caller polling a quiescent database will force a rotation per call,
+ * spending a generation and a log extent each time.  A longer timeout lets real
+ * traffic drive the cut instead.
  */
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
@@ -2719,8 +2719,9 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
       core_checkpoint_phase phase = core_checkpoint_phase_get(spl);
       /*
        * Done once the target is durable-able and, if we started a checkpoint,
-       * it has completed (which is what freed the retired log).  We only wait on
-       * a checkpoint we armed ourselves, so an unrelated one cannot hold us up.
+       * it has completed (which is what freed the retired log).  We only wait
+       * on a checkpoint we armed ourselves, so an unrelated one cannot hold us
+       * up.
        */
       if (incorporated && (!armed || phase == CORE_CHECKPOINT_IDLE)) {
          break;
@@ -2747,10 +2748,10 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 
    /*
     * Commit the current root, recording the log that is actually live.  A
-    * completed checkpoint has already committed an equivalent root; republishing
-    * is harmless and this is still required when nothing was armed (or logging
-    * is off).  superblock_snapshot_tree() keeps a sealed log this root does not
-    * yet cover.
+    * completed checkpoint has already committed an equivalent root;
+    * republishing is harmless and this is still required when nothing was armed
+    * (or logging is off).  superblock_snapshot_tree() keeps a sealed log this
+    * root does not yet cover.
     */
    return core_checkpoint_commit_current_root(spl, core_current_live_log(spl));
 }

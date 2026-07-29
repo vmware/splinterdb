@@ -317,14 +317,14 @@ CTEST2(splinter, test_two_log_checkpoint)
 }
 
 /*
- * An application that manages checkpoints itself: the interval policy is off, so
- * nothing arms a checkpoint automatically and core_checkpoint() is the only thing
- * that can rotate the log.  It must therefore cut the log and reclaim what it
- * retires, or the live log would grow without bound.
+ * An application that manages checkpoints itself: the interval policy is off,
+ * so nothing arms a checkpoint automatically and core_checkpoint() is the only
+ * thing that can rotate the log.  It must therefore cut the log and reclaim
+ * what it retires, or the live log would grow without bound.
  *
  * Each checkpoint must (a) install a different live log -- proving a cut
- * happened -- and (b) leave the retired log's metadata extent free.  Total space
- * in use must also stay flat across many checkpoints of the same data.
+ * happened -- and (b) leave the retired log's metadata extent free.  Total
+ * space in use must also stay flat across many checkpoints of the same data.
  */
 CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
 {

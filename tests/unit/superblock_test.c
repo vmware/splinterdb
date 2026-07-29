@@ -96,7 +96,8 @@ CTEST2(superblock, test_format_sets_fresh_state)
    superblock_tree_record rec;
    superblock_get_tree_record(&ctx, &rec);
    ASSERT_EQUAL(0, rec.root_addr); // empty tree
-   ASSERT_EQUAL(0, rec.first_unincorporated_generation); // replay from the start
+   ASSERT_EQUAL(0,
+                rec.first_unincorporated_generation); // replay from the start
    superblock_context_deinit(&ctx);
 
    rc =
@@ -221,7 +222,8 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
 
 /*
  * A tree snapshot published while a sealed log is only partly incorporated must
- * keep that sealed log: dropping it would strand the generations it still holds.
+ * keep that sealed log: dropping it would strand the generations it still
+ * holds.
  *
  * This is the case a durability checkpoint hits when it commits a root that is
  * newer than the sealed log's start but older than its end.  L1 is sealed

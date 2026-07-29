@@ -189,8 +189,9 @@ struct core_handle {
    core_checkpoint_state checkpoint;
    uint64                last_checkpoint_generation;
    /*
-    * First memtable generation whose entries went to the current `log`.  Recorded
-    * in the superblock so it can tell which generations each log covers.
+    * First memtable generation whose entries went to the current `log`.
+    * Recorded in the superblock so it can tell which generations each log
+    * covers.
     */
    uint64 live_log_start_generation;
 
