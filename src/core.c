@@ -170,14 +170,36 @@ core_checkpoint_capture_cut(core_handle    *spl,
 }
 
 /*
- * Translate between the log module's log_head and the superblock's
- * (layout-identical but module-independent) superblock_log_head.
+ * Translate the log module's log_head into the superblock's descriptor, adding
+ * the coverage information the log module does not track: start_generation is
+ * the first memtable generation whose entries went to this log.
  */
 static superblock_log_head
-core_log_to_superblock_log_head(log_head info)
+core_log_to_superblock_log_head(log_head info, uint64 start_generation)
 {
-   return (superblock_log_head){
-      .addr = info.addr, .meta_addr = info.meta_addr, .magic = info.magic};
+   return (superblock_log_head){.addr             = info.addr,
+                                .meta_addr        = info.meta_addr,
+                                .magic            = info.magic,
+                                .start_generation = start_generation};
+}
+
+/*
+ * The superblock descriptor for the log currently receiving inserts.  Read
+ * under checkpoint_state_lock, which core_rotate_log() holds while it swaps the
+ * live log, so this can never observe a half-swapped state (recording the
+ * just-sealed log as live would make recovery miss every post-cut insert).
+ */
+static superblock_log_head
+core_current_live_log(core_handle *spl)
+{
+   if (!spl->cfg.use_log) {
+      return (superblock_log_head){0};
+   }
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   superblock_log_head live = core_log_to_superblock_log_head(
+      log_get_head(spl->log), spl->live_log_start_generation);
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   return live;
 }
 
 /*
@@ -400,37 +422,84 @@ core_rotate_log(void *arg, uint64 finalized_generation)
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_PENDING) {
-      spl->checkpoint.log_to_seal    = spl->log;
-      spl->checkpoint.sealed_head    = log_get_head(spl->log);
-      spl->log                       = spl->checkpoint.pending_log;
-      spl->checkpoint.pending_log    = NULL;
-      spl->checkpoint.cut_generation = finalized_generation;
-      spl->checkpoint.phase          = CORE_CHECKPOINT_SEALING;
+      spl->checkpoint.log_to_seal = spl->log;
+      spl->checkpoint.sealed_head = log_get_head(spl->log);
+      spl->log                    = spl->checkpoint.pending_log;
+      spl->checkpoint.pending_log = NULL;
+      /*
+       * Hand off generation coverage: the sealed log received everything up to
+       * and including finalized_generation, so the new live log starts at the
+       * next one.
+       */
+      spl->checkpoint.sealed_start_generation = spl->live_log_start_generation;
+      spl->live_log_start_generation          = finalized_generation + 1;
+      spl->checkpoint.cut_generation          = finalized_generation;
+      spl->checkpoint.phase                   = CORE_CHECKPOINT_SEALING;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 }
 
 /*
  * Begin, step 3 (just after the rotation critical section): seal the
- * swapped-out log.  The swap drained and excluded all writers, so sealing is
- * safe.  Seal finalizes the pages (dirty) and frees the handle; durability is
- * deferred to completion (or a future sync), so no barrier here.
+ * swapped-out log and publish the cut.  The swap drained and excluded all
+ * writers, so sealing is safe.
+ *
+ * Publishing here is what makes the cut crash-safe.  The rotation moved inserts
+ * to the new live log, but the superblock still names the old one, so until this
+ * runs a crash would lose everything written to the new log.  Order matters: the
+ * sealed log's pages must be durable before the superblock names it as sealed,
+ * since recovery replays it as-is.
  */
 static void
 core_checkpoint_seal_cut(core_handle *spl)
 {
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   log_handle *to_seal = NULL;
+   log_handle         *to_seal = NULL;
+   superblock_log_head sealed  = {0};
+   superblock_log_head live    = {0};
    if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
       to_seal                     = spl->checkpoint.log_to_seal;
       spl->checkpoint.log_to_seal = NULL;
       spl->checkpoint.phase       = CORE_CHECKPOINT_INCORPORATING;
+      sealed = core_log_to_superblock_log_head(
+         spl->checkpoint.sealed_head, spl->checkpoint.sealed_start_generation);
+      live = core_log_to_superblock_log_head(spl->checkpoint.live_head,
+                                            spl->live_log_start_generation);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
-   if (to_seal != NULL) {
-      log_seal(to_seal);
+   if (to_seal == NULL) {
+      return;
    }
+   log_seal(to_seal);
+
+   /*
+    * Serialize against any other superblock publisher (the superblock context
+    * is not thread safe).  On failure the checkpoint still proceeds: the
+    * completion publish will record the correct final state; only this
+    * crash-protection window is left uncovered.
+    */
+   platform_status rc = platform_mutex_lock(&spl->checkpoint_lock);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_checkpoint_seal_cut: lock failed: %s\n",
+                         platform_status_to_string(rc));
+      return;
+   }
+   rc = cache_writeback_dirty(spl->cc);
+   if (SUCCESS(rc)) {
+      rc = cache_durable_barrier(spl->cc);
+   }
+   if (SUCCESS(rc)) {
+      superblock_log_cut(&spl->superblock, sealed, live);
+      rc = superblock_make_durable(&spl->superblock);
+   }
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_checkpoint_seal_cut: failed to publish the log "
+                         "cut: %s\n",
+                         platform_status_to_string(rc));
+   }
+   platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
+   platform_assert_status_ok(unlock_rc);
 }
 
 /*
@@ -450,11 +519,12 @@ core_maybe_complete_checkpoint(core_handle *spl)
    uint64 first_unincorporated = memtable_generation_retired(&spl->mt_ctxt) + 1;
    bool32 complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
                      && first_unincorporated > spl->checkpoint.cut_generation;
-   log_head sealed = {0};
-   log_head live   = {0};
+   log_head            sealed = {0};
+   superblock_log_head live   = {0};
    if (complete) {
-      sealed                = spl->checkpoint.sealed_head;
-      live                  = spl->checkpoint.live_head;
+      sealed = spl->checkpoint.sealed_head;
+      live   = core_log_to_superblock_log_head(spl->checkpoint.live_head,
+                                             spl->live_log_start_generation);
       spl->checkpoint.phase = CORE_CHECKPOINT_COMPLETING;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
@@ -463,8 +533,7 @@ core_maybe_complete_checkpoint(core_handle *spl)
       return STATUS_OK;
    }
 
-   platform_status rc = core_checkpoint_commit_current_root(
-      spl, core_log_to_superblock_log_head(live));
+   platform_status rc = core_checkpoint_commit_current_root(spl, live);
    if (SUCCESS(rc)) {
       // The sealed log's entries are now durably in the root; free its extents.
       log_dec_ref(spl->cc, &sealed);
@@ -786,9 +855,15 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    }
    core_memtable_iterator_deinit(&btree_itor);
 
+   /*
+    * A forced rotation (see memtable_force_rotation(), used by core_checkpoint()
+    * when nothing rotates on its own) can finalize a memtable that received no
+    * inserts.  btree_pack() already defines this case: an empty input yields
+    * num_tuples == 0 and root_addr == 0, allocating no page.  The generation
+    * still retires; core_memtable_incorporate() recognizes the missing branch
+    * and skips the trunk incorporation.
+    */
    new_branch->root_addr = req.root_addr;
-
-   platform_assert(req.num_tuples > 0);
 
    btree_pack_req_deinit(&req, spl->heap_id);
    if (spl->cfg.use_stats) {
@@ -879,19 +954,30 @@ core_memtable_incorporate(core_handle   *spl,
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
-   rc = trunk_incorporate_prepare(&spl->trunk_context, cmt->branch.root_addr);
-   if (!SUCCESS(rc)) {
-      platform_error_log("trunk_incorporate_prepare failed: %s\n",
-                         platform_status_to_string(rc));
-      core_close_log_stream_if_enabled(spl, &stream);
-      core_memtable_mark_incorporation_failed(spl, generation, rc);
-      return rc;
-   }
-   btree_dec_ref(
-      spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_BRANCH);
-   if (spl->cfg.use_stats) {
-      spl->stats[tid].memtable_flush_wait_time_ns +=
-         platform_timestamp_elapsed(cmt->wait_start);
+   /*
+    * A forced rotation can retire a generation that received no inserts, in
+    * which case core_memtable_compact() produced no branch (root_addr == 0).
+    * There is nothing to fold into the trunk, and the trunk_incorporate_*()
+    * calls require a real branch (trunk_incorporate_prepare() asserts
+    * branch_addr != 0), so skip them; the generation still retires below.
+    */
+   bool32 has_branch = (cmt->branch.root_addr != 0);
+   if (has_branch) {
+      rc = trunk_incorporate_prepare(&spl->trunk_context,
+                                     cmt->branch.root_addr);
+      if (!SUCCESS(rc)) {
+         platform_error_log("trunk_incorporate_prepare failed: %s\n",
+                            platform_status_to_string(rc));
+         core_close_log_stream_if_enabled(spl, &stream);
+         core_memtable_mark_incorporation_failed(spl, generation, rc);
+         return rc;
+      }
+      btree_dec_ref(
+         spl->cc, spl->cfg.btree_cfg, cmt->branch.root_addr, PAGE_TYPE_BRANCH);
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].memtable_flush_wait_time_ns +=
+            platform_timestamp_elapsed(cmt->wait_start);
+      }
    }
 
    core_log_stream_if_enabled(
@@ -915,10 +1001,14 @@ core_memtable_incorporate(core_handle   *spl,
    memtable_transition(
       mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
    memtable_increment_to_generation_retired(&spl->mt_ctxt, generation);
-   trunk_incorporate_commit(&spl->trunk_context);
+   if (has_branch) {
+      trunk_incorporate_commit(&spl->trunk_context);
+   }
    memtable_unblock_lookups(&spl->mt_ctxt);
 
-   trunk_incorporate_cleanup(&spl->trunk_context);
+   if (has_branch) {
+      trunk_incorporate_cleanup(&spl->trunk_context);
+   }
 
    core_close_log_stream_if_enabled(spl, &stream);
 
@@ -1063,6 +1153,12 @@ core_memtable_lookup(core_handle   *spl,
    bool32              memtable_is_compacted;
    uint64              root_addr = core_memtable_root_addr_for_lookup(
       spl, generation, &memtable_is_compacted, NULL);
+   if (memtable_is_compacted && root_addr == 0) {
+      // A forced rotation can retire an empty generation, whose compacted
+      // branch has no root page.  It holds no tuples, so there is nothing to
+      // search -- equivalent to finding nothing here.
+      return STATUS_OK;
+   }
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
 
@@ -1379,13 +1475,21 @@ core_range_iterator_init(core_handle         *spl,
       bool32 active;
       uint64 root_addr =
          core_memtable_root_addr_for_lookup(spl, mt_gen, &compacted, &active);
-      range_itor->compacted[range_itor->num_branches] = compacted;
       // Only READY memtables can be modified while this iterator is live.
+      // Determined before the empty-generation skip below so that skipping
+      // cannot affect which generation is treated as the first one.
       if (range_itor->num_branches == 0) {
          first_memtable_copy_nodes = active;
       } else {
          debug_assert(!active);
       }
+      if (compacted && root_addr == 0) {
+         // A forced rotation can retire an empty generation, whose compacted
+         // branch has no root page.  It contributes no tuples, so there is
+         // nothing to merge from it.
+         continue;
+      }
+      range_itor->compacted[range_itor->num_branches] = compacted;
       if (compacted) {
          btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
       } else {
@@ -2237,12 +2341,9 @@ core_mkfs(core_handle      *spl,
    }
 
    // Establish the initial (empty) tree record, recording the live log; publish
-   // it durably.  No sealed log at mkfs.
-   superblock_log_head live_log = {0};
-   if (spl->cfg.use_log) {
-      live_log = core_log_to_superblock_log_head(log_get_head(spl->log));
-   }
-   rc = core_checkpoint_commit_current_root(spl, live_log);
+   // it durably.  No sealed log at mkfs; the log starts at generation 0.
+   spl->live_log_start_generation = 0;
+   rc = core_checkpoint_commit_current_root(spl, core_current_live_log(spl));
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: core_commit_current_root failed: %s\n",
                          platform_status_to_string(rc));
@@ -2410,12 +2511,13 @@ core_mount(core_handle      *spl,
     * allocation state, before any allocation diverges the in-memory map from
     * disk.  A crash after this forces the next mount into recovery instead of
     * silently reverting to this now-stale root.  The root is unchanged; a clean
-    * mount has no prior live log, so the sealed slot stays empty.
+    * mount has no prior live log, so the sealed slot stays empty.  This
+    * session's log receives generations from the resume generation onward.
     */
-   superblock_log_cut(
-      &spl->superblock,
-      spl->cfg.use_log ? core_log_to_superblock_log_head(log_get_head(spl->log))
-                       : (superblock_log_head){0});
+   spl->live_log_start_generation = resume_generation;
+   superblock_log_cut(&spl->superblock,
+                      (superblock_log_head){0},
+                      core_current_live_log(spl));
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
@@ -2537,91 +2639,55 @@ core_seal_live_log(core_handle *spl)
 }
 
 /*
- * Take a checkpoint: advance the durable root, rotating the log via the two-log
- * protocol.  Call at a quiescent point (no concurrent inserts).
+ * Take a checkpoint: make every modification that completed before this call
+ * durable in the trunk root, and block until that is done.  Safe to call on a
+ * running system with concurrent inserts.
  *
- * Two superblock publishes bracket the incorporation, so a crash mid-checkpoint
- * recovers to a well-defined state:
+ * The whole guarantee reduces to a generation bound.  Inserts land in the
+ * currently active memtable generation and generations only advance, so
+ * everything already inserted is in a generation at or below the one active at
+ * entry -- call it the target.  Once the target has been incorporated, every one
+ * of those inserts is in the trunk's COW root, and committing that root makes
+ * them durable.  Log rotation is deliberately not part of this: the two-log
+ * protocol bounds replay and reclaims log extents, which is the automatic
+ * checkpoint policy's job, not a durability requirement.  A checkpoint already
+ * in flight is therefore irrelevant here and is neither waited on nor disturbed.
  *
- *   begin    -> {root = C_prev, sealed = old live log, live = new log}
- *   (fold the sealed log's entries into the trunk, advancing the COW root)
- *   complete -> {root = C_new (incorporates the sealed log), sealed = empty}
- *
- * then the sealed log's extents are freed.  With logging disabled it is simply
- * an incorporate + durable-root advance (no log to rotate).
+ * The target is the *active* generation, so it cannot be incorporated until
+ * something finalizes it.  Insert traffic normally does; if none arrives within
+ * rotation_timeout_ns we force the rotation.  Forcing is safe even with an empty
+ * memtable: that generation retires with no branch at all (see
+ * core_memtable_compact()).
  */
 platform_status
-core_checkpoint(core_handle *spl)
+core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
-   platform_status     rc;
-   superblock_log_head new_live = {0};
-   log_head            sealed   = {0};
+   uint64 target = memtable_generation(&spl->mt_ctxt);
 
-   if (spl->cfg.use_log) {
-      // --- Begin: seal the live log, start a fresh one, and publish
-      // {sealed = old live, live = new} without advancing the root. ---
-      rc = platform_mutex_lock(&spl->checkpoint_lock);
-      if (!SUCCESS(rc)) {
-         return rc;
+   uint64    wait     = 100;
+   timestamp deadline = platform_get_timestamp();
+   while (memtable_generation_retired(&spl->mt_ctxt) + 1 <= target) {
+      /*
+       * Force a rotation only while the target is still the active generation.
+       * If it has already advanced, the target is finalized and merely needs its
+       * flush to drain -- forcing again would rotate an unrelated generation.
+       */
+      if (memtable_generation(&spl->mt_ctxt) == target
+          && rotation_timeout_ns <= platform_timestamp_elapsed(deadline))
+      {
+         memtable_force_rotation(&spl->mt_ctxt); // dispatches the flush itself
       }
-
-      sealed = log_get_head(spl->log);
-      log_seal(spl->log); // finalizes the pages (dirty), frees the handle
-      spl->log = NULL;
-
-      // The sealed log must be fully durable before it is recorded as the
-      // sealed segment (recovery replays it as-is).  Flush the finalized pages.
-      rc = cache_writeback_dirty(spl->cc);
-      if (SUCCESS(rc)) {
-         rc = cache_durable_barrier(spl->cc);
-      }
-      if (SUCCESS(rc)) {
-         spl->log = shard_log_create(
-            spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
-         if (spl->log == NULL) {
-            platform_error_log("core_checkpoint: shard_log_create failed\n");
-            rc = STATUS_NO_MEMORY;
-         }
-      }
-      if (SUCCESS(rc)) {
-         // Cut the log: the just-sealed live log becomes the sealed slot and
-         // the fresh log becomes live.  Root unchanged until completion.
-         new_live = core_log_to_superblock_log_head(log_get_head(spl->log));
-         superblock_log_cut(&spl->superblock, new_live);
-         rc = superblock_make_durable(&spl->superblock);
-      }
-
-      platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
-      if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
-         rc = unlock_rc;
-      }
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+      task_perform_one_if_needed(spl->ts, 0);
+      platform_sleep_ns(wait);
+      wait = wait > 2048 ? wait : 2 * wait;
    }
 
-   // --- Incorporate: fold everything logged so far into the trunk, advancing
-   // the in-memory COW root.  Synchronous (no concurrent inserts). ---
-   if (!memtable_is_empty(&spl->mt_ctxt)) {
-      memtable_force_rotation(&spl->mt_ctxt); // dispatches the flush itself
-   }
-   rc = task_perform_until_quiescent(spl->ts);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   // --- Complete: advance the durable root to the incorporated state, keeping
-   // the new live log and clearing the sealed slot. ---
-   rc = core_checkpoint_commit_current_root(spl, new_live);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   // The sealed log's entries are now durably in the root; free its extents.
-   if (spl->cfg.use_log) {
-      log_dec_ref(spl->cc, &sealed);
-   }
-   return STATUS_OK;
+   /*
+    * The target is incorporated.  Commit the current root, recording the log
+    * that is actually live; superblock_snapshot_tree() keeps a sealed log that
+    * this root does not yet cover.
+    */
+   return core_checkpoint_commit_current_root(spl, core_current_live_log(spl));
 }
 
 /*
@@ -3016,6 +3082,9 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
       bool32 memtable_is_compacted;
       uint64 root_addr = core_memtable_root_addr_for_lookup(
          spl, mt_gen, &memtable_is_compacted, NULL);
+      if (memtable_is_compacted && root_addr == 0) {
+         continue; // empty generation: no branch to look up in
+      }
       platform_status rc;
 
       rc = btree_lookup(spl->cc,

@@ -254,9 +254,13 @@ CTEST2(splinter, test_inserts)
 /*
  * With logging enabled, core_checkpoint() rotates the log via the two-log
  * protocol and advances the durable root.  Data inserted before the checkpoint
- * must survive it, a second (empty) checkpoint must be a clean rotate, and
- * teardown's allocator_assert_noleaks() must pass (the sealed log's extents are
- * freed, the root is not leaked or double-freed).
+ * must survive it, and teardown's allocator_assert_noleaks() must pass (the
+ * sealed log's extents are freed, the root is not leaked or double-freed).
+ *
+ * A zero rotation timeout forces the rotation immediately rather than waiting
+ * for insert traffic to trigger one.  The second checkpoint takes no new
+ * inserts, so it also covers the empty-memtable forced rotation: the resulting
+ * generation retires with no branch at all.
  */
 CTEST2(splinter, test_two_log_checkpoint)
 {
@@ -281,7 +285,7 @@ CTEST2(splinter, test_two_log_checkpoint)
    // Checkpoint: seal the live log into the sealed slot, start a fresh live
    // log, incorporate, advance the durable root, then clear + free the sealed
    // log.
-   rc = core_checkpoint(&spl);
+   rc = core_checkpoint(&spl, 0);
    ASSERT_TRUE(SUCCESS(rc));
 
    // A sample of keys must still be found after the checkpoint.
@@ -306,7 +310,7 @@ CTEST2(splinter, test_two_log_checkpoint)
    lookup_result_deinit(&qdata);
 
    // Second checkpoint with no new inserts is a clean rotate.
-   rc = core_checkpoint(&spl);
+   rc = core_checkpoint(&spl, 0);
    ASSERT_TRUE(SUCCESS(rc));
 
    core_destroy(&spl);

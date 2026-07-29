@@ -155,13 +155,18 @@ CTEST2(superblock, test_snapshot_persists_state)
    superblock_context_deinit(&ctx);
 }
 
-/* Steady, begin-checkpoint, and complete-checkpoint tree-record states. */
-static const superblock_log_head TEST_LOG_L1 = {.addr      = 0x6000,
-                                                .meta_addr = 0x8000,
-                                                .magic     = 0x11};
-static const superblock_log_head TEST_LOG_L2 = {.addr      = 0x10000,
-                                                .meta_addr = 0x12000,
-                                                .magic     = 0x22};
+/*
+ * Steady, begin-checkpoint, and complete-checkpoint tree-record states.  L1
+ * covers generations 0..5 and is cut at 5, so L2 takes over at 6.
+ */
+static const superblock_log_head TEST_LOG_L1 = {.addr             = 0x6000,
+                                                .meta_addr        = 0x8000,
+                                                .magic            = 0x11,
+                                                .start_generation = 0};
+static const superblock_log_head TEST_LOG_L2 = {.addr             = 0x10000,
+                                                .meta_addr        = 0x12000,
+                                                .magic            = 0x22,
+                                                .start_generation = 6};
 
 /*
  * Walk the two-log checkpoint state machine through the superblock and confirm
@@ -184,7 +189,7 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Begin: cut the log -- L1 becomes sealed, L2 becomes live.
-   superblock_log_cut(&ctx, TEST_LOG_L2);
+   superblock_log_cut(&ctx, TEST_LOG_L1, TEST_LOG_L2);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -193,7 +198,8 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    ASSERT_EQUAL(TEST_LOG_L1.meta_addr, got.sealed_log.meta_addr);
    ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
 
-   // Complete: advance root, carry L2 forward, clear sealed_log.
+   // Complete: advance the root past L1's coverage (first unincorporated 9 >=
+   // L2's start 6), so the sealed log is dropped and L2 carries forward.
    superblock_snapshot_tree(&ctx, 0x4400, 9, TEST_LOG_L2);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
@@ -210,6 +216,52 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    ASSERT_EQUAL(9, got.first_unincorporated_generation);
    ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
    ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
+   superblock_context_deinit(&ctx);
+}
+
+/*
+ * A tree snapshot published while a sealed log is only partly incorporated must
+ * keep that sealed log: dropping it would strand the generations it still holds.
+ *
+ * This is the case a durability checkpoint hits when it commits a root that is
+ * newer than the sealed log's start but older than its end.  L1 is sealed
+ * covering generations 0..5 (L2 starts at 6); a root whose first unincorporated
+ * generation is 5 has not yet folded in generation 5, so L1 must survive.  Once
+ * a later root reaches 6, L1 is dropped.
+ */
+CTEST2(superblock, test_snapshot_preserves_unincorporated_sealed_log)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // A checkpoint is mid-flight: L1 sealed, L2 live.
+   superblock_log_cut(&ctx, TEST_LOG_L1, TEST_LOG_L2);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // Commit a root that stops short of L1's last generation: L1 must be kept.
+   superblock_snapshot_tree(&ctx, 0x4000, 5, TEST_LOG_L2);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_tree_record got;
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_EQUAL(0x4000, got.root_addr);
+   ASSERT_EQUAL(TEST_LOG_L2.meta_addr, got.live_log.meta_addr);
+   ASSERT_EQUAL(TEST_LOG_L1.meta_addr, got.sealed_log.meta_addr);
+   ASSERT_EQUAL(TEST_LOG_L1.start_generation, got.sealed_log.start_generation);
+
+   // Now a root that covers all of L1's generations: it is dropped.
+   superblock_snapshot_tree(&ctx, 0x4400, 6, TEST_LOG_L2);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
+
    superblock_context_deinit(&ctx);
 }
 
@@ -237,7 +289,7 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Begin checkpoint: cut the log; this make_durable (gen5) targets slot0.
-   superblock_log_cut(&ctx, TEST_LOG_L2);
+   superblock_log_cut(&ctx, TEST_LOG_L1, TEST_LOG_L2);
    rc = superblock_make_durable(&ctx); // gen5 -> slot0
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);

@@ -38,21 +38,32 @@
 #include "platform_io.h"
 #include "util.h"
 
-#define SUPERBLOCK_FORMAT_MAGIC   (0x5344425355504552ULL) // SDBSUPER
-#define SUPERBLOCK_FORMAT_VERSION (1)
+#define SUPERBLOCK_FORMAT_MAGIC (0x5344425355504552ULL) // SDBSUPER
+/* v2 added superblock_log_head.start_generation. */
+#define SUPERBLOCK_FORMAT_VERSION (2)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)
 
 /*
- * A log's on-disk head.  Mirrors log_head's layout; the superblock stores it
- * opaquely and does not depend on the log module.  meta_addr == 0 means "no log
- * present".
+ * A log's on-disk head, plus the range of memtable generations it covers.  The
+ * addr/meta_addr/magic triple mirrors log_head's layout; the superblock stores
+ * it opaquely and does not depend on the log module.  meta_addr == 0 means "no
+ * log present".
  */
 typedef struct ONDISK superblock_log_head {
    uint64 addr;
    uint64 meta_addr;
    uint64 magic;
+   /*
+    * First memtable generation whose entries this log received.  A log's
+    * coverage ends where the next log's begins, so the sealed log covers
+    * [sealed_log.start_generation, live_log.start_generation - 1].  That lets
+    * the superblock decide on its own when a sealed log has been fully
+    * incorporated and can be dropped (see superblock_snapshot_tree()), and it
+    * tells recovery which log to begin replaying from.
+    */
+   uint64 start_generation;
 } superblock_log_head;
 
 /* An empty (absent) log slot: meta_addr == 0. */
@@ -178,21 +189,32 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg);
  */
 
 /*
- * Rotate the log: the current live log becomes the sealed log (its entries are
- * being folded into the next root) and new_live receives subsequent inserts.
- * Invalidates the allocation state.  Used at a checkpoint's begin, and to
- * install a fresh live log at mkfs/mount (where there is no prior live log, so
- * the sealed slot stays empty).
+ * Record the log configuration produced by a cut: `sealed` is the just-retired
+ * log whose entries are still being folded into the next root (empty if there
+ * is none) and `new_live` receives subsequent inserts.  Both slots are given
+ * explicitly rather than inferred from the current image, so this is correct
+ * regardless of what else has published in the meantime.  Invalidates the
+ * allocation state.  Used at a checkpoint's begin, and to install a fresh live
+ * log at mkfs/mount (with an empty sealed slot).
  */
 void
-superblock_log_cut(superblock_context *ctx, superblock_log_head new_live);
+superblock_log_cut(superblock_context *ctx,
+                   superblock_log_head sealed,
+                   superblock_log_head new_live);
 
 /*
- * Advance the durable tree to root_addr (with first_unincorporated_generation
- * the first generation not folded in) and clear the sealed log -- a snapshot is
- * taken only after the sealed log has been folded into the root.  new_live is
- * the log carried forward (empty at a clean shutdown).  Invalidates the
- * allocation state.  Used at a checkpoint's completion and at a clean unmount.
+ * Advance the durable tree to root_addr, where first_unincorporated_generation
+ * is the first generation not folded into it, carrying new_live forward as the
+ * live log (empty at a clean shutdown).  Invalidates the allocation state.
+ * Used at a checkpoint's completion, at a durability checkpoint, and at a clean
+ * unmount.
+ *
+ * The sealed log is dropped only once it is fully incorporated, which this
+ * decides on its own: the sealed log covers generations up to
+ * new_live.start_generation - 1, so it is droppable exactly when
+ * first_unincorporated_generation >= new_live.start_generation.  Otherwise it
+ * is preserved, because recovery would still need it.  Callers therefore cannot
+ * drop a sealed log prematurely.
  */
 void
 superblock_snapshot_tree(superblock_context *ctx,
