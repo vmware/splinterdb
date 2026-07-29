@@ -218,14 +218,13 @@ superblock_get_tree_record(const superblock_context *ctx,
 }
 
 void
-superblock_log_cut(superblock_context *ctx,
-                   superblock_log_head sealed,
-                   superblock_log_head new_live)
+superblock_log_cut(superblock_context *ctx, superblock_log_head new_live)
 {
-   // The sealed log's entries are still being folded into the next root;
-   // new_live receives subsequent inserts.  The persisted allocation map no
-   // longer matches the (log) state, so invalidate it.
-   ctx->image->tree.sealed_log       = sealed;
+   // The retiring live log becomes the sealed log: its entries are still being
+   // folded into the next root.  new_live receives subsequent inserts.  The
+   // persisted allocation map no longer matches the (log) state, so invalidate
+   // it.
+   ctx->image->tree.sealed_log       = ctx->image->tree.live_log;
    ctx->image->tree.live_log         = new_live;
    ctx->image->allocation_state_addr = 0;
 }
@@ -233,28 +232,35 @@ superblock_log_cut(superblock_context *ctx,
 void
 superblock_snapshot_tree(superblock_context *ctx,
                          uint64              root_addr,
-                         uint64              first_unincorporated_generation,
-                         superblock_log_head new_live)
+                         uint64              first_unincorporated_generation)
 {
    // Advancing the root diverges the persisted allocation map, so invalidate
-   // it.
+   // it.  The live log is left alone; see the header.
    ctx->image->tree.root_addr = root_addr;
    ctx->image->tree.first_unincorporated_generation =
       first_unincorporated_generation;
-   ctx->image->tree.live_log         = new_live;
    ctx->image->allocation_state_addr = 0;
 
    /*
     * Drop the sealed log only once the new root covers everything it holds.  It
-    * covers generations up to new_live.start_generation - 1, so it is fully
+    * covers generations up to live_log.start_generation - 1, so it is fully
     * incorporated exactly when first_unincorporated_generation reaches
-    * new_live.start_generation.  Otherwise keep it: recovery still needs those
-    * entries.  (A cleared live log means a clean shutdown, where everything is
-    * incorporated and start_generation is 0, so the sealed slot clears too.)
+    * live_log.start_generation.  Otherwise keep it: recovery still needs those
+    * entries.
     */
-   if (first_unincorporated_generation >= new_live.start_generation) {
+   if (first_unincorporated_generation
+       >= ctx->image->tree.live_log.start_generation)
+   {
       ctx->image->tree.sealed_log = (superblock_log_head){0};
    }
+}
+
+void
+superblock_discard_logs(superblock_context *ctx)
+{
+   ctx->image->tree.sealed_log       = (superblock_log_head){0};
+   ctx->image->tree.live_log         = (superblock_log_head){0};
+   ctx->image->allocation_state_addr = 0;
 }
 
 void

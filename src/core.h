@@ -133,9 +133,10 @@ typedef struct core_checkpoint_state {
    log_handle           *log_to_seal; // old live log awaiting seal (SEALING)
    log_head              sealed_head; // identity of the sealed log (reclaim)
    log_head              live_head;   // identity of the new live log
-   // First generation the sealed log received; with live_log_start_generation
-   // this gives the sealed log's coverage for the superblock.
-   uint64 sealed_start_generation;
+   // First generation the new live log receives, recorded in the superblock as
+   // its coverage start.  The retiring log's start needs no tracking: the
+   // superblock already holds it and carries it into the sealed slot.
+   uint64 live_start_generation;
    uint64 cut_generation; // complete once retired >= this
 } core_checkpoint_state;
 
@@ -179,21 +180,14 @@ struct core_handle {
 
    /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
-    * fields of `checkpoint`, last_checkpoint_generation, and
-    * live_log_start_generation (and is held while `log` is swapped); it is only
-    * ever held for brief, I/O-free updates (never across a barrier), so taking
-    * it inside the memtable rotation critical section cannot stall inserts on
-    * I/O.
+    * fields of `checkpoint` and last_checkpoint_generation (and is held while
+    * `log` is swapped); it is only ever held for brief, I/O-free updates (never
+    * across a barrier), so taking it inside the memtable rotation critical
+    * section cannot stall inserts on I/O.
     */
    platform_mutex        checkpoint_state_lock;
    core_checkpoint_state checkpoint;
    uint64                last_checkpoint_generation;
-   /*
-    * First memtable generation whose entries went to the current `log`.
-    * Recorded in the superblock so it can tell which generations each log
-    * covers.
-    */
-   uint64 live_log_start_generation;
 
    core_stats *stats;
 

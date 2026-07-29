@@ -189,38 +189,47 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg);
  */
 
 /*
- * Record the log configuration produced by a cut: `sealed` is the just-retired
- * log whose entries are still being folded into the next root (empty if there
- * is none) and `new_live` receives subsequent inserts.  Both slots are given
- * explicitly rather than inferred from the current image, so this is correct
- * regardless of what else has published in the meantime.  Invalidates the
- * allocation state.  Used at a checkpoint's begin, and to install a fresh live
- * log at mkfs/mount (with an empty sealed slot).
+ * Cut the log: the current live log becomes the sealed log -- its entries are
+ * still being folded into the next root -- and new_live receives subsequent
+ * inserts.  Invalidates the allocation state.  Used at a checkpoint's begin, and
+ * to install this session's log at mkfs/mount (where the current live log is
+ * empty, so the sealed slot stays empty).
+ *
+ * This is the only operation that installs a log, which is what lets it derive
+ * the sealed log from the image rather than taking it on trust.
  */
 void
-superblock_log_cut(superblock_context *ctx,
-                   superblock_log_head sealed,
-                   superblock_log_head new_live);
+superblock_log_cut(superblock_context *ctx, superblock_log_head new_live);
 
 /*
  * Advance the durable tree to root_addr, where first_unincorporated_generation
- * is the first generation not folded into it, carrying new_live forward as the
- * live log (empty at a clean shutdown).  Invalidates the allocation state.
+ * is the first generation not folded into it.  Invalidates the allocation state.
  * Used at a checkpoint's completion, at a durability checkpoint, and at a clean
  * unmount.
  *
+ * Deliberately does not touch the live log: which log is live is the cut
+ * protocol's business (superblock_log_cut()), and a root advance that rewrote it
+ * could orphan a log still holding unincorporated entries.
+ *
  * The sealed log is dropped only once it is fully incorporated, which this
  * decides on its own: the sealed log covers generations up to
- * new_live.start_generation - 1, so it is droppable exactly when
- * first_unincorporated_generation >= new_live.start_generation.  Otherwise it
- * is preserved, because recovery would still need it.  Callers therefore cannot
+ * live_log.start_generation - 1, so it is droppable exactly when
+ * first_unincorporated_generation >= live_log.start_generation.  Otherwise it is
+ * preserved, because recovery would still need it.  Callers therefore cannot
  * drop a sealed log prematurely.
  */
 void
 superblock_snapshot_tree(superblock_context *ctx,
                          uint64              root_addr,
-                         uint64              first_unincorporated_generation,
-                         superblock_log_head new_live);
+                         uint64              first_unincorporated_generation);
+
+/*
+ * Drop both log slots.  Used at a clean shutdown, which has folded everything
+ * into the durable root and frees the log's extents, so no log may remain
+ * referenced.  Invalidates the allocation state.
+ */
+void
+superblock_discard_logs(superblock_context *ctx);
 
 /*
  * Record the persisted allocator refcount map at map_addr as trustworthy.  This

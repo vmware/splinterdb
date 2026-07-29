@@ -127,7 +127,8 @@ CTEST2(superblock, test_snapshot_persists_state)
 
    superblock_log_head live = {
       .addr = 0x6000, .meta_addr = 0x8000, .magic = 0x11};
-   superblock_snapshot_tree(&ctx, 0x4000, 0, live);
+   superblock_log_cut(&ctx, live);
+   superblock_snapshot_tree(&ctx, 0x4000, 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_FALSE(
@@ -185,12 +186,13 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Steady: root R0, live L1, no sealed log.
-   superblock_snapshot_tree(&ctx, 0x4000, 5, TEST_LOG_L1);
+   superblock_log_cut(&ctx, TEST_LOG_L1);
+   superblock_snapshot_tree(&ctx, 0x4000, 5);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Begin: cut the log -- L1 becomes sealed, L2 becomes live.
-   superblock_log_cut(&ctx, TEST_LOG_L1, TEST_LOG_L2);
+   superblock_log_cut(&ctx, TEST_LOG_L2);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -201,7 +203,7 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
 
    // Complete: advance the root past L1's coverage (first unincorporated 9 >=
    // L2's start 6), so the sealed log is dropped and L2 carries forward.
-   superblock_snapshot_tree(&ctx, 0x4400, 9, TEST_LOG_L2);
+   superblock_snapshot_tree(&ctx, 0x4400, 9);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
@@ -240,13 +242,19 @@ CTEST2(superblock, test_snapshot_preserves_unincorporated_sealed_log)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   // A checkpoint is mid-flight: L1 sealed, L2 live.
-   superblock_log_cut(&ctx, TEST_LOG_L1, TEST_LOG_L2);
+   // Get to a checkpoint mid-flight: install L1, then cut to L2, which moves L1
+   // into the sealed slot.
+   superblock_log_cut(&ctx, TEST_LOG_L1);
+   superblock_log_cut(&ctx, TEST_LOG_L2);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
+   superblock_tree_record mid;
+   superblock_get_tree_record(&ctx, &mid);
+   ASSERT_EQUAL(TEST_LOG_L1.meta_addr, mid.sealed_log.meta_addr);
+   ASSERT_EQUAL(TEST_LOG_L2.meta_addr, mid.live_log.meta_addr);
 
    // Commit a root that stops short of L1's last generation: L1 must be kept.
-   superblock_snapshot_tree(&ctx, 0x4000, 5, TEST_LOG_L2);
+   superblock_snapshot_tree(&ctx, 0x4000, 5);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -258,7 +266,7 @@ CTEST2(superblock, test_snapshot_preserves_unincorporated_sealed_log)
    ASSERT_EQUAL(TEST_LOG_L1.start_generation, got.sealed_log.start_generation);
 
    // Now a root that covers all of L1's generations: it is dropped.
-   superblock_snapshot_tree(&ctx, 0x4400, 6, TEST_LOG_L2);
+   superblock_snapshot_tree(&ctx, 0x4400, 6);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_get_tree_record(&ctx, &got);
@@ -284,14 +292,15 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    // Make the steady state durable into BOTH slots (gen3->slot0, gen4->slot1),
    // so the fallback below is unambiguously the steady state, not the empty
    // format one.
-   superblock_snapshot_tree(&ctx, 0x4000, 5, TEST_LOG_L1);
+   superblock_log_cut(&ctx, TEST_LOG_L1);
+   superblock_snapshot_tree(&ctx, 0x4000, 5);
    rc = superblock_make_durable(&ctx); // gen3 -> slot0
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_make_durable(&ctx); // gen4 -> slot1
    ASSERT_TRUE(SUCCESS(rc));
 
    // Begin checkpoint: cut the log; this make_durable (gen5) targets slot0.
-   superblock_log_cut(&ctx, TEST_LOG_L1, TEST_LOG_L2);
+   superblock_log_cut(&ctx, TEST_LOG_L2);
    rc = superblock_make_durable(&ctx); // gen5 -> slot0
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
@@ -330,7 +339,7 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
 
    // After format the image is gen 2 in slot 1, so this make_durable targets
    // slot 0.  Snapshot a nonempty root with no live log.
-   superblock_snapshot_tree(&ctx, 0x4000, 0, (superblock_log_head){0});
+   superblock_snapshot_tree(&ctx, 0x4000, 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);

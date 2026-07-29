@@ -184,38 +184,22 @@ core_log_to_superblock_log_head(log_head info, uint64 start_generation)
 }
 
 /*
- * The superblock descriptor for the log currently receiving inserts.  Read
- * under checkpoint_state_lock, which core_rotate_log() holds while it swaps the
- * live log, so this can never observe a half-swapped state (recording the
- * just-sealed log as live would make recovery miss every post-cut insert).
- */
-static superblock_log_head
-core_current_live_log(core_handle *spl)
-{
-   if (!spl->cfg.use_log) {
-      return (superblock_log_head){0};
-   }
-   platform_mutex_lock(&spl->checkpoint_state_lock);
-   superblock_log_head live = core_log_to_superblock_log_head(
-      log_get_head(spl->log), spl->live_log_start_generation);
-   platform_mutex_unlock(&spl->checkpoint_state_lock);
-   return live;
-}
-
-/*
  * Commit the trunk's current COW root as the new durable tree root: capture the
  * root, make its pages durable, snapshot it into the superblock (recording the
- * first unincorporated generation, carrying the given live log forward, and
- * clearing the sealed slot -- a snapshot happens only after the sealed log is
- * folded in), then release the previously published root.  snapshot_tree
- * invalidates the persisted allocation state; a clean unmount revalidates it in
- * a later step.  Used by mkfs (empty root, records the new live log),
- * checkpoint completion, and unmount (Part A).  The snapshot's owned reference
- * is transferred to the durable record on success.
+ * first unincorporated generation, and dropping the sealed log if this root now
+ * covers it), then release the previously published root.  The log slots are the
+ * cut protocol's business, so this leaves the live log alone; callers that need
+ * to install or discard a log do so with superblock_log_cut() /
+ * superblock_discard_logs() before calling this, and the single publish below
+ * commits both transitions together.
+ *
+ * snapshot_tree invalidates the persisted allocation state; a clean unmount
+ * revalidates it in a later step.  Used by mkfs, checkpoint completion, a
+ * durability checkpoint, and unmount (Part A).  The snapshot's owned reference is
+ * transferred to the durable record on success.
  */
 static platform_status
-core_checkpoint_commit_current_root(core_handle        *spl,
-                                    superblock_log_head live_log)
+core_checkpoint_commit_current_root(core_handle *spl)
 {
    platform_status        rc;
    trunk_snapshot         snapshot;
@@ -259,15 +243,13 @@ core_checkpoint_commit_current_root(core_handle        *spl,
    old_root_addr = old_rec.root_addr;
 
    /*
-    * Snapshot the new root (clearing the sealed slot and carrying live_log
-    * forward) and make it durable.  snapshot_tree invalidates the persisted
-    * allocation map -- the in-memory map now diverges from disk; a clean
-    * unmount revalidates it only after persisting the map (Part B).
+    * Snapshot the new root and make it durable.  snapshot_tree invalidates the
+    * persisted allocation map -- the in-memory map now diverges from disk; a
+    * clean unmount revalidates it only after persisting the map (Part B).
     */
    superblock_snapshot_tree(&spl->superblock,
                             snapshot.root_addr,
-                            first_unincorporated_generation,
-                            live_log);
+                            first_unincorporated_generation);
 
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
@@ -464,14 +446,15 @@ core_rotate_log(void *arg, uint64 finalized_generation)
       spl->log                    = spl->checkpoint.pending_log;
       spl->checkpoint.pending_log = NULL;
       /*
-       * Hand off generation coverage: the sealed log received everything up to
-       * and including finalized_generation, so the new live log starts at the
-       * next one.
+       * The retiring log received everything up to and including
+       * finalized_generation, so the new live log's coverage starts at the next
+       * one.  The retiring log's own start generation needs no tracking here:
+       * the superblock already records it, and superblock_log_cut() carries it
+       * across into the sealed slot.
        */
-      spl->checkpoint.sealed_start_generation = spl->live_log_start_generation;
-      spl->live_log_start_generation          = finalized_generation + 1;
-      spl->checkpoint.cut_generation          = finalized_generation;
-      spl->checkpoint.phase                   = CORE_CHECKPOINT_SEALING;
+      spl->checkpoint.live_start_generation = finalized_generation + 1;
+      spl->checkpoint.cut_generation       = finalized_generation;
+      spl->checkpoint.phase                = CORE_CHECKPOINT_SEALING;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 }
@@ -492,16 +475,13 @@ core_checkpoint_seal_cut(core_handle *spl)
 {
    platform_mutex_lock(&spl->checkpoint_state_lock);
    log_handle         *to_seal = NULL;
-   superblock_log_head sealed  = {0};
    superblock_log_head live    = {0};
    if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
       to_seal                     = spl->checkpoint.log_to_seal;
       spl->checkpoint.log_to_seal = NULL;
       spl->checkpoint.phase       = CORE_CHECKPOINT_INCORPORATING;
-      sealed                      = core_log_to_superblock_log_head(
-         spl->checkpoint.sealed_head, spl->checkpoint.sealed_start_generation);
-      live = core_log_to_superblock_log_head(spl->checkpoint.live_head,
-                                             spl->live_log_start_generation);
+      live = core_log_to_superblock_log_head(
+         spl->checkpoint.live_head, spl->checkpoint.live_start_generation);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
@@ -527,7 +507,9 @@ core_checkpoint_seal_cut(core_handle *spl)
       rc = cache_durable_barrier(spl->cc);
    }
    if (SUCCESS(rc)) {
-      superblock_log_cut(&spl->superblock, sealed, live);
+      // The image still names the retiring log as live, so the cut moves it into
+      // the sealed slot, carrying its recorded start generation with it.
+      superblock_log_cut(&spl->superblock, live);
       rc = superblock_make_durable(&spl->superblock);
    }
    if (!SUCCESS(rc)) {
@@ -556,12 +538,9 @@ core_maybe_complete_checkpoint(core_handle *spl)
    uint64 first_unincorporated = memtable_generation_retired(&spl->mt_ctxt) + 1;
    bool32 complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
                      && first_unincorporated > spl->checkpoint.cut_generation;
-   log_head            sealed = {0};
-   superblock_log_head live   = {0};
+   log_head sealed = {0};
    if (complete) {
-      sealed = spl->checkpoint.sealed_head;
-      live   = core_log_to_superblock_log_head(spl->checkpoint.live_head,
-                                             spl->live_log_start_generation);
+      sealed                = spl->checkpoint.sealed_head;
       spl->checkpoint.phase = CORE_CHECKPOINT_COMPLETING;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
@@ -570,7 +549,12 @@ core_maybe_complete_checkpoint(core_handle *spl)
       return STATUS_OK;
    }
 
-   platform_status rc = core_checkpoint_commit_current_root(spl, live);
+   /*
+    * The live log is already recorded (core_checkpoint_seal_cut() published the
+    * cut), so this only advances the root -- which is what lets snapshot_tree
+    * drop the now-covered sealed log.
+    */
+   platform_status rc = core_checkpoint_commit_current_root(spl);
    if (SUCCESS(rc)) {
       // The sealed log's entries are now durably in the root; free its extents.
       log_dec_ref(spl->cc, &sealed);
@@ -2377,13 +2361,22 @@ core_mkfs(core_handle      *spl,
       goto deinit_trunk_context;
    }
 
-   // Establish the initial (empty) tree record, recording the live log; publish
-   // it durably.  No sealed log at mkfs; the log starts at generation 0.
-   spl->live_log_start_generation = 0;
-   rc = core_checkpoint_commit_current_root(spl, core_current_live_log(spl));
+   /*
+    * Establish the initial (empty) tree record and install this instance's log,
+    * then publish both durably in one write.  The formatted image has no live
+    * log, so the cut leaves the sealed slot empty; the log covers generations
+    * from 0.
+    */
+   if (spl->cfg.use_log) {
+      superblock_log_cut(
+         &spl->superblock,
+         core_log_to_superblock_log_head(log_get_head(spl->log), 0));
+   }
+   rc = core_checkpoint_commit_current_root(spl);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mkfs: core_commit_current_root failed: %s\n",
-                         platform_status_to_string(rc));
+      platform_error_log(
+         "core_mkfs: core_checkpoint_commit_current_root failed: %s\n",
+         platform_status_to_string(rc));
       goto deinit_stats;
    }
    return STATUS_OK;
@@ -2551,9 +2544,11 @@ core_mount(core_handle      *spl,
     * mount has no prior live log, so the sealed slot stays empty.  This
     * session's log receives generations from the resume generation onward.
     */
-   spl->live_log_start_generation = resume_generation;
-   superblock_log_cut(
-      &spl->superblock, (superblock_log_head){0}, core_current_live_log(spl));
+   superblock_log_cut(&spl->superblock,
+                      spl->cfg.use_log
+                         ? core_log_to_superblock_log_head(
+                              log_get_head(spl->log), resume_generation)
+                         : (superblock_log_head){0});
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
@@ -2747,13 +2742,14 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
    }
 
    /*
-    * Commit the current root, recording the log that is actually live.  A
-    * completed checkpoint has already committed an equivalent root;
-    * republishing is harmless and this is still required when nothing was armed
-    * (or logging is off).  superblock_snapshot_tree() keeps a sealed log this
-    * root does not yet cover.
+    * Advance the durable root.  The log slots are left exactly as the cut
+    * protocol published them, so this cannot orphan a log; snapshot_tree only
+    * drops the sealed log if this root already covers it.  A completed
+    * checkpoint has already committed an equivalent root -- republishing is
+    * harmless -- and this is still required when nothing was armed (or logging
+    * is off).
     */
-   return core_checkpoint_commit_current_root(spl, core_current_live_log(spl));
+   return core_checkpoint_commit_current_root(spl);
 }
 
 /*
@@ -2784,10 +2780,13 @@ core_unmount(core_handle *spl)
 
    /*
     * Part A: publish the clean-unmount root with both log slots cleared (no
-    * live or sealed log at rest).  Allocation state stays invalid here; it
+    * live or sealed log at rest -- their extents are freed just below, so no
+    * reference to them may survive).  Both transitions go out in the single
+    * publish the commit performs.  Allocation state stays invalid here; it
     * becomes valid only in Part B, after the map is persisted.
     */
-   rc = core_checkpoint_commit_current_root(spl, (superblock_log_head){0});
+   superblock_discard_logs(&spl->superblock);
+   rc = core_checkpoint_commit_current_root(spl);
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
