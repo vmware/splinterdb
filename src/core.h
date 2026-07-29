@@ -173,10 +173,9 @@ struct core_handle {
     * when multi-tree support lands this ownership hoists to an instance level
     * that per-tree cores borrow.
     */
-   superblock_context superblock;
-
    /* Serializes snapshot cuts and superblock publication. */
-   platform_mutex checkpoint_lock;
+   platform_mutex     superblock_lock;
+   superblock_context superblock;
 
    /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the

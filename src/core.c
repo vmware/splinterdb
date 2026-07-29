@@ -51,7 +51,7 @@ static platform_status
 core_checkpoint_lock_init(core_handle *spl)
 {
    platform_status rc = platform_mutex_init(
-      &spl->checkpoint_lock, platform_get_module_id(), spl->heap_id);
+      &spl->superblock_lock, platform_get_module_id(), spl->heap_id);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -60,7 +60,7 @@ core_checkpoint_lock_init(core_handle *spl)
       &spl->checkpoint_state_lock, platform_get_module_id(), spl->heap_id);
    if (!SUCCESS(rc)) {
       platform_status destroy_rc =
-         platform_mutex_destroy(&spl->checkpoint_lock);
+         platform_mutex_destroy(&spl->superblock_lock);
       platform_assert_status_ok(destroy_rc);
       return rc;
    }
@@ -75,7 +75,7 @@ core_checkpoint_lock_deinit(core_handle *spl)
 {
    platform_status rc = platform_mutex_destroy(&spl->checkpoint_state_lock);
    platform_assert_status_ok(rc);
-   rc = platform_mutex_destroy(&spl->checkpoint_lock);
+   rc = platform_mutex_destroy(&spl->superblock_lock);
    platform_assert_status_ok(rc);
 }
 
@@ -211,7 +211,7 @@ core_checkpoint_commit_current_root(core_handle *spl)
     * The snapshot cut, durable record write, and old-root release are one
     * publication transaction; serialize against any concurrent publisher.
     */
-   rc = platform_mutex_lock(&spl->checkpoint_lock);
+   rc = platform_mutex_lock(&spl->superblock_lock);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -309,7 +309,7 @@ release_snapshot:
 
 unlock_checkpoint:
 {
-   platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
+   platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
    if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
       rc = unlock_rc;
    }
@@ -495,7 +495,7 @@ core_checkpoint_seal_cut(core_handle *spl)
     * completion publish will record the correct final state; only this
     * crash-protection window is left uncovered.
     */
-   platform_status rc = platform_mutex_lock(&spl->checkpoint_lock);
+   platform_status rc = platform_mutex_lock(&spl->superblock_lock);
    if (!SUCCESS(rc)) {
       platform_error_log("core_checkpoint_seal_cut: lock failed: %s\n",
                          platform_status_to_string(rc));
@@ -516,7 +516,7 @@ core_checkpoint_seal_cut(core_handle *spl)
                          "cut: %s\n",
                          platform_status_to_string(rc));
    }
-   platform_status unlock_rc = platform_mutex_unlock(&spl->checkpoint_lock);
+   platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
    platform_assert_status_ok(unlock_rc);
 }
 
