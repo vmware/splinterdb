@@ -42,6 +42,12 @@ shard_log_pages_per_extent(shard_log_config *cfg)
    return cache_config_pages_per_extent(cfg->cache_cfg);
 }
 
+static inline uint64
+shard_log_extent_size(shard_log_config *cfg)
+{
+   return cache_config_extent_size(cfg->cache_cfg);
+}
+
 static inline checksum128
 shard_log_checksum(shard_log_config *cfg, page_handle *page)
 {
@@ -391,10 +397,27 @@ shard_log_next_extent_addr(shard_log_config *cfg, page_handle *page)
    return hdr->next_extent_addr;
 }
 
+/*
+ * Bytes appended to the stream so far.  The mini-allocator already tracks the
+ * extents it has handed out across all of the stream's batches (data and blob),
+ * counting each as it is reserved -- the same measure memtable_is_full() uses for
+ * a memtable.  Subtracting the fixed overhead recorded at init means a fresh
+ * stream reports 0, so a caller comparing against a threshold cannot be tricked
+ * into rotating a stream that has had nothing written to it.
+ */
+uint64
+shard_log_get_size(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   return (mini_num_extents(&log->mini) - log->initial_extents)
+          * shard_log_extent_size(log->cfg);
+}
+
 static log_ops shard_log_ops = {
    .write = shard_log_write,
    .seal  = shard_log_seal,
    .head  = shard_log_get_head,
+   .size  = shard_log_get_size,
 };
 
 static platform_status
@@ -428,6 +451,9 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
                                     shard_log_page_type_table);
    // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
    // log->meta_head);
+
+   // Baseline for shard_log_get_size(): the stream's fixed overhead.
+   log->initial_extents = mini_num_extents(&log->mini);
 
    return STATUS_OK;
 }

@@ -51,10 +51,20 @@ typedef struct core_config {
    data_config    *data_cfg;
    bool32          use_log;
    log_config     *log_cfg;
-   // Automatic-checkpoint policy: take a checkpoint (rotate the log and advance
-   // the durable root) once this many memtable generations have been finalized
-   // since the last one.  0 disables automatic checkpoints.
-   uint64        checkpoint_generation_interval;
+   /*
+    * Automatic-checkpoint policy: take a checkpoint (rotate the log and advance
+    * the durable root) once the live log reaches this many bytes.  0 disables
+    * automatic checkpoints, leaving durability and log reclamation entirely to
+    * explicit core_checkpoint() calls.  Defaults to the cache size.
+    *
+    * Sizing the trigger by log bytes rather than by memtable generations matters
+    * because the two are independent: a workload that repeatedly overwrites the
+    * same keys updates the memtable in place, so it may never fill a memtable or
+    * advance a generation, while every write still appends to the log.  A
+    * generation-based trigger would never fire and the log would grow without
+    * bound.
+    */
+   uint64        checkpoint_log_size_bytes;
    trunk_config *trunk_node_cfg;
 
    // verbose logging
@@ -189,14 +199,27 @@ struct core_handle {
 
    /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
-    * fields of `checkpoint` and last_checkpoint_generation (and is held while
-    * `log` is swapped); it is only ever held for brief, I/O-free updates (never
-    * across a barrier), so taking it inside the memtable rotation critical
-    * section cannot stall inserts on I/O.
+    * fields of `checkpoint` (and is held while `log` is swapped); it is only ever
+    * held for brief, I/O-free updates (never across a barrier), so taking it
+    * inside the memtable rotation critical section cannot stall inserts on I/O.
     */
    platform_mutex        checkpoint_state_lock;
    core_checkpoint_state checkpoint;
-   uint64                last_checkpoint_generation;
+
+   /*
+    * Hint that the live log has reached checkpoint_log_size_bytes.  Set by
+    * core_log_insert() -- which already holds the shared insert lock, the same
+    * lock that excludes the log swap, so it can read `log` safely -- and acted on
+    * by core_insert() once that lock is released.  Cleared only by
+    * core_rotate_log() when it cuts the log, under the insert lock held
+    * exclusively, so set and clear cannot race.
+    *
+    * Set-only on the insert path so the common case does no store and the cache
+    * line stays shared across cores.  Being merely a hint, a stale TRUE costs
+    * nothing: core_maybe_cut_oversized_log() re-checks the policy against the
+    * current log before acting.
+    */
+   bool32 log_reached_threshold;
 
    core_stats *stats;
 
@@ -323,7 +346,7 @@ core_mount(core_handle      *spl,
  * both are done.  Safe to call on a running system with concurrent inserts.
  *
  * Reclamation makes this sufficient on its own, so an application can set
- * checkpoint_generation_interval to 0 (no automatic checkpoints) and manage
+ * checkpoint_log_size_bytes to 0 (no automatic checkpoints) and manage
  * durability and log space entirely through this call.
  *
  * Both halves need a memtable rotation, which insert traffic normally triggers.

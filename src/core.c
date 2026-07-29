@@ -72,7 +72,6 @@ core_locks_init(core_handle *spl)
    }
 
    ZERO_CONTENTS(&spl->checkpoint); // phase == CORE_CHECKPOINT_IDLE
-   spl->last_checkpoint_generation = 0;
    return STATUS_OK;
 }
 
@@ -335,16 +334,26 @@ unlock_superblock:
  *-----------------------------------------------------------------------------
  */
 
-/* Policy: should the next memtable rotation start a checkpoint? */
+/*
+ * Policy: should the next memtable rotation start a checkpoint?  Triggered by the
+ * live log's size, since that is what a checkpoint reclaims -- and it is the only
+ * measure that tracks a workload which overwrites in place, filling the log
+ * without ever filling a memtable.
+ *
+ * Callers hold checkpoint_state_lock, which is also held while spl->log is
+ * swapped, so the log read below cannot race the cut.
+ */
 static bool32
 core_should_take_checkpoint(core_handle *spl)
 {
-   if (spl->cfg.checkpoint_generation_interval == 0) {
+   if (!spl->cfg.use_log || spl->cfg.checkpoint_log_size_bytes == 0) {
       return FALSE;
    }
-   uint64 current = spl->mt_ctxt.generation;
-   return current - spl->last_checkpoint_generation
-          >= spl->cfg.checkpoint_generation_interval;
+   /*
+    * log_get_size() reports bytes *appended*, so the fresh log a cut installs
+    * reads 0 and this settles rather than rotating in a loop.
+    */
+   return log_get_size(spl->log) >= spl->cfg.checkpoint_log_size_bytes;
 }
 
 /*
@@ -412,11 +421,10 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
    uint64 ticket = 0;
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
-      spl->checkpoint.pending_log     = next;
-      spl->checkpoint.live_head       = next_head;
-      spl->checkpoint.phase           = CORE_CHECKPOINT_PENDING;
-      spl->last_checkpoint_generation = spl->mt_ctxt.generation;
-      next                            = NULL; // handed off to the checkpoint
+      spl->checkpoint.pending_log = next;
+      spl->checkpoint.live_head   = next_head;
+      spl->checkpoint.phase       = CORE_CHECKPOINT_PENDING;
+      next                        = NULL; // handed off to the checkpoint
       // Ours is the next completion to be counted.
       ticket = spl->checkpoint.completions + 1;
    }
@@ -435,6 +443,40 @@ static void
 core_checkpoint_maybe_begin(core_handle *spl)
 {
    core_checkpoint_begin(spl, FALSE /* force */);
+}
+
+/*
+ * Act on the size policy from the insert path.  Called by core_insert() once the
+ * insert lock is released.
+ *
+ * A rotation is the only point at which the log can be cut, and a workload that
+ * overwrites in place updates the memtable without growing it -- so it may never
+ * fill a memtable, never rotate, and never give core_checkpoint_maybe_begin()
+ * (which only runs after a rotation) a chance to arm anything.  Left to itself
+ * the log would grow without bound.
+ *
+ * Arming and then forcing the rotation cuts the log in a single rotation, since
+ * the rotate hook finds the checkpoint already PENDING.  Only the thread that
+ * actually armed goes on to force, so concurrent inserters do not pile on.
+ *
+ * Not forcing the arm below is what makes this safe against a stale flag.  The
+ * flag is only a hint -- sampled on some earlier insert, and readable by several
+ * threads at once -- so a thread can arrive here long after the log it observed
+ * was already cut.  Passing force = FALSE has core_checkpoint_begin() re-check
+ * the policy under the state lock against the *current* log, which declines in
+ * exactly those cases (the fresh log reports zero bytes, or a checkpoint is still
+ * in flight) and proceeds only when another cut is genuinely due.  Forcing here
+ * would instead cut again on a log that no longer needs it.
+ */
+static void
+core_maybe_cut_oversized_log(core_handle *spl)
+{
+   if (!spl->log_reached_threshold) {
+      return;
+   }
+   if (core_checkpoint_begin(spl, FALSE /* force */) != 0) {
+      memtable_force_rotation(&spl->mt_ctxt);
+   }
 }
 
 /*
@@ -465,6 +507,15 @@ core_rotate_log(void *arg, uint64 finalized_generation)
       spl->checkpoint.live_start_generation = finalized_generation + 1;
       spl->checkpoint.cut_generation        = finalized_generation;
       spl->checkpoint.phase                 = CORE_CHECKPOINT_SEALING;
+
+      /*
+       * The size hint described the log we just retired; the fresh one has had
+       * nothing appended.  This is the only place the hint is cleared, and the
+       * insert lock is held exclusively here, so it cannot race the stores in
+       * core_log_insert().  A rotation that does not cut leaves the hint alone,
+       * which is correct: the same log is still live and still oversized.
+       */
+      spl->log_reached_threshold = FALSE;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 }
@@ -823,6 +874,26 @@ core_log_insert(core_handle                *spl,
                           log_msg,
                           memtable_generation,
                           insert_results->leaf_generation);
+
+   /*
+    * Sample the size policy while we still hold the shared insert lock, which is
+    * what makes reading spl->log safe (the live log is only swapped from inside
+    * the rotation critical section, which holds that lock exclusively).
+    * core_insert() acts on this once the lock is released.
+    *
+    * Only ever set it here, never clear it: this runs on every logged insert on
+    * every thread, and writing a shared field that often would bounce its cache
+    * line between cores for no reason.  Leaving the common case read-only keeps
+    * the line shared.  core_rotate_log() clears the flag when it cuts the log,
+    * which it does under the insert lock held exclusively -- so the clear cannot
+    * race this store.
+    */
+   if (spl->cfg.checkpoint_log_size_bytes != 0
+       && log_get_size(spl->log) >= spl->cfg.checkpoint_log_size_bytes)
+   {
+      spl->log_reached_threshold = TRUE;
+   }
+
    return log_rc == 0 ? STATUS_OK : (platform_status){.r = log_rc};
 }
 
@@ -2008,6 +2079,8 @@ deinit_insert_results:
    btree_insert_results_deinit(&insert_results);
 
    task_perform_one_if_needed(spl->ts, spl->cfg.queue_scale_percent);
+   // The insert lock is released by here, so this may force a rotation.
+   core_maybe_cut_oversized_log(spl);
 
    if (spl->cfg.use_stats) {
       switch (message_class(data)) {
@@ -3269,6 +3342,14 @@ core_config_init(core_config         *core_cfg,
    core_cfg->use_stats               = use_stats;
    core_cfg->verbose_logging_enabled = verbose_logging;
    core_cfg->log_handle              = log_handle;
+
+   /*
+    * Rotate the log once it is as large as the cache.  Replaying a log that far
+    * exceeds the cache gains nothing (the pages cannot stay resident), and this
+    * bounds both recovery time and the log's footprint.  Callers that manage
+    * checkpoints themselves set this to 0.
+    */
+   core_cfg->checkpoint_log_size_bytes = cache_config_capacity(cache_cfg);
 
    memtable_config_init(&core_cfg->mt_cfg,
                         core_cfg->btree_cfg,

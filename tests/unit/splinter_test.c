@@ -331,7 +331,7 @@ CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
    allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
    // No automatic checkpoints: this test drives them all itself.
-   data->system_cfg->splinter_cfg.checkpoint_generation_interval = 0;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -396,15 +396,15 @@ CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
  * double-freed.  The caller sets up the task system (foreground or background).
  */
 static void
-run_auto_checkpoint_workload(void *datap, uint64 interval)
+run_auto_checkpoint_workload(void *datap, uint64 log_size_threshold)
 {
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
 
    allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
-   // Rotate the log / advance the durable root every `interval` generations.
-   data->system_cfg->splinter_cfg.checkpoint_generation_interval = interval;
+   // Rotate the log / advance the durable root once the log reaches this size.
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = log_size_threshold;
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -424,9 +424,10 @@ run_auto_checkpoint_workload(void *datap, uint64 interval)
    rc = task_perform_until_quiescent(spl.ts);
    ASSERT_TRUE(SUCCESS(rc));
 
-   if (interval != 0) {
-      // The inserts must have driven at least one automatic checkpoint.
-      ASSERT_NOT_EQUAL(0, spl.last_checkpoint_generation);
+   if (log_size_threshold != 0) {
+      // The inserts must have driven at least one automatic checkpoint through
+      // to completion.
+      ASSERT_NOT_EQUAL(0, spl.checkpoint.completions);
 
       // At rest a checkpoint has either completed (IDLE) or been armed for a
       // rotation that idle never triggered (PENDING); both leave no sealed log.
@@ -471,7 +472,83 @@ run_auto_checkpoint_workload(void *datap, uint64 interval)
  */
 CTEST2(splinter, test_auto_checkpoint)
 {
-   run_auto_checkpoint_workload(data, 2);
+   // One extent: small enough that the test workload drives several rotations.
+   run_auto_checkpoint_workload(data, 2 * data->system_cfg->io_cfg.extent_size);
+}
+
+/*
+ * The reason the policy is sized in log bytes rather than memtable generations.
+ *
+ * Repeatedly overwriting one key updates the memtable btree in place, so it never
+ * accumulates extents, never becomes "full", and never rotates -- the generation
+ * stays put for the whole workload.  Every write still appends to the log, so the
+ * log grows without bound.  A generation-based trigger could never fire here; the
+ * size-based one must.
+ */
+CTEST2(splinter, test_auto_checkpoint_on_overwrites)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
+      2 * data->system_cfg->io_cfg.extent_size;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 start_generation = memtable_generation(&spl.mt_ctxt);
+
+   // Hammer a single key.  Enough writes to push the log well past one extent.
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   const uint64 num_overwrites = 20000;
+   for (uint64 i = 0; i < num_overwrites; i++) {
+      test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, i, &msg);
+      rc = core_insert(
+         &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+   }
+
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /*
+    * The workload never filled a memtable on its own, so a generation-based
+    * policy would have had nothing to trigger on: any generation advance here
+    * came from a checkpoint forcing a rotation, not from the memtable filling.
+    */
+   ASSERT_NOT_EQUAL(0,
+                    spl.checkpoint.completions,
+                    "overwrite-only workload did not trigger a checkpoint; "
+                    "generation went %lu -> %lu\n",
+                    start_generation,
+                    memtable_generation(&spl.mt_ctxt));
+
+   // The surviving value must be the last one written.
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+   rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+   ASSERT_TRUE(SUCCESS(rc));
+   generate_test_message(&data->gen, num_overwrites - 1, &msg);
+   ASSERT_EQUAL(0,
+                message_lex_cmp(
+                   merge_accumulator_to_message(&msg),
+                   merge_accumulator_to_message(lookup_result_accumulator(&qdata))));
+   lookup_result_deinit(&qdata);
+   merge_accumulator_deinit(&msg);
+
+   core_destroy(&spl);
 }
 
 /*

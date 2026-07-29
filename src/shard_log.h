@@ -47,6 +47,13 @@ typedef struct shard_log {
    uint64                addr;
    uint64                meta_head;
    uint64                magic;
+   /*
+    * Extents the mini-allocator held once the stream was initialized -- its
+    * fixed per-stream overhead (a metadata extent plus one per batch).
+    * shard_log_get_size() subtracts it so a fresh stream reports zero bytes
+    * appended.
+    */
+   uint64 initial_extents;
 } shard_log;
 
 typedef struct log_entry log_entry;

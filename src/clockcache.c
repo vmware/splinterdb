@@ -3192,9 +3192,17 @@ clockcache_config_extent_size_virtual(const cache_config *cfg)
    return clockcache_config_extent_size(ccfg);
 }
 
+uint64
+clockcache_config_capacity_virtual(const cache_config *cfg)
+{
+   clockcache_config *ccfg = (clockcache_config *)cfg;
+   return ccfg->capacity;
+}
+
 cache_config_ops clockcache_config_ops = {
    .page_size   = clockcache_config_page_size_virtual,
    .extent_size = clockcache_config_extent_size_virtual,
+   .capacity    = clockcache_config_capacity_virtual,
 };
 
 page_handle *

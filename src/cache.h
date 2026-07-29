@@ -62,6 +62,7 @@ typedef uint64 (*cache_config_generic_uint64_fn)(const cache_config *cfg);
 typedef struct cache_config_ops {
    cache_config_generic_uint64_fn page_size;
    cache_config_generic_uint64_fn extent_size;
+   cache_config_generic_uint64_fn capacity;
 } cache_config_ops;
 
 typedef struct cache_config {
@@ -78,6 +79,13 @@ static inline uint64
 cache_config_extent_size(const cache_config *cfg)
 {
    return cfg->ops->extent_size(cfg);
+}
+
+/* Total bytes of pages the cache can hold. */
+static inline uint64
+cache_config_capacity(const cache_config *cfg)
+{
+   return cfg->ops->capacity(cfg);
 }
 
 static inline uint64

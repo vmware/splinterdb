@@ -54,11 +54,21 @@ typedef platform_status (*log_seal_fn)(log_handle *log);
  * mid-stream can find the stream for replay.
  */
 typedef log_head (*log_head_fn)(log_handle *log);
+/*
+ * Bytes appended to the stream so far, so a caller can decide when to retire it.
+ * Excludes the implementation's fixed per-stream overhead: a stream that has had
+ * nothing written to it reports 0, which keeps a size-triggered policy from
+ * firing on a brand-new stream no matter how small its threshold.  A
+ * conservative measure otherwise -- space is counted as it is reserved, so this
+ * rounds up to whatever allocation unit the implementation uses.
+ */
+typedef uint64 (*log_size_fn)(log_handle *log);
 
 typedef struct log_ops {
    log_write_fn write;
    log_seal_fn  seal;
    log_head_fn  head;
+   log_size_fn  size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -94,6 +104,13 @@ static inline log_head
 log_get_head(log_handle *log)
 {
    return log->ops->head(log);
+}
+
+/* Bytes the stream currently occupies on disk.  See log_size_fn. */
+static inline uint64
+log_get_size(log_handle *log)
+{
+   return log->ops->size(log);
 }
 
 /*
