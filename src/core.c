@@ -367,19 +367,16 @@ core_checkpoint_phase_get(core_handle *spl)
  * without a log there is nothing to cut, and arming would leave the rotate hook
  * dereferencing a NULL spl->log.
  *
- * Sets *armed (if non-NULL) to whether this call armed the checkpoint, so a
- * caller that wants to see its own checkpoint through can tell it did not
- * merely observe someone else's.  Declining because one is already in flight is
- * not an error: only one checkpoint can be in flight at a time.
+ * Returns whether this call is what armed the checkpoint, so a caller that wants
+ * to see its own checkpoint through can tell it did not merely observe someone
+ * else's.  Returning FALSE is not an error: only one checkpoint can be in flight
+ * at a time, and declining is the normal outcome when one already is.
  */
-static void
-core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
+static bool32
+core_checkpoint_begin(core_handle *spl, bool32 force)
 {
-   if (armed != NULL) {
-      *armed = FALSE;
-   }
    if (!spl->cfg.use_log) {
-      return;
+      return FALSE;
    }
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
@@ -387,7 +384,7 @@ core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
                   && (force || core_should_take_checkpoint(spl));
    platform_mutex_unlock(&spl->checkpoint_state_lock);
    if (!begin) {
-      return;
+      return FALSE;
    }
 
    log_handle *next = shard_log_create(
@@ -395,10 +392,11 @@ core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
    if (next == NULL) {
       platform_error_log(
          "core_checkpoint_begin: shard_log_create failed; skipping\n");
-      return;
+      return FALSE;
    }
    log_head next_head = log_get_head(next);
 
+   bool32 armed = FALSE;
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
       spl->checkpoint.pending_log     = next;
@@ -406,9 +404,7 @@ core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
       spl->checkpoint.phase           = CORE_CHECKPOINT_PENDING;
       spl->last_checkpoint_generation = spl->mt_ctxt.generation;
       next                            = NULL; // handed off to the checkpoint
-      if (armed != NULL) {
-         *armed = TRUE;
-      }
+      armed                           = TRUE;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
@@ -417,13 +413,14 @@ core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
       log_seal(next);
       log_dec_ref(spl->cc, &next_head);
    }
+   return armed;
 }
 
 /* The automatic, policy-driven arm, run after every rotation. */
 static void
 core_checkpoint_maybe_begin(core_handle *spl)
 {
-   core_checkpoint_begin(spl, FALSE /* force */, NULL);
+   core_checkpoint_begin(spl, FALSE /* force */);
 }
 
 /*
@@ -2702,8 +2699,7 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
    uint64 target = memtable_generation(&spl->mt_ctxt);
 
-   bool32 armed;
-   core_checkpoint_begin(spl, TRUE /* force */, &armed);
+   bool32 armed = core_checkpoint_begin(spl, TRUE /* force */);
 
    uint64    wait     = 100;
    timestamp deadline = platform_get_timestamp();
