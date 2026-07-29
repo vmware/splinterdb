@@ -358,7 +358,7 @@ unlock_checkpoint:
 static bool32
 core_should_take_checkpoint(core_handle *spl)
 {
-   if (!spl->cfg.use_log || spl->cfg.checkpoint_generation_interval == 0) {
+   if (spl->cfg.checkpoint_generation_interval == 0) {
       return FALSE;
    }
    uint64 current = spl->mt_ctxt.generation;
@@ -366,17 +366,44 @@ core_should_take_checkpoint(core_handle *spl)
           >= spl->cfg.checkpoint_generation_interval;
 }
 
-/*
- * Begin, step 1 (outside the rotation critical section): if no checkpoint is in
- * progress and policy says so, pre-create the next live log and arm the swap.
- * Log creation does no disk I/O, but is kept off the insert-blocking path.
- */
-static void
-core_checkpoint_maybe_begin(core_handle *spl)
+/* The current checkpoint phase.  Read under the state lock. */
+static core_checkpoint_phase
+core_checkpoint_phase_get(core_handle *spl)
 {
    platform_mutex_lock(&spl->checkpoint_state_lock);
+   core_checkpoint_phase phase = spl->checkpoint.phase;
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   return phase;
+}
+
+/*
+ * Begin, step 1 (outside the rotation critical section): if no checkpoint is in
+ * progress, and either the caller forces it or the interval policy says so,
+ * pre-create the next live log and arm the swap.  Log creation does no disk I/O,
+ * but is kept off the insert-blocking path.
+ *
+ * `force` bypasses only the interval policy, never the use_log precondition:
+ * without a log there is nothing to cut, and arming would leave the rotate hook
+ * dereferencing a NULL spl->log.
+ *
+ * Sets *armed (if non-NULL) to whether this call armed the checkpoint, so a
+ * caller that wants to see its own checkpoint through can tell it did not merely
+ * observe someone else's.  Declining because one is already in flight is not an
+ * error: only one checkpoint can be in flight at a time.
+ */
+static void
+core_checkpoint_begin(core_handle *spl, bool32 force, bool32 *armed)
+{
+   if (armed != NULL) {
+      *armed = FALSE;
+   }
+   if (!spl->cfg.use_log) {
+      return;
+   }
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
    bool32 begin = spl->checkpoint.phase == CORE_CHECKPOINT_IDLE
-                  && core_should_take_checkpoint(spl);
+                  && (force || core_should_take_checkpoint(spl));
    platform_mutex_unlock(&spl->checkpoint_state_lock);
    if (!begin) {
       return;
@@ -386,7 +413,7 @@ core_checkpoint_maybe_begin(core_handle *spl)
       spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
    if (next == NULL) {
       platform_error_log(
-         "core_checkpoint_maybe_begin: shard_log_create failed; skipping\n");
+         "core_checkpoint_begin: shard_log_create failed; skipping\n");
       return;
    }
    log_head next_head = log_get_head(next);
@@ -398,6 +425,9 @@ core_checkpoint_maybe_begin(core_handle *spl)
       spl->checkpoint.phase           = CORE_CHECKPOINT_PENDING;
       spl->last_checkpoint_generation = spl->mt_ctxt.generation;
       next                            = NULL; // handed off to the checkpoint
+      if (armed != NULL) {
+         *armed = TRUE;
+      }
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
@@ -406,6 +436,13 @@ core_checkpoint_maybe_begin(core_handle *spl)
       log_seal(next);
       log_dec_ref(spl->cc, &next_head);
    }
+}
+
+/* The automatic, policy-driven arm, run after every rotation. */
+static void
+core_checkpoint_maybe_begin(core_handle *spl)
+{
+   core_checkpoint_begin(spl, FALSE /* force */, NULL);
 }
 
 /*
@@ -2640,52 +2677,80 @@ core_seal_live_log(core_handle *spl)
 
 /*
  * Take a checkpoint: make every modification that completed before this call
- * durable in the trunk root, and block until that is done.  Safe to call on a
- * running system with concurrent inserts.
+ * durable in the trunk root, reclaiming the retired log's space, and block until
+ * that is done.  Safe to call on a running system with concurrent inserts.
  *
- * The whole guarantee reduces to a generation bound.  Inserts land in the
- * currently active memtable generation and generations only advance, so
- * everything already inserted is in a generation at or below the one active at
- * entry -- call it the target.  Once the target has been incorporated, every one
- * of those inserts is in the trunk's COW root, and committing that root makes
- * them durable.  Log rotation is deliberately not part of this: the two-log
- * protocol bounds replay and reclaims log extents, which is the automatic
- * checkpoint policy's job, not a durability requirement.  A checkpoint already
- * in flight is therefore irrelevant here and is neither waited on nor disturbed.
+ * Durability reduces to a generation bound.  Inserts land in the currently
+ * active memtable generation and generations only advance, so everything already
+ * inserted is in a generation at or below the one active at entry -- the target.
+ * Once the target is incorporated, all of it is in the trunk's COW root, and
+ * committing that root makes it durable.
  *
- * The target is the *active* generation, so it cannot be incorporated until
- * something finalizes it.  Insert traffic normally does; if none arrives within
- * rotation_timeout_ns we force the rotation.  Forcing is safe even with an empty
- * memtable: that generation retires with no branch at all (see
- * core_memtable_compact()).
+ * Reclaiming log space needs a log cut, which happens only when a rotation finds
+ * a checkpoint armed.  So we arm one up front and then see it through: its
+ * completion frees the retired log's extents.  This is what lets an application
+ * turn the interval policy off and manage log space entirely through this call.
+ * Arming is best effort -- only one checkpoint can be in flight, so if one
+ * already is we ride it out and leave reclamation to it.  Durability does not
+ * depend on any of this.
+ *
+ * Both halves wait on a rotation: the target cannot be incorporated until
+ * something finalizes it, and the cut cannot happen without one either.  Insert
+ * traffic normally provides it; if none arrives within rotation_timeout_ns we
+ * force one.  Forcing is safe even with an empty memtable -- that generation
+ * retires with no branch at all (see core_memtable_compact()) -- but note that a
+ * caller polling a quiescent database will force a rotation per call, spending a
+ * generation and a log extent each time.  A longer timeout lets real traffic
+ * drive the cut instead.
  */
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
    uint64 target = memtable_generation(&spl->mt_ctxt);
 
+   bool32 armed;
+   core_checkpoint_begin(spl, TRUE /* force */, &armed);
+
    uint64    wait     = 100;
    timestamp deadline = platform_get_timestamp();
-   while (memtable_generation_retired(&spl->mt_ctxt) + 1 <= target) {
+   while (TRUE) {
+      bool32 incorporated =
+         memtable_generation_retired(&spl->mt_ctxt) + 1 > target;
+      core_checkpoint_phase phase = core_checkpoint_phase_get(spl);
       /*
-       * Force a rotation only while the target is still the active generation.
-       * If it has already advanced, the target is finalized and merely needs its
-       * flush to drain -- forcing again would rotate an unrelated generation.
+       * Done once the target is durable-able and, if we started a checkpoint,
+       * it has completed (which is what freed the retired log).  We only wait on
+       * a checkpoint we armed ourselves, so an unrelated one cannot hold us up.
        */
-      if (memtable_generation(&spl->mt_ctxt) == target
+      if (incorporated && (!armed || phase == CORE_CHECKPOINT_IDLE)) {
+         break;
+      }
+
+      /*
+       * Force a rotation if either half is still waiting on one: the target is
+       * still the active generation, or our checkpoint has yet to cut.  Once
+       * neither holds, the remaining work is just draining flushes.
+       */
+      bool32 needs_rotation = memtable_generation(&spl->mt_ctxt) == target
+                              || (armed && phase == CORE_CHECKPOINT_PENDING);
+      if (needs_rotation
           && rotation_timeout_ns <= platform_timestamp_elapsed(deadline))
       {
          memtable_force_rotation(&spl->mt_ctxt); // dispatches the flush itself
+         deadline = platform_get_timestamp();
       }
+
       task_perform_one_if_needed(spl->ts, 0);
       platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
    }
 
    /*
-    * The target is incorporated.  Commit the current root, recording the log
-    * that is actually live; superblock_snapshot_tree() keeps a sealed log that
-    * this root does not yet cover.
+    * Commit the current root, recording the log that is actually live.  A
+    * completed checkpoint has already committed an equivalent root; republishing
+    * is harmless and this is still required when nothing was armed (or logging
+    * is off).  superblock_snapshot_tree() keeps a sealed log this root does not
+    * yet cover.
     */
    return core_checkpoint_commit_current_root(spl, core_current_live_log(spl));
 }

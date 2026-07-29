@@ -315,14 +315,17 @@ core_mount(core_handle      *spl,
 
 /*
  * Take a checkpoint: make every modification made before this call durable in
- * the trunk root, rotating the log via the two-log protocol.  Blocks until the
- * checkpoint completes.  Safe to call on a running system with concurrent
- * inserts; if a checkpoint is already in flight, waits for it and then takes
- * another (so the result always covers this caller's modifications).
+ * the trunk root, and reclaim the space of the log it retires.  Blocks until
+ * both are done.  Safe to call on a running system with concurrent inserts.
  *
- * The log cut requires a memtable rotation, which insert traffic normally
- * triggers.  If none occurs within rotation_timeout_ns, the rotation is forced.
- * Pass 0 to force it immediately.  See core.c for the full contract.
+ * Reclamation makes this sufficient on its own, so an application can set
+ * checkpoint_generation_interval to 0 (no automatic checkpoints) and manage
+ * durability and log space entirely through this call.
+ *
+ * Both halves need a memtable rotation, which insert traffic normally triggers.
+ * If none occurs within rotation_timeout_ns, the rotation is forced; pass 0 to
+ * force it immediately.  Beware that polling a quiescent database forces a
+ * rotation per call.  See core.c for the full contract.
  */
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);

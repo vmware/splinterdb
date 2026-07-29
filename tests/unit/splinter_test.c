@@ -317,6 +317,77 @@ CTEST2(splinter, test_two_log_checkpoint)
 }
 
 /*
+ * An application that manages checkpoints itself: the interval policy is off, so
+ * nothing arms a checkpoint automatically and core_checkpoint() is the only thing
+ * that can rotate the log.  It must therefore cut the log and reclaim what it
+ * retires, or the live log would grow without bound.
+ *
+ * Each checkpoint must (a) install a different live log -- proving a cut
+ * happened -- and (b) leave the retired log's metadata extent free.  Total space
+ * in use must also stay flat across many checkpoints of the same data.
+ */
+CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   // No automatic checkpoints: this test drives them all itself.
+   data->system_cfg->splinter_cfg.checkpoint_generation_interval = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0, num_inserts);
+
+   superblock_tree_record rec;
+   const uint64           num_checkpoints = 10;
+   uint64                 baseline_in_use = 0;
+
+   for (uint64 i = 0; i < num_checkpoints; i++) {
+      superblock_get_tree_record(&spl.superblock, &rec);
+      uint64 retired_meta_addr = rec.live_log.meta_addr;
+      ASSERT_NOT_EQUAL(0, retired_meta_addr);
+
+      rc = core_checkpoint(&spl, 0);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      // (a) A cut happened: a different log is now live, and it covers only
+      // generations from the cut onward.
+      superblock_get_tree_record(&spl.superblock, &rec);
+      ASSERT_NOT_EQUAL(retired_meta_addr, rec.live_log.meta_addr);
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+
+      // (b) The retired log's space came back.
+      ASSERT_EQUAL(0,
+                   allocator_get_refcount(alp, retired_meta_addr),
+                   "checkpoint %lu did not reclaim retired log at %lu\n",
+                   i,
+                   retired_meta_addr);
+
+      // Space in use must not creep upward checkpoint over checkpoint.
+      if (i == 0) {
+         baseline_in_use = allocator_in_use(alp);
+      } else {
+         ASSERT_TRUE(allocator_in_use(alp) <= baseline_in_use,
+                     "space in use grew from %lu to %lu by checkpoint %lu\n",
+                     baseline_in_use,
+                     allocator_in_use(alp),
+                     i);
+      }
+   }
+
+   core_destroy(&spl);
+}
+
+/*
  * Shared workload for the automatic-checkpoint tests: create with auto
  * checkpoints enabled, insert enough to drive several rotations, verify a
  * sample of keys survives the mid-run log rotations, then destroy.  The
