@@ -55,10 +55,10 @@ typedef platform_status (*log_seal_fn)(log_handle *log);
  */
 typedef log_head (*log_head_fn)(log_handle *log);
 /*
- * Bytes appended to the stream so far, so a caller can decide when to retire it.
- * Excludes the implementation's fixed per-stream overhead: a stream that has had
- * nothing written to it reports 0, which keeps a size-triggered policy from
- * firing on a brand-new stream no matter how small its threshold.  A
+ * Bytes appended to the stream so far, so a caller can decide when to retire
+ * it. Excludes the implementation's fixed per-stream overhead: a stream that
+ * has had nothing written to it reports 0, which keeps a size-triggered policy
+ * from firing on a brand-new stream no matter how small its threshold.  A
  * conservative measure otherwise -- space is counted as it is reserved, so this
  * rounds up to whatever allocation unit the implementation uses.
  */

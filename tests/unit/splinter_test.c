@@ -404,7 +404,8 @@ run_auto_checkpoint_workload(void *datap, uint64 log_size_threshold)
    allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
    // Rotate the log / advance the durable root once the log reaches this size.
-   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = log_size_threshold;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
+      log_size_threshold;
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -479,11 +480,11 @@ CTEST2(splinter, test_auto_checkpoint)
 /*
  * The reason the policy is sized in log bytes rather than memtable generations.
  *
- * Repeatedly overwriting one key updates the memtable btree in place, so it never
- * accumulates extents, never becomes "full", and never rotates -- the generation
- * stays put for the whole workload.  Every write still appends to the log, so the
- * log grows without bound.  A generation-based trigger could never fire here; the
- * size-based one must.
+ * Repeatedly overwriting one key updates the memtable btree in place, so it
+ * never accumulates extents, never becomes "full", and never rotates -- the
+ * generation stays put for the whole workload.  Every write still appends to
+ * the log, so the log grows without bound.  A generation-based trigger could
+ * never fire here; the size-based one must.
  */
 CTEST2(splinter, test_auto_checkpoint_on_overwrites)
 {
@@ -513,8 +514,10 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
    for (uint64 i = 0; i < num_overwrites; i++) {
       test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
       generate_test_message(&data->gen, i, &msg);
-      rc = core_insert(
-         &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+      rc = core_insert(&spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
       ASSERT_TRUE(SUCCESS(rc));
    }
 
@@ -542,9 +545,9 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
    ASSERT_TRUE(SUCCESS(rc));
    generate_test_message(&data->gen, num_overwrites - 1, &msg);
    ASSERT_EQUAL(0,
-                message_lex_cmp(
-                   merge_accumulator_to_message(&msg),
-                   merge_accumulator_to_message(lookup_result_accumulator(&qdata))));
+                message_lex_cmp(merge_accumulator_to_message(&msg),
+                                merge_accumulator_to_message(
+                                   lookup_result_accumulator(&qdata))));
    lookup_result_deinit(&qdata);
    merge_accumulator_deinit(&msg);
 

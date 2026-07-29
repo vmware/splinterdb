@@ -335,10 +335,10 @@ unlock_superblock:
  */
 
 /*
- * Policy: should the next memtable rotation start a checkpoint?  Triggered by the
- * live log's size, since that is what a checkpoint reclaims -- and it is the only
- * measure that tracks a workload which overwrites in place, filling the log
- * without ever filling a memtable.
+ * Policy: should the next memtable rotation start a checkpoint?  Triggered by
+ * the live log's size, since that is what a checkpoint reclaims -- and it is
+ * the only measure that tracks a workload which overwrites in place, filling
+ * the log without ever filling a memtable.
  *
  * Callers hold checkpoint_state_lock, which is also held while spl->log is
  * swapped, so the log read below cannot race the cut.
@@ -446,27 +446,28 @@ core_checkpoint_maybe_begin(core_handle *spl)
 }
 
 /*
- * Act on the size policy from the insert path.  Called by core_insert() once the
- * insert lock is released.
+ * Act on the size policy from the insert path.  Called by core_insert() once
+ * the insert lock is released.
  *
  * A rotation is the only point at which the log can be cut, and a workload that
- * overwrites in place updates the memtable without growing it -- so it may never
- * fill a memtable, never rotate, and never give core_checkpoint_maybe_begin()
- * (which only runs after a rotation) a chance to arm anything.  Left to itself
- * the log would grow without bound.
+ * overwrites in place updates the memtable without growing it -- so it may
+ * never fill a memtable, never rotate, and never give
+ * core_checkpoint_maybe_begin() (which only runs after a rotation) a chance to
+ * arm anything.  Left to itself the log would grow without bound.
  *
  * Arming and then forcing the rotation cuts the log in a single rotation, since
  * the rotate hook finds the checkpoint already PENDING.  Only the thread that
  * actually armed goes on to force, so concurrent inserters do not pile on.
  *
  * Not forcing the arm below is what makes this safe against a stale flag.  The
- * flag is only a hint -- sampled on some earlier insert, and readable by several
- * threads at once -- so a thread can arrive here long after the log it observed
- * was already cut.  Passing force = FALSE has core_checkpoint_begin() re-check
- * the policy under the state lock against the *current* log, which declines in
- * exactly those cases (the fresh log reports zero bytes, or a checkpoint is still
- * in flight) and proceeds only when another cut is genuinely due.  Forcing here
- * would instead cut again on a log that no longer needs it.
+ * flag is only a hint -- sampled on some earlier insert, and readable by
+ * several threads at once -- so a thread can arrive here long after the log it
+ * observed was already cut.  Passing force = FALSE has core_checkpoint_begin()
+ * re-check the policy under the state lock against the *current* log, which
+ * declines in exactly those cases (the fresh log reports zero bytes, or a
+ * checkpoint is still in flight) and proceeds only when another cut is
+ * genuinely due.  Forcing here would instead cut again on a log that no longer
+ * needs it.
  */
 static void
 core_maybe_cut_oversized_log(core_handle *spl)
@@ -876,17 +877,17 @@ core_log_insert(core_handle                *spl,
                           insert_results->leaf_generation);
 
    /*
-    * Sample the size policy while we still hold the shared insert lock, which is
-    * what makes reading spl->log safe (the live log is only swapped from inside
-    * the rotation critical section, which holds that lock exclusively).
+    * Sample the size policy while we still hold the shared insert lock, which
+    * is what makes reading spl->log safe (the live log is only swapped from
+    * inside the rotation critical section, which holds that lock exclusively).
     * core_insert() acts on this once the lock is released.
     *
     * Only ever set it here, never clear it: this runs on every logged insert on
     * every thread, and writing a shared field that often would bounce its cache
     * line between cores for no reason.  Leaving the common case read-only keeps
     * the line shared.  core_rotate_log() clears the flag when it cuts the log,
-    * which it does under the insert lock held exclusively -- so the clear cannot
-    * race this store.
+    * which it does under the insert lock held exclusively -- so the clear
+    * cannot race this store.
     */
    if (spl->cfg.checkpoint_log_size_bytes != 0
        && log_get_size(spl->log) >= spl->cfg.checkpoint_log_size_bytes)
@@ -3337,8 +3338,8 @@ core_config_init(core_config         *core_cfg,
    core_cfg->trunk_node_cfg = trunk_node_cfg;
    core_cfg->log_cfg        = log_cfg;
 
-   core_cfg->queue_scale_percent     = queue_scale_percent;
-   core_cfg->prefetch_budget         = prefetch_budget;
+   core_cfg->queue_scale_percent       = queue_scale_percent;
+   core_cfg->prefetch_budget           = prefetch_budget;
    core_cfg->use_log                   = use_log;
    core_cfg->checkpoint_log_size_bytes = checkpoint_log_size_bytes;
    core_cfg->use_stats                 = use_stats;

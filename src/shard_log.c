@@ -400,10 +400,10 @@ shard_log_next_extent_addr(shard_log_config *cfg, page_handle *page)
 /*
  * Bytes appended to the stream so far.  The mini-allocator already tracks the
  * extents it has handed out across all of the stream's batches (data and blob),
- * counting each as it is reserved -- the same measure memtable_is_full() uses for
- * a memtable.  Subtracting the fixed overhead recorded at init means a fresh
- * stream reports 0, so a caller comparing against a threshold cannot be tricked
- * into rotating a stream that has had nothing written to it.
+ * counting each as it is reserved -- the same measure memtable_is_full() uses
+ * for a memtable.  Subtracting the fixed overhead recorded at init means a
+ * fresh stream reports 0, so a caller comparing against a threshold cannot be
+ * tricked into rotating a stream that has had nothing written to it.
  */
 uint64
 shard_log_get_size(log_handle *logh)

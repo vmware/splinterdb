@@ -57,12 +57,12 @@ typedef struct core_config {
     * automatic checkpoints, leaving durability and log reclamation entirely to
     * explicit core_checkpoint() calls.  Defaults to the cache size.
     *
-    * Sizing the trigger by log bytes rather than by memtable generations matters
-    * because the two are independent: a workload that repeatedly overwrites the
-    * same keys updates the memtable in place, so it may never fill a memtable or
-    * advance a generation, while every write still appends to the log.  A
-    * generation-based trigger would never fire and the log would grow without
-    * bound.
+    * Sizing the trigger by log bytes rather than by memtable generations
+    * matters because the two are independent: a workload that repeatedly
+    * overwrites the same keys updates the memtable in place, so it may never
+    * fill a memtable or advance a generation, while every write still appends
+    * to the log.  A generation-based trigger would never fire and the log would
+    * grow without bound.
     */
    uint64        checkpoint_log_size_bytes;
    trunk_config *trunk_node_cfg;
@@ -199,9 +199,10 @@ struct core_handle {
 
    /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
-    * fields of `checkpoint` (and is held while `log` is swapped); it is only ever
-    * held for brief, I/O-free updates (never across a barrier), so taking it
-    * inside the memtable rotation critical section cannot stall inserts on I/O.
+    * fields of `checkpoint` (and is held while `log` is swapped); it is only
+    * ever held for brief, I/O-free updates (never across a barrier), so taking
+    * it inside the memtable rotation critical section cannot stall inserts on
+    * I/O.
     */
    platform_mutex        checkpoint_state_lock;
    core_checkpoint_state checkpoint;
@@ -209,8 +210,8 @@ struct core_handle {
    /*
     * Hint that the live log has reached checkpoint_log_size_bytes.  Set by
     * core_log_insert() -- which already holds the shared insert lock, the same
-    * lock that excludes the log swap, so it can read `log` safely -- and acted on
-    * by core_insert() once that lock is released.  Cleared only by
+    * lock that excludes the log swap, so it can read `log` safely -- and acted
+    * on by core_insert() once that lock is released.  Cleared only by
     * core_rotate_log() when it cuts the log, under the insert lock held
     * exclusively, so set and clear cannot race.
     *
