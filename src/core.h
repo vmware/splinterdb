@@ -138,6 +138,16 @@ typedef struct core_checkpoint_state {
    // superblock already holds it and carries it into the sealed slot.
    uint64 live_start_generation;
    uint64 cut_generation; // complete once retired >= this
+   /*
+    * Checkpoints completed so far.  Bumped only after the completion has freed
+    * the retired log, so it is the one observable meaning "that checkpoint's
+    * space is back" -- every superblock-visible signal is necessarily written
+    * before the free, since the superblock must stop naming a log before its
+    * extents are released.  core_checkpoint_begin() hands out `completions + 1`
+    * as a ticket so a caller can wait for its own checkpoint rather than merely
+    * for "none in flight."
+    */
+   uint64 completions;
 } core_checkpoint_state;
 
 typedef struct core_memtable_args {

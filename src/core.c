@@ -347,14 +347,24 @@ core_should_take_checkpoint(core_handle *spl)
           >= spl->cfg.checkpoint_generation_interval;
 }
 
-/* The current checkpoint phase.  Read under the state lock. */
-static core_checkpoint_phase
-core_checkpoint_phase_get(core_handle *spl)
+/*
+ * A consistent read of what a waiter needs to poll: the current phase (has the
+ * cut happened yet?) and the completion count (has a given checkpoint finished
+ * and freed its log?).  Taken together under one acquisition of the state lock.
+ */
+typedef struct core_checkpoint_status {
+   core_checkpoint_phase phase;
+   uint64                completions;
+} core_checkpoint_status;
+
+static core_checkpoint_status
+core_checkpoint_status_get(core_handle *spl)
 {
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   core_checkpoint_phase phase = spl->checkpoint.phase;
+   core_checkpoint_status status = {.phase       = spl->checkpoint.phase,
+                                    .completions = spl->checkpoint.completions};
    platform_mutex_unlock(&spl->checkpoint_state_lock);
-   return phase;
+   return status;
 }
 
 /*
@@ -367,16 +377,19 @@ core_checkpoint_phase_get(core_handle *spl)
  * without a log there is nothing to cut, and arming would leave the rotate hook
  * dereferencing a NULL spl->log.
  *
- * Returns whether this call is what armed the checkpoint, so a caller that wants
- * to see its own checkpoint through can tell it did not merely observe someone
- * else's.  Returning FALSE is not an error: only one checkpoint can be in flight
- * at a time, and declining is the normal outcome when one already is.
+ * Returns a completion ticket for the checkpoint this call armed: it has
+ * finished, and freed its retired log, once checkpoint.completions reaches the
+ * ticket.  The ticket is captured under the same lock acquisition that arms, so
+ * it cannot miss or over-count a completion.  Returns 0 if this call did not arm
+ * one, which is not an error -- only one checkpoint can be in flight at a time,
+ * and declining is the normal outcome when one already is.  Tickets are 1-based,
+ * so 0 is unambiguous.
  */
-static bool32
+static uint64
 core_checkpoint_begin(core_handle *spl, bool32 force)
 {
    if (!spl->cfg.use_log) {
-      return FALSE;
+      return 0;
    }
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
@@ -384,7 +397,7 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
                   && (force || core_should_take_checkpoint(spl));
    platform_mutex_unlock(&spl->checkpoint_state_lock);
    if (!begin) {
-      return FALSE;
+      return 0;
    }
 
    log_handle *next = shard_log_create(
@@ -392,11 +405,11 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
    if (next == NULL) {
       platform_error_log(
          "core_checkpoint_begin: shard_log_create failed; skipping\n");
-      return FALSE;
+      return 0;
    }
    log_head next_head = log_get_head(next);
 
-   bool32 armed = FALSE;
+   uint64 ticket = 0;
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
       spl->checkpoint.pending_log     = next;
@@ -404,7 +417,8 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
       spl->checkpoint.phase           = CORE_CHECKPOINT_PENDING;
       spl->last_checkpoint_generation = spl->mt_ctxt.generation;
       next                            = NULL; // handed off to the checkpoint
-      armed                           = TRUE;
+      // Ours is the next completion to be counted.
+      ticket = spl->checkpoint.completions + 1;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
@@ -413,7 +427,7 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
       log_seal(next);
       log_dec_ref(spl->cc, &next_head);
    }
-   return armed;
+   return ticket;
 }
 
 /* The automatic, policy-driven arm, run after every rotation. */
@@ -564,7 +578,12 @@ core_maybe_complete_checkpoint(core_handle *spl)
       ZERO_CONTENTS(&spl->checkpoint.sealed_head);
       ZERO_CONTENTS(&spl->checkpoint.live_head);
       spl->checkpoint.cut_generation = 0;
-      spl->checkpoint.phase          = CORE_CHECKPOINT_IDLE;
+      /*
+       * Count the completion only here, after log_dec_ref() above: waiters take
+       * this as proof the retired log's space is back.
+       */
+      spl->checkpoint.completions++;
+      spl->checkpoint.phase = CORE_CHECKPOINT_IDLE;
    } else {
       // Leave the sealed slot intact and retry on a later incorporation.
       spl->checkpoint.phase = CORE_CHECKPOINT_INCORPORATING;
@@ -2699,21 +2718,23 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
    uint64 target = memtable_generation(&spl->mt_ctxt);
 
-   bool32 armed = core_checkpoint_begin(spl, TRUE /* force */);
+   uint64 ticket = core_checkpoint_begin(spl, TRUE /* force */);
 
    uint64    wait     = 100;
    timestamp deadline = platform_get_timestamp();
    while (TRUE) {
       bool32 incorporated =
          memtable_generation_retired(&spl->mt_ctxt) + 1 > target;
-      core_checkpoint_phase phase = core_checkpoint_phase_get(spl);
+      core_checkpoint_status status = core_checkpoint_status_get(spl);
       /*
        * Done once the target is durable-able and, if we started a checkpoint,
-       * it has completed (which is what freed the retired log).  We only wait
-       * on a checkpoint we armed ourselves, so an unrelated one cannot hold us
-       * up.
+       * that specific checkpoint has completed -- which is what freed its
+       * retired log.  Comparing against our own ticket rather than "nothing in
+       * flight" means neither an unrelated checkpoint nor one armed after ours
+       * can hold us up.
        */
-      if (incorporated && (!armed || phase == CORE_CHECKPOINT_IDLE)) {
+      bool32 ours_completed = (ticket == 0) || (status.completions >= ticket);
+      if (incorporated && ours_completed) {
          break;
       }
 
@@ -2722,8 +2743,9 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
        * still the active generation, or our checkpoint has yet to cut.  Once
        * neither holds, the remaining work is just draining flushes.
        */
-      bool32 needs_rotation = memtable_generation(&spl->mt_ctxt) == target
-                              || (armed && phase == CORE_CHECKPOINT_PENDING);
+      bool32 needs_rotation =
+         memtable_generation(&spl->mt_ctxt) == target
+         || (ticket != 0 && status.phase == CORE_CHECKPOINT_PENDING);
       if (needs_rotation
           && rotation_timeout_ns <= platform_timestamp_elapsed(deadline))
       {
