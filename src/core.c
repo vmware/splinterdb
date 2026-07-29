@@ -47,8 +47,14 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 _Static_assert(CORE_NUM_MEMTABLES <= MAX_MEMTABLES,
                "CORE_NUM_MEMTABLES <= MAX_MEMTABLES");
 
+/*
+ * Initialize the instance's two locks -- superblock_lock (publication) and
+ * checkpoint_state_lock (the checkpoint phase machine) -- plus the checkpoint
+ * state they guard.  Transactional: on failure nothing is left initialized, so
+ * callers just bail out and must not call core_locks_deinit().
+ */
 static platform_status
-core_checkpoint_lock_init(core_handle *spl)
+core_locks_init(core_handle *spl)
 {
    platform_status rc = platform_mutex_init(
       &spl->superblock_lock, platform_get_module_id(), spl->heap_id);
@@ -71,7 +77,7 @@ core_checkpoint_lock_init(core_handle *spl)
 }
 
 static void
-core_checkpoint_lock_deinit(core_handle *spl)
+core_locks_deinit(core_handle *spl)
 {
    platform_status rc = platform_mutex_destroy(&spl->checkpoint_state_lock);
    platform_assert_status_ok(rc);
@@ -195,8 +201,15 @@ core_log_to_superblock_log_head(log_head info, uint64 start_generation)
  *
  * snapshot_tree invalidates the persisted allocation state; a clean unmount
  * revalidates it in a later step.  Used by mkfs, checkpoint completion, a
- * durability checkpoint, and unmount (Part A).  The snapshot's owned reference
- * is transferred to the durable record on success.
+ * durability checkpoint, and unmount (Part A).  On success the captured
+ * reference becomes the durable record's and the previously published root's is
+ * released; republishing an unchanged root is just the degenerate case of that,
+ * so it needs no special handling.
+ *
+ * Note this always publishes, even when the root is unchanged: callers stage log
+ * transitions into the image beforehand, and the generation bound can advance on
+ * its own (an empty generation retires without changing the root), so the root
+ * address alone is not a "nothing to do" test.
  */
 static platform_status
 core_checkpoint_commit_current_root(core_handle *spl)
@@ -219,7 +232,7 @@ core_checkpoint_commit_current_root(core_handle *spl)
    rc = core_checkpoint_capture_cut(
       spl, &snapshot, &first_unincorporated_generation);
    if (!SUCCESS(rc)) {
-      goto unlock_checkpoint;
+      goto unlock_superblock;
    }
 
    /*
@@ -256,47 +269,34 @@ core_checkpoint_commit_current_root(core_handle *spl)
       goto release_snapshot;
    }
 
-   if (old_root_addr == snapshot.root_addr) {
-      /*
-       * Republishing the same root (e.g. a clean unmount with no advance since
-       * the last publish): the previously published record already accounts
-       * for a reference to it, so drop the redundant snapshot reference we
-       * captured rather than letting the root's refcount grow each cycle.
-       */
-      if (snapshot.root_addr != 0) {
-         platform_status release_rc =
-            trunk_snapshot_release(&spl->trunk_context, &snapshot);
-         if (SUCCESS(rc) && !SUCCESS(release_rc)) {
+   /*
+    * The captured reference becomes the record's durable one, and the previously
+    * published root's reference is released.  This is uniform even when the root
+    * did not change: that root's count is momentarily 2 (the record's plus ours)
+    * and the release brings it back to the record's single reference, so a
+    * same-root republish needs no special case and cannot grow the count.  The
+    * publish barrier already committed the new root to the newer superblock slot,
+    * so the old slot is no longer the mount choice and releasing it cannot
+    * strand a torn-write fallback.
+    */
+   snapshot.root_addr = 0; // transferred to the durable record
+   if (old_root_addr != 0) {
+      trunk_snapshot  old_snapshot = {.root_addr = old_root_addr};
+      platform_status release_rc =
+         trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
+      if (!SUCCESS(release_rc)) {
+         platform_error_log("core_checkpoint_commit_current_root: "
+                            "trunk_snapshot_release failed for old root addr "
+                            "%lu: %s\n",
+                            old_root_addr,
+                            platform_status_to_string(release_rc));
+         if (SUCCESS(rc)) {
             rc = release_rc;
-         }
-      }
-   } else {
-      /*
-       * New root: the snapshot reference becomes the record's durable one, and
-       * the previously published root's reference is released.  The publish
-       * barrier committed the new root to the newer superblock slot, so the
-       * old slot is no longer the mount choice and releasing it cannot strand a
-       * torn-write fallback.
-       */
-      snapshot.root_addr = 0; // transferred to the durable record
-      if (old_root_addr != 0) {
-         trunk_snapshot  old_snapshot = {.root_addr = old_root_addr};
-         platform_status release_rc =
-            trunk_snapshot_release(&spl->trunk_context, &old_snapshot);
-         if (!SUCCESS(release_rc)) {
-            platform_error_log(
-               "core_commit_current_root: trunk_snapshot_release "
-               "failed for old root addr %lu: %s\n",
-               old_root_addr,
-               platform_status_to_string(release_rc));
-            if (SUCCESS(rc)) {
-               rc = release_rc;
-            }
          }
       }
    }
 
-   goto unlock_checkpoint;
+   goto unlock_superblock;
 
 release_snapshot:
 {
@@ -307,7 +307,7 @@ release_snapshot:
    }
 }
 
-unlock_checkpoint:
+unlock_superblock:
 {
    platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
    if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
@@ -2291,10 +2291,10 @@ core_mkfs(core_handle      *spl,
    spl->heap_id = hid;
    spl->ts      = ts;
 
-   platform_status rc = core_checkpoint_lock_init(spl);
+   platform_status rc = core_locks_init(spl);
    if (!SUCCESS(rc)) {
       platform_error_log(
-         "core_mkfs: checkpoint lock initialization failed: %s\n",
+         "core_mkfs: lock initialization failed: %s\n",
          platform_status_to_string(rc));
       return rc;
    }
@@ -2305,7 +2305,7 @@ core_mkfs(core_handle      *spl,
    if (!SUCCESS(rc)) {
       platform_error_log("core_mkfs: superblock_context_init failed: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_checkpoint_lock;
+      goto deinit_locks;
    }
    rc = superblock_format(&spl->superblock, allocator_cfg);
    if (!SUCCESS(rc)) {
@@ -2393,8 +2393,8 @@ deinit_memtable_context:
    memtable_context_deinit(&spl->mt_ctxt);
 deinit_superblock:
    superblock_context_deinit(&spl->superblock);
-deinit_checkpoint_lock:
-   core_checkpoint_lock_deinit(spl);
+deinit_locks:
+   core_locks_deinit(spl);
    return rc;
 }
 
@@ -2421,10 +2421,10 @@ core_mount(core_handle      *spl,
    spl->heap_id = hid;
    spl->ts      = ts;
 
-   platform_status rc = core_checkpoint_lock_init(spl);
+   platform_status rc = core_locks_init(spl);
    if (!SUCCESS(rc)) {
       platform_error_log(
-         "core_mount: checkpoint lock initialization failed: %s\n",
+         "core_mount: lock initialization failed: %s\n",
          platform_status_to_string(rc));
       return rc;
    }
@@ -2435,7 +2435,7 @@ core_mount(core_handle      *spl,
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: superblock_context_init failed: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_checkpoint_lock;
+      goto deinit_locks;
    }
    rc = superblock_mount(&spl->superblock, allocator_cfg);
    if (!SUCCESS(rc)) {
@@ -2570,8 +2570,8 @@ deinit_memtable_context:
    memtable_context_deinit(&spl->mt_ctxt);
 deinit_superblock:
    superblock_context_deinit(&spl->superblock);
-deinit_checkpoint_lock:
-   core_checkpoint_lock_deinit(spl);
+deinit_locks:
+   core_locks_deinit(spl);
    return rc;
 }
 
@@ -2830,7 +2830,7 @@ core_unmount(core_handle *spl)
 
    superblock_context_deinit(&spl->superblock);
    core_destroy_stats(spl);
-   core_checkpoint_lock_deinit(spl);
+   core_locks_deinit(spl);
    return rc;
 }
 
@@ -2882,7 +2882,7 @@ core_destroy(core_handle *spl)
     */
    superblock_context_deinit(&spl->superblock);
    core_destroy_stats(spl);
-   core_checkpoint_lock_deinit(spl);
+   core_locks_deinit(spl);
 }
 
 
