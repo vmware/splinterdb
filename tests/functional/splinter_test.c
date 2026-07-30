@@ -144,9 +144,9 @@ test_trunk_insert_thread(void *arg)
                   test_cfg->period);
          generate_test_message(test_cfg->gen, insert_num, &msg);
          platform_status rc = core_insert(spl,
-                                         key_buffer_key(&keybuf),
-                                         merge_accumulator_to_message(&msg),
-                                         NULL);
+                                          key_buffer_key(&keybuf),
+                                          merge_accumulator_to_message(&msg),
+                                          NULL);
          platform_assert_status_ok(rc);
          if (spl->cfg.use_stats) {
             ts = platform_timestamp_elapsed(ts);
@@ -425,12 +425,12 @@ advance_base(test_splinter_thread_params  *params,
          } else {
             // negative lookup by select random base
             // [local_curr_op + op_granularity, total_ops - op_granularity]
-            random_base = ((random_next_uint64(rs)
-                            % ((total_ops - local_curr_op) / op_granularity
-                               - 1))
-                           + 1)
-                             * op_granularity
-                          + local_curr_op;
+            random_base =
+               ((random_next_uint64(rs)
+                 % ((total_ops - local_curr_op) / op_granularity - 1))
+                + 1)
+                  * op_granularity
+               + local_curr_op;
          }
       }
       *base = random_base;
@@ -567,7 +567,7 @@ test_trunk_insert_lookup_thread(void *arg)
    uint64           op_granularity = params->op_granularity;
    uint64           seed           = params->seed;
    verify_tuple_arg vtarg          = {.stats_only = TRUE,
-                                      .stats = &params->lookup_stats[ASYNC_LU]};
+                                      .stats      = &params->lookup_stats[ASYNC_LU]};
 
    uint64       bases[NUM_OP_TYPES];
    uint64       granularities[NUM_OP_TYPES];
@@ -1919,7 +1919,7 @@ test_splinter_delete(system_config   *cfg,
 
    // Deletes
    message_generate_set_message_type(test_cfg->gen, MESSAGE_TYPE_DELETE);
-   curr_op = 0;
+   curr_op    = 0;
    start_time = platform_get_timestamp();
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;

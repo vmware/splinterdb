@@ -691,13 +691,8 @@ test_functionality(allocator            *al,
    }
 
    // Validate the tree against an empty shadow.
-   status = validate_tree_against_shadow(spl,
-                                         &prg,
-                                         shadow,
-                                         hid,
-                                         workload_cfg->key_size,
-                                         TRUE,
-                                         async_lookup);
+   status = validate_tree_against_shadow(
+      spl, &prg, shadow, hid, workload_cfg->key_size, TRUE, async_lookup);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to validate empty tree against shadow: %s\n",
                          platform_status_to_string(status));
