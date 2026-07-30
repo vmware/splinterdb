@@ -39,19 +39,17 @@ function cache_tests_3() {
 # 12 minutes
 function functionality_tests() {
     # 50 sec each
-    run driver_test splinter_test --functionality  1000000  100                                                                                                                           --seed 135
-    run driver_test splinter_test --functionality  1000000  100                                                                     --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
-    run driver_test splinter_test --functionality  1000000  100             --key-size 102                                                                                                --seed 135
-    run driver_test splinter_test --functionality  1000000  100             --key-size 8                                                                                                  --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                                                                                               --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                                         --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 102                                                                                                --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 8                                                                                                  --seed 135
-    run driver_test splinter_test --functionality  1000000 1000                            --num-tables 2 --cache-capacity-mib 1024
-    run driver_test splinter_test --functionality  1000000 1000                            --num-tables 4 --cache-capacity-mib 1024
-    run driver_test splinter_test --functionality  1000000 1000                            --num-tables 4 --cache-capacity-mib 512
-    run driver_test splinter_test --functionality 10000000 1000                            --num-tables 1 --cache-capacity-mib 4096
-    run driver_test splinter_test --functionality 10000000 1000                            --num-tables 2 --cache-capacity-mib 4096
+    run driver_test splinter_test --functionality  1000000  100                                                                                                            --seed 135
+    run driver_test splinter_test --functionality  1000000  100                                                      --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
+    run driver_test splinter_test --functionality  1000000  100             --key-size 102                                                                                 --seed 135
+    run driver_test splinter_test --functionality  1000000  100             --key-size 8                                                                                   --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                                                                                --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                          --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 102                                                                                 --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 8                                                                                   --seed 135
+    run driver_test splinter_test --functionality  1000000 1000                            --cache-capacity-mib 1024
+    run driver_test splinter_test --functionality  1000000 1000                            --cache-capacity-mib 512
+    run driver_test splinter_test --functionality 10000000 1000                            --cache-capacity-mib 4096
 }
 
 function parallel_perf_test_1() {
