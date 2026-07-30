@@ -79,8 +79,8 @@ typedef struct master_config {
     * Take an automatic checkpoint once the live log has grown by this many
     * bytes.  Zero means follow cache_capacity, matching the production default
     * of one cache's worth of log; it is resolved that way at use, so lowering
-    * --cache-capacity also lowers this unless it is set explicitly.  Set it very
-    * large (UINT64_MAX) to effectively disable automatic checkpoints.
+    * --cache-capacity also lowers this unless it is set explicitly.  Set it
+    * very large (UINT64_MAX) to effectively disable automatic checkpoints.
     */
    uint64 checkpoint_log_size;
 

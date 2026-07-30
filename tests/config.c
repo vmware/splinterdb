@@ -391,9 +391,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_uint64("prefetch-budget-bytes", cfg, prefetch_budget) {}
          config_set_mib("checkpoint-log-size", cfg, checkpoint_log_size) {}
          config_set_gib("checkpoint-log-size", cfg, checkpoint_log_size) {}
-         config_set_uint64("checkpoint-log-size-bytes",
-                           cfg,
-                           checkpoint_log_size)
+         config_set_uint64(
+            "checkpoint-log-size-bytes", cfg, checkpoint_log_size)
          {
          }
          config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
