@@ -299,6 +299,11 @@ test_config_init(system_config *system_cfg, // OUT
                      master_cfg->prefetch_budget,
                      master_cfg->use_stats);
 
+   // 0 follows the cache size, mirroring the production default.
+   uint64 checkpoint_log_size = master_cfg->checkpoint_log_size != 0
+                                   ? master_cfg->checkpoint_log_size
+                                   : master_cfg->cache_capacity;
+
    rc = core_config_init(&system_cfg->splinter_cfg,
                          &system_cfg->cache_cfg.super,
                          system_cfg->data_cfg,
@@ -308,7 +313,7 @@ test_config_init(system_config *system_cfg, // OUT
                          master_cfg->queue_scale_percent,
                          master_cfg->prefetch_budget,
                          master_cfg->use_log,
-                         master_cfg->cache_capacity,
+                         checkpoint_log_size,
                          master_cfg->use_stats,
                          master_cfg->verbose_logging_enabled,
                          master_cfg->log_handle);

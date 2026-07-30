@@ -97,6 +97,15 @@ typedef struct core_stats {
 
    uint64 discarded_deletes;
 
+   /*
+    * Checkpoints that ran to completion -- meaning the durable root advanced and
+    * the retired log's space came back.  Counted here for reporting only; the
+    * authoritative count the checkpoint machinery waits on is
+    * core_checkpoint_state.completions, which must stay monotonic and so is not
+    * affected by core_reset_stats().
+    */
+   uint64 checkpoints_completed;
+
    uint64 lookups_found;
    uint64 lookups_not_found;
 } PLATFORM_CACHELINE_ALIGNED core_stats;

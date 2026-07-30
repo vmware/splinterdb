@@ -641,6 +641,11 @@ core_maybe_complete_checkpoint(core_handle *spl)
       spl->checkpoint.phase = CORE_CHECKPOINT_INCORPORATING;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   // Outside the lock: this is a per-thread counter, so it needs none.
+   if (SUCCESS(rc) && spl->cfg.use_stats) {
+      spl->stats[platform_get_tid()].checkpoints_completed++;
+   }
    return rc;
 }
 
@@ -3125,6 +3130,7 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
             spl->stats[thr_i].memtable_flush_time_max_ns;
       }
       global->memtable_flush_root_full    += spl->stats[thr_i].memtable_flush_root_full;
+      global->checkpoints_completed       += spl->stats[thr_i].checkpoints_completed;
    }
 
    platform_log(log_handle, "Overall Statistics\n");
@@ -3135,6 +3141,8 @@ core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *s
    platform_log(log_handle, "| completed deletes: %10lu\n", global->discarded_deletes);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "| root stalls:       %10lu\n", global->memtable_flush_root_full);
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| checkpoints:       %10lu\n", global->checkpoints_completed);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "\n");
 

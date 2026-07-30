@@ -492,6 +492,8 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
    data->system_cfg->splinter_cfg.use_log = TRUE;
    data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
       2 * data->system_cfg->io_cfg.extent_size;
+   // Also verify the reported checkpoint count against the internal one.
+   data->system_cfg->splinter_cfg.use_stats = TRUE;
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -535,6 +537,22 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
                     "generation went %lu -> %lu\n",
                     start_generation,
                     memtable_generation(&spl.mt_ctxt));
+
+   /*
+    * The reported statistic must agree with the machinery's own count: it is
+    * summed across threads, so this catches both a missed increment and a
+    * double count.
+    */
+   uint64 reported = 0;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      reported += spl.stats[thr_i].checkpoints_completed;
+   }
+   ASSERT_EQUAL(spl.checkpoint.completions,
+                reported,
+                "checkpoints_completed stat (%lu) disagrees with the "
+                "checkpoint state's count (%lu)\n",
+                reported,
+                spl.checkpoint.completions);
 
    // The surviving value must be the last one written.
    lookup_result qdata;
