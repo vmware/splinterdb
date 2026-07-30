@@ -191,7 +191,6 @@ function all_tests() {
 }
 
 function main() {
-    echo > db.sizes.log
     if [ -z "$TESTS_FUNCTION" ]; then
         TESTS_FUNCTION="all_tests"
     fi

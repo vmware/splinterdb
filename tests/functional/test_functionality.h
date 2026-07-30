@@ -10,7 +10,7 @@
 platform_status
 test_functionality(allocator            *al,
                    io_handle            *io,
-                   cache                *cc[],
+                   cache                *cc,
                    system_config        *cfg,
                    test_workload_config *workload_cfg,
                    uint64                seed,
@@ -18,6 +18,4 @@ test_functionality(allocator            *al,
                    uint64                correctness_check_frequency,
                    task_system          *ts,
                    platform_heap_id      hid,
-                   uint8                 num_tables,
-                   uint8                 num_caches,
                    uint32                max_async_inflight);

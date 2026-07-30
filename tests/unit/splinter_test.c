@@ -84,7 +84,6 @@ CTEST_DATA(splinter)
    uint32 num_insert_threads;
    uint32 num_lookup_threads;
    uint32 max_async_inflight;
-   int    spl_num_tables;
 
    rc_allocator al;
 
@@ -115,11 +114,9 @@ CTEST_SETUP(splinter)
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;
    data->max_async_inflight = 64;
-   data->spl_num_tables = 1;
 
-   bool32 cache_per_table = FALSE;
-   int num_tables       = data->spl_num_tables; // Cache, for re-use below
-   uint8 num_caches     = (cache_per_table ? num_tables : 1);
+   // The config layer still parses per-config arrays; this test uses one.
+   int num_tables       = 1;
    uint64 heap_capacity = 512 * MiB;
 
    // Create a heap for io, allocator, cache and splinter
@@ -173,20 +170,18 @@ CTEST_SETUP(splinter)
    rc_allocator_init(&data->al, &data->system_cfg->allocator_cfg, data->io, data->hid,
                      platform_get_module_id());
 
-   data->clock_cache = TYPED_ARRAY_MALLOC(data->hid, data->clock_cache, num_caches);
+   data->clock_cache = TYPED_MALLOC(data->hid, data->clock_cache);
    ASSERT_TRUE((data->clock_cache != NULL));
 
-   for (uint8 idx = 0; idx < num_caches; idx++) {
-      rc = clockcache_init(&data->clock_cache[idx],
-                           &data->system_cfg[idx].cache_cfg,
-                           data->io,
-                           (allocator *)&data->al,
-                           "test",
-                           data->hid,
-                           platform_get_module_id());
+   rc = clockcache_init(data->clock_cache,
+                        &data->system_cfg->cache_cfg,
+                        data->io,
+                        (allocator *)&data->al,
+                        "test",
+                        data->hid,
+                        platform_get_module_id());
 
-      ASSERT_TRUE(SUCCESS(rc), "clockcache_init() failed for index=%d. ", idx);
-   }
+   ASSERT_TRUE(SUCCESS(rc), "clockcache_init() failed. ");
 }
 
 // clang-format on
