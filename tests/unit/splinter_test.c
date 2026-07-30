@@ -117,7 +117,7 @@ CTEST_SETUP(splinter)
 
    // The config layer still parses per-config arrays; this test uses one.
    int num_tables       = 1;
-   uint64 heap_capacity = 512 * MiB;
+   uint64 heap_capacity = 1024 * MiB;
 
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
