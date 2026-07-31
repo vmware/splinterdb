@@ -964,6 +964,55 @@ clockcache_try_set_writeback(clockcache *cc,
    }
 }
 
+/*
+ *----------------------------------------------------------------------
+ * clockcache_try_retry_writeback
+ *
+ *      Claims the retry of a failed writeback, returning TRUE if we took it.
+ *      Clearing CC_WRITEBACK_ERROR *is* the claim: only one thread can observe
+ *      the bit set, so no exact-match compare-and-swap is needed and the other
+ *      status bits are irrelevant.
+ *
+ *      CC_WRITEBACK stays set throughout, so the page remains excluded from
+ *      claiming, eviction and writing across the whole failure-and-retry
+ *      window, and its dirty_generation stays pinned -- which is what keeps an
+ *      outstanding cache_writeback_request naming it valid. The winner must
+ *      issue the write, just as if it had won clockcache_try_set_writeback().
+ *----------------------------------------------------------------------
+ */
+static inline bool32
+clockcache_try_retry_writeback(clockcache *cc, uint32 entry_number)
+{
+   return clockcache_clear_flag(cc, entry_number, CC_WRITEBACK_ERROR) != 0;
+}
+
+/*
+ *----------------------------------------------------------------------
+ * clockcache_try_claim_writeback
+ *
+ *      Takes ownership of writing a page back, either freshly (it is dirty and
+ *      cleanable) or as a retry (an earlier write of it failed). Both outcomes
+ *      leave the page in the same state -- CC_WRITEBACK set and owned by us --
+ *      so a caller that goes on to issue the I/O need not tell them apart.
+ *      That is what lets clockcache_batch_start_writeback()'s extent coalescing
+ *      treat a retried page and a freshly dirtied one as interchangeable, and
+ *      keeps its backward/forward walk unchanged.
+ *
+ *      A retry is deliberately not gated on with_access: that bit is a hint
+ *      about eviction cost, whereas a failed write must be re-issued regardless
+ *      in order to release whatever is blocked behind it.
+ *----------------------------------------------------------------------
+ */
+static inline bool32
+clockcache_try_claim_writeback(clockcache *cc,
+                               uint32      entry_number,
+                               bool32      with_access)
+{
+   return (clockcache_ok_to_writeback(cc, entry_number, with_access)
+           && clockcache_try_set_writeback(cc, entry_number, with_access))
+          || clockcache_try_retry_writeback(cc, entry_number);
+}
+
 typedef struct async_io_state {
    clockcache           *cc;
    io_async_state_buffer iostate;
@@ -1070,9 +1119,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
       entry = &cc->entry[entry_no];
       addr  = entry->page.disk_addr;
       // test and test and set in the if condition
-      if (clockcache_ok_to_writeback(cc, entry_no, is_urgent)
-          && clockcache_try_set_writeback(cc, entry_no, is_urgent))
-      {
+      if (clockcache_try_claim_writeback(cc, entry_no, is_urgent)) {
          debug_assert(clockcache_lookup(cc, addr) == entry_no);
          first_addr = entry->page.disk_addr;
          // walk backwards through extent to find first cleanable entry
@@ -1083,10 +1130,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                next_entry_no = clockcache_lookup(cc, first_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
-         } while (
-            next_entry_no != CC_UNMAPPED_ENTRY
-            && clockcache_ok_to_writeback(cc, next_entry_no, is_urgent)
-            && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
+         } while (next_entry_no != CC_UNMAPPED_ENTRY
+                  && clockcache_try_claim_writeback(
+                     cc, next_entry_no, is_urgent));
          first_addr += page_size;
          end_addr = entry->page.disk_addr;
          // walk forwards through extent to find last cleanable entry
@@ -1097,11 +1143,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                next_entry_no = clockcache_lookup(cc, end_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
-         } while (
-            next_entry_no != CC_UNMAPPED_ENTRY
-            && clockcache_ok_to_writeback(cc, next_entry_no, is_urgent)
-            && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
-
+         } while (next_entry_no != CC_UNMAPPED_ENTRY
+                  && clockcache_try_claim_writeback(
+                     cc, next_entry_no, is_urgent));
 
          async_io_state *state;
          state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
@@ -2483,7 +2527,6 @@ typedef enum clockcache_writeback_claim {
    CC_WRITEBACK_NOT_NEEDED,  // already clean: nothing to write
    CC_WRITEBACK_INFLIGHT,    // someone else's write already covers it
    CC_WRITEBACK_UNAVAILABLE, // dirty, but locked or claimed
-   CC_WRITEBACK_FAILED,      // an earlier write failed; awaiting a retry
 } clockcache_writeback_claim;
 
 static clockcache_writeback_claim
@@ -2500,7 +2543,7 @@ clockcache_writeback_claim_page(clockcache *cc,
           * write covers.
           */
          *gen = clockcache_writeback_get_generation(cc, entry_number);
-         debug_assert(*gen != 0, "a cleanable page must have a dirty interval");
+         debug_assert(*gen != 0, "a page claimed for writeback must be dirty");
          return CC_WRITEBACK_CLAIMED;
       }
 
@@ -2522,11 +2565,23 @@ clockcache_writeback_claim_page(clockcache *cc,
       }
       if (status & CC_WRITEBACK_ERROR) {
          /*
-          * An earlier write of this page failed and no retry has succeeded yet.
-          * We cannot claim it, because CC_WRITEBACK is still set, and must
-          * not report it as in flight, because no write is coming.
+          * An earlier write of this page failed. Our caller wants a write,
+          * so claim the retry and hand it back as an ordinary claim rather
+          * than reporting an error the caller could do nothing about. The
+          * generation is unchanged since the failed write, so the receipt
+          * still names the same interval.
+          *
+          * If another thread beat us to the retry, loop: it now holds
+          * CC_WRITEBACK without the error bit, so the next pass reports the
+          * page as in flight.
           */
-         return CC_WRITEBACK_FAILED;
+         if (clockcache_try_retry_writeback(cc, entry_number)) {
+            *gen = clockcache_writeback_get_generation(cc, entry_number);
+            debug_assert(*gen != 0,
+                         "a page claimed for writeback must be dirty");
+            return CC_WRITEBACK_CLAIMED;
+         }
+         continue;
       }
       if (status & CC_WRITEBACK) {
          /*
@@ -2594,8 +2649,6 @@ clockcache_writeback_page(clockcache              *cc,
          return STATUS_OK;
       case CC_WRITEBACK_UNAVAILABLE:
          return STATUS_BUSY;
-      case CC_WRITEBACK_FAILED:
-         return STATUS_IO_ERROR;
       case CC_WRITEBACK_CLAIMED:
          break;
    }
@@ -2706,12 +2759,7 @@ clockcache_writeback_extent(clockcache              *cc,
          claim = clockcache_writeback_claim_page(cc, entry_number, &gen);
       }
       max_gen = MAX(max_gen, gen);
-      if (claim == CC_WRITEBACK_FAILED) {
-         // An earlier write of this page failed, so the extent is not fully
-         // written and will not be until a retry succeeds. Outranks BUSY, which
-         // is merely transient.
-         result = STATUS_IO_ERROR;
-      } else if (claim == CC_WRITEBACK_UNAVAILABLE && SUCCESS(result)) {
+      if (claim == CC_WRITEBACK_UNAVAILABLE) {
          // No write will be issued for this page, so the extent will not be
          // fully written. The caller has to hear about it.
          result = STATUS_BUSY;

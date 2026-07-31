@@ -539,9 +539,9 @@ cache_unpin(cache *cc, page_handle *page)
  * claimed). Callers must treat that as a failure to make the page durable: no
  * write was issued and *req cannot report one.
  *
- * Returns STATUS_IO_ERROR if an earlier write of this page failed and no retry
- * has yet succeeded. Unlike STATUS_BUSY this is not transient: it persists
- * until the cache retries the write successfully.
+ * If an earlier write of this page failed, this claims the retry of it, so the
+ * returned request covers a fresh attempt rather than reporting the old
+ * failure.
  *-----------------------------------------------------------------------------
  */
 static inline platform_status
@@ -567,10 +567,9 @@ cache_writeback_page(cache                   *cc,
  * may be NULL.
  *
  * Pages of the extent that are clean or not resident need no write and are
- * skipped. Returns STATUS_BUSY if any page is dirty but not writeback-able, or
- * STATUS_IO_ERROR if an earlier write of any page failed; as with
- * cache_writeback_page(), the caller must treat either as a failure, since that
- * page's contents will not reach the device.
+ * skipped. Returns STATUS_BUSY if any page is dirty but not writeback-able; as
+ * with cache_writeback_page(), the caller must treat that as a failure, since
+ * that page's contents will not reach the device.
  *
  * Concurrent callers on the same extent are safe: only one can win a page's
  * writeback, and the other's request names that same in-flight interval, so
