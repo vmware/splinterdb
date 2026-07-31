@@ -892,7 +892,9 @@ cache_test_hammer_thread(void *arg)
          memset(page->data, (uint8)i, ctxt->page_size);
          cache_unlock(ctxt->cc, page);
          cache_unclaim(ctxt->cc, page);
-         cache_page_writeback(ctxt->cc, page, FALSE, PAGE_TYPE_MISC);
+         cache_writeback_request wb_req;
+         // Other threads race us for these pages, so STATUS_BUSY is expected.
+         cache_writeback_page(ctxt->cc, page, PAGE_TYPE_MISC, &wb_req);
       }
       cache_unget(ctxt->cc, page);
       i++;

@@ -254,6 +254,20 @@ clockcache_dirty_begin(clockcache *cc, uint32 entry_number)
  * before CC_WRITEBACK is cleared: the intermediate CC_CLEAN|CC_WRITEBACK state
  * is not cleanable, so no thread can start a duplicate writeback in the gap.
  */
+/*
+ * The dirty interval the entry is currently in, or 0 if it is clean.
+ *
+ * Meaningful as a writeback receipt only when read while CC_WRITEBACK is set,
+ * which excludes the writer and so pins the interval; see
+ * clockcache_page_writeback().
+ */
+static inline uint64
+clockcache_get_writeback_generation(clockcache *cc, uint32 entry_number)
+{
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+   return __atomic_load_n(&entry->dirty_generation, __ATOMIC_RELAXED);
+}
+
 static void
 clockcache_dirty_complete_writeback(clockcache *cc, uint32 entry_number)
 {
@@ -887,7 +901,6 @@ clockcache_try_set_writeback(clockcache *cc,
 
 typedef struct async_io_state {
    clockcache           *cc;
-   uint64               *outstanding_pages;
    io_async_state_buffer iostate;
 } async_io_state;
 
@@ -934,10 +947,6 @@ clockcache_write_callback(void *wbs)
                      addr);
 
       clockcache_dirty_complete_writeback(cc, entry_number);
-   }
-
-   if (state->outstanding_pages) {
-      __sync_fetch_and_sub(state->outstanding_pages, count);
    }
 
    io_async_state_deinit(state->iostate);
@@ -1052,9 +1061,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             goto close_log;
          }
 
-         state->cc                = cc;
-         state->outstanding_pages = NULL;
-         platform_status rc       = io_async_state_init(state->iostate,
+         state->cc          = cc;
+         platform_status rc = io_async_state_init(state->iostate,
                                                   cc->io,
                                                   io_async_pwritev,
                                                   first_addr,
@@ -1206,6 +1214,12 @@ clockcache_writeback_dirty(clockcache *cc)
  * clockcache_try_evict
  *
  *      Attempts to evict the page if it is evictable
+ *
+ *      Evictability requires CC_EVICTABLE_STATUS, i.e. CC_CLEAN and nothing
+ *      else, and CC_CLEAN is set only by clockcache_dirty_complete_writeback().
+ *      So a page cannot leave the cache before its writeback has completed --
+ *      an invariant clockcache_page_writeback_get_status() relies on to treat a
+ *      non-resident page as written.
  *----------------------------------------------------------------------
  */
 static void
@@ -2396,20 +2410,17 @@ clockcache_unpin(clockcache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  * clockcache_page_writeback --
  *
- *      Issues writeback of the page. This does not make the page durable; it
- *      only hands the write to the I/O layer.
+ *      Issues writeback of the page and fills in *req. This does not make the
+ *      page durable; it only hands the write to the I/O layer.
  *
- *      With is_blocking == FALSE the writeback is issued asynchronously and
- *      this returns without waiting for completion. With is_blocking == TRUE
- *      the page is written synchronously and has completed by the time this
- *      returns.
+ *      Never blocks. See cache_writeback_page() for the contract.
  *-----------------------------------------------------------------------------
  */
-void
-clockcache_page_writeback(clockcache  *cc,
-                          page_handle *page,
-                          bool32       is_blocking,
-                          page_type    type)
+platform_status
+clockcache_page_writeback(clockcache              *cc,
+                          page_handle             *page,
+                          page_type                type,
+                          cache_writeback_request *req)
 {
    uint32          entry_number = clockcache_page_to_entry_number(cc, page);
    async_io_state *state;
@@ -2417,122 +2428,123 @@ clockcache_page_writeback(clockcache  *cc,
    const threadid  tid  = platform_get_tid();
    platform_status status;
 
-   while (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
-      if (clockcache_test_flag(cc, entry_number, CC_CLEAN)) {
-         return;
-      }
+   req->addr      = addr;
+   req->gen       = 0;
+   req->is_extent = FALSE;
 
+   if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
+      if (clockcache_test_flag(cc, entry_number, CC_CLEAN)) {
+         // Nothing to write: gen 0 tells the caller there is nothing to wait
+         // for.
+         return STATUS_OK;
+      }
       /*
        * A pressure cleaner or a checkpoint fence may have begun writeback
-       * after the caller released its claim. Wait for that writeback rather
-       * than treating a perfectly valid concurrent flush as an assertion.
+       * after the caller released its claim. Report that in-flight interval
+       * rather than blocking on it: the caller waits on the returned request
+       * exactly as it would on a write we issued ourselves. Blocking here
+       * would serialize a caller that is issuing writeback for many pages.
        */
       if (clockcache_test_flag(cc, entry_number, CC_WRITEBACK)) {
-         clockcache_wait(cc);
-         continue;
+         req->gen = clockcache_get_writeback_generation(cc, entry_number);
+         return STATUS_OK;
       }
-
-      platform_assert(0,
-                      "page_writeback requires a cleanable page: entry=%u "
-                      "status=%u\n",
-                      entry_number,
-                      clockcache_get_status(cc, entry_number));
+      // Dirty but locked or claimed: no write can be issued for it.
+      return STATUS_BUSY;
    }
+
+   /*
+    * Read the generation only now that CC_WRITEBACK is set. That excludes the
+    * writer (see clockcache_get_write), so the interval cannot advance under
+    * us and the request provably names the interval this write covers.
+    */
+   req->gen = clockcache_get_writeback_generation(cc, entry_number);
+   debug_assert(req->gen != 0, "a cleanable page must have a dirty interval");
 
    if (cc->cfg->use_stats) {
       cc->stats[tid].page_writes[type]++;
       cc->stats[tid].syncs_issued++;
    }
 
-   if (!is_blocking) {
-      state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
-      if (state == NULL) {
-         platform_error_log(
-            "clockcache_page_writeback: async_io_state allocation "
-            "failed for addr %lu, entry %u, type %u\n",
-            addr,
-            entry_number,
-            type);
-      }
-      platform_assert(state);
-      state->cc                = cc;
-      state->outstanding_pages = NULL;
-      status                   = io_async_state_init(state->iostate,
-                                   cc->io,
-                                   io_async_pwritev,
-                                   addr,
-                                   clockcache_write_callback,
-                                   state);
-      if (!SUCCESS(status)) {
-         platform_error_log(
-            "clockcache_page_writeback: io_async_state_init failed "
-            "for addr %lu, entry %u, type %u: %s\n",
-            addr,
-            entry_number,
-            type,
-            platform_status_to_string(status));
-      }
-      platform_assert_status_ok(status);
-      status = io_async_state_append_page(state->iostate, page->data);
-      if (!SUCCESS(status)) {
-         platform_error_log(
-            "clockcache_page_writeback: io_async_state_append_page "
-            "failed for addr %lu, entry %u, type %u: %s\n",
-            addr,
-            entry_number,
-            type,
-            platform_status_to_string(status));
-      }
-      platform_assert_status_ok(status);
-      io_async_run(state->iostate);
-   } else {
-      status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
-      if (!SUCCESS(status)) {
-         platform_error_log(
-            "clockcache_page_writeback: io_write failed for addr "
-            "%lu, entry %u, type %u: %s\n",
-            addr,
-            entry_number,
-            type,
-            platform_status_to_string(status));
-      }
-      platform_assert_status_ok(status);
-      clockcache_log(addr,
-                     entry_number,
-                     "page_writeback write entry %u addr %lu\n",
-                     entry_number,
-                     addr);
-      clockcache_dirty_complete_writeback(cc, entry_number);
+   state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+   if (state == NULL) {
+      platform_error_log("clockcache_page_writeback: async_io_state allocation "
+                         "failed for addr %lu, entry %u, type %u\n",
+                         addr,
+                         entry_number,
+                         type);
+      clockcache_abort_writeback_range(
+         cc, addr, addr + clockcache_page_size(cc));
+      return STATUS_NO_MEMORY;
    }
+   state->cc = cc;
+   status    = io_async_state_init(state->iostate,
+                                cc->io,
+                                io_async_pwritev,
+                                addr,
+                                clockcache_write_callback,
+                                state);
+   if (!SUCCESS(status)) {
+      platform_error_log("clockcache_page_writeback: io_async_state_init "
+                         "failed for addr %lu, entry %u, type %u: %s\n",
+                         addr,
+                         entry_number,
+                         type,
+                         platform_status_to_string(status));
+   }
+   platform_assert_status_ok(status);
+   status = io_async_state_append_page(state->iostate, page->data);
+   if (!SUCCESS(status)) {
+      platform_error_log("clockcache_page_writeback: "
+                         "io_async_state_append_page failed for addr %lu, "
+                         "entry %u, type %u: %s\n",
+                         addr,
+                         entry_number,
+                         type,
+                         platform_status_to_string(status));
+   }
+   platform_assert_status_ok(status);
+   io_async_run(state->iostate);
+   return STATUS_OK;
 }
 
 /*
  *-----------------------------------------------------------------------------
  * clockcache_extent_writeback --
  *
- *      Asynchronously issues writeback of the extent. This does not make the
- *      extent durable; it only hands the writes to the I/O layer and returns
- *      without waiting for completion.
+ *      Asynchronously issues writeback of the extent and fills in *req. This
+ *      does not make the extent durable; it only hands the writes to the I/O
+ *      layer and returns without waiting for completion.
  *
- *      Adds the number of pages issued writeback to the counter pointed to
- *      by pages_outstanding. When the writes complete, a callback subtracts
- *      them off, so that the caller may track how many pages are in
- *      writeback.
+ *      Resident dirty pages are coalesced into as few I/Os as their contiguity
+ *      allows. Pages that are clean or not resident need no write and are
+ *      skipped. A page that is dirty but not writeback-able fails the whole
+ *      request: its contents will not reach the device, so reporting success
+ *      would let a caller believe the extent had been written when it had not.
  *
- *      Assumes all pages in the extent are clean or cleanable
+ *      req->gen is the newest dirty interval among the extent's pages, so it is
+ *      safe to compare every page of the extent against; see
+ *      clockcache_writeback_get_status().
  *-----------------------------------------------------------------------------
  */
-void
-clockcache_extent_writeback(clockcache *cc,
-                            uint64      addr,
-                            uint64     *pages_outstanding)
+platform_status
+clockcache_extent_writeback(clockcache              *cc,
+                            uint64                   addr,
+                            page_type                type,
+                            cache_writeback_request *req)
 {
    async_io_state *state = NULL;
    uint64          i;
    uint32          entry_number;
-   uint64          req_count = 0;
    uint64          req_addr;
    uint64          page_addr;
+   const threadid  tid     = platform_get_tid();
+   uint64          max_gen = 0;
+   platform_status result  = STATUS_OK;
+
+   req->addr      = addr;
+   req->gen       = 0;
+   req->is_extent = TRUE;
 
    for (i = 0; i < cc->cfg->pages_per_extent; i++) {
       page_addr    = addr + clockcache_multiply_by_page_size(cc, i);
@@ -2540,6 +2552,19 @@ clockcache_extent_writeback(clockcache *cc,
       if (entry_number != CC_UNMAPPED_ENTRY
           && clockcache_try_set_writeback(cc, entry_number, TRUE))
       {
+         /*
+          * As in clockcache_page_writeback(), read the generation only under
+          * CC_WRITEBACK, where the writer is excluded and the interval cannot
+          * advance under us.
+          */
+         uint64 gen = clockcache_get_writeback_generation(cc, entry_number);
+         max_gen    = MAX(max_gen, gen);
+
+         if (cc->cfg->use_stats) {
+            cc->stats[tid].page_writes[type]++;
+            cc->stats[tid].syncs_issued++;
+         }
+
          if (state == NULL) {
             req_addr = page_addr;
             state    = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
@@ -2552,9 +2577,8 @@ clockcache_extent_writeback(clockcache *cc,
                                   entry_number);
             }
             platform_assert(state);
-            state->cc                = cc;
-            state->outstanding_pages = pages_outstanding;
-            platform_status rc       = io_async_state_init(state->iostate,
+            state->cc          = cc;
+            platform_status rc = io_async_state_init(state->iostate,
                                                      cc->io,
                                                      io_async_pwritev,
                                                      req_addr,
@@ -2583,23 +2607,122 @@ clockcache_extent_writeback(clockcache *cc,
                                platform_status_to_string(rc));
          }
          platform_assert_status_ok(rc);
-         req_count++;
       } else {
-         // ALEX: There is maybe a race with eviction with this assertion
-         debug_assert(entry_number == CC_UNMAPPED_ENTRY
-                      || clockcache_test_flag(cc, entry_number, CC_CLEAN));
+         if (entry_number != CC_UNMAPPED_ENTRY
+             && !clockcache_test_flag(cc, entry_number, CC_CLEAN))
+         {
+            /*
+             * Dirty and not cleanable. If a writeback is already in flight we
+             * can still wait on it; otherwise the page is locked or claimed and
+             * no write will be issued for it, which the caller has to hear
+             * about.
+             */
+            if (clockcache_test_flag(cc, entry_number, CC_WRITEBACK)) {
+               max_gen =
+                  MAX(max_gen,
+                      clockcache_get_writeback_generation(cc, entry_number));
+            } else {
+               result = STATUS_BUSY;
+            }
+         }
+         /* Contiguity is broken here, so close out the pending I/O. */
          if (state != NULL) {
-            __sync_fetch_and_add(pages_outstanding, req_count);
             io_async_run(state->iostate);
-            state     = NULL;
-            req_count = 0;
+            state = NULL;
          }
       }
    }
    if (state != NULL) {
-      __sync_fetch_and_add(pages_outstanding, req_count);
       io_async_run(state->iostate);
    }
+
+   /*
+    * Publish the generation even on failure: writes were issued for the pages
+    * we did claim, and the caller must be able to wait them out before it
+    * reuses or frees the extent.
+    */
+   req->gen = max_gen;
+   return result;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * clockcache_page_writeback_get_status --
+ *
+ *      Whether the write covering interval `gen` of the page at `addr` has
+ *      completed.
+ *
+ *      The flag is tested before the generation is read, and that order is
+ *      load-bearing. Completion runs gen := 0, then set CC_CLEAN, then clear
+ *      CC_WRITEBACK (see clockcache_dirty_complete_writeback), so observing
+ *      CC_WRITEBACK clear implies the generation was already 0 at that instant.
+ *      Reading the generation afterwards and finding it back at `gen` therefore
+ *      proves the page was cleaned and dirtied again -- whereas reading the
+ *      generation first would report that same pair for a write that had merely
+ *      just completed, a false report of a concurrent writer.
+ *-----------------------------------------------------------------------------
+ */
+static cache_writeback_status
+clockcache_page_writeback_get_status(clockcache *cc, uint64 addr, uint64 gen)
+{
+   if (gen == 0) {
+      // No write was issued for this page: nothing to wait for.
+      return CACHE_WRITEBACK_COMPLETE;
+   }
+
+   uint32 entry_number = clockcache_lookup(cc, addr);
+   if (entry_number == CC_UNMAPPED_ENTRY) {
+      /*
+       * Not resident, so the contents reached the device before the page left
+       * the cache: eviction requires CC_EVICTABLE_STATUS, which is CC_CLEAN,
+       * and only clockcache_dirty_complete_writeback() sets CC_CLEAN.
+       */
+      return CACHE_WRITEBACK_COMPLETE;
+   }
+
+   bool32 in_writeback = clockcache_test_flag(cc, entry_number, CC_WRITEBACK);
+   uint64 cur          = clockcache_get_writeback_generation(cc, entry_number);
+
+   if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
+      // The entry was rebound under us, so it was evicted -- and hence written
+      // back -- and the flag and generation we just read belong to some other
+      // page.
+      return CACHE_WRITEBACK_COMPLETE;
+   }
+   if (cur == 0) {
+      return CACHE_WRITEBACK_COMPLETE;
+   }
+   if (cur != gen) {
+      debug_assert(
+         cur > gen, "dirty generation went backwards for addr %lu", addr);
+      return CACHE_WRITEBACK_REDIRTIED;
+   }
+   return in_writeback ? CACHE_WRITEBACK_PENDING : CACHE_WRITEBACK_REDIRTIED;
+}
+
+cache_writeback_status
+clockcache_writeback_get_status(clockcache                    *cc,
+                                const cache_writeback_request *req)
+{
+   uint64 num_pages = req->is_extent ? cc->cfg->pages_per_extent : 1;
+   bool32 redirtied = FALSE;
+
+   for (uint64 i = 0; i < num_pages; i++) {
+      uint64 addr = req->addr + clockcache_multiply_by_page_size(cc, i);
+      switch (clockcache_page_writeback_get_status(cc, addr, req->gen)) {
+         case CACHE_WRITEBACK_PENDING:
+            // One outstanding page is enough; no need to look at the rest.
+            return CACHE_WRITEBACK_PENDING;
+         case CACHE_WRITEBACK_REDIRTIED:
+            // Keep going: a later page may still be pending, which the caller
+            // has to keep waiting for.
+            redirtied = TRUE;
+            break;
+         case CACHE_WRITEBACK_COMPLETE:
+            break;
+      }
+   }
+   return redirtied ? CACHE_WRITEBACK_REDIRTIED : CACHE_WRITEBACK_COMPLETE;
 }
 
 /*
@@ -3312,23 +3435,32 @@ clockcache_get_async_state_result_virtual(void *payload)
    return state->__async_result;
 }
 
-void
-clockcache_page_writeback_virtual(cache       *c,
-                                  page_handle *page,
-                                  bool32       is_blocking,
-                                  page_type    type)
+platform_status
+clockcache_page_writeback_virtual(cache                   *c,
+                                  page_handle             *page,
+                                  page_type                type,
+                                  cache_writeback_request *req)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_page_writeback(cc, page, is_blocking, type);
+   return clockcache_page_writeback(cc, page, type, req);
 }
 
-void
-clockcache_extent_writeback_virtual(cache  *c,
-                                    uint64  addr,
-                                    uint64 *pages_outstanding)
+platform_status
+clockcache_extent_writeback_virtual(cache                   *c,
+                                    uint64                   addr,
+                                    page_type                type,
+                                    cache_writeback_request *req)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_extent_writeback(cc, addr, pages_outstanding);
+   return clockcache_extent_writeback(cc, addr, type, req);
+}
+
+cache_writeback_status
+clockcache_writeback_get_status_virtual(cache                         *c,
+                                        const cache_writeback_request *req)
+{
+   clockcache *cc = (clockcache *)c;
+   return clockcache_writeback_get_status(cc, req);
 }
 
 void
@@ -3473,36 +3605,37 @@ static cache_ops clockcache_ops = {
    .page_get_async            = clockcache_get_async_virtual,
    .page_get_async_result     = clockcache_get_async_state_result_virtual,
 
-   .page_unget         = clockcache_unget_virtual,
-   .page_try_claim     = clockcache_try_claim_virtual,
-   .page_unclaim       = clockcache_unclaim_virtual,
-   .page_lock          = clockcache_lock_virtual,
-   .page_unlock        = clockcache_unlock_virtual,
-   .page_prefetch      = clockcache_prefetch_virtual,
-   .page_prefetch_page = clockcache_prefetch_page_virtual,
-   .page_pin           = clockcache_pin_virtual,
-   .page_unpin         = clockcache_unpin_virtual,
-   .page_writeback     = clockcache_page_writeback_virtual,
-   .extent_writeback   = clockcache_extent_writeback_virtual,
-   .flush              = clockcache_flush_virtual,
-   .writeback_dirty    = clockcache_writeback_dirty_virtual,
-   .durable_barrier    = clockcache_durable_barrier_virtual,
-   .evict              = clockcache_evict_all_virtual,
-   .cleanup            = clockcache_wait_virtual,
-   .in_use             = clockcache_in_use_virtual,
-   .assert_ungot       = clockcache_assert_ungot_virtual,
-   .assert_free        = clockcache_assert_no_locks_held_virtual,
-   .print              = clockcache_print_virtual,
-   .print_stats        = clockcache_print_stats_virtual,
-   .io_stats           = clockcache_io_stats_virtual,
-   .reset_stats        = clockcache_reset_stats_virtual,
-   .validate_page      = clockcache_validate_page_virtual,
-   .count_dirty        = clockcache_count_dirty_virtual,
-   .page_get_read_ref  = clockcache_get_read_ref_virtual,
-   .cache_present      = clockcache_present_virtual,
-   .enable_sync_get    = clockcache_enable_sync_get_virtual,
-   .get_allocator      = clockcache_get_allocator_virtual,
-   .get_config         = clockcache_get_config_virtual,
+   .page_unget           = clockcache_unget_virtual,
+   .page_try_claim       = clockcache_try_claim_virtual,
+   .page_unclaim         = clockcache_unclaim_virtual,
+   .page_lock            = clockcache_lock_virtual,
+   .page_unlock          = clockcache_unlock_virtual,
+   .page_prefetch        = clockcache_prefetch_virtual,
+   .page_prefetch_page   = clockcache_prefetch_page_virtual,
+   .page_pin             = clockcache_pin_virtual,
+   .page_unpin           = clockcache_unpin_virtual,
+   .page_writeback       = clockcache_page_writeback_virtual,
+   .extent_writeback     = clockcache_extent_writeback_virtual,
+   .writeback_get_status = clockcache_writeback_get_status_virtual,
+   .flush                = clockcache_flush_virtual,
+   .writeback_dirty      = clockcache_writeback_dirty_virtual,
+   .durable_barrier      = clockcache_durable_barrier_virtual,
+   .evict                = clockcache_evict_all_virtual,
+   .cleanup              = clockcache_wait_virtual,
+   .in_use               = clockcache_in_use_virtual,
+   .assert_ungot         = clockcache_assert_ungot_virtual,
+   .assert_free          = clockcache_assert_no_locks_held_virtual,
+   .print                = clockcache_print_virtual,
+   .print_stats          = clockcache_print_stats_virtual,
+   .io_stats             = clockcache_io_stats_virtual,
+   .reset_stats          = clockcache_reset_stats_virtual,
+   .validate_page        = clockcache_validate_page_virtual,
+   .count_dirty          = clockcache_count_dirty_virtual,
+   .page_get_read_ref    = clockcache_get_read_ref_virtual,
+   .cache_present        = clockcache_present_virtual,
+   .enable_sync_get      = clockcache_enable_sync_get_virtual,
+   .get_allocator        = clockcache_get_allocator_virtual,
+   .get_config           = clockcache_get_config_virtual,
 };
 
 /*

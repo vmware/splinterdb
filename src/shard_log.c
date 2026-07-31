@@ -244,7 +244,11 @@ shard_log_write(log_handle *logh,
 
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
-      cache_page_writeback(cc, page, FALSE, PAGE_TYPE_LOG);
+      cache_writeback_request wb_req;
+      platform_status         wb_rc =
+         cache_writeback_page(cc, page, PAGE_TYPE_LOG, &wb_req);
+      // This is the thread's own append page: nothing else can have it locked.
+      platform_assert_status_ok(wb_rc);
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {

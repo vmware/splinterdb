@@ -326,7 +326,11 @@ blob_sync(cache *cc, slice sblob)
       if (!SUCCESS(rc)) {
          break;
       }
-      cache_page_writeback(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
+      cache_writeback_request wb_req;
+      platform_status         wb_rc =
+         cache_writeback_page(cc, itor.page, PAGE_TYPE_BLOB, &wb_req);
+      // The iterator holds a read reference only, never a claim or lock.
+      platform_assert_status_ok(wb_rc);
       blob_page_iterator_advance_page(&itor);
    }
 
