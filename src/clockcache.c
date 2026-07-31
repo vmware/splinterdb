@@ -2830,7 +2830,7 @@ clockcache_writeback_get_page_status(clockcache *cc, uint64 addr, uint64 gen)
     * consistently with each other as well as with the generation below.
     */
    entry_status status = clockcache_get_status(cc, entry_number);
-   uint64       cur = clockcache_writeback_get_generation(cc, entry_number);
+   uint64       cur    = clockcache_writeback_get_generation(cc, entry_number);
 
    if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
       // The entry was rebound under us, so it was evicted -- and hence written
