@@ -862,6 +862,21 @@ clockcache_ok_to_writeback(clockcache *cc,
  *      compare-and- swaps, so we retry as long as the status remains one of the
  *      cleanable states rather than spuriously failing on a page that stayed
  *      cleanable.
+ *
+ *      INVARIANT: a claim cannot be retracted. Once CC_WRITEBACK is set, a
+ *      write must be issued and must run to completion, because another thread
+ *      may already hold a CC_WRITEBACK_INFLIGHT receipt naming this page's
+ *      dirty interval (see cache_writeback_page()). Clearing CC_WRITEBACK
+ *      without writing would make that thread's next status poll read the page
+ *      as REDIRTIED, which is indistinguishable from a completed write followed
+ *      by a legitimate re-dirty -- a silent durability violation. So every
+ *      failure between here and io_async_run() is fatal.
+ *
+ *      Handling such a failure without crashing needs a state a waiter can
+ *      observe and react to -- an error flag that some thread later claims a
+ *      retry on, plus a status the waiter can fail on rather than hang. That is
+ *      a bigger change, and it belongs with handling write-completion errors
+ *      (clockcache_write_callback() asserts on those today), not ahead of it.
  *----------------------------------------------------------------------
  */
 static inline bool32
@@ -954,44 +969,6 @@ clockcache_write_callback(void *wbs)
 }
 
 /*
- * Retracts an in-progress writeback claim on I/O-layer setup failure (see
- * clockcache_batch_start_writeback()). This leaves the affected pages dirty and
- * eligible for writeback again, which is what lets
- * clockcache_writeback_dirty() (and hence a checkpoint) recover from a
- * transient allocation failure rather than fail outright.
- *
- * KNOWN GAP: if another thread already holds a CC_WRITEBACK_INFLIGHT receipt
- * naming one of these pages -- i.e. it called cache_writeback_page() or
- * cache_writeback_extent() on a page this function has claimed, before this
- * function ran -- that thread's next status poll will read the page as
- * REDIRTIED, which it cannot tell apart from a completed write followed by a
- * legitimate re-dirty. That is a silent durability violation for that thread.
- * clockcache_writeback_page() and clockcache_writeback_extent() close this for
- * their own claims by crashing here instead of retracting; this call site does
- * not, because retraction here is relied upon (see above). Closing it properly
- * needs a distinguishable failure state that a waiter can observe and react
- * to, which the cache does not have: it is built around I/O never failing, and
- * fixing that is a larger, separate project.
- */
-static void
-clockcache_abort_writeback_range(clockcache *cc,
-                                 uint64      first_addr,
-                                 uint64      end_addr)
-{
-   uint64 page_size = clockcache_page_size(cc);
-
-   for (uint64 addr = first_addr; addr < end_addr; addr += page_size) {
-      uint32 entry_number = clockcache_lookup(cc, addr);
-      platform_assert(entry_number != CC_UNMAPPED_ENTRY);
-
-      debug_only uint32 was_writeback =
-         clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
-      debug_assert(was_writeback);
-   }
-}
-
-
-/*
  *----------------------------------------------------------------------
  * clockcache_batch_start_writeback --
  *
@@ -1015,7 +992,6 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
    uint64         end_entry_no   = start_entry_no + CC_ENTRIES_PER_BATCH;
 
    clockcache_entry *entry, *next_entry;
-   platform_status   result = STATUS_OK;
 
    debug_assert((tid < MAX_THREADS), "Invalid tid=%lu\n", tid);
    debug_assert(cc != NULL);
@@ -1076,10 +1052,10 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             platform_error_log(
                "clockcache_batch_start_writeback: async_io_state allocation "
                "failed\n");
-            clockcache_abort_writeback_range(cc, first_addr, end_addr);
-            result = STATUS_NO_MEMORY;
-            goto close_log;
          }
+         // Fatal: the claim taken above cannot be retracted. See
+         // clockcache_try_set_writeback().
+         platform_assert(state != NULL);
 
          state->cc          = cc;
          platform_status rc = io_async_state_init(state->iostate,
@@ -1092,11 +1068,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             platform_error_log("clockcache_batch_start_writeback: "
                                "io_async_state_init failed: %s\n",
                                platform_status_to_string(rc));
-            clockcache_abort_writeback_range(cc, first_addr, end_addr);
-            platform_free(PROCESS_PRIVATE_HEAP_ID, state);
-            result = rc;
-            goto close_log;
          }
+         platform_assert_status_ok(rc);
 
          uint64 req_count =
             clockcache_divide_by_page_size(cc, end_addr - first_addr);
@@ -1117,12 +1090,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                platform_error_log("clockcache_batch_start_writeback: "
                                   "io_async_state_append_page failed: %s\n",
                                   platform_status_to_string(rc));
-               io_async_state_deinit(state->iostate);
-               clockcache_abort_writeback_range(cc, first_addr, end_addr);
-               platform_free(PROCESS_PRIVATE_HEAP_ID, state);
-               result = rc;
-               goto close_log;
             }
+            platform_assert_status_ok(rc);
          }
 
          if (cc->cfg->use_stats) {
@@ -1145,9 +1114,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
       }
    }
 
-close_log:
    clockcache_close_log_stream();
-   return result;
+   return STATUS_OK;
 }
 
 /*
