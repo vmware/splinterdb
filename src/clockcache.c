@@ -1130,9 +1130,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                next_entry_no = clockcache_lookup(cc, first_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
-         } while (next_entry_no != CC_UNMAPPED_ENTRY
-                  && clockcache_try_claim_writeback(
-                     cc, next_entry_no, is_urgent));
+         } while (
+            next_entry_no != CC_UNMAPPED_ENTRY
+            && clockcache_try_claim_writeback(cc, next_entry_no, is_urgent));
          first_addr += page_size;
          end_addr = entry->page.disk_addr;
          // walk forwards through extent to find last cleanable entry
@@ -1143,9 +1143,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
                next_entry_no = clockcache_lookup(cc, end_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
-         } while (next_entry_no != CC_UNMAPPED_ENTRY
-                  && clockcache_try_claim_writeback(
-                     cc, next_entry_no, is_urgent));
+         } while (
+            next_entry_no != CC_UNMAPPED_ENTRY
+            && clockcache_try_claim_writeback(cc, next_entry_no, is_urgent));
 
          async_io_state *state;
          state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
