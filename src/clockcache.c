@@ -953,6 +953,26 @@ clockcache_write_callback(void *wbs)
    platform_free(PROCESS_PRIVATE_HEAP_ID, state);
 }
 
+/*
+ * Retracts an in-progress writeback claim on I/O-layer setup failure (see
+ * clockcache_batch_start_writeback()). This leaves the affected pages dirty and
+ * eligible for writeback again, which is what lets
+ * clockcache_writeback_dirty() (and hence a checkpoint) recover from a
+ * transient allocation failure rather than fail outright.
+ *
+ * KNOWN GAP: if another thread already holds a CC_WRITEBACK_INFLIGHT receipt
+ * naming one of these pages -- i.e. it called cache_writeback_page() or
+ * cache_writeback_extent() on a page this function has claimed, before this
+ * function ran -- that thread's next status poll will read the page as
+ * REDIRTIED, which it cannot tell apart from a completed write followed by a
+ * legitimate re-dirty. That is a silent durability violation for that thread.
+ * clockcache_writeback_page() and clockcache_writeback_extent() close this for
+ * their own claims by crashing here instead of retracting; this call site does
+ * not, because retraction here is relied upon (see above). Closing it properly
+ * needs a distinguishable failure state that a waiter can observe and react
+ * to, which the cache does not have: it is built around I/O never failing, and
+ * fixing that is a larger, separate project.
+ */
 static void
 clockcache_abort_writeback_range(clockcache *cc,
                                  uint64      first_addr,
@@ -2542,10 +2562,17 @@ clockcache_writeback_page(clockcache              *cc,
                          addr,
                          entry_number,
                          type);
-      clockcache_abort_writeback_range(
-         cc, addr, addr + clockcache_page_size(cc));
-      return STATUS_NO_MEMORY;
    }
+   /*
+    * Crash rather than retract the claim (as the two failure branches below
+    * already do). Retracting would clear CC_WRITEBACK while another thread may
+    * already hold a CC_WRITEBACK_INFLIGHT receipt naming this page's
+    * generation; its next status poll would then read the page as
+    * REDIRTIED -- indistinguishable from a completed write followed by a
+    * legitimate re-dirty. That would be a silent durability violation, which
+    * is worse than a crash.
+    */
+   platform_assert(state != NULL);
    state->cc = cc;
    status    = io_async_state_init(state->iostate,
                                 cc->io,
@@ -2651,16 +2678,11 @@ clockcache_writeback_extent(clockcache              *cc,
                                   addr,
                                   page_addr,
                                   entry_number);
-               /*
-                * We are at the head of a fresh run, so the only claim to undo
-                * is the one just taken; earlier runs are already in flight and
-                * the caller waits them out via req->gen.
-                */
-               clockcache_abort_writeback_range(
-                  cc, page_addr, page_addr + clockcache_page_size(cc));
-               req->gen = max_gen;
-               return STATUS_NO_MEMORY;
             }
+            // See clockcache_writeback_page(): crash rather than retract this
+            // claim, which would let a concurrent INFLIGHT observer read the
+            // page as falsely complete.
+            platform_assert(state != NULL);
             state->cc          = cc;
             platform_status rc = io_async_state_init(state->iostate,
                                                      cc->io,

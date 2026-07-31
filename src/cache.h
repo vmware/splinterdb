@@ -556,8 +556,9 @@ cache_writeback_page(cache                   *cc,
  * with cache_writeback_page(), the caller must treat that as a failure, since
  * that page's contents will not reach the device.
  *
- * TODO: What happens if two callers call cache_writeback_extent on the same
- * extent?
+ * Concurrent callers on the same extent are safe: only one can win a page's
+ * writeback, and the other's request names that same in-flight interval, so
+ * both observe its completion.
  *-----------------------------------------------------------------------------
  */
 static inline platform_status
