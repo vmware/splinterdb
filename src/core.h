@@ -14,6 +14,7 @@
 #include "log.h"
 #include "trunk.h"
 #include "histogram.h"
+#include "superblock.h"
 
 /*
  * Upper-bound on most number of branches that we can find our lookup-key in.
@@ -50,7 +51,21 @@ typedef struct core_config {
    data_config    *data_cfg;
    bool32          use_log;
    log_config     *log_cfg;
-   trunk_config   *trunk_node_cfg;
+   /*
+    * Automatic-checkpoint policy: take a checkpoint (rotate the log and advance
+    * the durable root) once the live log reaches this many bytes.  0 disables
+    * automatic checkpoints, leaving durability and log reclamation entirely to
+    * explicit core_checkpoint() calls.  Defaults to the cache size.
+    *
+    * Sizing the trigger by log bytes rather than by memtable generations
+    * matters because the two are independent: a workload that repeatedly
+    * overwrites the same keys updates the memtable in place, so it may never
+    * fill a memtable or advance a generation, while every write still appends
+    * to the log.  A generation-based trigger would never fire and the log would
+    * grow without bound.
+    */
+   uint64        checkpoint_log_size_bytes;
+   trunk_config *trunk_node_cfg;
 
    // verbose logging
    bool32               verbose_logging_enabled;
@@ -82,6 +97,15 @@ typedef struct core_stats {
 
    uint64 discarded_deletes;
 
+   /*
+    * Checkpoints that ran to completion -- meaning the durable root advanced
+    * and the retired log's space came back.  Counted here for reporting only;
+    * the authoritative count the checkpoint machinery waits on is
+    * core_checkpoint_state.completions, which must stay monotonic and so is not
+    * affected by core_reset_stats().
+    */
+   uint64 checkpoints_completed;
+
    uint64 lookups_found;
    uint64 lookups_not_found;
 } PLATFORM_CACHELINE_ALIGNED core_stats;
@@ -92,6 +116,58 @@ typedef struct core_branch {
 } core_branch;
 
 typedef struct core_handle core_handle;
+
+/*
+ * Incorporation-driven checkpoint (two-log protocol) state machine.
+ *
+ *   IDLE          no checkpoint in progress.
+ *   PENDING       the next live log is pre-created; the next memtable rotation
+ *                 will swap it in under the insert lock.
+ *   SEALING       the rotation swapped the new live log in; the old log still
+ *                 needs sealing (which will be performed just after the
+ *                 rotation critical section).
+ *   INCORPORATING the old log is sealed; waiting for its generations to
+ *                 be incorporated into the trunk root.
+ *   COMPLETING    the completion publish (advance root, clear sealed slot) is
+ *                 in flight.
+ *
+ * The only transition that touches the shared spl->log pointer (PENDING ->
+ * SEALING) runs inside the memtable rotation critical section, where the insert
+ * lock is held exclusively; every log writer holds that lock shared across its
+ * log_write, so no writer can be mid-write to, or newly enter, the old log once
+ * it is swapped out.  All other fields are guarded by checkpoint_state_lock,
+ * which is only ever held for brief, I/O-free updates.
+ */
+typedef enum core_checkpoint_phase {
+   CORE_CHECKPOINT_IDLE = 0,
+   CORE_CHECKPOINT_PENDING,
+   CORE_CHECKPOINT_SEALING,
+   CORE_CHECKPOINT_INCORPORATING,
+   CORE_CHECKPOINT_COMPLETING,
+} core_checkpoint_phase;
+
+typedef struct core_checkpoint_state {
+   core_checkpoint_phase phase;
+   log_handle           *pending_log; // next live log, pre-created (PENDING)
+   log_handle           *log_to_seal; // old live log awaiting seal (SEALING)
+   log_head              sealed_head; // identity of the sealed log (reclaim)
+   log_head              live_head;   // identity of the new live log
+   // First generation the new live log receives, recorded in the superblock as
+   // its coverage start.  The retiring log's start needs no tracking: the
+   // superblock already holds it and carries it into the sealed slot.
+   uint64 live_start_generation;
+   uint64 cut_generation; // complete once retired >= this
+   /*
+    * Checkpoints completed so far.  Bumped only after the completion has freed
+    * the retired log, so it is the one observable meaning "that checkpoint's
+    * space is back" -- every superblock-visible signal is necessarily written
+    * before the free, since the superblock must stop naming a log before its
+    * extents are released.  core_checkpoint_begin() hands out `completions + 1`
+    * as a ticket so a caller can wait for its own checkpoint rather than merely
+    * for "none in flight."
+    */
+   uint64 completions;
+} core_checkpoint_state;
 
 typedef struct core_memtable_args {
    core_handle *spl;
@@ -109,7 +185,6 @@ struct core_handle {
    core_config      cfg;
    platform_heap_id heap_id;
 
-   uint64            super_block_idx;
    allocator_root_id id;
 
    allocator       *al;
@@ -118,6 +193,43 @@ struct core_handle {
    log_handle      *log;
    trunk_context    trunk_context;
    memtable_context mt_ctxt;
+
+   /*
+    * Durable instance metadata.  core owns the in-memory superblock context
+    * (allocated at mkfs/mount, torn down at unmount/destroy): it borrows the
+    * geometry, reads its tree record, and publishes root advances plus
+    * allocation-state transitions.  For now the instance holds a single tree;
+    * when multi-tree support lands this ownership hoists to an instance level
+    * that per-tree cores borrow.
+    */
+   /* Serializes snapshot cuts and superblock publication. */
+   platform_mutex     superblock_lock;
+   superblock_context superblock;
+
+   /*
+    * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
+    * fields of `checkpoint` (and is held while `log` is swapped); it is only
+    * ever held for brief, I/O-free updates (never across a barrier), so taking
+    * it inside the memtable rotation critical section cannot stall inserts on
+    * I/O.
+    */
+   platform_mutex        checkpoint_state_lock;
+   core_checkpoint_state checkpoint;
+
+   /*
+    * Hint that the live log has reached checkpoint_log_size_bytes.  Set by
+    * core_log_insert() -- which already holds the shared insert lock, the same
+    * lock that excludes the log swap, so it can read `log` safely -- and acted
+    * on by core_insert() once that lock is released.  Cleared only by
+    * core_rotate_log() when it cuts the log, under the insert lock held
+    * exclusively, so set and clear cannot race.
+    *
+    * Set-only on the insert path so the common case does no store and the cache
+    * line stays shared across cores.  Being merely a hint, a stale TRUE costs
+    * nothing: core_maybe_cut_oversized_log() re-checks the policy against the
+    * current log before acting.
+    */
+   bool32 log_reached_threshold;
 
    core_stats *stats;
 
@@ -223,6 +335,7 @@ core_mkfs(core_handle      *spl,
           core_config      *cfg,
           allocator        *al,
           cache            *cc,
+          io_handle        *io,
           task_system      *ts,
           allocator_root_id id,
           platform_heap_id  hid);
@@ -232,9 +345,27 @@ core_mount(core_handle      *spl,
            core_config      *cfg,
            allocator        *al,
            cache            *cc,
+           io_handle        *io,
            task_system      *ts,
            allocator_root_id id,
            platform_heap_id  hid);
+
+/*
+ * Take a checkpoint: make every modification made before this call durable in
+ * the trunk root, and reclaim the space of the log it retires.  Blocks until
+ * both are done.  Safe to call on a running system with concurrent inserts.
+ *
+ * Reclamation makes this sufficient on its own, so an application can set
+ * checkpoint_log_size_bytes to 0 (no automatic checkpoints) and manage
+ * durability and log space entirely through this call.
+ *
+ * Both halves need a memtable rotation, which insert traffic normally triggers.
+ * If none occurs within rotation_timeout_ns, the rotation is forced; pass 0 to
+ * force it immediately.  Beware that polling a quiescent database forces a
+ * rotation per call.  See core.c for the full contract.
+ */
+platform_status
+core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
 
 platform_status
 core_unmount(core_handle *spl);
@@ -300,6 +431,7 @@ core_config_init(core_config         *trunk_cfg,
                  uint64               queue_scale_percent,
                  uint64               prefetch_budget,
                  bool32               use_log,
+                 uint64               checkpoint_log_size_bytes,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle);

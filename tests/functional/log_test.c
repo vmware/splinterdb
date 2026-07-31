@@ -19,13 +19,14 @@
 
 #include "poison.h"
 
+#define LOG_TEST_LEAVES_PER_MEMTABLE 97
+
 int
 test_log_crash(clockcache             *cc,
                clockcache_config      *cache_cfg,
                io_handle              *io,
                allocator              *al,
                shard_log_config       *cfg,
-               shard_log              *log,
                task_system            *ts,
                platform_heap_id        hid,
                test_message_generator *gen,
@@ -34,36 +35,65 @@ test_log_crash(clockcache             *cc,
                bool32                  crash)
 
 {
-   platform_status    rc;
-   log_handle        *logh;
-   uint64             i;
-   key                returned_key;
-   message            returned_message;
-   uint64             addr;
-   uint64             magic;
-   shard_log_iterator itor;
-   iterator          *itorh = (iterator *)&itor;
-   char               key_str[128];
-   char               data_str[128];
-   merge_accumulator  msg;
+   platform_status   rc;
+   log_handle       *logh;
+   uint64            i;
+   key               returned_key;
+   message           returned_message;
+   log_head          segment;
+   log_iterator     *itor;
+   char              key_str[128];
+   char              data_str[128];
+   merge_accumulator msg;
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
 
    platform_assert(cc != NULL);
-   rc = shard_log_init(log, (cache *)cc, cfg);
-   platform_assert_status_ok(rc);
-   logh = (log_handle *)log;
+   logh = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(logh != NULL);
 
-   addr  = log_addr(logh);
-   magic = log_magic(logh);
+   // The identity is fixed at creation; capture it before writing/sealing.
+   segment = log_get_head(logh);
 
    merge_accumulator_init(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
-      key skey =
-         test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
-      generate_test_message(gen, i, &msg);
-      log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      uint64 entry_num = i;
+      if (2 * LOG_TEST_LEAVES_PER_MEMTABLE <= num_entries
+          && i < 2 * LOG_TEST_LEAVES_PER_MEMTABLE)
+      {
+         /*
+          * Write the first two generations in the opposite order, and each
+          * generation in reverse leaf order.  The iterator must restore the
+          * (memtable_generation, leaf_generation) order below.
+          */
+         uint64 memtable_generation = 1 - i / LOG_TEST_LEAVES_PER_MEMTABLE;
+         uint64 leaf_generation =
+            LOG_TEST_LEAVES_PER_MEMTABLE - 1 - i % LOG_TEST_LEAVES_PER_MEMTABLE;
+         entry_num = memtable_generation * LOG_TEST_LEAVES_PER_MEMTABLE
+                     + leaf_generation;
+      }
+      key skey = test_key(&keybuffer,
+                          TEST_RANDOM,
+                          entry_num,
+                          0,
+                          0,
+                          1 + (entry_num % key_size),
+                          0);
+      generate_test_message(gen, entry_num, &msg);
+      int log_rc = log_write(logh,
+                             skey,
+                             merge_accumulator_to_message(&msg),
+                             entry_num / LOG_TEST_LEAVES_PER_MEMTABLE,
+                             entry_num % LOG_TEST_LEAVES_PER_MEMTABLE);
+      platform_assert(log_rc == 0);
    }
+
+   rc = log_seal(logh); // frees logh; identity captured above
+   platform_assert_status_ok(rc);
+   rc = cache_writeback_dirty((cache *)cc);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier((cache *)cc);
+   platform_assert_status_ok(rc);
 
    if (crash) {
       clockcache_deinit(cc);
@@ -72,16 +102,21 @@ test_log_crash(clockcache             *cc,
       platform_assert_status_ok(rc);
    }
 
-   rc = shard_log_iterator_init((cache *)cc, cfg, hid, addr, magic, &itor);
-   platform_assert_status_ok(rc);
-   itorh = (iterator *)&itor;
+   itor = shard_log_iterator_create((cache *)cc, cfg, hid, segment);
+   platform_assert(itor != NULL);
 
-   for (i = 0; i < num_entries && iterator_can_curr(itorh); i++) {
+   for (i = 0; i < num_entries && log_iterator_can_next(itor); i++) {
       key skey =
          test_key(&keybuffer, TEST_RANDOM, i, 0, 0, 1 + (i % key_size), 0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
-      iterator_curr(itorh, &returned_key, &returned_message);
+      log_iterator_curr(itor, &returned_key, &returned_message);
+      uint64 memtable_generation;
+      uint64 leaf_generation;
+      log_iterator_curr_generations(
+         itor, &memtable_generation, &leaf_generation);
+      platform_assert(memtable_generation == i / LOG_TEST_LEAVES_PER_MEMTABLE);
+      platform_assert(leaf_generation == i % LOG_TEST_LEAVES_PER_MEMTABLE);
       if (data_key_compare(cfg->data_cfg, skey, returned_key)
           || message_lex_cmp(mmessage, returned_message))
       {
@@ -94,38 +129,194 @@ test_log_crash(clockcache             *cc,
          platform_default_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }
-      rc = iterator_next(itorh);
+      rc = log_iterator_next(itor);
       platform_assert_status_ok(rc);
    }
 
    platform_default_log("log returned %lu of %lu entries\n", i, num_entries);
+   platform_assert(i == num_entries);
+   platform_assert(!log_iterator_can_next(itor));
 
    merge_accumulator_deinit(&msg);
 
-   shard_log_iterator_deinit(hid, &itor);
-   shard_log_zap(log);
+   log_iterator_deinit(itor);
+   log_dec_ref((cache *)cc, &segment);
 
    return 0;
 }
 
-static int
-test_log_large_message(cache            *cc,
-                       shard_log_config *cfg,
-                       shard_log        *log,
-                       platform_heap_id  hid)
+static void
+test_log_write_range(log_handle             *logh,
+                     test_message_generator *gen,
+                     platform_heap_id        hid,
+                     uint64                  key_size,
+                     uint64                  first_entry,
+                     uint64                  num_entries)
 {
-   platform_status    rc;
-   shard_log_iterator itor;
-   iterator          *itorh = (iterator *)&itor;
-   merge_accumulator  msg;
-   key                returned_key;
-   message            returned_message;
-   char               key_data[] = "large-log-key";
-   key                skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
-   uint64             value_len = 3 * cache_page_size(cc) + 123;
+   merge_accumulator msg;
+   DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
+   merge_accumulator_init(&msg, hid);
 
-   rc = shard_log_init(log, cc, cfg);
+   for (uint64 i = 0; i < num_entries; i++) {
+      uint64 entry_num = first_entry + i;
+      key    skey      = test_key(&keybuffer,
+                          TEST_RANDOM,
+                          entry_num,
+                          0,
+                          0,
+                          1 + (entry_num % key_size),
+                          0);
+      generate_test_message(gen, entry_num, &msg);
+      int log_rc = log_write(
+         logh, skey, merge_accumulator_to_message(&msg), entry_num, 0);
+      platform_assert(log_rc == 0);
+   }
+
+   merge_accumulator_deinit(&msg);
+}
+
+static void
+test_log_verify_segment(cache                  *cc,
+                        shard_log_config       *cfg,
+                        const log_head         *segment,
+                        test_message_generator *gen,
+                        platform_heap_id        hid,
+                        uint64                  key_size,
+                        uint64                  first_entry,
+                        uint64                  num_entries)
+{
+   log_iterator     *itor;
+   merge_accumulator msg;
+   DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
+   key     returned_key;
+   message returned_message;
+
+   platform_assert(segment->addr != 0);
+   platform_assert(segment->meta_addr != 0);
+   itor = shard_log_iterator_create(cc, cfg, hid, *segment);
+   platform_assert(itor != NULL);
+
+   merge_accumulator_init(&msg, hid);
+   for (uint64 i = 0; i < num_entries; i++) {
+      uint64 entry_num = first_entry + i;
+      platform_assert(log_iterator_can_next(itor));
+      key skey = test_key(&keybuffer,
+                          TEST_RANDOM,
+                          entry_num,
+                          0,
+                          0,
+                          1 + (entry_num % key_size),
+                          0);
+      generate_test_message(gen, entry_num, &msg);
+      log_iterator_curr(itor, &returned_key, &returned_message);
+      uint64 memtable_generation;
+      uint64 leaf_generation;
+      log_iterator_curr_generations(
+         itor, &memtable_generation, &leaf_generation);
+      platform_assert(memtable_generation == entry_num);
+      platform_assert(leaf_generation == 0);
+      platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
+      platform_assert(
+         message_lex_cmp(merge_accumulator_to_message(&msg), returned_message)
+         == 0);
+      platform_status rc = log_iterator_next(itor);
+      platform_assert_status_ok(rc);
+   }
+   platform_assert(!log_iterator_can_next(itor));
+
+   merge_accumulator_deinit(&msg);
+   log_iterator_deinit(itor);
+}
+
+/*
+ * Sealing a stream and creating a fresh one must yield two distinct,
+ * independently replayable segments. Reinitializing the cache after each forced
+ * physical persistence cut makes this test exercise only persisted pages for
+ * both identities; it does not model logical durable-tail publication.
+ */
+static int
+test_log_two_segments(clockcache             *cc,
+                      clockcache_config      *cache_cfg,
+                      io_handle              *io,
+                      allocator              *al,
+                      shard_log_config       *cfg,
+                      platform_heap_id        hid,
+                      test_message_generator *gen,
+                      uint64                  key_size)
+{
+   const uint64 old_first = 1000, old_count = 16;
+   const uint64 new_first = 2000, new_count = 16;
+   log_head     sealed, fresh;
+
+   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(log != NULL);
+   sealed = log_get_head(log); // identity is fixed at creation
+   test_log_write_range(log, gen, hid, key_size, old_first, old_count);
+
+   platform_status rc = log_seal(log); // frees log
    platform_assert_status_ok(rc);
+   platform_assert(sealed.addr != 0);
+   platform_assert(sealed.meta_addr != 0);
+
+   rc = cache_writeback_dirty((cache *)cc);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier((cache *)cc);
+   platform_assert_status_ok(rc);
+
+   clockcache_deinit(cc);
+   rc = clockcache_init(
+      cc, cache_cfg, io, al, "sealed-old", hid, platform_get_module_id());
+   platform_assert_status_ok(rc);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &sealed, gen, hid, key_size, old_first, old_count);
+
+   // A fresh stream is a distinct segment: new mini allocator and new magic.
+   log = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(log != NULL);
+   fresh = log_get_head(log);
+   test_log_write_range(log, gen, hid, key_size, new_first, new_count);
+   rc = log_seal(log); // frees log
+   platform_assert_status_ok(rc);
+   platform_assert(fresh.addr != 0);
+   platform_assert(fresh.meta_addr != 0);
+   platform_assert(sealed.meta_addr != fresh.meta_addr);
+   platform_assert(sealed.magic != fresh.magic);
+
+   rc = cache_writeback_dirty((cache *)cc);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier((cache *)cc);
+   platform_assert_status_ok(rc);
+
+   clockcache_deinit(cc);
+   rc = clockcache_init(
+      cc, cache_cfg, io, al, "sealed-new", hid, platform_get_module_id());
+   platform_assert_status_ok(rc);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &sealed, gen, hid, key_size, old_first, old_count);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &fresh, gen, hid, key_size, new_first, new_count);
+
+   log_dec_ref((cache *)cc, &sealed);
+   log_dec_ref((cache *)cc, &fresh);
+   return 0;
+}
+
+static int
+test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
+{
+   platform_status   rc;
+   log_head          sealed;
+   log_iterator     *itor;
+   merge_accumulator msg;
+   key               returned_key;
+   message           returned_message;
+   char              key_data[] = "large-log-key";
+   key               skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   uint64            value_len = 3 * cache_page_size(cc) + 123;
+
+   log_handle *logh = shard_log_create(cc, cfg, hid);
+   platform_assert(logh != NULL);
+   sealed = log_get_head(logh); // identity is fixed at creation
 
    merge_accumulator_init(&msg, hid);
    bool32 success = merge_accumulator_resize(&msg, value_len);
@@ -133,8 +324,7 @@ test_log_large_message(cache            *cc,
    merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
    memset(merge_accumulator_data(&msg), 'L', value_len);
 
-   int log_rc =
-      log_write((log_handle *)log, skey, merge_accumulator_to_message(&msg), 0);
+   int log_rc = log_write(logh, skey, merge_accumulator_to_message(&msg), 0, 0);
    platform_assert(log_rc == 0);
 
    merge_accumulator filler;
@@ -146,34 +336,36 @@ test_log_large_message(cache            *cc,
       merge_accumulator_data(&filler), 'f', merge_accumulator_length(&filler));
    for (uint64 i = 1; i < 16; i++) {
       log_rc = log_write(
-         (log_handle *)log, skey, merge_accumulator_to_message(&filler), i);
+         logh, skey, merge_accumulator_to_message(&filler), i / 4, i % 4);
       platform_assert(log_rc == 0);
    }
    merge_accumulator_deinit(&filler);
 
-   rc = shard_log_iterator_init(cc,
-                                cfg,
-                                hid,
-                                log_addr((log_handle *)log),
-                                log_magic((log_handle *)log),
-                                &itor);
+   rc = log_seal(logh); // frees logh; identity captured above
    platform_assert_status_ok(rc);
-   platform_assert(iterator_can_curr(itorh));
+   rc = cache_writeback_dirty(cc);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier(cc);
+   platform_assert_status_ok(rc);
 
-   iterator_curr(itorh, &returned_key, &returned_message);
+   itor = shard_log_iterator_create(cc, cfg, hid, sealed);
+   platform_assert(itor != NULL);
+   platform_assert(log_iterator_can_next(itor));
+
+   log_iterator_curr(itor, &returned_key, &returned_message);
    platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
    platform_assert(
       message_lex_cmp(merge_accumulator_to_message(&msg), returned_message)
       == 0);
 
-   shard_log_iterator_deinit(hid, &itor);
+   log_iterator_deinit(itor);
    merge_accumulator_deinit(&msg);
-   shard_log_zap(log);
+   log_dec_ref(cc, &sealed);
    return 0;
 }
 
 typedef struct test_log_thread_params {
-   shard_log              *log;
+   log_handle             *logh;
    platform_thread         thread;
    int                     thread_id;
    test_message_generator *gen;
@@ -186,8 +378,7 @@ test_log_thread(void *arg)
 {
    platform_heap_id        hid         = platform_get_heap_id();
    test_log_thread_params *params      = (test_log_thread_params *)arg;
-   shard_log              *log         = params->log;
-   log_handle             *logh        = (log_handle *)log;
+   log_handle             *logh        = params->logh;
    int                     thread_id   = params->thread_id;
    uint64                  num_entries = params->num_entries;
    test_message_generator *gen         = params->gen;
@@ -201,7 +392,9 @@ test_log_thread(void *arg)
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       key skey = test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
       generate_test_message(gen, i, &msg);
-      log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      int log_rc = log_write(
+         logh, skey, merge_accumulator_to_message(&msg), i / 1024, i % 1024);
+      platform_assert(log_rc == 0);
    }
 
    merge_accumulator_deinit(&msg);
@@ -210,7 +403,6 @@ test_log_thread(void *arg)
 platform_status
 test_log_perf(cache                  *cc,
               shard_log_config       *cfg,
-              shard_log              *log,
               uint64                  num_entries,
               test_message_generator *gen,
               uint64                  key_size,
@@ -225,11 +417,12 @@ test_log_perf(cache                  *cc,
    uint64          start_time;
    platform_status ret;
 
-   ret = shard_log_init(log, (cache *)cc, cfg);
-   platform_assert_status_ok(ret);
+   log_handle *logh = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(logh != NULL);
+   log_head sealed = log_get_head(logh);
 
    for (uint64 i = 0; i < num_threads; i++) {
-      params[i].log         = log;
+      params[i].logh        = logh;
       params[i].thread_id   = i;
       params[i].gen         = gen;
       params[i].key_size    = key_size;
@@ -257,6 +450,9 @@ test_log_perf(cache                  *cc,
                            / platform_timestamp_elapsed(start_time));
 
 cleanup:
+   // Seal (frees the handle) and release the segment's extents.
+   log_seal(logh);
+   log_dec_ref((cache *)cc, &sealed);
    platform_free(hid, params);
 
    return ret;
@@ -375,15 +571,22 @@ log_test(int argc, char *argv[])
                             platform_get_module_id());
    platform_assert_status_ok(status);
 
-   shard_log *log = TYPED_MALLOC(hid, log);
-   platform_assert(log != NULL);
-   rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, log, hid);
+   rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
+   platform_assert(rc == 0);
+
+   rc = test_log_two_segments(cc,
+                              &system_cfg.cache_cfg,
+                              io,
+                              (allocator *)&al,
+                              &system_cfg.log_cfg,
+                              hid,
+                              &gen,
+                              workload_cfg.key_size);
    platform_assert(rc == 0);
 
    if (run_perf_test) {
       ret = test_log_perf((cache *)cc,
                           &system_cfg.log_cfg,
-                          log,
                           200000000,
                           &gen,
                           workload_cfg.key_size,
@@ -398,7 +601,6 @@ log_test(int argc, char *argv[])
                           io,
                           (allocator *)&al,
                           &system_cfg.log_cfg,
-                          log,
                           &ts,
                           hid,
                           &gen,
@@ -412,7 +614,6 @@ log_test(int argc, char *argv[])
                           io,
                           (allocator *)&al,
                           &system_cfg.log_cfg,
-                          log,
                           &ts,
                           hid,
                           &gen,
@@ -424,7 +625,6 @@ log_test(int argc, char *argv[])
 
    io_wait_all(io);
    clockcache_deinit(cc);
-   platform_free(hid, log);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(&ts);

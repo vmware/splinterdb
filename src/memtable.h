@@ -124,8 +124,19 @@ typedef struct memtable_context {
    task_system      *ts;
    platform_heap_id *hid;
 
+   /*
+    * Optional callback invoked inside the rotation critical section (insert
+    * lock held exclusively), after a memtable is finalized and the generation
+    * is advanced, before the lock is released.  A checkpoint uses this to swap
+    * in a new live log with the guarantee that no insert can be mid-log_write.
+    * Receives process_ctxt and the just-finalized generation.  NULL disables.
+    */
+   process_fn rotate;
+   /* Process a rotated memtable _outside the critical section of the rotation.
+    */
    process_fn process;
    void      *process_ctxt;
+
 
    // batch distributed read/write locks protect the generation and
    // generation_retired counters
@@ -194,8 +205,19 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status);
 const char *
 memtable_state_string(memtable_state state);
 
+/*
+ * Rotate the current memtable now, regardless of fullness.  Performs the same
+ * sequence as the natural (fullness-triggered) rotation: finalize the memtable,
+ * advance the generation, invoke the rotate callback under insert exclusion,
+ * then -- once inserts are unblocked -- invoke the process callback to dispatch
+ * the rotated memtable.  Returns the finalized generation.
+ *
+ * Callers therefore need do nothing further: whatever the rotate callback
+ * started (e.g. core's checkpoint log cut) is resolved by the process callback,
+ * just as it is for a natural rotation.
+ */
 uint64
-memtable_force_finalize(memtable_context *ctxt);
+memtable_force_rotation(memtable_context *ctxt);
 
 void
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation);
@@ -208,8 +230,28 @@ memtable_context_init(memtable_context *ctxt,
                       platform_heap_id  hid,
                       cache            *cc,
                       memtable_config  *cfg,
+                      process_fn        rotate,
                       process_fn        process,
                       void             *process_ctxt);
+
+/*
+ * Initialize the reusable memtable ring at first_generation.  Recovery passes
+ * the checkpoint's incorporated generation plus one; the trunk is understood
+ * to have incorporated all earlier generations.  In particular, slot
+ * first_generation % max_memtables is the active memtable and the other slots
+ * represent the following logical generations.  first_generation == 0 is the
+ * fresh-database case and has no incorporated generation.  A caller must not
+ * wrap a checkpoint generation of UINT64_MAX into zero.
+ */
+platform_status
+memtable_context_init_at_generation(memtable_context *ctxt,
+                                    platform_heap_id  hid,
+                                    cache            *cc,
+                                    memtable_config  *cfg,
+                                    process_fn        rotate,
+                                    process_fn        process,
+                                    void             *process_ctxt,
+                                    uint64            first_generation);
 
 void
 memtable_context_deinit(memtable_context *ctxt);

@@ -1197,7 +1197,6 @@ btree_node_lock(cache              *cc,  // IN
                 btree_node         *node)        // IN
 {
    cache_lock(cc, node->page);
-   cache_mark_dirty(cc, node->page);
 }
 
 static inline void
@@ -1293,8 +1292,6 @@ btree_create(cache              *cc,
    root.hdr  = (btree_hdr *)root_page->data;
 
    btree_init_hdr(cfg, root.hdr);
-
-   cache_mark_dirty(cc, root.page);
 
    // If this btree is for a memtable then pin all pages belonging to it
    if (pinned) {

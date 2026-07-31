@@ -84,7 +84,6 @@ CTEST_DATA(splinter)
    uint32 num_insert_threads;
    uint32 num_lookup_threads;
    uint32 max_async_inflight;
-   int    spl_num_tables;
 
    rc_allocator al;
 
@@ -115,12 +114,10 @@ CTEST_SETUP(splinter)
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;
    data->max_async_inflight = 64;
-   data->spl_num_tables = 1;
 
-   bool32 cache_per_table = FALSE;
-   int num_tables       = data->spl_num_tables; // Cache, for re-use below
-   uint8 num_caches     = (cache_per_table ? num_tables : 1);
-   uint64 heap_capacity = 512 * MiB;
+   // The config layer still parses per-config arrays; this test uses one.
+   int num_tables       = 1;
+   uint64 heap_capacity = 1024 * MiB;
 
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
@@ -173,20 +170,18 @@ CTEST_SETUP(splinter)
    rc_allocator_init(&data->al, &data->system_cfg->allocator_cfg, data->io, data->hid,
                      platform_get_module_id());
 
-   data->clock_cache = TYPED_ARRAY_MALLOC(data->hid, data->clock_cache, num_caches);
+   data->clock_cache = TYPED_MALLOC(data->hid, data->clock_cache);
    ASSERT_TRUE((data->clock_cache != NULL));
 
-   for (uint8 idx = 0; idx < num_caches; idx++) {
-      rc = clockcache_init(&data->clock_cache[idx],
-                           &data->system_cfg[idx].cache_cfg,
-                           data->io,
-                           (allocator *)&data->al,
-                           "test",
-                           data->hid,
-                           platform_get_module_id());
+   rc = clockcache_init(data->clock_cache,
+                        &data->system_cfg->cache_cfg,
+                        data->io,
+                        (allocator *)&data->al,
+                        "test",
+                        data->hid,
+                        platform_get_module_id());
 
-      ASSERT_TRUE(SUCCESS(rc), "clockcache_init() failed for index=%d. ", idx);
-   }
+   ASSERT_TRUE(SUCCESS(rc), "clockcache_init() failed. ");
 }
 
 // clang-format on
@@ -235,6 +230,7 @@ CTEST2(splinter, test_inserts)
                                   &data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
+                                  data->io,
                                   &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);
@@ -248,6 +244,404 @@ CTEST2(splinter, test_inserts)
                     num_inserts);
 
    core_destroy(&spl);
+}
+
+/*
+ * With logging enabled, core_checkpoint() rotates the log via the two-log
+ * protocol and advances the durable root.  Data inserted before the checkpoint
+ * must survive it, and teardown's allocator_assert_noleaks() must pass (the
+ * sealed log's extents are freed, the root is not leaked or double-freed).
+ *
+ * A zero rotation timeout forces the rotation immediately rather than waiting
+ * for insert traffic to trigger one.  The second checkpoint takes no new
+ * inserts, so it also covers the empty-memtable forced rotation: the resulting
+ * generation retires with no branch at all.
+ */
+CTEST2(splinter, test_two_log_checkpoint)
+{
+   allocator *alp = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log =
+      TRUE; // exercise the two-log lifecycle
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0, num_inserts);
+
+   // Checkpoint: seal the live log into the sealed slot, start a fresh live
+   // log, incorporate, advance the durable root, then clear + free the sealed
+   // log.
+   rc = core_checkpoint(&spl, 0);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // A sample of keys must still be found after the checkpoint.
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   const size_t key_size     = data->workload_cfg->key_size;
+   uint64       verify_count = (num_inserts < 1000) ? num_inserts : 1000;
+   for (uint64 i = 0; i < verify_count; i++) {
+      test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      ASSERT_TRUE(SUCCESS(rc));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         i,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         TRUE);
+   }
+   lookup_result_deinit(&qdata);
+
+   // Second checkpoint with no new inserts is a clean rotate.
+   rc = core_checkpoint(&spl, 0);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   core_destroy(&spl);
+}
+
+/*
+ * An application that manages checkpoints itself: the interval policy is off,
+ * so nothing arms a checkpoint automatically and core_checkpoint() is the only
+ * thing that can rotate the log.  It must therefore cut the log and reclaim
+ * what it retires, or the live log would grow without bound.
+ *
+ * Each checkpoint must (a) install a different live log -- proving a cut
+ * happened -- and (b) leave the retired log's metadata extent free.  Total
+ * space in use must also stay flat across many checkpoints of the same data.
+ */
+CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   // No automatic checkpoints: this test drives them all itself.
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0, num_inserts);
+
+   superblock_tree_record rec;
+   const uint64           num_checkpoints = 10;
+   uint64                 baseline_in_use = 0;
+
+   for (uint64 i = 0; i < num_checkpoints; i++) {
+      superblock_get_tree_record(&spl.superblock, &rec);
+      uint64 retired_meta_addr = rec.live_log.meta_addr;
+      ASSERT_NOT_EQUAL(0, retired_meta_addr);
+
+      rc = core_checkpoint(&spl, 0);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      // (a) A cut happened: a different log is now live, and it covers only
+      // generations from the cut onward.
+      superblock_get_tree_record(&spl.superblock, &rec);
+      ASSERT_NOT_EQUAL(retired_meta_addr, rec.live_log.meta_addr);
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+
+      // (b) The retired log's space came back.
+      ASSERT_EQUAL(0,
+                   allocator_get_refcount(alp, retired_meta_addr),
+                   "checkpoint %lu did not reclaim retired log at %lu\n",
+                   i,
+                   retired_meta_addr);
+
+      // Space in use must not creep upward checkpoint over checkpoint.
+      if (i == 0) {
+         baseline_in_use = allocator_in_use(alp);
+      } else {
+         ASSERT_TRUE(allocator_in_use(alp) <= baseline_in_use,
+                     "space in use grew from %lu to %lu by checkpoint %lu\n",
+                     baseline_in_use,
+                     allocator_in_use(alp),
+                     i);
+      }
+   }
+
+   core_destroy(&spl);
+}
+
+/*
+ * Shared workload for the automatic-checkpoint tests: create with auto
+ * checkpoints enabled, insert enough to drive several rotations, verify a
+ * sample of keys survives the mid-run log rotations, then destroy.  The
+ * teardown's allocator_assert_noleaks() must pass -- each sealed log's extents
+ * are freed as its checkpoint completes, and the root is neither leaked nor
+ * double-freed.  The caller sets up the task system (foreground or background).
+ */
+static void
+run_auto_checkpoint_workload(void *datap, uint64 log_size_threshold)
+{
+   struct CTEST_IMPL_DATA_SNAME(splinter) *data =
+      (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
+
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   // Rotate the log / advance the durable root once the log reaches this size.
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
+      log_size_threshold;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0, num_inserts);
+
+   // Drain so any in-flight checkpoint completes and the state settles.
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   if (log_size_threshold != 0) {
+      // The inserts must have driven at least one automatic checkpoint through
+      // to completion.
+      ASSERT_NOT_EQUAL(0, spl.checkpoint.completions);
+
+      // At rest a checkpoint has either completed (IDLE) or been armed for a
+      // rotation that idle never triggered (PENDING); both leave no sealed log.
+      ASSERT_TRUE(spl.checkpoint.phase == CORE_CHECKPOINT_IDLE
+                  || spl.checkpoint.phase == CORE_CHECKPOINT_PENDING);
+      superblock_tree_record rec;
+      superblock_get_tree_record(&spl.superblock, &rec);
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+      // A checkpoint published an advanced, incorporated durable root mid-run:
+      // at least one generation was folded in, so the first unincorporated
+      // generation has advanced past 0.
+      ASSERT_NOT_EQUAL(0, rec.first_unincorporated_generation);
+   }
+
+   // A sample of keys must still be found after the rotations.
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   const size_t key_size     = data->workload_cfg->key_size;
+   uint64       verify_count = (num_inserts < 1000) ? num_inserts : 1000;
+   for (uint64 i = 0; i < verify_count; i++) {
+      test_key(&keybuf, TEST_RANDOM, i, 0, 0, key_size, 0);
+      rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+      ASSERT_TRUE(SUCCESS(rc));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         i,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+         TRUE);
+   }
+   lookup_result_deinit(&qdata);
+
+   core_destroy(&spl);
+}
+
+/*
+ * Automatic, incorporation-driven checkpoints (foreground): the log is rotated
+ * and the durable root advanced during normal inserts, with no stop-the-world.
+ */
+CTEST2(splinter, test_auto_checkpoint)
+{
+   // One extent: small enough that the test workload drives several rotations.
+   run_auto_checkpoint_workload(data, 2 * data->system_cfg->io_cfg.extent_size);
+}
+
+/*
+ * The reason the policy is sized in log bytes rather than memtable generations.
+ *
+ * Repeatedly overwriting one key updates the memtable btree in place, so it
+ * never accumulates extents, never becomes "full", and never rotates -- the
+ * generation stays put for the whole workload.  Every write still appends to
+ * the log, so the log grows without bound.  A generation-based trigger could
+ * never fire here; the size-based one must.
+ */
+CTEST2(splinter, test_auto_checkpoint_on_overwrites)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
+      2 * data->system_cfg->io_cfg.extent_size;
+   // Also verify the reported checkpoint count against the internal one.
+   data->system_cfg->splinter_cfg.use_stats = TRUE;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 start_generation = memtable_generation(&spl.mt_ctxt);
+
+   // Hammer a single key.  Enough writes to push the log well past one extent.
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   const uint64 num_overwrites = 20000;
+   for (uint64 i = 0; i < num_overwrites; i++) {
+      test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, i, &msg);
+      rc = core_insert(&spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+   }
+
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /*
+    * The workload never filled a memtable on its own, so a generation-based
+    * policy would have had nothing to trigger on: any generation advance here
+    * came from a checkpoint forcing a rotation, not from the memtable filling.
+    */
+   ASSERT_NOT_EQUAL(0,
+                    spl.checkpoint.completions,
+                    "overwrite-only workload did not trigger a checkpoint; "
+                    "generation went %lu -> %lu\n",
+                    start_generation,
+                    memtable_generation(&spl.mt_ctxt));
+
+   /*
+    * The reported statistic must agree with the machinery's own count: it is
+    * summed across threads, so this catches both a missed increment and a
+    * double count.
+    */
+   uint64 reported = 0;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      reported += spl.stats[thr_i].checkpoints_completed;
+   }
+   ASSERT_EQUAL(spl.checkpoint.completions,
+                reported,
+                "checkpoints_completed stat (%lu) disagrees with the "
+                "checkpoint state's count (%lu)\n",
+                reported,
+                spl.checkpoint.completions);
+
+   // The surviving value must be the last one written.
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+   rc = core_lookup(&spl, key_buffer_key(&keybuf), &qdata);
+   ASSERT_TRUE(SUCCESS(rc));
+   generate_test_message(&data->gen, num_overwrites - 1, &msg);
+   ASSERT_EQUAL(0,
+                message_lex_cmp(merge_accumulator_to_message(&msg),
+                                merge_accumulator_to_message(
+                                   lookup_result_accumulator(&qdata))));
+   lookup_result_deinit(&qdata);
+   merge_accumulator_deinit(&msg);
+
+   core_destroy(&spl);
+}
+
+/*
+ * The second checkpoint slot is a torn-write fallback, not permission for a
+ * normal mount to silently roll back past a newer, valid active record.  A
+ * successful mount publishes such an active record; until crash recovery is
+ * implemented, a concurrent/restarted normal mount must reject it even
+ * though the preceding clean record remains valid in the other slot.
+ */
+CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
+{
+   allocator        *alp     = (allocator *)&data->al;
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       created, mounted, rejected, cleanup;
+   platform_status   rc;
+
+   rc = core_mkfs(&created,
+                  &data->system_cfg->splinter_cfg,
+                  alp,
+                  (cache *)data->clock_cache,
+                  data->io,
+                  &data->tasks,
+                  root_id,
+                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* Give the clean record a real COW root, not just the empty-tree root. */
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(&created,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&msg),
+                    NULL);
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_unmount(&created);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* This mount advances the A/B sequence with an unmounted=FALSE record. */
+   rc = core_mount(&mounted,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_mount(&rejected,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+
+   /* Finish cleanly, then prove the same record pair is mountable again. */
+   rc = core_unmount(&mounted);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_mount(&cleanup,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   core_destroy(&cleanup);
 }
 
 static void
@@ -409,6 +803,7 @@ CTEST2(splinter, test_lookups)
                                        &data->system_cfg->splinter_cfg,
                                        alp,
                                        (cache *)data->clock_cache,
+                                       data->io,
                                        &data->tasks,
                                        test_generate_allocator_root_id(),
                                        data->hid);
@@ -634,6 +1029,7 @@ CTEST2(splinter, test_splinter_print_diags)
                                   &data->system_cfg->splinter_cfg,
                                   alp,
                                   (cache *)data->clock_cache,
+                                  data->io,
                                   &data->tasks,
                                   test_generate_allocator_root_id(),
                                   data->hid);

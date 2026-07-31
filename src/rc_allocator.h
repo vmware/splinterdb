@@ -16,34 +16,6 @@
 #include "util.h"
 
 /*
- * In the current system, every Splinter instance has a superblock, one
- * for each table that is mapped to the Splinter instance. This limit
- * is the max number of superblocks (special pages) that can be accessed.
- * All of these superblocks are required to be on the 1st extent.
- */
-#define RC_ALLOCATOR_MAX_ROOT_IDS (30)
-
-/*
- *----------------------------------------------------------------------
- * rc_allocator_meta_page -- Disk-resident structure.
- *
- * An on disk structure to hold the bootstrap disk geometry and the super block
- * addresses for all Splinter tables using this allocator. The geometry lives at
- * offset 0 so open can read it before mounting the rest of SplinterDB.
- *----------------------------------------------------------------------
- */
-typedef struct ONDISK rc_allocator_meta_page {
-   disk_geometry     geometry;
-   allocator_root_id splinters[RC_ALLOCATOR_MAX_ROOT_IDS];
-   checksum128       checksum;
-} rc_allocator_meta_page;
-
-_Static_assert(offsetof(rc_allocator_meta_page, geometry) == 0,
-               "disk geometry should be first field in meta_page struct");
-_Static_assert(sizeof(rc_allocator_meta_page) <= IO_DEFAULT_PAGE_SIZE,
-               "allocator meta page must fit in the default page size");
-
-/*
  *----------------------------------------------------------------------
  * rc_allocator_stats --
  *----------------------------------------------------------------------
@@ -61,20 +33,26 @@ typedef struct rc_allocator_stats {
  *----------------------------------------------------------------------
  */
 typedef struct rc_allocator {
-   allocator               super;
-   allocator_config       *cfg;
-   buffer_handle           bh;
-   refcount               *ref_count;
-   uint64                  hand;
-   io_handle              *io;
-   rc_allocator_meta_page *meta_page;
+   allocator         super;
+   allocator_config *cfg;
+   buffer_handle     bh;
+   refcount         *ref_count;
+   uint64            hand;
+   io_handle        *io;
 
-   /*
-    * mutex to synchronize updates to super block addresses of the splinter
-    * tables in the meta page.
-    */
+   /* Serializes refcount-map mutations that must be atomic (e.g. stats). */
    platform_mutex   lock;
    platform_heap_id heap_id;
+
+   /*
+    * True once the refcount map is trustworthy: set by a clean
+    * rc_allocator_load_refcounts(al, rebuild=FALSE) load, or by
+    * rc_allocator_rebuild_finish() after a rebuild completes.  False from
+    * rc_allocator_mount() (attach) until then, including throughout an
+    * in-progress rebuild.  rc_allocator_persist() asserts this is true: an
+    * incomplete rebuilt map must never be written back to disk.
+    */
+   bool32 map_is_valid;
 
    // Stats -- not distributed for now
    rc_allocator_stats stats;
@@ -90,19 +68,14 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al);
 
+/*
+ * Attach to an existing device but do not read the persisted map.  The caller
+ * then populates the map exactly once via allocator_load_refcounts() or
+ * allocator_recovery_begin/finish.
+ */
 platform_status
 rc_allocator_mount(rc_allocator      *al,
                    allocator_config  *cfg,
                    io_handle         *io,
                    platform_heap_id   hid,
                    platform_module_id mid);
-
-platform_status
-rc_allocator_read_disk_geometry(const char *filename, disk_geometry *geometry);
-
-platform_status
-rc_allocator_disk_geometry_matches_config(const disk_geometry    *geometry,
-                                          const allocator_config *cfg);
-
-void
-rc_allocator_unmount(rc_allocator *al);

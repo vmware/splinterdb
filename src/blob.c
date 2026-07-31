@@ -226,7 +226,6 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                   iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
             }
             cache_lock(iter->cc, iter->page);
-            cache_mark_dirty(iter->cc, iter->page);
          }
       }
    }
@@ -327,7 +326,7 @@ blob_sync(cache *cc, slice sblob)
       if (!SUCCESS(rc)) {
          break;
       }
-      cache_page_sync(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
+      cache_page_writeback(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
       blob_page_iterator_advance_page(&itor);
    }
 

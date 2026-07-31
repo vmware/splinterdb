@@ -17,6 +17,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
+#include "mini_allocator.h"
 #include "random.h"
 #include "task.h"
 
@@ -70,6 +71,95 @@ test_btree_process_noop(void *arg, uint64 generation)
    // really a no-op
 }
 
+static platform_status
+test_memtable_generation_init(cache             *cc,
+                              test_btree_config *cfg,
+                              platform_heap_id   hid)
+{
+   const uint64     first_generation = 17;
+   const uint64     max_memtables    = 4;
+   memtable_config  mt_cfg           = *cfg->mt_cfg;
+   memtable_context mt_ctxt;
+
+   mt_cfg.max_memtables = max_memtables;
+
+   platform_status rc = memtable_context_init(
+      &mt_ctxt, hid, cc, &mt_cfg, NULL, test_btree_process_noop, NULL);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (mt_ctxt.generation != 0 || mt_ctxt.generation_to_incorporate != 0
+       || mt_ctxt.generation_retired != (uint64)-1)
+   {
+      platform_error_log("memtable fresh initialization has unexpected "
+                         "generation state\n");
+      rc = STATUS_TEST_FAILED;
+      goto deinit_fresh;
+   }
+
+   for (uint64 generation = 0; generation < max_memtables; generation++) {
+      uint64 mt_no = generation % max_memtables;
+      if (mt_ctxt.mt[mt_no].generation != generation) {
+         platform_error_log("memtable fresh initialization put generation "
+                            "%lu in the wrong slot\n",
+                            generation);
+         rc = STATUS_TEST_FAILED;
+         goto deinit_fresh;
+      }
+   }
+
+deinit_fresh:
+   memtable_context_deinit(&mt_ctxt);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = memtable_context_init_at_generation(&mt_ctxt,
+                                            hid,
+                                            cc,
+                                            &mt_cfg,
+                                            NULL,
+                                            test_btree_process_noop,
+                                            NULL,
+                                            first_generation);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (mt_ctxt.generation != first_generation
+       || mt_ctxt.generation_to_incorporate != first_generation
+       || mt_ctxt.generation_retired != first_generation - 1)
+   {
+      platform_error_log("memtable recovery initialization has unexpected "
+                         "generation state\n");
+      rc = STATUS_TEST_FAILED;
+      goto deinit_recovery;
+   }
+
+   for (uint64 generation = first_generation;
+        generation < first_generation + max_memtables;
+        generation++)
+   {
+      uint64 mt_no = generation % max_memtables;
+      if (mt_ctxt.mt[mt_no].generation != generation) {
+         platform_error_log("memtable recovery initialization put generation "
+                            "%lu in the wrong slot\n",
+                            generation);
+         rc = STATUS_TEST_FAILED;
+         goto deinit_recovery;
+      }
+   }
+
+deinit_recovery:
+   memtable_context_deinit(&mt_ctxt);
+   if (SUCCESS(rc)) {
+      platform_default_log(
+         "btree_test: memtable generation init test passed\n");
+   }
+   return rc;
+}
+
 test_memtable_context *
 test_memtable_context_create(cache             *cc,
                              test_btree_config *cfg,
@@ -81,8 +171,13 @@ test_memtable_context_create(cache             *cc,
    ctxt->cc           = cc;
    ctxt->cfg          = cfg;
    ctxt->heap_id      = hid;
-   platform_status rc = memtable_context_init(
-      &ctxt->mt_ctxt, hid, cc, cfg->mt_cfg, test_btree_process_noop, NULL);
+   platform_status rc = memtable_context_init(&ctxt->mt_ctxt,
+                                              hid,
+                                              cc,
+                                              cfg->mt_cfg,
+                                              NULL,
+                                              test_btree_process_noop,
+                                              NULL);
    if (!SUCCESS(rc)) {
       platform_free(hid, ctxt);
       return NULL;
@@ -2257,6 +2352,9 @@ btree_test(int argc, char *argv[])
                         platform_get_module_id());
    platform_assert_status_ok(rc);
    cache *ccp = (cache *)cc;
+
+   rc = test_memtable_generation_init(ccp, &test_cfg, hid);
+   platform_assert_status_ok(rc);
 
    uint64 max_tuples_per_memtable =
       test_cfg.mt_cfg->max_extents_per_memtable

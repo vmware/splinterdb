@@ -12,6 +12,52 @@ function run()
     rm -f db
 }
 
+# Run a workload that is expected to complete at least one checkpoint, and fail
+# if it completes none.
+#
+# A plain run() would pass whether or not checkpointing ever fired, so a
+# regression that quietly stopped taking checkpoints would look green.  The
+# caller must pass --log (to enable the log, and hence auto-checkpointing) and
+# --stats (so core_print_insertion_stats() emits the "| checkpoints:" line this
+# parses).  Several drivers dump stats more than once and the counter is
+# cumulative, so take the largest value printed.
+function run_checkpointed()
+{
+    local logfile
+    logfile=$(mktemp)
+
+    set +e
+    run_with_timing "$*" ${BINDIR}/$@ $DB_CAPACITY > "$logfile" 2>&1
+    local rc=$?
+    set -e
+
+    cat "$logfile"
+    rm -f db
+
+    if [ "$rc" -ne 0 ]; then
+        rm -f "$logfile"
+        echo "FAILED: $* exited with status $rc"
+        exit 1
+    fi
+
+    local checkpoints
+    checkpoints=$(grep -oE '\| checkpoints: +[0-9]+' "$logfile" \
+                  | grep -oE '[0-9]+' | sort -rn | head -1)
+    rm -f "$logfile"
+
+    if [ -z "$checkpoints" ]; then
+        echo "FAILED: $* printed no checkpoint statistics" \
+             "(both --log and --stats are required)"
+        exit 1
+    fi
+    if [ "$checkpoints" -eq 0 ]; then
+        echo "FAILED: $* completed 0 checkpoints;" \
+             "lower --checkpoint-log-size-mib or grow the workload"
+        exit 1
+    fi
+    echo "PASSED: $* completed ${checkpoints} checkpoints"
+}
+
 # 14 minutes
 function cache_tests_1() {
     # 25 sec each
@@ -39,19 +85,51 @@ function cache_tests_3() {
 # 12 minutes
 function functionality_tests() {
     # 50 sec each
-    run driver_test splinter_test --functionality  1000000  100                                                                                                                           --seed 135
-    run driver_test splinter_test --functionality  1000000  100                                                                     --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
-    run driver_test splinter_test --functionality  1000000  100             --key-size 102                                                                                                --seed 135
-    run driver_test splinter_test --functionality  1000000  100             --key-size 8                                                                                                  --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                                                                                               --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                                         --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 102                                                                                                --seed 135
-    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 8                                                                                                  --seed 135
-    run driver_test splinter_test --functionality  1000000 1000                            --num-tables 2 --cache-capacity-mib 1024
-    run driver_test splinter_test --functionality  1000000 1000                            --num-tables 4 --cache-capacity-mib 1024
-    run driver_test splinter_test --functionality  1000000 1000                            --num-tables 4 --cache-capacity-mib 512
-    run driver_test splinter_test --functionality 10000000 1000                            --num-tables 1 --cache-capacity-mib 4096
-    run driver_test splinter_test --functionality 10000000 1000                            --num-tables 2 --cache-capacity-mib 4096
+    run driver_test splinter_test --functionality  1000000  100                                                                                                            --seed 135
+    run driver_test splinter_test --functionality  1000000  100                                                      --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
+    run driver_test splinter_test --functionality  1000000  100             --key-size 102                                                                                 --seed 135
+    run driver_test splinter_test --functionality  1000000  100             --key-size 8                                                                                   --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                                                                                --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem                                          --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 102                                                                                 --seed 135
+    run driver_test splinter_test --functionality  1000000  100 --use-shmem --key-size 8                                                                                   --seed 135
+    run driver_test splinter_test --functionality  1000000 1000                            --cache-capacity-mib 1024
+    run driver_test splinter_test --functionality  1000000 1000                            --cache-capacity-mib 512
+    run driver_test splinter_test --functionality 10000000 1000                            --cache-capacity-mib 4096
+}
+
+# 8 minutes
+#
+# Logging (and hence auto-checkpointing) is off by default in every other group
+# here, so without these the checkpoint machinery goes essentially unexercised
+# outside the unit tests.  --checkpoint-log-size-mib is deliberately far below
+# the production default (one cache's worth) so that checkpoints fire many times
+# during a short run; run_checkpointed() asserts they actually did.
+function checkpoint_tests() {
+    # 45 sec each.  Correctness under checkpointing: the shadow-verified
+    # workload, which will catch a checkpoint that corrupts or loses data.
+    run_checkpointed driver_test splinter_test --functionality 500000 100 --seed 135 --log --checkpoint-log-size-mib 2 --stats
+    run_checkpointed driver_test splinter_test --functionality 500000 100 --use-shmem --seed 135 --log --checkpoint-log-size-mib 2 --stats
+
+    # 60 sec.  Concurrent inserts/lookups/range-lookups across a log cut.
+    run_checkpointed driver_test splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 4 --num-inserts 300000 --cache-capacity-mib 512 --log --checkpoint-log-size-mib 2 --stats --num-normal-bg-threads 2 --num-memtable-bg-threads 2
+
+    # 90 sec each.  Regression coverage for the pending_gcs crash: a checkpoint
+    # retiring the old root while an async lookup still pins it in the cache
+    # deferred the node's destruction onto a scratch context that was freed
+    # immediately after.  Needs async lookups AND frequent checkpoints together.
+    run_checkpointed driver_test splinter_test --parallel-perf --max-async-inflight 10 --num-pthreads 8 --tree-size-mib 512 --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --log --checkpoint-log-size-mib 2 --stats
+    run_checkpointed driver_test splinter_test --parallel-perf --max-async-inflight 0 --num-pthreads 8 --lookup-positive-percent 10 --tree-size-mib 512 --log --checkpoint-log-size-mib 2 --stats
+
+    # 45 sec.  Deletes and repeated overwrite rounds; the overwrite workload is
+    # the one that never advances the memtable generation, so it exercises the
+    # log-size trigger rather than the generation-count one.
+    run_checkpointed driver_test splinter_test --delete --tree-size-mib 512 --log --checkpoint-log-size-mib 2 --stats
+    run_checkpointed driver_test splinter_test --periodic --tree-size-mib 256 --log --checkpoint-log-size-mib 2 --stats
+
+    # 60 sec.  A realistic cadence rather than a pathological one, so the
+    # coverage does not depend solely on a tiny threshold.
+    run_checkpointed driver_test splinter_test --parallel-perf --max-async-inflight 10 --num-pthreads 8 --tree-size-mib 512 --num-normal-bg-threads 4 --num-memtable-bg-threads 2 --log --checkpoint-log-size-mib 64 --stats
 }
 
 function parallel_perf_test_1() {
@@ -176,6 +254,7 @@ function all_tests() {
     cache_tests_2
     cache_tests_3
     functionality_tests
+    checkpoint_tests
     parallel_perf_test_1
     parallel_perf_test_2
     parallel_perf_test_3
@@ -193,7 +272,6 @@ function all_tests() {
 }
 
 function main() {
-    echo > db.sizes.log
     if [ -z "$TESTS_FUNCTION" ]; then
         TESTS_FUNCTION="all_tests"
     fi

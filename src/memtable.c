@@ -80,6 +80,27 @@ memtable_end_insert(memtable_context *ctxt)
    batch_rwlock_unget(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
+/*
+ * Exclude all inserts, including one that has already acquired its shared
+ * insert lock, so the caller can safely mutate generation state.  Used by
+ * memtable_force_rotation(); the normal rotation path instead upgrades its own
+ * insert lock via memtable_try_begin_insert_rotation().  Pair with
+ * memtable_unblock_inserts().
+ */
+static void
+memtable_block_inserts(memtable_context *ctxt)
+{
+   batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_claim_loop(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   batch_rwlock_lock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+static void
+memtable_unblock_inserts(memtable_context *ctxt)
+{
+   batch_rwlock_full_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
 static inline bool32
 memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
@@ -95,20 +116,6 @@ memtable_end_insert_rotation(memtable_context *ctxt)
 {
    batch_rwlock_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
    batch_rwlock_unclaim(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-}
-
-static inline void
-memtable_begin_raw_rotation(memtable_context *ctxt)
-{
-   batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   batch_rwlock_claim_loop(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   batch_rwlock_lock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-}
-
-static inline void
-memtable_end_raw_rotation(memtable_context *ctxt)
-{
-   batch_rwlock_full_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
@@ -193,6 +200,14 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
                             current_generation);
 
             memtable_mark_empty(ctxt);
+            /*
+             * Still holding the insert lock exclusively: all in-flight inserts
+             * (and their log writes) have drained and none can start.  This is
+             * the one safe point to swap the checkpoint's live log.
+             */
+            if (ctxt->rotate != NULL) {
+               ctxt->rotate(ctxt->process_ctxt, current_generation);
+            }
             memtable_end_insert_rotation(ctxt);
             memtable_end_insert(ctxt);
             memtable_process(ctxt, current_generation);
@@ -295,9 +310,9 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status)
 }
 
 uint64
-memtable_force_finalize(memtable_context *ctxt)
+memtable_force_rotation(memtable_context *ctxt)
 {
-   memtable_begin_raw_rotation(ctxt);
+   memtable_block_inserts(ctxt);
 
    uint64    generation = ctxt->generation;
    uint64    mt_no      = generation % ctxt->cfg.max_memtables;
@@ -308,7 +323,22 @@ memtable_force_finalize(memtable_context *ctxt)
                    <= ctxt->cfg.max_memtables);
    memtable_mark_empty(ctxt);
 
-   memtable_end_raw_rotation(ctxt);
+   /*
+    * Inserts are still excluded, exactly as in the natural (fullness-triggered)
+    * rotation: all in-flight inserts (and their log writes) have drained and
+    * none can start.  See memtable_maybe_rotate_and_begin_insert() for why this
+    * is the one safe point to swap the checkpoint's live log.
+    */
+   if (ctxt->rotate != NULL) {
+      ctxt->rotate(ctxt->process_ctxt, current_generation);
+   }
+
+   memtable_unblock_inserts(ctxt);
+
+   // Dispatch the rotated memtable, outside the critical section, exactly as
+   // the natural rotation path does.
+   memtable_process(ctxt, current_generation);
+
    return current_generation;
 }
 
@@ -357,12 +387,14 @@ memtable_deinit(cache *cc, memtable *mt)
 }
 
 platform_status
-memtable_context_init(memtable_context *ctxt,
-                      platform_heap_id  hid,
-                      cache            *cc,
-                      memtable_config  *cfg,
-                      process_fn        process,
-                      void             *process_ctxt)
+memtable_context_init_at_generation(memtable_context *ctxt,
+                                    platform_heap_id  hid,
+                                    cache            *cc,
+                                    memtable_config  *cfg,
+                                    process_fn        rotate,
+                                    process_fn        process,
+                                    void             *process_ctxt,
+                                    uint64            first_generation)
 {
    platform_status rc;
    ZERO_CONTENTS(ctxt);
@@ -370,11 +402,19 @@ memtable_context_init(memtable_context *ctxt,
    ctxt->cfg = *cfg;
    ctxt->hid = hid;
 
-   if (MAX_MEMTABLES < cfg->max_memtables) {
-      platform_error_log("Configured number of memtables (%lu) exceeds max "
-                         "supported memtables (%d)\n",
+   if (cfg->max_memtables == 0 || MAX_MEMTABLES < cfg->max_memtables) {
+      platform_error_log("Configured number of memtables (%lu) must be "
+                         "between 1 and %d\n",
                          cfg->max_memtables,
                          MAX_MEMTABLES);
+      return STATUS_BAD_PARAM;
+   }
+
+   if (first_generation > (uint64)-1 - cfg->max_memtables) {
+      platform_error_log("First memtable generation (%lu) leaves too little "
+                         "space for %lu memtable slots\n",
+                         first_generation,
+                         cfg->max_memtables);
       return STATUS_BAD_PARAM;
    }
 
@@ -394,21 +434,45 @@ memtable_context_init(memtable_context *ctxt,
 
    batch_rwlock_init(&ctxt->rwlock);
 
-   for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
-      uint64 generation = mt_no;
+   for (uint64 generation_offset = 0; generation_offset < cfg->max_memtables;
+        generation_offset++)
+   {
+      uint64 generation = first_generation + generation_offset;
+      uint64 mt_no      = generation % cfg->max_memtables;
       memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
    }
 
-   ctxt->generation                = 0;
-   ctxt->generation_to_incorporate = 0;
-   ctxt->generation_retired        = (uint64)-1;
+   ctxt->generation                = first_generation;
+   ctxt->generation_to_incorporate = first_generation;
+   /*
+    * A fresh database has no incorporated generation. The UINT64_MAX
+    * sentinel preserves the existing unsigned generation-ring arithmetic.
+    * Otherwise, the checkpoint has incorporated every generation before
+    * first_generation.
+    */
+   ctxt->generation_retired =
+      first_generation == 0 ? (uint64)-1 : first_generation - 1;
 
    ctxt->is_empty = TRUE;
 
+   ctxt->rotate       = rotate;
    ctxt->process      = process;
    ctxt->process_ctxt = process_ctxt;
 
    return STATUS_OK;
+}
+
+platform_status
+memtable_context_init(memtable_context *ctxt,
+                      platform_heap_id  hid,
+                      cache            *cc,
+                      memtable_config  *cfg,
+                      process_fn        rotate,
+                      process_fn        process,
+                      void             *process_ctxt)
+{
+   return memtable_context_init_at_generation(
+      ctxt, hid, cc, cfg, rotate, process, process_ctxt, 0);
 }
 
 void

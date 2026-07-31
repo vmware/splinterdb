@@ -94,17 +94,6 @@ cache_config_extent_page(const cache_config *cfg, uint64 extent_addr, uint64 i)
    return extent_addr + i * cache_config_page_size(cfg);
 }
 
-typedef void (*cache_generic_fn)(cache *cc);
-typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
-typedef void (*page_generic_fn)(cache *cc, page_handle *page);
-
-typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
-typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
-typedef page_handle *(*page_get_fn)(cache    *cc,
-                                    uint64    addr,
-                                    bool32    blocking,
-                                    page_type type);
-
 #define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (2048)
 typedef union page_get_async_state_payload {
    uint8       bytes[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
@@ -118,6 +107,11 @@ typedef struct page_get_async_state_buffer {
    page_get_async_state_payload payload;
 } page_get_async_state_buffer;
 
+typedef void (*cache_generic_void_fn)(cache *cc);
+typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
+typedef platform_status (*cache_generic_status_fn)(cache *cc);
+typedef void (*page_generic_fn)(cache *cc, page_handle *page);
+
 typedef void (*page_get_async_state_init_fn)(void             *payload,
                                              cache            *cc,
                                              uint64            addr,
@@ -127,14 +121,20 @@ typedef void (*page_get_async_state_init_fn)(void             *payload,
 typedef async_status (*page_get_async_fn)(void *payload);
 typedef page_handle *(*page_get_async_state_result_fn)(void *payload);
 
+typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
+typedef page_handle *(*page_get_fn)(cache    *cc,
+                                    uint64    addr,
+                                    bool32    blocking,
+                                    page_type type);
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
-typedef void (*page_sync_fn)(cache       *cc,
-                             page_handle *page,
-                             bool32       is_blocking,
-                             page_type    type);
-typedef void (*extent_sync_fn)(cache  *cc,
-                               uint64  addr,
-                               uint64 *pages_outstanding);
+typedef void (*page_writeback_fn)(cache       *cc,
+                                  page_handle *page,
+                                  bool32       is_blocking,
+                                  page_type    type);
+typedef void (*extent_writeback_fn)(cache  *cc,
+                                    uint64  addr,
+                                    uint64 *pages_outstanding);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 typedef int (*evict_fn)(cache *cc, bool32 ignore_pinned);
 typedef bool32 (*page_addr_pred_fn)(cache *cc, uint64 addr);
@@ -163,35 +163,36 @@ typedef struct cache_ops {
    page_get_async_fn              page_get_async;
    page_get_async_state_result_fn page_get_async_result;
 
-   page_generic_fn      page_unget;
-   page_try_claim_fn    page_try_claim;
-   page_generic_fn      page_unclaim;
-   page_generic_fn      page_lock;
-   page_generic_fn      page_unlock;
-   page_prefetch_fn     page_prefetch;
-   page_prefetch_fn     page_prefetch_page;
-   page_generic_fn      page_mark_dirty;
-   page_generic_fn      page_pin;
-   page_generic_fn      page_unpin;
-   page_sync_fn         page_sync;
-   extent_sync_fn       extent_sync;
-   cache_generic_fn     flush;
-   evict_fn             evict;
-   cache_generic_fn     cleanup;
-   page_addr_pred_fn    in_use;
-   page_addr_fn         assert_ungot;
-   cache_generic_fn     assert_free;
-   validate_page_fn     validate_page;
-   cache_present_fn     cache_present;
-   cache_print_fn       print;
-   cache_print_fn       print_stats;
-   io_stats_fn          io_stats;
-   cache_generic_fn     reset_stats;
-   count_dirty_fn       count_dirty;
-   page_get_read_ref_fn page_get_read_ref;
-   enable_sync_get_fn   enable_sync_get;
-   get_allocator_fn     get_allocator;
-   cache_config_fn      get_config;
+   page_generic_fn         page_unget;
+   page_try_claim_fn       page_try_claim;
+   page_generic_fn         page_unclaim;
+   page_generic_fn         page_lock;
+   page_generic_fn         page_unlock;
+   page_prefetch_fn        page_prefetch;
+   page_prefetch_fn        page_prefetch_page;
+   page_generic_fn         page_pin;
+   page_generic_fn         page_unpin;
+   page_writeback_fn       page_writeback;
+   extent_writeback_fn     extent_writeback;
+   cache_generic_void_fn   flush;
+   cache_generic_status_fn writeback_dirty;
+   cache_generic_status_fn durable_barrier;
+   evict_fn                evict;
+   cache_generic_void_fn   cleanup;
+   page_addr_pred_fn       in_use;
+   page_addr_fn            assert_ungot;
+   cache_generic_void_fn   assert_free;
+   validate_page_fn        validate_page;
+   cache_present_fn        cache_present;
+   cache_print_fn          print;
+   cache_print_fn          print_stats;
+   io_stats_fn             io_stats;
+   cache_generic_void_fn   reset_stats;
+   count_dirty_fn          count_dirty;
+   page_get_read_ref_fn    page_get_read_ref;
+   enable_sync_get_fn      enable_sync_get;
+   get_allocator_fn        get_allocator;
+   cache_config_fn         get_config;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -366,8 +367,7 @@ cache_unclaim(cache *cc, page_handle *page)
  *
  * Blocks until outstanding read locks are released by other threads.
  *
- * If you call this method, you almost certainly want to call
- * cache_mark_dirty() immediately afterward.
+ * Acquiring the write lock marks the page dirty.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -429,27 +429,6 @@ cache_prefetch_page(cache *cc, uint64 addr, page_type type)
 
 /*
  *----------------------------------------------------------------------
- * cache_mark_dirty
- *
- * Marks a page changed, to be written back.
- * The caller had better have the write lock on the page via cache_lock()
- * before changing its value.
- *
- * TODO This method should be removed; its effect should come automatically
- * with the acquisition of a write lock. @robj reports lots of bugs
- * due to forgetting to call this method. And we can't think of a case
- * where we'd want the "optimization" of taking a write lock but then
- * decide not to dirty it.
- *----------------------------------------------------------------------
- */
-static inline void
-cache_mark_dirty(cache *cc, page_handle *page)
-{
-   return cc->ops->page_mark_dirty(cc, page);
-}
-
-/*
- *----------------------------------------------------------------------
  * cache_pin
  *
  * Pin the page in the cache, disallowing eviction.
@@ -484,37 +463,44 @@ cache_unpin(cache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * cache_page_sync
+ * cache_page_writeback
  *
- * Asynchronously writes the page back to disk.
+ * Issues writeback of the page to disk. This does NOT make the page durable;
+ * it only hands the write to the I/O layer (no device-cache flush).
  *
- * This is used to sync log pages opportunistically. The current API doesn't
- * inform the user when this happens. "It's not the ideal API." -- @aconway
+ * With is_blocking == FALSE the writeback is issued asynchronously and this
+ * returns without waiting for completion; there is no per-call way to observe
+ * when it finishes. With is_blocking == TRUE the page is written synchronously
+ * and the write has completed by the time this returns.
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_page_sync(cache       *cc,
-                page_handle *page,
-                bool32       is_blocking,
-                page_type    type)
+cache_page_writeback(cache       *cc,
+                     page_handle *page,
+                     bool32       is_blocking,
+                     page_type    type)
 {
-   return cc->ops->page_sync(cc, page, is_blocking, type);
+   return cc->ops->page_writeback(cc, page, is_blocking, type);
 }
 
 /*
  *-----------------------------------------------------------------------------
- * cache_extent_sync
+ * cache_extent_writeback
  *
- * Asynchronously syncs the extent beginning at addr.
+ * Asynchronously issues writeback of the extent beginning at addr. This does
+ * NOT make the extent durable; it only hands the writes to the I/O layer (no
+ * device-cache flush) and returns without waiting for completion.
  *
  * *pages_outstanding is immediately incremented by the number of pages
  * issued for writeback (the non-clean pages of the extent); as writebacks
- * complete, *pages_outstanding is decremented atomically.
+ * complete, *pages_outstanding is decremented atomically. This counter is the
+ * only way to observe when the issued writebacks finish.
  *
  * Assumes pages_outstanding is an aligned uint64, so (on x86) the caller
  * can access it and observe its value atomically.
  *
- * TODO: What happens if two callers call cache_extent_sync on the same extent?
+ * TODO: What happens if two callers call cache_extent_writeback on the same
+ * extent?
  *
  * All pages in the extent must be clean or cleanable.
  * The page may not be in writeback, loading, or locked, or claimed, otherwise
@@ -522,9 +508,9 @@ cache_page_sync(cache       *cc,
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
+cache_extent_writeback(cache *cc, uint64 addr, uint64 *pages_outstanding)
 {
-   cc->ops->extent_sync(cc, addr, pages_outstanding);
+   cc->ops->extent_writeback(cc, addr, pages_outstanding);
 }
 
 /*
@@ -540,6 +526,35 @@ static inline void
 cache_flush(cache *cc)
 {
    cc->ops->flush(cc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_writeback_dirty
+ *
+ * Issues and wait for completion of writebacks for all pages that are dirty
+ * but not locked at the time of the call.  May writeback other pages, as well.
+ *-----------------------------------------------------------------------------
+ */
+static inline platform_status
+cache_writeback_dirty(cache *cc)
+{
+   return cc->ops->writeback_dirty(cc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_durable_barrier
+ *
+ * Ensure that writeback completed before this call is durable across a power
+ * loss. Callers normally use this after cache_writeback_dirty(), and again
+ * after publishing a checkpoint superblock.
+ *-----------------------------------------------------------------------------
+ */
+static inline platform_status
+cache_durable_barrier(cache *cc)
+{
+   return cc->ops->durable_barrier(cc);
 }
 
 /*

@@ -136,18 +136,36 @@ typedef platform_status (*alloc_fn)(allocator *al,
 typedef refcount (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
 typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
 
-typedef platform_status (*get_super_addr_fn)(allocator        *al,
-                                             allocator_root_id spl_id,
-                                             uint64           *addr);
-typedef platform_status (*alloc_super_addr_fn)(allocator        *al,
-                                               allocator_root_id spl_id,
-                                               uint64           *addr);
-typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
+/*
+ * Record one logical reference to addr while rebuilding a recovery map (see
+ * allocator_load_refcounts() with rebuild == TRUE). The first reference to a
+ * given extent establishes its nonzero allocation floor; later references
+ * increment it normally. addr must be the base address of a non-reserved
+ * extent.
+ */
+typedef platform_status (*recovery_record_reference_fn)(allocator *al,
+                                                        uint64     addr,
+                                                        page_type  type);
+
+/*
+ *
+ */
+typedef platform_status (*generic_status_allocator_fn)(allocator *al);
+
+/*
+ * Write the refcount map to its durable location and make it durable.  Returns
+ * the base address of the persisted map in *state_addr; the caller records that
+ * as the superblock's allocation_state_addr only after this returns, so the
+ * "map is trustworthy" flag never becomes durable before the map itself.  Not
+ * valid while a recovery rebuild is in progress.
+ */
+typedef platform_status (*persist_refcounts_fn)(allocator *al,
+                                                uint64    *state_addr);
+
 typedef uint64 (*get_size_fn)(allocator *al);
 typedef uint64 (*base_addr_fn)(const allocator *al, uint64 addr);
 
-typedef void (*print_fn)(allocator *al);
-typedef void (*assert_fn)(allocator *al);
+typedef void (*generic_void_allocator_fn)(allocator *al);
 
 /*
  * Define an abstract allocator interface, holding different allocation-related
@@ -155,28 +173,34 @@ typedef void (*assert_fn)(allocator *al);
  */
 typedef struct allocator_ops {
    allocator_get_config_fn get_config;
-   alloc_fn                alloc;
 
+   alloc_fn       alloc;
    generic_ref_fn inc_ref;
    dec_ref_fn     dec_ref;
    generic_ref_fn get_ref;
 
-   alloc_super_addr_fn  alloc_super_addr;
-   get_super_addr_fn    get_super_addr;
-   remove_super_addr_fn remove_super_addr;
+   // After a mount, you must do either a recovery or a load
+
+   generic_status_allocator_fn  recovery_begin;
+   recovery_record_reference_fn recovery_record_reference;
+   generic_void_allocator_fn    recovery_finish;
+
+   generic_status_allocator_fn load_refcounts;
+
+   persist_refcounts_fn persist;
 
    get_size_fn in_use;
 
    get_size_fn  get_capacity;
    base_addr_fn extent_base_addr;
 
-   assert_fn assert_noleaks;
+   generic_void_allocator_fn assert_noleaks;
 
-   print_fn print_stats;
-   print_fn print_allocated;
+   generic_void_allocator_fn print_stats;
+   generic_void_allocator_fn print_allocated;
 } allocator_ops;
 
-// To sub-class cache, make a cache your first field;
+// To sub-class allocator, make an allocator your first field;
 struct allocator {
    const allocator_ops *ops;
 };
@@ -212,23 +236,34 @@ allocator_get_refcount(allocator *al, uint64 addr)
 }
 
 static inline platform_status
-allocator_get_super_addr(allocator *al, allocator_root_id spl_id, uint64 *addr)
+allocator_recovery_begin(allocator *al)
 {
-   return al->ops->get_super_addr(al, spl_id, addr);
+   return al->ops->recovery_begin(al);
 }
 
 static inline platform_status
-allocator_alloc_super_addr(allocator        *al,
-                           allocator_root_id spl_id,
-                           uint64           *addr)
+allocator_recovery_record_reference(allocator *al, uint64 addr, page_type type)
 {
-   return al->ops->alloc_super_addr(al, spl_id, addr);
+   return al->ops->recovery_record_reference(al, addr, type);
 }
 
 static inline void
-allocator_remove_super_addr(allocator *al, allocator_root_id spl_id)
+allocator_recovery_finish(allocator *al)
 {
-   return al->ops->remove_super_addr(al, spl_id);
+   al->ops->recovery_finish(al);
+}
+
+
+static inline platform_status
+allocator_load_refcounts(allocator *al)
+{
+   return al->ops->load_refcounts(al);
+}
+
+static inline platform_status
+allocator_persist(allocator *al, uint64 *state_addr)
+{
+   return al->ops->persist(al, state_addr);
 }
 
 static inline uint64

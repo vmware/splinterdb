@@ -633,14 +633,12 @@ cmp_ptrs(const void *a, const void *b)
  * where OP is insert, delete, increment, or decrement.
  * Verifies the results against the shadow.
  *
- * The test does each of these operations for each of the "num_tables" passed
- * in as argument.
  *-----------------------------------------------------------------------------
  */
 platform_status
 test_functionality(allocator            *al,
                    io_handle            *io,
-                   cache                *cc[],
+                   cache                *cc,
                    system_config        *cfg,
                    test_workload_config *workload_cfg,
                    uint64                seed,
@@ -648,25 +646,16 @@ test_functionality(allocator            *al,
                    uint64                correctness_check_frequency,
                    task_system          *state,
                    platform_heap_id      hid,
-                   uint8                 num_tables,
-                   uint8                 num_caches,
                    uint32                max_async_inflight)
 {
-   platform_error_log("Functional test started with %d tables\n", num_tables);
+   platform_error_log("Functional test started\n");
    platform_assert(cc != NULL);
 
-   core_handle *spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
-   platform_assert(spl_tables != NULL);
+   core_handle *spl = TYPED_ZALLOC(hid, spl);
+   platform_assert(spl != NULL);
 
-   test_splinter_shadow_tree **shadows =
-      TYPED_ARRAY_ZALLOC(hid, shadows, num_tables);
+   test_splinter_shadow_tree *shadow = NULL;
 
-   platform_assert(shadows != NULL);
-
-   allocator_root_id *splinters =
-      TYPED_ARRAY_ZALLOC(hid, splinters, num_tables);
-
-   platform_assert(splinters != NULL);
    test_async_lookup *async_lookup;
    if (max_async_inflight > 0) {
       async_ctxt_init(hid, max_async_inflight, &async_lookup);
@@ -679,49 +668,35 @@ test_functionality(allocator            *al,
 
    random_init(&prg, seed, 0);
 
-   // Initialize the splinter/shadow for each splinter table.
-   for (uint8 idx = 0; idx < num_tables; idx++) {
-      cache *cache_to_use = num_caches > 1 ? cc[idx] : *cc;
-      status = test_splinter_shadow_create(&shadows[idx], hid, num_inserts);
-      if (!SUCCESS(status)) {
-         platform_error_log("Failed to init shadow for splinter: %s\n",
-                            platform_status_to_string(status));
-         goto cleanup;
-      }
-      splinters[idx] = test_generate_allocator_root_id();
-
-      status = core_mkfs(&spl_tables[idx],
-                         &cfg[idx].splinter_cfg,
-                         al,
-                         cache_to_use,
-                         state,
-                         splinters[idx],
-                         hid);
-      if (!SUCCESS(status)) {
-         platform_error_log("core_mkfs() failed for index=%d: %s\n",
-                            idx,
-                            platform_status_to_string(status));
-         goto cleanup;
-      }
+   // Initialize the splinter table and its shadow.
+   status = test_splinter_shadow_create(&shadow, hid, num_inserts);
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init shadow for splinter: %s\n",
+                         platform_status_to_string(status));
+      goto cleanup;
    }
 
-   // Validate each tree against an empty shadow.
-   for (uint8 idx = 0; idx < num_tables; idx++) {
-      core_handle               *spl    = &spl_tables[idx];
-      test_splinter_shadow_tree *shadow = shadows[idx];
-      status                            = validate_tree_against_shadow(spl,
-                                            &prg,
-                                            shadow,
-                                            hid,
-                                            workload_cfg[idx].key_size,
-                                            TRUE,
-                                            async_lookup);
-      if (!SUCCESS(status)) {
-         platform_error_log("Failed to validate empty tree against shadow: \
-                            %s\n",
-                            platform_status_to_string(status));
-         goto cleanup;
-      }
+   status = core_mkfs(spl,
+                      &cfg->splinter_cfg,
+                      al,
+                      cc,
+                      io,
+                      state,
+                      test_generate_allocator_root_id(),
+                      hid);
+   if (!SUCCESS(status)) {
+      platform_error_log("core_mkfs() failed: %s\n",
+                         platform_status_to_string(status));
+      goto cleanup;
+   }
+
+   // Validate the tree against an empty shadow.
+   status = validate_tree_against_shadow(
+      spl, &prg, shadow, hid, workload_cfg->key_size, TRUE, async_lookup);
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to validate empty tree against shadow: %s\n",
+                         platform_status_to_string(status));
+      goto cleanup;
    }
 
    // Run the test
@@ -785,108 +760,69 @@ test_functionality(allocator            *al,
                            mindelta,
                            maxdelta);
 
-      // Run the main test loop for each table.
-      for (uint8 idx = 0; idx < num_tables; idx++) {
-         // cache *cache_to_use = num_caches > 1 ? cc[idx] : *cc;
-         core_handle               *spl    = &spl_tables[idx];
-         test_splinter_shadow_tree *shadow = shadows[idx];
-         // allocator_root_id spl_id = splinters[idx];
-
-         status = insert_random_messages(spl,
-                                         shadow,
-                                         &prg,
-                                         workload_cfg[idx].key_size,
-                                         num_messages,
-                                         op,
-                                         minkey,
-                                         maxkey,
-                                         mindelta,
-                                         maxdelta);
-         if (!SUCCESS(status)) {
-            platform_error_log("Sumpin failed inserting messages: %s\n",
-                               platform_status_to_string(status));
-            goto cleanup;
-         }
-
-         status = validate_tree_against_shadow(
-            spl,
-            &prg,
-            shadow,
-            hid,
-            workload_cfg[idx].key_size,
-            correctness_check_frequency
-               && (i % correctness_check_frequency) == 0,
-            async_lookup);
-         if (!SUCCESS(status)) {
-            platform_default_log("Failed to validate tree against shadow: %s\n",
-                                 platform_status_to_string(status));
-            goto cleanup;
-         }
-
-         /* if (correctness_check_frequency && i != 0 && */
-         /*     (i % correctness_check_frequency) == 0) { */
-         /*    platform_assert(trunk_verify_tree(spl)); */
-         /*    platform_default_log("Dismount and remount\n"); */
-         /*    allocator_config *al_cfg  = ((rc_allocator *)al)->cfg; */
-         /*    uint64 prev_root_addr = spl->root_addr; */
-         /*    trunk_dismount(spl); */
-         /*    rc_allocator_dismount((rc_allocator *)al); */
-         /*    rc_allocator_mount((rc_allocator *)al, al_cfg, io, hh, hid, */
-         /*                       platform_get_module_id()); */
-         /*    spl = trunk_mount(&cfg[idx], al, cache_to_use, state, spl_id,
-          */
-         /*                         hid); */
-         /*    spl_tables[idx] = spl; */
-         /*    if (spl->root_addr != prev_root_addr) { */
-         /*       platform_error_log("Mismatch in root addr across mount\n");
-          */
-         /*       status = STATUS_TEST_FAILED; */
-         /*       goto cleanup; */
-         /*    } */
-         /* } */
+      status = insert_random_messages(spl,
+                                      shadow,
+                                      &prg,
+                                      workload_cfg->key_size,
+                                      num_messages,
+                                      op,
+                                      minkey,
+                                      maxkey,
+                                      mindelta,
+                                      maxdelta);
+      if (!SUCCESS(status)) {
+         platform_error_log("Sumpin failed inserting messages: %s\n",
+                            platform_status_to_string(status));
+         goto cleanup;
       }
-
-      total_inserts += num_messages;
-      i++;
-   }
-
-   // Validate each tree against the shadow one last time.
-   for (uint8 idx = 0; idx < num_tables; idx++) {
-      core_handle               *spl    = &spl_tables[idx];
-      test_splinter_shadow_tree *shadow = shadows[idx];
 
       status = validate_tree_against_shadow(
          spl,
          &prg,
          shadow,
          hid,
-         workload_cfg[idx].key_size,
-         correctness_check_frequency
-            && ((i - 1) % correctness_check_frequency) != 0,
+         workload_cfg->key_size,
+         correctness_check_frequency && (i % correctness_check_frequency) == 0,
          async_lookup);
       if (!SUCCESS(status)) {
-         platform_error_log("Failed to validate tree against shadow one \
-                            last time: %s\n",
-                            platform_status_to_string(status));
+         platform_default_log("Failed to validate tree against shadow: %s\n",
+                              platform_status_to_string(status));
          goto cleanup;
       }
+
+      total_inserts += num_messages;
+      i++;
+   }
+
+   // Validate the tree against the shadow one last time.
+   status = validate_tree_against_shadow(
+      spl,
+      &prg,
+      shadow,
+      hid,
+      workload_cfg->key_size,
+      correctness_check_frequency
+         && ((i - 1) % correctness_check_frequency) != 0,
+      async_lookup);
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to validate tree against shadow one last "
+                         "time: %s\n",
+                         platform_status_to_string(status));
+      goto cleanup;
    }
 
 cleanup:
-   for (uint8 idx = 0; idx < num_tables; idx++) {
-      if (spl_tables[idx].cc != NULL) {
-         core_destroy(&spl_tables[idx]);
-      }
-      if (shadows[idx] != NULL) {
-         test_splinter_shadow_destroy(hid, shadows[idx]);
-      }
+   if (spl->cc != NULL) {
+      core_print_insertion_stats(Platform_default_log_handle, spl);
+      core_destroy(spl);
+   }
+   if (shadow != NULL) {
+      test_splinter_shadow_destroy(hid, shadow);
    }
 
    if (async_lookup) {
       async_ctxt_deinit(hid, async_lookup);
    }
-   platform_free(hid, spl_tables);
-   platform_free(hid, splinters);
-   platform_free(hid, shadows);
+   platform_free(hid, spl);
    return status;
 }

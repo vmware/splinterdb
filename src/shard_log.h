@@ -41,17 +41,26 @@ typedef struct shard_log {
    log_handle            super; // handle to log I/O ops abstraction.
    cache                *cc;
    shard_log_config     *cfg;
+   platform_heap_id      heap_id;
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
    uint64                addr;
    uint64                meta_head;
    uint64                magic;
+   /*
+    * Extents the mini-allocator held once the stream was initialized -- its
+    * fixed per-stream overhead (a metadata extent plus one per batch).
+    * shard_log_get_size() subtracts it so a fresh stream reports zero bytes
+    * appended.
+    */
+   uint64 initial_extents;
 } shard_log;
 
 typedef struct log_entry log_entry;
 
 typedef struct shard_log_iterator {
-   iterator          super;
+   log_iterator      super; // IS-A log_iterator IS-A generic iterator
+   platform_heap_id  heap_id;
    cache            *cc;
    shard_log_config *cfg;
    char             *contents;
@@ -73,22 +82,25 @@ typedef struct ONDISK shard_log_hdr {
    uint16      num_entries;
 } shard_log_hdr;
 
-platform_status
-shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg);
+/*
+ * Create a fresh sharded write-ahead log stream.  Returns an abstract
+ * log_handle (or NULL on failure) to be driven through the log.h interface and
+ * retired with log_seal().
+ */
+log_handle *
+shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid);
 
-void
-shard_log_zap(shard_log *log);
-
-platform_status
-shard_log_iterator_init(cache              *cc,
-                        shard_log_config   *cfg,
-                        platform_heap_id    hid,
-                        uint64              addr,
-                        uint64              magic,
-                        shard_log_iterator *itor);
-
-void
-shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor);
+/*
+ * Create an iterator over the sharded log identified by `head`, reading its
+ * records in generation order.  Returns an abstract log_iterator (or NULL on
+ * failure) to be driven through the log.h interface and freed with
+ * log_iterator_deinit().
+ */
+log_iterator *
+shard_log_iterator_create(cache            *cc,
+                          shard_log_config *cfg,
+                          platform_heap_id  hid,
+                          log_head          head);
 
 void
 shard_log_config_init(shard_log_config *log_cfg,

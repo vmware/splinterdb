@@ -25,40 +25,6 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int
-shard_log_write(log_handle *log, key tuple_key, message msg, uint64 generation);
-uint64
-shard_log_addr(log_handle *log);
-uint64
-shard_log_meta_addr(log_handle *log);
-uint64
-shard_log_magic(log_handle *log);
-
-static log_ops shard_log_ops = {
-   .write     = shard_log_write,
-   .addr      = shard_log_addr,
-   .meta_addr = shard_log_meta_addr,
-   .magic     = shard_log_magic,
-};
-
-void
-shard_log_iterator_curr(iterator *itor, key *curr_key, message *msg);
-bool32
-shard_log_iterator_can_prev(iterator *itor);
-bool32
-shard_log_iterator_can_next(iterator *itor);
-platform_status
-shard_log_iterator_next(iterator *itor);
-
-
-const static iterator_ops shard_log_iterator_ops = {
-   .curr     = shard_log_iterator_curr,
-   .can_prev = shard_log_iterator_can_prev,
-   .can_next = shard_log_iterator_can_next,
-   .next     = shard_log_iterator_next,
-   .print    = NULL,
-};
-
 static const page_type shard_log_page_type_table[NUM_BLOB_BATCHES + 1] = {
    PAGE_TYPE_LOG,
    [1 ... NUM_BLOB_BATCHES] = PAGE_TYPE_BLOB,
@@ -74,6 +40,12 @@ static inline uint64
 shard_log_pages_per_extent(shard_log_config *cfg)
 {
    return cache_config_pages_per_extent(cfg->cache_cfg);
+}
+
+static inline uint64
+shard_log_extent_size(shard_log_config *cfg)
+{
+   return cache_config_extent_size(cfg->cache_cfg);
 }
 
 static inline checksum128
@@ -93,56 +65,10 @@ page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
    uint64 addr = mini_alloc_page(&log->mini, 0, next_extent);
+   if (addr == 0) {
+      return NULL;
+   }
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
-}
-
-platform_status
-shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
-{
-   memset(log, 0, sizeof(shard_log));
-   log->cc        = cc;
-   log->cfg       = cfg;
-   log->super.ops = &shard_log_ops;
-
-   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
-   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
-
-   allocator      *al = cache_get_allocator(cc);
-   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
-   platform_assert_status_ok(rc);
-
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data =
-         shard_log_get_thread_data(log, thr_i);
-      thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->offset = 0;
-   }
-
-   log->addr = mini_init_with_types(&log->mini,
-                                    cc,
-                                    log->meta_head,
-                                    0,
-                                    NUM_BLOB_BATCHES + 1,
-                                    PAGE_TYPE_LOG,
-                                    shard_log_page_type_table);
-   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
-   // log->meta_head);
-
-   return STATUS_OK;
-}
-
-void
-shard_log_zap(shard_log *log)
-{
-   cache *cc = log->cc;
-
-   for (threadid i = 0; i < MAX_THREADS; i++) {
-      shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
-      thread_data->addr                  = SHARD_UNMAPPED;
-      thread_data->offset                = 0;
-   }
-
-   mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
 }
 
 /*
@@ -152,11 +78,12 @@ shard_log_zap(shard_log *log)
  * -------------------------------------------------------------------------
  */
 struct ONDISK log_entry {
-   uint64       generation;
+   uint64       memtable_generation;
+   uint64       leaf_generation;
    ondisk_tuple tuple;
 };
 
-#define INVALID_GENERATION ((uint64) - 1)
+#define INVALID_LOG_GENERATION ((uint64) - 1)
 
 static key
 log_entry_key(log_entry *le)
@@ -200,7 +127,19 @@ static bool32
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
    return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
-          || le->generation == INVALID_GENERATION;
+          || le->memtable_generation == INVALID_LOG_GENERATION;
+}
+
+static inline void
+log_entry_set_terminal(log_entry *le)
+{
+   /*
+    * terminal_log_entry() tests memtable_generation.  Mark both generation
+    * fields invalid so the terminator cannot be confused with a record by
+    * diagnostics or a future format validator.
+    */
+   le->leaf_generation     = INVALID_LOG_GENERATION;
+   le->memtable_generation = INVALID_LOG_GENERATION;
 }
 
 static log_entry *
@@ -216,7 +155,10 @@ get_new_page_for_thread(shard_log             *log,
 {
    uint64 next_extent;
 
-   *page                 = shard_log_alloc(log, &next_extent);
+   *page = shard_log_alloc(log, &next_extent);
+   if (*page == NULL) {
+      return -1;
+   }
    thread_data->addr     = (*page)->disk_addr;
    shard_log_hdr *hdr    = (shard_log_hdr *)(*page)->data;
    hdr->magic            = log->magic;
@@ -227,9 +169,15 @@ get_new_page_for_thread(shard_log             *log,
 }
 
 int
-shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
+shard_log_write(log_handle *logh,
+                key         tuple_key,
+                message     msg,
+                uint64      memtable_generation,
+                uint64      leaf_generation)
 {
    debug_assert(key_is_user_key(tuple_key));
+   debug_assert(memtable_generation != INVALID_LOG_GENERATION);
+   debug_assert(leaf_generation != INVALID_LOG_GENERATION);
 
    shard_log        *log = (shard_log *)logh;
    cache            *cc  = log->cc;
@@ -290,13 +238,13 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 
    if (free_space < new_entry_size) {
       if (sizeof(log_entry) <= free_space) {
-         cursor->generation = INVALID_GENERATION;
+         log_entry_set_terminal(cursor);
       }
       hdr->checksum = shard_log_checksum(log->cfg, page);
 
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
-      cache_page_sync(cc, page, FALSE, PAGE_TYPE_LOG);
+      cache_page_writeback(cc, page, FALSE, PAGE_TYPE_LOG);
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {
@@ -309,7 +257,8 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
       hdr    = (shard_log_hdr *)page->data;
    }
 
-   cursor->generation = generation;
+   cursor->memtable_generation = memtable_generation;
+   cursor->leaf_generation     = leaf_generation;
    copy_tuple_to_ondisk_tuple(&cursor->tuple, tuple_key, msg);
 
    hdr->num_entries++;
@@ -332,25 +281,104 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    return 0;
 }
 
-uint64
-shard_log_addr(log_handle *logh)
+/*
+ * shard_log_seal --
+ *
+ *     Finalize and retire a log stream, terminally.  Finalizes every currently
+ *     active per-thread append page (bounded by MAX_THREADS; it does not walk
+ *     the historical log): a terminal record (where there is room) and checksum
+ *     make each page readable by shard_log_iterator_init().  Then it releases
+ *     the mini-allocator's unused reserve and frees the handle.  After seal the
+ *     handle is invalid; the caller retains the identity it captured earlier
+ *     (shard_log_get_head(), fixed at creation) to reopen the stream
+ *     for replay and, eventually, to free its extents via log_dec_ref().
+ *
+ *     The caller must prevent concurrent shard_log_write() and seal calls.
+ *     seal itself issues no writeback or durable barrier: to make the sealed
+ *     pages durable, the caller takes cache_writeback_dirty() followed by a
+ *     durable barrier.
+ */
+platform_status
+shard_log_seal(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   return log->addr;
+   cache     *cc  = log->cc;
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(log, thr_i);
+      uint64 addr = thread_data->addr;
+      if (addr == SHARD_UNMAPPED) {
+         continue;
+      }
+
+      page_handle *page = cache_get(cc, addr, TRUE, PAGE_TYPE_LOG);
+      uint64       wait = 1;
+      while (!cache_try_claim(cc, page)) {
+         /*
+          * Even though the stream is quiescent (no concurrent writers/seals),
+          * the background cache evictor can transiently hold the claim on a
+          * cleaned log page before it drains our read-ref, so we still retry
+          * rather than assert.
+          */
+         cache_unget(cc, page);
+         platform_sleep_ns(wait);
+         wait = wait > 1024 ? wait : 2 * wait;
+         page = cache_get(cc, addr, TRUE, PAGE_TYPE_LOG);
+      }
+      cache_lock(cc, page);
+
+      debug_assert(thread_data->addr == addr);
+      debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
+      debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
+
+      shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
+      log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
+      uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
+      if (sizeof(log_entry) <= free_space) {
+         log_entry_set_terminal(cursor);
+      }
+      hdr->checksum = shard_log_checksum(log->cfg, page);
+
+      cache_unlock(cc, page);
+      cache_unclaim(cc, page);
+      cache_unget(cc, page);
+
+      /* Subsequent writes must allocate a new append page. */
+      thread_data->addr   = SHARD_UNMAPPED;
+      thread_data->offset = 0;
+   }
+
+   /*
+    * The stream is now immutable.  Release the mini-allocator's unused
+    * per-batch reserve so no future allocation touches this stream, and free
+    * the handle.  The caller already holds the stream's identity (captured at
+    * creation) and later frees the on-disk extents via log_dec_ref().
+    */
+   mini_release(&log->mini);
+   platform_free(log->heap_id, log);
+   return STATUS_OK;
 }
 
-uint64
-shard_log_meta_addr(log_handle *logh)
+void
+log_dec_ref(cache *cc, const log_head *segment)
 {
-   shard_log *log = (shard_log *)logh;
-   return log->meta_head;
+   if (segment->meta_addr == 0) {
+      return;
+   }
+   refcount ref = mini_dec_ref(cc, segment->meta_addr, PAGE_TYPE_LOG);
+   platform_assert(ref == 0);
 }
 
-uint64
-shard_log_magic(log_handle *logh)
+log_head
+shard_log_get_head(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   return log->magic;
+   return (log_head){
+      .addr      = log->addr,
+      .meta_addr = log->meta_head,
+      .magic     = log->magic,
+   };
 }
 
 bool32
@@ -369,34 +397,240 @@ shard_log_next_extent_addr(shard_log_config *cfg, page_handle *page)
    return hdr->next_extent_addr;
 }
 
+/*
+ * Bytes appended to the stream so far.  The mini-allocator already tracks the
+ * extents it has handed out across all of the stream's batches (data and blob),
+ * counting each as it is reserved -- the same measure memtable_is_full() uses
+ * for a memtable.  Subtracting the fixed overhead recorded at init means a
+ * fresh stream reports 0, so a caller comparing against a threshold cannot be
+ * tricked into rotating a stream that has had nothing written to it.
+ */
+uint64
+shard_log_get_size(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   return (mini_num_extents(&log->mini) - log->initial_extents)
+          * shard_log_extent_size(log->cfg);
+}
+
+static log_ops shard_log_ops = {
+   .write = shard_log_write,
+   .seal  = shard_log_seal,
+   .head  = shard_log_get_head,
+   .size  = shard_log_get_size,
+};
+
+static platform_status
+shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
+{
+   memset(log, 0, sizeof(shard_log));
+   log->cc        = cc;
+   log->cfg       = cfg;
+   log->super.ops = &shard_log_ops;
+
+   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
+   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
+
+   allocator      *al = cache_get_allocator(cc);
+   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
+   platform_assert_status_ok(rc);
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(log, thr_i);
+      thread_data->addr   = SHARD_UNMAPPED;
+      thread_data->offset = 0;
+   }
+
+   log->addr = mini_init_with_types(&log->mini,
+                                    cc,
+                                    log->meta_head,
+                                    0,
+                                    NUM_BLOB_BATCHES + 1,
+                                    PAGE_TYPE_LOG,
+                                    shard_log_page_type_table);
+   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
+   // log->meta_head);
+
+   // Baseline for shard_log_get_size(): the stream's fixed overhead.
+   log->initial_extents = mini_num_extents(&log->mini);
+
+   return STATUS_OK;
+}
+
+log_handle *
+shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid)
+{
+   shard_log *slog = TYPED_MALLOC(hid, slog);
+   if (slog == NULL) {
+      platform_error_log("shard_log_create: failed to allocate shard_log\n");
+      return NULL;
+   }
+   platform_status rc = shard_log_init(slog, cc, cfg);
+   if (!SUCCESS(rc)) {
+      platform_error_log("shard_log_create: shard_log_init failed: %s\n",
+                         platform_status_to_string(rc));
+      platform_free(hid, slog);
+      return NULL;
+   }
+   // Remember the heap so log_seal() can free the handle without the caller
+   // touching platform_free() directly.
+   slog->heap_id = hid;
+   return (log_handle *)slog;
+}
+
 int
 shard_log_compare(const void *p1, const void *p2, void *unused)
 {
    log_entry **le1 = (log_entry **)p1;
    log_entry **le2 = (log_entry **)p2;
-   return (*le1)->generation - (*le2)->generation;
+
+   if ((*le1)->memtable_generation < (*le2)->memtable_generation) {
+      return -1;
+   }
+   if ((*le1)->memtable_generation > (*le2)->memtable_generation) {
+      return 1;
+   }
+   if ((*le1)->leaf_generation < (*le2)->leaf_generation) {
+      return -1;
+   }
+   if ((*le1)->leaf_generation > (*le2)->leaf_generation) {
+      return 1;
+   }
+   return 0;
 }
 
-log_handle *
-log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
+void
+shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 {
-   shard_log_config *cfg  = (shard_log_config *)lcfg;
-   shard_log        *slog = TYPED_MALLOC(hid, slog);
-   if (slog == NULL) {
-      platform_error_log("log_create: failed to allocate shard_log\n");
-      return NULL;
-   }
-   platform_status rc = shard_log_init(slog, cc, cfg);
-   if (!SUCCESS(rc)) {
-      platform_error_log("log_create: shard_log_init failed: %s\n",
-                         platform_status_to_string(rc));
-      platform_free(hid, slog);
-      return NULL;
-   }
-   return (log_handle *)slog;
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   *curr_key                = log_entry_key(itor->entries[itor->pos]);
+   *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
+}
+
+static void
+shard_log_iterator_curr_generations(log_iterator *itorh,
+                                    uint64       *memtable_generation,
+                                    uint64       *leaf_generation)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   platform_assert(itor->pos < itor->num_entries);
+   *memtable_generation = itor->entries[itor->pos]->memtable_generation;
+   *leaf_generation     = itor->entries[itor->pos]->leaf_generation;
+}
+
+bool32
+shard_log_iterator_can_prev(iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   return itor->pos >= 0;
+}
+
+bool32
+shard_log_iterator_can_next(iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   return itor->pos < itor->num_entries;
 }
 
 platform_status
+shard_log_iterator_next(iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   itor->pos++;
+   return STATUS_OK;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * shard_log_config_init --
+ *
+ *      Initialize shard_log config values
+ *-----------------------------------------------------------------------------
+ */
+void
+shard_log_config_init(shard_log_config *log_cfg,
+                      cache_config     *cache_cfg,
+                      data_config      *data_cfg)
+{
+   ZERO_CONTENTS(log_cfg);
+   log_cfg->cache_cfg = cache_cfg;
+   log_cfg->data_cfg  = data_cfg;
+   log_cfg->seed      = HASH_SEED;
+   log_cfg->blob_cfg  = (blob_build_config){
+       .extent_batch  = 1,
+       .page_batch    = 2,
+       .subpage_batch = 3,
+       .alignment     = cache_config_page_size(cache_cfg),
+   };
+}
+
+void
+shard_log_print(shard_log *log)
+{
+   cache            *cc               = log->cc;
+   uint64            extent_addr      = log->addr;
+   shard_log_config *cfg              = log->cfg;
+   uint64            magic            = log->magic;
+   data_config      *dcfg             = cfg->data_cfg;
+   uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
+   allocator        *al               = cache_get_allocator(cc);
+
+   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
+      cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
+      uint64 next_extent_addr = 0;
+      for (uint64 i = 0; i < pages_per_extent; i++) {
+         uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
+         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         if (shard_log_valid(cfg, page, magic)) {
+            next_extent_addr = shard_log_next_extent_addr(cfg, page);
+            for (log_entry *le = first_log_entry(page->data);
+                 !terminal_log_entry(cfg, page->data, le);
+                 le = log_entry_next(le))
+            {
+               platform_default_log(
+                  "%s -- %s%s : memtable=%lu leaf=%lu\n",
+                  key_string(dcfg, log_entry_key(le)),
+                  log_entry_message_is_blob(le) ? "(blob) " : "",
+                  message_string(dcfg, log_entry_message(cc, le)),
+                  le->memtable_generation,
+                  le->leaf_generation);
+            }
+         }
+         cache_unget(cc, page);
+      }
+      extent_addr = next_extent_addr;
+   }
+}
+
+static void
+shard_log_iterator_deinit(log_iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   platform_heap_id    hid  = itor->heap_id;
+   if (itor->contents != NULL) {
+      platform_free(hid, itor->contents);
+   }
+   if (itor->entries != NULL) {
+      platform_free(hid, itor->entries);
+   }
+   platform_free(hid, itor); // the handle, from shard_log_iterator_create()
+}
+
+const static iterator_ops shard_log_iterator_ops = {
+   .curr     = shard_log_iterator_curr,
+   .can_prev = shard_log_iterator_can_prev,
+   .can_next = shard_log_iterator_can_next,
+   .next     = shard_log_iterator_next,
+   .print    = NULL,
+};
+
+const static log_iterator_ops shard_log_log_iterator_ops = {
+   .curr_generations = shard_log_iterator_curr_generations,
+   .deinit           = shard_log_iterator_deinit,
+};
+
+static platform_status
 shard_log_iterator_init(cache              *cc,
                         shard_log_config   *cfg,
                         platform_heap_id    hid,
@@ -414,10 +648,12 @@ shard_log_iterator_init(cache              *cc,
    uint64       contents_size;
 
    memset(itor, 0, sizeof(shard_log_iterator));
-   itor->super.ops = &shard_log_iterator_ops;
-   itor->cc        = cc;
-   itor->cfg       = cfg;
-   allocator *al   = cache_get_allocator(cc);
+   itor->super.super.ops = &shard_log_iterator_ops;     // generic iterator
+   itor->super.ops       = &shard_log_log_iterator_ops; // log_iterator
+   itor->heap_id         = hid;
+   itor->cc              = cc;
+   itor->cfg             = cfg;
+   allocator *al         = cache_get_allocator(cc);
 
    // traverse the log extents and calculate the required space
    extent_addr = addr;
@@ -508,104 +744,26 @@ finished_second_pass:
    return STATUS_OK;
 }
 
-void
-shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
+log_iterator *
+shard_log_iterator_create(cache            *cc,
+                          shard_log_config *cfg,
+                          platform_heap_id  hid,
+                          log_head          head)
 {
-   if (itor->contents != NULL) {
-      platform_free(hid, itor->contents);
+   shard_log_iterator *itor = TYPED_MALLOC(hid, itor);
+   if (itor == NULL) {
+      platform_error_log("shard_log_iterator_create: failed to allocate "
+                         "shard_log_iterator\n");
+      return NULL;
    }
-   if (itor->entries != NULL) {
-      platform_free(hid, itor->entries);
+   platform_status rc =
+      shard_log_iterator_init(cc, cfg, hid, head.addr, head.magic, itor);
+   if (!SUCCESS(rc)) {
+      platform_error_log("shard_log_iterator_create: shard_log_iterator_init "
+                         "failed: %s\n",
+                         platform_status_to_string(rc));
+      platform_free(hid, itor);
+      return NULL;
    }
-}
-
-void
-shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
-{
-   shard_log_iterator *itor = (shard_log_iterator *)itorh;
-   *curr_key                = log_entry_key(itor->entries[itor->pos]);
-   *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
-}
-
-bool32
-shard_log_iterator_can_prev(iterator *itorh)
-{
-   shard_log_iterator *itor = (shard_log_iterator *)itorh;
-   return itor->pos >= 0;
-}
-
-bool32
-shard_log_iterator_can_next(iterator *itorh)
-{
-   shard_log_iterator *itor = (shard_log_iterator *)itorh;
-   return itor->pos < itor->num_entries;
-}
-
-platform_status
-shard_log_iterator_next(iterator *itorh)
-{
-   shard_log_iterator *itor = (shard_log_iterator *)itorh;
-   itor->pos++;
-   return STATUS_OK;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * shard_log_config_init --
- *
- *      Initialize shard_log config values
- *-----------------------------------------------------------------------------
- */
-void
-shard_log_config_init(shard_log_config *log_cfg,
-                      cache_config     *cache_cfg,
-                      data_config      *data_cfg)
-{
-   ZERO_CONTENTS(log_cfg);
-   log_cfg->cache_cfg = cache_cfg;
-   log_cfg->data_cfg  = data_cfg;
-   log_cfg->seed      = HASH_SEED;
-   log_cfg->blob_cfg  = (blob_build_config){
-       .extent_batch  = 1,
-       .page_batch    = 2,
-       .subpage_batch = 3,
-       .alignment     = cache_config_page_size(cache_cfg),
-   };
-}
-
-void
-shard_log_print(shard_log *log)
-{
-   cache            *cc               = log->cc;
-   uint64            extent_addr      = log->addr;
-   shard_log_config *cfg              = log->cfg;
-   uint64            magic            = log->magic;
-   data_config      *dcfg             = cfg->data_cfg;
-   uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
-   allocator        *al               = cache_get_allocator(cc);
-
-   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
-      cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
-      uint64 next_extent_addr = 0;
-      for (uint64 i = 0; i < pages_per_extent; i++) {
-         uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
-         if (shard_log_valid(cfg, page, magic)) {
-            next_extent_addr = shard_log_next_extent_addr(cfg, page);
-            for (log_entry *le = first_log_entry(page->data);
-                 !terminal_log_entry(cfg, page->data, le);
-                 le = log_entry_next(le))
-            {
-               platform_default_log(
-                  "%s -- %s%s : %lu\n",
-                  key_string(dcfg, log_entry_key(le)),
-                  log_entry_message_is_blob(le) ? "(blob) " : "",
-                  message_string(dcfg, log_entry_message(cc, le)),
-                  le->generation);
-            }
-         }
-         cache_unget(cc, page);
-      }
-      extent_addr = next_extent_addr;
-   }
+   return &itor->super;
 }

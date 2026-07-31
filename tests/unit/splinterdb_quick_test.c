@@ -1252,6 +1252,49 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
 }
 
 /*
+ * With logging enabled, the two-log lifecycle records the live log in the
+ * superblock at create/mount and discards it (seal + dec_ref) at a clean close.
+ * A reopen must still find data inserted before the close.
+ */
+CTEST2(splinterdb_quick, test_logged_close_and_reopen)
+{
+   // Re-create the instance with logging enabled (SETUP created it without).
+   splinterdb_close(&data->kvsb);
+   data->cfg.use_log = TRUE;
+   int rc            = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   slice        user_key = slice_create(strlen("logged-key"), "logged-key");
+   const char  *val      = "logged-value";
+   const size_t val_len  = strlen(val);
+   rc =
+      splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val), NULL);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_close(&data->kvsb);
+   rc = splinterdb_open(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+
+   slice value;
+   rc = splinterdb_lookup_result_value(&result, &value);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(val_len, slice_length(value));
+   ASSERT_STREQN(val,
+                 slice_data(value),
+                 slice_length(value),
+                 "logged reopen value mismatch up to %d bytes\n",
+                 val_len);
+   splinterdb_lookup_result_deinit(&result);
+}
+
+/*
  * Regression test for bug where repeating a cycle of insert-close-reopen
  * causes a space leak and eventually hits an assertion
  * (fixed in PR #214 / commit 8b33fd149d33054173790a8a30b99e97f08ffa81)
@@ -1766,10 +1809,9 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 static uint64
 force_flush_current_memtable(splinterdb *kvsb)
 {
-   core_handle *core       = (core_handle *)splinterdb_get_trunk_handle(kvsb);
-   uint64       generation = memtable_force_finalize(&core->mt_ctxt);
-   core->mt_ctxt.process(core->mt_ctxt.process_ctxt, generation);
-   platform_status rc = task_perform_until_quiescent(core->ts);
+   core_handle    *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+   uint64          generation = memtable_force_rotation(&core->mt_ctxt);
+   platform_status rc         = task_perform_until_quiescent(core->ts);
    ASSERT_TRUE(SUCCESS(rc));
    return generation;
 }

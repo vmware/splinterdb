@@ -214,6 +214,35 @@ laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 }
 
 /*
+ *--------------------------------------------------------------------------
+ * laio_durable_barrier --
+ *
+ * Make completed writes durable. Waiting for asynchronous I/O only tells us
+ * that the kernel accepted the writes; fdatasync() supplies the persistence
+ * ordering needed by checkpoint publication on buffered files.
+ *--------------------------------------------------------------------------
+ */
+static platform_status
+laio_durable_barrier(io_handle *ioh)
+{
+   laio_handle *io = (laio_handle *)ioh;
+   int          ret;
+
+   do {
+      ret = fdatasync(io->fd);
+   } while (ret != 0 && errno == EINTR);
+
+   if (ret == 0) {
+      return STATUS_OK;
+   }
+
+   int saved_errno = errno;
+   platform_error_log("laio_durable_barrier: fdatasync failed: %s\n",
+                      strerror(saved_errno));
+   return CONST_STATUS(saved_errno);
+}
+
+/*
  * Accessor method: Return opaque handle to IO-context setup by io_setup().
  */
 static io_process_context *
@@ -674,6 +703,7 @@ static io_ops laio_ops = {
    .async_state_init = laio_async_state_init,
    .cleanup          = laio_cleanup,
    .wait_all         = laio_wait_all,
+   .durable_barrier  = laio_durable_barrier,
    .print_stats      = laio_print_stats,
    .reset_stats      = laio_reset_stats,
 };

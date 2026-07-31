@@ -101,6 +101,22 @@ typedef struct splinterdb_config {
    // log
    _Bool use_log;
 
+   // Automatic checkpoints: once the write-ahead log has grown by this many
+   // bytes, SplinterDB takes a checkpoint, which folds the logged updates into
+   // the durable tree and reclaims that log's space.  This bounds both how much
+   // log a crash has to replay and how much space the log occupies.
+   //
+   // The trigger is sized in log bytes rather than in updates because the two
+   // are independent: a workload that repeatedly overwrites the same keys grows
+   // the log with every write while barely growing the tree.
+   //
+   // Zero selects a default of one cache's worth of log, on the reasoning that
+   // replaying much more log than the cache can hold has little to gain.  To
+   // effectively disable automatic checkpoints -- for an application that calls
+   // for them itself, and accepts that the log grows until it does -- set this
+   // very large (UINT64_MAX).
+   uint64 checkpoint_log_size_bytes;
+
    // splinter
    uint64 memtable_capacity;
    uint64 fanout;
