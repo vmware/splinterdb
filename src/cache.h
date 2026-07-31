@@ -147,6 +147,9 @@ typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
  *
  * gen == 0 means "nothing to wait for": the page was already clean when the
  * writeback was requested.
+ *
+ * A caller that only wants the write issued, and will never ask whether it
+ * completed, may pass NULL instead of a request.
  */
 typedef struct cache_writeback_request {
    uint64 addr;      // page addr, or the base addr of an extent
@@ -507,10 +510,14 @@ cache_unpin(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  * cache_writeback_page
  *
- * Asynchronously issues writeback of the page and fills in *req, the receipt
- * for that write. This does NOT make the page durable; it only hands the write
- * to the I/O layer (no device-cache flush). Use cache_writeback_get_status() to
- * learn when it completes and cache_durable_barrier() to make it durable.
+ * Asynchronously issues writeback of the page and, if req is non-NULL, fills
+ * in *req, the receipt for that write. This does NOT make the page durable; it
+ * only hands the write to the I/O layer (no device-cache flush). Use
+ * cache_writeback_get_status() to learn when it completes and
+ * cache_durable_barrier() to make it durable.
+ *
+ * req may be NULL if the caller will never ask whether the write completed.
+ * The returned status is still worth checking even then; see below.
  *
  * Does not block. If a writeback of this page is already in flight -- issued by
  * the pressure cleaner, say -- nothing further is issued and *req names that
@@ -528,7 +535,10 @@ cache_writeback_page(cache                   *cc,
                      page_type                type,
                      cache_writeback_request *req)
 {
-   return cc->ops->page_writeback(cc, page, type, req);
+   // Absorb the optional request here so that every cache implementation may
+   // assume it was given somewhere to write the receipt.
+   cache_writeback_request scratch;
+   return cc->ops->page_writeback(cc, page, type, req ? req : &scratch);
 }
 
 /*
@@ -538,7 +548,8 @@ cache_writeback_page(cache                   *cc,
  * As cache_writeback_page(), but for every page of the extent beginning at
  * addr, coalesced into as few larger I/Os as the extent's residency allows.
  * One request covers the whole extent: req->gen is the newest dirty interval
- * among its pages, which is safe to compare every page against.
+ * among its pages, which is safe to compare every page against. As above, req
+ * may be NULL.
  *
  * Pages of the extent that are clean or not resident need no write and are
  * skipped. Returns STATUS_BUSY if any page is dirty but not writeback-able; as
@@ -555,7 +566,8 @@ cache_writeback_extent(cache                   *cc,
                        page_type                type,
                        cache_writeback_request *req)
 {
-   return cc->ops->extent_writeback(cc, addr, type, req);
+   cache_writeback_request scratch;
+   return cc->ops->extent_writeback(cc, addr, type, req ? req : &scratch);
 }
 
 /*
