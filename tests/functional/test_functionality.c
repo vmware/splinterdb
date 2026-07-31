@@ -813,6 +813,7 @@ test_functionality(allocator            *al,
 
 cleanup:
    if (spl->cc != NULL) {
+      core_print_insertion_stats(Platform_default_log_handle, spl);
       core_destroy(spl);
    }
    if (shadow != NULL) {

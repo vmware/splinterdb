@@ -2580,25 +2580,15 @@ trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot)
    }
 
    /*
-    * Route the release through a scratch context so the ordinary COW
-    * teardown path (trunk_context_deinit -> trunk_ondisk_node_ref_destroy)
-    * performs the single decrement snapshot's reference is owed. The scratch
-    * context only needs context's shared cfg/cc/al/ts; it does not need to
-    * share context's root.
+    * Perform the single decrement the snapshot's reference is owed against
+    * `context` itself.  It must not be routed through a temporary context: if
+    * the root is still cache_in_use (a concurrent reader holds it), the
+    * decrement defers the node's destruction onto context->pending_gcs, and
+    * only a context that outlives this call will ever drain that list.
     */
-   trunk_context   scratch;
-   platform_status rc  = trunk_context_init(&scratch,
-                                           context->cfg,
-                                           context->hid,
-                                           context->cc,
-                                           context->al,
-                                           context->ts,
-                                           *snapshot);
-   snapshot->root_addr = 0; // trunk_context_init consumes it regardless of rc
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   trunk_context_deinit(&scratch);
+   uint64 root_addr    = snapshot->root_addr;
+   snapshot->root_addr = 0;
+   trunk_ondisk_node_dec_ref(context, root_addr);
    return STATUS_OK;
 }
 
