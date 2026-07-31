@@ -167,6 +167,17 @@ typedef enum cache_writeback_status {
     * request is satisfied; callers that do not expect concurrent writers to
     * their pages should treat this as a bug in their own locking. */
    CACHE_WRITEBACK_REDIRTIED,
+   /*
+    * The write FAILED: these contents did not reach the device, and the request
+    * will never be satisfied without a successful retry.  Polling again does
+    * not help -- the cache retries failed writes on its own schedule, so a
+    * caller that wants to keep waiting must be prepared to wait indefinitely;
+    * one that needs durability now must propagate the failure.
+    *
+    * For an extent request this outranks REDIRTIED but not PENDING, so by the
+    * time it is reported no write on the extent is still in flight.
+    */
+   CACHE_WRITEBACK_FAILED,
 } cache_writeback_status;
 
 typedef platform_status (*page_writeback_fn)(cache                   *cc,
@@ -527,6 +538,10 @@ cache_unpin(cache *cc, page_handle *page)
  * Returns STATUS_BUSY if the page is dirty but not writeback-able (locked or
  * claimed). Callers must treat that as a failure to make the page durable: no
  * write was issued and *req cannot report one.
+ *
+ * Returns STATUS_IO_ERROR if an earlier write of this page failed and no retry
+ * has yet succeeded. Unlike STATUS_BUSY this is not transient: it persists
+ * until the cache retries the write successfully.
  *-----------------------------------------------------------------------------
  */
 static inline platform_status
@@ -552,9 +567,10 @@ cache_writeback_page(cache                   *cc,
  * may be NULL.
  *
  * Pages of the extent that are clean or not resident need no write and are
- * skipped. Returns STATUS_BUSY if any page is dirty but not writeback-able; as
- * with cache_writeback_page(), the caller must treat that as a failure, since
- * that page's contents will not reach the device.
+ * skipped. Returns STATUS_BUSY if any page is dirty but not writeback-able, or
+ * STATUS_IO_ERROR if an earlier write of any page failed; as with
+ * cache_writeback_page(), the caller must treat either as a failure, since that
+ * page's contents will not reach the device.
  *
  * Concurrent callers on the same extent are safe: only one can win a page's
  * writeback, and the other's request names that same in-flight interval, so

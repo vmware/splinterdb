@@ -141,6 +141,16 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc);
 #define CC_LOADING     (1u << 4) // page is actively being read from disk
 #define CC_WRITELOCKED (1u << 5) // write lock is held
 #define CC_CLAIMED     (1u << 6) // claim is held
+/*
+ * A writeback of this page failed. The page stays dirty and stays in
+ * CC_WRITEBACK, which leaves it un-claimable (try_set_writeback needs a
+ * cleanable status), un-evictable (try_evict needs CC_CLEAN) and un-writable
+ * (get_write excludes pages in writeback) -- exactly the exclusions a retry
+ * needs. It also pins dirty_generation, which is what keeps an outstanding
+ * cache_writeback_request naming this page valid. Cleared only by a thread that
+ * claims the retry.
+ */
+#define CC_WRITEBACK_ERROR (1u << 7)
 
 /* Common status flag combinations */
 // free entry
@@ -266,6 +276,21 @@ clockcache_writeback_get_generation(clockcache *cc, uint32 entry_number)
 {
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    return __atomic_load_n(&entry->dirty_generation, __ATOMIC_RELAXED);
+}
+
+/*
+ * Record a failed writeback. Deliberately leaves both dirty_generation and
+ * CC_WRITEBACK alone: the page must stay excluded from claiming, eviction and
+ * writing until a retry succeeds, and its generation must stay pinned so that
+ * an outstanding writeback receipt naming it stays valid. See
+ * CC_WRITEBACK_ERROR.
+ */
+static void
+clockcache_dirty_fail_writeback(clockcache *cc, uint32 entry_number)
+{
+   debug_only uint32 was_error =
+      clockcache_set_flag(cc, entry_number, CC_WRITEBACK_ERROR);
+   debug_assert(!was_error, "writeback failed twice with no retry in between");
 }
 
 static void
@@ -735,8 +760,28 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
     * background threads.
     */
    debug_assert(clockcache_get_ref(cc, entry_number, tid) >= 1);
-   // Wait for flushing to finish
+   /*
+    * Wait for flushing to finish.
+    *
+    * A page whose writeback failed stays in CC_WRITEBACK (see
+    * CC_WRITEBACK_ERROR), so this waits for a retry to succeed. Proceeding
+    * instead is not an option: granting the write lock would let
+    * dirty_generation advance, and an outstanding cache_writeback_request
+    * naming this page would then read as REDIRTIED -- i.e. satisfied -- for
+    * contents that never reached the device. Blocking here is what keeps that
+    * receipt honest, so the stall is deliberate rather than merely tolerated.
+    */
+   bool32 logged_writeback_error = FALSE;
    while (clockcache_test_flag(cc, entry_number, CC_WRITEBACK)) {
+      if (!logged_writeback_error
+          && clockcache_test_flag(cc, entry_number, CC_WRITEBACK_ERROR))
+      {
+         platform_error_log(
+            "clockcache_get_write: blocked on a failed writeback of addr %lu; "
+            "waiting for a retry to succeed\n",
+            clockcache_get_entry(cc, entry_number)->page.disk_addr);
+         logged_writeback_error = TRUE;
+      }
       clockcache_wait(cc);
    }
 
@@ -787,7 +832,12 @@ clockcache_try_get_write(clockcache *cc, uint32 entry_number)
    debug_assert(!was_writing);
    debug_assert(!clockcache_test_flag(cc, entry_number, CC_LOADING));
 
-   // if flushing, then bail
+   /*
+    * If flushing, then bail. This also covers a page whose writeback failed and
+    * is awaiting a retry, since such a page stays in CC_WRITEBACK; the caller
+    * will keep retrying until a writeback retry succeeds. See
+    * clockcache_get_write() for why we must not grant the lock instead.
+    */
    if (clockcache_test_flag(cc, entry_number, CC_WRITEBACK)) {
       rc = GET_RC_FLUSHING;
       goto failed;
@@ -934,7 +984,6 @@ clockcache_write_callback(void *wbs)
       platform_error_log("clockcache_write_callback: async write failed: %s\n",
                          platform_status_to_string(rc));
    }
-   platform_assert_status_ok(rc);
 
    const struct iovec *iovec;
    uint64              count;
@@ -961,7 +1010,15 @@ clockcache_write_callback(void *wbs)
                      entry_number,
                      addr);
 
-      clockcache_dirty_complete_writeback(cc, entry_number);
+      if (SUCCESS(rc)) {
+         clockcache_dirty_complete_writeback(cc, entry_number);
+      } else {
+         /*
+          * One status covers the whole request, so a failure fails every
+          * page in it. Some may in fact have landed; retrying is harmless.
+          */
+         clockcache_dirty_fail_writeback(cc, entry_number);
+      }
    }
 
    io_async_state_deinit(state->iostate);
@@ -1172,6 +1229,7 @@ clockcache_writeback_dirty(clockcache *cc)
    }
 
    // Wait for each pre-cut interval's writeback to complete, in a single pass.
+   platform_status result = STATUS_OK;
    for (uint32 entry_no = 0; entry_no < cc->cfg->page_capacity; entry_no++) {
       clockcache_entry *entry = clockcache_get_entry(cc, entry_no);
       while (TRUE) {
@@ -1182,11 +1240,24 @@ clockcache_writeback_dirty(clockcache *cc)
          {
             break;
          }
+         if (clockcache_test_flag(cc, entry_no, CC_WRITEBACK_ERROR)) {
+            /*
+             * This page's write failed and it stays in CC_WRITEBACK until a
+             * retry succeeds, so waiting on it here would never return. Record
+             * the failure and keep draining the remaining entries, so that when
+             * we do return, no pre-cut write is still outstanding.
+             */
+            platform_error_log("clockcache_writeback_dirty: writeback of addr "
+                               "%lu failed\n",
+                               entry->page.disk_addr);
+            result = STATUS_IO_ERROR;
+            break;
+         }
          clockcache_wait(cc);
       }
    }
 
-   return STATUS_OK;
+   return result;
 }
 
 /*
@@ -2412,6 +2483,7 @@ typedef enum clockcache_writeback_claim {
    CC_WRITEBACK_NOT_NEEDED,  // already clean: nothing to write
    CC_WRITEBACK_INFLIGHT,    // someone else's write already covers it
    CC_WRITEBACK_UNAVAILABLE, // dirty, but locked or claimed
+   CC_WRITEBACK_FAILED,      // an earlier write failed; awaiting a retry
 } clockcache_writeback_claim;
 
 static clockcache_writeback_claim
@@ -2447,6 +2519,14 @@ clockcache_writeback_claim_page(clockcache *cc,
          // completed by the time CC_CLEAN is set.
          *gen = 0;
          return CC_WRITEBACK_NOT_NEEDED;
+      }
+      if (status & CC_WRITEBACK_ERROR) {
+         /*
+          * An earlier write of this page failed and no retry has succeeded yet.
+          * We cannot claim it, because CC_WRITEBACK is still set, and must
+          * not report it as in flight, because no write is coming.
+          */
+         return CC_WRITEBACK_FAILED;
       }
       if (status & CC_WRITEBACK) {
          /*
@@ -2514,6 +2594,8 @@ clockcache_writeback_page(clockcache              *cc,
          return STATUS_OK;
       case CC_WRITEBACK_UNAVAILABLE:
          return STATUS_BUSY;
+      case CC_WRITEBACK_FAILED:
+         return STATUS_IO_ERROR;
       case CC_WRITEBACK_CLAIMED:
          break;
    }
@@ -2624,7 +2706,12 @@ clockcache_writeback_extent(clockcache              *cc,
          claim = clockcache_writeback_claim_page(cc, entry_number, &gen);
       }
       max_gen = MAX(max_gen, gen);
-      if (claim == CC_WRITEBACK_UNAVAILABLE) {
+      if (claim == CC_WRITEBACK_FAILED) {
+         // An earlier write of this page failed, so the extent is not fully
+         // written and will not be until a retry succeeds. Outranks BUSY, which
+         // is merely transient.
+         result = STATUS_IO_ERROR;
+      } else if (claim == CC_WRITEBACK_UNAVAILABLE && SUCCESS(result)) {
          // No write will be issued for this page, so the extent will not be
          // fully written. The caller has to hear about it.
          result = STATUS_BUSY;
@@ -2738,8 +2825,12 @@ clockcache_writeback_get_page_status(clockcache *cc, uint64 addr, uint64 gen)
       return CACHE_WRITEBACK_COMPLETE;
    }
 
-   bool32 in_writeback = clockcache_test_flag(cc, entry_number, CC_WRITEBACK);
-   uint64 cur          = clockcache_writeback_get_generation(cc, entry_number);
+   /*
+    * One snapshot, so that CC_WRITEBACK and CC_WRITEBACK_ERROR are read
+    * consistently with each other as well as with the generation below.
+    */
+   entry_status status = clockcache_get_status(cc, entry_number);
+   uint64       cur = clockcache_writeback_get_generation(cc, entry_number);
 
    if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
       // The entry was rebound under us, so it was evicted -- and hence written
@@ -2754,13 +2845,20 @@ clockcache_writeback_get_page_status(clockcache *cc, uint64 addr, uint64 gen)
       // Drained, then dirtied again in a later window.
       return CACHE_WRITEBACK_REDIRTIED;
    }
+   if (status & CC_WRITEBACK_ERROR) {
+      // The write covering this interval failed. Reported ahead of PENDING: the
+      // page stays in CC_WRITEBACK until a retry succeeds, so a caller told
+      // PENDING here would poll forever.
+      return CACHE_WRITEBACK_FAILED;
+   }
    /*
     * cur <= gen: the page may still be in the interval we wrote. Note that
     * cur < gen is legitimate for an extent request, whose gen is the newest
     * interval among its pages -- a writeback_dirty() landing while the extent
     * was being filled leaves its pages spread over two windows.
     */
-   return in_writeback ? CACHE_WRITEBACK_PENDING : CACHE_WRITEBACK_REDIRTIED;
+   return (status & CC_WRITEBACK) ? CACHE_WRITEBACK_PENDING
+                                  : CACHE_WRITEBACK_REDIRTIED;
 }
 
 cache_writeback_status
@@ -2769,13 +2867,22 @@ clockcache_writeback_get_status(clockcache                    *cc,
 {
    uint64 num_pages = req->is_extent ? cc->cfg->pages_per_extent : 1;
    bool32 redirtied = FALSE;
+   bool32 failed    = FALSE;
 
    for (uint64 i = 0; i < num_pages; i++) {
       uint64 addr = req->addr + clockcache_multiply_by_page_size(cc, i);
       switch (clockcache_writeback_get_page_status(cc, addr, req->gen)) {
          case CACHE_WRITEBACK_PENDING:
-            // One outstanding page is enough; no need to look at the rest.
+            /*
+             * One outstanding page is enough; no need to look at the rest. Note
+             * this outranks a failure found earlier in the extent, which
+             * is what makes FAILED safe to act on: by the time the caller sees
+             * it, no write on the extent is still in flight.
+             */
             return CACHE_WRITEBACK_PENDING;
+         case CACHE_WRITEBACK_FAILED:
+            failed = TRUE;
+            break;
          case CACHE_WRITEBACK_REDIRTIED:
             // Keep going: a later page may still be pending, which the caller
             // has to keep waiting for.
@@ -2784,6 +2891,9 @@ clockcache_writeback_get_status(clockcache                    *cc,
          case CACHE_WRITEBACK_COMPLETE:
             break;
       }
+   }
+   if (failed) {
+      return CACHE_WRITEBACK_FAILED;
    }
    return redirtied ? CACHE_WRITEBACK_REDIRTIED : CACHE_WRITEBACK_COMPLETE;
 }
