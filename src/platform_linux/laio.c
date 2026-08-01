@@ -196,21 +196,45 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 static platform_status
 laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 {
-   laio_handle *io;
-   int          ret;
+   laio_handle *io        = (laio_handle *)ioh;
+   char        *cursor    = buf;
+   uint64       offset    = addr;
+   uint64       remaining = bytes;
 
-   io  = (laio_handle *)ioh;
-   ret = pwrite(io->fd, buf, bytes, addr);
-   if (ret == bytes) {
-      return STATUS_OK;
+   /*
+    * Finish a short write rather than reporting it. pwrite() is permitted to
+    * satisfy only part of the request, and the cache's writeback-retry path
+    * treats any failure here as a hard I/O error -- so returning early on a
+    * write that was merely chunked would mark a perfectly good page as failed
+    * and have it retried forever.
+    */
+   while (remaining > 0) {
+      ssize_t ret = pwrite(io->fd, cursor, remaining, offset);
+      if (ret < 0) {
+         if (errno == EINTR) {
+            continue;
+         }
+         platform_error_log("laio_write: pwrite failed for addr %lu, "
+                            "bytes %lu, remaining %lu: %s\n",
+                            addr,
+                            bytes,
+                            remaining,
+                            strerror(errno));
+         return STATUS_IO_ERROR;
+      }
+      if (ret == 0) {
+         platform_error_log("laio_write: pwrite made no progress for addr %lu, "
+                            "bytes %lu, remaining %lu\n",
+                            addr,
+                            bytes,
+                            remaining);
+         return STATUS_IO_ERROR;
+      }
+      cursor += ret;
+      offset += ret;
+      remaining -= ret;
    }
-   platform_error_log("laio_write: pwrite failed for addr %lu, bytes %lu, "
-                      "ret %d: %s\n",
-                      addr,
-                      bytes,
-                      ret,
-                      strerror(errno));
-   return STATUS_IO_ERROR;
+   return STATUS_OK;
 }
 
 /*
@@ -306,8 +330,7 @@ typedef struct laio_async_state {
    struct iocb        *reqs[1];
    int                 status;
    uint64              iovlen;
-   struct iovec       *iovs;
-   struct iovec        iov[];
+   struct iovec        iovs[];
 } laio_async_state;
 
 _Static_assert(
@@ -317,10 +340,6 @@ _Static_assert(
 static void
 laio_async_state_deinit(io_async_state *ios)
 {
-   laio_async_state *lios = (laio_async_state *)ios;
-   if (lios->iovs != lios->iov) {
-      platform_free(PROCESS_PRIVATE_HEAP_ID, lios->iovs);
-   }
 }
 
 static platform_status
@@ -544,25 +563,8 @@ laio_async_state_init(io_async_state   *state,
                       async_callback_fn callback,
                       void             *callback_arg)
 {
-   laio_async_state *ios   = (laio_async_state *)state;
-   laio_handle      *io    = (laio_handle *)gio;
-   uint64 pages_per_extent = io->cfg->extent_size / io->cfg->page_size;
-
-   if (sizeof(*ios) + pages_per_extent * sizeof(struct iovec)
-       <= IO_ASYNC_STATE_BUFFER_SIZE)
-   {
-      ios->iovs = ios->iov;
-   } else {
-      ios->iovs = TYPED_ARRAY_MALLOC(
-         PROCESS_PRIVATE_HEAP_ID, ios->iovs, pages_per_extent);
-      if (ios->iovs == NULL) {
-         platform_error_log("laio_async_state_init: failed to allocate iovec "
-                            "array for addr %lu, pages_per_extent %lu\n",
-                            addr,
-                            pages_per_extent);
-         return STATUS_NO_MEMORY;
-      }
-   }
+   laio_async_state *ios = (laio_async_state *)state;
+   laio_handle      *io  = (laio_handle *)gio;
 
    ios->super.ops              = &laio_async_state_ops;
    ios->__async_state_stack[0] = ASYNC_STATE_INIT;
@@ -879,11 +881,20 @@ laio_config_valid(io_config *cfg)
          cfg->page_size);
       return STATUS_BAD_PARAM;
    }
+
    if (!laio_config_valid_extent_size(cfg)) {
       platform_error_log(
          "Extent-size, %lu bytes, is an invalid IO configuration.\n",
          cfg->extent_size);
       return STATUS_BAD_PARAM;
    }
+   uint64 pages_per_extent = cfg->extent_size / cfg->page_size;
+
+   if (IO_ASYNC_STATE_BUFFER_SIZE
+       < sizeof(laio_async_state) + pages_per_extent * sizeof(struct iovec))
+   {
+      return STATUS_BAD_PARAM;
+   }
+
    return STATUS_OK;
 }

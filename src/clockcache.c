@@ -37,6 +37,14 @@
 // Number of batches that the cleaner hand is ahead of the evictor hand
 #define CC_CLEANER_GAP 512
 
+/*
+ * How many times a thread blocked in clockcache_get_write() will re-issue a
+ * failed writeback itself before falling back to waiting for the cleaner or a
+ * checkpoint pass. Bounds the work -- and the I/O -- done inside a lock
+ * acquisition when a device is failing persistently.
+ */
+#define CC_MAX_WRITEBACK_SYNC_RETRIES 8
+
 /* number of events to poll for during clockcache_wait */
 #define CC_DEFAULT_MAX_IO_EVENTS 1
 
@@ -722,6 +730,75 @@ clockcache_try_get_claim(clockcache *cc, uint32 entry_number)
 
 /*
  *----------------------------------------------------------------------
+ * clockcache_try_retry_writeback
+ *
+ *      Claims the retry of a failed writeback, returning TRUE if we took it.
+ *      Clearing CC_WRITEBACK_ERROR *is* the claim: only one thread can observe
+ *      the bit set, so no exact-match compare-and-swap is needed and the other
+ *      status bits are irrelevant.
+ *
+ *      CC_WRITEBACK stays set throughout, so the page remains excluded from
+ *      claiming, eviction and writing across the whole failure-and-retry
+ *      window, and its dirty_generation stays pinned -- which is what keeps an
+ *      outstanding cache_writeback_request naming it valid. The winner must
+ *      issue the write, just as if it had won clockcache_try_set_writeback().
+ *----------------------------------------------------------------------
+ */
+static inline bool32
+clockcache_try_retry_writeback(clockcache *cc, uint32 entry_number)
+{
+   return clockcache_clear_flag(cc, entry_number, CC_WRITEBACK_ERROR) != 0;
+}
+
+/*
+ *----------------------------------------------------------------------
+ * clockcache_writeback_page_sync
+ *
+ *      Writes a page back synchronously, allocating nothing, and does the
+ *      dirty->clean bookkeeping inline that clockcache_write_callback() would
+ *      otherwise do.
+ *
+ *      Allocating nothing is the whole point: the async path needs an
+ *      async_io_state, and failing to allocate one is fatal, which is a poor
+ *      thing to depend on when the reason we are here is that something already
+ *      went wrong. io_write() is a bare pwrite() and never re-enters the cache.
+ *
+ *      The caller must own the writeback claim -- CC_WRITEBACK set with the
+ *      error bit clear -- having won clockcache_try_set_writeback() or
+ *      clockcache_try_retry_writeback(). On failure the page goes back into the
+ *      error state for someone else to retry.
+ *----------------------------------------------------------------------
+ */
+static void
+clockcache_writeback_page_sync(clockcache *cc, uint32 entry_number)
+{
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+   uint64            addr  = entry->page.disk_addr;
+   const threadid    tid   = platform_get_tid();
+
+   debug_assert(clockcache_test_flag(cc, entry_number, CC_WRITEBACK));
+   debug_assert(!clockcache_test_flag(cc, entry_number, CC_WRITEBACK_ERROR));
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].page_writes[entry->type]++;
+      cc->stats[tid].syncs_issued++;
+   }
+
+   platform_status rc =
+      io_write(cc->io, entry->page.data, clockcache_page_size(cc), addr);
+   if (SUCCESS(rc)) {
+      clockcache_dirty_complete_writeback(cc, entry_number);
+   } else {
+      platform_error_log("clockcache_writeback_page_sync: io_write failed for "
+                         "addr %lu: %s\n",
+                         addr,
+                         platform_status_to_string(rc));
+      clockcache_dirty_fail_writeback(cc, entry_number);
+   }
+}
+
+/*
+ *----------------------------------------------------------------------
  * clockcache_get_write
  *
  *      Upgrades a claim to a write lock.
@@ -764,23 +841,30 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
     * Wait for flushing to finish.
     *
     * A page whose writeback failed stays in CC_WRITEBACK (see
-    * CC_WRITEBACK_ERROR), so this waits for a retry to succeed. Proceeding
-    * instead is not an option: granting the write lock would let
-    * dirty_generation advance, and an outstanding cache_writeback_request
-    * naming this page would then read as REDIRTIED -- i.e. satisfied -- for
-    * contents that never reached the device. Blocking here is what keeps that
-    * receipt honest, so the stall is deliberate rather than merely tolerated.
+    * CC_WRITEBACK_ERROR), so we cannot simply proceed: granting the write lock
+    * would let dirty_generation advance, and an outstanding
+    * cache_writeback_request naming this page would then read as REDIRTIED --
+    * i.e. satisfied -- for contents that never reached the device.
+    *
+    * We can, however, re-issue the write ourselves instead of waiting for a
+    * cleaner or checkpoint pass to happen along. We are already blocked on
+    * this exact page, so a synchronous write costs nothing we were not already
+    * paying, and it removes the dependency on another actor showing up. Doing
+    * so does not grant the lock early, so the receipt stays honest either way.
     */
-   bool32 logged_writeback_error = FALSE;
+   uint64 sync_retries = 0;
    while (clockcache_test_flag(cc, entry_number, CC_WRITEBACK)) {
-      if (!logged_writeback_error
-          && clockcache_test_flag(cc, entry_number, CC_WRITEBACK_ERROR))
+      if (sync_retries < CC_MAX_WRITEBACK_SYNC_RETRIES
+          && clockcache_try_retry_writeback(cc, entry_number))
       {
+         sync_retries++;
          platform_error_log(
-            "clockcache_get_write: blocked on a failed writeback of addr %lu; "
-            "waiting for a retry to succeed\n",
-            clockcache_get_entry(cc, entry_number)->page.disk_addr);
-         logged_writeback_error = TRUE;
+            "clockcache_get_write: re-issuing failed writeback of addr %lu "
+            "(attempt %lu)\n",
+            clockcache_get_entry(cc, entry_number)->page.disk_addr,
+            sync_retries);
+         clockcache_writeback_page_sync(cc, entry_number);
+         continue;
       }
       clockcache_wait(cc);
    }
@@ -962,28 +1046,6 @@ clockcache_try_set_writeback(clockcache *cc,
       // The CAS failed because the status changed under us. If it is still
       // cleanable, retry; otherwise the next iteration returns FALSE.
    }
-}
-
-/*
- *----------------------------------------------------------------------
- * clockcache_try_retry_writeback
- *
- *      Claims the retry of a failed writeback, returning TRUE if we took it.
- *      Clearing CC_WRITEBACK_ERROR *is* the claim: only one thread can observe
- *      the bit set, so no exact-match compare-and-swap is needed and the other
- *      status bits are irrelevant.
- *
- *      CC_WRITEBACK stays set throughout, so the page remains excluded from
- *      claiming, eviction and writing across the whole failure-and-retry
- *      window, and its dirty_generation stays pinned -- which is what keeps an
- *      outstanding cache_writeback_request naming it valid. The winner must
- *      issue the write, just as if it had won clockcache_try_set_writeback().
- *----------------------------------------------------------------------
- */
-static inline bool32
-clockcache_try_retry_writeback(clockcache *cc, uint32 entry_number)
-{
-   return clockcache_clear_flag(cc, entry_number, CC_WRITEBACK_ERROR) != 0;
 }
 
 /*
