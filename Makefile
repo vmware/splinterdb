@@ -468,6 +468,15 @@ $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_co
                                         $(COMMON_UNIT_TESTOBJ)                          \
                                         $(BTREE_SYS)
 
+# Uses btree_test_common only for its init_*_config_from_master_config()
+# helpers, which is why it pulls BTREE_SYS rather than just CLOCKCACHE_SYS.
+$(BINDIR)/$(UNITDIR)/writeback_set_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
+                                         $(OBJDIR)/$(SRCDIR)/writeback_set.o            \
+                                         $(OBJDIR)/$(TESTS_DIR)/config.o                \
+                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
+                                         $(COMMON_UNIT_TESTOBJ)                         \
+                                         $(BTREE_SYS)
+
 $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                             \
                                     $(COMMON_UNIT_TESTOBJ)                        \
                                     $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
@@ -548,6 +557,7 @@ unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
 unit/platform_threads_test:        $(BINDIR)/$(UNITDIR)/platform_threads_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
 unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
+unit/writeback_set_test:           $(BINDIR)/$(UNITDIR)/writeback_set_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
