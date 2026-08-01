@@ -754,14 +754,14 @@ clockcache_try_retry_writeback(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  * clockcache_writeback_page_sync
  *
- *      Writes a page back synchronously, allocating nothing, and does the
- *      dirty->clean bookkeeping inline that clockcache_write_callback() would
- *      otherwise do.
+ *      Writes a page back synchronously and does the dirty->clean bookkeeping
+ *      inline that clockcache_write_callback() would otherwise do.
  *
- *      Allocating nothing is the whole point: the async path needs an
- *      async_io_state, and failing to allocate one is fatal, which is a poor
- *      thing to depend on when the reason we are here is that something already
- *      went wrong. io_write() is a bare pwrite() and never re-enters the cache.
+ *      Synchronous because the caller needs the write to have *landed* before
+ *      it can proceed -- see clockcache_get_write(), which cannot take the
+ *      write lock until the page leaves CC_WRITEBACK. Issuing asynchronously
+ *      would just send it back to waiting. io_write() is a bare pwrite() and
+ *      never re-enters the cache, so this is safe to call under the page lock.
  *
  *      The caller must own the writeback claim -- CC_WRITEBACK set with the
  *      error bit clear -- having won clockcache_try_set_writeback() or
@@ -1075,10 +1075,85 @@ clockcache_try_claim_writeback(clockcache *cc,
           || clockcache_try_retry_writeback(cc, entry_number);
 }
 
-typedef struct async_io_state {
+struct async_io_state {
    clockcache           *cc;
    io_async_state_buffer iostate;
-} async_io_state;
+};
+
+/* Bounded by the width of the bitvector that tracks the reserve. */
+#define CC_IO_STATE_POOL_SIZE (64)
+_Static_assert(CC_IO_STATE_POOL_SIZE <= 64,
+               "clockcache::io_state_pool_free is a uint64");
+
+/*
+ *----------------------------------------------------------------------
+ * clockcache_io_state_acquire --
+ *
+ *      Obtains an async_io_state with which to issue a writeback. Never fails.
+ *
+ *      Tries the heap first, so the reserve stays untouched in the common case
+ *      and its fixed size never caps writeback concurrency. Falls back to the
+ *      reserve only when the heap is exhausted, which is exactly when a
+ *      writeback most needs to proceed.
+ *
+ *      An empty reserve means all CC_IO_STATE_POOL_SIZE states are checked out,
+ *      i.e. that many writebacks are in flight, so waiting for one to land is
+ *      guaranteed to make progress. clockcache_wait() is what makes the wait
+ *      terminate: it reaps completions on this thread rather than relying on
+ *      some other thread happening to do it.
+ *----------------------------------------------------------------------
+ */
+static async_io_state *
+clockcache_io_state_acquire(clockcache *cc)
+{
+   while (TRUE) {
+      async_io_state *state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
+      if (state != NULL) {
+         return state;
+      }
+
+      uint64 free_mask =
+         __atomic_load_n(&cc->io_state_pool_free, __ATOMIC_RELAXED);
+      while (free_mask != 0) {
+         uint64 slot = __builtin_ctzl(free_mask);
+         uint64 bit  = 1ULL << slot;
+         // Clearing the bit is the claim: whoever observes it set was the one
+         // who cleared it.
+         uint64 prev = __sync_fetch_and_and(&cc->io_state_pool_free, ~bit);
+         if (prev & bit) {
+            return &cc->io_state_pool[slot];
+         }
+         free_mask = prev & ~bit;
+      }
+
+      clockcache_wait(cc);
+   }
+}
+
+/*
+ *----------------------------------------------------------------------
+ * clockcache_io_state_release --
+ *
+ *      Returns a state obtained from clockcache_io_state_acquire(). Whether it
+ *      came from the reserve is decided by its address, so callers need not
+ *      remember where it came from.
+ *----------------------------------------------------------------------
+ */
+static void
+clockcache_io_state_release(clockcache *cc, async_io_state *state)
+{
+   if (cc->io_state_pool <= state
+       && state < cc->io_state_pool + CC_IO_STATE_POOL_SIZE)
+   {
+      uint64            slot = (uint64)(state - cc->io_state_pool);
+      uint64            bit  = 1ULL << slot;
+      debug_only uint64 prev =
+         __sync_fetch_and_or(&cc->io_state_pool_free, bit);
+      debug_assert(!(prev & bit), "double release of io state slot %lu", slot);
+   } else {
+      platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+   }
+}
 
 static void
 clockcache_write_callback(void *wbs)
@@ -1133,7 +1208,7 @@ clockcache_write_callback(void *wbs)
    }
 
    io_async_state_deinit(state->iostate);
-   platform_free(PROCESS_PRIVATE_HEAP_ID, state);
+   clockcache_io_state_release(cc, state);
 }
 
 /*
@@ -1209,16 +1284,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_claim_writeback(cc, next_entry_no, is_urgent));
 
-         async_io_state *state;
-         state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
-         if (state == NULL) {
-            platform_error_log(
-               "clockcache_batch_start_writeback: async_io_state allocation "
-               "failed\n");
-         }
-         // Fatal: the claim taken above cannot be retracted. See
-         // clockcache_try_set_writeback().
-         platform_assert(state != NULL);
+         async_io_state *state = clockcache_io_state_acquire(cc);
 
          state->cc          = cc;
          platform_status rc = io_async_state_init(state->iostate,
@@ -2720,24 +2786,7 @@ clockcache_writeback_page(clockcache              *cc,
       cc->stats[tid].syncs_issued++;
    }
 
-   state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
-   if (state == NULL) {
-      platform_error_log("clockcache_writeback_page: async_io_state allocation "
-                         "failed for addr %lu, entry %u, type %u\n",
-                         addr,
-                         entry_number,
-                         type);
-   }
-   /*
-    * Crash rather than retract the claim (as the two failure branches below
-    * already do). Retracting would clear CC_WRITEBACK while another thread may
-    * already hold a CC_WRITEBACK_INFLIGHT receipt naming this page's
-    * generation; its next status poll would then read the page as
-    * REDIRTIED -- indistinguishable from a completed write followed by a
-    * legitimate re-dirty. That would be a silent durability violation, which
-    * is worse than a crash.
-    */
-   platform_assert(state != NULL);
+   state     = clockcache_io_state_acquire(cc);
    state->cc = cc;
    status    = io_async_state_init(state->iostate,
                                 cc->io,
@@ -2835,19 +2884,7 @@ clockcache_writeback_extent(clockcache              *cc,
 
          if (state == NULL) {
             req_addr = page_addr;
-            state    = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
-            if (state == NULL) {
-               platform_error_log("clockcache_writeback_extent: async_io_state "
-                                  "allocation failed for extent addr %lu, "
-                                  "page addr %lu, entry %u\n",
-                                  addr,
-                                  page_addr,
-                                  entry_number);
-            }
-            // See clockcache_writeback_page(): crash rather than retract this
-            // claim, which would let a concurrent INFLIGHT observer read the
-            // page as falsely complete.
-            platform_assert(state != NULL);
+            state              = clockcache_io_state_acquire(cc);
             state->cc          = cc;
             platform_status rc = io_async_state_init(state->iostate,
                                                      cc->io,
@@ -3999,6 +4036,22 @@ clockcache_init(clockcache        *cc,   // OUT
    // at 1.
    cc->dirty_generation = 1;
 
+   /*
+    * Allocated from the process-private heap, matching the per-I/O states it
+    * substitutes for: the io layer's contexts are process-local.
+    */
+   cc->io_state_pool = TYPED_ARRAY_MALLOC(
+      PROCESS_PRIVATE_HEAP_ID, cc->io_state_pool, CC_IO_STATE_POOL_SIZE);
+   if (cc->io_state_pool == NULL) {
+      platform_error_log("clockcache_init: failed to allocate the io state "
+                         "reserve (%lu bytes)\n",
+                         CC_IO_STATE_POOL_SIZE * sizeof(cc->io_state_pool[0]));
+      goto alloc_error;
+   }
+   cc->io_state_pool_free = (CC_IO_STATE_POOL_SIZE == 64)
+                               ? ~0ULL
+                               : ((1ULL << CC_IO_STATE_POOL_SIZE) - 1);
+
    /* lookup maps addrs to entries, entry contains the entries themselves */
    platform_status rc = platform_buffer_init(
       &cc->lookup_bh, allocator_page_capacity * sizeof(cc->lookup[0]));
@@ -4182,5 +4235,9 @@ clockcache_deinit(clockcache *cc) // IN/OUT
                             platform_status_to_string(rc));
       }
       cc->batch_busy = NULL;
+   }
+   if (cc->io_state_pool) {
+      platform_free(PROCESS_PRIVATE_HEAP_ID, cc->io_state_pool);
+      cc->io_state_pool = NULL;
    }
 }
