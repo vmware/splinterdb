@@ -2883,7 +2883,7 @@ clockcache_writeback_extent(clockcache              *cc,
          }
 
          if (state == NULL) {
-            req_addr = page_addr;
+            req_addr           = page_addr;
             state              = clockcache_io_state_acquire(cc);
             state->cc          = cc;
             platform_status rc = io_async_state_init(state->iostate,
