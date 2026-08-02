@@ -163,8 +163,8 @@ typedef struct core_checkpoint_state {
    // Old live log awaiting seal (SEALING), or being sealed (PUBLISHING).  Kept
    // across a failed attempt so the retry has something to resume.
    log_handle *log_to_seal;
-   log_head              sealed_head; // identity of the sealed log (reclaim)
-   log_head              live_head;   // identity of the new live log
+   log_head    sealed_head; // identity of the sealed log (reclaim)
+   log_head    live_head;   // identity of the new live log
    // First generation the new live log receives, recorded in the superblock as
    // its coverage start.  The retiring log's start needs no tracking: the
    // superblock already holds it and carries it into the sealed slot.

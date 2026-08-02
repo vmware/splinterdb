@@ -88,8 +88,8 @@ typedef struct log_ops {
    log_write_fn  write;
    log_seal_fn   seal;
    log_deinit_fn deinit;
-   log_head_fn  head;
-   log_size_fn  size;
+   log_head_fn   head;
+   log_size_fn   size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
