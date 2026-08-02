@@ -346,10 +346,7 @@ shard_log_seal(log_handle *logh)
       }
    }
 
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      if (thr_i == last) {
-         continue; // written below, carrying the terminator
-      }
+   for (threadid thr_i = 0; thr_i < last; thr_i++) {
       platform_status rc = shard_log_graduate_buffer(
          log, shard_log_get_thread_data(log, thr_i), FALSE);
       if (!SUCCESS(rc)) {
@@ -363,16 +360,29 @@ shard_log_seal(log_handle *logh)
    }
 
    /*
-    * Close the group.  If nothing was staged but the group has pages, spend a
-    * page of its own on the terminator -- rare, since the fence forces every
-    * thread to hand off, so any thread mid-buffer would have contributed one.
+    * Close the group -- but only if every page of it was written.  A failed
+    * flush above leaves the group short of some thread's records, while
+    * group_page_count (bumped only on a successful hand-over) still matches the
+    * pages that did make it.  Terminating now would therefore declare a count
+    * that replay could satisfy, and the group would be accepted with a hole in
+    * it.  Leaving it unterminated gets it rejected whole, which is the outcome
+    * we want: losing a group beats replaying a broken one.
+    *
+    * If nothing was staged but the group has pages, spend a page of its own on
+    * the terminator -- rare, since the fence forces every thread to hand off,
+    * so any thread mid-buffer would have contributed one.
     */
-   threadid closer = (last != MAX_THREADS)          ? last
-                     : (log->group_page_count != 0) ? 0
-                                                    : MAX_THREADS;
-   if (closer != MAX_THREADS) {
+   if (last == MAX_THREADS && log->group_page_count > 0) {
+      // Use thread 0's buffer to write a closing page.
+      last = 0;
+   }
+   if (!SUCCESS(result)) {
+      platform_error_log("shard_log_seal: leaving group %lu unterminated after "
+                         "a failed flush; it will not be replayed\n",
+                         log->group_id);
+   } else if (last != MAX_THREADS) {
       platform_status rc = shard_log_graduate_buffer(
-         log, shard_log_get_thread_data(log, closer), TRUE);
+         log, shard_log_get_thread_data(log, last), TRUE);
       if (!SUCCESS(rc)) {
          platform_error_log("shard_log_seal: failed to close group %lu: %s\n",
                             log->group_id,
