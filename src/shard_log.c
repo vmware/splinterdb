@@ -201,14 +201,14 @@ shard_log_graduate_buffer(shard_log             *log,
       return STATUS_NO_SPACE;
    }
 
-   shard_log_hdr *staged   = (shard_log_hdr *)thread_data->buf;
+   shard_log_hdr *staged    = (shard_log_hdr *)thread_data->buf;
    staged->next_extent_addr = next_extent;
    staged->group_id         = log->group_id;
    /*
     * Counted as it is handed over, so that the closing page -- the last to be
     * counted -- sees the group's final size and can record it.
     */
-   uint64 pages = __sync_add_and_fetch(&log->group_page_count, 1);
+   uint64 pages           = __sync_add_and_fetch(&log->group_page_count, 1);
    staged->pages_in_group = close_group ? pages : 0;
    platform_assert(!close_group || pages <= UINT32_MAX);
 
@@ -274,8 +274,7 @@ shard_log_write(log_handle *logh,
 
    // Full: turn the staged image into a page and start a fresh one.
    if (page_size - thread_data->offset < new_entry_size) {
-      platform_status rc =
-         shard_log_graduate_buffer(log, thread_data, FALSE);
+      platform_status rc = shard_log_graduate_buffer(log, thread_data, FALSE);
       if (!SUCCESS(rc)) {
          if (log_blob_inited) {
             merge_accumulator_deinit(&log_blob);
@@ -368,7 +367,7 @@ shard_log_seal(log_handle *logh)
     * page of its own on the terminator -- rare, since the fence forces every
     * thread to hand off, so any thread mid-buffer would have contributed one.
     */
-   threadid closer = (last != MAX_THREADS)         ? last
+   threadid closer = (last != MAX_THREADS)          ? last
                      : (log->group_page_count != 0) ? 0
                                                     : MAX_THREADS;
    if (closer != MAX_THREADS) {
@@ -721,12 +720,12 @@ shard_log_iterator_init(cache              *cc,
     * contiguous in the traversal and the replayable portion is a prefix of it.
     * We therefore only have to track a run at a time, and count pages.
     */
-   uint64 group_id       = 0;      // the run currently being tallied
+   uint64 group_id       = 0; // the run currently being tallied
    bool32 in_group       = FALSE;
-   uint64 group_pages    = 0;      // pages of it seen
+   uint64 group_pages    = 0; // pages of it seen
    uint64 group_entries  = 0;
-   uint64 group_declared = 0;      // pages its terminator claims, 0 if unseen
-   bool32 broken         = FALSE;  // hit a group we cannot replay
+   uint64 group_declared = 0;     // pages its terminator claims, 0 if unseen
+   bool32 broken         = FALSE; // hit a group we cannot replay
 
    extent_addr = addr;
    while (!broken && extent_addr != 0
@@ -773,9 +772,8 @@ shard_log_iterator_init(cache              *cc,
          group_pages++;
          group_entries += hdr->num_entries;
          if (hdr->pages_in_group != 0) {
-            debug_assert(group_declared == 0,
-                         "group %lu has two terminators",
-                         group_id);
+            debug_assert(
+               group_declared == 0, "group %lu has two terminators", group_id);
             group_declared = hdr->pages_in_group;
          }
          next_extent_addr = shard_log_next_extent_addr(cfg, page);
