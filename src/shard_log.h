@@ -79,6 +79,18 @@ typedef struct shard_log {
 
 typedef struct log_entry log_entry;
 
+/*
+ * Flag bit stolen from the top of shard_log_hdr::pages_in_group, marking the
+ * final group of a sealed stream.
+ *
+ * Without it, a stream that lost a whole trailing group is indistinguishable
+ * from one that simply ended: every group present is intact and contiguous, so
+ * nothing on disk says more was supposed to follow.  Replaying up to that point
+ * and then moving on to the next log would skip the missing records.
+ */
+#define SHARD_LOG_END_OF_STREAM       (1u << 31)
+#define SHARD_LOG_PAGES_IN_GROUP_MASK (SHARD_LOG_END_OF_STREAM - 1)
+
 typedef struct shard_log_iterator {
    log_iterator      super; // IS-A log_iterator IS-A generic iterator
    platform_heap_id  heap_id;
@@ -88,6 +100,8 @@ typedef struct shard_log_iterator {
    log_entry       **entries;
    uint64            num_entries;
    uint64            pos;
+   // Whether the replayable records run all the way to an end-of-stream marker.
+   bool32 stream_complete;
 } shard_log_iterator;
 
 /*
@@ -110,12 +124,17 @@ typedef struct ONDISK shard_log_hdr {
    uint64 group_id;
    /*
     * Non-zero on exactly one page per group -- the last one written -- giving
-    * the number of pages the group contains; zero on every other page.
+    * the number of pages the group contains, with SHARD_LOG_END_OF_STREAM set
+    * if that group is also the last of a sealed stream.  Zero on every other
+    * page.
     *
     * The count cannot be stamped when a page is written, because a group's
     * pages are written as they fill, long before it closes.  Marking only the
     * final page sidesteps that and costs nothing: it rides along on a page that
     * had to be written anyway.
+    *
+    * A terminator always counts at least itself, so the field stays a reliable
+    * "is this a terminator" test even with the flag bit set.
     */
    uint32 pages_in_group;
    uint16 num_entries;

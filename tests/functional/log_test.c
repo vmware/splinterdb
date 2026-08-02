@@ -104,6 +104,8 @@ test_log_crash(clockcache             *cc,
 
    itor = shard_log_iterator_create((cache *)cc, cfg, hid, segment);
    platform_assert(itor != NULL);
+   // The stream was sealed, so replay must be able to see that it is whole.
+   platform_assert(log_iterator_stream_complete(itor));
 
    for (i = 0; i < num_entries && log_iterator_can_next(itor); i++) {
       key skey =
@@ -195,6 +197,7 @@ test_log_verify_segment(cache                  *cc,
    platform_assert(segment->meta_addr != 0);
    itor = shard_log_iterator_create(cc, cfg, hid, *segment);
    platform_assert(itor != NULL);
+   platform_assert(log_iterator_stream_complete(itor));
 
    merge_accumulator_init(&msg, hid);
    for (uint64 i = 0; i < num_entries; i++) {
@@ -350,6 +353,7 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 
    itor = shard_log_iterator_create(cc, cfg, hid, sealed);
    platform_assert(itor != NULL);
+   platform_assert(log_iterator_stream_complete(itor));
    platform_assert(log_iterator_can_next(itor));
 
    log_iterator_curr(itor, &returned_key, &returned_message);

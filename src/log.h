@@ -140,10 +140,12 @@ typedef void (*log_iterator_curr_generations_fn)(log_iterator *itor,
                                                  uint64 *memtable_generation,
                                                  uint64 *leaf_generation);
 typedef void (*log_iterator_deinit_fn)(log_iterator *itor);
+typedef bool32 (*log_iterator_stream_complete_fn)(log_iterator *itor);
 
 typedef struct log_iterator_ops {
    log_iterator_curr_generations_fn curr_generations;
    log_iterator_deinit_fn           deinit;
+   log_iterator_stream_complete_fn  stream_complete;
 } log_iterator_ops;
 
 struct log_iterator {
@@ -186,6 +188,24 @@ static inline platform_status
 log_iterator_next(log_iterator *itor)
 {
    return iterator_next(&itor->super);
+}
+
+/*
+ * Whether the records this iterator yields run all the way to the end of a
+ * sealed stream, as opposed to stopping early because the stream was truncated
+ * by a crash.
+ *
+ * Recovery needs this to decide whether it may go on to the next log.  The
+ * records of a truncated stream are still a valid prefix on their own, but
+ * anything written after it must not be replayed on top of them: doing so would
+ * skip whatever was lost in between and produce a state that never existed.
+ *
+ * Always FALSE for a live stream, which has no end yet.
+ */
+static inline bool32
+log_iterator_stream_complete(log_iterator *itor)
+{
+   return itor->ops->stream_complete(itor);
 }
 
 /* Free the iterator and its resources; the handle is invalid afterward. */

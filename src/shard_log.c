@@ -166,11 +166,19 @@ shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
  * once, in full -- so there is never a partially-filled log page on disk to be
  * rewritten later.
  */
+typedef enum shard_log_close {
+   SHARD_LOG_CLOSE_NONE,   // an ordinary page; the group stays open
+   SHARD_LOG_CLOSE_GROUP,  // last page of its group
+   SHARD_LOG_CLOSE_STREAM, // last page of its group and of the stream
+} shard_log_close;
+
 static platform_status
 shard_log_graduate_buffer(shard_log             *log,
                           shard_log_thread_data *thread_data,
-                          bool32                 close_group)
+                          shard_log_close        close)
 {
+   bool32 close_group = (close != SHARD_LOG_CLOSE_NONE);
+
    uint64 page_size = shard_log_page_size(log->cfg);
 
    debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
@@ -208,9 +216,18 @@ shard_log_graduate_buffer(shard_log             *log,
     * Counted as it is handed over, so that the closing page -- the last to be
     * counted -- sees the group's final size and can record it.
     */
-   uint64 pages           = __sync_add_and_fetch(&log->group_page_count, 1);
-   staged->pages_in_group = close_group ? pages : 0;
-   platform_assert(!close_group || pages <= UINT32_MAX);
+   uint64 pages = __sync_add_and_fetch(&log->group_page_count, 1);
+   if (close_group) {
+      platform_assert(pages <= SHARD_LOG_PAGES_IN_GROUP_MASK,
+                      "group %lu is too large to terminate: %lu pages",
+                      log->group_id,
+                      pages);
+      staged->pages_in_group =
+         (uint32)pages
+         | (close == SHARD_LOG_CLOSE_STREAM ? SHARD_LOG_END_OF_STREAM : 0);
+   } else {
+      staged->pages_in_group = 0;
+   }
 
    memcpy(page->data, thread_data->buf, page_size);
    // Computed on the page over everything but the checksum field itself, so
@@ -274,7 +291,8 @@ shard_log_write(log_handle *logh,
 
    // Full: turn the staged image into a page and start a fresh one.
    if (page_size - thread_data->offset < new_entry_size) {
-      platform_status rc = shard_log_graduate_buffer(log, thread_data, FALSE);
+      platform_status rc =
+         shard_log_graduate_buffer(log, thread_data, SHARD_LOG_CLOSE_NONE);
       if (!SUCCESS(rc)) {
          if (log_blob_inited) {
             merge_accumulator_deinit(&log_blob);
@@ -348,7 +366,7 @@ shard_log_seal(log_handle *logh)
 
    for (threadid thr_i = 0; thr_i < last; thr_i++) {
       platform_status rc = shard_log_graduate_buffer(
-         log, shard_log_get_thread_data(log, thr_i), FALSE);
+         log, shard_log_get_thread_data(log, thr_i), SHARD_LOG_CLOSE_NONE);
       if (!SUCCESS(rc)) {
          // Keep going: the remaining threads' records should still be written.
          platform_error_log("shard_log_seal: failed to flush the staged log "
@@ -382,7 +400,7 @@ shard_log_seal(log_handle *logh)
                          log->group_id);
    } else if (last != MAX_THREADS) {
       platform_status rc = shard_log_graduate_buffer(
-         log, shard_log_get_thread_data(log, last), TRUE);
+         log, shard_log_get_thread_data(log, last), SHARD_LOG_CLOSE_STREAM);
       if (!SUCCESS(rc)) {
          platform_error_log("shard_log_seal: failed to close group %lu: %s\n",
                             log->group_id,
@@ -686,9 +704,23 @@ const static iterator_ops shard_log_iterator_ops = {
    .print    = NULL,
 };
 
+/*
+ * TRUE only when the accepted records run to a page marked as ending a sealed
+ * stream.  FALSE for a live stream, and for one whose tail was lost -- in which
+ * case the records yielded are still a valid prefix, but nothing written after
+ * this stream may be replayed on top of them.
+ */
+static bool32
+shard_log_iterator_stream_complete(log_iterator *itorh)
+{
+   shard_log_iterator *itor = (shard_log_iterator *)itorh;
+   return itor->stream_complete;
+}
+
 const static log_iterator_ops shard_log_log_iterator_ops = {
    .curr_generations = shard_log_iterator_curr_generations,
    .deinit           = shard_log_iterator_deinit,
+   .stream_complete  = shard_log_iterator_stream_complete,
 };
 
 static platform_status
@@ -731,11 +763,14 @@ shard_log_iterator_init(cache              *cc,
     * We therefore only have to track a run at a time, and count pages.
     */
    uint64 group_id       = 0; // the run currently being tallied
+   uint64 expect_group   = 0; // ids must run 0, 1, 2, ... with no gaps
    bool32 in_group       = FALSE;
    uint64 group_pages    = 0; // pages of it seen
    uint64 group_entries  = 0;
-   uint64 group_declared = 0;     // pages its terminator claims, 0 if unseen
-   bool32 broken         = FALSE; // hit a group we cannot replay
+   uint64 group_declared = 0; // pages its terminator claims, 0 if unseen
+   // whether its terminator also says the stream ends here
+   bool32 group_ends_stream = FALSE;
+   bool32 broken            = FALSE; // hit a group we cannot replay
 
    extent_addr = addr;
    while (!broken && extent_addr != 0
@@ -763,6 +798,8 @@ shard_log_iterator_init(cache              *cc,
             if (group_declared != 0 && group_pages == group_declared) {
                num_valid_pages += group_pages;
                itor->num_entries += group_entries;
+               expect_group          = group_id + 1;
+               itor->stream_complete = group_ends_stream;
             } else {
                broken = TRUE;
             }
@@ -773,18 +810,38 @@ shard_log_iterator_init(cache              *cc,
             break;
          }
          if (!in_group) {
-            in_group       = TRUE;
-            group_id       = hdr->group_id;
-            group_pages    = 0;
-            group_entries  = 0;
-            group_declared = 0;
+            /*
+             * Group ids are dense, so a jump means a whole group left no trace
+             * on disk -- every one of its pages was lost.  Its own count cannot
+             * report that (there is nothing left to count), so the sequence has
+             * to.  Replaying across such a hole would skip records and produce
+             * a state that never existed.
+             */
+            if (hdr->group_id != expect_group) {
+               platform_error_log("shard_log_iterator_init: log skips from "
+                                  "group %lu to %lu; discarding the rest\n",
+                                  expect_group,
+                                  hdr->group_id);
+               cache_unget(cc, page);
+               broken = TRUE;
+               break;
+            }
+            in_group          = TRUE;
+            group_id          = hdr->group_id;
+            group_pages       = 0;
+            group_entries     = 0;
+            group_declared    = 0;
+            group_ends_stream = FALSE;
          }
          group_pages++;
          group_entries += hdr->num_entries;
          if (hdr->pages_in_group != 0) {
             debug_assert(
                group_declared == 0, "group %lu has two terminators", group_id);
-            group_declared = hdr->pages_in_group;
+            group_declared =
+               hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK;
+            group_ends_stream =
+               (hdr->pages_in_group & SHARD_LOG_END_OF_STREAM) != 0;
          }
          next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);
@@ -795,6 +852,7 @@ shard_log_iterator_init(cache              *cc,
       if (group_declared != 0 && group_pages == group_declared) {
          num_valid_pages += group_pages;
          itor->num_entries += group_entries;
+         itor->stream_complete = group_ends_stream;
       }
       // Otherwise the stream ends in an unclosed group: discard it.
    }
