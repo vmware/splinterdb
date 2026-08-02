@@ -36,9 +36,10 @@ typedef int (*log_write_fn)(log_handle *log,
                             uint64      memtable_generation,
                             uint64      leaf_generation);
 /*
- * Finalize and retire the log stream, terminally.  Finalizes the current
- * append pages into checksummed, immutable pages, releases in-memory
- * resources, and frees the handle (which is invalid afterward).
+ * Finish the stream: write out everything still staged, and mark the last of it
+ * as the end of the stream so that replay can tell a complete stream from one a
+ * crash truncated.  The stream is immutable afterward, but the handle remains
+ * valid and must still be released with log_deinit().
  *
  * The caller must exclude concurrent log_write() and log_seal() calls.  seal()
  * itself issues no writeback or durable barrier: to make the sealed pages
@@ -46,8 +47,27 @@ typedef int (*log_write_fn)(log_handle *log,
  * afterward.  The stream's head is fixed at creation and obtained then via
  * log_get_head(), so seal needs no out-parameter; the caller frees the on-disk
  * extents later via log_dec_ref().
+ *
+ * A caller that is about to discard the stream outright should skip this and
+ * call log_deinit() alone: there is no point writing a terminator onto extents
+ * that are about to be freed.
+ *
+ * On failure the stream is left unterminated -- and so unreplayable -- rather
+ * than partially finished, and seal may simply be called again: whatever it
+ * managed to write stays written, and a retry resumes from where it stopped.
+ * Do NOT call it again after it has succeeded, which would write a second
+ * terminator into a group that is already closed.
  */
 typedef platform_status (*log_seal_fn)(log_handle *log);
+/*
+ * Release the stream's in-memory resources and free the handle, which is
+ * invalid afterward.  Writes nothing, so it cannot fail.
+ *
+ * Separate from seal because the two are wanted independently: a stream being
+ * discarded needs only this, and a stream being finished needs seal's
+ * durability guarantees before its handle goes away.
+ */
+typedef void (*log_deinit_fn)(log_handle *log);
 /*
  * The stream's durable head, fixed at creation.  The caller records it
  * (e.g. in the superblock) as soon as the log is created, so that a crash
@@ -65,8 +85,9 @@ typedef log_head (*log_head_fn)(log_handle *log);
 typedef uint64 (*log_size_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_fn write;
-   log_seal_fn  seal;
+   log_write_fn  write;
+   log_seal_fn   seal;
+   log_deinit_fn deinit;
    log_head_fn  head;
    log_size_fn  size;
 } log_ops;
@@ -88,15 +109,21 @@ log_write(log_handle *log,
 }
 
 /*
- * Finalize and retire the log, freeing the handle.  See log_seal_fn for the
- * required exclusion and durability ordering; the handle is invalid after this
- * returns.  Capture the head via log_get_head() beforehand (it is fixed at
- * creation).
+ * Finish the stream.  See log_seal_fn for the required exclusion and durability
+ * ordering.  The handle stays valid; release it with log_deinit().  Capture the
+ * head via log_get_head() beforehand (it is fixed at creation).
  */
 static inline platform_status
 log_seal(log_handle *log)
 {
    return log->ops->seal(log);
+}
+
+/* Free the handle, which is invalid afterward.  See log_deinit_fn. */
+static inline void
+log_deinit(log_handle *log)
+{
+   log->ops->deinit(log);
 }
 
 /* The stream's durable head (fixed at creation).  See log_head_fn. */
@@ -116,13 +143,13 @@ log_get_size(log_handle *log)
 /*
  * A log_handle is created by the concrete log implementation -- e.g.
  * shard_log_create() -- and then driven through the abstract ops above; it is
- * freed by log_seal().
+ * freed by log_deinit().
  */
 
 /*
- * Release a sealed log identified by its log_head: drop the reference its
- * metadata head holds, freeing the stream's on-disk extents.  Takes no handle
- * -- the handle was freed by log_seal(); the caller retained only the head
+ * Release a log identified by its log_head: drop the reference its metadata
+ * head holds, freeing the stream's on-disk extents.  Takes no handle -- the
+ * handle was freed by log_deinit(); the caller retained only the head
  * (log_get_head(), captured at creation).
  */
 void

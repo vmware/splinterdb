@@ -88,8 +88,9 @@ test_log_crash(clockcache             *cc,
       platform_assert(log_rc == 0);
    }
 
-   rc = log_seal(logh); // frees logh; identity captured above
+   rc = log_seal(logh); // identity captured above
    platform_assert_status_ok(rc);
+   log_deinit(logh);
    rc = cache_writeback_dirty((cache *)cc);
    platform_assert_status_ok(rc);
    rc = cache_durable_barrier((cache *)cc);
@@ -256,8 +257,9 @@ test_log_two_segments(clockcache             *cc,
    sealed = log_get_head(log); // identity is fixed at creation
    test_log_write_range(log, gen, hid, key_size, old_first, old_count);
 
-   platform_status rc = log_seal(log); // frees log
+   platform_status rc = log_seal(log);
    platform_assert_status_ok(rc);
+   log_deinit(log);
    platform_assert(sealed.addr != 0);
    platform_assert(sealed.meta_addr != 0);
 
@@ -278,8 +280,9 @@ test_log_two_segments(clockcache             *cc,
    platform_assert(log != NULL);
    fresh = log_get_head(log);
    test_log_write_range(log, gen, hid, key_size, new_first, new_count);
-   rc = log_seal(log); // frees log
+   rc = log_seal(log);
    platform_assert_status_ok(rc);
+   log_deinit(log);
    platform_assert(fresh.addr != 0);
    platform_assert(fresh.meta_addr != 0);
    platform_assert(sealed.meta_addr != fresh.meta_addr);
@@ -344,8 +347,9 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    }
    merge_accumulator_deinit(&filler);
 
-   rc = log_seal(logh); // frees logh; identity captured above
+   rc = log_seal(logh); // identity captured above
    platform_assert_status_ok(rc);
+   log_deinit(logh);
    rc = cache_writeback_dirty(cc);
    platform_assert_status_ok(rc);
    rc = cache_durable_barrier(cc);
@@ -454,8 +458,9 @@ test_log_perf(cache                  *cc,
                            / platform_timestamp_elapsed(start_time));
 
 cleanup:
-   // Seal (frees the handle) and release the segment's extents.
-   log_seal(logh);
+   // Finish the stream, free the handle, and release the segment's extents.
+   platform_assert_status_ok(log_seal(logh));
+   log_deinit(logh);
    log_dec_ref((cache *)cc, &sealed);
    platform_free(hid, params);
 

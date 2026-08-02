@@ -143,7 +143,7 @@ typedef struct ONDISK shard_log_hdr {
 /*
  * Create a fresh sharded write-ahead log stream.  Returns an abstract
  * log_handle (or NULL on failure) to be driven through the log.h interface and
- * retired with log_seal().
+ * released with log_deinit().
  */
 log_handle *
 shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid);

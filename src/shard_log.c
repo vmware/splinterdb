@@ -355,6 +355,11 @@ shard_log_seal(log_handle *logh)
     *
     * The terminator has to ride on the *last* page written, so find that page
     * up front rather than discovering it as we go.
+    *
+    * Safe to re-enter after a failed attempt, which callers rely on: buffers
+    * already handed over were reset and are skipped, the one that failed and
+    * everything after it are untouched, and the terminator is only written once
+    * every buffer is out -- so a retry resumes rather than duplicating.
     */
    threadid last = MAX_THREADS;
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
@@ -368,12 +373,19 @@ shard_log_seal(log_handle *logh)
       platform_status rc = shard_log_graduate_buffer(
          log, shard_log_get_thread_data(log, thr_i), SHARD_LOG_CLOSE_NONE);
       if (!SUCCESS(rc)) {
-         // Keep going: the remaining threads' records should still be written.
+         /*
+          * Stop here.  One failure already dooms the group -- it will not be
+          * terminated below, so replay discards it whole -- which makes writing
+          * the rest pointless.  Worse, the only way the hand-over fails is that
+          * the stream is out of space, so pressing on would spend what little
+          * remains on pages nobody will ever read.
+          */
          platform_error_log("shard_log_seal: failed to flush the staged log "
                             "page of thread %lu: %s\n",
                             thr_i,
                             platform_status_to_string(rc));
          result = rc;
+         break;
       }
    }
 
@@ -409,16 +421,30 @@ shard_log_seal(log_handle *logh)
       }
    }
 
-   /*
-    * The stream is now immutable.  Release the mini-allocator's unused
-    * per-batch reserve so no future allocation touches this stream, and free
-    * the handle.  The caller already holds the stream's identity (captured at
-    * creation) and later frees the on-disk extents via log_dec_ref().
-    */
+   return result;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * shard_log_deinit --
+ *
+ *      Release the stream's in-memory resources and free the handle.  Writes
+ *      nothing, so it cannot fail.
+ *
+ *      Releasing the mini-allocator's unused per-batch reserve ensures no
+ *      future allocation touches this stream.  The caller already holds the
+ *      stream's identity (captured at creation) and frees the on-disk extents
+ *      separately via log_dec_ref().
+ *-----------------------------------------------------------------------------
+ */
+static void
+shard_log_deinit(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+
    mini_release(&log->mini);
    platform_free(log->heap_id, log->thread_buffers);
    platform_free(log->heap_id, log);
-   return result;
 }
 
 void
@@ -475,10 +501,11 @@ shard_log_get_size(log_handle *logh)
 }
 
 static log_ops shard_log_ops = {
-   .write = shard_log_write,
-   .seal  = shard_log_seal,
-   .head  = shard_log_get_head,
-   .size  = shard_log_get_size,
+   .write  = shard_log_write,
+   .seal   = shard_log_seal,
+   .deinit = shard_log_deinit,
+   .head   = shard_log_get_head,
+   .size   = shard_log_get_size,
 };
 
 static platform_status
@@ -546,7 +573,7 @@ shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid)
       platform_error_log("shard_log_create: failed to allocate shard_log\n");
       return NULL;
    }
-   // The heap is remembered in the log so that log_seal() can free the handle
+   // The heap is remembered in the log so that log_deinit() can free the handle
    // and its staging buffers without the caller touching platform_free().
    platform_status rc = shard_log_init(slog, cc, cfg, hid);
    if (!SUCCESS(rc)) {

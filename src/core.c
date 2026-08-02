@@ -431,8 +431,12 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
    if (next != NULL) {
-      // Lost a race with a concurrent rotation; discard the speculative log.
-      log_seal(next);
+      /*
+       * Lost a race with a concurrent rotation; discard the speculative log.
+       * Not sealed: nothing was ever written to it and log_dec_ref() is about
+       * to free its extents, so a terminator would serve no one.
+       */
+      log_deinit(next);
       log_dec_ref(spl->cc, &next_head);
    }
    return ticket;
@@ -521,10 +525,25 @@ core_rotate_log(void *arg, uint64 finalized_generation)
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 }
 
+/* Move the checkpoint to `phase`, taking the state lock for the update. */
+static void
+core_checkpoint_set_phase(core_handle *spl, core_checkpoint_phase phase)
+{
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   spl->checkpoint.phase = phase;
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+}
+
 /*
  * Begin, step 3 (just after the rotation critical section): seal the
  * swapped-out log and publish the cut.  The swap drained and excluded all
  * writers, so sealing is safe.
+ *
+ * Either both halves succeed and the checkpoint advances to INCORPORATING, or
+ * the phase returns to SEALING and nothing else has changed, so a later
+ * rotation retries.  Half-done is not a state the rest of the machine can
+ * tolerate: completion frees the sealed log's extents, which is only safe once
+ * the superblock has stopped naming that log as the live one.
  *
  * Publishing here is what makes the cut crash-safe.  The rotation moved inserts
  * to the new live log, but the superblock still names the old one, so until
@@ -535,52 +554,90 @@ core_rotate_log(void *arg, uint64 finalized_generation)
 static void
 core_checkpoint_seal_cut(core_handle *spl)
 {
+   /*
+    * Claim the work by moving to PUBLISHING, which both keeps a second caller
+    * out and keeps core_maybe_complete_checkpoint() out: it acts only on
+    * INCORPORATING, which we do not enter until the cut is actually published.
+    * Entering it earlier would let completion free the sealed log's extents
+    * while the superblock still names that log as live.
+    */
    platform_mutex_lock(&spl->checkpoint_state_lock);
    log_handle         *to_seal = NULL;
    superblock_log_head live    = {0};
+   bool32              claimed = FALSE;
    if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
-      to_seal                     = spl->checkpoint.log_to_seal;
-      spl->checkpoint.log_to_seal = NULL;
-      spl->checkpoint.phase       = CORE_CHECKPOINT_INCORPORATING;
-      live                        = core_log_to_superblock_log_head(
+      claimed = TRUE;
+      // NULL if an earlier attempt sealed the log but failed to publish.
+      to_seal               = spl->checkpoint.log_to_seal;
+      spl->checkpoint.phase = CORE_CHECKPOINT_PUBLISHING;
+      live                  = core_log_to_superblock_log_head(
          spl->checkpoint.live_head, spl->checkpoint.live_start_generation);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
-   if (to_seal == NULL) {
+   if (!claimed) {
       return;
    }
-   log_seal(to_seal);
+
+   if (to_seal != NULL) {
+      platform_status seal_rc = log_seal(to_seal);
+      if (!SUCCESS(seal_rc)) {
+         /*
+          * The stream was left unterminated, so replay would discard it whole;
+          * publishing it as the sealed log would point the superblock at a log
+          * recovery cannot use.  Put the checkpoint back exactly as the
+          * rotation left it -- log_to_seal still set, so the handle survives --
+          * and let a later rotation retry.  Resuming a partly-sealed stream is
+          * safe: see log_seal_fn.
+          */
+         platform_error_log("core_checkpoint_seal_cut: failed to seal the log; "
+                            "leaving the cut unpublished to retry: %s\n",
+                            platform_status_to_string(seal_rc));
+         core_checkpoint_set_phase(spl, CORE_CHECKPOINT_SEALING);
+         return;
+      }
+      /*
+       * Sealed.  Drop the handle and forget it before anything else can fail,
+       * so that a retry publishes without trying to seal a second time -- which
+       * would write a second terminator into a closed group.
+       */
+      log_deinit(to_seal);
+      platform_mutex_lock(&spl->checkpoint_state_lock);
+      spl->checkpoint.log_to_seal = NULL;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+   }
 
    /*
     * Serialize against any other superblock publisher (the superblock context
-    * is not thread safe).  On failure the checkpoint still proceeds: the
-    * completion publish will record the correct final state; only this
-    * crash-protection window is left uncovered.
+    * is not thread safe).
     */
    platform_status rc = platform_mutex_lock(&spl->superblock_lock);
+   if (SUCCESS(rc)) {
+      rc = cache_writeback_dirty(spl->cc);
+      if (SUCCESS(rc)) {
+         rc = cache_durable_barrier(spl->cc);
+      }
+      if (SUCCESS(rc)) {
+         // The image still names the retiring log as live, so the cut moves it
+         // into the sealed slot, carrying its recorded start generation along.
+         superblock_log_cut(&spl->superblock, live);
+         rc = superblock_make_durable(&spl->superblock);
+      }
+      platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
+      platform_assert_status_ok(unlock_rc);
+   }
+
    if (!SUCCESS(rc)) {
-      platform_error_log("core_checkpoint_seal_cut: lock failed: %s\n",
+      // Back to SEALING to be retried; the log is already sealed, so the retry
+      // will find log_to_seal NULL and only redo the publish.
+      platform_error_log("core_checkpoint_seal_cut: failed to publish the log "
+                         "cut; will retry: %s\n",
                          platform_status_to_string(rc));
+      core_checkpoint_set_phase(spl, CORE_CHECKPOINT_SEALING);
       return;
    }
-   rc = cache_writeback_dirty(spl->cc);
-   if (SUCCESS(rc)) {
-      rc = cache_durable_barrier(spl->cc);
-   }
-   if (SUCCESS(rc)) {
-      // The image still names the retiring log as live, so the cut moves it
-      // into the sealed slot, carrying its recorded start generation with it.
-      superblock_log_cut(&spl->superblock, live);
-      rc = superblock_make_durable(&spl->superblock);
-   }
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_checkpoint_seal_cut: failed to publish the log "
-                         "cut: %s\n",
-                         platform_status_to_string(rc));
-   }
-   platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
-   platform_assert_status_ok(unlock_rc);
+
+   core_checkpoint_set_phase(spl, CORE_CHECKPOINT_INCORPORATING);
 }
 
 /*
@@ -664,10 +721,29 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl)
       case CORE_CHECKPOINT_IDLE:
          break;
       case CORE_CHECKPOINT_PENDING:
-         // The next live log was pre-created but never installed; discard it.
-         log_seal(cp->pending_log);
+         /*
+          * The next live log was pre-created but never installed; discard it.
+          * As above, no seal: its extents are about to be freed.
+          */
+         log_deinit(cp->pending_log);
          log_dec_ref(spl->cc, &cp->live_head);
          break;
+      case CORE_CHECKPOINT_SEALING:
+      case CORE_CHECKPOINT_PUBLISHING:
+         /*
+          * The cut was never published, because sealing or publishing failed
+          * and kept failing -- out of log space does not fix itself while the
+          * checkpoint that would free the previous log cannot complete.  The
+          * handle may still be held for a retry that will now never happen.
+          *
+          * Falls through: whether or not the cut was published, quiesce has
+          * incorporated everything, so no log is needed and its extents are
+          * reclaimed the same way.
+          */
+         if (cp->log_to_seal != NULL) {
+            log_deinit(cp->log_to_seal);
+         }
+         // fallthrough
       case CORE_CHECKPOINT_INCORPORATING:
       case CORE_CHECKPOINT_COMPLETING:
          // The sealed log is fully incorporated after quiesce.  The shutdown
@@ -675,7 +751,6 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl)
          // (before the map is persisted, so the map reflects the free).
          log_dec_ref(spl->cc, &cp->sealed_head);
          break;
-      case CORE_CHECKPOINT_SEALING:
       default:
          platform_assert(
             FALSE, "unexpected checkpoint phase %d at shutdown", cp->phase);
@@ -2755,8 +2830,16 @@ core_seal_live_log(core_handle *spl)
    if (!spl->cfg.use_log || spl->log == NULL) {
       return (log_head){0};
    }
-   log_head info = log_get_head(spl->log);
-   log_seal(spl->log);
+   log_head        info = log_get_head(spl->log);
+   platform_status rc   = log_seal(spl->log);
+   if (!SUCCESS(rc)) {
+      // Unterminated, so recovery will discard the stream; say so rather than
+      // letting it look like a clean shutdown.
+      platform_error_log("core_seal_live_log: failed to seal the live log; it "
+                         "will not be replayable: %s\n",
+                         platform_status_to_string(rc));
+   }
+   log_deinit(spl->log);
    spl->log = NULL;
    return info;
 }
@@ -2835,6 +2918,24 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
          memtable_force_rotation(&spl->mt_ctxt); // dispatches the flush itself
          deadline = platform_get_timestamp();
       }
+
+      /*
+       * Drive the cut ourselves rather than waiting for a rotation to do it.
+       * A no-op unless the checkpoint is sitting in SEALING, which happens when
+       * an earlier attempt to seal or publish failed and rolled back.  Nothing
+       * else would come along on an otherwise idle system -- needs_rotation
+       * above only covers PENDING -- so without this a failed attempt would
+       * wait here forever.
+       */
+      core_checkpoint_seal_cut(spl);
+      /*
+       * And drive completion, for the same reason.  Completion is otherwise
+       * only attempted on the back of an incorporation; if the cut is published
+       * after the generations it covers were already incorporated -- which a
+       * retried cut can be -- that edge has passed and nothing would ever try
+       * again.
+       */
+      core_maybe_complete_checkpoint(spl);
 
       task_perform_one_if_needed(spl->ts, 0);
       platform_sleep_ns(wait);
