@@ -327,8 +327,7 @@ shard_log_write(log_handle *logh,
        * blob here, because a close excludes writers for its whole duration.
        */
       platform_mutex_lock(&log->wbset_lock);
-      platform_status rc =
-         blob_writeback(cc, message_slice(msg), &log->wbset);
+      platform_status rc = blob_writeback(cc, message_slice(msg), &log->wbset);
       platform_mutex_unlock(&log->wbset_lock);
       merge_accumulator_deinit(&log_blob);
       if (!SUCCESS(rc)) {

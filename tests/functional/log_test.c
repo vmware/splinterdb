@@ -260,8 +260,7 @@ test_log_multiple_groups(clockcache             *cc,
    segment = log_get_head(log);
 
    for (uint64 g = 0; g < num_groups; g++) {
-      test_log_write_range(
-         log, gen, hid, key_size, g * per_group, per_group);
+      test_log_write_range(log, gen, hid, key_size, g * per_group, per_group);
       // Ends this group and starts the next; the stream stays open.
       platform_assert_status_ok(log_make_durable(log));
    }

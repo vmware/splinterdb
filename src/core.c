@@ -629,7 +629,7 @@ core_checkpoint_seal_cut(core_handle *spl)
       // The image still names the retiring log as live, so the cut moves it
       // into the sealed slot, carrying its recorded start generation along.
       superblock_log_cut(&spl->superblock, live);
-      rc = superblock_make_durable(&spl->superblock);
+      rc                        = superblock_make_durable(&spl->superblock);
       platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
       platform_assert_status_ok(unlock_rc);
    }
@@ -3007,7 +3007,7 @@ core_unmount(core_handle *spl, bool32 force)
     * decide to keep running.  The seal follows once we commit to unmounting, by
     * which point it is cheap -- only the terminator is left to write.
     */
-   platform_status log_rc = STATUS_OK;
+   platform_status log_rc   = STATUS_OK;
    bool32          have_log = spl->cfg.use_log && spl->log != NULL;
    if (have_log) {
       log_rc = log_make_durable(spl->log);
