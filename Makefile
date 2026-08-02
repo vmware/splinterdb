@@ -83,6 +83,11 @@ CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 GIT_VERSION_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
 
+# Fix annoying warning about avx-256 vs avx-512
+ifeq "$(findstring clang, $(CC))" "clang"
+   CFLAGS += -Wno-invalid-feature-combination
+endif
+
 cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
   # not supported on ARM64
