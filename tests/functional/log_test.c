@@ -233,6 +233,68 @@ test_log_verify_segment(cache                  *cc,
 }
 
 /*
+ * log_make_durable() mid-stream must produce a stream of several groups that
+ * still replays as one sequence.
+ *
+ * This is the only coverage of the reader's multi-group path: that group ids
+ * are dense, that a run of them is accepted in order, and that the records of
+ * every closed group survive.  Sealing alone leaves a single group, so nothing
+ * else reaches it.
+ */
+static int
+test_log_multiple_groups(clockcache             *cc,
+                         clockcache_config      *cache_cfg,
+                         io_handle              *io,
+                         allocator              *al,
+                         shard_log_config       *cfg,
+                         platform_heap_id        hid,
+                         test_message_generator *gen,
+                         uint64                  key_size)
+{
+   const uint64 num_groups = 4;
+   const uint64 per_group  = 32;
+   log_head     segment;
+
+   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(log != NULL);
+   segment = log_get_head(log);
+
+   for (uint64 g = 0; g < num_groups; g++) {
+      test_log_write_range(
+         log, gen, hid, key_size, g * per_group, per_group);
+      // Ends this group and starts the next; the stream stays open.
+      platform_assert_status_ok(log_make_durable(log));
+   }
+
+   platform_assert_status_ok(log_seal(log));
+   log_deinit(log);
+
+   platform_status rc = cache_writeback_dirty((cache *)cc);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier((cache *)cc);
+   platform_assert_status_ok(rc);
+
+   // Re-read from a cold cache so only persisted pages are consulted.
+   clockcache_deinit(cc);
+   rc = clockcache_init(
+      cc, cache_cfg, io, al, "multi-group", hid, platform_get_module_id());
+   platform_assert_status_ok(rc);
+
+   // Every record of every group must come back, as one sequence.
+   test_log_verify_segment((cache *)cc,
+                           cfg,
+                           &segment,
+                           gen,
+                           hid,
+                           key_size,
+                           0,
+                           num_groups * per_group);
+
+   log_dec_ref((cache *)cc, &segment);
+   return 0;
+}
+
+/*
  * Sealing a stream and creating a fresh one must yield two distinct,
  * independently replayable segments. Reinitializing the cache after each forced
  * physical persistence cut makes this test exercise only persisted pages for
@@ -581,6 +643,16 @@ log_test(int argc, char *argv[])
    platform_assert_status_ok(status);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
+   platform_assert(rc == 0);
+
+   rc = test_log_multiple_groups(cc,
+                                 &system_cfg.cache_cfg,
+                                 io,
+                                 (allocator *)&al,
+                                 &system_cfg.log_cfg,
+                                 hid,
+                                 &gen,
+                                 workload_cfg.key_size);
    platform_assert(rc == 0);
 
    rc = test_log_two_segments(cc,

@@ -5,6 +5,7 @@
 
 #include "cache.h"
 #include "util.h"
+#include "writeback_set.h"
 
 typedef struct ONDISK blob {
    uint64 length;
@@ -95,5 +96,14 @@ blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
    return blob_materialize(cc, sblob, 0, blob_length(sblob), result);
 }
 
+/*
+ * Issue writeback of every page of the blob, recording each in `set` so the
+ * caller can later wait for them.  Does not wait and does not make anything
+ * durable; `set` may be NULL to issue and forget.
+ *
+ * A caller that treats a blob as part of some larger durable unit must pass a
+ * set: the blob holds the record's value, so a unit declared durable without
+ * it would replay a record whose value never reached the device.
+ */
 platform_status
-blob_sync(cache *cc, slice sblob);
+blob_writeback(cache *cc, slice sblob, writeback_set *set);

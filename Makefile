@@ -432,11 +432,12 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_io.o \
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
-CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
-                 $(OBJDIR)/$(SRCDIR)/allocator.o    \
-                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
-                 $(OBJDIR)/$(SRCDIR)/task.o         \
-                 $(UTIL_SYS)                        \
+CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	    \
+                 $(OBJDIR)/$(SRCDIR)/allocator.o      \
+                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o   \
+                 $(OBJDIR)/$(SRCDIR)/task.o           \
+                 $(OBJDIR)/$(SRCDIR)/writeback_set.o  \
+                 $(UTIL_SYS)                          \
                  $(PLATFORM_IO_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
@@ -476,7 +477,6 @@ $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_co
 # Uses btree_test_common only for its init_*_config_from_master_config()
 # helpers, which is why it pulls BTREE_SYS rather than just CLOCKCACHE_SYS.
 $(BINDIR)/$(UNITDIR)/writeback_set_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
-                                         $(OBJDIR)/$(SRCDIR)/writeback_set.o            \
                                          $(OBJDIR)/$(TESTS_DIR)/config.o                \
                                          $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
                                          $(COMMON_UNIT_TESTOBJ)                         \

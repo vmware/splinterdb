@@ -95,6 +95,15 @@ writeback_set_wait(writeback_set *set);
 platform_status
 writeback_set_make_durable(writeback_set *set);
 
+/*
+ * Drop every member, keeping the allocation for reuse.  Only sound once the
+ * members have been waited for: the requests are the only record that those
+ * writes are outstanding, so discarding them earlier loses the ability to tell
+ * when they land.
+ */
+void
+writeback_set_reset(writeback_set *set);
+
 /* Number of members added so far. */
 uint64
 writeback_set_num_requests(const writeback_set *set);

@@ -17,6 +17,8 @@
 #include "splinterdb/data.h"
 #include "blob_build.h"
 #include "mini_allocator.h"
+#include "platform_mutex.h"
+#include "writeback_set.h"
 
 /*
  * Configuration structure to set up the sharded log sub-system.
@@ -65,6 +67,19 @@ typedef struct shard_log {
     */
    uint64 group_id;
    uint64 group_page_count;
+   /*
+    * Receipts for every page handed over since the group opened, so that
+    * closing it can wait for exactly those writes rather than flushing the
+    * whole cache.  They have to be collected as pages graduate, not at close
+    * time: a page issued early is long gone by then and there would be no way
+    * left to tell whether it landed.
+    *
+    * Guarded by wbset_lock, since graduation is concurrent.  Its size is
+    * therefore bounded by the group -- which today means by the log-cut policy,
+    * at 24 bytes per page.
+    */
+   platform_mutex wbset_lock;
+   writeback_set  wbset;
    uint64 addr;
    uint64 meta_head;
    uint64 magic;

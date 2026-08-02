@@ -604,7 +604,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
    merge_accumulator_deinit(&msg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   rc = core_unmount(&created);
+   rc = core_unmount(&created, FALSE);
    ASSERT_TRUE(SUCCESS(rc));
 
    /* This mount advances the A/B sequence with an unmounted=FALSE record. */
@@ -629,7 +629,7 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
 
    /* Finish cleanly, then prove the same record pair is mountable again. */
-   rc = core_unmount(&mounted);
+   rc = core_unmount(&mounted, FALSE);
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = core_mount(&cleanup,

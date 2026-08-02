@@ -66,7 +66,7 @@ CTEST_SETUP(splinterdb_stress)
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_stress)
 {
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    platform_deregister_thread();
 }
 

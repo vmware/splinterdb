@@ -109,7 +109,7 @@ main(int argc, char **argv)
       fprintf(stderr, "splinterdb_optimize failed: %d\n", rc);
    }
 
-   splinterdb_close(&spl);
+   splinterdb_close(&spl, FALSE);
    return rc;
 }
 

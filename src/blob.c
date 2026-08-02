@@ -310,7 +310,7 @@ out:
 }
 
 platform_status
-blob_sync(cache *cc, slice sblob)
+blob_writeback(cache *cc, slice sblob, writeback_set *set)
 {
    blob_page_iterator itor;
    platform_status    rc = blob_page_iterator_init(
@@ -326,10 +326,18 @@ blob_sync(cache *cc, slice sblob)
       if (!SUCCESS(rc)) {
          break;
       }
-      platform_status wb_rc =
-         cache_writeback_page(cc, itor.page, PAGE_TYPE_BLOB, NULL);
-      // The iterator holds a read reference only, never a claim or lock.
-      platform_assert_status_ok(wb_rc);
+      platform_status wb_rc;
+      if (set != NULL) {
+         wb_rc = writeback_set_add_page(set, itor.page, PAGE_TYPE_BLOB);
+      } else {
+         wb_rc = cache_writeback_page(cc, itor.page, PAGE_TYPE_BLOB, NULL);
+      }
+      // The iterator holds a read reference only, never a claim or lock, so
+      // the page is always writeback-able.
+      if (!SUCCESS(wb_rc)) {
+         rc = wb_rc;
+         break;
+      }
       blob_page_iterator_advance_page(&itor);
    }
 

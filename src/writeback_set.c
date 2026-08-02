@@ -25,6 +25,12 @@ writeback_set_deinit(writeback_set *set)
    set->cc = NULL;
 }
 
+void
+writeback_set_reset(writeback_set *set)
+{
+   vector_truncate(&set->requests, 0);
+}
+
 uint64
 writeback_set_num_requests(const writeback_set *set)
 {

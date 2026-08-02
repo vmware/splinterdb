@@ -576,14 +576,16 @@ splinterdb_open(const splinterdb_config *cfg, // IN
  *      Platform heap memory is also destroyed when closing SplinterDB.
  *
  * Results:
- *      None.
+ *      0 on success.  If closing would lose data that cannot be made durable,
+ *      returns an error and closes nothing -- *kvs_in is left open and usable.
+ *      Pass force to close anyway, accepting the loss.
  *
  * Side effects:
- *      None.
+ *      On success, *kvs_in is freed and set to NULL.
  *-----------------------------------------------------------------------------
  */
-void
-splinterdb_close(splinterdb **kvs_in) // IN
+int
+splinterdb_close(splinterdb **kvs_in, bool32 force) // IN
 {
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
@@ -598,10 +600,19 @@ splinterdb_close(splinterdb **kvs_in) // IN
     * order when these sub-systems were init'ed when a Splinter device was
     * created or re-opened. Otherwise, asserts will trip.
     */
-   platform_status status = core_unmount(&kvs->spl);
+   platform_status status = core_unmount(&kvs->spl, force);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to close SplinterDB instance cleanly: %s\n",
                          platform_status_to_string(status));
+   }
+   /*
+    * STATUS_BUSY means the unmount declined to lose data and left the instance
+    * mounted (see core.h).  There is nothing to tear down, and tearing down
+    * anyway would destroy exactly the data it just refused to.  The handle
+    * stays valid so the caller can retry or force.
+    */
+   if (STATUS_IS_EQ(status, STATUS_BUSY)) {
+      return platform_status_to_int(status);
    }
    io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
@@ -623,6 +634,12 @@ splinterdb_close(splinterdb **kvs_in) // IN
       platform_heap_destroy(&heap_id);
    }
    *kvs_in = (splinterdb *)NULL;
+
+   /*
+    * The instance is gone either way; a non-OK status here reports what the
+    * unmount could not guarantee about the data, not a failure to close.
+    */
+   return platform_status_to_int(status);
 }
 
 void

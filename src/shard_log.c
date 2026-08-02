@@ -236,8 +236,14 @@ shard_log_graduate_buffer(shard_log             *log,
 
    cache_unlock(log->cc, page);
    cache_unclaim(log->cc, page);
+   /*
+    * Keep the receipt: closing the group has to wait for this write, and by
+    * then the page will be long out of reach.
+    */
+   platform_mutex_lock(&log->wbset_lock);
    platform_status rc =
-      cache_writeback_page(log->cc, page, PAGE_TYPE_LOG, NULL);
+      writeback_set_add_page(&log->wbset, page, PAGE_TYPE_LOG);
+   platform_mutex_unlock(&log->wbset_lock);
    cache_unget(log->cc, page);
 
    shard_log_reset_buffer(log, thread_data);
@@ -312,7 +318,18 @@ shard_log_write(log_handle *logh,
    debug_assert(thread_data->offset <= page_size);
 
    if (log_blob_inited) {
-      platform_status rc = blob_sync(cc, message_slice(msg));
+      /*
+       * The blob holds this record's value, so it belongs to the same group as
+       * the record: closing the group has to wait for these pages too, or the
+       * group could be declared durable while the value it refers to is not.
+       *
+       * No close can slip in between staging the record above and recording the
+       * blob here, because a close excludes writers for its whole duration.
+       */
+      platform_mutex_lock(&log->wbset_lock);
+      platform_status rc =
+         blob_writeback(cc, message_slice(msg), &log->wbset);
+      platform_mutex_unlock(&log->wbset_lock);
       merge_accumulator_deinit(&log_blob);
       if (!SUCCESS(rc)) {
          return rc.r;
@@ -323,26 +340,37 @@ shard_log_write(log_handle *logh,
 }
 
 /*
- * shard_log_seal --
- *
- *     Finalize and retire a log stream, terminally.  Finalizes every currently
- *     active per-thread append page (bounded by MAX_THREADS; it does not walk
- *     the historical log): a terminal record (where there is room) and checksum
- *     make each page readable by shard_log_iterator_init().  Then it releases
- *     the mini-allocator's unused reserve and frees the handle.  After seal the
- *     handle is invalid; the caller retains the identity it captured earlier
- *     (shard_log_get_head(), fixed at creation) to reopen the stream
- *     for replay and, eventually, to free its extents via log_dec_ref().
- *
- *     The caller must prevent concurrent shard_log_write() and seal calls.
- *     seal itself issues no writeback or durable barrier: to make the sealed
- *     pages durable, the caller takes cache_writeback_dirty() followed by a
- *     durable barrier.
+ * Wait for every page handed over since the group opened, then forget the
+ * receipts.  Not a durability barrier: it establishes only that the writes
+ * reached the device.
  */
-platform_status
-shard_log_seal(log_handle *logh)
+static platform_status
+shard_log_drain_writes(shard_log *log)
 {
-   shard_log      *log    = (shard_log *)logh;
+   platform_mutex_lock(&log->wbset_lock);
+   platform_status rc = writeback_set_wait(&log->wbset);
+   writeback_set_reset(&log->wbset);
+   platform_mutex_unlock(&log->wbset_lock);
+   return rc;
+}
+
+/*
+ * shard_log_close_group --
+ *
+ *     Hand over every currently staged per-thread page (bounded by MAX_THREADS;
+ *     it does not walk the historical log) and end the group, with `how`
+ *     deciding whether the stream ends with it.  A terminal record (where there
+ *     is room) and a checksum make each page readable by
+ *     shard_log_iterator_init().
+ *
+ *     Issues the writes but does not wait for them; callers that need
+ *     durability follow with the stream's writeback set.
+ *
+ *     The caller must prevent concurrent shard_log_write() and close calls.
+ */
+static platform_status
+shard_log_close_group(shard_log *log, shard_log_close how)
+{
    platform_status result = STATUS_OK;
 
    /*
@@ -380,8 +408,8 @@ shard_log_seal(log_handle *logh)
           * the stream is out of space, so pressing on would spend what little
           * remains on pages nobody will ever read.
           */
-         platform_error_log("shard_log_seal: failed to flush the staged log "
-                            "page of thread %lu: %s\n",
+         platform_error_log("shard_log_close_group: failed to flush the staged "
+                            "log page of thread %lu: %s\n",
                             thr_i,
                             platform_status_to_string(rc));
          result = rc;
@@ -398,23 +426,32 @@ shard_log_seal(log_handle *logh)
     * it.  Leaving it unterminated gets it rejected whole, which is the outcome
     * we want: losing a group beats replaying a broken one.
     *
-    * If nothing was staged but the group has pages, spend a page of its own on
-    * the terminator -- rare, since the fence forces every thread to hand off,
-    * so any thread mid-buffer would have contributed one.
+    * If nothing was staged, a page of its own carries the terminator.  That is
+    * needed when the group has pages to account for, and also whenever the
+    * stream is ending: the end-of-stream mark has to go *somewhere*, and after
+    * a make_durable the final group is routinely empty, with no page of its own
+    * to ride on.  Without this the stream would look truncated to replay.
+    *
+    * The remaining case -- an empty group that is not ending the stream -- has
+    * nothing to record, so it writes nothing and the group does not advance.
     */
-   if (last == MAX_THREADS && log->group_page_count > 0) {
+   if (last == MAX_THREADS
+       && (log->group_page_count > 0 || how == SHARD_LOG_CLOSE_STREAM))
+   {
       // Use thread 0's buffer to write a closing page.
       last = 0;
    }
    if (!SUCCESS(result)) {
-      platform_error_log("shard_log_seal: leaving group %lu unterminated after "
-                         "a failed flush; it will not be replayed\n",
+      platform_error_log("shard_log_close_group: leaving group %lu "
+                         "unterminated after a failed flush; it will not be "
+                         "replayed\n",
                          log->group_id);
    } else if (last != MAX_THREADS) {
       platform_status rc = shard_log_graduate_buffer(
-         log, shard_log_get_thread_data(log, last), SHARD_LOG_CLOSE_STREAM);
+         log, shard_log_get_thread_data(log, last), how);
       if (!SUCCESS(rc)) {
-         platform_error_log("shard_log_seal: failed to close group %lu: %s\n",
+         platform_error_log("shard_log_close_group: failed to close group %lu: "
+                            "%s\n",
                             log->group_id,
                             platform_status_to_string(rc));
          result = rc;
@@ -422,6 +459,89 @@ shard_log_seal(log_handle *logh)
    }
 
    return result;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * shard_log_close_group_durably --
+ *
+ *      Close the current group, wait for its pages to reach the device, and
+ *      take a durable barrier.  Shared by make_durable and seal, which differ
+ *      only in whether the stream ends with the group.
+ *-----------------------------------------------------------------------------
+ */
+static platform_status
+shard_log_close_group_durably(shard_log *log, shard_log_close how)
+{
+   platform_status rc = shard_log_close_group(log, how);
+   if (!SUCCESS(rc)) {
+      // Left unclosed, so nothing can be promised durable; the group stays open
+      // and a later attempt can finish it.
+      return rc;
+   }
+
+   rc = shard_log_drain_writes(log);
+   if (SUCCESS(rc)) {
+      rc = writeback_set_make_durable(&log->wbset);
+   }
+   return rc;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * shard_log_make_durable --
+ *
+ *      Make everything written so far durable and leave the stream open; the
+ *      next write starts a new group.
+ *
+ *      See log_make_durable_fn for the exclusion the caller must provide.
+ *-----------------------------------------------------------------------------
+ */
+static platform_status
+shard_log_make_durable(log_handle *logh)
+{
+   shard_log      *log = (shard_log *)logh;
+   platform_status rc =
+      shard_log_close_group_durably(log, SHARD_LOG_CLOSE_GROUP);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   /*
+    * Durable.  Start the next group -- unless this one never had any pages, in
+    * which case no group was closed and advancing would leave a hole in the
+    * numbering that replay reads as a lost group.
+    *
+    * Safe to do unlocked: the caller excludes writers, so nothing is
+    * graduating, and the receipts were consumed above.
+    */
+   if (log->group_page_count != 0) {
+      log->group_id++;
+      log->group_page_count = 0;
+   }
+   return STATUS_OK;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * shard_log_seal --
+ *
+ *      Finish the stream durably: close its final group, mark it as the end of
+ *      the stream so replay can tell a complete stream from a truncated one,
+ *      and make all of it durable.
+ *
+ *      Sealing makes its pages durable for the same reason make_durable does --
+ *      there is no point finishing a stream that a crash could still lose --
+ *      and callers no longer pair it with a barrier of their own.
+ *
+ *      The handle remains valid and must be released with shard_log_deinit().
+ *-----------------------------------------------------------------------------
+ */
+platform_status
+shard_log_seal(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   return shard_log_close_group_durably(log, SHARD_LOG_CLOSE_STREAM);
 }
 
 /*
@@ -443,6 +563,8 @@ shard_log_deinit(log_handle *logh)
    shard_log *log = (shard_log *)logh;
 
    mini_release(&log->mini);
+   writeback_set_deinit(&log->wbset);
+   platform_mutex_destroy(&log->wbset_lock);
    platform_free(log->heap_id, log->thread_buffers);
    platform_free(log->heap_id, log);
 }
@@ -501,11 +623,12 @@ shard_log_get_size(log_handle *logh)
 }
 
 static log_ops shard_log_ops = {
-   .write  = shard_log_write,
-   .seal   = shard_log_seal,
-   .deinit = shard_log_deinit,
-   .head   = shard_log_get_head,
-   .size   = shard_log_get_size,
+   .write        = shard_log_write,
+   .make_durable = shard_log_make_durable,
+   .seal         = shard_log_seal,
+   .deinit       = shard_log_deinit,
+   .head         = shard_log_get_head,
+   .size         = shard_log_get_size,
 };
 
 static platform_status
@@ -538,6 +661,15 @@ shard_log_init(shard_log        *log,
    }
    log->group_id         = 0;
    log->group_page_count = 0;
+   platform_status mrc   = platform_mutex_init(&log->wbset_lock, 0, hid);
+   if (!SUCCESS(mrc)) {
+      platform_error_log("shard_log_init: failed to init the writeback-set "
+                         "lock: %s\n",
+                         platform_status_to_string(mrc));
+      platform_free(hid, log->thread_buffers);
+      return mrc;
+   }
+   writeback_set_init(&log->wbset, cc, hid);
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(log, thr_i);

@@ -84,7 +84,7 @@ CTEST_SETUP(splinterdb_optimize)
 CTEST_TEARDOWN(splinterdb_optimize)
 {
    if (data->kvsb != NULL) {
-      splinterdb_close(&data->kvsb);
+      splinterdb_close(&data->kvsb, FALSE);
    }
    platform_deregister_thread();
 }
@@ -127,7 +127,7 @@ CTEST2(splinterdb_optimize, test_blocking_with_no_background_threads)
 {
    const uint32 num_keys = 320;
 
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    data->cfg.num_memtable_bg_threads = 0;
    data->cfg.num_normal_bg_threads   = 0;
 
@@ -152,7 +152,7 @@ CTEST2(splinterdb_optimize, test_open_reads_disk_geometry)
    const uint32 num_keys = 160;
 
    load_key_batches(data->kvsb, num_keys, 40);
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
 
    data->cfg.disk_size   = 0;
    data->cfg.page_size   = 0;

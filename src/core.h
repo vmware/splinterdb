@@ -380,8 +380,34 @@ core_mount(core_handle      *spl,
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
 
+/*
+ * Unmount the database without destroying it; it can be re-opened later with
+ * core_mount().
+ *
+ * An unmount is a sync followed by a shutdown, so it returns an error if it
+ * cannot guarantee that everything inserted before the call is on disk.
+ * Records get there by one of two routes -- folded into the durable trunk root
+ * by a checkpoint, or held in a durable log -- and which routes are open
+ * depends on whether every memtable managed to incorporate:
+ *
+ *   all incorporated:  either route carries everything, so the root alone is
+ *                      enough and the logs can be discarded.
+ *   some unincorporated: the root will not contain those records, so only a
+ *                      durable log can carry them, and it must be preserved for
+ *                      replay rather than discarded.
+ *
+ * When neither route is available the unmount is abandoned instead of completed
+ * destructively: nothing is torn down, the instance is left mounted and usable,
+ * and the caller can retry or investigate.  Pass force to unmount anyway,
+ * accepting the loss.
+ *
+ * Returns STATUS_BUSY, and only STATUS_BUSY, for that abandonment -- it is the
+ * caller's signal that the handle is still live and must still be unmounted.
+ * Every other error comes from a step that already dismantled the instance, so
+ * the handle is spent either way and only the report differs.
+ */
 platform_status
-core_unmount(core_handle *spl);
+core_unmount(core_handle *spl, bool32 force);
 
 /* Unmount the database and erase it from the disk */
 void

@@ -613,16 +613,23 @@ core_checkpoint_seal_cut(core_handle *spl)
     */
    platform_status rc = platform_mutex_lock(&spl->superblock_lock);
    if (SUCCESS(rc)) {
-      rc = cache_writeback_dirty(spl->cc);
-      if (SUCCESS(rc)) {
-         rc = cache_durable_barrier(spl->cc);
-      }
-      if (SUCCESS(rc)) {
-         // The image still names the retiring log as live, so the cut moves it
-         // into the sealed slot, carrying its recorded start generation along.
-         superblock_log_cut(&spl->superblock, live);
-         rc = superblock_make_durable(&spl->superblock);
-      }
+      /*
+       * The sealed log -- and the blobs its records point at -- is already
+       * durable: log_seal() above did that, scoped to the log's own pages.  No
+       * cache-wide writeback here; the rest of the cache has nothing to do with
+       * this cut, and flushing it was costing a whole cache's worth of I/O per
+       * checkpoint.
+       *
+       * The new live log's mini-allocator metadata is deliberately not made
+       * durable.  Nothing needs it: replay walks a stream through the
+       * next_extent_addr chain in its own page headers, and the cut invalidates
+       * the persisted allocation map, so a crash rebuilds the allocator by
+       * walking rather than trusting that metadata.
+       */
+      // The image still names the retiring log as live, so the cut moves it
+      // into the sealed slot, carrying its recorded start generation along.
+      superblock_log_cut(&spl->superblock, live);
+      rc = superblock_make_durable(&spl->superblock);
       platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
       platform_assert_status_ok(unlock_rc);
    }
@@ -712,9 +719,17 @@ core_maybe_complete_checkpoint(core_handle *spl)
  * inserts and incorporations.  A completed checkpoint
  * (INCORPORATING/COMPLETING) is normally already reaped by the quiesce drain;
  * the residual cases below are defensive.
+ *
+ * reclaim_extents says whether the shutdown publish will leave any log behind.
+ * Normally it will not, so the extents are freed here.  An unmount that is
+ * preserving logs for replay passes FALSE: it cannot know which of these logs
+ * that publish will keep, and freeing one it keeps would leave the durable
+ * record naming freed space.  Nothing leaks permanently -- such an unmount also
+ * leaves the allocation state invalid, so the next mount rebuilds the map from
+ * the tree and logs and recomputes what is actually live.
  */
 static void
-core_checkpoint_cleanup_for_shutdown(core_handle *spl)
+core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
 {
    core_checkpoint_state *cp = &spl->checkpoint;
    switch (cp->phase) {
@@ -726,7 +741,9 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl)
           * As above, no seal: its extents are about to be freed.
           */
          log_deinit(cp->pending_log);
-         log_dec_ref(spl->cc, &cp->live_head);
+         if (reclaim_extents) {
+            log_dec_ref(spl->cc, &cp->live_head);
+         }
          break;
       case CORE_CHECKPOINT_SEALING:
       case CORE_CHECKPOINT_PUBLISHING:
@@ -749,7 +766,9 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl)
          // The sealed log is fully incorporated after quiesce.  The shutdown
          // publish records sealed=none, so just reclaim its extents here
          // (before the map is persisted, so the map reflects the free).
-         log_dec_ref(spl->cc, &cp->sealed_head);
+         if (reclaim_extents) {
+            log_dec_ref(spl->cc, &cp->sealed_head);
+         }
          break;
       default:
          platform_assert(
@@ -2743,6 +2762,38 @@ deinit_locks:
    return rc;
 }
 
+/*
+ * Does any memtable still hold records the durable root will not contain?
+ *
+ * Deliberately side-effect free, so that core_unmount() can consult it while
+ * deciding whether to go through with the unmount at all.
+ * core_report_unincorporated_memtables() walks the same generations but also
+ * logs and releases, so it is only safe once teardown is committed to.
+ */
+static bool32
+core_have_unincorporated_memtables(core_handle *spl)
+{
+   uint64 start_generation = memtable_generation_retired(&spl->mt_ctxt) + 1;
+   uint64 end_generation   = memtable_generation(&spl->mt_ctxt);
+
+   for (uint64 generation = start_generation; generation < end_generation;
+        generation++)
+   {
+      memtable *mt = core_try_get_memtable(spl, generation);
+      if (mt != NULL && mt->state != MEMTABLE_STATE_READY) {
+         return TRUE;
+      }
+   }
+   return FALSE;
+}
+
+/*
+ * Report every unincorporated memtable and release the compacted branch each
+ * one left behind.  That release is why this is not a query: calling it and
+ * then continuing to run would leave the memtable pointing at a branch whose
+ * reference is gone.  Use core_have_unincorporated_memtables() to look without
+ * touching anything.
+ */
 static bool32
 core_report_unincorporated_memtables(core_handle *spl)
 {
@@ -2794,7 +2845,15 @@ core_report_unincorporated_memtables(core_handle *spl)
  * It intentionally leaves the memtable and log contexts live: the clean
  * checkpoint record needs both after final incorporation has quiesced.
  */
-static void
+/*
+ * Returns FALSE if any memtable is still unincorporated, i.e. holds records the
+ * durable root will not contain.
+ *
+ * Everything this does is recoverable-from: it finishes outstanding work but
+ * dismantles nothing, so a caller that does not like the answer may still
+ * decline to unmount and keep running.
+ */
+static bool32
 core_quiesce_for_shutdown(core_handle *spl)
 {
    // write current memtable to disk
@@ -2814,34 +2873,7 @@ core_quiesce_for_shutdown(core_handle *spl)
    platform_status rc = task_perform_until_quiescent(spl->ts);
    platform_assert_status_ok(rc);
 
-   core_report_unincorporated_memtables(spl);
-}
-
-/*
- * Seal the live log at shutdown -- finalizes its pages and frees the handle --
- * and return its identity so the caller can free the extents with log_dec_ref()
- * once the cache is flushed.  A clean shutdown has folded everything into the
- * durable root, so the live log is fully incorporated and discardable.  Returns
- * an empty descriptor when logging is disabled.
- */
-static log_head
-core_seal_live_log(core_handle *spl)
-{
-   if (!spl->cfg.use_log || spl->log == NULL) {
-      return (log_head){0};
-   }
-   log_head        info = log_get_head(spl->log);
-   platform_status rc   = log_seal(spl->log);
-   if (!SUCCESS(rc)) {
-      // Unterminated, so recovery will discard the stream; say so rather than
-      // letting it look like a clean shutdown.
-      platform_error_log("core_seal_live_log: failed to seal the live log; it "
-                         "will not be replayable: %s\n",
-                         platform_status_to_string(rc));
-   }
-   log_deinit(spl->log);
-   spl->log = NULL;
-   return info;
+   return !core_have_unincorporated_memtables(spl);
 }
 
 /*
@@ -2955,42 +2987,147 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 
 /*
  * Close (unmount) a database without destroying it.
- * It can be re-opened later with core_mount().
+ * It can be re-opened later with core_mount().  See core.h for the contract.
  */
 platform_status
-core_unmount(core_handle *spl)
+core_unmount(core_handle *spl, bool32 force)
 {
    platform_status rc;
 
    /*
     * Quiescing leaves the memtable and log contexts live so publication can
-    * atomically capture the retired generation and root.  Teardown is safe
-    * regardless of publication success.
+    * atomically capture the retired generation and root -- and so that the
+    * durability check below can still walk away.
     */
-   core_quiesce_for_shutdown(spl);
-
-   // Reclaim any in-flight checkpoint's logs before the unmount publish.
-   core_checkpoint_cleanup_for_shutdown(spl);
+   bool32 all_incorporated = core_quiesce_for_shutdown(spl);
 
    /*
-    * The clean-unmount root incorporates everything, so the live log is fully
-    * folded and discardable.  Seal it (frees the handle) now; free its extents
-    * after the cache flush below.
+    * Get what the log holds onto disk.  Deliberately make_durable and not seal:
+    * a seal ends the stream, and until the check below has passed we may yet
+    * decide to keep running.  The seal follows once we commit to unmounting, by
+    * which point it is cheap -- only the terminator is left to write.
     */
-   log_head live_log = core_seal_live_log(spl);
+   platform_status log_rc = STATUS_OK;
+   bool32          have_log = spl->cfg.use_log && spl->log != NULL;
+   if (have_log) {
+      log_rc = log_make_durable(spl->log);
+      if (!SUCCESS(log_rc)) {
+         platform_error_log("core_unmount: failed to make the live log "
+                            "durable: %s\n",
+                            platform_status_to_string(log_rc));
+      }
+   }
+   bool32 have_durable_log = have_log && SUCCESS(log_rc);
 
    /*
-    * Part A: publish the clean-unmount root with both log slots cleared (no
-    * live or sealed log at rest -- their extents are freed just below, so no
-    * reference to them may survive).  Both transitions go out in the single
-    * publish the commit performs.  Allocation state stays invalid here; it
-    * becomes valid only in Part B, after the map is persisted.
+    * Records no memtable incorporated are not in the tree, so a durable log is
+    * the only thing that can carry them.  Without one, unmounting would destroy
+    * the last copy -- so stop, while stopping is still possible: nothing above
+    * has dismantled anything, so returning here leaves a working database.
     */
-   superblock_discard_logs(&spl->superblock);
+   if (!all_incorporated && !have_durable_log) {
+      if (!force) {
+         platform_error_log(
+            "core_unmount: refusing to unmount: memtables are unincorporated "
+            "and %s, so their records would be lost.  The database is still "
+            "mounted; retry the unmount, or force it to discard them.\n",
+            have_log ? "the log could not be made durable" : "logging is off");
+         /*
+          * STATUS_BUSY specifically, and not the underlying log error (already
+          * logged above): it is the caller's one signal that the instance is
+          * still mounted, so it must not collide with the errors the
+          * destructive path below can return once the unmount is committed to.
+          */
+         return STATUS_BUSY;
+      }
+      platform_error_log("core_unmount: forced past unincorporated memtables; "
+                         "their records are lost\n");
+   }
+
+   /*
+    * Past this point the unmount is committed to and every step is destructive.
+    *
+    * Whether the logs can be discarded is exactly whether the root about to be
+    * published covers everything.  When it does not, the log is what carries
+    * the difference, so it has to survive the unmount instead: leave the slots
+    * as they are, let the publish record the replay bound, and reclaim nothing.
+    */
+   bool32 preserve_logs = !all_incorporated && have_durable_log;
+
+   // Report the memtables and release the branches they stranded.
+   if (!all_incorporated) {
+      core_report_unincorporated_memtables(spl);
+   }
+
+   core_checkpoint_cleanup_for_shutdown(spl, !preserve_logs);
+
+   /*
+    * Deliberately no seal.  log_make_durable() above already put everything the
+    * log holds on disk, and nothing has written to it since -- the instance is
+    * quiesced -- so a seal would add only the end-of-stream marker.
+    *
+    * Nothing can use that marker here.  Whether the publish below succeeds or
+    * fails, and whether or not we are preserving it, this log is read back as a
+    * live log: the log that a durable superblock names as live.  Recovery must
+    * always treat one of those as possibly truncated, because a crash ends a
+    * live log mid-stream by definition, so being able to prove this particular
+    * one whole buys nothing.  Sealing could only cost: it writes another page,
+    * and failing that write leaves a partial trailing group for the reader to
+    * discard.  In the ordinary case its extents are freed a few lines below
+    * anyway.
+    */
+   log_head live_log = {0};
+   if (have_log) {
+      live_log = log_get_head(spl->log);
+      log_deinit(spl->log);
+      spl->log = NULL;
+   }
+
+   /*
+    * Part A: publish the unmount root.  In the normal case both log slots are
+    * cleared first (no live or sealed log at rest -- their extents are freed
+    * just below, so no reference to them may survive); both transitions go out
+    * in the single publish the commit performs.  Allocation state stays invalid
+    * here; it becomes valid only in Part B, after the map is persisted.
+    */
+   if (!preserve_logs) {
+      superblock_discard_logs(&spl->superblock);
+   }
    rc = core_checkpoint_commit_current_root(spl);
    if (!SUCCESS(rc)) {
       platform_error_log("core_unmount: failed to publish unmount root: %s\n",
                          platform_status_to_string(rc));
+      /*
+       * A failed publish writes nothing, so the durable superblock still names
+       * the root and the log it named on entry.  That costs nothing when a
+       * durable log survives to be replayed onto that root -- which is the
+       * whole point of the two routes.  With neither, the root predates
+       * everything written since the last checkpoint and no log can supply it.
+       */
+      if (!have_durable_log) {
+         platform_error_log("core_unmount: the unmount root was not published "
+                            "and there is no durable log to replay; records "
+                            "since the last checkpoint are lost\n");
+      }
+   }
+
+   /*
+    * The published root omits the unincorporated memtables, but the log that
+    * holds them is preserved and the record names it, so nothing is lost.  The
+    * instance is no longer clean at rest, though -- the allocation state is
+    * left invalid below, so the next mount must replay before it can serve.
+    */
+   if (SUCCESS(rc) && preserve_logs) {
+      platform_error_log("core_unmount: unincorporated memtables were left in "
+                         "the log; the next mount must recover it\n");
+   }
+
+   /*
+    * Forced past a loss we already reported.  The publish succeeded, so the
+    * shutdown is otherwise clean, but it cannot be called a success.
+    */
+   if (SUCCESS(rc) && !all_incorporated && !preserve_logs) {
+      rc = STATUS_INVALID_STATE;
    }
 
    // Keep this after publication above: it supplies the generation cut.
@@ -3000,7 +3137,9 @@ core_unmount(core_handle *spl)
    // its extents now that the cache is flushed, before the map is persisted
    // (Part B) so the persisted map reflects the free.
    cache_flush(spl->cc);
-   log_dec_ref(spl->cc, &live_log);
+   if (!preserve_logs) {
+      log_dec_ref(spl->cc, &live_log);
+   }
    /*
     * Release the context's live root reference before persisting the map, so
     * the persisted refcounts reflect exactly the durable record's single
@@ -3014,8 +3153,13 @@ core_unmount(core_handle *spl)
     * durable before the "map is trustworthy" flag, and that flag becomes
     * durable only after the root it must agree with (Part A).  On a Part A
     * failure we leave the allocation state invalid so the next open rebuilds.
+    *
+    * Skipped entirely when logs were preserved: a valid allocation state is the
+    * instance's one "clean at rest, no recovery needed" signal, and this
+    * instance does need recovery.  Claiming otherwise would let the next mount
+    * skip replay and silently drop the very records we just kept.
     */
-   if (SUCCESS(rc)) {
+   if (SUCCESS(rc) && !preserve_logs) {
       uint64          map_addr;
       platform_status prc = allocator_persist(spl->al, &map_addr);
       if (SUCCESS(prc)) {
@@ -3042,10 +3186,16 @@ core_unmount(core_handle *spl)
 void
 core_destroy(core_handle *spl)
 {
-   core_quiesce_for_shutdown(spl);
+   /*
+    * Nothing here needs to survive, so an unincorporated memtable is moot --
+    * but still report it and release the branch it stranded, since the
+    * reporting walk is also what cleans up after one.
+    */
+   (void)core_quiesce_for_shutdown(spl);
+   (void)core_report_unincorporated_memtables(spl);
 
    // Reclaim any in-flight checkpoint's logs before teardown.
-   core_checkpoint_cleanup_for_shutdown(spl);
+   core_checkpoint_cleanup_for_shutdown(spl, TRUE);
 
    /*
     * Release the reference the published tree record holds on its root before
@@ -3067,9 +3217,16 @@ core_destroy(core_handle *spl)
       }
    }
 
-   // Discard the live log too: seal (frees the handle), then free its extents
-   // after the cache flush.
-   log_head live_log = core_seal_live_log(spl);
+   /*
+    * Discard the live log too.  Not sealed: the database is being destroyed and
+    * these extents are about to be freed, so a terminator would serve no one.
+    */
+   log_head live_log = {0};
+   if (spl->cfg.use_log && spl->log != NULL) {
+      live_log = log_get_head(spl->log);
+      log_deinit(spl->log);
+      spl->log = NULL;
+   }
    memtable_context_deinit(&spl->mt_ctxt);
    cache_flush(spl->cc);
    log_dec_ref(spl->cc, &live_log);

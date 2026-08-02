@@ -1324,7 +1324,7 @@ ycsb_test(int argc, char *argv[])
 
    run_all_ycsb_phases(&spl, phases, nphases, &ts, hid);
 
-   core_unmount(&spl);
+   platform_assert_status_ok(core_unmount(&spl, FALSE));
    clockcache_deinit(cc);
    platform_free(hid, cc);
    // core_unmount() already persisted the map and published the superblock.

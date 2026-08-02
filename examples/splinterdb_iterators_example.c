@@ -90,7 +90,7 @@ main()
    start_key = "www.twitter.com";
    do_iterate_from(spl_handle, start_key);
 
-   splinterdb_close(&spl_handle);
+   splinterdb_close(&spl_handle, FALSE);
    printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
    return rc;

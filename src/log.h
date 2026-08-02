@@ -36,17 +36,39 @@ typedef int (*log_write_fn)(log_handle *log,
                             uint64      memtable_generation,
                             uint64      leaf_generation);
 /*
+ * Make everything written so far durable, and leave the stream open.
+ *
+ * Closes the current group -- writing out whatever each writer still has
+ * staged, and marking the result as a complete unit for replay -- then waits
+ * for those writes to land and takes a durable barrier.  Subsequent writes
+ * begin a new group.
+ *
+ * The caller must exclude concurrent log_write() calls for the duration, for
+ * the same reason log_seal() requires it and a stronger one besides: a group
+ * boundary is only correct if no writer holds a record that is already visible
+ * to readers but not yet staged.  Such a record would land in the *next* group
+ * while records that happened after it sit in this one, so a crash that kept
+ * this group and lost the next would recover a state that never existed.
+ *
+ * On failure the group may be left unclosed and nothing is guaranteed durable;
+ * the stream remains usable and the caller may try again.
+ */
+typedef platform_status (*log_make_durable_fn)(log_handle *log);
+
+/*
  * Finish the stream: write out everything still staged, and mark the last of it
  * as the end of the stream so that replay can tell a complete stream from one a
  * crash truncated.  The stream is immutable afterward, but the handle remains
  * valid and must still be released with log_deinit().
  *
- * The caller must exclude concurrent log_write() and log_seal() calls.  seal()
- * itself issues no writeback or durable barrier: to make the sealed pages
- * durable, the caller takes the cache writeback fence + a durable barrier
- * afterward.  The stream's head is fixed at creation and obtained then via
- * log_get_head(), so seal needs no out-parameter; the caller frees the on-disk
- * extents later via log_dec_ref().
+ * Makes the stream durable as it finishes it, exactly as log_make_durable()
+ * does -- there is no point completing a stream a crash could still lose -- so
+ * callers need not follow with a barrier of their own.
+ *
+ * The caller must exclude concurrent log_write() and log_seal() calls.  The
+ * stream's head is fixed at creation and obtained then via log_get_head(), so
+ * seal needs no out-parameter; the caller frees the on-disk extents later via
+ * log_dec_ref().
  *
  * A caller that is about to discard the stream outright should skip this and
  * call log_deinit() alone: there is no point writing a terminator onto extents
@@ -85,11 +107,12 @@ typedef log_head (*log_head_fn)(log_handle *log);
 typedef uint64 (*log_size_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_fn  write;
-   log_seal_fn   seal;
-   log_deinit_fn deinit;
-   log_head_fn   head;
-   log_size_fn   size;
+   log_write_fn        write;
+   log_make_durable_fn make_durable;
+   log_seal_fn         seal;
+   log_deinit_fn       deinit;
+   log_head_fn         head;
+   log_size_fn         size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -109,9 +132,19 @@ log_write(log_handle *log,
 }
 
 /*
- * Finish the stream.  See log_seal_fn for the required exclusion and durability
- * ordering.  The handle stays valid; release it with log_deinit().  Capture the
- * head via log_get_head() beforehand (it is fixed at creation).
+ * Make everything written so far durable, leaving the stream open.  See
+ * log_make_durable_fn for the required exclusion.
+ */
+static inline platform_status
+log_make_durable(log_handle *log)
+{
+   return log->ops->make_durable(log);
+}
+
+/*
+ * Finish the stream, durably.  See log_seal_fn for the required exclusion.  The
+ * handle stays valid; release it with log_deinit().  Capture the head via
+ * log_get_head() beforehand (it is fixed at creation).
  */
 static inline platform_status
 log_seal(log_handle *log)
