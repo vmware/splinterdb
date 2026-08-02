@@ -167,13 +167,20 @@ shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
  * rewritten later.
  */
 static platform_status
-shard_log_graduate_buffer(shard_log *log, shard_log_thread_data *thread_data)
+shard_log_graduate_buffer(shard_log             *log,
+                          shard_log_thread_data *thread_data,
+                          bool32                 close_group)
 {
    uint64 page_size = shard_log_page_size(log->cfg);
 
    debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
    debug_assert(thread_data->offset <= page_size);
-   if (thread_data->offset == sizeof(shard_log_hdr)) {
+   /*
+    * An empty buffer normally has nothing to contribute, but closing the group
+    * still needs a page to carry the terminator, so we emit an otherwise empty
+    * one.
+    */
+   if (thread_data->offset == sizeof(shard_log_hdr) && !close_group) {
       return STATUS_OK;
    }
 
@@ -194,7 +201,17 @@ shard_log_graduate_buffer(shard_log *log, shard_log_thread_data *thread_data)
       return STATUS_NO_SPACE;
    }
 
-   ((shard_log_hdr *)thread_data->buf)->next_extent_addr = next_extent;
+   shard_log_hdr *staged   = (shard_log_hdr *)thread_data->buf;
+   staged->next_extent_addr = next_extent;
+   staged->group_id         = log->group_id;
+   /*
+    * Counted as it is handed over, so that the closing page -- the last to be
+    * counted -- sees the group's final size and can record it.
+    */
+   uint64 pages = __sync_add_and_fetch(&log->group_page_count, 1);
+   staged->pages_in_group = close_group ? pages : 0;
+   platform_assert(!close_group || pages <= UINT32_MAX);
+
    memcpy(page->data, thread_data->buf, page_size);
    // Computed on the page over everything but the checksum field itself, so
    // the stale bytes just copied over it do not matter.
@@ -257,7 +274,8 @@ shard_log_write(log_handle *logh,
 
    // Full: turn the staged image into a page and start a fresh one.
    if (page_size - thread_data->offset < new_entry_size) {
-      platform_status rc = shard_log_graduate_buffer(log, thread_data);
+      platform_status rc =
+         shard_log_graduate_buffer(log, thread_data, FALSE);
       if (!SUCCESS(rc)) {
          if (log_blob_inited) {
             merge_accumulator_deinit(&log_blob);
@@ -311,19 +329,54 @@ shard_log_seal(log_handle *logh)
    platform_status result = STATUS_OK;
 
    /*
-    * Flush whatever each thread had staged but not yet graduated. The caller
-    * guarantees the stream is quiescent, so no thread can be mid-append and
-    * none of these buffers can grow under us.
+    * Flush whatever each thread had staged but not yet graduated, and close the
+    * group.  The caller guarantees the stream is quiescent, so no thread can be
+    * mid-append and none of these buffers can grow under us -- which is also
+    * what makes the group boundary exact, with no waiting: a log cut runs under
+    * the memtable insert lock held exclusively, so every record that will ever
+    * belong to this stream has already been staged by now.
+    *
+    * The terminator has to ride on the *last* page written, so find that page
+    * up front rather than discovering it as we go.
     */
+   threadid last = MAX_THREADS;
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data =
-         shard_log_get_thread_data(log, thr_i);
-      platform_status rc = shard_log_graduate_buffer(log, thread_data);
+      if (shard_log_get_thread_data(log, thr_i)->offset > sizeof(shard_log_hdr))
+      {
+         last = thr_i;
+      }
+   }
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      if (thr_i == last) {
+         continue; // written below, carrying the terminator
+      }
+      platform_status rc = shard_log_graduate_buffer(
+         log, shard_log_get_thread_data(log, thr_i), FALSE);
       if (!SUCCESS(rc)) {
          // Keep going: the remaining threads' records should still be written.
          platform_error_log("shard_log_seal: failed to flush the staged log "
                             "page of thread %lu: %s\n",
                             thr_i,
+                            platform_status_to_string(rc));
+         result = rc;
+      }
+   }
+
+   /*
+    * Close the group.  If nothing was staged but the group has pages, spend a
+    * page of its own on the terminator -- rare, since the fence forces every
+    * thread to hand off, so any thread mid-buffer would have contributed one.
+    */
+   threadid closer = (last != MAX_THREADS)         ? last
+                     : (log->group_page_count != 0) ? 0
+                                                    : MAX_THREADS;
+   if (closer != MAX_THREADS) {
+      platform_status rc = shard_log_graduate_buffer(
+         log, shard_log_get_thread_data(log, closer), TRUE);
+      if (!SUCCESS(rc)) {
+         platform_error_log("shard_log_seal: failed to close group %lu: %s\n",
+                            log->group_id,
                             platform_status_to_string(rc));
          result = rc;
       }
@@ -429,6 +482,8 @@ shard_log_init(shard_log        *log,
                          MAX_THREADS * page_size);
       return STATUS_NO_MEMORY;
    }
+   log->group_id         = 0;
+   log->group_page_count = 0;
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(log, thr_i);
@@ -652,27 +707,89 @@ shard_log_iterator_init(cache              *cc,
    itor->cfg             = cfg;
    allocator *al         = cache_get_allocator(cc);
 
-   // traverse the log extents and calculate the required space
+   /*
+    * First pass: work out how much of the stream is replayable.
+    *
+    * Only whole groups may be replayed, and only an unbroken run of them from
+    * the start: a group that is intact but follows a broken one cannot be
+    * applied, because the records in between are missing and the result would
+    * not be a prefix of anything that happened.
+    *
+    * A group is intact when the page count declared by its terminator matches
+    * the number of its pages actually present.  Groups close before the next
+    * one opens and pages are allocated in order, so a group's pages are
+    * contiguous in the traversal and the replayable portion is a prefix of it.
+    * We therefore only have to track a run at a time, and count pages.
+    */
+   uint64 group_id       = 0;      // the run currently being tallied
+   bool32 in_group       = FALSE;
+   uint64 group_pages    = 0;      // pages of it seen
+   uint64 group_entries  = 0;
+   uint64 group_declared = 0;      // pages its terminator claims, 0 if unseen
+   bool32 broken         = FALSE;  // hit a group we cannot replay
+
    extent_addr = addr;
-   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
+   while (!broken && extent_addr != 0
+          && allocator_get_refcount(al, extent_addr) > 0)
+   {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * shard_log_page_size(cfg);
          page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (!shard_log_valid(cfg, page, magic)) {
+            /*
+             * A page that was never written, or whose write was lost.  Keep
+             * scanning the extent rather than stopping here: the group this
+             * page belongs to is now short of its declared count and will be
+             * rejected on that basis, which is the check that matters.
+             */
             cache_unget(cc, page);
-            goto finished_first_pass;
+            continue;
          }
-         num_valid_pages++;
-         itor->num_entries += ((shard_log_hdr *)page->data)->num_entries;
+         shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+
+         if (in_group && hdr->group_id != group_id) {
+            // The run ended; judge it before starting the next.
+            if (group_declared != 0 && group_pages == group_declared) {
+               num_valid_pages += group_pages;
+               itor->num_entries += group_entries;
+            } else {
+               broken = TRUE;
+            }
+            in_group = FALSE;
+         }
+         if (broken) {
+            cache_unget(cc, page);
+            break;
+         }
+         if (!in_group) {
+            in_group       = TRUE;
+            group_id       = hdr->group_id;
+            group_pages    = 0;
+            group_entries  = 0;
+            group_declared = 0;
+         }
+         group_pages++;
+         group_entries += hdr->num_entries;
+         if (hdr->pages_in_group != 0) {
+            debug_assert(group_declared == 0,
+                         "group %lu has two terminators",
+                         group_id);
+            group_declared = hdr->pages_in_group;
+         }
          next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);
       }
       extent_addr = next_extent_addr;
    }
-
-finished_first_pass:
+   if (!broken && in_group) {
+      if (group_declared != 0 && group_pages == group_declared) {
+         num_valid_pages += group_pages;
+         itor->num_entries += group_entries;
+      }
+      // Otherwise the stream ends in an unclosed group: discard it.
+   }
 
    contents_size = num_valid_pages * shard_log_page_size(cfg);
    if (contents_size != 0) {
@@ -695,20 +812,28 @@ finished_first_pass:
       }
    }
 
-   // traverse the log extents again and copy the kv pairs
-   log_entry *cursor    = (log_entry *)itor->contents;
-   uint64     entry_idx = 0;
-   extent_addr          = addr;
-   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
+   /*
+    * Second pass: copy the records out of the pages the first pass accepted.
+    * Those are the first num_valid_pages valid pages of the traversal, since
+    * the replayable portion is a prefix.
+    */
+   log_entry *cursor      = (log_entry *)itor->contents;
+   uint64     entry_idx   = 0;
+   uint64     pages_taken = 0;
+   extent_addr            = addr;
+   while (pages_taken < num_valid_pages && extent_addr != 0
+          && allocator_get_refcount(al, extent_addr) > 0)
+   {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       next_extent_addr = 0;
-      for (i = 0; i < pages_per_extent; i++) {
+      for (i = 0; i < pages_per_extent && pages_taken < num_valid_pages; i++) {
          page_addr = extent_addr + i * shard_log_page_size(cfg);
          page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (!shard_log_valid(cfg, page, magic)) {
             cache_unget(cc, page);
-            goto finished_second_pass;
+            continue;
          }
+         pages_taken++;
          for (log_entry *le = first_log_entry(page->data);
               !terminal_log_entry(cfg, page->data, le);
               le = log_entry_next(le))
@@ -727,7 +852,6 @@ finished_first_pass:
    debug_assert(entry_idx == itor->num_entries);
 
    // sort by generation
-finished_second_pass:
    if (itor->num_entries != 0) {
       log_entry *tmp;
       platform_sort_slow(itor->entries,

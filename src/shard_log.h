@@ -56,7 +56,15 @@ typedef struct shard_log {
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
    // Backing block for thread_data[*].buf, one page per thread.
-   char  *thread_buffers;
+   char *thread_buffers;
+   /*
+    * The group currently accepting pages, and how many it holds so far.  Groups
+    * never span log streams, so numbering is per-stream and starts at 0: the
+    * exclusive insert lock held across a log cut guarantees every record
+    * destined for this stream is already staged by the time it is sealed.
+    */
+   uint64 group_id;
+   uint64 group_page_count;
    uint64 addr;
    uint64 meta_head;
    uint64 magic;
@@ -92,7 +100,25 @@ typedef struct ONDISK shard_log_hdr {
    checksum128 checksum;
    uint64      magic;
    uint64      next_extent_addr;
-   uint16      num_entries;
+   /*
+    * The group this page belongs to.  A group is the unit of replay: either all
+    * of its pages are present and it is replayed, or it is discarded whole.
+    * That is what lets recovery reconstruct a prefix of the writes rather than
+    * an arbitrary subset, which contiguity of the generation tags cannot
+    * establish (splits advance generations without emitting a record).
+    */
+   uint64 group_id;
+   /*
+    * Non-zero on exactly one page per group -- the last one written -- giving
+    * the number of pages the group contains; zero on every other page.
+    *
+    * The count cannot be stamped when a page is written, because a group's
+    * pages are written as they fill, long before it closes.  Marking only the
+    * final page sidesteps that and costs nothing: it rides along on a page that
+    * had to be written anyway.
+    */
+   uint32 pages_in_group;
+   uint16 num_entries;
 } shard_log_hdr;
 
 /*
