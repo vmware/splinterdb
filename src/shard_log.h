@@ -56,10 +56,10 @@ typedef struct shard_log {
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
    // Backing block for thread_data[*].buf, one page per thread.
-   char                 *thread_buffers;
-   uint64                addr;
-   uint64                meta_head;
-   uint64                magic;
+   char  *thread_buffers;
+   uint64 addr;
+   uint64 meta_head;
+   uint64 magic;
    /*
     * Extents the mini-allocator held once the stream was initialized -- its
     * fixed per-stream overhead (a metadata extent plus one per batch).
