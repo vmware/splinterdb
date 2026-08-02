@@ -29,9 +29,20 @@ typedef struct shard_log_config {
    // data config of point message tree
 } shard_log_config;
 
+/*
+ * Per-thread staging for log appends.
+ *
+ * A thread assembles a whole page image in `buf` and only then copies it into a
+ * freshly allocated log page ("graduating" it). Appending is therefore a bare
+ * memcpy into thread-private memory, rather than a cache_get / try_claim /
+ * lock / unlock / unclaim / unget round trip per record against a shared page.
+ *
+ * It also means a log page is written exactly once, when it is complete: there
+ * is no partially-filled page on disk to be rewritten later.
+ */
 typedef struct shard_log_thread_data {
-   uint64 addr;
-   uint64 offset;
+   char  *buf;    // page-sized image under construction
+   uint64 offset; // append cursor within buf
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
 /*
@@ -44,6 +55,8 @@ typedef struct shard_log {
    platform_heap_id      heap_id;
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
+   // Backing block for thread_data[*].buf, one page per thread.
+   char                 *thread_buffers;
    uint64                addr;
    uint64                meta_head;
    uint64                magic;

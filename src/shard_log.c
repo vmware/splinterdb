@@ -20,9 +20,6 @@
 #include "platform_sort.h"
 #include "poison.h"
 
-#define SHARD_WAIT     1
-#define SHARD_UNMAPPED UINT64_MAX
-
 static uint64 shard_log_magic_idx = 0;
 
 static const page_type shard_log_page_type_table[NUM_BLOB_BATCHES + 1] = {
@@ -148,24 +145,69 @@ log_entry_next(log_entry *le)
    return (log_entry *)((char *)le + sizeof_log_entry(le));
 }
 
-static int
-get_new_page_for_thread(shard_log             *log,
-                        shard_log_thread_data *thread_data,
-                        page_handle          **page)
+/* Reset a staging buffer to an empty page image. */
+static void
+shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
 {
-   uint64 next_extent;
+   shard_log_hdr *hdr = (shard_log_hdr *)thread_data->buf;
+   hdr->magic         = log->magic;
+   hdr->num_entries   = 0;
+   // next_extent_addr and checksum are only knowable once a page has been
+   // allocated for this image; see shard_log_graduate_buffer().
+   thread_data->offset = sizeof(shard_log_hdr);
+}
 
-   *page = shard_log_alloc(log, &next_extent);
-   if (*page == NULL) {
-      return -1;
+/*
+ * Turn a thread's staged image into an on-disk log page: allocate the page,
+ * copy the image in, and hand the write to the cache. A no-op if nothing has
+ * been staged.
+ *
+ * This is the only place a log page is written, and it writes each page exactly
+ * once, in full -- so there is never a partially-filled log page on disk to be
+ * rewritten later.
+ */
+static platform_status
+shard_log_graduate_buffer(shard_log *log, shard_log_thread_data *thread_data)
+{
+   uint64 page_size = shard_log_page_size(log->cfg);
+
+   debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
+   debug_assert(thread_data->offset <= page_size);
+   if (thread_data->offset == sizeof(shard_log_hdr)) {
+      return STATUS_OK;
    }
-   thread_data->addr     = (*page)->disk_addr;
-   shard_log_hdr *hdr    = (shard_log_hdr *)(*page)->data;
-   hdr->magic            = log->magic;
-   hdr->next_extent_addr = next_extent;
-   hdr->num_entries      = 0;
-   thread_data->offset   = sizeof(shard_log_hdr);
-   return 0;
+
+   /*
+    * Terminate the record stream where there is room for a marker. A tail too
+    * short to hold one needs none: terminal_log_entry() treats it as the end.
+    */
+   uint64 free_space = page_size - thread_data->offset;
+   if (sizeof(log_entry) <= free_space) {
+      log_entry_set_terminal(
+         (log_entry *)(thread_data->buf + thread_data->offset));
+   }
+
+   uint64       next_extent;
+   page_handle *page = shard_log_alloc(log, &next_extent);
+   if (page == NULL) {
+      platform_error_log("shard_log_graduate_buffer: out of log space\n");
+      return STATUS_NO_SPACE;
+   }
+
+   ((shard_log_hdr *)thread_data->buf)->next_extent_addr = next_extent;
+   memcpy(page->data, thread_data->buf, page_size);
+   // Computed on the page over everything but the checksum field itself, so
+   // the stale bytes just copied over it do not matter.
+   ((shard_log_hdr *)page->data)->checksum = shard_log_checksum(log->cfg, page);
+
+   cache_unlock(log->cc, page);
+   cache_unclaim(log->cc, page);
+   platform_status rc =
+      cache_writeback_page(log->cc, page, PAGE_TYPE_LOG, NULL);
+   cache_unget(log->cc, page);
+
+   shard_log_reset_buffer(log, thread_data);
+   return rc;
 }
 
 int
@@ -209,69 +251,30 @@ shard_log_write(log_handle *logh,
    shard_log_thread_data *thread_data =
       shard_log_get_thread_data(log, platform_get_tid());
 
-   page_handle *page;
-   if (thread_data->addr == SHARD_UNMAPPED) {
-      if (get_new_page_for_thread(log, thread_data, &page)) {
+   uint64 page_size      = shard_log_page_size(log->cfg);
+   uint64 new_entry_size = log_entry_required_capacity(tuple_key, msg);
+   debug_assert(new_entry_size <= page_size - sizeof(shard_log_hdr));
+
+   // Full: turn the staged image into a page and start a fresh one.
+   if (page_size - thread_data->offset < new_entry_size) {
+      platform_status rc = shard_log_graduate_buffer(log, thread_data);
+      if (!SUCCESS(rc)) {
          if (log_blob_inited) {
             merge_accumulator_deinit(&log_blob);
          }
-         return -1;
+         return rc.r;
       }
-   } else {
-      page        = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
-      uint64 wait = 1;
-      while (!cache_try_claim(cc, page)) {
-         cache_unget(cc, page);
-         platform_sleep_ns(wait);
-         wait = wait > 1024 ? wait : 2 * wait;
-         page = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
-      }
-      cache_lock(cc, page);
    }
 
-   shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
-   log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
-   uint64         new_entry_size = log_entry_required_capacity(tuple_key, msg);
-   uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
-   debug_assert(new_entry_size
-                <= shard_log_page_size(log->cfg) - sizeof(shard_log_hdr));
-
-   if (free_space < new_entry_size) {
-      if (sizeof(log_entry) <= free_space) {
-         log_entry_set_terminal(cursor);
-      }
-      hdr->checksum = shard_log_checksum(log->cfg, page);
-
-      cache_unlock(cc, page);
-      cache_unclaim(cc, page);
-      platform_status wb_rc =
-         cache_writeback_page(cc, page, PAGE_TYPE_LOG, NULL);
-      // This is the thread's own append page: nothing else can have it locked.
-      platform_assert_status_ok(wb_rc);
-      cache_unget(cc, page);
-
-      if (get_new_page_for_thread(log, thread_data, &page)) {
-         if (log_blob_inited) {
-            merge_accumulator_deinit(&log_blob);
-         }
-         return -1;
-      }
-      cursor = (log_entry *)(page->data + thread_data->offset);
-      hdr    = (shard_log_hdr *)page->data;
-   }
-
+   log_entry *cursor = (log_entry *)(thread_data->buf + thread_data->offset);
    cursor->memtable_generation = memtable_generation;
    cursor->leaf_generation     = leaf_generation;
    copy_tuple_to_ondisk_tuple(&cursor->tuple, tuple_key, msg);
 
-   hdr->num_entries++;
+   ((shard_log_hdr *)thread_data->buf)->num_entries++;
 
    thread_data->offset += new_entry_size;
-   debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
-
-   cache_unlock(cc, page);
-   cache_unclaim(cc, page);
-   cache_unget(cc, page);
+   debug_assert(thread_data->offset <= page_size);
 
    if (log_blob_inited) {
       platform_status rc = blob_sync(cc, message_slice(msg));
@@ -304,52 +307,26 @@ shard_log_write(log_handle *logh,
 platform_status
 shard_log_seal(log_handle *logh)
 {
-   shard_log *log = (shard_log *)logh;
-   cache     *cc  = log->cc;
+   shard_log      *log    = (shard_log *)logh;
+   platform_status result = STATUS_OK;
 
+   /*
+    * Flush whatever each thread had staged but not yet graduated. The caller
+    * guarantees the stream is quiescent, so no thread can be mid-append and
+    * none of these buffers can grow under us.
+    */
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(log, thr_i);
-      uint64 addr = thread_data->addr;
-      if (addr == SHARD_UNMAPPED) {
-         continue;
+      platform_status rc = shard_log_graduate_buffer(log, thread_data);
+      if (!SUCCESS(rc)) {
+         // Keep going: the remaining threads' records should still be written.
+         platform_error_log("shard_log_seal: failed to flush the staged log "
+                            "page of thread %lu: %s\n",
+                            thr_i,
+                            platform_status_to_string(rc));
+         result = rc;
       }
-
-      page_handle *page = cache_get(cc, addr, TRUE, PAGE_TYPE_LOG);
-      uint64       wait = 1;
-      while (!cache_try_claim(cc, page)) {
-         /*
-          * Even though the stream is quiescent (no concurrent writers/seals),
-          * the background cache evictor can transiently hold the claim on a
-          * cleaned log page before it drains our read-ref, so we still retry
-          * rather than assert.
-          */
-         cache_unget(cc, page);
-         platform_sleep_ns(wait);
-         wait = wait > 1024 ? wait : 2 * wait;
-         page = cache_get(cc, addr, TRUE, PAGE_TYPE_LOG);
-      }
-      cache_lock(cc, page);
-
-      debug_assert(thread_data->addr == addr);
-      debug_assert(thread_data->offset >= sizeof(shard_log_hdr));
-      debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
-
-      shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
-      log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
-      uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
-      if (sizeof(log_entry) <= free_space) {
-         log_entry_set_terminal(cursor);
-      }
-      hdr->checksum = shard_log_checksum(log->cfg, page);
-
-      cache_unlock(cc, page);
-      cache_unclaim(cc, page);
-      cache_unget(cc, page);
-
-      /* Subsequent writes must allocate a new append page. */
-      thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->offset = 0;
    }
 
    /*
@@ -359,8 +336,9 @@ shard_log_seal(log_handle *logh)
     * creation) and later frees the on-disk extents via log_dec_ref().
     */
    mini_release(&log->mini);
+   platform_free(log->heap_id, log->thread_buffers);
    platform_free(log->heap_id, log);
-   return STATUS_OK;
+   return result;
 }
 
 void
@@ -424,26 +402,43 @@ static log_ops shard_log_ops = {
 };
 
 static platform_status
-shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
+shard_log_init(shard_log        *log,
+               cache            *cc,
+               shard_log_config *cfg,
+               platform_heap_id  hid)
 {
    memset(log, 0, sizeof(shard_log));
    log->cc        = cc;
    log->cfg       = cfg;
+   log->heap_id   = hid;
    log->super.ops = &shard_log_ops;
 
    uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
    log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
 
-   allocator      *al = cache_get_allocator(cc);
-   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
-   platform_assert_status_ok(rc);
-
+   /*
+    * One page-sized staging buffer per thread. Allocated before anything that
+    * would need undoing, so a failure here can simply return.
+    */
+   uint64 page_size = shard_log_page_size(cfg);
+   log->thread_buffers =
+      TYPED_ARRAY_MALLOC(hid, log->thread_buffers, MAX_THREADS * page_size);
+   if (log->thread_buffers == NULL) {
+      platform_error_log("shard_log_init: failed to allocate %lu bytes of log "
+                         "staging buffers\n",
+                         MAX_THREADS * page_size);
+      return STATUS_NO_MEMORY;
+   }
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(log, thr_i);
-      thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->offset = 0;
+      thread_data->buf = log->thread_buffers + thr_i * page_size;
+      shard_log_reset_buffer(log, thread_data);
    }
+
+   allocator      *al = cache_get_allocator(cc);
+   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
+   platform_assert_status_ok(rc);
 
    log->addr = mini_init_with_types(&log->mini,
                                     cc,
@@ -469,16 +464,15 @@ shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid)
       platform_error_log("shard_log_create: failed to allocate shard_log\n");
       return NULL;
    }
-   platform_status rc = shard_log_init(slog, cc, cfg);
+   // The heap is remembered in the log so that log_seal() can free the handle
+   // and its staging buffers without the caller touching platform_free().
+   platform_status rc = shard_log_init(slog, cc, cfg, hid);
    if (!SUCCESS(rc)) {
       platform_error_log("shard_log_create: shard_log_init failed: %s\n",
                          platform_status_to_string(rc));
       platform_free(hid, slog);
       return NULL;
    }
-   // Remember the heap so log_seal() can free the handle without the caller
-   // touching platform_free() directly.
-   slog->heap_id = hid;
    return (log_handle *)slog;
 }
 
