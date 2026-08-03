@@ -114,33 +114,6 @@ void
 mini_prefetch(cache *cc, page_type type, uint64 meta_head);
 
 /*
- * mini_recover_allocations --
- *
- *     Rebuild allocator references for a finalized mini allocator without
- *     trusting allocator refcounts.  This is the discovery primitive crash
- *     recovery uses to reconstruct them: it records one allocator reference
- *     (via allocator_recovery_record_reference()) for every metadata extent
- *     and for every data-extent entry in the on-disk mini metadata stream.
- *     Data entries are deliberately not deduplicated: repeated entries
- *     represent repeated references in the mini allocator and are recorded
- *     exactly as often as they occur.  meta_type is the page type of
- *     meta_head's own chain; each data extent's type is read from its own
- *     metadata entry, so it is not a parameter here.
- *
- *     Validates the metadata-page chain, page-header bounds, page types,
- *     batches, and extent addresses before using them.  A malformed on-disk
- *     stream returns STATUS_INVALID_STATE.  This function performs no writes
- *     and does not use allocator refcounts to decide what to traverse.
- *
- *     This is a physical enumeration only.  Recovering logical reference
- *     multiplicity, and deduplicating references shared by distinct mini
- *     allocator roots, remains the responsibility of the higher-level
- *     trunk/log recovery walker.
- */
-platform_status
-mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type);
-
-/*
  * mini_recover_references --
  *
  *     Record one logical reference to this mini allocator during a crash-

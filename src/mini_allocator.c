@@ -1189,7 +1189,7 @@ mini_recover_visit_meta_page(cache       *cc,
  *     allocator roots, remains the responsibility of the higher-level
  *     trunk/log recovery walker.
  */
-platform_status
+static platform_status
 mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type)
 {
    if (cc == NULL || meta_type < PAGE_TYPE_FIRST || meta_type >= NUM_PAGE_TYPES)

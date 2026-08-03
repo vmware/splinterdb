@@ -444,8 +444,6 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
    if (next != NULL) {
       /*
        * Lost a race with a concurrent rotation; discard the speculative log.
-       * Not sealed: nothing was ever written to it and log_dec_ref() is about
-       * to free its extents, so a terminator would serve no one.
        */
       log_deinit(next);
       log_dec_ref(spl->cc, &next_head);
@@ -594,12 +592,13 @@ core_checkpoint_seal_cut(core_handle *spl)
       platform_status seal_rc = log_seal(to_seal);
       if (!SUCCESS(seal_rc)) {
          /*
-          * The stream was left unterminated, so replay would discard it whole;
-          * publishing it as the sealed log would point the superblock at a log
-          * recovery cannot use.  Put the checkpoint back exactly as the
-          * rotation left it -- log_to_seal still set, so the handle survives --
-          * and let a later rotation retry.  Resuming a partly-sealed stream is
-          * safe: see log_seal_fn.
+          * The stream was left unterminated, so replay would discard part or
+          * all of it; publishing it as the sealed log would prevent recovery
+          * from being able to replay the live log (because there might be some
+          * missing updates at the end of the sealed log).  Put the checkpoint
+          * back exactly as the rotation left it -- log_to_seal still set, so
+          * the handle survives -- and let a later rotation retry.  Resuming a
+          * partly-sealed stream is safe: see log_seal_fn.
           */
          platform_error_log("core_checkpoint_seal_cut: failed to seal the log; "
                             "leaving the cut unpublished to retry: %s\n",
@@ -966,12 +965,6 @@ core_log_insert(core_handle                *spl,
                 message                     msg,
                 const btree_insert_results *insert_results)
 {
-   /* TODO: FIXME: One way we could get stuck in a fetch-and-update is if the
-    * insert succeeds but the lookup fails (e.g. due to an I/O error while
-    * traversing the trunk).  I think the promise we should make in that case is
-    * that we will preserve enough information in the log to enable the user
-    * to recover the old value. One way to do this might be to insert a
-    * reference to the trunk into the log. */
    /*
     * spl->log is NULL while crash recovery replays: the replayed records are
     * already in a log, and the session's live log is not cut until replay has
@@ -2174,6 +2167,12 @@ core_insert(core_handle   *spl,
       goto end_insert;
    }
 
+   /* TODO: FIXME: One way we could get stuck in a fetch-and-update is if the
+    * insert succeeds but the lookup fails (e.g. due to an I/O error while
+    * traversing the trunk).  I think the promise we should make in that case is
+    * that we will preserve enough information in the log to enable the user
+    * to recover the old value. One way to do this might be to insert a
+    * reference to the trunk into the log. */
    if (old_result != NULL) {
       if (lookup_result_should_continue(old_result)) {
          memtable_begin_lookup(&spl->mt_ctxt);

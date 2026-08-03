@@ -205,16 +205,27 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 
 // Close a splinterdb
 //
-// This will flush all data to disk and release all resources.  A close is a
-// sync followed by a shutdown, so it reports an error if it cannot guarantee
-// that everything written before the call reached disk.
+// This will flush all data to disk and release all resources.
 //
-// If closing would lose such data, nothing is closed: an error is returned and
-// *kvs stays open and usable, so the caller can address the problem and try
-// again.  Pass force to close regardless, accepting the loss.  Any other error
-// means the database did close, but with the reported caveat.
+// If force is FALSE and the database cannot shut down without losing data,
+// then it will return STATUS_BUSY and will remain open, so the user can
+// try to handle the situation.
 //
-// On a successful close, *kvs is freed and set to NULL.
+// If force is FALSE, then any other error code does _not_ indicate data loss.
+// It just indicates that recovery may be required on the next mount.
+//
+// If force is TRUE, then the database will shut down even if doing so might
+// lose data.  Error codes remain the same.
+//
+// force | return code | data loss? | database closed? | recovery required
+// -----------------------------------------------------------------------
+// FALSE | STATUS_BUSY | NO         | NO               | n/a
+// FALSE | STATUS_OK   | NO         | YES              | NO
+// FALSE | other error | NO         | YES              | YES
+// TRUE  | STATUS_OK   | NO         | YES              | NO
+// TRUE  | any error   | maybe      | YES              | YES
+//
+// After closing, *kvs is freed and set to NULL.
 int
 splinterdb_close(splinterdb **kvs, bool32 force);
 
