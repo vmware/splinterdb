@@ -631,9 +631,9 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
     * Ground truth.  core_unmount() persisted this very map, so the in-memory
     * copy still standing here is byte-for-byte what a clean mount would load.
     */
-   uint64 extent_size = acfg->io_cfg->extent_size;
-   uint64 num_extents = allocator_get_capacity(alp) / extent_size;
-   refcount *expected = TYPED_ARRAY_MALLOC(data->hid, expected, num_extents);
+   uint64    extent_size = acfg->io_cfg->extent_size;
+   uint64    num_extents = allocator_get_capacity(alp) / extent_size;
+   refcount *expected    = TYPED_ARRAY_MALLOC(data->hid, expected, num_extents);
    ASSERT_NOT_NULL(expected);
    uint64 num_referenced = 0;
    for (uint64 i = 0; i < num_extents; i++) {
@@ -660,11 +660,8 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
     * filter walks reach it.
     */
    rc_allocator_deinit(&data->al);
-   rc = rc_allocator_mount(&data->al,
-                           acfg,
-                           data->io,
-                           data->hid,
-                           platform_get_module_id());
+   rc = rc_allocator_mount(
+      &data->al, acfg, data->io, data->hid, platform_get_module_id());
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 mismatches = 0;

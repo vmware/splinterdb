@@ -1956,7 +1956,7 @@ trunk_recover_node_refs(const trunk_context *context, uint64 addr)
    uint64 num_pivot_bundles = vector_length(&node.pivot_bundles);
    for (uint64 i = 0; i < num_pivot_bundles && SUCCESS(rc); i++) {
       rc = trunk_recover_bundle_refs(context,
-                                    vector_get_ptr(&node.pivot_bundles, i));
+                                     vector_get_ptr(&node.pivot_bundles, i));
    }
    /*
     * From 0, not from trunk_node_first_live_inflight_bundle(): serialization
@@ -1968,7 +1968,7 @@ trunk_recover_node_refs(const trunk_context *context, uint64 addr)
         i++)
    {
       rc = trunk_recover_bundle_refs(context,
-                                    vector_get_ptr(&node.inflight_bundles, i));
+                                     vector_get_ptr(&node.inflight_bundles, i));
    }
 
    trunk_node_deinit(&node, context);

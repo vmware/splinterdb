@@ -100,16 +100,16 @@ typedef struct io_ops {
    io_read_fn                   read;
    io_write_fn                  write;
    io_permit_unwritten_reads_fn permit_unwritten_reads;
-   io_async_state_init_fn    async_state_init;
-   io_cleanup_fn             cleanup;
-   io_wait_all_fn            wait_all;
-   io_durable_barrier_fn     durable_barrier;
-   io_register_thread_fn     register_thread;
-   io_deregister_thread_fn   deregister_thread;
-   io_max_latency_elapsed_fn max_latency_elapsed;
-   io_print_stats_fn         print_stats;
-   io_reset_stats_fn         reset_stats;
-   io_get_context_fn         get_context;
+   io_async_state_init_fn       async_state_init;
+   io_cleanup_fn                cleanup;
+   io_wait_all_fn               wait_all;
+   io_durable_barrier_fn        durable_barrier;
+   io_register_thread_fn        register_thread;
+   io_deregister_thread_fn      deregister_thread;
+   io_max_latency_elapsed_fn    max_latency_elapsed;
+   io_print_stats_fn            print_stats;
+   io_reset_stats_fn            reset_stats;
+   io_get_context_fn            get_context;
 } io_ops;
 
 /*

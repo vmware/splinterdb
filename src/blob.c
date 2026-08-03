@@ -316,9 +316,9 @@ out:
 static platform_status
 blob_recover_extent(cache *cc, uint64 addr)
 {
-   allocator *al   = cache_get_allocator(cc);
-   uint64     base = allocator_config_extent_base_addr(
-      allocator_get_config(al), addr);
+   allocator *al = cache_get_allocator(cc);
+   uint64     base =
+      allocator_config_extent_base_addr(allocator_get_config(al), addr);
 
    if (allocator_get_refcount(al, base) != AL_FREE) {
       return STATUS_OK;

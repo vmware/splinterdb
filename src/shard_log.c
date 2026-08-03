@@ -738,7 +738,7 @@ log_recover_allocations(cache *cc, log_config *cfgh, log_head head)
     */
    allocator      *al        = cache_get_allocator(cc);
    uint64          meta_base = shard_log_extent_base(cc, head.meta_addr);
-   platform_status rc = shard_log_record_extent_reference(al, meta_base);
+   platform_status rc        = shard_log_record_extent_reference(al, meta_base);
    if (!SUCCESS(rc)) {
       return rc;
    }

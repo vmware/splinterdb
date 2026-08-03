@@ -721,12 +721,12 @@ static io_ops laio_ops = {
    .read                   = laio_read,
    .write                  = laio_write,
    .permit_unwritten_reads = laio_permit_unwritten_reads,
-   .async_state_init = laio_async_state_init,
-   .cleanup          = laio_cleanup,
-   .wait_all         = laio_wait_all,
-   .durable_barrier  = laio_durable_barrier,
-   .print_stats      = laio_print_stats,
-   .reset_stats      = laio_reset_stats,
+   .async_state_init       = laio_async_state_init,
+   .cleanup                = laio_cleanup,
+   .wait_all               = laio_wait_all,
+   .durable_barrier        = laio_durable_barrier,
+   .print_stats            = laio_print_stats,
+   .reset_stats            = laio_reset_stats,
 };
 
 /*
