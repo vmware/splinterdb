@@ -568,6 +568,174 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
 }
 
 /*
+ * The crash-recovery refcount rebuild has to reconstruct, from the tree alone,
+ * exactly the map that normal operation maintained -- so this checks it against
+ * the one authority on the subject: the map a clean unmount persisted.
+ *
+ * Comparing whole maps rather than spot-checking a few extents is the point. An
+ * extent the walk misses leaks, and one it counts twice is freed while still in
+ * use; both show up here as a mismatched refcount, and nothing else in the
+ * suite would notice either.
+ *
+ * Coverage note: the default configuration builds a tree of one node, which
+ * exercises the per-branch and per-filter accounting but never the descent. The
+ * height a tree reaches is driven by how much data it holds and not by the
+ * memtable size, so reaching a second level needs a large run -- at
+ * --num-inserts 20000000 this walks 36 nodes, and so also covers descending,
+ * the branches shared between nodes, and the guard against descending twice.
+ * That is too slow to make the default, hence this note.
+ */
+CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
+{
+   allocator        *alp     = (allocator *)&data->al;
+   allocator_config *acfg    = allocator_get_config(alp);
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       spl;
+   platform_status   rc;
+
+   rc = core_mkfs(&spl,
+                  &data->system_cfg->splinter_cfg,
+                  alp,
+                  (cache *)data->clock_cache,
+                  data->io,
+                  &data->tasks,
+                  root_id,
+                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /*
+    * A real tree, not the empty root: the walk is only interesting once there
+    * are interior nodes, several bundles per node, and branches that more than
+    * one node references.
+    */
+   splinter_do_inserts(data, &spl, FALSE, NULL);
+
+   rc = core_unmount(&spl, FALSE);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* Read the durable record the way a mount would. */
+   superblock_context sb;
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   superblock_tree_record rec;
+   superblock_get_tree_record(&sb, &rec);
+   // A clean unmount: the persisted map is trustworthy and the logs are gone.
+   ASSERT_TRUE(superblock_allocation_state_valid(&sb));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.live_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+   ASSERT_NOT_EQUAL(0, rec.root_addr);
+   superblock_context_deinit(&sb);
+
+   /*
+    * Ground truth.  core_unmount() persisted this very map, so the in-memory
+    * copy still standing here is byte-for-byte what a clean mount would load.
+    */
+   uint64 extent_size = acfg->io_cfg->extent_size;
+   uint64 num_extents = allocator_get_capacity(alp) / extent_size;
+   refcount *expected = TYPED_ARRAY_MALLOC(data->hid, expected, num_extents);
+   ASSERT_NOT_NULL(expected);
+   uint64 num_referenced = 0;
+   for (uint64 i = 0; i < num_extents; i++) {
+      expected[i] = allocator_get_refcount(alp, i * extent_size);
+      if (expected[i] != AL_FREE) {
+         num_referenced++;
+      }
+   }
+
+   /*
+    * Rebuild it -- twice.
+    *
+    * Once for the obvious reason, and a second time because recovery itself
+    * rebuilds twice: once counting the logs so replay is not handed their
+    * space, and again from the root alone afterwards, which is what releases
+    * it.  A second rebuild that drifted from the first would mean recovery
+    * silently leaking or double-freeing on every crash, so the round it runs in
+    * has to make no difference at all.
+    *
+    * The first rebuild starts from a freshly attached allocator, matching a
+    * real mount; the second runs against the map the first one left behind,
+    * which is the case recovery actually depends on.  The cache keeps pointing
+    * at the same allocator struct throughout, which is how the branch and
+    * filter walks reach it.
+    */
+   rc_allocator_deinit(&data->al);
+   rc = rc_allocator_mount(&data->al,
+                           acfg,
+                           data->io,
+                           data->hid,
+                           platform_get_module_id());
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 mismatches = 0;
+   for (uint64 round = 0; round < 2; round++) {
+      ASSERT_TRUE(SUCCESS(allocator_recovery_begin(alp)));
+      rc = trunk_recover_allocations(
+         data->system_cfg->splinter_cfg.trunk_node_cfg,
+         (cache *)data->clock_cache,
+         data->hid,
+         rec.root_addr);
+      ASSERT_TRUE(SUCCESS(rc));
+      allocator_recovery_finish(alp);
+
+      for (uint64 i = 0; i < num_extents; i++) {
+         refcount actual = allocator_get_refcount(alp, i * extent_size);
+         if (actual != expected[i]) {
+            if (mismatches < 16) {
+               platform_error_log("round %lu: extent %lu (addr %lu): persisted "
+                                  "refcount %u, rebuilt %u\n",
+                                  round,
+                                  i,
+                                  i * extent_size,
+                                  expected[i],
+                                  actual);
+            }
+            mismatches++;
+         }
+      }
+      // The count the allocator reports has to be rebuilt too, not accumulated.
+      ASSERT_EQUAL(num_referenced,
+                   allocator_in_use(alp),
+                   "round %lu: the allocator reports %lu extents in use, but "
+                   "%lu are referenced\n",
+                   round,
+                   allocator_in_use(alp),
+                   num_referenced);
+   }
+   platform_free(data->hid, expected);
+
+   ASSERT_EQUAL(0,
+                mismatches,
+                "the rebuilt map differs from the persisted one in %lu of %lu "
+                "extents\n",
+                mismatches,
+                num_extents);
+   // Guard against the comparison passing because there was nothing to compare.
+   ASSERT_TRUE(num_referenced > 1,
+               "only %lu extents were referenced; the tree is too small for "
+               "this test to mean anything\n",
+               num_referenced);
+
+   /*
+    * Leave nothing behind for the fixture's leak check: the map still holds
+    * every reference the tree needs, so erase the tree.  Mounting reloads the
+    * persisted map over the rebuilt one, which the comparison above has just
+    * shown to be the same map.
+    */
+   core_handle cleanup;
+   rc = core_mount(&cleanup,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   core_destroy(&cleanup);
+}
+
+/*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
  * successful mount publishes such an active record; until crash recovery is

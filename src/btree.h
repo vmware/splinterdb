@@ -272,6 +272,16 @@ btree_dec_ref(cache              *cc,
               uint64              root_addr,
               page_type           type);
 
+/*
+ * Rebuild the allocator references this branch holds after a crash.  The
+ * recovery counterpart of btree_inc_ref(); see mini_recover_references().
+ */
+platform_status
+btree_recover_allocations(cache              *cc,
+                          const btree_config *cfg,
+                          uint64              root_addr,
+                          page_type           type);
+
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);
 

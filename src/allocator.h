@@ -235,6 +235,19 @@ allocator_get_refcount(allocator *al, uint64 addr)
    return al->ops->get_ref(al, addr);
 }
 
+/*
+ * Discard whatever the refcount map holds and start a rebuild: afterwards only
+ * the reserved extents are referenced, and
+ * allocator_recovery_record_reference() supplies the rest until
+ * allocator_recovery_finish() declares the map usable.
+ *
+ * Repeatable, deliberately.  Crash recovery rebuilds twice: once counting the
+ * logs, so that replay is never handed an extent a record it has not reached
+ * yet depends on, and again from the durable root alone once replay has
+ * finished and been folded in.  The second rebuild is what frees the logs --
+ * their extents are simply absent from it -- which is why nothing has to
+ * enumerate them a second time in order to release them.
+ */
 static inline platform_status
 allocator_recovery_begin(allocator *al)
 {

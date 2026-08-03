@@ -309,6 +309,54 @@ out:
    return rc;
 }
 
+/*
+ * Record one reference for the extent containing addr, unless something already
+ * has.  See blob_recover_allocations().
+ */
+static platform_status
+blob_recover_extent(cache *cc, uint64 addr)
+{
+   allocator *al   = cache_get_allocator(cc);
+   uint64     base = allocator_config_extent_base_addr(
+      allocator_get_config(al), addr);
+
+   if (allocator_get_refcount(al, base) != AL_FREE) {
+      return STATUS_OK;
+   }
+   return allocator_recovery_record_reference(al, base, PAGE_TYPE_BLOB);
+}
+
+platform_status
+blob_recover_allocations(cache *cc, slice sblob)
+{
+   uint64      extent_size = cache_extent_size(cc);
+   uint64      page_size   = cache_page_size(cc);
+   parsed_blob pblob;
+
+   parse_blob(extent_size, page_size, (const blob *)slice_data(sblob), &pblob);
+
+   for (uint64 i = 0; i < pblob.num_extents; i++) {
+      platform_status rc = blob_recover_extent(cc, pblob.base->addrs[i]);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   /*
+    * The tail lives in up to three page-aligned fragments, which may sit in an
+    * extent this blob does not otherwise occupy -- and typically one it shares.
+    */
+   for (uint64 i = 0; i < ARRAY_SIZE(pblob.leftovers); i++) {
+      if (pblob.leftovers[i].length == 0) {
+         break;
+      }
+      platform_status rc = blob_recover_extent(cc, pblob.leftovers[i].addr);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return STATUS_OK;
+}
+
 platform_status
 blob_writeback(cache *cc, slice sblob, writeback_set *set)
 {

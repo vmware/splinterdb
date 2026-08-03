@@ -141,6 +141,32 @@ platform_status
 mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type);
 
 /*
+ * mini_recover_references --
+ *
+ *     Record one logical reference to this mini allocator during a crash-
+ *     recovery rebuild, enumerating its extents first if nothing had reached
+ *     it yet.  The recovery counterpart of mini_inc_ref().
+ *
+ *     The refcount map under construction doubles as the set of mini
+ *     allocators already enumerated, which is what saves callers from keeping
+ *     a visited set of their own: a free metadata extent means this is the
+ *     first reference and the interior is still unknown, so
+ *     mini_recover_allocations() runs; a referenced one means some earlier
+ *     caller already enumerated it and all this adds is multiplicity.
+ *     Sharing is expected -- one branch commonly lives in many trunk nodes.
+ *
+ *     The multiplicity it produces matches normal operation, because a logical
+ *     reference is exactly one allocator reference on the extent holding the
+ *     metadata head, as mini_inc_ref() shows.  That reference is recorded for
+ *     every holder, the first one included: enumerating the extents leaves the
+ *     metadata extent at MINI_NO_REFS, which accounts for the mini allocator
+ *     existing rather than for anyone referring to it, so external references
+ *     are counted on top of it.
+ */
+platform_status
+mini_recover_references(cache *cc, uint64 meta_head, page_type type);
+
+/*
  * mini_meta_cursor: a non-blocking cursor over the extent entries of a
  * finalized mini_allocator. Entries from all batches are interleaved in
  * allocation order; the caller filters by batch as needed (each entry reports

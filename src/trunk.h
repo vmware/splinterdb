@@ -245,6 +245,25 @@ trunk_snapshot_create_from_addr(allocator      *al,
 platform_status
 trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot);
 
+/*
+ * Rebuild every allocator reference the tree at root_addr holds, for crash
+ * recovery.  Consults no refcounts: this is what populates them, so it must run
+ * between allocator_recovery_begin() and allocator_recovery_finish(), before
+ * any trunk_context or snapshot exists (creating either would take a reference,
+ * and there is nowhere yet to take it).  Hence the loose parameters rather than
+ * a context.  A null root_addr (0) is not an error and records nothing.
+ *
+ * Records the one reference the durable record itself holds on the root, so a
+ * caller that goes on to take a live reference
+ * (trunk_snapshot_create_from_addr) ends up exactly where a clean mount's
+ * loaded map would have put it.
+ */
+platform_status
+trunk_recover_allocations(const trunk_config *cfg,
+                          cache              *cc,
+                          platform_heap_id    hid,
+                          uint64              root_addr);
+
 /********************************
  * Mutations
  ********************************/

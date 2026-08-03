@@ -1323,6 +1323,22 @@ btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
    mini_inc_ref(cc, meta_page_addr);
 }
 
+/*
+ * Record the reference a holder has on this branch during a crash-recovery
+ * rebuild, enumerating the branch's extents if this is the first one to reach
+ * it.  The recovery counterpart of btree_inc_ref(); see
+ * mini_recover_references().
+ */
+platform_status
+btree_recover_allocations(cache              *cc,
+                          const btree_config *cfg,
+                          uint64              root_addr,
+                          page_type           type)
+{
+   return mini_recover_references(
+      cc, btree_root_to_meta_addr(cfg, root_addr, 0), type);
+}
+
 bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,

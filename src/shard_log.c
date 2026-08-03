@@ -605,6 +605,188 @@ shard_log_next_extent_addr(shard_log_config *cfg, page_handle *page)
    return hdr->next_extent_addr;
 }
 
+/* The base address of the extent holding addr. */
+static uint64
+shard_log_extent_base(cache *cc, uint64 addr)
+{
+   return allocator_config_extent_base_addr(
+      allocator_get_config(cache_get_allocator(cc)), addr);
+}
+
+/* Visitor for shard_log_for_each_extent(); a failure abandons the walk. */
+typedef platform_status (*shard_log_extent_fn)(void *arg, uint64 extent_addr);
+
+/*
+ * Could addr be the base address of a log extent on this device?
+ *
+ * next_extent_addr is read out of a page that a crash may have left holding
+ * anything at all, so it is checked against the device geometry before it is
+ * followed; once the walk lands on a page, its magic and checksum are what
+ * vouch for the contents.
+ *
+ * Deliberately not a refcount test.  Crash recovery walks a stream precisely in
+ * order to rebuild the refcount map, so the walk must not consult the map it is
+ * about to populate -- and before allocator_recovery_begin() there is no map to
+ * consult: rc_allocator leaves it NULL until then, so asking would fault.
+ */
+static bool32
+shard_log_valid_extent_addr(cache *cc, shard_log_config *cfg, uint64 addr)
+{
+   uint64 extent_size = shard_log_extent_size(cfg);
+   uint64 capacity    = allocator_get_capacity(cache_get_allocator(cc));
+
+   return addr != 0 && addr % extent_size == 0
+          && addr <= capacity - extent_size;
+}
+
+/*
+ * The next-extent link of the extent at extent_addr, or 0 if the chain ends
+ * here.
+ *
+ * Taken from the last page of the extent that validates, not the first: the
+ * link is stamped into each page as that page is written, and a page written
+ * early can predate the allocation of the extent that follows, so only the
+ * latest page's copy is guaranteed to name it.
+ */
+static uint64
+shard_log_extent_next_link(cache            *cc,
+                           shard_log_config *cfg,
+                           uint64            extent_addr,
+                           uint64            magic)
+{
+   uint64 pages_per_extent = shard_log_pages_per_extent(cfg);
+   uint64 page_size        = shard_log_page_size(cfg);
+   uint64 next_extent_addr = 0;
+
+   for (uint64 i = 0; i < pages_per_extent; i++) {
+      page_handle *page =
+         cache_get(cc, extent_addr + i * page_size, TRUE, PAGE_TYPE_LOG);
+      if (shard_log_valid(cfg, page, magic)) {
+         next_extent_addr = shard_log_next_extent_addr(cfg, page);
+      }
+      cache_unget(cc, page);
+   }
+   return next_extent_addr;
+}
+
+/*
+ * Visit every data extent of a stream, in order.  See
+ * shard_log_valid_extent_addr() for why this consults no refcounts, and
+ * log_recover_allocations() in log.h for what recovery does with it.
+ *
+ * The visit budget is not a policy limit but a corruption backstop: a garbled
+ * link that happens to name an earlier extent of this same stream would carry
+ * the stream's own magic, so the per-page checks cannot rule out a cycle. A
+ * stream cannot hold more extents than the device has.
+ */
+static platform_status
+shard_log_for_each_extent(cache              *cc,
+                          shard_log_config   *cfg,
+                          log_head            head,
+                          shard_log_extent_fn fn,
+                          void               *arg)
+{
+   uint64 budget = allocator_get_capacity(cache_get_allocator(cc))
+                   / shard_log_extent_size(cfg);
+   uint64 extent_addr = head.addr;
+
+   while (shard_log_valid_extent_addr(cc, cfg, extent_addr)) {
+      if (budget-- == 0) {
+         platform_error_log("shard_log_for_each_extent: stream from %lu has "
+                            "more extents than the device holds; its "
+                            "next-extent chain is corrupt\n",
+                            head.addr);
+         return STATUS_INVALID_STATE;
+      }
+
+      /*
+       * Visited before the read that follows the chain onwards, not after:
+       * cache_get() requires a page's extent to be allocated, and to a map
+       * being rebuilt it is not yet.  Recording the reference is what makes the
+       * extent readable.  Same reason mini_recover_allocations() has a "before"
+       * hook.
+       */
+      platform_status rc = fn(arg, extent_addr);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      extent_addr =
+         shard_log_extent_next_link(cc, cfg, extent_addr, head.magic);
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+shard_log_record_extent_reference(void *arg, uint64 extent_addr)
+{
+   return allocator_recovery_record_reference(
+      (allocator *)arg, extent_addr, PAGE_TYPE_LOG);
+}
+
+platform_status
+log_recover_allocations(cache *cc, log_config *cfgh, log_head head)
+{
+   if (head.addr == 0) {
+      return STATUS_OK; // no such log
+   }
+
+   /*
+    * The metadata head sits in an extent of its own, allocated before the mini
+    * allocator that owns the data extents (see shard_log_init()), so the
+    * page-header chain never reaches it.  It has to be recorded on its own or
+    * the extent is left looking free while the durable record still names it.
+    */
+   allocator      *al        = cache_get_allocator(cc);
+   uint64          meta_base = shard_log_extent_base(cc, head.meta_addr);
+   platform_status rc = shard_log_record_extent_reference(al, meta_base);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   return shard_log_for_each_extent(cc,
+                                    (shard_log_config *)cfgh,
+                                    head,
+                                    shard_log_record_extent_reference,
+                                    al);
+}
+
+platform_status
+log_recover_blob_allocations(cache           *cc,
+                             log_config      *cfgh,
+                             platform_heap_id hid,
+                             log_head         head)
+{
+   if (head.addr == 0) {
+      return STATUS_OK; // no such log
+   }
+
+   log_iterator *itor =
+      shard_log_iterator_create(cc, (shard_log_config *)cfgh, hid, head);
+   if (itor == NULL) {
+      platform_error_log("log_recover_blob_allocations: could not read the "
+                         "stream at %lu\n",
+                         head.addr);
+      return STATUS_NO_MEMORY;
+   }
+
+   platform_status rc = STATUS_OK;
+   while (SUCCESS(rc) && log_iterator_can_next(itor)) {
+      key     tuple_key;
+      message msg;
+      log_iterator_curr(itor, &tuple_key, &msg);
+      if (message_is_blob(msg)) {
+         rc = blob_recover_allocations(cc, message_slice(msg));
+      }
+      if (SUCCESS(rc)) {
+         rc = log_iterator_next(itor);
+      }
+   }
+
+   log_iterator_deinit(itor);
+   return rc;
+}
+
+
 /*
  * Bytes appended to the stream so far.  The mini-allocator already tracks the
  * extents it has handed out across all of the stream's batches (data and blob),
@@ -930,6 +1112,19 @@ shard_log_iterator_init(cache              *cc,
    bool32 group_ends_stream = FALSE;
    bool32 broken            = FALSE; // hit a group we cannot replay
 
+   /*
+    * The refcount gate is what stops the walk, and it is load-bearing rather
+    * than defensive: the last page of a finished stream names a next extent
+    * that shard_log_deinit() then released (mini_release() drops the unused
+    * per-batch reserve), so the chain outlives the extent it points at.
+    * Reading there would break cache_get()'s rule that a page belong to an
+    * allocated extent.
+    *
+    * It works during crash recovery too, even though the map is rebuilt from
+    * scratch: the rebuild walk (log_recover_allocations()) runs first and
+    * records a reference for exactly the extents of this stream, so by the time
+    * an iterator reads it the gate admits precisely those.
+    */
    extent_addr = addr;
    while (!broken && extent_addr != 0
           && allocator_get_refcount(al, extent_addr) > 0)

@@ -107,3 +107,22 @@ blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
  */
 platform_status
 blob_writeback(cache *cc, slice sblob, writeback_set *set);
+
+/*
+ * Record the allocator references this blob's storage holds, for a crash-
+ * recovery rebuild.  Call between allocator_recovery_begin() and
+ * allocator_recovery_finish().
+ *
+ * Reads nothing.  A blob carries the addresses of its own storage inline (see
+ * struct blob), so the extents can be named without touching a page -- which is
+ * what makes this usable during a rebuild, when reading a page whose extent is
+ * not yet marked allocated is exactly what is forbidden.
+ *
+ * Records at most one reference per extent, skipping any that already has one.
+ * That is the correct count and not merely deduplication: an extent gets a
+ * single reference when its mini allocator hands it out, and blobs share
+ * extents -- one holds the tails of many -- so counting per blob would leave
+ * extents referenced several times over and never freed.
+ */
+platform_status
+blob_recover_allocations(cache *cc, slice sblob);

@@ -1859,6 +1859,166 @@ trunk_node_inc_all_refs(trunk_context *context, trunk_node *node)
    }
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * Crash-recovery allocator-reference rebuild.
+ *
+ * Reconstruct every allocator reference the tree at a durable root holds,
+ * without consulting the refcount map -- the map is what this is rebuilding,
+ * and before allocator_recovery_begin() it does not even exist.
+ *
+ * Two constraints shape the walk.
+ *
+ * The first is that reading a node requires having already recorded a reference
+ * to it.  cache_get() insists a page belong to an allocated extent, and to a
+ * map under construction an extent counts as allocated only once something has
+ * recorded a reference to it.  So each node records all of its children before
+ * descending into any of them.
+ *
+ * The second is that the map doubles as the set of things already visited,
+ * which is what makes a separate visited set unnecessary.  A zero refcount
+ * means nothing has reached an item yet and its interior still has to be
+ * enumerated; a nonzero one means something already did that, and all a further
+ * reference adds is multiplicity.  Sharing is routine here -- a flush hands one
+ * branch to every child it pushes down to.
+ * -----------------------------------------------------------------------------
+ */
+
+/*
+ * The references one bundle holds: its maplet, and each of its branches.
+ * Mirrors bundle_inc_all_refs(), including its rule that a null maplet is not a
+ * reference to anything.
+ */
+static platform_status
+trunk_recover_bundle_refs(const trunk_context *context, bundle *bndl)
+{
+   if (!routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
+      platform_status rc =
+         routing_filter_recover_allocations(context->cc, &bndl->maplet);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   page_type type = bundle_branch_type(bndl);
+   for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
+      branch_ref      bref = vector_get(&bndl->branches, i);
+      platform_status rc   = btree_recover_allocations(
+         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref), type);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+trunk_recover_node_refs(const trunk_context *context, uint64 addr);
+
+/*
+ * The references the subtree rooted at addr holds.  A reference for addr itself
+ * must already have been recorded -- see the section comment -- which is why
+ * the caller records it and each level records its children.
+ */
+static platform_status
+trunk_recover_node_refs(const trunk_context *context, uint64 addr)
+{
+   trunk_node      node;
+   platform_status rc = trunk_node_deserialize(context, addr, &node);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_recover_node_refs: cannot read node %lu: %s\n",
+                         addr,
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   uint64 num_children =
+      trunk_node_is_leaf(&node) ? 0 : vector_length(&node.pivots) - 1;
+
+   for (uint64 i = 0; i < num_children && SUCCESS(rc); i++) {
+      trunk_pivot *pvt = vector_get(&node.pivots, i);
+      /*
+       * Sampled before recording, because recording is what makes a child look
+       * visited.  Only the reference that discovers a child descends into it:
+       * going down twice would count everything beneath it twice, and a node
+       * holds one reference to its branches however many parents it has.
+       */
+      bool32 unvisited =
+         allocator_get_refcount(context->al, pvt->child_addr) == AL_FREE;
+      rc = allocator_recovery_record_reference(
+         context->al, pvt->child_addr, PAGE_TYPE_TRUNK);
+      // Legal now, and only now, that the child has a reference.
+      if (SUCCESS(rc) && unvisited) {
+         rc = trunk_recover_node_refs(context, pvt->child_addr);
+      }
+   }
+
+   uint64 num_pivot_bundles = vector_length(&node.pivot_bundles);
+   for (uint64 i = 0; i < num_pivot_bundles && SUCCESS(rc); i++) {
+      rc = trunk_recover_bundle_refs(context,
+                                    vector_get_ptr(&node.pivot_bundles, i));
+   }
+   /*
+    * From 0, not from trunk_node_first_live_inflight_bundle(): serialization
+    * writes only the live bundles, so every bundle a node read back from disk
+    * holds is one it references.  trunk_ondisk_node_gc() drops them the same
+    * way.
+    */
+   for (uint64 i = 0; i < vector_length(&node.inflight_bundles) && SUCCESS(rc);
+        i++)
+   {
+      rc = trunk_recover_bundle_refs(context,
+                                    vector_get_ptr(&node.inflight_bundles, i));
+   }
+
+   trunk_node_deinit(&node, context);
+   return rc;
+}
+
+platform_status
+trunk_recover_allocations(const trunk_config *cfg,
+                          cache              *cc,
+                          platform_heap_id    hid,
+                          uint64              root_addr)
+{
+   if (root_addr == 0) {
+      return STATUS_OK; // nothing has ever been incorporated
+   }
+
+   /*
+    * Taken from the cache rather than accepted as a parameter: the branch and
+    * filter walks reach the allocator through the cache (mini_recover_
+    * references()), so accepting a second one would just create something for
+    * them to disagree with.
+    */
+   allocator *al = cache_get_allocator(cc);
+
+   /*
+    * Just enough context for the read path: deserialization needs the cache,
+    * and the walk needs the btree config to turn a branch address into a
+    * metadata head.  A real trunk_context cannot exist yet -- building one
+    * takes a reference on the root, and there is no map yet to take it in.
+    */
+   trunk_context context = {
+      .cfg = cfg,
+      .cc  = cc,
+      .al  = al,
+      .hid = hid,
+   };
+
+   // The reference the durable record itself holds on the root.
+   platform_status rc =
+      allocator_recovery_record_reference(al, root_addr, PAGE_TYPE_TRUNK);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_recover_allocations: cannot record the root "
+                         "%lu: %s\n",
+                         root_addr,
+                         platform_status_to_string(rc));
+      return rc;
+   }
+   return trunk_recover_node_refs(&context, root_addr);
+}
+
 static void
 trunk_ondisk_node_ref_inc(const ondisk_ref *ref)
 {
