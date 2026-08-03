@@ -738,15 +738,31 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
 /*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
- * successful mount publishes such an active record; until crash recovery is
- * implemented, a concurrent/restarted normal mount must reject it even
- * though the preceding clean record remains valid in the other slot.
+ * successful mount publishes such an active record, so this walks a record pair
+ * through the states that produces -- clean, then active, then clean again --
+ * and requires it to stay mountable throughout.
+ *
+ * It used to also require that a second mount over the active record be
+ * *rejected*, which was true only while crash recovery was unimplemented: an
+ * invalid allocation state now sends a mount into recovery rather than into an
+ * error, which is the whole point of it.  Two consequences worth knowing:
+ *
+ *   - Recovering the newer active record, rather than refusing it, is what
+ *     actually honours the no-rollback rule.  Exercising that needs a genuine
+ *     crash, because recovery rebuilds the refcount map from scratch and so
+ *     invalidates the accounting of any handle still holding the instance --
+ *     which no test can arrange from inside this fixture.  It belongs with the
+ *     process-level crash tests.
+ *   - Nothing now stops a second mount of a *live* instance.  The clean-only
+ *     rule used to prevent that as a side effect; distinguishing "crashed" from
+ *     "mounted by someone else" needs a marker of its own, since the allocation
+ *     state means only the former.
  */
-CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
+CTEST2(splinter, test_mount_active_checkpoint_stays_mountable)
 {
    allocator        *alp     = (allocator *)&data->al;
    allocator_root_id root_id = test_generate_allocator_root_id();
-   core_handle       created, mounted, rejected, cleanup;
+   core_handle       created, mounted, cleanup;
    platform_status   rc;
 
    rc = core_mkfs(&created,
@@ -785,16 +801,6 @@ CTEST2(splinter, test_mount_rejects_newer_active_checkpoint)
                    root_id,
                    data->hid);
    ASSERT_TRUE(SUCCESS(rc));
-
-   rc = core_mount(&rejected,
-                   &data->system_cfg->splinter_cfg,
-                   alp,
-                   (cache *)data->clock_cache,
-                   data->io,
-                   &data->tasks,
-                   root_id,
-                   data->hid);
-   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
 
    /* Finish cleanly, then prove the same record pair is mountable again. */
    rc = core_unmount(&mounted, FALSE);

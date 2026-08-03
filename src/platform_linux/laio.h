@@ -45,6 +45,8 @@ typedef struct laio_handle {
    io_process_context ctx[MAX_THREADS];
    platform_heap_id   heap_id;
    int                fd; // File descriptor to Splinter device/file.
+   // See io_permit_unwritten_reads(); off unless recovery turns it on.
+   bool32 permit_unwritten_reads;
    process_event_callback_list_node pecnode;
 } laio_handle;
 

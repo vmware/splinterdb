@@ -181,6 +181,18 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
    if (ret == bytes) {
       return STATUS_OK;
    }
+   /*
+    * A short read, meaning the file does not extend this far: nothing was ever
+    * written here.  While recovery is looking for what exists, report that the
+    * way a block device would -- as zeros, which every reader's magic and
+    * checksum then reject.  See io_permit_unwritten_reads().
+    *
+    * ret < 0 is a real failure and stays one however the flag is set.
+    */
+   if (0 <= ret && io->permit_unwritten_reads) {
+      memset((char *)buf + ret, 0, bytes - ret);
+      return STATUS_OK;
+   }
    platform_error_log("laio_read: pread failed for addr %lu, bytes %lu, "
                       "ret %d: %s\n",
                       addr,
@@ -188,6 +200,12 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
                       ret,
                       strerror(errno));
    return STATUS_IO_ERROR;
+}
+
+static void
+laio_permit_unwritten_reads(io_handle *ioh, bool32 permit)
+{
+   ((laio_handle *)ioh)->permit_unwritten_reads = permit;
 }
 
 /*
@@ -700,8 +718,9 @@ laio_process_termination_callback(threadid pid, void *arg)
  * Define an implementation of the abstract IO Ops interface methods.
  */
 static io_ops laio_ops = {
-   .read             = laio_read,
-   .write            = laio_write,
+   .read                   = laio_read,
+   .write                  = laio_write,
+   .permit_unwritten_reads = laio_permit_unwritten_reads,
    .async_state_init = laio_async_state_init,
    .cleanup          = laio_cleanup,
    .wait_all         = laio_wait_all,

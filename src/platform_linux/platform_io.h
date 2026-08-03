@@ -65,6 +65,12 @@ typedef platform_status (*io_write_fn)(io_handle *io,
                                        void      *buf,
                                        uint64     bytes,
                                        uint64     addr);
+/*
+ * Whether a read of device addresses that have never been written should yield
+ * zeros instead of failing.  Off by default; see
+ * io_permit_unwritten_reads().
+ */
+typedef void (*io_permit_unwritten_reads_fn)(io_handle *io, bool32 permit);
 
 #define IO_ASYNC_STATE_BUFFER_SIZE (1024)
 typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE];
@@ -91,8 +97,9 @@ typedef void *(*io_get_context_fn)(io_handle *io);
  * An abstract IO interface, holding different IO Ops function pointers.
  */
 typedef struct io_ops {
-   io_read_fn                read;
-   io_write_fn               write;
+   io_read_fn                   read;
+   io_write_fn                  write;
+   io_permit_unwritten_reads_fn permit_unwritten_reads;
    io_async_state_init_fn    async_state_init;
    io_cleanup_fn             cleanup;
    io_wait_all_fn            wait_all;
@@ -137,6 +144,34 @@ static inline platform_status
 io_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 {
    return io->ops->read(io, buf, bytes, addr);
+}
+
+/*
+ * Permit reads of device addresses that were never written, yielding zeros
+ * rather than an error.
+ *
+ * A device backed by a file is only as long as what has been written to it, so
+ * reading an address past that fails outright -- where the same address on a
+ * block device would simply read as zeros.  Normal operation only ever reads
+ * what it wrote, so that failure is a real error and stays one.  Crash recovery
+ * is the exception: it follows on-disk links to find out what exists, and a log
+ * page's next-extent link names the extent the allocator had reserved next,
+ * which the stream may never have reached.  Recovery has to be able to look
+ * there and be told there is nothing, which is what zeros give it -- every
+ * reader validates by magic and checksum, so a page of zeros is rejected as a
+ * page that was never written.
+ *
+ * Deliberately not the default.  Outside recovery, a read past the end of the
+ * device means a bug or a corrupt address, and turning that into zeros would
+ * hide it.  So recovery turns it on for its own duration and off again.
+ *
+ * Not thread safe, and not meant to be: the caller must have exclusive use of
+ * the device, as a mount performing recovery does.
+ */
+static inline void
+io_permit_unwritten_reads(io_handle *io, bool32 permit)
+{
+   io->ops->permit_unwritten_reads(io, permit);
 }
 
 static inline platform_status

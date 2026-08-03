@@ -188,6 +188,17 @@ core_log_to_superblock_log_head(log_head info, uint64 start_generation)
                                 .start_generation = start_generation};
 }
 
+/* The log module's view of a superblock log slot; the reverse of the above. */
+static log_head
+core_superblock_log_head_to_log(superblock_log_head info)
+{
+   return (log_head){
+      .addr      = info.addr,
+      .meta_addr = info.meta_addr,
+      .magic     = info.magic,
+   };
+}
+
 /*
  * Commit the trunk's current COW root as the new durable tree root: capture the
  * root, make its pages durable, snapshot it into the superblock (recording the
@@ -961,7 +972,13 @@ core_log_insert(core_handle                *spl,
     * that we will preserve enough information in the log to enable the user
     * to recover the old value. One way to do this might be to insert a
     * reference to the trunk into the log. */
-   if (!spl->cfg.use_log) {
+   /*
+    * spl->log is NULL while crash recovery replays: the replayed records are
+    * already in a log, and the session's live log is not cut until replay has
+    * been folded into a published root.  Writing them back out would be pure
+    * waste, and there would be nowhere to put them.
+    */
+   if (!spl->cfg.use_log || spl->log == NULL) {
       return STATUS_OK;
    }
 
@@ -2459,6 +2476,314 @@ core_destroy_stats(core_handle *spl)
 }
 
 
+/*
+ *-----------------------------------------------------------------------------
+ * Crash recovery.
+ *
+ * A mount whose persisted allocation state is invalid cannot trust the refcount
+ * map, so it reconstructs one from what is on disk, replays whatever the logs
+ * hold that the durable root does not, and then publishes a root of its own.
+ *
+ * Two passes over the allocator, deliberately.  The first counts the logs, so
+ * that replay -- which allocates -- is never handed an extent that a record it
+ * has not reached yet depends on.  The second, once replay has been folded into
+ * a published root naming no logs, counts the root alone; the logs are freed by
+ * being absent from it.  See allocator_recovery_begin() for why that beats
+ * enumerating them a second time to release them.
+ *-----------------------------------------------------------------------------
+ */
+
+/* Defined below.  Recovery uses it to fold replayed records into the tree. */
+static bool32
+core_quiesce(core_handle *spl);
+
+/*
+ * Bring the memtable and trunk contexts up over a durable root.  Shared by a
+ * normal mount and by recovery, which drops them and brings them back up over
+ * the root it publishes.  On failure nothing is left initialized.
+ */
+static platform_status
+core_open_contexts(core_handle *spl, uint64 root_addr, uint64 resume_generation)
+{
+   platform_status rc =
+      memtable_context_init_at_generation(&spl->mt_ctxt,
+                                          spl->heap_id,
+                                          spl->cc,
+                                          &spl->cfg.mt_cfg,
+                                          core_rotate_log,
+                                          core_memtable_flush_virtual,
+                                          spl,
+                                          resume_generation);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_open_contexts: "
+                         "memtable_context_init_at_generation failed: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   trunk_snapshot root_snapshot;
+   rc = trunk_snapshot_create_from_addr(spl->al, root_addr, &root_snapshot);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_open_contexts: "
+                         "trunk_snapshot_create_from_addr failed: %s\n",
+                         platform_status_to_string(rc));
+      memtable_context_deinit(&spl->mt_ctxt);
+      return rc;
+   }
+
+   // Consumes the snapshot's reference whether or not it succeeds.
+   rc = trunk_context_init(&spl->trunk_context,
+                           spl->cfg.trunk_node_cfg,
+                           spl->heap_id,
+                           spl->cc,
+                           spl->al,
+                           spl->ts,
+                           root_snapshot);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_open_contexts: trunk_context_init failed: %s\n",
+                         platform_status_to_string(rc));
+      memtable_context_deinit(&spl->mt_ctxt);
+      return rc;
+   }
+   return STATUS_OK;
+}
+
+static void
+core_close_contexts(core_handle *spl)
+{
+   trunk_context_deinit(&spl->trunk_context);
+   memtable_context_deinit(&spl->mt_ctxt);
+}
+
+/*
+ * Rebuild the refcount map from the durable record.  With include_logs, the
+ * streams the record names are counted too, along with the blobs their
+ * replayable records point at.
+ */
+static platform_status
+core_rebuild_allocations(core_handle                  *spl,
+                         const superblock_tree_record *rec,
+                         bool32                        include_logs)
+{
+   platform_status rc = allocator_recovery_begin(spl->al);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: allocator_recovery_begin failed: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   rc = trunk_recover_allocations(
+      spl->cfg.trunk_node_cfg, spl->cc, spl->heap_id, rec->root_addr);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: could not rebuild the tree's "
+                         "allocations: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   if (include_logs) {
+      superblock_log_head slots[2] = {rec->sealed_log, rec->live_log};
+      for (uint64 i = 0; i < ARRAY_SIZE(slots); i++) {
+         if (SUPERBLOCK_NO_LOG(slots[i])) {
+            continue;
+         }
+         log_head head = core_superblock_log_head_to_log(slots[i]);
+
+         // The stream's own extents first: reading it is how its blobs are
+         // found, and that needs those extents marked.
+         rc = log_recover_allocations(spl->cc, spl->cfg.log_cfg, head);
+         if (SUCCESS(rc)) {
+            rc = log_recover_blob_allocations(
+               spl->cc, spl->cfg.log_cfg, spl->heap_id, head);
+         }
+         if (!SUCCESS(rc)) {
+            platform_error_log("core_mount: could not rebuild the allocations "
+                               "of the log at %lu: %s\n",
+                               head.addr,
+                               platform_status_to_string(rc));
+            return rc;
+         }
+      }
+   }
+
+   allocator_recovery_finish(spl->al);
+   return STATUS_OK;
+}
+
+/*
+ * Apply one stream's records to the memtables, skipping those the durable root
+ * already contains.
+ *
+ * Reports through ran_to_end whether the stream reached its end-of-stream
+ * marker.  A caller must not replay a later stream once one has come up short:
+ * the records of a truncated stream are a valid prefix on their own, but
+ * anything written after it would be applied on top of a gap.
+ */
+static platform_status
+core_replay_log(core_handle *spl,
+                log_head     head,
+                uint64       first_unincorporated_generation,
+                bool32      *ran_to_end)
+{
+   // An absent slot has no tail to have lost, so it does not stop the next one.
+   *ran_to_end = TRUE;
+   if (head.addr == 0) {
+      return STATUS_OK;
+   }
+
+   log_iterator *itor = shard_log_iterator_create(
+      spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id, head);
+   if (itor == NULL) {
+      platform_error_log("core_mount: could not read the log at %lu for "
+                         "replay\n",
+                         head.addr);
+      return STATUS_NO_MEMORY;
+   }
+
+   platform_status rc       = STATUS_OK;
+   uint64          applied  = 0;
+   uint64          bypassed = 0;
+   while (SUCCESS(rc) && log_iterator_can_next(itor)) {
+      key     tuple_key;
+      message msg;
+      uint64  memtable_generation;
+      uint64  leaf_generation;
+      log_iterator_curr(itor, &tuple_key, &msg);
+      log_iterator_curr_generations(
+         itor, &memtable_generation, &leaf_generation);
+
+      /*
+       * The iterator yields records in (memtable generation, leaf generation)
+       * order, which is the order they were applied in, so replaying them as
+       * they come reproduces the state the tree was in.  Anything below the
+       * bound is already folded into the root.
+       */
+      if (memtable_generation < first_unincorporated_generation) {
+         bypassed++;
+      } else {
+         rc = core_insert(spl, tuple_key, msg, NULL);
+         if (SUCCESS(rc)) {
+            applied++;
+         }
+      }
+      if (SUCCESS(rc)) {
+         rc = log_iterator_next(itor);
+      }
+   }
+
+   if (SUCCESS(rc)) {
+      *ran_to_end = log_iterator_stream_complete(itor);
+      platform_default_log("core_mount: replayed %lu records from the log at "
+                           "%lu (%lu already in the root)%s\n",
+                           applied,
+                           head.addr,
+                           bypassed,
+                           *ran_to_end ? "" : "; its tail was lost");
+   }
+   log_iterator_deinit(itor);
+   return rc;
+}
+
+/*
+ * Replay both streams onto the mounted contexts, fold the result into a
+ * published root naming no logs, and rebuild the map from that root -- which is
+ * what releases the logs.
+ *
+ * Requires the trunk and memtable contexts to be up, and requires that the
+ * session's live log has NOT been cut yet: replay must not write the records it
+ * is reading back out, and the new log must be allocated from the second map.
+ */
+static platform_status
+core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
+{
+   platform_assert(spl->log == NULL);
+
+   if (!SUPERBLOCK_NO_LOG(rec->live_log) && !spl->cfg.use_log) {
+      platform_error_log("core_mount: the durable record names a log to replay "
+                         "but logging is disabled, so its records cannot be "
+                         "recovered\n");
+      return STATUS_INVALID_STATE;
+   }
+
+   /*
+    * Sealed before live: a checkpoint moves the retiring stream into the sealed
+    * slot, so it holds the older generations.  A truncated sealed stream stops
+    * replay there rather than applying the live stream over the gap.
+    */
+   superblock_log_head slots[2] = {rec->sealed_log, rec->live_log};
+   for (uint64 i = 0; i < ARRAY_SIZE(slots); i++) {
+      bool32          ran_to_end;
+      platform_status rc =
+         core_replay_log(spl,
+                         core_superblock_log_head_to_log(slots[i]),
+                         rec->first_unincorporated_generation,
+                         &ran_to_end);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (!ran_to_end) {
+         if (i + 1 < ARRAY_SIZE(slots) && !SUPERBLOCK_NO_LOG(slots[i + 1])) {
+            platform_error_log("core_mount: the log at %lu lost its tail, so "
+                               "the log after it is not replayable and its "
+                               "records are lost\n",
+                               slots[i].addr);
+         }
+         break;
+      }
+   }
+
+   /*
+    * Fold everything replayed into the tree.  This has to succeed before the
+    * publish below: a memtable that never incorporated keeps its records in a
+    * btree that hangs off the memtable context rather than the root, and the
+    * rebuild that follows -- which counts only the root -- would free it.
+    */
+   if (!core_quiesce(spl)) {
+      platform_error_log("core_mount: replayed records did not all "
+                         "incorporate; abandoning recovery rather than "
+                         "publishing a root that omits them\n");
+      return STATUS_INVALID_STATE;
+   }
+   core_checkpoint_cleanup_for_shutdown(spl, FALSE);
+
+   /*
+    * Publish the recovered root with both log slots cleared.  From here the
+    * durable state is exactly what an unmount passes through just before it
+    * persists the map, so a crash now leaves the next mount rebuilding from a
+    * root with no logs -- precisely the step below.
+    */
+   superblock_discard_logs(&spl->superblock);
+   platform_status rc = core_checkpoint_commit_current_root(spl);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: failed to publish the recovered root: "
+                         "%s\n",
+                         platform_status_to_string(rc));
+      return rc;
+   }
+
+   /*
+    * Drop the contexts before rebuilding.  They hold live references that the
+    * rebuild would not reproduce -- the trunk context holds one on the root,
+    * over and above the durable record's -- and a rebuild that counts only
+    * what the record names would leave those holders to underflow the map when
+    * they are eventually released.  Dropping them first and taking them again
+    * afterwards keeps the rebuilt map the single source of truth instead of
+    * something that has to be patched up, which is the whole reason recovery
+    * rebuilds rather than enumerating what to release.
+    */
+   core_close_contexts(spl);
+
+   // Re-read the record: the publish advanced the root and cleared the slots.
+   superblock_tree_record recovered;
+   superblock_get_tree_record(&spl->superblock, &recovered);
+   rc = core_rebuild_allocations(spl, &recovered, FALSE);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return core_open_contexts(
+      spl, recovered.root_addr, recovered.first_unincorporated_generation);
+}
+
 /* Format the disk and mount the database */
 platform_status
 core_mkfs(core_handle      *spl,
@@ -2635,30 +2960,36 @@ core_mount(core_handle      *spl,
    superblock_get_tree_record(&spl->superblock, &rec);
 
    /*
-    * Preserve the historical clean-only mount rule for this first format
-    * slice: crash recovery (log replay + allocator rebuild) is not wired yet,
-    * so only a clean at-rest instance -- one whose allocation state is still
-    * valid -- may supply the root.  A valid allocation state is published only
-    * at the end of a clean unmount, so it is the single at-rest signal (no
-    * separate per-tree clean flag is needed; see superblock.h).
+    * A valid persisted allocation state is published only at the end of a clean
+    * unmount, so it is the single at-rest signal and its absence means a crash
+    * (no separate per-tree clean flag is needed; see superblock.h).  Either the
+    * map on disk can be trusted, or it has to be rebuilt from what the record
+    * points at.  Both must happen before trunk_snapshot_create_from_addr(),
+    * which increments the root's refcount in the resulting map.
     */
-   bool32 rebuild = !superblock_allocation_state_valid(&spl->superblock);
-   if (rebuild) {
-      platform_error_log("core_mount: root id %lu requires crash recovery\n",
-                         spl->id);
-      rc = STATUS_INVALID_STATE;
-      goto deinit_superblock;
+   bool32 recovering = !superblock_allocation_state_valid(&spl->superblock);
+   if (recovering) {
+      platform_default_log("core_mount: root id %lu was not cleanly unmounted; "
+                           "recovering\n",
+                           spl->id);
+      /*
+       * On for the whole of recovery, and only for it.  Recovery follows
+       * on-disk links to find out what exists, and a log page's link names
+       * the extent the allocator reserved next, which the stream may never have
+       * reached -- so it must be able to read there and be told there is
+       * nothing.  Cleared as soon as replay is done, and on every failure
+       * path out of here (see deinit_superblock).
+       */
+      io_permit_unwritten_reads(io, TRUE);
+      rc = core_rebuild_allocations(spl, &rec, TRUE);
+   } else {
+      rc = allocator_load_refcounts(al);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_mount: allocator_load_refcounts failed: %s\n",
+                            platform_status_to_string(rc));
+      }
    }
-
-   /*
-    * Load the trusted refcount map (rebuild == FALSE on this path).  This must
-    * precede trunk_snapshot_create_from_addr(), which increments the root's
-    * refcount in the now-loaded map.
-    */
-   rc = allocator_load_refcounts(al);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: allocator_load_refcounts failed: %s\n",
-                         platform_status_to_string(rc));
       goto deinit_superblock;
    }
 
@@ -2667,20 +2998,34 @@ core_mount(core_handle      *spl,
    // exactly where the memtable resumes (0 for a fresh, never-incorporated db).
    uint64 resume_generation = rec.first_unincorporated_generation;
 
-   memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   rc                      = memtable_context_init_at_generation(&spl->mt_ctxt,
-                                            spl->heap_id,
-                                            cc,
-                                            mt_cfg,
-                                            core_rotate_log,
-                                            core_memtable_flush_virtual,
-                                            spl,
-                                            resume_generation);
+   rc = core_open_contexts(spl, root_addr, resume_generation);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: memtable_context_init_at_generation "
-                         "failed: %s\n",
-                         platform_status_to_string(rc));
       goto deinit_superblock;
+   }
+
+   rc = core_create_stats(spl);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_mount: core_create_stats failed: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_contexts;
+   }
+
+   /*
+    * Replay, before this session's log exists.  Two reasons it has to come
+    * first: the records being read must not be written straight back out, and
+    * the new log's extents must come from the map the recovery publish leaves
+    * behind rather than the one that still counts the logs being replayed.
+    */
+   if (recovering) {
+      rc = core_recover_replay(spl, &rec);
+      // Recovery is over either way; from here a short read is a real error.
+      io_permit_unwritten_reads(io, FALSE);
+      if (!SUCCESS(rc)) {
+         goto deinit_stats;
+      }
+      // The publish advanced the root; the resume generation moves with it.
+      superblock_get_tree_record(&spl->superblock, &rec);
+      resume_generation = rec.first_unincorporated_generation;
    }
 
    if (spl->cfg.use_log) {
@@ -2689,37 +3034,8 @@ core_mount(core_handle      *spl,
       if (spl->log == NULL) {
          platform_error_log("core_mount: shard_log_create failed\n");
          rc = STATUS_NO_MEMORY;
-         goto deinit_memtable_context;
+         goto deinit_stats;
       }
-   }
-
-   trunk_snapshot root_snapshot;
-   rc = trunk_snapshot_create_from_addr(al, root_addr, &root_snapshot);
-   if (!SUCCESS(rc)) {
-      platform_error_log(
-         "core_mount: trunk_snapshot_create_from_addr failed: %s\n",
-         platform_status_to_string(rc));
-      goto deinit_log;
-   }
-
-   rc = trunk_context_init(&spl->trunk_context,
-                           spl->cfg.trunk_node_cfg,
-                           hid,
-                           cc,
-                           al,
-                           ts,
-                           root_snapshot);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: trunk_context_init failed: %s\n",
-                         platform_status_to_string(rc));
-      goto deinit_log;
-   }
-
-   rc = core_create_stats(spl);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_mount: core_create_stats failed: %s\n",
-                         platform_status_to_string(rc));
-      goto deinit_trunk_context;
    }
 
    /*
@@ -2740,22 +3056,26 @@ core_mount(core_handle      *spl,
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
                          "failed: %s\n",
                          platform_status_to_string(rc));
-      goto deinit_stats;
+      goto deinit_log;
    }
    return STATUS_OK;
 
-deinit_stats:
-   core_destroy_stats(spl);
-deinit_trunk_context:
-   trunk_context_deinit(&spl->trunk_context);
+   // The log is created last of all here, so it unwinds first.
 deinit_log:
-   if (spl->cfg.use_log) {
+   if (spl->cfg.use_log && spl->log != NULL) {
       platform_free(spl->heap_id, spl->log);
       spl->log = NULL;
    }
-deinit_memtable_context:
-   memtable_context_deinit(&spl->mt_ctxt);
+deinit_stats:
+   core_destroy_stats(spl);
+deinit_contexts:
+   core_close_contexts(spl);
 deinit_superblock:
+   /*
+    * Unconditional: a mount that failed part-way through recovery may have left
+    * the allowance on, and the io handle outlives this mount.
+    */
+   io_permit_unwritten_reads(io, FALSE);
    superblock_context_deinit(&spl->superblock);
 deinit_locks:
    core_locks_deinit(spl);
@@ -2854,7 +3174,7 @@ core_report_unincorporated_memtables(core_handle *spl)
  * decline to unmount and keep running.
  */
 static bool32
-core_quiesce_for_shutdown(core_handle *spl)
+core_quiesce(core_handle *spl)
 {
    // write current memtable to disk
    // (any others must already be flushing/flushed)
@@ -2999,7 +3319,7 @@ core_unmount(core_handle *spl, bool32 force)
     * atomically capture the retired generation and root -- and so that the
     * durability check below can still walk away.
     */
-   bool32 all_incorporated = core_quiesce_for_shutdown(spl);
+   bool32 all_incorporated = core_quiesce(spl);
 
    /*
     * Get what the log holds onto disk.  Deliberately make_durable and not seal:
@@ -3191,7 +3511,7 @@ core_destroy(core_handle *spl)
     * but still report it and release the branch it stranded, since the
     * reporting walk is also what cleans up after one.
     */
-   (void)core_quiesce_for_shutdown(spl);
+   (void)core_quiesce(spl);
    (void)core_report_unincorporated_memtables(spl);
 
    // Reclaim any in-flight checkpoint's logs before teardown.
