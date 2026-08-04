@@ -236,8 +236,8 @@ core_superblock_restore_image(core_handle *spl, const superblock *saved)
 static bool32
 core_current_root_matches_durable_record(core_handle *spl)
 {
-   trunk_snapshot snapshot;
-   uint64         first_unincorporated_generation;
+   trunk_snapshot  snapshot;
+   uint64          first_unincorporated_generation;
    platform_status rc = core_checkpoint_capture_cut(
       spl, &snapshot, &first_unincorporated_generation);
    if (!SUCCESS(rc)) {
@@ -249,9 +249,9 @@ core_current_root_matches_durable_record(core_handle *spl)
 
    superblock_tree_record rec;
    superblock_get_tree_record(&spl->superblock, &rec);
-   bool32 matches = snapshot.root_addr == rec.root_addr
-                    && first_unincorporated_generation
-                          == rec.first_unincorporated_generation;
+   bool32 matches =
+      snapshot.root_addr == rec.root_addr
+      && first_unincorporated_generation == rec.first_unincorporated_generation;
 
    uint64 snapshot_addr = snapshot.root_addr;
    rc = trunk_snapshot_release(&spl->trunk_context, &snapshot);
@@ -2665,7 +2665,7 @@ core_rebuild_allocations(core_handle                  *spl,
 {
    /* A partial walk is never eligible to become durable allocator state. */
    spl->allocator_map_needs_rebuild = TRUE;
-   platform_status rc = allocator_recovery_begin(spl->al);
+   platform_status rc               = allocator_recovery_begin(spl->al);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: allocator_recovery_begin failed: %s\n",
                          platform_status_to_string(rc));
@@ -2682,7 +2682,7 @@ core_rebuild_allocations(core_handle                  *spl,
    }
 
    if (include_logs) {
-      shard_log_config   *log_cfg = (shard_log_config *)spl->cfg.log_cfg;
+      shard_log_config   *log_cfg  = (shard_log_config *)spl->cfg.log_cfg;
       superblock_log_head slots[2] = {rec->sealed_log, rec->live_log};
       for (uint64 i = 0; i < ARRAY_SIZE(slots); i++) {
          if (SUPERBLOCK_NO_LOG(slots[i])) {
@@ -2690,8 +2690,8 @@ core_rebuild_allocations(core_handle                  *spl,
          }
          log_head head = core_superblock_log_head_to_log(slots[i]);
 
-         rc = shard_log_recover_allocations(
-            spl->cc, log_cfg, spl->heap_id, head);
+         rc =
+            shard_log_recover_allocations(spl->cc, log_cfg, spl->heap_id, head);
          if (!SUCCESS(rc)) {
             platform_error_log("core_mount: could not rebuild the allocations "
                                "of the log at %lu: %s\n",
@@ -3050,15 +3050,6 @@ core_mount(core_handle      *spl,
       platform_default_log("core_mount: root id %lu was not cleanly unmounted; "
                            "recovering\n",
                            spl->id);
-      /*
-       * On for the whole of recovery, and only for it.  Recovery follows
-       * on-disk links to find out what exists, and a log page's link names
-       * the extent the allocator reserved next, which the stream may never have
-       * reached -- so it must be able to read there and be told there is
-       * nothing.  Cleared as soon as replay is done, and on every failure
-       * path out of here (see deinit_superblock).
-       */
-      io_permit_unwritten_reads(io, TRUE);
       rc = core_rebuild_allocations(spl, &rec, TRUE);
    } else {
       rc = allocator_load_refcounts(al);
@@ -3107,7 +3098,6 @@ core_mount(core_handle      *spl,
           * common mount cleanup may then tear those contexts down safely.
           */
          (void)core_quiesce(spl);
-         io_permit_unwritten_reads(io, FALSE);
          goto deinit_stats;
       }
 
@@ -3124,16 +3114,13 @@ core_mount(core_handle      *spl,
       superblock_get_tree_record(&spl->superblock, &rec);
       rc = core_rebuild_allocations(spl, &rec, FALSE);
       if (SUCCESS(rc)) {
-         rc = core_open_contexts(spl,
-                                 rec.root_addr,
-                                 rec.first_unincorporated_generation);
+         rc = core_open_contexts(
+            spl, rec.root_addr, rec.first_unincorporated_generation);
          if (SUCCESS(rc)) {
             contexts_open = TRUE;
          }
       }
 
-      // Recovery is over either way; from here a short read is a real error.
-      io_permit_unwritten_reads(io, FALSE);
       if (!SUCCESS(rc)) {
          goto deinit_stats;
       }
@@ -3185,11 +3172,6 @@ deinit_contexts:
       core_close_contexts(spl);
    }
 deinit_superblock:
-   /*
-    * Unconditional: a mount that failed part-way through recovery may have left
-    * the allowance on, and the io handle outlives this mount.
-    */
-   io_permit_unwritten_reads(io, FALSE);
    superblock_context_deinit(&spl->superblock);
 deinit_locks:
    core_locks_deinit(spl);
@@ -3450,8 +3432,8 @@ core_unmount(core_handle *spl, bool32 force)
       live_log = log_get_head(spl->log);
       superblock_tree_record durable_rec;
       superblock_get_tree_record(&spl->superblock, &durable_rec);
-      log_named = core_superblock_log_head_matches(durable_rec.live_log,
-                                                    live_log);
+      log_named =
+         core_superblock_log_head_matches(durable_rec.live_log, live_log);
 
       /*
        * A cut whose old stream was sealed but whose publication failed leaves
@@ -3460,8 +3442,7 @@ core_unmount(core_handle *spl, bool32 force)
        */
       bool32 retiring_log_durable =
          spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
-         && spl->checkpoint.log_to_seal == NULL
-         && log_is_empty(spl->log)
+         && spl->checkpoint.log_to_seal == NULL && log_is_empty(spl->log)
          && core_superblock_log_head_matches(durable_rec.live_log,
                                              spl->checkpoint.sealed_head);
 
@@ -3483,9 +3464,8 @@ core_unmount(core_handle *spl, bool32 force)
     */
    bool32 existing_root_anchor =
       all_incorporated && core_current_root_matches_durable_record(spl);
-   platform_status root_publish_rc =
-      core_checkpoint_commit_current_root(spl);
-   bool32 root_publish_succeeded = SUCCESS(root_publish_rc);
+   platform_status root_publish_rc = core_checkpoint_commit_current_root(spl);
+   bool32          root_publish_succeeded = SUCCESS(root_publish_rc);
    if (!root_publish_succeeded) {
       platform_error_log("core_unmount: failed to publish the unmount root: "
                          "%s\n",
@@ -3506,8 +3486,7 @@ core_unmount(core_handle *spl, bool32 force)
       superblock root_superblock;
       core_superblock_save_image(spl, &root_superblock);
       superblock_discard_logs(&spl->superblock);
-      platform_status discard_rc =
-         core_checkpoint_commit_current_root(spl);
+      platform_status discard_rc = core_checkpoint_commit_current_root(spl);
       if (SUCCESS(discard_rc)) {
          logs_discarded = TRUE;
       } else {
@@ -3524,7 +3503,7 @@ core_unmount(core_handle *spl, bool32 force)
     * sufficient.  Merely syncing a newly swapped-in but unpublished log is
     * not: recovery would have no pointer with which to find it.
     */
-   bool32 data_safe = root_anchor || log_durable;
+   bool32          data_safe = root_anchor || log_durable;
    platform_status safety_rc = STATUS_OK;
    if (!data_safe) {
       if (!all_incorporated && have_log && !SUCCESS(log_rc)) {
@@ -3537,9 +3516,8 @@ core_unmount(core_handle *spl, bool32 force)
 
       platform_error_log(
          "core_unmount: data preservation could not be guaranteed: %s%s.\n",
-         !all_incorporated
-            ? "the durable root omits unincorporated memtables"
-            : "the current root was not durably published",
+         !all_incorporated ? "the durable root omits unincorporated memtables"
+                           : "the current root was not durably published",
          !log_durable
             ? (have_log && !log_named
                   ? " and the live log is not named by the durable superblock"

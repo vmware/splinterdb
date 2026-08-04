@@ -200,6 +200,10 @@ typedef uint32 (*count_dirty_fn)(cache *cc);
 typedef uint16 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
 typedef bool32 (*cache_present_fn)(cache *cc, page_handle *page);
 typedef void (*enable_sync_get_fn)(cache *cc, bool32 enabled);
+typedef platform_status (*cache_range_is_readable_fn)(cache  *cc,
+                                                      uint64  addr,
+                                                      uint64  bytes,
+                                                      bool32 *readable);
 typedef allocator *(*get_allocator_fn)(const cache *cc);
 typedef cache_config *(*cache_config_fn)(const cache *cc);
 typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
@@ -218,37 +222,38 @@ typedef struct cache_ops {
    page_get_async_fn              page_get_async;
    page_get_async_state_result_fn page_get_async_result;
 
-   page_generic_fn         page_unget;
-   page_try_claim_fn       page_try_claim;
-   page_generic_fn         page_unclaim;
-   page_generic_fn         page_lock;
-   page_generic_fn         page_unlock;
-   page_prefetch_fn        page_prefetch;
-   page_prefetch_fn        page_prefetch_page;
-   page_generic_fn         page_pin;
-   page_generic_fn         page_unpin;
-   page_writeback_fn       page_writeback;
-   extent_writeback_fn     extent_writeback;
-   writeback_get_status_fn writeback_get_status;
-   cache_generic_void_fn   flush;
-   cache_generic_status_fn writeback_dirty;
-   cache_generic_status_fn durable_barrier;
-   evict_fn                evict;
-   cache_generic_void_fn   cleanup;
-   page_addr_pred_fn       in_use;
-   page_addr_fn            assert_ungot;
-   cache_generic_void_fn   assert_free;
-   validate_page_fn        validate_page;
-   cache_present_fn        cache_present;
-   cache_print_fn          print;
-   cache_print_fn          print_stats;
-   io_stats_fn             io_stats;
-   cache_generic_void_fn   reset_stats;
-   count_dirty_fn          count_dirty;
-   page_get_read_ref_fn    page_get_read_ref;
-   enable_sync_get_fn      enable_sync_get;
-   get_allocator_fn        get_allocator;
-   cache_config_fn         get_config;
+   page_generic_fn            page_unget;
+   page_try_claim_fn          page_try_claim;
+   page_generic_fn            page_unclaim;
+   page_generic_fn            page_lock;
+   page_generic_fn            page_unlock;
+   page_prefetch_fn           page_prefetch;
+   page_prefetch_fn           page_prefetch_page;
+   page_generic_fn            page_pin;
+   page_generic_fn            page_unpin;
+   page_writeback_fn          page_writeback;
+   extent_writeback_fn        extent_writeback;
+   writeback_get_status_fn    writeback_get_status;
+   cache_generic_void_fn      flush;
+   cache_generic_status_fn    writeback_dirty;
+   cache_generic_status_fn    durable_barrier;
+   evict_fn                   evict;
+   cache_generic_void_fn      cleanup;
+   page_addr_pred_fn          in_use;
+   page_addr_fn               assert_ungot;
+   cache_generic_void_fn      assert_free;
+   validate_page_fn           validate_page;
+   cache_present_fn           cache_present;
+   cache_print_fn             print;
+   cache_print_fn             print_stats;
+   io_stats_fn                io_stats;
+   cache_generic_void_fn      reset_stats;
+   count_dirty_fn             count_dirty;
+   page_get_read_ref_fn       page_get_read_ref;
+   enable_sync_get_fn         enable_sync_get;
+   cache_range_is_readable_fn range_is_readable;
+   get_allocator_fn           get_allocator;
+   cache_config_fn            get_config;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -786,6 +791,17 @@ static inline void
 cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
 {
    return cc->ops->io_stats(cc, read_bytes, write_bytes);
+}
+
+/*
+ * Does the backing store contain the whole byte range [addr, addr + bytes)?
+ * This says only whether a strict read may be issued; callers must still
+ * validate the page format and contents.
+ */
+static inline platform_status
+cache_range_is_readable(cache *cc, uint64 addr, uint64 bytes, bool32 *readable)
+{
+   return cc->ops->range_is_readable(cc, addr, bytes, readable);
 }
 
 /*

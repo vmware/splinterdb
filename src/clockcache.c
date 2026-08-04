@@ -3599,6 +3599,15 @@ clockcache_enable_sync_get(clockcache *cc, bool32 enabled)
    cc->per_thread[platform_get_tid()].enable_sync_get = enabled;
 }
 
+static platform_status
+clockcache_range_is_readable(clockcache *cc,
+                             uint64      addr,
+                             uint64      bytes,
+                             bool32     *readable)
+{
+   return io_range_is_readable(cc->io, addr, bytes, readable);
+}
+
 static allocator *
 clockcache_get_allocator(const clockcache *cc)
 {
@@ -3902,6 +3911,15 @@ clockcache_enable_sync_get_virtual(cache *c, bool32 enabled)
    clockcache_enable_sync_get(cc, enabled);
 }
 
+static platform_status
+clockcache_range_is_readable_virtual(cache  *c,
+                                     uint64  addr,
+                                     uint64  bytes,
+                                     bool32 *readable)
+{
+   return clockcache_range_is_readable((clockcache *)c, addr, bytes, readable);
+}
+
 allocator *
 clockcache_get_allocator_virtual(const cache *c)
 {
@@ -3954,6 +3972,7 @@ static cache_ops clockcache_ops = {
    .page_get_read_ref    = clockcache_get_read_ref_virtual,
    .cache_present        = clockcache_present_virtual,
    .enable_sync_get      = clockcache_enable_sync_get_virtual,
+   .range_is_readable    = clockcache_range_is_readable_virtual,
    .get_allocator        = clockcache_get_allocator_virtual,
    .get_config           = clockcache_get_config_virtual,
 };

@@ -386,8 +386,7 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    char              key_data[] = "large-log-key";
    key               skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
    /* Exercise blob_writeback's whole-extent path and its partial tail. */
-   uint64            value_len =
-      cache_extent_size(cc) + 3 * cache_page_size(cc) + 123;
+   uint64 value_len = cache_extent_size(cc) + 3 * cache_page_size(cc) + 123;
 
    log_handle *logh = shard_log_create(cc, cfg, hid);
    platform_assert(logh != NULL);
@@ -438,6 +437,98 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    log_iterator_deinit(itor);
    merge_accumulator_deinit(&msg);
    shard_log_dec_ref(cc, &sealed);
+   return 0;
+}
+
+/*
+ * Recovery must treat pages beyond a regular file's EOF as absent rather than
+ * relaxing all reads.  Cover both shapes that motivated the range query: a
+ * fresh stream whose initial data extent has no page at all, and an extent
+ * whose last page write was torn at EOF.
+ */
+static int
+test_log_recovery_at_eof(clockcache        *cc,
+                         clockcache_config *cache_cfg,
+                         io_handle         *io,
+                         allocator         *al,
+                         shard_log_config  *cfg,
+                         platform_heap_id   hid,
+                         const char        *filename)
+{
+   platform_status rc;
+
+   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(log != NULL);
+   log_head empty = log_get_head(log);
+
+   /* No log page has been written: EOF is exactly the initial extent base. */
+   io_wait_all(io);
+   int sys_rc = truncate(filename, empty.addr);
+   platform_assert(
+      sys_rc == 0, "truncate(%s) failed with errno %d", filename, errno);
+
+   log_iterator *itor = shard_log_iterator_create((cache *)cc, cfg, hid, empty);
+   platform_assert(itor != NULL);
+   platform_assert(!log_iterator_can_next(itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   log_iterator_deinit(itor);
+
+   log_deinit(log);
+   shard_log_dec_ref((cache *)cc, &empty);
+
+   /*
+    * Four half-page values force at least four distinct log pages.  Keep two
+    * complete pages and half of the next one; because the group's terminator
+    * was on a later page, replay must discard the group rather than return a
+    * prefix of it.
+    */
+   log = shard_log_create((cache *)cc, cfg, hid);
+   platform_assert(log != NULL);
+   log_head partial = log_get_head(log);
+
+   char              key_data[] = "partial-log-extent";
+   key               skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, hid);
+   bool32 success =
+      merge_accumulator_resize(&msg, cache_page_size((cache *)cc) / 2);
+   platform_assert(success);
+   merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&msg), 'P', merge_accumulator_length(&msg));
+
+   for (uint64 i = 0; i < 4; i++) {
+      int log_rc =
+         log_write(log, skey, merge_accumulator_to_message(&msg), i, 0);
+      platform_assert(log_rc == 0);
+   }
+   rc = log_seal(log);
+   platform_assert_status_ok(rc);
+   log_deinit(log);
+   merge_accumulator_deinit(&msg);
+
+   rc = cache_writeback_dirty((cache *)cc);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier((cache *)cc);
+   platform_assert_status_ok(rc);
+   uint64 page_size = cache_page_size((cache *)cc);
+   clockcache_deinit(cc);
+
+   uint64 partial_eof = partial.addr + 2 * page_size + page_size / 2;
+   sys_rc             = truncate(filename, partial_eof);
+   platform_assert(
+      sys_rc == 0, "truncate(%s) failed with errno %d", filename, errno);
+
+   rc = clockcache_init(
+      cc, cache_cfg, io, al, "partial-log-eof", hid, platform_get_module_id());
+   platform_assert_status_ok(rc);
+
+   itor = shard_log_iterator_create((cache *)cc, cfg, hid, partial);
+   platform_assert(itor != NULL);
+   platform_assert(!log_iterator_can_next(itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   log_iterator_deinit(itor);
+   shard_log_dec_ref((cache *)cc, &partial);
+
    return 0;
 }
 
@@ -648,6 +739,15 @@ log_test(int argc, char *argv[])
                             hid,
                             platform_get_module_id());
    platform_assert_status_ok(status);
+
+   rc = test_log_recovery_at_eof(cc,
+                                 &system_cfg.cache_cfg,
+                                 io,
+                                 (allocator *)&al,
+                                 &system_cfg.log_cfg,
+                                 hid,
+                                 system_cfg.io_cfg.filename);
+   platform_assert(rc == 0);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
    platform_assert(rc == 0);

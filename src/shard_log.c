@@ -314,7 +314,7 @@ shard_log_write(log_handle *logh,
 
    ((shard_log_hdr *)thread_data->buf)->num_entries++;
 
-   thread_data->offset      += new_entry_size;
+   thread_data->offset += new_entry_size;
    thread_data->has_records = TRUE;
    debug_assert(thread_data->offset <= page_size);
 
@@ -632,33 +632,101 @@ shard_log_valid_extent_addr(cache *cc, shard_log_config *cfg, uint64 addr)
 }
 
 /*
+ * Snapshot which complete pages of an extent may be read from the backing
+ * store.  Query every page rather than assuming a readable prefix: the current
+ * file backend has prefix-shaped EOF, but the abstract interface also permits
+ * backends with holes.
+ */
+static platform_status
+shard_log_extent_readable_pages(cache            *cc,
+                                shard_log_config *cfg,
+                                uint64            extent_addr,
+                                bool32 readable_pages[MAX_PAGES_PER_EXTENT])
+{
+   uint64 pages_per_extent = shard_log_pages_per_extent(cfg);
+   uint64 page_size        = shard_log_page_size(cfg);
+   platform_assert(pages_per_extent <= MAX_PAGES_PER_EXTENT);
+
+   for (uint64 i = 0; i < pages_per_extent; i++) {
+      uint64          page_addr = extent_addr + i * page_size;
+      platform_status rc =
+         cache_range_is_readable(cc, page_addr, page_size, &readable_pages[i]);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return STATUS_OK;
+}
+
+/* Issue every safe prefetch before the caller starts waiting on cache_get(). */
+static void
+shard_log_prefetch_readable_pages(
+   cache            *cc,
+   shard_log_config *cfg,
+   uint64            extent_addr,
+   const bool32      readable_pages[MAX_PAGES_PER_EXTENT])
+{
+   uint64 pages_per_extent = shard_log_pages_per_extent(cfg);
+   uint64 page_size        = shard_log_page_size(cfg);
+   bool32 all_readable     = TRUE;
+
+   for (uint64 i = 0; i < pages_per_extent; i++) {
+      all_readable &= readable_pages[i];
+   }
+   if (all_readable) {
+      cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
+      return;
+   }
+
+   for (uint64 i = 0; i < pages_per_extent; i++) {
+      if (readable_pages[i]) {
+         cache_prefetch_page(cc, extent_addr + i * page_size, PAGE_TYPE_LOG);
+      }
+   }
+}
+
+/*
  * The next-extent link of the extent at extent_addr, or 0 if the chain ends
  * here.
  *
  * Taken from the last page of the extent that validates, not the first: the
  * link is stamped into each page as that page is written, and a page written
  * early can predate the allocation of the extent that follows, so only the
- * latest page's copy is guaranteed to name it.
+ * latest page's copy is guaranteed to name it.  Backing-store readability only
+ * decides whether it is safe to issue a read; magic and checksum still decide
+ * whether that page contributes a link.
  */
-static uint64
+static platform_status
 shard_log_extent_next_link(cache            *cc,
                            shard_log_config *cfg,
                            uint64            extent_addr,
-                           uint64            magic)
+                           uint64            magic,
+                           uint64           *next_extent_addr)
 {
    uint64 pages_per_extent = shard_log_pages_per_extent(cfg);
    uint64 page_size        = shard_log_page_size(cfg);
-   uint64 next_extent_addr = 0;
+   *next_extent_addr       = 0;
+   bool32 readable_pages[MAX_PAGES_PER_EXTENT];
+
+   platform_status rc =
+      shard_log_extent_readable_pages(cc, cfg, extent_addr, readable_pages);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    for (uint64 i = 0; i < pages_per_extent; i++) {
-      page_handle *page =
-         cache_get(cc, extent_addr + i * page_size, TRUE, PAGE_TYPE_LOG);
+      uint64 page_addr = extent_addr + i * page_size;
+      if (!readable_pages[i]) {
+         continue;
+      }
+
+      page_handle *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
       if (shard_log_valid(cfg, page, magic)) {
-         next_extent_addr = shard_log_next_extent_addr(cfg, page);
+         *next_extent_addr = shard_log_next_extent_addr(cfg, page);
       }
       cache_unget(cc, page);
    }
-   return next_extent_addr;
+   return STATUS_OK;
 }
 
 /*
@@ -698,13 +766,23 @@ shard_log_for_each_extent(cache              *cc,
        * being rebuilt it is not yet.  Recording the reference is what makes the
        * extent readable.  Same reason mini_recover_allocations() has a "before"
        * hook.
+       *
+       * This deliberately records an entirely unreadable successor too.  The
+       * last written log page names the mini allocator's unused reserve, and
+       * that stale link remains reachable until replay is finished.  Protecting
+       * the reserve prevents replay allocations from reusing it as a non-log
+       * extent before an iterator follows the link and rejects its pages.  The
+       * root-only rebuild after replay reclaims it.
        */
       platform_status rc = fn(arg, extent_addr);
       if (!SUCCESS(rc)) {
          return rc;
       }
-      extent_addr =
-         shard_log_extent_next_link(cc, cfg, extent_addr, head.magic);
+      rc = shard_log_extent_next_link(
+         cc, cfg, extent_addr, head.magic, &extent_addr);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
    return STATUS_OK;
 }
@@ -1086,14 +1164,16 @@ shard_log_iterator_init(cache              *cc,
                         uint64              magic,
                         shard_log_iterator *itor)
 {
-   page_handle *page;
-   uint64       i;
-   uint64       pages_per_extent = shard_log_pages_per_extent(cfg);
-   uint64       page_addr;
-   uint64       num_valid_pages = 0;
-   uint64       extent_addr;
-   uint64       next_extent_addr;
-   uint64       contents_size;
+   page_handle    *page;
+   uint64          i;
+   uint64          pages_per_extent = shard_log_pages_per_extent(cfg);
+   uint64          page_addr;
+   uint64          num_valid_pages = 0;
+   uint64          extent_addr;
+   uint64          next_extent_addr;
+   uint64          contents_size;
+   platform_status rc;
+   bool32          readable_pages[MAX_PAGES_PER_EXTENT];
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.super.ops = &shard_log_iterator_ops;     // generic iterator
@@ -1137,18 +1217,28 @@ shard_log_iterator_init(cache              *cc,
     *
     * It works during crash recovery too, even though the map is rebuilt from
     * scratch: the rebuild walk (shard_log_recover_allocations()) runs first and
-    * records a reference for exactly the extents of this stream, so by the time
-    * an iterator reads it the gate admits precisely those.
+    * records the stream's extents plus its still-reachable successor reserve.
+    * The range bitmap below prevents reads of absent pages in that reserve (or
+    * in a partial extent); magic and checksum reject readable non-log contents.
     */
    extent_addr = addr;
    while (!broken && extent_addr != 0
           && allocator_get_refcount(al, extent_addr) > 0)
    {
-      cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
+      rc =
+         shard_log_extent_readable_pages(cc, cfg, extent_addr, readable_pages);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      shard_log_prefetch_readable_pages(cc, cfg, extent_addr, readable_pages);
+
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         if (!readable_pages[i]) {
+            continue;
+         }
+         page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (!shard_log_valid(cfg, page, magic)) {
             /*
              * A page that was never written, or whose write was lost.  Keep
@@ -1258,11 +1348,24 @@ shard_log_iterator_init(cache              *cc,
    while (pages_taken < num_valid_pages && extent_addr != 0
           && allocator_get_refcount(al, extent_addr) > 0)
    {
-      cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
+      rc =
+         shard_log_extent_readable_pages(cc, cfg, extent_addr, readable_pages);
+      if (!SUCCESS(rc)) {
+         platform_free(hid, itor->entries);
+         platform_free(hid, itor->contents);
+         itor->entries  = NULL;
+         itor->contents = NULL;
+         return rc;
+      }
+      shard_log_prefetch_readable_pages(cc, cfg, extent_addr, readable_pages);
+
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent && pages_taken < num_valid_pages; i++) {
          page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         if (!readable_pages[i]) {
+            continue;
+         }
+         page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (!shard_log_valid(cfg, page, magic)) {
             cache_unget(cc, page);
             continue;

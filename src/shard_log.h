@@ -196,11 +196,17 @@ shard_log_dec_ref(cache *cc, const log_head *head);
  * keeping it safe to read after a crash would cost a write per allocation, and
  * nothing in normal operation needs it.  Crash recovery therefore walks the
  * stream itself, following the next-extent links in its page headers, to
- * reconstruct the allocator references.
+ * reconstruct the allocator references.  It queries which individual backing
+ * pages are readable before issuing cache reads, so a partly written final
+ * extent and backends with holes need no process-wide relaxed-read mode.
  *
- * Record one allocator reference for every extent belonging to the stream.
- * Call between allocator_recovery_begin() and allocator_recovery_finish().  A
- * zero head.addr (an absent log slot) is not an error and records nothing.
+ * Record one allocator reference for every extent the durable stream can still
+ * reach.  Call between allocator_recovery_begin() and
+ * allocator_recovery_finish().  A zero head.addr (an absent log slot) is not an
+ * error and records nothing.
+ * The initial extent and a wholly unreadable linked successor are still
+ * recorded: both remain reachable from the durable log identity during replay,
+ * so neither may be reused until the root-only rebuild drops the log.
  *
  * The metadata head and stream extents are recorded first.  The stream's
  * replayable records are then walked to recover the separate storage of every

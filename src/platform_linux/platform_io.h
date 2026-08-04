@@ -65,12 +65,10 @@ typedef platform_status (*io_write_fn)(io_handle *io,
                                        void      *buf,
                                        uint64     bytes,
                                        uint64     addr);
-/*
- * Whether a read of device addresses that have never been written should yield
- * zeros instead of failing.  Off by default; see
- * io_permit_unwritten_reads().
- */
-typedef void (*io_permit_unwritten_reads_fn)(io_handle *io, bool32 permit);
+typedef platform_status (*io_range_is_readable_fn)(io_handle *io,
+                                                   uint64     addr,
+                                                   uint64     bytes,
+                                                   bool32    *readable);
 
 #define IO_ASYNC_STATE_BUFFER_SIZE (1024)
 typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE];
@@ -97,19 +95,19 @@ typedef void *(*io_get_context_fn)(io_handle *io);
  * An abstract IO interface, holding different IO Ops function pointers.
  */
 typedef struct io_ops {
-   io_read_fn                   read;
-   io_write_fn                  write;
-   io_permit_unwritten_reads_fn permit_unwritten_reads;
-   io_async_state_init_fn       async_state_init;
-   io_cleanup_fn                cleanup;
-   io_wait_all_fn               wait_all;
-   io_durable_barrier_fn        durable_barrier;
-   io_register_thread_fn        register_thread;
-   io_deregister_thread_fn      deregister_thread;
-   io_max_latency_elapsed_fn    max_latency_elapsed;
-   io_print_stats_fn            print_stats;
-   io_reset_stats_fn            reset_stats;
-   io_get_context_fn            get_context;
+   io_read_fn                read;
+   io_write_fn               write;
+   io_range_is_readable_fn   range_is_readable;
+   io_async_state_init_fn    async_state_init;
+   io_cleanup_fn             cleanup;
+   io_wait_all_fn            wait_all;
+   io_durable_barrier_fn     durable_barrier;
+   io_register_thread_fn     register_thread;
+   io_deregister_thread_fn   deregister_thread;
+   io_max_latency_elapsed_fn max_latency_elapsed;
+   io_print_stats_fn         print_stats;
+   io_reset_stats_fn         reset_stats;
+   io_get_context_fn         get_context;
 } io_ops;
 
 /*
@@ -147,31 +145,26 @@ io_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 }
 
 /*
- * Permit reads of device addresses that were never written, yielding zeros
- * rather than an error.
+ * Report whether the complete half-open range [addr, addr + bytes) is
+ * currently readable from the backing object.  This is a logical-size query,
+ * not a promise that the range contains allocated blocks, was ever written, or
+ * is durable: a sparse hole below a regular file's EOF is readable and reports
+ * TRUE.  Callers must still validate the data they subsequently read.
+ * Regular files are bounded by their current logical EOF; block devices are
+ * bounded by the capacity reported by the kernel.
  *
- * A device backed by a file is only as long as what has been written to it, so
- * reading an address past that fails outright -- where the same address on a
- * block device would simply read as zeros.  Normal operation only ever reads
- * what it wrote, so that failure is a real error and stays one.  Crash recovery
- * is the exception: it follows on-disk links to find out what exists, and a log
- * page's next-extent link names the extent the allocator had reserved next,
- * which the stream may never have reached.  Recovery has to be able to look
- * there and be told there is nothing, which is what zeros give it -- every
- * reader validates by magic and checksum, so a page of zeros is rejected as a
- * page that was never written.
+ * Query errors are returned separately from absence.  On success, a zero-byte
+ * range is readable exactly when addr is no greater than the logical size.
+ * An overflowing range is invalid and returns STATUS_BAD_PARAM.
  *
- * Deliberately not the default.  Outside recovery, a read past the end of the
- * device means a bug or a corrupt address, and turning that into zeros would
- * hide it.  So recovery turns it on for its own duration and off again.
- *
- * Not thread safe, and not meant to be: the caller must have exclusive use of
- * the device, as a mount performing recovery does.
+ * The result is coherent with writes made through this io_handle.  As with the
+ * rest of the IO interface, modifying the backing object independently is not
+ * supported.
  */
-static inline void
-io_permit_unwritten_reads(io_handle *io, bool32 permit)
+static inline platform_status
+io_range_is_readable(io_handle *io, uint64 addr, uint64 bytes, bool32 *readable)
 {
-   io->ops->permit_unwritten_reads(io, permit);
+   return io->ops->range_is_readable(io, addr, bytes, readable);
 }
 
 static inline platform_status

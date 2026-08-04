@@ -21,6 +21,12 @@ typedef enum process_context_state {
    PROCESS_CONTEXT_STATE_SHUTTING_DOWN,
 } process_context_state;
 
+typedef enum laio_backing_type {
+   LAIO_BACKING_REGULAR,
+   LAIO_BACKING_BLOCK,
+   LAIO_BACKING_UNSUPPORTED,
+} laio_backing_type;
+
 #define LAIO_QD_HIST_BUCKETS (IO_DEFAULT_KERNEL_QUEUE_SIZE + 2)
 
 typedef struct io_process_context {
@@ -45,8 +51,19 @@ typedef struct laio_handle {
    io_process_context ctx[MAX_THREADS];
    platform_heap_id   heap_id;
    int                fd; // File descriptor to Splinter device/file.
-   // See io_permit_unwritten_reads(); off unless recovery turns it on.
-   bool32                           permit_unwritten_reads;
+   laio_backing_type  backing_type;
+
+   /*
+    * Cached logical backing size.  A completed write advances
+    * write_generation; range queries may reuse logical_size only when its
+    * generation matches.  The fields are accessed with __atomic builtins --
+    * keeping writes to one atomic increment and avoiding a mutex on the IO hot
+    * path.
+    */
+   uint64 logical_size;
+   uint64 logical_size_generation;
+   uint64 write_generation;
+
    process_event_callback_list_node pecnode;
 } laio_handle;
 

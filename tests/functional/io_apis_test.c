@@ -33,6 +33,7 @@
  * ----------------------------------------------------------------------------
  */
 #include <sys/wait.h>
+#include <sys/stat.h>
 
 #include "platform_units.h"
 #include "platform_typed_alloc.h"
@@ -132,6 +133,9 @@ test_async_reads_by_threads(io_test_fn_args *io_test_param,
                             const char      *whoami);
 
 static void
+test_readable_ranges(platform_heap_id hid, master_config *master_cfg);
+
+static void
 load_thread_params(io_test_fn_args *io_test_param,
                    io_test_fn_args *thread_params,
                    int              nthreads);
@@ -203,6 +207,8 @@ splinter_io_apis_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    Verbose_progress = master_cfg.verbose_progress;
+
+   test_readable_ranges(hid, &master_cfg);
 
    // Ensure that the default max async q-depth configured for
    // master-cfg is sufficiently big enough for this test case.
@@ -409,6 +415,122 @@ heap_destroy:
    }
    platform_deregister_thread();
    return (SUCCESS(rc) ? 0 : -1);
+}
+
+/*
+ * Exercise the logical-size cache on an isolated, deliberately partial-page
+ * regular file.  In particular, both write paths must invalidate a size that
+ * was cached before they extended the file.
+ */
+static void
+test_readable_ranges(platform_heap_id hid, master_config *master_cfg)
+{
+   char filename[MAX_STRING_LENGTH];
+   int  n = snprintf(filename,
+                    sizeof(filename),
+                    "/tmp/splinterdb-io-range-%d.db",
+                    platform_get_os_pid());
+   platform_assert(n > 0 && n < sizeof(filename));
+
+   int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, master_cfg->io_perms);
+   platform_assert(fd >= 0, "open(%s) failed: %s", filename, strerror(errno));
+
+   uint64 page_size    = master_cfg->page_size;
+   uint64 extent_size  = master_cfg->extent_size;
+   uint64 initial_size = extent_size + page_size / 2;
+   int    sys_rc       = ftruncate(fd, initial_size);
+   platform_assert(
+      sys_rc == 0, "ftruncate(%s) failed: %s", filename, strerror(errno));
+   sys_rc = close(fd);
+   platform_assert(
+      sys_rc == 0, "close(%s) failed: %s", filename, strerror(errno));
+
+   io_config cfg;
+   io_config_init(&cfg,
+                  page_size,
+                  extent_size,
+                  master_cfg->io_flags,
+                  master_cfg->io_perms,
+                  master_cfg->io_async_queue_depth,
+                  filename);
+   io_handle *io = io_handle_create(&cfg, hid);
+   platform_assert(io != NULL);
+
+   bool32          readable = FALSE;
+   platform_status rc = io_range_is_readable(io, 0, initial_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(readable);
+
+   uint64 partial_page = initial_size - page_size / 2;
+   rc = io_range_is_readable(io, partial_page, page_size / 2, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(readable);
+   rc = io_range_is_readable(io, partial_page, page_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(!readable);
+
+   rc = io_range_is_readable(io, initial_size, 1, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(!readable);
+   rc = io_range_is_readable(io, initial_size, 0, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(readable);
+   rc = io_range_is_readable(io, initial_size + 1, 0, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(!readable);
+
+   readable = TRUE;
+   rc       = io_range_is_readable(io, UINT64_MAX - 1, 3, &readable);
+   platform_assert(STATUS_IS_EQ(rc, STATUS_BAD_PARAM));
+   platform_assert(!readable);
+
+   char *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
+   platform_assert(buf != NULL);
+
+   /* A read that crosses EOF is a hard error, even when it starts in-range. */
+   rc = io_read(io, buf, page_size, partial_page);
+   platform_assert(!SUCCESS(rc));
+
+   uint64 sync_addr = ROUNDUP(initial_size, page_size);
+   rc               = io_range_is_readable(io, sync_addr, page_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(!readable); // primes the pre-extension cached size
+   rc = io_write(io, buf, page_size, sync_addr);
+   platform_assert_status_ok(rc);
+   rc = io_range_is_readable(io, sync_addr, page_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(readable);
+   rc = io_range_is_readable(
+      io, initial_size, sync_addr + page_size - initial_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(readable); // includes the sparse gap after the old EOF
+
+   uint64 async_addr = sync_addr + page_size;
+   rc = io_range_is_readable(io, async_addr, page_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(!readable); // primes the pre-extension cached size again
+
+   io_async_state_buffer state;
+   rc =
+      io_async_state_init(state, io, io_async_pwritev, async_addr, NULL, NULL);
+   platform_assert_status_ok(rc);
+   rc = io_async_state_append_page(state, buf);
+   platform_assert_status_ok(rc);
+   io_async_run(state);
+   io_wait_all(io);
+   rc = io_async_state_get_result(state);
+   platform_assert_status_ok(rc);
+   io_async_state_deinit(state);
+
+   rc = io_range_is_readable(io, async_addr, page_size, &readable);
+   platform_assert_status_ok(rc);
+   platform_assert(readable);
+
+   platform_free(hid, buf);
+   io_handle_destroy(io);
+   sys_rc = unlink(filename);
+   platform_assert(
+      sys_rc == 0, "unlink(%s) failed: %s", filename, strerror(errno));
 }
 
 /*

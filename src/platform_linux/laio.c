@@ -24,7 +24,9 @@
 #include "platform_typed_alloc.h"
 #include "async.h"
 #include "platform_log.h"
+#include <linux/fs.h>
 #include <sys/prctl.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -163,49 +165,152 @@ laio_cleaner(void *arg)
 }
 
 /*
+ * A size cache is invalidated, rather than updated, after writes because writes
+ * need not be append-only and a short write may still have extended the file.
+ * The next range query obtains the authoritative logical size from the kernel.
+ */
+static inline void
+laio_invalidate_logical_size(laio_handle *io)
+{
+   __atomic_fetch_add(&io->write_generation, 1, __ATOMIC_RELEASE);
+}
+
+static platform_status
+laio_get_logical_size(laio_handle *io, uint64 *size)
+{
+   if (io->backing_type == LAIO_BACKING_REGULAR) {
+      struct stat statbuf;
+      if (fstat(io->fd, &statbuf) != 0) {
+         int saved_errno = errno;
+         platform_error_log("fstat failed while querying logical size: %s\n",
+                            strerror(saved_errno));
+         return CONST_STATUS(saved_errno);
+      }
+      if (statbuf.st_size < 0) {
+         platform_error_log("fstat returned negative logical size %ld\n",
+                            (long)statbuf.st_size);
+         return STATUS_IO_ERROR;
+      }
+      *size = (uint64)statbuf.st_size;
+      return STATUS_OK;
+   }
+
+   if (io->backing_type == LAIO_BACKING_BLOCK) {
+      uint64 block_size;
+      if (ioctl(io->fd, BLKGETSIZE64, &block_size) != 0) {
+         int saved_errno = errno;
+         platform_error_log(
+            "BLKGETSIZE64 failed while querying logical size: %s\n",
+            strerror(saved_errno));
+         return CONST_STATUS(saved_errno);
+      }
+      *size = block_size;
+      return STATUS_OK;
+   }
+
+   platform_error_log("Cannot query the logical size of this backing object\n");
+   return STATUS_NOTSUP;
+}
+
+static platform_status
+laio_range_is_readable(io_handle *ioh,
+                       uint64     addr,
+                       uint64     bytes,
+                       bool32    *readable)
+{
+   laio_handle *io = (laio_handle *)ioh;
+
+   if (readable == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+   *readable = FALSE;
+
+   if (UINT64_MAX - addr < bytes) {
+      return STATUS_BAD_PARAM;
+   }
+
+   uint64 logical_size;
+   while (TRUE) {
+      uint64 write_generation =
+         __atomic_load_n(&io->write_generation, __ATOMIC_ACQUIRE);
+      uint64 size_generation =
+         __atomic_load_n(&io->logical_size_generation, __ATOMIC_ACQUIRE);
+
+      if (size_generation == write_generation) {
+         logical_size = __atomic_load_n(&io->logical_size, __ATOMIC_RELAXED);
+      } else {
+         platform_status rc = laio_get_logical_size(io, &logical_size);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+
+         /* Do not publish a size observed concurrently with a completion. */
+         if (__atomic_load_n(&io->write_generation, __ATOMIC_ACQUIRE)
+             != write_generation)
+         {
+            continue;
+         }
+
+         __atomic_store_n(&io->logical_size, logical_size, __ATOMIC_RELAXED);
+         __atomic_store_n(
+            &io->logical_size_generation, write_generation, __ATOMIC_RELEASE);
+      }
+
+      /*
+       * A completion after either the cached load or the cache publication
+       * invalidates the value.  Retry so that a query starting after io_write()
+       * returns, or running from an async completion callback, cannot see the
+       * pre-write EOF.
+       */
+      if (__atomic_load_n(&io->write_generation, __ATOMIC_ACQUIRE)
+          != write_generation)
+      {
+         continue;
+      }
+      break;
+   }
+
+   *readable = addr <= logical_size && bytes <= logical_size - addr;
+   return STATUS_OK;
+}
+
+/*
  * laio_read() - Basically a wrapper around pread().
  */
 static platform_status
 laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 {
    laio_handle *io;
-   int          ret;
+   ssize_t      ret;
 
-   io  = (laio_handle *)ioh;
-   ret = pread(io->fd, buf, bytes, addr);
+   io = (laio_handle *)ioh;
+   do {
+      ret = pread(io->fd, buf, bytes, addr);
+   } while (ret < 0 && errno == EINTR);
 #if defined(__has_feature)
 #   if __has_feature(memory_sanitizer)
-   __msan_unpoison(buf, ret);
+   if (ret > 0) {
+      __msan_unpoison(buf, ret);
+   }
 #   endif
 #endif
-   if (ret == bytes) {
+   if (ret >= 0 && (uint64)ret == bytes) {
       return STATUS_OK;
    }
-   /*
-    * A short read, meaning the file does not extend this far: nothing was ever
-    * written here.  While recovery is looking for what exists, report that the
-    * way a block device would -- as zeros, which every reader's magic and
-    * checksum then reject.  See io_permit_unwritten_reads().
-    *
-    * ret < 0 is a real failure and stays one however the flag is set.
-    */
-   if (0 <= ret && io->permit_unwritten_reads) {
-      memset((char *)buf + ret, 0, bytes - ret);
-      return STATUS_OK;
+   if (ret < 0) {
+      platform_error_log("laio_read: pread failed for addr %lu, bytes %lu: "
+                         "%s\n",
+                         addr,
+                         bytes,
+                         strerror(errno));
+   } else {
+      platform_error_log("laio_read: short read for addr %lu, bytes %lu, "
+                         "read %ld\n",
+                         addr,
+                         bytes,
+                         (long)ret);
    }
-   platform_error_log("laio_read: pread failed for addr %lu, bytes %lu, "
-                      "ret %d: %s\n",
-                      addr,
-                      bytes,
-                      ret,
-                      strerror(errno));
    return STATUS_IO_ERROR;
-}
-
-static void
-laio_permit_unwritten_reads(io_handle *ioh, bool32 permit)
-{
-   ((laio_handle *)ioh)->permit_unwritten_reads = permit;
 }
 
 /*
@@ -248,6 +353,7 @@ laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
                             remaining);
          return STATUS_IO_ERROR;
       }
+      laio_invalidate_logical_size(io);
       cursor += ret;
       offset += ret;
       remaining -= ret;
@@ -396,6 +502,15 @@ laio_async_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
    laio_async_state *ios =
       (laio_async_state *)((char *)iocb - offsetof(laio_async_state, req));
    ios->status = res;
+   /*
+    * A positive short completion may have extended a regular file.  Invalidate
+    * for every write completion, including failures, because the completion
+    * result alone does not have to prove that no bytes reached the device.
+    * Publish the invalidation before the client callback may issue a query.
+    */
+   if (ios->cmd == io_async_pwritev) {
+      laio_invalidate_logical_size(ios->io);
+   }
    if (ios->callback) {
       ios->callback(ios->callback_arg);
    }
@@ -718,15 +833,15 @@ laio_process_termination_callback(threadid pid, void *arg)
  * Define an implementation of the abstract IO Ops interface methods.
  */
 static io_ops laio_ops = {
-   .read                   = laio_read,
-   .write                  = laio_write,
-   .permit_unwritten_reads = laio_permit_unwritten_reads,
-   .async_state_init       = laio_async_state_init,
-   .cleanup                = laio_cleanup,
-   .wait_all               = laio_wait_all,
-   .durable_barrier        = laio_durable_barrier,
-   .print_stats            = laio_print_stats,
-   .reset_stats            = laio_reset_stats,
+   .read              = laio_read,
+   .write             = laio_write,
+   .range_is_readable = laio_range_is_readable,
+   .async_state_init  = laio_async_state_init,
+   .cleanup           = laio_cleanup,
+   .wait_all          = laio_wait_all,
+   .durable_barrier   = laio_durable_barrier,
+   .print_stats       = laio_print_stats,
+   .reset_stats       = laio_reset_stats,
 };
 
 /*
@@ -776,6 +891,16 @@ laio_handle_create(io_config *cfg, platform_heap_id hid)
       platform_free(hid, io);
       return NULL;
    }
+
+   if (S_ISREG(statbuf.st_mode)) {
+      io->backing_type = LAIO_BACKING_REGULAR;
+   } else if (S_ISBLK(statbuf.st_mode)) {
+      io->backing_type = LAIO_BACKING_BLOCK;
+   } else {
+      io->backing_type = LAIO_BACKING_UNSUPPORTED;
+   }
+   /* Generation zero is reserved for an invalid, never-populated size cache. */
+   io->write_generation = 1;
 
 
 // 32 4KB pages
