@@ -15,26 +15,26 @@ void
 writeback_set_init(writeback_set *set, cache *cc, platform_heap_id hid)
 {
    set->cc = cc;
-   vector_init(&set->requests, hid);
+   vector_init(&set->entries, hid);
 }
 
 void
 writeback_set_deinit(writeback_set *set)
 {
-   vector_deinit(&set->requests);
+   vector_deinit(&set->entries);
    set->cc = NULL;
 }
 
 void
 writeback_set_reset(writeback_set *set)
 {
-   vector_truncate(&set->requests, 0);
+   vector_truncate(&set->entries, 0);
 }
 
 uint64
 writeback_set_num_requests(const writeback_set *set)
 {
-   return vector_length(&set->requests);
+   return vector_length(&set->entries);
 }
 
 /*
@@ -49,8 +49,8 @@ writeback_set_num_requests(const writeback_set *set)
 static platform_status
 writeback_set_reserve_one(writeback_set *set)
 {
-   return vector_ensure_capacity(&set->requests,
-                                 vector_length(&set->requests) + 1);
+   return vector_ensure_capacity(&set->entries,
+                                 vector_length(&set->entries) + 1);
 }
 
 platform_status
@@ -61,13 +61,11 @@ writeback_set_add_page(writeback_set *set, page_handle *page, page_type type)
       return rc;
    }
 
-   cache_writeback_request req;
-   rc = cache_writeback_page(set->cc, page, type, &req);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
+   writeback_set_entry entry = {.type = type};
+   rc = cache_writeback_page(set->cc, page, type, &entry.request);
+   entry.needs_retry = !SUCCESS(rc);
 
-   rc = vector_append(&set->requests, req);
+   rc = vector_append(&set->entries, entry);
    platform_assert_status_ok(rc); // reserved above
    return STATUS_OK;
 }
@@ -80,13 +78,11 @@ writeback_set_add_extent(writeback_set *set, uint64 addr, page_type type)
       return rc;
    }
 
-   cache_writeback_request req;
-   rc = cache_writeback_extent(set->cc, addr, type, &req);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
+   writeback_set_entry entry = {.type = type};
+   rc = cache_writeback_extent(set->cc, addr, type, &entry.request);
+   entry.needs_retry = !SUCCESS(rc);
 
-   rc = vector_append(&set->requests, req);
+   rc = vector_append(&set->entries, entry);
    platform_assert_status_ok(rc); // reserved above
    return STATUS_OK;
 }
@@ -96,8 +92,14 @@ writeback_set_wait(writeback_set *set)
 {
    platform_status result = STATUS_OK;
 
-   for (uint64 i = 0; i < vector_length(&set->requests); i++) {
-      const cache_writeback_request *req = vector_get_ptr(&set->requests, i);
+   for (uint64 i = 0; i < vector_length(&set->entries); i++) {
+      writeback_set_entry           *entry = vector_get_ptr(&set->entries, i);
+      const cache_writeback_request *req   = &entry->request;
+
+      if (entry->needs_retry && SUCCESS(result)) {
+         /* Drain anything partially issued, but do not report the set ready. */
+         result = STATUS_BUSY;
+      }
 
       while (TRUE) {
          cache_writeback_status status =
@@ -122,7 +124,8 @@ writeback_set_wait(writeback_set *set)
             platform_error_log("writeback_set_wait: writeback of addr %lu "
                                "failed\n",
                                req->addr);
-            result = STATUS_IO_ERROR;
+            entry->needs_retry = TRUE;
+            result             = STATUS_IO_ERROR;
          } else if (status == CACHE_WRITEBACK_REDIRTIED) {
             /*
              * The contents we asked to be written did reach the device, so the
@@ -130,11 +133,65 @@ writeback_set_wait(writeback_set *set)
              * we were writing it, which for a caller that owns these pages is a
              * bug in its own locking rather than something the cache did.
              */
-            debug_assert(FALSE,
-                         "page %lu was re-dirtied during a writeback set",
-                         req->addr);
+            platform_error_log("writeback_set_wait: addr %lu was re-dirtied "
+                               "during writeback\n",
+                               req->addr);
+            entry->needs_retry = TRUE;
+            if (SUCCESS(result)) {
+               result = STATUS_BUSY;
+            }
          }
          break;
+      }
+   }
+
+   return result;
+}
+
+platform_status
+writeback_set_retry_incomplete(writeback_set *set)
+{
+   platform_status result = STATUS_OK;
+
+   for (uint64 i = 0; i < vector_length(&set->entries); i++) {
+      writeback_set_entry   *entry = vector_get_ptr(&set->entries, i);
+      cache_writeback_status status =
+         cache_writeback_get_status(set->cc, &entry->request);
+      if (!entry->needs_retry && status != CACHE_WRITEBACK_FAILED
+          && status != CACHE_WRITEBACK_REDIRTIED)
+      {
+         continue;
+      }
+
+      cache_writeback_request retry_request = entry->request;
+      platform_status         rc;
+      if (entry->request.is_extent) {
+         rc = cache_writeback_extent(
+            set->cc, entry->request.addr, entry->type, &retry_request);
+      } else {
+         page_handle *page =
+            cache_get(set->cc, entry->request.addr, TRUE, entry->type);
+         if (page == NULL) {
+            rc = STATUS_IO_ERROR;
+         } else {
+            rc =
+               cache_writeback_page(set->cc, page, entry->type, &retry_request);
+            cache_unget(set->cc, page);
+         }
+      }
+      /*
+       * Even a failed extent retry may have issued a subset of its pages.  The
+       * new receipt is therefore the one wait() must drain; needs_retry keeps
+       * the missing subset from being forgotten on the next attempt.
+       */
+      entry->request     = retry_request;
+      entry->needs_retry = !SUCCESS(rc);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "writeback_set_retry_incomplete: retry of addr %lu failed: %s\n",
+            entry->request.addr,
+            platform_status_to_string(rc));
+         result = rc;
       }
    }
 

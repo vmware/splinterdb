@@ -31,6 +31,26 @@ typedef struct shard_log_config {
    // data config of point message tree
 } shard_log_config;
 
+typedef enum shard_log_close {
+   SHARD_LOG_CLOSE_NONE,   // an ordinary page; the group stays open
+   SHARD_LOG_CLOSE_GROUP,  // last page of its group
+   SHARD_LOG_CLOSE_STREAM, // last page of its group and of the stream
+} shard_log_close;
+
+typedef enum shard_log_buffer_state {
+   SHARD_LOG_BUFFER_OPEN,
+   SHARD_LOG_BUFFER_TERMINATED,
+   SHARD_LOG_BUFFER_INCACHE,
+} shard_log_buffer_state;
+
+typedef enum shard_log_group_state {
+   SHARD_LOG_GROUP_OPEN,
+   SHARD_LOG_GROUP_CLOSING,
+   SHARD_LOG_GROUP_TERMINATING,
+   SHARD_LOG_GROUP_DURABILITY_PENDING,
+   SHARD_LOG_GROUP_SEALED,
+} shard_log_group_state;
+
 /*
  * Per-thread staging for log appends.
  *
@@ -43,8 +63,12 @@ typedef struct shard_log_config {
  * is no partially-filled page on disk to be rewritten later.
  */
 typedef struct shard_log_thread_data {
-   char  *buf;         // page-sized image under construction
-   uint64 offset;      // append cursor within buf
+   char                  *buf;    // page-sized image under construction
+   uint64                 offset; // append cursor within buf
+   shard_log_buffer_state state;
+   shard_log_close        close;
+   /* Held from cache_alloc() until writeback-set enrollment succeeds. */
+   page_handle *incache_page;
    bool32 has_records; // sticky for this thread over the stream's lifetime
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
@@ -66,8 +90,17 @@ typedef struct shard_log {
     * exclusive insert lock held across a log cut guarantees every record
     * destined for this stream is already staged by the time it is sealed.
     */
-   uint64 group_id;
-   uint64 group_page_count;
+   uint64                group_id;
+   uint64                group_page_count;
+   shard_log_group_state group_state;
+   shard_log_close       group_close;
+   /*
+    * Normal writers are sharded and never take this lock.  It serializes the
+    * rare recovery path after a failed group close with later close attempts:
+    * no new group becomes OPEN until the previous one's writeback and durable
+    * barrier have both succeeded.
+    */
+   platform_mutex close_lock;
    /*
     * Receipts for every page handed over since the group opened, so that
     * closing it can wait for exactly those writes rather than flushing the
@@ -75,15 +108,15 @@ typedef struct shard_log {
     * time: a page issued early is long gone by then and there would be no way
     * left to tell whether it landed.
     *
-    * Guarded by wbset_lock, since graduation is concurrent.  Its size is
-    * therefore bounded by the group -- which today means by the log-cut policy,
-    * at 24 bytes per page.
+    * Guarded by wbset_lock, since graduation is concurrent.  It includes log
+    * pages as well as blob pages/extents and is bounded by the group, which in
+    * turn is bounded by the log-cut policy.
     */
    platform_mutex wbset_lock;
    writeback_set  wbset;
    uint64         addr;
    uint64         meta_head;
-   uint64         magic;
+   log_nonce      nonce;
    /*
     * Extents the mini-allocator held once the stream was initialized -- its
     * fixed per-stream overhead (a metadata extent plus one per batch).
@@ -128,7 +161,7 @@ typedef struct shard_log_iterator {
  */
 typedef struct ONDISK shard_log_hdr {
    checksum128 checksum;
-   uint64      magic;
+   log_nonce   nonce;
    uint64      next_extent_addr;
    /*
     * The group this page belongs to.  A group is the unit of replay: either all
@@ -139,42 +172,46 @@ typedef struct ONDISK shard_log_hdr {
     */
    uint64 group_id;
    /*
-    * Non-zero on exactly one page per group -- the last one written -- giving
-    * the number of pages the group contains, with SHARD_LOG_END_OF_STREAM set
-    * if that group is also the last of a sealed stream.  Zero on every other
-    * page.
+    * Non-zero only on the group's dedicated final terminator page, giving the
+    * total number of data-plus-terminator pages, with
+    * SHARD_LOG_END_OF_STREAM set when this is also the end of a sealed stream.
+    * Zero on every data page.
     *
-    * The count cannot be stamped when a page is written, because a group's
-    * pages are written as they fill, long before it closes.  Marking only the
-    * final page sidesteps that and costs nothing: it rides along on a page that
-    * had to be written anyway.
-    *
-    * A terminator always counts at least itself, so the field stays a reliable
-    * "is this a terminator" test even with the flag bit set.
+    * The count cannot be stamped on data pages as they fill because the final
+    * group size is not known yet.  A separate empty terminator is a small space
+    * cost in exchange for a simple retry rule: no failed close ever has to
+    * modify or duplicate a frozen data page.
     */
    uint32 pages_in_group;
    uint16 num_entries;
 } shard_log_hdr;
 
 /*
- * Create a fresh sharded write-ahead log stream.  Returns an abstract
- * log_handle (or NULL on failure) to be driven through the log.h interface and
- * released with log_deinit().
+ * Create a fresh sharded write-ahead log stream.  On success, returns an
+ * abstract log_handle through `log_out` to be driven through the log.h
+ * interface and released with log_deinit().
  */
-log_handle *
-shard_log_create(cache *cc, shard_log_config *cfg, platform_heap_id hid);
+platform_status
+shard_log_create(cache            *cc,
+                 shard_log_config *cfg,
+                 platform_heap_id  hid,
+                 log_handle      **log_out);
 
 /*
  * Create an iterator over the sharded log identified by `head`, reading its
- * records in generation order.  Returns an abstract log_iterator (or NULL on
- * failure) to be driven through the log.h interface and freed with
- * log_iterator_deinit().
+ * records in generation order. Blob checksums are required for records at or
+ * above `first_needed_generation`; older records are already represented by
+ * the checkpoint root and their value pages need not survive replay. Returns
+ * an abstract log_iterator through `itor_out` to be driven through the log.h
+ * interface and freed with log_iterator_deinit().
  */
-log_iterator *
+platform_status
 shard_log_iterator_create(cache            *cc,
                           shard_log_config *cfg,
                           platform_heap_id  hid,
-                          log_head          head);
+                          log_head          head,
+                          uint64            first_needed_generation,
+                          log_iterator    **itor_out);
 
 /*
  * Release a stream identified by its log_head: drop the reference its metadata
@@ -208,13 +245,13 @@ shard_log_dec_ref(cache *cc, const log_head *head);
  * recorded: both remain reachable from the durable log identity during replay,
  * so neither may be reused until the root-only rebuild drops the log.
  *
- * The metadata head and stream extents are recorded first.  The stream's
- * replayable records are then walked to recover the separate storage of every
- * blob they name.  Blob recovery has to happen before replay because replay
- * allocates disk space; otherwise it could reuse an extent belonging to a blob
- * whose record it has not reached yet.  A blob reachable only from an
- * incomplete group is deliberately left unmarked because that group will not
- * be replayed.
+ * The metadata head and stream extents are recorded first.  Every individually
+ * valid log page is then scanned to recover the separate storage of each blob
+ * it names, including pages in a trailing incomplete group.  Replay validates
+ * those blobs before it can decide that the group is incomplete, and cache
+ * reads require their extents not to have been reused meanwhile.  Blob recovery
+ * therefore has to precede any replay allocation; the conservative suffix-only
+ * references disappear in the root-only rebuild below.
  *
  * The recovered references need no matching release pass.  After replay is
  * folded into the tree, recovery publishes a root naming no logs and rebuilds

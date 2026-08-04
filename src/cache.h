@@ -191,7 +191,7 @@ typedef platform_status (*extent_writeback_fn)(cache                   *cc,
 typedef cache_writeback_status (
    *writeback_get_status_fn)(cache *cc, const cache_writeback_request *req);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
-typedef int (*evict_fn)(cache *cc, bool32 ignore_pinned);
+typedef platform_status (*evict_fn)(cache *cc, bool32 ignore_pinned);
 typedef bool32 (*page_addr_pred_fn)(cache *cc, uint64 addr);
 typedef void (*page_addr_fn)(cache *cc, uint64 addr);
 typedef void (*validate_page_fn)(cache *cc, page_handle *page, uint64 addr);
@@ -657,21 +657,21 @@ cache_durable_barrier(cache *cc)
  *-----------------------------------------------------------------------------
  * cache_evict
  *
- * Evicts all the pages.
- * Asserts that there are no pins (if ignore_pinned_pages is false), read
- * locks, claims or write locks.
- * Always returns 0.
+ * Waits for outstanding cache I/O and evicts every resident page. Dirty pages
+ * are not written: callers that need their contents must write them back first.
+ * The cache must otherwise be quiescent -- no read locks, claims, write locks,
+ * or concurrent cache users.
  *
- * TODO: Does ignore_pinned_pages ignore the pages or the pinnedness of the
- *pages?
+ * If ignore_pinned_pages is false, pinned pages make the call fail with
+ * STATUS_BUSY. If true, pinned pages themselves remain resident; this mode is
+ * useful to tests but is not a complete cache invalidation.
  *
- * Test facility.
- * This method is only used for testing, specifically in cache_test.
- * TODO Should be deleted and replaced with destructing and constructing
- * a fresh cache.
+ * A failure may follow partial progress: pages successfully evicted before the
+ * conflicting entry stay evicted.  A quiescent caller may fix the conflict and
+ * call again.
  *-----------------------------------------------------------------------------
  */
-static inline int
+static inline platform_status
 cache_evict(cache *cc, bool32 ignore_pinned_pages)
 {
    return cc->ops->evict(cc, ignore_pinned_pages);

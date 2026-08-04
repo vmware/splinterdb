@@ -1263,7 +1263,7 @@ CTEST2(splinterdb_quick, test_logged_close_and_reopen)
    int rc = splinterdb_close(&data->kvsb, FALSE);
    ASSERT_EQUAL(0, rc);
    data->cfg.use_log = TRUE;
-   rc = splinterdb_create(&data->cfg, &data->kvsb);
+   rc                = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    slice        user_key = slice_create(strlen("logged-key"), "logged-key");
@@ -1813,9 +1813,16 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 static uint64
 force_flush_current_memtable(splinterdb *kvsb)
 {
-   core_handle    *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
-   uint64          generation = memtable_force_rotation(&core->mt_ctxt);
-   platform_status rc         = task_perform_until_quiescent(core->ts);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+
+   platform_status rc = task_perform_until_quiescent(core->ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 generation;
+   rc = memtable_force_rotation(&core->mt_ctxt, &generation);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = task_perform_until_quiescent(core->ts);
    ASSERT_TRUE(SUCCESS(rc));
    return generation;
 }

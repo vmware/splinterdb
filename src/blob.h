@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "platform_hash.h"
 #include "cache.h"
 #include "util.h"
 #include "writeback_set.h"
@@ -11,6 +12,23 @@ typedef struct ONDISK blob {
    uint64 length;
    uint64 addrs[];
 } blob;
+
+/*
+ * The checksum trailer follows the last address in a checksummed blob
+ * descriptor.  Keeping it at the end preserves the layout of length and
+ * addrs[], so descriptors written before checksums were introduced remain
+ * readable and old readers can ignore the trailer.
+ */
+#define BLOB_CHECKSUM_FORMAT (UINT64_C(0x424C4F4243530001))
+#define BLOB_CHECKSUM_SEED   (UINT64_C(0x424C4F424353554D))
+
+typedef struct ONDISK blob_checksum_trailer {
+   uint64      format;
+   checksum128 checksum;
+} blob_checksum_trailer;
+
+_Static_assert(sizeof(blob_checksum_trailer) == 24,
+               "blob checksum trailer layout changed");
 
 typedef struct parsed_blob_entry {
    uint64 addr;
@@ -58,6 +76,24 @@ parse_blob(uint64       extent_size,
 
 uint64
 blob_length(slice sblob);
+
+/*
+ * Return the checksum stored in sblob's trailer.  Legacy blob descriptors do
+ * not have a trailer and return STATUS_NOT_FOUND; callers must not interpret
+ * that as successful validation.
+ */
+platform_status
+blob_get_checksum(slice sblob, checksum128 *checksum);
+
+/*
+ * Read and checksum all logical bytes referenced by sblob.  Every backing page
+ * must be readable from the I/O address space; this is intended for recovery,
+ * after the blob's writeback has completed.  Returns STATUS_NOT_FOUND for a
+ * legacy/unchecksummed descriptor and STATUS_IO_ERROR when a page is absent or
+ * the stored checksum does not match.
+ */
+platform_status
+blob_validate(cache *cc, slice sblob);
 
 platform_status
 blob_page_iterator_init(cache                  *cc,

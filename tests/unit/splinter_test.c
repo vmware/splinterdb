@@ -22,8 +22,10 @@
  * -----------------------------------------------------------------------------
  */
 #include "core.h"
+#include "blob_build.h"
 #include "clockcache.h"
 #include "allocator.h"
+#include "mini_allocator.h"
 #include "rc_allocator.h"
 #include "task.h"
 #include "platform_threads.h"
@@ -211,6 +213,405 @@ CTEST_TEARDOWN(splinter)
 
    platform_heap_destroy(&data->hid);
    platform_deregister_thread();
+}
+
+static void
+blob_checksum_test_fill(writable_buffer *data, uint64 length)
+{
+   uint8 *bytes = writable_buffer_data(data);
+   for (uint64 i = 0; i < length; i++) {
+      bytes[i] = (uint8)(131 * i + i / 7 + length);
+   }
+}
+
+static platform_status
+blob_checksum_test_roundtrip(cache           *cc,
+                             slice            descriptor,
+                             slice            expected,
+                             writable_buffer *materialized)
+{
+   platform_status rc = blob_materialize_full(cc, descriptor, materialized);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (writable_buffer_length(materialized) != slice_length(expected)) {
+      return STATUS_TEST_FAILED;
+   }
+   if (slice_length(expected) != 0
+       && memcmp(writable_buffer_data(materialized),
+                 slice_data(expected),
+                 slice_length(expected))
+             != 0)
+   {
+      return STATUS_TEST_FAILED;
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+blob_checksum_test_writeback(cache *cc, slice descriptor)
+{
+   writeback_set set;
+   writeback_set_init(&set, cc, platform_get_heap_id());
+
+   platform_status rc      = blob_writeback(cc, descriptor, &set);
+   platform_status wait_rc = writeback_set_wait(&set);
+   if (SUCCESS(rc)) {
+      rc = wait_rc;
+   }
+   writeback_set_deinit(&set);
+   return rc;
+}
+
+static platform_status
+blob_checksum_test_build_and_check(const blob_build_config *cfg,
+                                   cache                   *cc,
+                                   mini_allocator          *mini,
+                                   uint64                   length,
+                                   writable_buffer         *data,
+                                   writable_buffer         *descriptor,
+                                   writable_buffer         *materialized)
+{
+   platform_status rc = writable_buffer_resize(data, length);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   blob_checksum_test_fill(data, length);
+
+   rc = blob_build(cfg, cc, mini, writable_buffer_to_slice(data), descriptor);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   slice sblob = writable_buffer_to_slice(descriptor);
+   rc          = blob_checksum_test_writeback(cc, sblob);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   checksum128 checksum;
+   rc = blob_get_checksum(sblob, &checksum);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   parsed_blob pblob;
+   parse_blob(
+      cache_extent_size(cc), cache_page_size(cc), slice_data(sblob), &pblob);
+   uint64 num_addrs = pblob.num_extents;
+   for (uint64 i = 0; i < ARRAY_SIZE(pblob.leftovers); i++) {
+      if (pblob.leftovers[i].length == 0) {
+         break;
+      }
+      num_addrs++;
+   }
+   if (slice_length(sblob)
+       != sizeof(blob) + num_addrs * sizeof(uint64)
+             + sizeof(blob_checksum_trailer))
+   {
+      return STATUS_TEST_FAILED;
+   }
+
+   rc = blob_validate(cc, sblob);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return blob_checksum_test_roundtrip(
+      cc, sblob, writable_buffer_to_slice(data), materialized);
+}
+
+static platform_status
+blob_checksum_test_mini_init(cache *cc, mini_allocator *mini, uint64 *meta_head)
+{
+   allocator *al                      = cache_get_allocator(cc);
+   page_type  types[NUM_BLOB_BATCHES] = {
+      PAGE_TYPE_BLOB,
+      PAGE_TYPE_BLOB,
+      PAGE_TYPE_BLOB,
+   };
+   platform_status rc = allocator_alloc(al, meta_head, PAGE_TYPE_MISC);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   mini_init_with_types(
+      mini, cc, *meta_head, 0, NUM_BLOB_BATCHES, PAGE_TYPE_MISC, types);
+   return STATUS_OK;
+}
+
+static platform_status
+blob_checksum_test_mini_deinit(cache          *cc,
+                               mini_allocator *mini,
+                               uint64          meta_head)
+{
+   mini_release(mini);
+   return mini_dec_ref(cc, meta_head, PAGE_TYPE_MISC) == 0 ? STATUS_OK
+                                                           : STATUS_TEST_FAILED;
+}
+
+CTEST2(splinter, test_blob_checksums)
+{
+   cache            *cc  = (cache *)data->clock_cache;
+   blob_build_config cfg = {
+      .extent_batch  = 0,
+      .page_batch    = 1,
+      .subpage_batch = 2,
+      .alignment     = 0,
+   };
+
+   writable_buffer source_data;
+   writable_buffer descriptor;
+   writable_buffer materialized;
+   writable_buffer checked_clone;
+   writable_buffer legacy_clone;
+   writable_buffer_init(&source_data, data->hid);
+   writable_buffer_init(&descriptor, data->hid);
+   writable_buffer_init(&materialized, data->hid);
+   writable_buffer_init(&checked_clone, data->hid);
+   writable_buffer_init(&legacy_clone, data->hid);
+
+   mini_allocator source_mini;
+   mini_allocator checked_clone_mini;
+   mini_allocator legacy_clone_mini;
+   bool32         source_mini_live        = FALSE;
+   bool32         checked_clone_mini_live = FALSE;
+   bool32         legacy_clone_mini_live  = FALSE;
+   uint64         source_meta_head        = 0;
+   uint64         checked_clone_meta_head = 0;
+   uint64         legacy_clone_meta_head  = 0;
+
+   platform_status rc =
+      blob_checksum_test_mini_init(cc, &source_mini, &source_meta_head);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   source_mini_live = TRUE;
+
+   uint64 page_size   = cache_page_size(cc);
+   uint64 extent_size = cache_extent_size(cc);
+   uint64 lengths[]   = {
+      0,
+      1,
+      page_size / 2 + 1,
+      page_size - 1,
+      page_size + page_size / 2,
+      extent_size - 1,
+      extent_size,
+      extent_size + page_size / 2,
+      2 * extent_size + page_size + 17,
+   };
+   for (uint64 i = 0; i < ARRAY_SIZE(lengths); i++) {
+      rc = blob_checksum_test_build_and_check(&cfg,
+                                              cc,
+                                              &source_mini,
+                                              lengths[i],
+                                              &source_data,
+                                              &descriptor,
+                                              &materialized);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+   }
+
+   /* Leave one full extent plus a separately allocated tail for cloning. */
+   uint64 clone_length = extent_size + page_size / 2 + 17;
+   rc                  = blob_checksum_test_build_and_check(&cfg,
+                                           cc,
+                                           &source_mini,
+                                           clone_length,
+                                           &source_data,
+                                           &descriptor,
+                                           &materialized);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   rc = blob_checksum_test_mini_init(
+      cc, &checked_clone_mini, &checked_clone_meta_head);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   checked_clone_mini_live = TRUE;
+   rc                      = blob_clone(&cfg,
+                   cc,
+                   &checked_clone_mini,
+                   writable_buffer_to_slice(&descriptor),
+                   &checked_clone);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   checksum128 source_checksum;
+   checksum128 clone_checksum;
+   rc = blob_get_checksum(writable_buffer_to_slice(&descriptor),
+                          &source_checksum);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = blob_get_checksum(writable_buffer_to_slice(&checked_clone),
+                          &clone_checksum);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   if (!platform_checksum_is_equal(source_checksum, clone_checksum)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = blob_checksum_test_writeback(cc,
+                                     writable_buffer_to_slice(&checked_clone));
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = blob_validate(cc, writable_buffer_to_slice(&checked_clone));
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = blob_checksum_test_roundtrip(cc,
+                                     writable_buffer_to_slice(&checked_clone),
+                                     writable_buffer_to_slice(&source_data),
+                                     &materialized);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   message inline_msg = message_create(
+      MESSAGE_TYPE_INSERT, NULL, writable_buffer_to_slice(&source_data));
+   message blob_msg = message_create(
+      MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
+   if (!SUCCESS(message_validate(inline_msg))
+       || !SUCCESS(message_validate(blob_msg)))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   /* Removing the trailer recreates the legacy descriptor format. */
+   slice descriptor_slice  = writable_buffer_to_slice(&descriptor);
+   slice legacy_descriptor = slice_create(slice_length(descriptor_slice)
+                                             - sizeof(blob_checksum_trailer),
+                                          slice_data(descriptor_slice));
+   rc                      = blob_validate(cc, legacy_descriptor);
+   if (!STATUS_IS_EQ(rc, STATUS_NOT_FOUND)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = blob_checksum_test_roundtrip(cc,
+                                     legacy_descriptor,
+                                     writable_buffer_to_slice(&source_data),
+                                     &materialized);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   rc = blob_checksum_test_mini_init(
+      cc, &legacy_clone_mini, &legacy_clone_meta_head);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   legacy_clone_mini_live = TRUE;
+   rc                     = blob_clone(
+      &cfg, cc, &legacy_clone_mini, legacy_descriptor, &legacy_clone);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   rc = blob_validate(cc, writable_buffer_to_slice(&legacy_clone));
+   if (!STATUS_IS_EQ(rc, STATUS_NOT_FOUND)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = blob_checksum_test_roundtrip(cc,
+                                     writable_buffer_to_slice(&legacy_clone),
+                                     writable_buffer_to_slice(&source_data),
+                                     &materialized);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+
+   /* Corrupt the clone's private tail, leaving its shared full extent alone. */
+   blob_page_iterator iter;
+   rc = blob_page_iterator_init(cc,
+                                &iter,
+                                writable_buffer_to_slice(&checked_clone),
+                                clone_length - 1,
+                                BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   uint64 corrupt_offset;
+   slice  corrupt_data;
+   rc = blob_page_iterator_get_curr(&iter, &corrupt_offset, &corrupt_data);
+   if (!SUCCESS(rc)) {
+      blob_page_iterator_deinit(&iter);
+      goto cleanup;
+   }
+   if (corrupt_offset != clone_length - 1 || slice_length(corrupt_data) == 0) {
+      blob_page_iterator_deinit(&iter);
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   uint64 corrupt_page_addr   = iter.fragment.addr;
+   uint64 corrupt_page_offset = iter.fragment.offset;
+   blob_page_iterator_deinit(&iter);
+
+   page_handle *page = cache_get(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   if (page == NULL) {
+      rc = STATUS_IO_ERROR;
+      goto cleanup;
+   }
+   while (!cache_try_claim(cc, page)) {
+      cache_unget(cc, page);
+      page = cache_get(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   }
+   cache_lock(cc, page);
+   page->data[corrupt_page_offset] ^= 0x80;
+   cache_unlock(cc, page);
+   cache_unclaim(cc, page);
+   cache_unget(cc, page);
+
+   rc = blob_validate(cc, writable_buffer_to_slice(&checked_clone));
+   if (!STATUS_IS_EQ(rc, STATUS_IO_ERROR)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   blob_msg = message_create(
+      MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&checked_clone));
+   rc = message_validate(blob_msg);
+   if (!STATUS_IS_EQ(rc, STATUS_IO_ERROR)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+   rc = STATUS_OK;
+
+cleanup:
+   if (legacy_clone_mini_live) {
+      platform_status cleanup_rc = blob_checksum_test_mini_deinit(
+         cc, &legacy_clone_mini, legacy_clone_meta_head);
+      if (SUCCESS(rc) && !SUCCESS(cleanup_rc)) {
+         rc = cleanup_rc;
+      }
+   }
+   if (checked_clone_mini_live) {
+      platform_status cleanup_rc = blob_checksum_test_mini_deinit(
+         cc, &checked_clone_mini, checked_clone_meta_head);
+      if (SUCCESS(rc) && !SUCCESS(cleanup_rc)) {
+         rc = cleanup_rc;
+      }
+   }
+   if (source_mini_live) {
+      platform_status cleanup_rc =
+         blob_checksum_test_mini_deinit(cc, &source_mini, source_meta_head);
+      if (SUCCESS(rc) && !SUCCESS(cleanup_rc)) {
+         rc = cleanup_rc;
+      }
+   }
+   writable_buffer_deinit(&legacy_clone);
+   writable_buffer_deinit(&checked_clone);
+   writable_buffer_deinit(&materialized);
+   writable_buffer_deinit(&descriptor);
+   writable_buffer_deinit(&source_data);
+
+   ASSERT_TRUE(SUCCESS(rc),
+               "blob checksum test failed: %s",
+               platform_status_to_string(rc));
 }
 
 /*
@@ -773,7 +1174,7 @@ CTEST2(splinter, test_unmount_skips_allocator_map_that_needs_rebuild)
    ASSERT_TRUE(SUCCESS(rc));
 
    created.allocator_map_needs_rebuild = TRUE;
-   rc = core_unmount(&created, FALSE);
+   rc                                  = core_unmount(&created, FALSE);
    ASSERT_TRUE(SUCCESS(rc));
 
    superblock_context sb;
@@ -803,8 +1204,7 @@ CTEST2(splinter, test_unmount_skips_allocator_map_that_needs_rebuild)
                 &data->gen,
                 1,
                 key_buffer_key(&keybuf),
-                merge_accumulator_to_message(
-                   lookup_result_accumulator(&qdata)),
+                merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
                 TRUE);
    lookup_result_deinit(&qdata);
 

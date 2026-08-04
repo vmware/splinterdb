@@ -385,6 +385,14 @@ message_materialized_length(message msg)
    }
 }
 
+/* Inline messages are covered by their containing page or log record. */
+static inline platform_status
+message_validate(message msg)
+{
+   return message_is_blob(msg) ? blob_validate(msg.cc, message_slice(msg))
+                               : STATUS_OK;
+}
+
 static inline platform_status
 message_materialize(message msg, merge_accumulator *tmp);
 

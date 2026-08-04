@@ -48,8 +48,7 @@ test_log_crash(clockcache             *cc,
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
 
    platform_assert(cc != NULL);
-   logh = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(logh != NULL);
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &logh));
 
    // The identity is fixed at creation; capture it before writing/sealing.
    segment = log_get_head(logh);
@@ -103,8 +102,8 @@ test_log_crash(clockcache             *cc,
       platform_assert_status_ok(rc);
    }
 
-   itor = shard_log_iterator_create((cache *)cc, cfg, hid, segment);
-   platform_assert(itor != NULL);
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, segment, 0, &itor));
    // The stream was sealed, so replay must be able to see that it is whole.
    platform_assert(log_iterator_stream_complete(itor));
 
@@ -196,8 +195,8 @@ test_log_verify_segment(cache                  *cc,
 
    platform_assert(segment->addr != 0);
    platform_assert(segment->meta_addr != 0);
-   itor = shard_log_iterator_create(cc, cfg, hid, *segment);
-   platform_assert(itor != NULL);
+   platform_assert_status_ok(
+      shard_log_iterator_create(cc, cfg, hid, *segment, 0, &itor));
    platform_assert(log_iterator_stream_complete(itor));
 
    merge_accumulator_init(&msg, hid);
@@ -255,8 +254,8 @@ test_log_multiple_groups(clockcache             *cc,
    const uint64 per_group  = 32;
    log_head     segment;
 
-   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(log != NULL);
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    platform_assert(log_is_empty(log));
    platform_assert_status_ok(log_make_durable(log));
    platform_assert(log_is_empty(log));
@@ -319,8 +318,8 @@ test_log_two_segments(clockcache             *cc,
    const uint64 new_first = 2000, new_count = 16;
    log_head     sealed, fresh;
 
-   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(log != NULL);
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    sealed = log_get_head(log); // identity is fixed at creation
    test_log_write_range(log, gen, hid, key_size, old_first, old_count);
 
@@ -342,9 +341,8 @@ test_log_two_segments(clockcache             *cc,
    test_log_verify_segment(
       (cache *)cc, cfg, &sealed, gen, hid, key_size, old_first, old_count);
 
-   // A fresh stream is a distinct segment: new mini allocator and new magic.
-   log = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(log != NULL);
+   // A fresh stream is a distinct segment: new mini allocator and new nonce.
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    fresh = log_get_head(log);
    test_log_write_range(log, gen, hid, key_size, new_first, new_count);
    rc = log_seal(log);
@@ -353,7 +351,7 @@ test_log_two_segments(clockcache             *cc,
    platform_assert(fresh.addr != 0);
    platform_assert(fresh.meta_addr != 0);
    platform_assert(sealed.meta_addr != fresh.meta_addr);
-   platform_assert(sealed.magic != fresh.magic);
+   platform_assert(!log_nonce_is_equal(sealed.nonce, fresh.nonce));
 
    rc = cache_writeback_dirty((cache *)cc);
    platform_assert_status_ok(rc);
@@ -388,8 +386,8 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    /* Exercise blob_writeback's whole-extent path and its partial tail. */
    uint64 value_len = cache_extent_size(cc) + 3 * cache_page_size(cc) + 123;
 
-   log_handle *logh = shard_log_create(cc, cfg, hid);
-   platform_assert(logh != NULL);
+   log_handle *logh;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &logh));
    sealed = log_get_head(logh); // identity is fixed at creation
 
    merge_accumulator_init(&msg, hid);
@@ -423,8 +421,8 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    rc = cache_durable_barrier(cc);
    platform_assert_status_ok(rc);
 
-   itor = shard_log_iterator_create(cc, cfg, hid, sealed);
-   platform_assert(itor != NULL);
+   platform_assert_status_ok(
+      shard_log_iterator_create(cc, cfg, hid, sealed, 0, &itor));
    platform_assert(log_iterator_stream_complete(itor));
    platform_assert(log_iterator_can_next(itor));
 
@@ -437,6 +435,128 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    log_iterator_deinit(itor);
    merge_accumulator_deinit(&msg);
    shard_log_dec_ref(cc, &sealed);
+   return 0;
+}
+
+/*
+ * A checksum failure in one blob invalidates its whole log group, not merely
+ * that record.  Earlier durable groups remain a replayable prefix.
+ */
+static int
+test_log_blob_checksum_prefix(clockcache        *cc,
+                              clockcache_config *cache_cfg,
+                              io_handle         *io,
+                              allocator         *al,
+                              shard_log_config  *cfg,
+                              platform_heap_id   hid)
+{
+   cache            *cacheh = (cache *)cc;
+   platform_status   rc;
+   log_handle       *log;
+   char              key_data[] = "blob-checksum-prefix";
+   key               skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, hid);
+
+   platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
+   log_head sealed = log_get_head(log);
+
+   bool32 success = merge_accumulator_resize(&msg, 32);
+   platform_assert(success);
+   merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&msg), 'A', merge_accumulator_length(&msg));
+   platform_assert(
+      log_write(log, skey, merge_accumulator_to_message(&msg), 0, 0) == 0);
+   platform_assert_status_ok(log_make_durable(log));
+
+   success = merge_accumulator_resize(&msg, cache_page_size(cacheh) + 123);
+   platform_assert(success);
+   merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&msg), 'B', merge_accumulator_length(&msg));
+   platform_assert(
+      log_write(log, skey, merge_accumulator_to_message(&msg), 1, 0) == 0);
+   platform_assert_status_ok(log_seal(log));
+   log_deinit(log);
+
+   rc = cache_writeback_dirty(cacheh);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier(cacheh);
+   platform_assert_status_ok(rc);
+
+   /* Locate a byte in the blob referenced by the second group. */
+   log_iterator *itor;
+   platform_assert_status_ok(
+      shard_log_iterator_create(cacheh, cfg, hid, sealed, 0, &itor));
+   platform_assert(log_iterator_stream_complete(itor));
+   platform_assert(log_iterator_can_next(itor));
+   platform_assert_status_ok(log_iterator_next(itor));
+   platform_assert(log_iterator_can_next(itor));
+
+   key     returned_key;
+   message returned_message;
+   log_iterator_curr(itor, &returned_key, &returned_message);
+   platform_assert(message_is_blob(returned_message));
+
+   slice              sblob = message_slice(returned_message);
+   blob_page_iterator blob_itor;
+   rc = blob_page_iterator_init(cacheh,
+                                &blob_itor,
+                                sblob,
+                                blob_length(sblob) - 1,
+                                BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
+   platform_assert_status_ok(rc);
+   uint64 ignored_offset;
+   slice  ignored_data;
+   rc = blob_page_iterator_get_curr(&blob_itor, &ignored_offset, &ignored_data);
+   platform_assert_status_ok(rc);
+   uint64 corrupt_page_addr   = blob_itor.fragment.addr;
+   uint64 corrupt_page_offset = blob_itor.fragment.offset;
+   blob_page_iterator_deinit(&blob_itor);
+   log_iterator_deinit(itor);
+
+   page_handle *page =
+      cache_get(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   while (!cache_try_claim(cacheh, page)) {
+      cache_unget(cacheh, page);
+      page = cache_get(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   }
+   cache_lock(cacheh, page);
+   page->data[corrupt_page_offset] ^= 0x80;
+   cache_unlock(cacheh, page);
+   cache_unclaim(cacheh, page);
+   cache_unget(cacheh, page);
+
+   rc = cache_writeback_dirty(cacheh);
+   platform_assert_status_ok(rc);
+   rc = cache_durable_barrier(cacheh);
+   platform_assert_status_ok(rc);
+
+   /* Force replay to consult only the corrupted durable image. */
+   clockcache_deinit(cc);
+   rc = clockcache_init(cc,
+                        cache_cfg,
+                        io,
+                        al,
+                        "blob-checksum-prefix",
+                        hid,
+                        platform_get_module_id());
+   platform_assert_status_ok(rc);
+
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, sealed, 0, &itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   platform_assert(log_iterator_can_next(itor));
+   uint64 memtable_generation;
+   uint64 leaf_generation;
+   log_iterator_curr_generations(itor, &memtable_generation, &leaf_generation);
+   platform_assert(memtable_generation == 0);
+   platform_assert(leaf_generation == 0);
+   platform_assert_status_ok(log_iterator_next(itor));
+   platform_assert(!log_iterator_can_next(itor));
+
+   log_iterator_deinit(itor);
+   merge_accumulator_deinit(&msg);
+   shard_log_dec_ref((cache *)cc, &sealed);
    return 0;
 }
 
@@ -457,8 +577,8 @@ test_log_recovery_at_eof(clockcache        *cc,
 {
    platform_status rc;
 
-   log_handle *log = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(log != NULL);
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    log_head empty = log_get_head(log);
 
    /* No log page has been written: EOF is exactly the initial extent base. */
@@ -467,8 +587,9 @@ test_log_recovery_at_eof(clockcache        *cc,
    platform_assert(
       sys_rc == 0, "truncate(%s) failed with errno %d", filename, errno);
 
-   log_iterator *itor = shard_log_iterator_create((cache *)cc, cfg, hid, empty);
-   platform_assert(itor != NULL);
+   log_iterator *itor;
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, empty, 0, &itor));
    platform_assert(!log_iterator_can_next(itor));
    platform_assert(!log_iterator_stream_complete(itor));
    log_iterator_deinit(itor);
@@ -482,8 +603,7 @@ test_log_recovery_at_eof(clockcache        *cc,
     * was on a later page, replay must discard the group rather than return a
     * prefix of it.
     */
-   log = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(log != NULL);
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    log_head partial = log_get_head(log);
 
    char              key_data[] = "partial-log-extent";
@@ -522,8 +642,8 @@ test_log_recovery_at_eof(clockcache        *cc,
       cc, cache_cfg, io, al, "partial-log-eof", hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
-   itor = shard_log_iterator_create((cache *)cc, cfg, hid, partial);
-   platform_assert(itor != NULL);
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, partial, 0, &itor));
    platform_assert(!log_iterator_can_next(itor));
    platform_assert(!log_iterator_stream_complete(itor));
    log_iterator_deinit(itor);
@@ -585,8 +705,8 @@ test_log_perf(cache                  *cc,
    uint64          start_time;
    platform_status ret;
 
-   log_handle *logh = shard_log_create((cache *)cc, cfg, hid);
-   platform_assert(logh != NULL);
+   log_handle *logh;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &logh));
    log_head sealed = log_get_head(logh);
 
    for (uint64 i = 0; i < num_threads; i++) {
@@ -750,6 +870,14 @@ log_test(int argc, char *argv[])
    platform_assert(rc == 0);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
+   platform_assert(rc == 0);
+
+   rc = test_log_blob_checksum_prefix(cc,
+                                      &system_cfg.cache_cfg,
+                                      io,
+                                      (allocator *)&al,
+                                      &system_cfg.log_cfg,
+                                      hid);
    platform_assert(rc == 0);
 
    rc = test_log_multiple_groups(cc,

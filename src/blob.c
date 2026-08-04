@@ -75,6 +75,29 @@ blob_length(slice sblobby)
    return blobby->length;
 }
 
+platform_status
+blob_get_checksum(slice sblob, checksum128 *checksum)
+{
+   if (checksum == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+   if (slice_length(sblob) < sizeof(blob) + sizeof(blob_checksum_trailer)) {
+      return STATUS_NOT_FOUND;
+   }
+
+   blob_checksum_trailer trailer;
+   memcpy(&trailer,
+          (const char *)slice_data(sblob) + slice_length(sblob)
+             - sizeof(trailer),
+          sizeof(trailer));
+   if (trailer.format != BLOB_CHECKSUM_FORMAT) {
+      return STATUS_NOT_FOUND;
+   }
+
+   *checksum = trailer.checksum;
+   return STATUS_OK;
+}
+
 static void
 fragment_for_offset(uint64             extent_size,
                     uint64             page_size,
@@ -265,6 +288,85 @@ blob_page_iterator_advance_page(blob_page_iterator *iter)
 }
 
 platform_status
+blob_validate(cache *cc, slice sblob)
+{
+   if (cc == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+
+   checksum128     expected;
+   platform_status rc = blob_get_checksum(sblob, &expected);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   XXH3_state_t *checksum_state = XXH3_createState();
+   if (checksum_state == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   if (XXH3_128bits_reset_withSeed(checksum_state, BLOB_CHECKSUM_SEED)
+       != XXH_OK)
+   {
+      XXH3_freeState(checksum_state);
+      return STATUS_INVALID_STATE;
+   }
+
+   blob_page_iterator iter;
+   /*
+    * Recovery can encounter a descriptor whose log page reached disk while
+    * one of the blob pages did not.  Do not prefetch ahead of the readability
+    * check below: cache_get() is deliberately strict and a short read is a
+    * cache invariant violation, whereas an incomplete blob is ordinary crash
+    * truncation that validation must report to the log iterator.
+    */
+   rc = blob_page_iterator_init(
+      cc, &iter, sblob, 0, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
+   if (!SUCCESS(rc)) {
+      XXH3_freeState(checksum_state);
+      return rc;
+   }
+
+   while (!blob_page_iterator_at_end(&iter)) {
+      bool32 readable;
+      rc = cache_range_is_readable(
+         cc, iter.fragment.addr, iter.page_size, &readable);
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+      if (!readable) {
+         rc = STATUS_IO_ERROR;
+         goto out;
+      }
+
+      uint64 offset;
+      slice  data;
+      rc = blob_page_iterator_get_curr(&iter, &offset, &data);
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+
+      if (XXH3_128bits_update(
+             checksum_state, slice_data(data), slice_length(data))
+          != XXH_OK)
+      {
+         rc = STATUS_INVALID_STATE;
+         goto out;
+      }
+      blob_page_iterator_advance_page(&iter);
+   }
+
+   checksum128 actual = XXH3_128bits_digest(checksum_state);
+   if (!platform_checksum_is_equal(actual, expected)) {
+      rc = STATUS_IO_ERROR;
+   }
+
+out:
+   blob_page_iterator_deinit(&iter);
+   XXH3_freeState(checksum_state);
+   return rc;
+}
+
+platform_status
 blob_materialize(cache           *cc,
                  slice            sblobby,
                  uint64           start,
@@ -364,16 +466,13 @@ blob_writeback(cache *cc, slice sblob, writeback_set *set)
    uint64      page_size   = cache_page_size(cc);
    parsed_blob pblob;
 
-   parse_blob(extent_size,
-              page_size,
-              (const blob *)slice_data(sblob),
-              &pblob);
+   parse_blob(extent_size, page_size, (const blob *)slice_data(sblob), &pblob);
 
    for (uint64 i = 0; i < pblob.num_extents; i++) {
       platform_status rc;
       if (set != NULL) {
-         rc = writeback_set_add_extent(
-            set, pblob.base->addrs[i], PAGE_TYPE_BLOB);
+         rc =
+            writeback_set_add_extent(set, pblob.base->addrs[i], PAGE_TYPE_BLOB);
       } else {
          rc = cache_writeback_extent(
             cc, pblob.base->addrs[i], PAGE_TYPE_BLOB, NULL);

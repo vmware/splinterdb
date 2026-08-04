@@ -37,24 +37,25 @@
 #include "allocator.h"
 #include "platform_io.h"
 #include "util.h"
+#include "log_data.h"
 
 #define SUPERBLOCK_FORMAT_MAGIC (0x5344425355504552ULL) // SDBSUPER
-/* v2 added superblock_log_head.start_generation. */
-#define SUPERBLOCK_FORMAT_VERSION (2)
+/* v2 added start_generation; v3 widened log identity to a 128-bit nonce. */
+#define SUPERBLOCK_FORMAT_VERSION (3)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)
 
 /*
  * A log's on-disk head, plus the range of memtable generations it covers.  The
- * addr/meta_addr/magic triple mirrors log_head's layout; the superblock stores
+ * addr/meta_addr/nonce tuple mirrors log_head's layout; the superblock stores
  * it opaquely and does not depend on the log module.  meta_addr == 0 means "no
  * log present".
  */
 typedef struct ONDISK superblock_log_head {
-   uint64 addr;
-   uint64 meta_addr;
-   uint64 magic;
+   uint64    addr;
+   uint64    meta_addr;
+   log_nonce nonce;
    /*
     * First memtable generation whose entries this log received.  A log's
     * coverage ends where the next log's begins, so the sealed log covers

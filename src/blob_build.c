@@ -5,6 +5,23 @@
 #include "poison.h"
 
 static platform_status
+append_blob_checksum(writable_buffer *result, checksum128 checksum)
+{
+   blob_checksum_trailer trailer = {
+      .format   = BLOB_CHECKSUM_FORMAT,
+      .checksum = checksum,
+   };
+   return writable_buffer_append(result, sizeof(trailer), &trailer);
+}
+
+static checksum128
+checksum_blob_data(slice data)
+{
+   const void *bytes = slice_length(data) == 0 ? "" : slice_data(data);
+   return platform_checksum128(bytes, slice_length(data), BLOB_CHECKSUM_SEED);
+}
+
+static platform_status
 allocate_leftover_entries(const blob_build_config *cfg,
                           cache                   *cc,
                           mini_allocator          *mini,
@@ -175,6 +192,9 @@ blob_build(const blob_build_config *cfg,
 
 out:
    blob_page_iterator_deinit(&iter);
+   if (SUCCESS(rc)) {
+      rc = append_blob_checksum(result, checksum_blob_data(data));
+   }
    return rc;
 }
 
@@ -220,6 +240,18 @@ blob_clone(const blob_build_config *cfg,
            slice                    sblob,
            writable_buffer         *result)
 {
+   checksum128 checksum;
+   bool32      has_checksum = FALSE;
+
+   platform_status rc = blob_get_checksum(sblob, &checksum);
+   if (SUCCESS(rc)) {
+      has_checksum = TRUE;
+   } else if (STATUS_IS_EQ(rc, STATUS_NOT_FOUND)) {
+      rc = STATUS_OK;
+   } else {
+      return rc;
+   }
+
    uint64      extent_size = cache_extent_size(cc);
    uint64      page_size   = cache_page_size(cc);
    const blob *blobby      = slice_data(sblob);
@@ -227,7 +259,7 @@ blob_clone(const blob_build_config *cfg,
 
    parse_blob(extent_size, page_size, blobby, &pblobby);
 
-   platform_status rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
+   rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -287,5 +319,8 @@ blob_clone(const blob_build_config *cfg,
       blob_page_iterator_deinit(&dst_iter);
    }
 
+   if (SUCCESS(rc) && has_checksum) {
+      rc = append_blob_checksum(result, checksum);
+   }
    return rc;
 }

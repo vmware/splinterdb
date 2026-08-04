@@ -184,7 +184,7 @@ core_log_to_superblock_log_head(log_head info, uint64 start_generation)
 {
    return (superblock_log_head){.addr             = info.addr,
                                 .meta_addr        = info.meta_addr,
-                                .magic            = info.magic,
+                                .nonce            = info.nonce,
                                 .start_generation = start_generation};
 }
 
@@ -195,7 +195,7 @@ core_superblock_log_head_to_log(superblock_log_head info)
    return (log_head){
       .addr      = info.addr,
       .meta_addr = info.meta_addr,
-      .magic     = info.magic,
+      .nonce     = info.nonce,
    };
 }
 
@@ -205,7 +205,7 @@ core_superblock_log_head_matches(superblock_log_head recorded, log_head live)
 {
    return !SUPERBLOCK_NO_LOG(recorded) && recorded.addr == live.addr
           && recorded.meta_addr == live.meta_addr
-          && recorded.magic == live.magic;
+          && log_nonce_is_equal(recorded.nonce, live.nonce);
 }
 
 /*
@@ -486,45 +486,69 @@ core_checkpoint_status_get(core_handle *spl)
  * replays before this session's live stream is created, and its memtables may
  * still rotate while the replay is being folded into the trunk.
  *
- * Returns a completion ticket for the checkpoint this call armed: it has
- * finished, and freed its retired log, once checkpoint.completions reaches the
- * ticket.  The ticket is captured under the same lock acquisition that arms, so
- * it cannot miss or over-count a completion.  Returns 0 if this call did not
- * arm one, which is not an error -- only one checkpoint can be in flight at a
- * time, and declining is the normal outcome when one already is.  Tickets are
- * 1-based, so 0 is unambiguous.
+ * On success, returns through `ticket_out` the completion to wait for and says
+ * through `armed_out` whether this call installed the pending log.  If a
+ * checkpoint is already in flight, the caller attaches to its next completion
+ * instead of receiving 0; ticket 0 means that no checkpoint was wanted or
+ * possible.  A ticket has finished, and freed its retired log, once
+ * checkpoint.completions reaches it.  Tickets are 1-based, so 0 is
+ * unambiguous.
  */
-static uint64
-core_checkpoint_begin(core_handle *spl, bool32 force)
+static platform_status
+core_checkpoint_begin(core_handle *spl,
+                      bool32       force,
+                      uint64       expected_ticket,
+                      uint64      *ticket_out,
+                      bool32      *armed_out)
 {
+   *ticket_out = 0;
+   *armed_out  = FALSE;
    if (!spl->cfg.use_log || spl->log == NULL) {
-      return 0;
+      return STATUS_OK;
    }
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   bool32 begin = spl->checkpoint.phase == CORE_CHECKPOINT_IDLE
-                  && (force || core_should_take_checkpoint(spl));
+   if (expected_ticket != 0 && spl->checkpoint.completions >= expected_ticket) {
+      *ticket_out = expected_ticket;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      return STATUS_OK;
+   }
+   if (spl->checkpoint.phase != CORE_CHECKPOINT_IDLE) {
+      *ticket_out = spl->checkpoint.completions + 1;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      return STATUS_OK;
+   }
+   bool32 begin = force || core_should_take_checkpoint(spl);
    platform_mutex_unlock(&spl->checkpoint_state_lock);
    if (!begin) {
-      return 0;
+      return STATUS_OK;
    }
 
-   log_handle *next = shard_log_create(
-      spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
-   if (next == NULL) {
-      platform_error_log(
-         "core_checkpoint_begin: shard_log_create failed; skipping\n");
-      return 0;
+   log_handle     *next;
+   platform_status rc = shard_log_create(
+      spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id, &next);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_checkpoint_begin: shard_log_create failed: %s\n",
+                         platform_status_to_string(rc));
+      return rc;
    }
    log_head next_head = log_get_head(next);
 
    uint64 ticket = 0;
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
+   if (expected_ticket != 0 && spl->checkpoint.completions >= expected_ticket) {
+      ticket = expected_ticket;
+   } else if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE
+              && (force || core_should_take_checkpoint(spl)))
+   {
       spl->checkpoint.pending_log = next;
       spl->checkpoint.phase       = CORE_CHECKPOINT_PENDING;
       next                        = NULL; // handed off to the checkpoint
       // Ours is the next completion to be counted.
+      ticket     = spl->checkpoint.completions + 1;
+      *armed_out = TRUE;
+   } else if (spl->checkpoint.phase != CORE_CHECKPOINT_IDLE) {
+      /* A competing caller armed one while this log was being created. */
       ticket = spl->checkpoint.completions + 1;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
@@ -536,14 +560,56 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
       log_deinit(next);
       shard_log_dec_ref(spl->cc, &next_head);
    }
-   return ticket;
+   *ticket_out = ticket;
+   return STATUS_OK;
+}
+
+/*
+ * Abandon a checkpoint which this caller armed but could not rotate for.  The
+ * ticket check prevents a delayed caller from cancelling a newer checkpoint:
+ * every completed checkpoint advances completions before another one can be
+ * armed with the same phase.
+ *
+ * Returning to IDLE leaves log_reached_threshold set, so a later insert will
+ * re-check the current log size, arm a fresh pending log, and try again.  If a
+ * natural rotation won the race and already cut this checkpoint, its phase is
+ * no longer PENDING and there is nothing to cancel.
+ */
+static void
+core_checkpoint_cancel_pending(core_handle *spl, uint64 ticket)
+{
+   log_handle *pending = NULL;
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (ticket != 0 && spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
+       && spl->checkpoint.completions + 1 == ticket)
+   {
+      pending                     = spl->checkpoint.pending_log;
+      spl->checkpoint.pending_log = NULL;
+      spl->checkpoint.phase       = CORE_CHECKPOINT_IDLE;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (pending != NULL) {
+      log_head pending_head = log_get_head(pending);
+      log_deinit(pending);
+      shard_log_dec_ref(spl->cc, &pending_head);
+   }
 }
 
 /* The automatic, policy-driven arm, run after every rotation. */
 static void
 core_checkpoint_maybe_begin(core_handle *spl)
 {
-   core_checkpoint_begin(spl, FALSE /* force */);
+   uint64          unused_ticket;
+   bool32          unused_armed;
+   platform_status rc = core_checkpoint_begin(
+      spl, FALSE /* force */, 0, &unused_ticket, &unused_armed);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_checkpoint_maybe_begin: could not arm a "
+                         "checkpoint: %s\n",
+                         platform_status_to_string(rc));
+   }
 }
 
 /*
@@ -573,11 +639,35 @@ core_checkpoint_maybe_begin(core_handle *spl)
 static void
 core_maybe_cut_oversized_log(core_handle *spl)
 {
-   if (!spl->log_reached_threshold) {
+   if (!__atomic_load_n(&spl->log_reached_threshold, __ATOMIC_RELAXED)) {
       return;
    }
-   if (core_checkpoint_begin(spl, FALSE /* force */) != 0) {
-      memtable_force_rotation(&spl->mt_ctxt);
+   uint64          ticket;
+   bool32          armed;
+   platform_status rc =
+      core_checkpoint_begin(spl, FALSE /* force */, 0, &ticket, &armed);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_maybe_cut_oversized_log: could not arm a "
+                         "checkpoint: %s\n",
+                         platform_status_to_string(rc));
+      return;
+   }
+   if (armed) {
+      rc = memtable_force_rotation(&spl->mt_ctxt, NULL);
+      if (!SUCCESS(rc)) {
+         /*
+          * Only the arming caller forces.  If it cannot rotate now, disarm its
+          * still-pending checkpoint so later inserts can retry instead of
+          * leaving it permanently PENDING.
+          */
+         core_checkpoint_cancel_pending(spl, ticket);
+         if (!STATUS_IS_EQ(rc, STATUS_BUSY)) {
+            platform_error_log(
+               "core_maybe_cut_oversized_log: failed to force a memtable "
+               "rotation: %s\n",
+               platform_status_to_string(rc));
+         }
+      }
    }
 }
 
@@ -619,7 +709,7 @@ core_rotate_log(void *arg, uint64 finalized_generation)
        * core_log_insert().  A rotation that does not cut leaves the hint alone,
        * which is correct: the same log is still live and still oversized.
        */
-      spl->log_reached_threshold = FALSE;
+      __atomic_store_n(&spl->log_reached_threshold, FALSE, __ATOMIC_RELAXED);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 }
@@ -1099,7 +1189,7 @@ core_log_insert(core_handle                *spl,
    if (spl->cfg.checkpoint_log_size_bytes != 0
        && log_get_size(spl->log) >= spl->cfg.checkpoint_log_size_bytes)
    {
-      spl->log_reached_threshold = TRUE;
+      __atomic_store_n(&spl->log_reached_threshold, TRUE, __ATOMIC_RELAXED);
    }
 
    return log_rc == 0 ? STATUS_OK : (platform_status){.r = log_rc};
@@ -2733,18 +2823,25 @@ core_replay_log(core_handle *spl,
       return STATUS_OK;
    }
 
-   log_iterator *itor = shard_log_iterator_create(
-      spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id, head);
-   if (itor == NULL) {
+   log_iterator   *itor;
+   platform_status rc =
+      shard_log_iterator_create(spl->cc,
+                                (shard_log_config *)spl->cfg.log_cfg,
+                                spl->heap_id,
+                                head,
+                                first_unincorporated_generation,
+                                &itor);
+   if (!SUCCESS(rc)) {
       platform_error_log("core_mount: could not read the log at %lu for "
-                         "replay\n",
-                         head.addr);
-      return STATUS_NO_MEMORY;
+                         "replay: %s\n",
+                         head.addr,
+                         platform_status_to_string(rc));
+      return rc;
    }
 
-   platform_status rc       = STATUS_OK;
-   uint64          applied  = 0;
-   uint64          bypassed = 0;
+   rc              = STATUS_OK;
+   uint64 applied  = 0;
+   uint64 bypassed = 0;
    while (SUCCESS(rc) && log_iterator_can_next(itor)) {
       key     tuple_key;
       message msg;
@@ -2926,11 +3023,11 @@ core_mkfs(core_handle      *spl,
 
    // set up the log
    if (spl->cfg.use_log) {
-      spl->log = shard_log_create(
-         cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
-      if (spl->log == NULL) {
-         platform_error_log("core_mkfs: shard_log_create failed\n");
-         rc = STATUS_NO_MEMORY;
+      rc = shard_log_create(
+         cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id, &spl->log);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_mkfs: shard_log_create failed: %s\n",
+                            platform_status_to_string(rc));
          goto deinit_memtable_context;
       }
    }
@@ -2981,7 +3078,12 @@ deinit_trunk_context:
    (void)trunk_context_deinit(&spl->trunk_context);
 deinit_log:
    if (spl->cfg.use_log) {
-      platform_free(spl->heap_id, spl->log);
+      /*
+       * A failed superblock publish may nevertheless have reached disk, so do
+       * not reclaim the stream extents here.  Do release the handle's staging
+       * buffers, writeback set, mutex, and unused mini-allocator reserves.
+       */
+      log_deinit(spl->log);
       spl->log = NULL;
    }
 deinit_memtable_context:
@@ -3115,6 +3217,23 @@ core_mount(core_handle      *spl,
       core_close_contexts(spl);
       contexts_open = FALSE;
 
+      /*
+       * The root-only allocator rebuild below makes the replayed log and blob
+       * extents free.  Remove their old cache mappings first, while the
+       * root-plus-logs recovery map still owns every resident address;
+       * otherwise immediate address reuse could create two cache entries for
+       * one page. core_recover_replay() has already written back and durably
+       * published the recovered root, and closing the contexts made the cache
+       * quiescent.
+       */
+      rc = cache_evict(spl->cc, FALSE /* ignore_pinned_pages */);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_mount: failed to invalidate the cache before "
+                            "the root-only allocation rebuild: %s\n",
+                            platform_status_to_string(rc));
+         goto deinit_stats;
+      }
+
       // The recovery publish advanced the root and cleared both log slots.
       superblock_get_tree_record(&spl->superblock, &rec);
       rc = core_rebuild_allocations(spl, &rec, FALSE);
@@ -3133,11 +3252,11 @@ core_mount(core_handle      *spl,
    }
 
    if (spl->cfg.use_log) {
-      spl->log = shard_log_create(
-         cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id);
-      if (spl->log == NULL) {
-         platform_error_log("core_mount: shard_log_create failed\n");
-         rc = STATUS_NO_MEMORY;
+      rc = shard_log_create(
+         cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id, &spl->log);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_mount: shard_log_create failed: %s\n",
+                            platform_status_to_string(rc));
          goto deinit_stats;
       }
    }
@@ -3167,7 +3286,8 @@ core_mount(core_handle      *spl,
    // The log is created last of all here, so it unwinds first.
 deinit_log:
    if (spl->cfg.use_log && spl->log != NULL) {
-      platform_free(spl->heap_id, spl->log);
+      /* See the corresponding mkfs unwind: publication may be ambiguous. */
+      log_deinit(spl->log);
       spl->log = NULL;
    }
 deinit_stats:
@@ -3277,22 +3397,39 @@ core_report_unincorporated_memtables(core_handle *spl)
 static bool32
 core_quiesce(core_handle *spl)
 {
-   // write current memtable to disk
-   // (any others must already be flushing/flushed)
+   /*
+    * Drain older generations before forcing the active one.  In addition to
+    * being work quiesce needs to do anyway, this normally recycles the next
+    * ring slot and makes the forced rotation immediately possible.
+    */
+   platform_status rc = task_perform_until_quiescent(spl->ts);
+   platform_assert_status_ok(rc);
 
    if (!memtable_is_empty(&spl->mt_ctxt)) {
       /*
-       * memtable_force_rotation is not thread safe.  It dispatches the flush
-       * itself (via the process callback), which also resolves any checkpoint
-       * log cut its rotate hook just made.  That callback may arm a fresh
-       * checkpoint; core_checkpoint_cleanup_for_shutdown() discards it.
+       * The checked force can still report BUSY if an older generation failed
+       * incorporation and therefore could not recycle its ring slot.  Do not
+       * pretend the active generation was incorporated: it remains outside the
+       * generation range inspected by core_have_unincorporated_memtables().
        */
-      memtable_force_rotation(&spl->mt_ctxt);
-   }
+      rc = memtable_force_rotation(&spl->mt_ctxt, NULL);
+      if (!SUCCESS(rc)) {
+         if (STATUS_IS_EQ(rc, STATUS_BUSY)) {
+            platform_error_log("core_quiesce: cannot rotate the active "
+                               "memtable because the next ring slot is still "
+                               "in use\n");
+         } else {
+            platform_error_log("core_quiesce: failed to rotate the active "
+                               "memtable: %s\n",
+                               platform_status_to_string(rc));
+         }
+         return FALSE;
+      }
 
-   // finish any outstanding tasks and destroy task system for this table.
-   platform_status rc = task_perform_until_quiescent(spl->ts);
-   platform_assert_status_ok(rc);
+      // The force dispatched the active generation; finish that work too.
+      rc = task_perform_until_quiescent(spl->ts);
+      platform_assert_status_ok(rc);
+   }
 
    return !core_have_unincorporated_memtables(spl);
 }
@@ -3331,7 +3468,14 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
    uint64 target = memtable_generation(&spl->mt_ctxt);
 
-   uint64 ticket = core_checkpoint_begin(spl, TRUE /* force */);
+   uint64          ticket;
+   bool32          armed;
+   platform_status rc =
+      core_checkpoint_begin(spl, TRUE /* force */, 0, &ticket, &armed);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   (void)armed;
 
    uint64    wait     = 100;
    timestamp deadline = platform_get_timestamp();
@@ -3339,6 +3483,30 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
       bool32 incorporated =
          memtable_generation_retired(&spl->mt_ctxt) + 1 > target;
       core_checkpoint_status status = core_checkpoint_status_get(spl);
+
+      /*
+       * An automatic size-triggered attempt can cancel a still-PENDING
+       * checkpoint when the memtable ring is temporarily full.  If this call
+       * had attached to that completion, re-arm the same completion ticket
+       * instead of waiting forever or returning without a log cut.
+       */
+      if (ticket != 0 && status.completions < ticket
+          && status.phase == CORE_CHECKPOINT_IDLE)
+      {
+         uint64 replacement_ticket;
+         bool32 replacement_armed;
+         rc = core_checkpoint_begin(spl,
+                                    TRUE /* force */,
+                                    ticket,
+                                    &replacement_ticket,
+                                    &replacement_armed);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         (void)replacement_armed;
+         platform_assert(replacement_ticket == ticket);
+         status = core_checkpoint_status_get(spl);
+      }
       /*
        * Done once the target is durable-able and, if we started a checkpoint,
        * that specific checkpoint has completed -- which is what freed its
@@ -3368,8 +3536,15 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
       if (needs_rotation
           && rotation_timeout_ns <= platform_timestamp_elapsed(deadline))
       {
-         memtable_force_rotation(&spl->mt_ctxt); // dispatches the flush itself
-         deadline = platform_get_timestamp();
+         platform_status rotation_rc =
+            memtable_force_rotation(&spl->mt_ctxt, NULL);
+         if (SUCCESS(rotation_rc)) {
+            // The force dispatched the flush itself.
+            deadline = platform_get_timestamp();
+         } else if (!STATUS_IS_EQ(rotation_rc, STATUS_BUSY)) {
+            core_checkpoint_cancel_pending(spl, ticket);
+            return rotation_rc;
+         }
       }
 
       /*
@@ -3723,8 +3898,8 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
    platform_log(log_handle,
                 "Superblock tree record root_id=%lu {\n"
                 "  root_addr=%lu first_unincorporated_generation=%lu\n"
-                "  live_log:   meta_addr=%lu addr=%lu magic=%lu\n"
-                "  sealed_log: meta_addr=%lu addr=%lu magic=%lu\n"
+                "  live_log:   meta_addr=%lu addr=%lu nonce=%016lx%016lx\n"
+                "  sealed_log: meta_addr=%lu addr=%lu nonce=%016lx%016lx\n"
                 "  allocation_state: %s (addr=%lu)\n"
                 "}\n\n",
                 spl->id,
@@ -3732,10 +3907,12 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
                 rec.first_unincorporated_generation,
                 rec.live_log.meta_addr,
                 rec.live_log.addr,
-                rec.live_log.magic,
+                rec.live_log.nonce.high,
+                rec.live_log.nonce.low,
                 rec.sealed_log.meta_addr,
                 rec.sealed_log.addr,
-                rec.sealed_log.magic,
+                rec.sealed_log.nonce.high,
+                rec.sealed_log.nonce.low,
                 superblock_allocation_state_valid(&spl->superblock) ? "valid"
                                                                     : "invalid",
                 superblock_allocation_state_addr(&spl->superblock));

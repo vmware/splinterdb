@@ -12,6 +12,7 @@
 #include "cache.h"
 #include "data_internal.h"
 #include "iterator.h"
+#include "log_data.h"
 
 typedef struct log_handle   log_handle;
 typedef struct log_iterator log_iterator;
@@ -20,14 +21,14 @@ typedef struct log_config   log_config;
 /*
  * The on-disk head of one mini-allocator-backed log stream: the data head
  * (where replay begins), the metadata head (which owns the stream's extents),
- * and a per-stream magic that validates its pages.  Fixed at creation; a
+ * and a per-stream nonce that validates its pages.  Fixed at creation; a
  * higher-level checkpoint record stores it to later find the stream for replay
  * or reclaim it through the concrete log implementation.
  */
 typedef struct log_head {
    uint64 addr;      // data head: first log page, where replay begins
    uint64 meta_addr; // mini-allocator metadata head; owns the stream's extents
-   uint64 magic;     // per-stream magic; validates the stream's pages
+   log_nonce nonce;  // random per-stream identity; validates its pages
 } log_head;
 
 typedef int (*log_write_fn)(log_handle *log,
@@ -50,8 +51,10 @@ typedef int (*log_write_fn)(log_handle *log,
  * while records that happened after it sit in this one, so a crash that kept
  * this group and lost the next would recover a state that never existed.
  *
- * On failure the group may be left unclosed and nothing is guaranteed durable;
- * the stream remains usable and the caller may try again.
+ * On failure nothing new is guaranteed durable.  The implementation retains
+ * the exact close/writeback state. The implementation must complete that retry
+ * before accepting another record (whether through an explicit retry here or
+ * on the next append); once it succeeds, the stream is open on the next group.
  */
 typedef platform_status (*log_make_durable_fn)(log_handle *log);
 
@@ -74,11 +77,10 @@ typedef platform_status (*log_make_durable_fn)(log_handle *log);
  * call log_deinit() alone: there is no point writing a terminator onto extents
  * that are about to be freed.
  *
- * On failure the stream is left unterminated -- and so unreplayable -- rather
- * than partially finished, and seal may simply be called again: whatever it
- * managed to write stays written, and a retry resumes from where it stopped.
- * Do NOT call it again after it has succeeded, which would write a second
- * terminator into a group that is already closed.
+ * On failure nothing new is guaranteed durable, but seal may simply be called
+ * again: the implementation retains the exact structural/writeback state and
+ * resumes from where it stopped.  Calling seal again after success is
+ * idempotent.
  */
 typedef platform_status (*log_seal_fn)(log_handle *log);
 /*
@@ -264,7 +266,9 @@ log_iterator_next(log_iterator *itor)
  * anything written after it must not be replayed on top of them: doing so would
  * skip whatever was lost in between and produce a state that never existed.
  *
- * Always FALSE for a live stream, which has no end yet.
+ * Normally FALSE for a live stream, which has no end yet.  It can be TRUE when
+ * sealing succeeded but publication of the log cut failed, leaving the sealed
+ * physical stream in the durable record's live slot.
  */
 static inline bool32
 log_iterator_stream_complete(log_iterator *itor)

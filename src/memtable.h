@@ -210,14 +210,20 @@ memtable_state_string(memtable_state state);
  * sequence as the natural (fullness-triggered) rotation: finalize the memtable,
  * advance the generation, invoke the rotate callback under insert exclusion,
  * then -- once inserts are unblocked -- invoke the process callback to dispatch
- * the rotated memtable.  Returns the finalized generation.
+ * the rotated memtable.
  *
- * Callers therefore need do nothing further: whatever the rotate callback
- * started (e.g. core's checkpoint log cut) is resolved by the process callback,
- * just as it is for a natural rotation.
+ * Returns STATUS_BUSY without changing the context if work on the next
+ * memtable-ring slot is still in progress, or propagates that slot's recorded
+ * failure if incorporation failed.  This is the same readiness condition that
+ * prevents a natural rotation from overtaking incorporation.  On success,
+ * writes the finalized generation to generation_out when non-NULL.
+ *
+ * Callers therefore need do nothing further after success: whatever the rotate
+ * callback started (e.g. core's checkpoint log cut) is resolved by the process
+ * callback, just as it is for a natural rotation.
  */
-uint64
-memtable_force_rotation(memtable_context *ctxt);
+platform_status
+memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out);
 
 void
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation);

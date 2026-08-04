@@ -34,11 +34,18 @@
 #include "cache.h"
 #include "vector.h"
 
-typedef VECTOR(cache_writeback_request) cache_writeback_request_vector;
+typedef struct writeback_set_entry {
+   cache_writeback_request request;
+   page_type               type;
+   /* The request could not cover every dirty page and must be reissued. */
+   bool32 needs_retry;
+} writeback_set_entry;
+
+typedef VECTOR(writeback_set_entry) writeback_set_entry_vector;
 
 typedef struct writeback_set {
-   cache                         *cc;
-   cache_writeback_request_vector requests;
+   cache                     *cc;
+   writeback_set_entry_vector entries;
 } writeback_set;
 
 /* Prepare an empty set. Allocates nothing until the first add. */
@@ -55,11 +62,12 @@ writeback_set_deinit(writeback_set *set);
  * Issue writeback of a page (or of every page of an extent) and add it to the
  * set. Non-blocking.
  *
- * Returns STATUS_BUSY if the page is dirty but not writeback-able, i.e. someone
- * holds it locked or claimed; the caller must treat that as a failure to make
- * the set durable, since that page's contents will not reach the device. On any
- * failure the member is not added, and the set remains usable -- the caller can
- * still wait on what was added before it.
+ * Once the vector reservation succeeds, the member is enrolled even if it is
+ * temporarily locked or claimed.  Such an entry records that it needs a retry,
+ * allowing the caller to finish assembling the set without losing either a
+ * partially issued extent request or the identity of a page still needing a
+ * write.  Consequently these calls fail only if the member could not be
+ * enrolled at all (normally allocation failure).
  */
 platform_status
 writeback_set_add_page(writeback_set *set, page_handle *page, page_type type);
@@ -75,12 +83,17 @@ writeback_set_add_extent(writeback_set *set, uint64 addr, page_type type);
  * This is completion, NOT durability -- follow with
  * writeback_set_make_durable().
  *
- * Returns STATUS_IO_ERROR if any member's write failed. Even then it waits out
- * every member first, so that on return no write belonging to the set is still
- * in flight and the caller may reuse or free the pages.
+ * Returns STATUS_IO_ERROR if a write failed, or STATUS_BUSY if a member still
+ * needs to be reissued (including a page re-dirtied during its write). It still
+ * waits until every issued request has finished, so no I/O belonging to the set
+ * remains in flight when it returns.
  */
 platform_status
 writeback_set_wait(writeback_set *set);
+
+/* Reissue every member not completely covered by its previous request. */
+platform_status
+writeback_set_retry_incomplete(writeback_set *set);
 
 /*
  * Make the completed writes durable. Must follow a successful

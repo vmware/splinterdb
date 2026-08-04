@@ -1525,8 +1525,14 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
    /* 5. clear lookup, disk addr */
    uint64 addr = entry->page.disk_addr;
    if (addr != CC_UNMAPPED_ADDR) {
-      uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
-      cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
+      bool32 unmapped  = __sync_bool_compare_and_swap(
+         &cc->lookup[lookup_no], entry_number, CC_UNMAPPED_ENTRY);
+      platform_assert(unmapped,
+                      "eviction of entry %u at addr %lu found lookup entry %u",
+                      entry_number,
+                      addr,
+                      cc->lookup[lookup_no]);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
    }
    debug_only uint32 debug_status =
@@ -1765,16 +1771,17 @@ clockcache_flush(clockcache *cc)
  *      evicts all the pages.
  *-----------------------------------------------------------------------------
  */
-int
+platform_status
 clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
 {
    uint32 evict_hand;
-   uint32 i;
 
-   if (!ignore_pinned_pages) {
-      // there can be no references or pins or locks or it will block eviction
-      clockcache_assert_no_locks_held(cc); // take out for performance
-   }
+   /*
+    * Prefetch and writeback callbacks can leave entries temporarily loading or
+    * writeback-locked even after their users have dropped every reference.
+    * Drain those callbacks before checking the quiescent-cache invariant.
+    */
+   io_wait_all(cc->io);
 
    // evict all the pages
    for (evict_hand = 0; evict_hand < cc->cfg->batch_capacity; evict_hand++) {
@@ -1783,16 +1790,43 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
       clockcache_evict_batch(cc, evict_hand);
    }
 
-   for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_only uint32 entry_no =
-         clockcache_page_to_entry_number(cc, &cc->entry->page);
-      // Every page should either be evicted or pinned.
-      debug_assert(
-         cc->entry[i].status == CC_FREE_STATUS
-         || (ignore_pinned_pages && clockcache_get_pin(cc, entry_no)));
+   for (uint32 entry_no = 0; entry_no < cc->cfg->page_capacity; entry_no++) {
+      if (cc->entry[entry_no].status == CC_FREE_STATUS) {
+         if (cc->entry[entry_no].page.disk_addr != CC_UNMAPPED_ADDR) {
+            platform_error_log("clockcache_evict_all: free entry %u still "
+                               "names addr %lu\n",
+                               entry_no,
+                               cc->entry[entry_no].page.disk_addr);
+            return STATUS_INVALID_STATE;
+         }
+         continue;
+      }
+      if (ignore_pinned_pages && clockcache_get_pin(cc, entry_no)) {
+         continue;
+      }
+      platform_error_log("clockcache_evict_all: entry %u at addr %lu remained "
+                         "resident with status 0x%x\n",
+                         entry_no,
+                         cc->entry[entry_no].page.disk_addr,
+                         cc->entry[entry_no].status);
+      return STATUS_BUSY;
    }
 
-   return 0;
+   if (!ignore_pinned_pages) {
+      uint64 lookup_capacity =
+         allocator_get_capacity(cc->al) / clockcache_page_size(cc);
+      for (uint64 lookup_no = 0; lookup_no < lookup_capacity; lookup_no++) {
+         if (cc->lookup[lookup_no] != CC_UNMAPPED_ENTRY) {
+            platform_error_log("clockcache_evict_all: lookup %lu still maps "
+                               "entry %u\n",
+                               lookup_no,
+                               cc->lookup[lookup_no]);
+            return STATUS_INVALID_STATE;
+         }
+      }
+   }
+
+   return STATUS_OK;
 }
 
 /*
@@ -1815,10 +1849,13 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    entry->page.disk_addr      = addr;
    entry->type                = type;
    uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
-   // bool32 rc        = __sync_bool_compare_and_swap(
-   //    &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_no);
-   // platform_assert(rc);
-   cc->lookup[lookup_no] = entry_no;
+   bool32 mapped    = __sync_bool_compare_and_swap(
+      &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_no);
+   platform_assert(mapped,
+                   "allocation of entry %u at addr %lu found lookup entry %u",
+                   entry_no,
+                   addr,
+                   cc->lookup[lookup_no]);
    clockcache_record_backtrace(cc, entry_no);
 
    clockcache_log(entry->page.disk_addr,
@@ -1902,8 +1939,14 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
       clockcache_get_write(cc, entry_number);
 
       /* 5. clear lookup and disk addr; set status to CC_FREE_STATUS */
-      uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
-      cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
+      bool32 unmapped  = __sync_bool_compare_and_swap(
+         &cc->lookup[lookup_no], entry_number, CC_UNMAPPED_ENTRY);
+      platform_assert(unmapped,
+                      "discard of entry %u at addr %lu found lookup entry %u",
+                      entry_number,
+                      addr,
+                      cc->lookup[lookup_no]);
       debug_assert(entry->page.disk_addr == addr);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
 
@@ -3813,7 +3856,7 @@ clockcache_durable_barrier_virtual(cache *c)
    return io_durable_barrier(cc->io);
 }
 
-int
+platform_status
 clockcache_evict_all_virtual(cache *c, bool32 ignore_pinned)
 {
    clockcache *cc = (clockcache *)c;
