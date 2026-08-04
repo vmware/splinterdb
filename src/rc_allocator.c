@@ -422,6 +422,7 @@ rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
 refcount
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
+   platform_assert(al->map_is_valid);
    debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
@@ -441,6 +442,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 refcount
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 {
+   platform_assert(al->map_is_valid);
    debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
@@ -534,6 +536,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
                    uint64       *addr, // OUT
                    page_type     type)     // IN
 {
+   platform_assert(al->map_is_valid);
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
    bool32 extent_is_free = FALSE;
