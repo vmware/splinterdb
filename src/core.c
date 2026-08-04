@@ -199,6 +199,72 @@ core_superblock_log_head_to_log(superblock_log_head info)
    };
 }
 
+/* Does the durable record name this concrete log stream as its live log? */
+static bool32
+core_superblock_log_head_matches(superblock_log_head recorded, log_head live)
+{
+   return !SUPERBLOCK_NO_LOG(recorded) && recorded.addr == live.addr
+          && recorded.meta_addr == live.meta_addr
+          && recorded.magic == live.magic;
+}
+
+/*
+ * Superblock transitions are staged directly in the context's in-memory
+ * image.  Keep an explicit before-image around any transition that can be
+ * retried while the core remains mounted.  In particular,
+ * superblock_make_durable() increments the generation before doing I/O, so a
+ * failed write/barrier must not leave the semantic transition staged for a
+ * caller that will apply it again.
+ */
+static void
+core_superblock_save_image(core_handle *spl, superblock *saved)
+{
+   memcpy(saved, spl->superblock.image, sizeof(*saved));
+}
+
+static void
+core_superblock_restore_image(core_handle *spl, const superblock *saved)
+{
+   memcpy(spl->superblock.image, saved, sizeof(*saved));
+}
+
+/*
+ * Is the live trunk cut already exactly the one in the confirmed superblock
+ * image?  This recognizes a checkpoint that made all data durable before an
+ * unmount's redundant publication encounters an I/O error.
+ */
+static bool32
+core_current_root_matches_durable_record(core_handle *spl)
+{
+   trunk_snapshot snapshot;
+   uint64         first_unincorporated_generation;
+   platform_status rc = core_checkpoint_capture_cut(
+      spl, &snapshot, &first_unincorporated_generation);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_unmount: could not inspect the current root: "
+                         "%s\n",
+                         platform_status_to_string(rc));
+      return FALSE;
+   }
+
+   superblock_tree_record rec;
+   superblock_get_tree_record(&spl->superblock, &rec);
+   bool32 matches = snapshot.root_addr == rec.root_addr
+                    && first_unincorporated_generation
+                          == rec.first_unincorporated_generation;
+
+   uint64 snapshot_addr = snapshot.root_addr;
+   rc = trunk_snapshot_release(&spl->trunk_context, &snapshot);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_unmount: failed to release the root snapshot "
+                         "used for the durable-root check at addr %lu: %s\n",
+                         snapshot_addr,
+                         platform_status_to_string(rc));
+      spl->allocator_map_needs_rebuild = TRUE;
+   }
+   return matches;
+}
+
 /*
  * Commit the trunk's current COW root as the new durable tree root: capture the
  * root, make its pages durable, snapshot it into the superblock (recording the
@@ -214,7 +280,11 @@ core_superblock_log_head_to_log(superblock_log_head info)
  * durability checkpoint, and unmount (Part A).  On success the captured
  * reference becomes the durable record's and the previously published root's is
  * released; republishing an unchanged root is just the degenerate case of that,
- * so it needs no special handling.
+ * so it needs no special handling.  Failure to release the old root after the
+ * publication is reported and makes the allocator map non-persistable, but it
+ * does not turn a successful durable publication into a checkpoint failure:
+ * the return value reports publication, while the sticky allocator bit reports
+ * post-publication reference-cleanup trouble.
  *
  * Note this always publishes, even when the root is unchanged: callers stage
  * log transitions into the image beforehand, and the generation bound can
@@ -229,6 +299,7 @@ core_checkpoint_commit_current_root(core_handle *spl)
    uint64                 first_unincorporated_generation;
    uint64                 old_root_addr = 0;
    superblock_tree_record old_rec;
+   superblock             saved_superblock;
 
    /*
     * The snapshot cut, durable record write, and old-root release are one
@@ -264,6 +335,7 @@ core_checkpoint_commit_current_root(core_handle *spl)
    // The previously published root, retained until the new one is durable.
    superblock_get_tree_record(&spl->superblock, &old_rec);
    old_root_addr = old_rec.root_addr;
+   core_superblock_save_image(spl, &saved_superblock);
 
    /*
     * Snapshot the new root and make it durable.  snapshot_tree invalidates the
@@ -275,8 +347,18 @@ core_checkpoint_commit_current_root(core_handle *spl)
 
    rc = superblock_make_durable(&spl->superblock);
    if (!SUCCESS(rc)) {
-      /* The old root is still the newest durable one; keep its reference. */
-      goto release_snapshot;
+      /*
+       * Restore the last confirmed image so a retry does not reapply the root
+       * transition to its own staged result.  The write/barrier failure has an
+       * ambiguous outcome, however: the candidate slot may have reached disk.
+       * Retain the candidate root's snapshot reference conservatively so that
+       * a crash cannot find a durable record pointing at a root we later
+       * recycled.  The resulting possible overcount is repaired by recovery.
+       */
+      core_superblock_restore_image(spl, &saved_superblock);
+      snapshot.root_addr               = 0;
+      spl->allocator_map_needs_rebuild = TRUE;
+      goto unlock_superblock;
    }
 
    /*
@@ -300,9 +382,7 @@ core_checkpoint_commit_current_root(core_handle *spl)
                             "%lu: %s\n",
                             old_root_addr,
                             platform_status_to_string(release_rc));
-         if (SUCCESS(rc)) {
-            rc = release_rc;
-         }
+         spl->allocator_map_needs_rebuild = TRUE;
       }
    }
 
@@ -310,19 +390,25 @@ core_checkpoint_commit_current_root(core_handle *spl)
 
 release_snapshot:
 {
+   uint64          snapshot_addr = snapshot.root_addr;
    platform_status release_rc =
       trunk_snapshot_release(&spl->trunk_context, &snapshot);
-   if (SUCCESS(rc) && !SUCCESS(release_rc)) {
-      rc = release_rc;
+   if (!SUCCESS(release_rc)) {
+      platform_error_log("core_checkpoint_commit_current_root: failed to "
+                         "release unpublished root snapshot at addr %lu: %s\n",
+                         snapshot_addr,
+                         platform_status_to_string(release_rc));
+      spl->allocator_map_needs_rebuild = TRUE;
+      if (SUCCESS(rc)) {
+         rc = release_rc;
+      }
    }
 }
 
 unlock_superblock:
 {
    platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
-   if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
-      rc = unlock_rc;
-   }
+   platform_assert_status_ok(unlock_rc);
 }
    return rc;
 }
@@ -357,7 +443,9 @@ unlock_superblock:
 static bool32
 core_should_take_checkpoint(core_handle *spl)
 {
-   if (!spl->cfg.use_log || spl->cfg.checkpoint_log_size_bytes == 0) {
+   if (!spl->cfg.use_log || spl->log == NULL
+       || spl->cfg.checkpoint_log_size_bytes == 0)
+   {
       return FALSE;
    }
    /*
@@ -393,9 +481,10 @@ core_checkpoint_status_get(core_handle *spl)
  * pre-create the next live log and arm the swap.  Log creation does no disk
  * I/O, but is kept off the insert-blocking path.
  *
- * `force` bypasses only the interval policy, never the use_log precondition:
- * without a log there is nothing to cut, and arming would leave the rotate hook
- * dereferencing a NULL spl->log.
+ * `force` bypasses only the interval policy, never the live-log precondition:
+ * without a log there is nothing to cut.  In particular, crash recovery
+ * replays before this session's live stream is created, and its memtables may
+ * still rotate while the replay is being folded into the trunk.
  *
  * Returns a completion ticket for the checkpoint this call armed: it has
  * finished, and freed its retired log, once checkpoint.completions reaches the
@@ -408,7 +497,7 @@ core_checkpoint_status_get(core_handle *spl)
 static uint64
 core_checkpoint_begin(core_handle *spl, bool32 force)
 {
-   if (!spl->cfg.use_log) {
+   if (!spl->cfg.use_log || spl->log == NULL) {
       return 0;
    }
 
@@ -623,6 +712,8 @@ core_checkpoint_seal_cut(core_handle *spl)
     */
    platform_status rc = platform_mutex_lock(&spl->superblock_lock);
    if (SUCCESS(rc)) {
+      superblock saved_superblock;
+      core_superblock_save_image(spl, &saved_superblock);
       /*
        * The sealed log -- and the blobs its records point at -- is already
        * durable: log_seal() above did that, scoped to the log's own pages.  No
@@ -639,7 +730,11 @@ core_checkpoint_seal_cut(core_handle *spl)
       // The image still names the retiring log as live, so the cut moves it
       // into the sealed slot, carrying its recorded start generation along.
       superblock_log_cut(&spl->superblock, live);
-      rc                        = superblock_make_durable(&spl->superblock);
+      rc = superblock_make_durable(&spl->superblock);
+      if (!SUCCESS(rc)) {
+         /* Retry must cut the last confirmed image, not this staged one. */
+         core_superblock_restore_image(spl, &saved_superblock);
+      }
       platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
       platform_assert_status_ok(unlock_rc);
    }
@@ -730,13 +825,12 @@ core_maybe_complete_checkpoint(core_handle *spl)
  * (INCORPORATING/COMPLETING) is normally already reaped by the quiesce drain;
  * the residual cases below are defensive.
  *
- * reclaim_extents says whether the shutdown publish will leave any log behind.
- * Normally it will not, so the extents are freed here.  An unmount that is
- * preserving logs for replay passes FALSE: it cannot know which of these logs
- * that publish will keep, and freeing one it keeps would leave the durable
- * record naming freed space.  Nothing leaks permanently -- such an unmount also
- * leaves the allocation state invalid, so the next mount rebuilds the map from
- * the tree and logs and recomputes what is actually live.
+ * reclaim_extents is TRUE only after a complete-root shutdown publication has
+ * durably cleared every log slot.  Every recovery/fallback path passes FALSE:
+ * it cannot know which of these logs the durable record may still name, and
+ * freeing one it keeps would leave that record pointing at recycled space.
+ * Nothing leaks permanently -- those paths leave allocation state invalid, so
+ * the next mount rebuilds the map from exactly the tree and logs it can reach.
  */
 static void
 core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
@@ -763,9 +857,9 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
           * checkpoint that would free the previous log cannot complete.  The
           * handle may still be held for a retry that will now never happen.
           *
-          * Falls through: whether or not the cut was published, quiesce has
-          * incorporated everything, so no log is needed and its extents are
-          * reclaimed the same way.
+          * Falls through.  If reclaim_extents is TRUE, the complete root now
+          * supersedes both streams.  Otherwise their extents stay allocated
+          * until recovery determines which record reached disk.
           */
          if (cp->log_to_seal != NULL) {
             log_deinit(cp->log_to_seal);
@@ -773,9 +867,8 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
          // fallthrough
       case CORE_CHECKPOINT_INCORPORATING:
       case CORE_CHECKPOINT_COMPLETING:
-         // The sealed log is fully incorporated after quiesce.  The shutdown
-         // publish records sealed=none, so just reclaim its extents here
-         // (before the map is persisted, so the map reflects the free).
+         // Reclaim only after the shutdown record both covers the sealed log
+         // and names no logs (before map persistence, so the map reflects it).
          if (reclaim_extents) {
             shard_log_dec_ref(spl->cc, &cp->sealed_head);
          }
@@ -2550,7 +2643,13 @@ core_open_contexts(core_handle *spl, uint64 root_addr, uint64 resume_generation)
 static void
 core_close_contexts(core_handle *spl)
 {
-   trunk_context_deinit(&spl->trunk_context);
+   platform_status trunk_rc = trunk_context_deinit(&spl->trunk_context);
+   if (!SUCCESS(trunk_rc)) {
+      platform_error_log("core_close_contexts: trunk reference cleanup was "
+                         "incomplete; the allocator map will be rebuilt: %s\n",
+                         platform_status_to_string(trunk_rc));
+      spl->allocator_map_needs_rebuild = TRUE;
+   }
    memtable_context_deinit(&spl->mt_ctxt);
 }
 
@@ -2564,6 +2663,8 @@ core_rebuild_allocations(core_handle                  *spl,
                          const superblock_tree_record *rec,
                          bool32                        include_logs)
 {
+   /* A partial walk is never eligible to become durable allocator state. */
+   spl->allocator_map_needs_rebuild = TRUE;
    platform_status rc = allocator_recovery_begin(spl->al);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: allocator_recovery_begin failed: %s\n",
@@ -2602,6 +2703,7 @@ core_rebuild_allocations(core_handle                  *spl,
    }
 
    allocator_recovery_finish(spl->al);
+   spl->allocator_map_needs_rebuild = FALSE;
    return STATUS_OK;
 }
 
@@ -2680,9 +2782,9 @@ core_replay_log(core_handle *spl,
 }
 
 /*
- * Replay both streams onto the mounted contexts, fold the result into a
- * published root naming no logs, and rebuild the map from that root -- which is
- * what releases the logs.
+ * Replay both streams onto the mounted contexts and fold the result into a
+ * published root naming no logs.  The caller then closes these contexts and
+ * rebuilds the map from that root, which is what releases the logs.
  *
  * Requires the trunk and memtable contexts to be up, and requires that the
  * session's live log has NOT been cut yet: replay must not write the records it
@@ -2756,27 +2858,7 @@ core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
       return rc;
    }
 
-   /*
-    * Drop the contexts before rebuilding.  They hold live references that the
-    * rebuild would not reproduce -- the trunk context holds one on the root,
-    * over and above the durable record's -- and a rebuild that counts only
-    * what the record names would leave those holders to underflow the map when
-    * they are eventually released.  Dropping them first and taking them again
-    * afterwards keeps the rebuilt map the single source of truth instead of
-    * something that has to be patched up, which is the whole reason recovery
-    * rebuilds rather than enumerating what to release.
-    */
-   core_close_contexts(spl);
-
-   // Re-read the record: the publish advanced the root and cleared the slots.
-   superblock_tree_record recovered;
-   superblock_get_tree_record(&spl->superblock, &recovered);
-   rc = core_rebuild_allocations(spl, &recovered, FALSE);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   return core_open_contexts(
-      spl, recovered.root_addr, recovered.first_unincorporated_generation);
+   return STATUS_OK;
 }
 
 /* Format the disk and mount the database */
@@ -2891,7 +2973,7 @@ core_mkfs(core_handle      *spl,
 deinit_stats:
    core_destroy_stats(spl);
 deinit_trunk_context:
-   trunk_context_deinit(&spl->trunk_context);
+   (void)trunk_context_deinit(&spl->trunk_context);
 deinit_log:
    if (spl->cfg.use_log) {
       platform_free(spl->heap_id, spl->log);
@@ -2929,7 +3011,8 @@ core_mount(core_handle      *spl,
    spl->heap_id = hid;
    spl->ts      = ts;
 
-   platform_status rc = core_locks_init(spl);
+   bool32          contexts_open = FALSE;
+   platform_status rc            = core_locks_init(spl);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: lock initialization failed: %s\n",
                          platform_status_to_string(rc));
@@ -2982,6 +3065,8 @@ core_mount(core_handle      *spl,
       if (!SUCCESS(rc)) {
          platform_error_log("core_mount: allocator_load_refcounts failed: %s\n",
                             platform_status_to_string(rc));
+      } else {
+         spl->allocator_map_needs_rebuild = FALSE;
       }
    }
    if (!SUCCESS(rc)) {
@@ -2997,6 +3082,7 @@ core_mount(core_handle      *spl,
    if (!SUCCESS(rc)) {
       goto deinit_superblock;
    }
+   contexts_open = TRUE;
 
    rc = core_create_stats(spl);
    if (!SUCCESS(rc)) {
@@ -3013,13 +3099,44 @@ core_mount(core_handle      *spl,
     */
    if (recovering) {
       rc = core_recover_replay(spl, &rec);
+      if (!SUCCESS(rc)) {
+         /*
+          * Replay may have rotated memtables and queued their flush or
+          * incorporation before encountering the bad record.  Drain that work
+          * while its stats, memtable, and trunk contexts are still alive;
+          * common mount cleanup may then tear those contexts down safely.
+          */
+         (void)core_quiesce(spl);
+         io_permit_unwritten_reads(io, FALSE);
+         goto deinit_stats;
+      }
+
+      /*
+       * The contexts hold references that a root-only rebuild must not count.
+       * Close them in this scope so every failure path below knows whether the
+       * common cleanup still owns live contexts; core_recover_replay() itself
+       * leaves them open on every return.
+       */
+      core_close_contexts(spl);
+      contexts_open = FALSE;
+
+      // The recovery publish advanced the root and cleared both log slots.
+      superblock_get_tree_record(&spl->superblock, &rec);
+      rc = core_rebuild_allocations(spl, &rec, FALSE);
+      if (SUCCESS(rc)) {
+         rc = core_open_contexts(spl,
+                                 rec.root_addr,
+                                 rec.first_unincorporated_generation);
+         if (SUCCESS(rc)) {
+            contexts_open = TRUE;
+         }
+      }
+
       // Recovery is over either way; from here a short read is a real error.
       io_permit_unwritten_reads(io, FALSE);
       if (!SUCCESS(rc)) {
          goto deinit_stats;
       }
-      // The publish advanced the root; the resume generation moves with it.
-      superblock_get_tree_record(&spl->superblock, &rec);
       resume_generation = rec.first_unincorporated_generation;
    }
 
@@ -3064,7 +3181,9 @@ deinit_log:
 deinit_stats:
    core_destroy_stats(spl);
 deinit_contexts:
-   core_close_contexts(spl);
+   if (contexts_open) {
+      core_close_contexts(spl);
+   }
 deinit_superblock:
    /*
     * Unconditional: a mount that failed part-way through recovery may have left
@@ -3307,152 +3426,169 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 platform_status
 core_unmount(core_handle *spl, bool32 force)
 {
-   platform_status rc;
-
    /*
-    * Quiescing leaves the memtable and log contexts live so publication can
-    * atomically capture the retired generation and root -- and so that the
-    * durability check below can still walk away.
+    * Everything through the data_safe decision is non-destructive.  Quiescing
+    * leaves the memtable, checkpoint, and log contexts live so a failed
+    * non-forced close can return a usable handle.
     */
    bool32 all_incorporated = core_quiesce(spl);
 
    /*
-    * Get what the log holds onto disk.  Deliberately make_durable and not seal:
-    * a seal ends the stream, and until the check below has passed we may yet
-    * decide to keep running.  The seal follows once we commit to unmounting, by
-    * which point it is cheap -- only the terminator is left to write.
+    * A failed checkpoint cut can leave the newly installed live log unnamed by
+    * the durable superblock.  Retry the cut once before testing the log route.
+    * This is still safe to walk away from: sealing retires only the previous
+    * stream, while inserts already use the new one.
     */
-   platform_status log_rc   = STATUS_OK;
-   bool32          have_log = spl->cfg.use_log && spl->log != NULL;
+   core_checkpoint_seal_cut(spl);
+
+   platform_status log_rc      = STATUS_OK;
+   bool32          have_log    = spl->cfg.use_log && spl->log != NULL;
+   log_head        live_log    = {0};
+   bool32          log_named   = FALSE;
+   bool32          log_durable = FALSE;
    if (have_log) {
+      live_log = log_get_head(spl->log);
+      superblock_tree_record durable_rec;
+      superblock_get_tree_record(&spl->superblock, &durable_rec);
+      log_named = core_superblock_log_head_matches(durable_rec.live_log,
+                                                    live_log);
+
+      /*
+       * A cut whose old stream was sealed but whose publication failed leaves
+       * that stream durably named as live.  It is a complete recovery route
+       * only when the newly installed, unnamed stream has accepted no records.
+       */
+      bool32 retiring_log_durable =
+         spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
+         && spl->checkpoint.log_to_seal == NULL
+         && log_is_empty(spl->log)
+         && core_superblock_log_head_matches(durable_rec.live_log,
+                                             spl->checkpoint.sealed_head);
+
       log_rc = log_make_durable(spl->log);
       if (!SUCCESS(log_rc)) {
          platform_error_log("core_unmount: failed to make the live log "
                             "durable: %s\n",
                             platform_status_to_string(log_rc));
       }
+      log_durable = (log_named && SUCCESS(log_rc)) || retiring_log_durable;
    }
-   bool32 have_durable_log = have_log && SUCCESS(log_rc);
 
    /*
-    * Records no memtable incorporated are not in the tree, so a durable log is
-    * the only thing that can carry them.  Without one, unmounting would destroy
-    * the last copy -- so stop, while stopping is still possible: nothing above
-    * has dismantled anything, so returning here leaves a working database.
+    * First publish the current root with log reachability unchanged.  This is
+    * the safety probe: after an indeterminate write/barrier outcome, both the
+    * previous record and the candidate still name the same live log.  A failed
+    * non-forced close can therefore restore its in-memory before-image and keep
+    * running without allowing later writes to disappear into an unnamed log.
     */
-   if (!all_incorporated && !have_durable_log) {
-      if (!force) {
-         platform_error_log(
-            "core_unmount: refusing to unmount: memtables are unincorporated "
-            "and %s, so their records would be lost.  The database is still "
-            "mounted; retry the unmount, or force it to discard them.\n",
-            have_log ? "the log could not be made durable" : "logging is off");
-         /*
-          * STATUS_BUSY specifically, and not the underlying log error (already
-          * logged above): it is the caller's one signal that the instance is
-          * still mounted, so it must not collide with the errors the
-          * destructive path below can return once the unmount is committed to.
-          */
-         return STATUS_BUSY;
+   bool32 existing_root_anchor =
+      all_incorporated && core_current_root_matches_durable_record(spl);
+   platform_status root_publish_rc =
+      core_checkpoint_commit_current_root(spl);
+   bool32 root_publish_succeeded = SUCCESS(root_publish_rc);
+   if (!root_publish_succeeded) {
+      platform_error_log("core_unmount: failed to publish the unmount root: "
+                         "%s\n",
+                         platform_status_to_string(root_publish_rc));
+   }
+
+   bool32 root_anchor =
+      all_incorporated && (existing_root_anchor || root_publish_succeeded);
+
+   /*
+    * Once a complete root is confirmed, clear the log slots in a second
+    * publication.  Failure here cannot endanger data: every possible record
+    * points at that same complete root.  It only determines whether log extents
+    * may be reclaimed and allocator state may be published as clean.
+    */
+   bool32 logs_discarded = FALSE;
+   if (all_incorporated && root_publish_succeeded) {
+      superblock root_superblock;
+      core_superblock_save_image(spl, &root_superblock);
+      superblock_discard_logs(&spl->superblock);
+      platform_status discard_rc =
+         core_checkpoint_commit_current_root(spl);
+      if (SUCCESS(discard_rc)) {
+         logs_discarded = TRUE;
+      } else {
+         core_superblock_restore_image(spl, &root_superblock);
+         platform_error_log("core_unmount: failed to publish log removal; "
+                            "the next mount will recover: %s\n",
+                            platform_status_to_string(discard_rc));
       }
-      platform_error_log("core_unmount: forced past unincorporated memtables; "
-                         "their records are lost\n");
    }
 
    /*
-    * Past this point the unmount is committed to and every step is destructive.
-    *
-    * Whether the logs can be discarded is exactly whether the root about to be
-    * published covers everything.  When it does not, the log is what carries
-    * the difference, so it has to survive the unmount instead: leave the slots
-    * as they are, let the publish record the replay bound, and reclaim nothing.
+    * The return value describes data preservation, not whether recovery is
+    * needed.  A confirmed complete root or a synced, durably named live log is
+    * sufficient.  Merely syncing a newly swapped-in but unpublished log is
+    * not: recovery would have no pointer with which to find it.
     */
-   bool32 preserve_logs = !all_incorporated && have_durable_log;
+   bool32 data_safe = root_anchor || log_durable;
+   platform_status safety_rc = STATUS_OK;
+   if (!data_safe) {
+      if (!all_incorporated && have_log && !SUCCESS(log_rc)) {
+         safety_rc = log_rc;
+      } else if (!root_publish_succeeded) {
+         safety_rc = root_publish_rc;
+      } else {
+         safety_rc = STATUS_BUSY;
+      }
 
-   // Report the memtables and release the branches they stranded.
+      platform_error_log(
+         "core_unmount: data preservation could not be guaranteed: %s%s.\n",
+         !all_incorporated
+            ? "the durable root omits unincorporated memtables"
+            : "the current root was not durably published",
+         !log_durable
+            ? (have_log && !log_named
+                  ? " and the live log is not named by the durable superblock"
+                  : " and no durable log recovery route is available")
+            : "");
+      if (!force) {
+         platform_error_log("core_unmount: the database remains mounted; "
+                            "retry the unmount or force it\n");
+         return safety_rc;
+      }
+   }
+
+   /*
+    * Past this point the unmount is committed to and teardown is destructive.
+    */
    if (!all_incorporated) {
       core_report_unincorporated_memtables(spl);
    }
 
-   core_checkpoint_cleanup_for_shutdown(spl, !preserve_logs);
+   /*
+    * Reclaim logs only after a confirmed root publication both covers all
+    * memtables and durably clears the log slots.  In every fallback/recovery
+    * case retain their extents; the invalid allocation-state marker makes the
+    * next mount reconstruct exactly what the durable record still reaches.
+    */
+   bool32 reclaim_logs = logs_discarded;
+   core_checkpoint_cleanup_for_shutdown(spl, reclaim_logs);
 
    /*
-    * Deliberately no seal.  log_make_durable() above already put everything the
-    * log holds on disk, and nothing has written to it since -- the instance is
-    * quiesced -- so a seal would add only the end-of-stream marker.
-    *
-    * Nothing can use that marker here.  Whether the publish below succeeds or
-    * fails, and whether or not we are preserving it, this log is read back as a
-    * live log: the log that a durable superblock names as live.  Recovery must
-    * always treat one of those as possibly truncated, because a crash ends a
-    * live log mid-stream by definition, so being able to prove this particular
-    * one whole buys nothing.  Sealing could only cost: it writes another page,
-    * and failing that write leaves a partial trailing group for the reader to
-    * discard.  In the ordinary case its extents are freed a few lines below
-    * anyway.
+    * Deliberately no seal of the current live stream.  make_durable above
+    * closed its current group; recovery already treats a live stream as
+    * possibly truncated, so a terminator adds no safety at shutdown.
     */
-   log_head live_log = {0};
    if (have_log) {
-      live_log = log_get_head(spl->log);
       log_deinit(spl->log);
       spl->log = NULL;
    }
 
-   /*
-    * Part A: publish the unmount root.  In the normal case both log slots are
-    * cleared first (no live or sealed log at rest -- their extents are freed
-    * just below, so no reference to them may survive); both transitions go out
-    * in the single publish the commit performs.  Allocation state stays invalid
-    * here; it becomes valid only in Part B, after the map is persisted.
-    */
-   if (!preserve_logs) {
-      superblock_discard_logs(&spl->superblock);
-   }
-   rc = core_checkpoint_commit_current_root(spl);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_unmount: failed to publish unmount root: %s\n",
-                         platform_status_to_string(rc));
-      /*
-       * A failed publish writes nothing, so the durable superblock still names
-       * the root and the log it named on entry.  That costs nothing when a
-       * durable log survives to be replayed onto that root -- which is the
-       * whole point of the two routes.  With neither, the root predates
-       * everything written since the last checkpoint and no log can supply it.
-       */
-      if (!have_durable_log) {
-         platform_error_log("core_unmount: the unmount root was not published "
-                            "and there is no durable log to replay; records "
-                            "since the last checkpoint are lost\n");
-      }
+   if (data_safe && !logs_discarded) {
+      platform_error_log("core_unmount: shutdown retained recovery state; "
+                         "the next mount must recover\n");
    }
 
-   /*
-    * The published root omits the unincorporated memtables, but the log that
-    * holds them is preserved and the record names it, so nothing is lost.  The
-    * instance is no longer clean at rest, though -- the allocation state is
-    * left invalid below, so the next mount must replay before it can serve.
-    */
-   if (SUCCESS(rc) && preserve_logs) {
-      platform_error_log("core_unmount: unincorporated memtables were left in "
-                         "the log; the next mount must recover it\n");
-   }
-
-   /*
-    * Forced past a loss we already reported.  The publish succeeded, so the
-    * shutdown is otherwise clean, but it cannot be called a success.
-    */
-   if (SUCCESS(rc) && !all_incorporated && !preserve_logs) {
-      rc = STATUS_INVALID_STATE;
-   }
-
-   // Keep this after publication above: it supplies the generation cut.
+   // Keep this after root publication: the context supplies its generation cut.
    memtable_context_deinit(&spl->mt_ctxt);
 
-   // Flush all dirty pages.  The live log has already been sealed (above); free
-   // its extents now that the cache is flushed, before the map is persisted
-   // (Part B) so the persisted map reflects the free.
+   // Free log extents only after the durable record no longer names them.
    cache_flush(spl->cc);
-   if (!preserve_logs) {
+   if (reclaim_logs) {
       shard_log_dec_ref(spl->cc, &live_log);
    }
    /*
@@ -3460,21 +3596,21 @@ core_unmount(core_handle *spl, bool32 force)
     * the persisted refcounts reflect exactly the durable record's single
     * reference to the root.
     */
-   trunk_context_deinit(&spl->trunk_context);
+   platform_status trunk_rc = trunk_context_deinit(&spl->trunk_context);
+   if (!SUCCESS(trunk_rc)) {
+      platform_error_log("core_unmount: trunk reference cleanup was "
+                         "incomplete; the allocator map will be rebuilt: %s\n",
+                         platform_status_to_string(trunk_rc));
+      spl->allocator_map_needs_rebuild = TRUE;
+   }
 
    /*
-    * Part B: only after a clean Part A publish, persist the refcount map and
-    * republish a valid allocation state pointing at it.  The map is made
-    * durable before the "map is trustworthy" flag, and that flag becomes
-    * durable only after the root it must agree with (Part A).  On a Part A
-    * failure we leave the allocation state invalid so the next open rebuilds.
-    *
-    * Skipped entirely when logs were preserved: a valid allocation state is the
-    * instance's one "clean at rest, no recovery needed" signal, and this
-    * instance does need recovery.  Claiming otherwise would let the next mount
-    * skip replay and silently drop the very records we just kept.
+    * Part B is only an optimization for the next mount.  Publish the map after
+    * a complete-root Part A only when every reference release was accounted
+    * for.  A suspect map, preserved logs, or a Part-B I/O failure merely forces
+    * recovery; none changes the data-safety result returned by this function.
     */
-   if (SUCCESS(rc) && !preserve_logs) {
+   if (logs_discarded && !spl->allocator_map_needs_rebuild) {
       uint64          map_addr;
       platform_status prc = allocator_persist(spl->al, &map_addr);
       if (SUCCESS(prc)) {
@@ -3483,16 +3619,19 @@ core_unmount(core_handle *spl, bool32 force)
       }
       if (!SUCCESS(prc)) {
          platform_error_log("core_unmount: failed to publish clean allocation "
-                            "state: %s\n",
+                            "state; the next mount will rebuild it: %s\n",
                             platform_status_to_string(prc));
-         rc = prc;
       }
+   } else if (logs_discarded && spl->allocator_map_needs_rebuild) {
+      platform_error_log("core_unmount: allocator reference accounting is "
+                         "incomplete; leaving allocation state invalid for "
+                         "rebuild on the next mount\n");
    }
 
    superblock_context_deinit(&spl->superblock);
    core_destroy_stats(spl);
    core_locks_deinit(spl);
-   return rc;
+   return data_safe ? STATUS_OK : safety_rc;
 }
 
 /*

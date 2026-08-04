@@ -97,6 +97,11 @@ typedef void (*log_deinit_fn)(log_handle *log);
  */
 typedef log_head (*log_head_fn)(log_handle *log);
 /*
+ * Whether the stream has ever accepted a record.  The caller must exclude
+ * concurrent log_write() calls while inspecting this state.
+ */
+typedef bool32 (*log_is_empty_fn)(log_handle *log);
+/*
  * Bytes appended to the stream so far, so a caller can decide when to retire
  * it. Excludes the implementation's fixed per-stream overhead: a stream that
  * has had nothing written to it reports 0, which keeps a size-triggered policy
@@ -112,6 +117,7 @@ typedef struct log_ops {
    log_seal_fn         seal;
    log_deinit_fn       deinit;
    log_head_fn         head;
+   log_is_empty_fn     is_empty;
    log_size_fn         size;
 } log_ops;
 
@@ -164,6 +170,13 @@ static inline log_head
 log_get_head(log_handle *log)
 {
    return log->ops->head(log);
+}
+
+/* Whether this stream has accepted any records. */
+static inline bool32
+log_is_empty(log_handle *log)
+{
+   return log->ops->is_empty(log);
 }
 
 /* Bytes the stream currently occupies on disk.  See log_size_fn. */

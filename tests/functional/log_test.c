@@ -257,15 +257,21 @@ test_log_multiple_groups(clockcache             *cc,
 
    log_handle *log = shard_log_create((cache *)cc, cfg, hid);
    platform_assert(log != NULL);
+   platform_assert(log_is_empty(log));
+   platform_assert_status_ok(log_make_durable(log));
+   platform_assert(log_is_empty(log));
    segment = log_get_head(log);
 
    for (uint64 g = 0; g < num_groups; g++) {
       test_log_write_range(log, gen, hid, key_size, g * per_group, per_group);
+      platform_assert(!log_is_empty(log));
       // Ends this group and starts the next; the stream stays open.
       platform_assert_status_ok(log_make_durable(log));
+      platform_assert(!log_is_empty(log));
    }
 
    platform_assert_status_ok(log_seal(log));
+   platform_assert(!log_is_empty(log));
    log_deinit(log);
 
    platform_status rc = cache_writeback_dirty((cache *)cc);

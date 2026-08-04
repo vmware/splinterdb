@@ -733,6 +733,103 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
 }
 
 /*
+ * A conservative reference-release failure can leave the live allocator map
+ * usable but inexact.  Unmount must still succeed once the root is durable,
+ * while refusing to bless that map as clean allocation state.  The next mount
+ * then rebuilds it, after which an ordinary clean unmount may persist it again.
+ *
+ * trunk_snapshot_release() has no deterministic failure injection today, so
+ * set the core's sticky result bit directly to exercise the shutdown/recovery
+ * contract that such a failure triggers.
+ */
+CTEST2(splinter, test_unmount_skips_allocator_map_that_needs_rebuild)
+{
+   allocator        *alp     = (allocator *)&data->al;
+   allocator_config *acfg    = allocator_get_config(alp);
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       created, recovered, cleanup;
+   platform_status   rc;
+
+   rc = core_mkfs(&created,
+                  &data->system_cfg->splinter_cfg,
+                  alp,
+                  (cache *)data->clock_cache,
+                  data->io,
+                  &data->tasks,
+                  root_id,
+                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(&created,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&msg),
+                    NULL);
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   created.allocator_map_needs_rebuild = TRUE;
+   rc = core_unmount(&created, FALSE);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_context sb;
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   ASSERT_FALSE(superblock_allocation_state_valid(&sb));
+   superblock_context_deinit(&sb);
+
+   rc = core_mount(&recovered,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_FALSE(recovered.allocator_map_needs_rebuild);
+
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, recovered.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = core_lookup(&recovered, key_buffer_key(&keybuf), &qdata);
+   ASSERT_TRUE(SUCCESS(rc));
+   verify_tuple(&recovered,
+                &data->gen,
+                1,
+                key_buffer_key(&keybuf),
+                merge_accumulator_to_message(
+                   lookup_result_accumulator(&qdata)),
+                TRUE);
+   lookup_result_deinit(&qdata);
+
+   rc = core_unmount(&recovered, FALSE);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   ASSERT_TRUE(superblock_allocation_state_valid(&sb));
+   superblock_context_deinit(&sb);
+
+   rc = core_mount(&cleanup,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   core_destroy(&cleanup);
+}
+
+/*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
  * successful mount publishes such an active record, so this walks a record pair

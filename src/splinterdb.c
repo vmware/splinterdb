@@ -576,12 +576,13 @@ splinterdb_open(const splinterdb_config *cfg, // IN
  *      Platform heap memory is also destroyed when closing SplinterDB.
  *
  * Results:
- *      0 on success.  If closing would lose data that cannot be made durable,
- *      returns an error and closes nothing -- *kvs_in is left open and usable.
- *      Pass force to close anyway, accepting the loss.
+ *      0 when all acknowledged data is recoverable (possibly after replay or
+ *      allocator reconstruction).  Without force, an error closes nothing and
+ *      leaves *kvs_in open and usable.  With force, an error means preservation
+ *      could not be guaranteed, but teardown still completes.
  *
  * Side effects:
- *      On success, *kvs_in is freed and set to NULL.
+ *      On success or any forced close, *kvs_in is freed and set to NULL.
  *-----------------------------------------------------------------------------
  */
 int
@@ -601,26 +602,29 @@ splinterdb_close(splinterdb **kvs_in, bool32 force) // IN
     * created or re-opened. Otherwise, asserts will trip.
     */
    platform_status status = core_unmount(&kvs->spl, force);
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to close SplinterDB instance cleanly: %s\n",
-                         platform_status_to_string(status));
-   }
    /*
-    * STATUS_BUSY means the unmount declined to lose data and left the instance
-    * mounted (see core.h).  There is nothing to tear down, and tearing down
-    * anyway would destroy exactly the data it just refused to.  The handle
-    * stays valid so the caller can retry or force.
+    * Every non-forced error is a refusal made before destructive teardown.
+    * Keep the wrapper and all of its subsystems intact so the caller can retry
+    * or force.  A forced close always spends the handle, even when its status
+    * says that preservation could not be guaranteed.
     */
-   if (STATUS_IS_EQ(status, STATUS_BUSY)) {
+   if (!SUCCESS(status) && !force) {
+      platform_error_log("SplinterDB remains open because it could not be "
+                         "closed with guaranteed data preservation: %s\n",
+                         platform_status_to_string(status));
       return platform_status_to_int(status);
+   }
+   if (!SUCCESS(status)) {
+      platform_error_log("SplinterDB was forcibly closed, but data "
+                         "preservation could not be guaranteed: %s\n",
+                         platform_status_to_string(status));
    }
    io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
    /*
-    * core_unmount() already persisted the refcount map and published the
-    * superblock's allocation state (or, on failure, deliberately left it
-    * invalid so the next open rebuilds); the allocator now only tears down its
-    * in-memory structures.
+    * core_unmount() either published a trustworthy refcount map or deliberately
+    * left allocation state invalid for recovery; the allocator now only tears
+    * down its in-memory structures.
     */
    rc_allocator_deinit(&kvs->allocator_handle);
    task_system_deinit(&kvs->task_sys);

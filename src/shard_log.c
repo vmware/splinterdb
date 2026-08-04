@@ -314,7 +314,8 @@ shard_log_write(log_handle *logh,
 
    ((shard_log_hdr *)thread_data->buf)->num_entries++;
 
-   thread_data->offset += new_entry_size;
+   thread_data->offset      += new_entry_size;
+   thread_data->has_records = TRUE;
    debug_assert(thread_data->offset <= page_size);
 
    if (log_blob_inited) {
@@ -336,21 +337,6 @@ shard_log_write(log_handle *logh,
    }
 
    return 0;
-}
-
-/*
- * Wait for every page handed over since the group opened, then forget the
- * receipts.  Not a durability barrier: it establishes only that the writes
- * reached the device.
- */
-static platform_status
-shard_log_drain_writes(shard_log *log)
-{
-   platform_mutex_lock(&log->wbset_lock);
-   platform_status rc = writeback_set_wait(&log->wbset);
-   writeback_set_reset(&log->wbset);
-   platform_mutex_unlock(&log->wbset_lock);
-   return rc;
 }
 
 /*
@@ -479,10 +465,16 @@ shard_log_close_group_durably(shard_log *log, shard_log_close how)
       return rc;
    }
 
-   rc = shard_log_drain_writes(log);
+   platform_mutex_lock(&log->wbset_lock);
+   rc = writeback_set_wait(&log->wbset);
    if (SUCCESS(rc)) {
       rc = writeback_set_make_durable(&log->wbset);
    }
+   if (SUCCESS(rc)) {
+      writeback_set_reset(&log->wbset);
+   }
+   platform_mutex_unlock(&log->wbset_lock);
+
    return rc;
 }
 
@@ -808,12 +800,30 @@ shard_log_get_size(log_handle *logh)
           * shard_log_extent_size(log->cfg);
 }
 
+/*
+ * Exact emptiness without a shared counter on the append path.  Each writer
+ * owns its thread-local flag, and the log interface requires callers to exclude
+ * writers while taking this snapshot.
+ */
+static bool32
+shard_log_is_empty(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      if (shard_log_get_thread_data(log, thr_i)->has_records) {
+         return FALSE;
+      }
+   }
+   return TRUE;
+}
+
 static log_ops shard_log_ops = {
    .write        = shard_log_write,
    .make_durable = shard_log_make_durable,
    .seal         = shard_log_seal,
    .deinit       = shard_log_deinit,
    .head         = shard_log_get_head,
+   .is_empty     = shard_log_is_empty,
    .size         = shard_log_get_size,
 };
 

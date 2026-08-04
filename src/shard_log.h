@@ -43,8 +43,9 @@ typedef struct shard_log_config {
  * is no partially-filled page on disk to be rewritten later.
  */
 typedef struct shard_log_thread_data {
-   char  *buf;    // page-sized image under construction
-   uint64 offset; // append cursor within buf
+   char  *buf;         // page-sized image under construction
+   uint64 offset;      // append cursor within buf
+   bool32 has_records; // sticky for this thread over the stream's lifetime
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
 /*

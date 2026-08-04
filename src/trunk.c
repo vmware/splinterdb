@@ -1742,11 +1742,11 @@ bundle_dec_all_refs(trunk_context *context, bundle *bndl)
 //    cache_unget(context->cc, page);
 // }
 
-static void
+static platform_status
 trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr);
 
 /* Prerequisite: addr must be in the AL_NO_REFS state. */
-static void
+static platform_status
 trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
 {
    trunk_node      node;
@@ -1755,7 +1755,11 @@ trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
       if (!trunk_node_is_leaf(&node)) {
          for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
             trunk_pivot *pvt = vector_get(&node.pivots, i);
-            trunk_ondisk_node_dec_ref(context, pvt->child_addr);
+            platform_status child_rc =
+               trunk_ondisk_node_dec_ref(context, pvt->child_addr);
+            if (SUCCESS(rc) && !SUCCESS(child_rc)) {
+               rc = child_rc;
+            }
          }
       }
       for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
@@ -1775,6 +1779,7 @@ trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
    }
    cache_extent_discard(context->cc, addr, PAGE_TYPE_TRUNK);
    allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
+   return rc;
 }
 
 static void
@@ -1791,8 +1796,17 @@ pending_gcs_unlock(trunk_context *context)
    __sync_lock_release(&context->pending_gcs_lock);
 }
 
-
 static void
+trunk_record_allocator_cleanup_error(trunk_context *context,
+                                     platform_status rc)
+{
+   if (!SUCCESS(rc)) {
+      (void)__sync_bool_compare_and_swap(
+         &context->allocator_cleanup_status.r, STATUS_OK.r, rc.r);
+   }
+}
+
+static platform_status
 trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
 {
    refcount ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
@@ -1804,7 +1818,7 @@ trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
                                "leak some disk space.",
                                __func__,
                                __LINE__);
-            return;
+            return STATUS_NO_MEMORY;
          }
          pgc->addr = addr;
          pgc->next = NULL;
@@ -1820,9 +1834,10 @@ trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
          pending_gcs_unlock(context);
 
       } else {
-         trunk_ondisk_node_gc(context, addr);
+         return trunk_ondisk_node_gc(context, addr);
       }
    }
+   return STATUS_OK;
 }
 
 static void
@@ -2032,7 +2047,8 @@ trunk_ondisk_node_ref_dec(const ondisk_ref *ref)
 {
    trunk_context *context = (trunk_context *)ref->arg;
    debug_assert(ref->type == PAGE_TYPE_TRUNK);
-   trunk_ondisk_node_dec_ref(context, ref->addr);
+   platform_status rc = trunk_ondisk_node_dec_ref(context, ref->addr);
+   trunk_record_allocator_cleanup_error(context, rc);
 }
 
 static trunk_ondisk_node_ref *
@@ -2748,8 +2764,7 @@ trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot)
     */
    uint64 root_addr    = snapshot->root_addr;
    snapshot->root_addr = 0;
-   trunk_ondisk_node_dec_ref(context, root_addr);
-   return STATUS_OK;
+   return trunk_ondisk_node_dec_ref(context, root_addr);
 }
 
 platform_status
@@ -2805,7 +2820,8 @@ perform_pending_gcs(trunk_context *context)
    pending_gc *pgc = context->pending_gcs;
 
    while (pgc && !cache_in_use(context->cc, pgc->addr)) {
-      trunk_ondisk_node_gc(context, pgc->addr);
+      platform_status rc = trunk_ondisk_node_gc(context, pgc->addr);
+      trunk_record_allocator_cleanup_error(context, rc);
       pending_gc *next = pgc->next;
       platform_free(context->hid, pgc);
       pgc = next;
@@ -6965,7 +6981,7 @@ trunk_context_init(trunk_context      *context,
    return STATUS_OK;
 }
 
-void
+platform_status
 trunk_context_deinit(trunk_context *context)
 {
    platform_assert(context->pivot_states.num_states == 0);
@@ -6979,6 +6995,7 @@ trunk_context_deinit(trunk_context *context)
    if (context->stats) {
       platform_free(context->hid, context->stats);
    }
+   return context->allocator_cleanup_status;
 }
 
 /************************************

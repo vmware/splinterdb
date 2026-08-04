@@ -171,6 +171,8 @@ typedef struct trunk_context {
    uint64                 pending_gcs_lock;
    pending_gc            *pending_gcs;
    pending_gc            *pending_gcs_tail;
+   /* Sticky first error from releasing allocator references during tree GC. */
+   platform_status        allocator_cleanup_status;
    incorporation_tasks    tasks;
 } trunk_context;
 
@@ -222,7 +224,11 @@ trunk_context_init(trunk_context      *context,
                    task_system        *ts,
                    trunk_snapshot      snapshot);
 
-void
+/*
+ * Release the context and report any incomplete allocator-reference cleanup
+ * observed either here or by earlier deferred tree GC.
+ */
+platform_status
 trunk_context_deinit(trunk_context *context);
 
 /* Capture an owned reference to the current COW root without reading it. */
@@ -241,7 +247,12 @@ trunk_snapshot_create_from_addr(allocator      *al,
                                 uint64          root_addr,
                                 trunk_snapshot *snapshot);
 
-/* Drop an owned snapshot reference that was not published. */
+/*
+ * Drop an owned snapshot reference.  The snapshot is consumed even when
+ * cleanup below the root cannot be completed; such an error means allocator
+ * accounting may conservatively retain references and must be rebuilt before
+ * it is persisted.
+ */
 platform_status
 trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot);
 

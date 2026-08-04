@@ -205,27 +205,28 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 
 // Close a splinterdb
 //
-// This will flush all data to disk and release all resources.
+// A completed close makes all acknowledged data recoverable and releases all
+// resources.
 //
-// If force is FALSE and the database cannot shut down without losing data,
-// then it will return STATUS_BUSY and will remain open, so the user can
-// try to handle the situation.
+// STATUS_OK means all acknowledged data is recoverable.  Recovery may still
+// need to replay a durable log or rebuild allocator state; that is not a close
+// failure.
 //
-// If force is FALSE, then any other error code does _not_ indicate data loss.
-// It just indicates that recovery may be required on the next mount.
+// Without force, any error means shutdown was refused before destructive
+// teardown.  The database remains open and *kvs is unchanged, so the caller can
+// retry or investigate.
 //
-// If force is TRUE, then the database will shut down even if doing so might
-// lose data.  Error codes remain the same.
+// With force, teardown always completes.  An error means data preservation
+// could not be guaranteed; it does not prove that data was actually lost.
 //
-// force | return code | data loss? | database closed? | recovery required
-// -----------------------------------------------------------------------
-// FALSE | STATUS_BUSY | NO         | NO               | n/a
-// FALSE | STATUS_OK   | NO         | YES              | NO
-// FALSE | other error | NO         | YES              | YES
-// TRUE  | STATUS_OK   | NO         | YES              | NO
-// TRUE  | any error   | maybe      | YES              | YES
+// force | return code | database closed? | meaning
+// ---------------------------------------------------------------
+// FALSE | STATUS_OK   | YES              | acknowledged data is recoverable
+// FALSE | any error   | NO               | shutdown was refused
+// TRUE  | STATUS_OK   | YES              | acknowledged data is recoverable
+// TRUE  | any error   | YES              | preservation cannot be guaranteed
 //
-// After closing, *kvs is freed and set to NULL.
+// After STATUS_OK or any forced close, *kvs is freed and set to NULL.
 int
 splinterdb_close(splinterdb **kvs, bool32 force);
 

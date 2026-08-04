@@ -1225,7 +1225,8 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    ASSERT_EQUAL(0, rc);
 
    // Close and re-open the database
-   splinterdb_close(&data->kvsb, FALSE);
+   rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1259,9 +1260,10 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
 CTEST2(splinterdb_quick, test_logged_close_and_reopen)
 {
    // Re-create the instance with logging enabled (SETUP created it without).
-   splinterdb_close(&data->kvsb, FALSE);
+   int rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
    data->cfg.use_log = TRUE;
-   int rc            = splinterdb_create(&data->cfg, &data->kvsb);
+   rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    slice        user_key = slice_create(strlen("logged-key"), "logged-key");
@@ -1271,7 +1273,8 @@ CTEST2(splinterdb_quick, test_logged_close_and_reopen)
       splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val), NULL);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(&data->kvsb, FALSE);
+   rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1313,7 +1316,8 @@ CTEST2(splinterdb_quick, test_repeated_insert_close_reopen)
                                  NULL);
       ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
-      splinterdb_close(&data->kvsb, FALSE);
+      rc = splinterdb_close(&data->kvsb, FALSE);
+      ASSERT_EQUAL(0, rc);
 
       rc = splinterdb_open(&data->cfg, &data->kvsb);
       ASSERT_EQUAL(0, rc);

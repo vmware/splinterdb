@@ -220,6 +220,21 @@ struct core_handle {
    superblock_context superblock;
 
    /*
+    * TRUE while the live allocator map may conservatively overcount extents --
+    * for example, after incomplete reference cleanup or after retaining the
+    * root of an indeterminate superblock publication.  The map remains safe for
+    * ordinary allocation/refcount operations, but publishing it would make the
+    * leak permanent.  A complete recovery walk clears the bit; until then a
+    * clean shutdown leaves allocation_state invalid so the next mount rebuilds
+    * the map.  A newly initialized map or one loaded from trusted durable state
+    * starts clear.
+    *
+    * This is per-core while an instance owns exactly one tree.  It must move
+    * with allocator/superblock ownership if that changes.
+    */
+   bool32 allocator_map_needs_rebuild;
+
+   /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
     * fields of `checkpoint` (and is held while `log` is swapped); it is only
     * ever held for brief, I/O-free updates (never across a barrier), so taking
@@ -385,7 +400,7 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
  * core_mount().
  *
  * An unmount is a sync followed by a shutdown, so it returns an error if it
- * cannot guarantee that everything inserted before the call is on disk.
+ * cannot guarantee that everything inserted before the call is recoverable.
  * Records get there by one of two routes -- folded into the durable trunk root
  * by a checkpoint, or held in a durable log -- and which routes are open
  * depends on whether every memtable managed to incorporate:
@@ -396,15 +411,14 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
  *                      durable log can carry them, and it must be preserved for
  *                      replay rather than discarded.
  *
- * When neither route is available the unmount is abandoned instead of completed
- * destructively: nothing is torn down, the instance is left mounted and usable,
- * and the caller can retry or investigate.  Pass force to unmount anyway,
- * accepting the loss.
+ * When neither route is available and force is FALSE, the unmount is abandoned
+ * before destructive teardown: the instance remains mounted and usable, and
+ * the caller can retry or investigate.  Any non-OK result has that meaning.
  *
- * Returns STATUS_BUSY, and only STATUS_BUSY, for that abandonment -- it is the
- * caller's signal that the handle is still live and must still be unmounted.
- * Every other error comes from a step that already dismantled the instance, so
- * the handle is spent either way and only the report differs.
+ * With force, teardown always completes.  STATUS_OK still guarantees that all
+ * acknowledged data is recoverable; a non-OK result means preservation could
+ * not be guaranteed.  Whether the next mount needs log replay or an allocator
+ * rebuild is deliberately not part of this return value.
  */
 platform_status
 core_unmount(core_handle *spl, bool32 force);
