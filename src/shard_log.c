@@ -553,7 +553,7 @@ shard_log_seal(log_handle *logh)
  *      Releasing the mini-allocator's unused per-batch reserve ensures no
  *      future allocation touches this stream.  The caller already holds the
  *      stream's identity (captured at creation) and frees the on-disk extents
- *      separately via log_dec_ref().
+ *      separately via shard_log_dec_ref().
  *-----------------------------------------------------------------------------
  */
 static void
@@ -569,7 +569,7 @@ shard_log_deinit(log_handle *logh)
 }
 
 void
-log_dec_ref(cache *cc, const log_head *segment)
+shard_log_dec_ref(cache *cc, const log_head *segment)
 {
    if (segment->meta_addr == 0) {
       return;
@@ -672,7 +672,8 @@ shard_log_extent_next_link(cache            *cc,
 /*
  * Visit every data extent of a stream, in order.  See
  * shard_log_valid_extent_addr() for why this consults no refcounts, and
- * log_recover_allocations() in log.h for what recovery does with it.
+ * shard_log_recover_allocations() in shard_log.h for what recovery does with
+ * it.
  *
  * The visit budget is not a policy limit but a corruption backstop: a garbled
  * link that happens to name an earlier extent of this same stream would carry
@@ -723,49 +724,22 @@ shard_log_record_extent_reference(void *arg, uint64 extent_addr)
       (allocator *)arg, extent_addr, PAGE_TYPE_LOG);
 }
 
-platform_status
-log_recover_allocations(cache *cc, log_config *cfgh, log_head head)
+static platform_status
+shard_log_recover_blob_allocations(cache            *cc,
+                                   shard_log_config *cfg,
+                                   platform_heap_id  hid,
+                                   log_head          head)
 {
    if (head.addr == 0) {
       return STATUS_OK; // no such log
    }
 
-   /*
-    * The metadata head sits in an extent of its own, allocated before the mini
-    * allocator that owns the data extents (see shard_log_init()), so the
-    * page-header chain never reaches it.  It has to be recorded on its own or
-    * the extent is left looking free while the durable record still names it.
-    */
-   allocator      *al        = cache_get_allocator(cc);
-   uint64          meta_base = shard_log_extent_base(cc, head.meta_addr);
-   platform_status rc        = shard_log_record_extent_reference(al, meta_base);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   return shard_log_for_each_extent(cc,
-                                    (shard_log_config *)cfgh,
-                                    head,
-                                    shard_log_record_extent_reference,
-                                    al);
-}
-
-platform_status
-log_recover_blob_allocations(cache           *cc,
-                             log_config      *cfgh,
-                             platform_heap_id hid,
-                             log_head         head)
-{
-   if (head.addr == 0) {
-      return STATUS_OK; // no such log
-   }
-
-   log_iterator *itor =
-      shard_log_iterator_create(cc, (shard_log_config *)cfgh, hid, head);
+   log_iterator *itor = shard_log_iterator_create(cc, cfg, hid, head);
    if (itor == NULL) {
-      platform_error_log("log_recover_blob_allocations: could not read the "
-                         "stream at %lu\n",
-                         head.addr);
+      platform_error_log(
+         "shard_log_recover_blob_allocations: could not read the stream at "
+         "%lu\n",
+         head.addr);
       return STATUS_NO_MEMORY;
    }
 
@@ -786,6 +760,37 @@ log_recover_blob_allocations(cache           *cc,
    return rc;
 }
 
+platform_status
+shard_log_recover_allocations(cache            *cc,
+                              shard_log_config *cfg,
+                              platform_heap_id  hid,
+                              log_head          head)
+{
+   if (head.addr == 0) {
+      return STATUS_OK; // no such log
+   }
+
+   /*
+    * The metadata head sits in an extent of its own, allocated before the mini
+    * allocator that owns the data extents (see shard_log_init()), so the
+    * page-header chain never reaches it.  It has to be recorded on its own or
+    * the extent is left looking free while the durable record still names it.
+    */
+   allocator      *al        = cache_get_allocator(cc);
+   uint64          meta_base = shard_log_extent_base(cc, head.meta_addr);
+   platform_status rc        = shard_log_record_extent_reference(al, meta_base);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = shard_log_for_each_extent(
+      cc, cfg, head, shard_log_record_extent_reference, al);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   return shard_log_recover_blob_allocations(cc, cfg, hid, head);
+}
 
 /*
  * Bytes appended to the stream so far.  The mini-allocator already tracks the
@@ -1121,7 +1126,7 @@ shard_log_iterator_init(cache              *cc,
     * allocated extent.
     *
     * It works during crash recovery too, even though the map is rebuilt from
-    * scratch: the rebuild walk (log_recover_allocations()) runs first and
+    * scratch: the rebuild walk (shard_log_recover_allocations()) runs first and
     * records a reference for exactly the extents of this stream, so by the time
     * an iterator reads it the gate admits precisely those.
     */

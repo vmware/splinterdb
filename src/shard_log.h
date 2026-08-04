@@ -175,6 +175,51 @@ shard_log_iterator_create(cache            *cc,
                           platform_heap_id  hid,
                           log_head          head);
 
+/*
+ * Release a stream identified by its log_head: drop the reference its metadata
+ * head holds, freeing the stream's on-disk extents.  Takes no handle -- the
+ * handle was freed by log_deinit(); the caller retained only the head
+ * (log_get_head(), captured at creation).
+ *
+ * Do not use this for a stream left behind by a crash: its mini-allocator
+ * metadata was not made durable.  Crash recovery rebuilds the allocator map
+ * through shard_log_recover_allocations() instead.
+ */
+void
+shard_log_dec_ref(cache *cc, const log_head *head);
+
+/*
+ * ---- Recovering a stream's extents ----
+ *
+ * A shard log's mini-allocator metadata is deliberately never made durable --
+ * keeping it safe to read after a crash would cost a write per allocation, and
+ * nothing in normal operation needs it.  Crash recovery therefore walks the
+ * stream itself, following the next-extent links in its page headers, to
+ * reconstruct the allocator references.
+ *
+ * Record one allocator reference for every extent belonging to the stream.
+ * Call between allocator_recovery_begin() and allocator_recovery_finish().  A
+ * zero head.addr (an absent log slot) is not an error and records nothing.
+ *
+ * The metadata head and stream extents are recorded first.  The stream's
+ * replayable records are then walked to recover the separate storage of every
+ * blob they name.  Blob recovery has to happen before replay because replay
+ * allocates disk space; otherwise it could reuse an extent belonging to a blob
+ * whose record it has not reached yet.  A blob reachable only from an
+ * incomplete group is deliberately left unmarked because that group will not
+ * be replayed.
+ *
+ * The recovered references need no matching release pass.  After replay is
+ * folded into the tree, recovery publishes a root naming no logs and rebuilds
+ * the allocator map again from that root.  The old streams are freed by being
+ * absent from the second map.
+ */
+platform_status
+shard_log_recover_allocations(cache            *cc,
+                              shard_log_config *cfg,
+                              platform_heap_id  hid,
+                              log_head          head);
+
 void
 shard_log_config_init(shard_log_config *log_cfg,
                       cache_config     *cache_cfg,

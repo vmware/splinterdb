@@ -143,7 +143,7 @@ test_log_crash(clockcache             *cc,
    merge_accumulator_deinit(&msg);
 
    log_iterator_deinit(itor);
-   log_dec_ref((cache *)cc, &segment);
+   shard_log_dec_ref((cache *)cc, &segment);
 
    return 0;
 }
@@ -289,7 +289,7 @@ test_log_multiple_groups(clockcache             *cc,
                            0,
                            num_groups * per_group);
 
-   log_dec_ref((cache *)cc, &segment);
+   shard_log_dec_ref((cache *)cc, &segment);
    return 0;
 }
 
@@ -363,8 +363,8 @@ test_log_two_segments(clockcache             *cc,
    test_log_verify_segment(
       (cache *)cc, cfg, &fresh, gen, hid, key_size, new_first, new_count);
 
-   log_dec_ref((cache *)cc, &sealed);
-   log_dec_ref((cache *)cc, &fresh);
+   shard_log_dec_ref((cache *)cc, &sealed);
+   shard_log_dec_ref((cache *)cc, &fresh);
    return 0;
 }
 
@@ -379,7 +379,9 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    message           returned_message;
    char              key_data[] = "large-log-key";
    key               skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
-   uint64            value_len = 3 * cache_page_size(cc) + 123;
+   /* Exercise blob_writeback's whole-extent path and its partial tail. */
+   uint64            value_len =
+      cache_extent_size(cc) + 3 * cache_page_size(cc) + 123;
 
    log_handle *logh = shard_log_create(cc, cfg, hid);
    platform_assert(logh != NULL);
@@ -429,7 +431,7 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 
    log_iterator_deinit(itor);
    merge_accumulator_deinit(&msg);
-   log_dec_ref(cc, &sealed);
+   shard_log_dec_ref(cc, &sealed);
    return 0;
 }
 
@@ -522,7 +524,7 @@ cleanup:
    // Finish the stream, free the handle, and release the segment's extents.
    platform_assert_status_ok(log_seal(logh));
    log_deinit(logh);
-   log_dec_ref((cache *)cc, &sealed);
+   shard_log_dec_ref((cache *)cc, &sealed);
    platform_free(hid, params);
 
    return ret;

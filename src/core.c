@@ -446,7 +446,7 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
        * Lost a race with a concurrent rotation; discard the speculative log.
        */
       log_deinit(next);
-      log_dec_ref(spl->cc, &next_head);
+      shard_log_dec_ref(spl->cc, &next_head);
    }
    return ticket;
 }
@@ -693,7 +693,7 @@ core_maybe_complete_checkpoint(core_handle *spl)
    platform_status rc = core_checkpoint_commit_current_root(spl);
    if (SUCCESS(rc)) {
       // The sealed log's entries are now durably in the root; free its extents.
-      log_dec_ref(spl->cc, &sealed);
+      shard_log_dec_ref(spl->cc, &sealed);
    } else {
       platform_error_log("core_maybe_complete_checkpoint: publish failed: %s\n",
                          platform_status_to_string(rc));
@@ -705,8 +705,8 @@ core_maybe_complete_checkpoint(core_handle *spl)
       ZERO_CONTENTS(&spl->checkpoint.live_head);
       spl->checkpoint.cut_generation = 0;
       /*
-       * Count the completion only here, after log_dec_ref() above: waiters take
-       * this as proof the retired log's space is back.
+       * Count the completion only here, after shard_log_dec_ref() above:
+       * waiters take this as proof the retired log's space is back.
        */
       spl->checkpoint.completions++;
       spl->checkpoint.phase = CORE_CHECKPOINT_IDLE;
@@ -752,7 +752,7 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
           */
          log_deinit(cp->pending_log);
          if (reclaim_extents) {
-            log_dec_ref(spl->cc, &cp->live_head);
+            shard_log_dec_ref(spl->cc, &cp->live_head);
          }
          break;
       case CORE_CHECKPOINT_SEALING:
@@ -777,7 +777,7 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
          // publish records sealed=none, so just reclaim its extents here
          // (before the map is persisted, so the map reflects the free).
          if (reclaim_extents) {
-            log_dec_ref(spl->cc, &cp->sealed_head);
+            shard_log_dec_ref(spl->cc, &cp->sealed_head);
          }
          break;
       default:
@@ -2581,6 +2581,7 @@ core_rebuild_allocations(core_handle                  *spl,
    }
 
    if (include_logs) {
+      shard_log_config   *log_cfg = (shard_log_config *)spl->cfg.log_cfg;
       superblock_log_head slots[2] = {rec->sealed_log, rec->live_log};
       for (uint64 i = 0; i < ARRAY_SIZE(slots); i++) {
          if (SUPERBLOCK_NO_LOG(slots[i])) {
@@ -2588,13 +2589,8 @@ core_rebuild_allocations(core_handle                  *spl,
          }
          log_head head = core_superblock_log_head_to_log(slots[i]);
 
-         // The stream's own extents first: reading it is how its blobs are
-         // found, and that needs those extents marked.
-         rc = log_recover_allocations(spl->cc, spl->cfg.log_cfg, head);
-         if (SUCCESS(rc)) {
-            rc = log_recover_blob_allocations(
-               spl->cc, spl->cfg.log_cfg, spl->heap_id, head);
-         }
+         rc = shard_log_recover_allocations(
+            spl->cc, log_cfg, spl->heap_id, head);
          if (!SUCCESS(rc)) {
             platform_error_log("core_mount: could not rebuild the allocations "
                                "of the log at %lu: %s\n",
@@ -3457,7 +3453,7 @@ core_unmount(core_handle *spl, bool32 force)
    // (Part B) so the persisted map reflects the free.
    cache_flush(spl->cc);
    if (!preserve_logs) {
-      log_dec_ref(spl->cc, &live_log);
+      shard_log_dec_ref(spl->cc, &live_log);
    }
    /*
     * Release the context's live root reference before persisting the map, so
@@ -3548,7 +3544,7 @@ core_destroy(core_handle *spl)
    }
    memtable_context_deinit(&spl->mt_ctxt);
    cache_flush(spl->cc);
-   log_dec_ref(spl->cc, &live_log);
+   shard_log_dec_ref(spl->cc, &live_log);
    trunk_context_deinit(&spl->trunk_context);
 
    /*

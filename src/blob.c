@@ -360,35 +360,62 @@ blob_recover_allocations(cache *cc, slice sblob)
 platform_status
 blob_writeback(cache *cc, slice sblob, writeback_set *set)
 {
-   blob_page_iterator itor;
-   platform_status    rc = blob_page_iterator_init(
-      cc, &itor, sblob, 0, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
+   uint64      extent_size = cache_extent_size(cc);
+   uint64      page_size   = cache_page_size(cc);
+   parsed_blob pblob;
 
-   while (!blob_page_iterator_at_end(&itor)) {
-      uint64 offset;
-      slice  result;
-      rc = blob_page_iterator_get_curr(&itor, &offset, &result);
-      if (!SUCCESS(rc)) {
-         break;
-      }
-      platform_status wb_rc;
+   parse_blob(extent_size,
+              page_size,
+              (const blob *)slice_data(sblob),
+              &pblob);
+
+   for (uint64 i = 0; i < pblob.num_extents; i++) {
+      platform_status rc;
       if (set != NULL) {
-         wb_rc = writeback_set_add_page(set, itor.page, PAGE_TYPE_BLOB);
+         rc = writeback_set_add_extent(
+            set, pblob.base->addrs[i], PAGE_TYPE_BLOB);
       } else {
-         wb_rc = cache_writeback_page(cc, itor.page, PAGE_TYPE_BLOB, NULL);
+         rc = cache_writeback_extent(
+            cc, pblob.base->addrs[i], PAGE_TYPE_BLOB, NULL);
       }
-      // The iterator holds a read reference only, never a claim or lock, so
-      // the page is always writeback-able.
-      if (!SUCCESS(wb_rc)) {
-         rc = wb_rc;
-         break;
+      if (!SUCCESS(rc)) {
+         return rc;
       }
-      blob_page_iterator_advance_page(&itor);
    }
 
-   blob_page_iterator_deinit(&itor);
-   return rc;
+   for (uint64 i = 0; i < ARRAY_SIZE(pblob.leftovers); i++) {
+      const parsed_blob_entry *tail = &pblob.leftovers[i];
+      if (tail->length == 0) {
+         break;
+      }
+
+      uint64 byte_addr = tail->addr;
+      uint64 remaining = tail->length;
+      while (remaining > 0) {
+         uint64 page_offset   = byte_addr % page_size;
+         uint64 page_addr     = byte_addr - page_offset;
+         uint64 bytes_on_page = MIN(remaining, page_size - page_offset);
+
+         page_handle *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_BLOB);
+         if (page == NULL) {
+            return STATUS_IO_ERROR;
+         }
+
+         platform_status rc;
+         if (set != NULL) {
+            rc = writeback_set_add_page(set, page, PAGE_TYPE_BLOB);
+         } else {
+            rc = cache_writeback_page(cc, page, PAGE_TYPE_BLOB, NULL);
+         }
+         cache_unget(cc, page);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+
+         byte_addr += bytes_on_page;
+         remaining -= bytes_on_page;
+      }
+   }
+
+   return STATUS_OK;
 }

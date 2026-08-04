@@ -22,7 +22,7 @@ typedef struct log_config   log_config;
  * (where replay begins), the metadata head (which owns the stream's extents),
  * and a per-stream magic that validates its pages.  Fixed at creation; a
  * higher-level checkpoint record stores it to later find the stream for replay
- * or reclaim it via log_dec_ref().
+ * or reclaim it through the concrete log implementation.
  */
 typedef struct log_head {
    uint64 addr;      // data head: first log page, where replay begins
@@ -67,8 +67,8 @@ typedef platform_status (*log_make_durable_fn)(log_handle *log);
  *
  * The caller must exclude concurrent log_write() and log_seal() calls.  The
  * stream's head is fixed at creation and obtained then via log_get_head(), so
- * seal needs no out-parameter; the caller frees the on-disk extents later via
- * log_dec_ref().
+ * seal needs no out-parameter; the caller asks the concrete implementation to
+ * free the on-disk extents later.
  *
  * A caller that is about to discard the stream outright should skip this and
  * call log_deinit() alone: there is no point writing a terminator onto extents
@@ -178,85 +178,6 @@ log_get_size(log_handle *log)
  * shard_log_create() -- and then driven through the abstract ops above; it is
  * freed by log_deinit().
  */
-
-/*
- * Release a log identified by its log_head: drop the reference its metadata
- * head holds, freeing the stream's on-disk extents.  Takes no handle -- the
- * handle was freed by log_deinit(); the caller retained only the head
- * (log_get_head(), captured at creation).
- */
-void
-log_dec_ref(cache *cc, const log_head *head);
-
-/*
- * ---- Recovering a stream's extents ----
- *
- * A log's mini-allocator metadata is deliberately never made durable -- keeping
- * it safe to read after a crash would cost a write per allocation, and nothing
- * in normal operation needs it.  So crash recovery cannot learn a stream's
- * extents the usual way, by walking that metadata, and log_dec_ref() (which
- * does exactly that) must not be used on a stream that a crash left behind.
- *
- * Instead the functions below walk the stream itself, following the next-extent
- * links in its own page headers.  Neither consults a refcount, so the walk is
- * bounded by the device geometry and by the links running out.  Both take
- * references and neither gives them back, which needs a word of explanation.
- *
- * Nothing releases them, because nothing has to.  Once replay is done and its
- * records are folded into the tree, recovery publishes a root naming no logs
- * and then rebuilds the refcount map a second time from that root alone.  The
- * logs are freed by being absent from the second map, not by being enumerated
- * and decremented.
- *
- * That is worth the second walk it costs.  A release pass would have to reach
- * exactly the extents the acquire pass did -- across shared blob extents, a
- * separately allocated metadata head, and the extent a stream's last page names
- * but never wrote -- and any disagreement would leak space or free space still
- * in use.  Rebuilding cannot disagree with itself.  It is also crash-safe for
- * free: the published root with no logs is the state an unmount passes through,
- * so a crash between the publish and the rebuild leaves the next mount doing
- * precisely the rebuild that was interrupted.
- */
-
-/*
- * Record one allocator reference for every extent of the stream, rebuilding
- * what the refcount map would have said about it.  Call between
- * allocator_recovery_begin() and allocator_recovery_finish().  A zero head.addr
- * (an absent log slot) is not an error and records nothing.
- *
- * Covers the stream's own extents: those the page-header chain reaches, plus
- * the metadata head's, which sits in an extent allocated before the mini
- * allocator that owns the rest and so is reachable no other way.  Blob storage
- * is separate; see below.
- */
-platform_status
-log_recover_allocations(cache *cc, log_config *cfg, log_head head);
-
-/*
- * Record the allocator references held by the storage of every blob that the
- * stream's replayable records point at.  Blobs hang off separate batches of the
- * same mini allocator, so they are absent from the page-header chain and have
- * to be found through the records that name them.
- *
- * A second pass, and necessarily separate from replay: replay allocates disk
- * space, so every blob a record still refers to has to be marked before it
- * starts, or replay could be handed an extent that a record it has not reached
- * yet depends on.
- *
- * Must run after log_recover_allocations() for the same stream, because reading
- * the stream is how the blobs are found and that requires the stream's own
- * extents to be marked first.
- *
- * Only the replayable records are visited -- whole, contiguous groups, exactly
- * what replay will apply.  A blob reachable only from a group a crash left
- * incomplete is deliberately left unmarked: nothing will replay it, so nothing
- * refers to its storage.
- */
-platform_status
-log_recover_blob_allocations(cache           *cc,
-                             log_config      *cfg,
-                             platform_heap_id hid,
-                             log_head         head);
 
 /*
  * ---- Abstract log iteration ----
