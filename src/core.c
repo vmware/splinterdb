@@ -522,7 +522,6 @@ core_checkpoint_begin(core_handle *spl, bool32 force)
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE) {
       spl->checkpoint.pending_log = next;
-      spl->checkpoint.live_head   = next_head;
       spl->checkpoint.phase       = CORE_CHECKPOINT_PENDING;
       next                        = NULL; // handed off to the checkpoint
       // Ours is the next completion to be counted.
@@ -596,6 +595,8 @@ core_rotate_log(void *arg, uint64 finalized_generation)
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_PENDING) {
+      platform_assert(spl->log != NULL);
+      platform_assert(spl->checkpoint.pending_log != NULL);
       spl->checkpoint.log_to_seal = spl->log;
       spl->checkpoint.sealed_head = log_get_head(spl->log);
       spl->log                    = spl->checkpoint.pending_log;
@@ -664,12 +665,13 @@ core_checkpoint_seal_cut(core_handle *spl)
    superblock_log_head live    = {0};
    bool32              claimed = FALSE;
    if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
+      platform_assert(spl->log != NULL);
       claimed = TRUE;
       // NULL if an earlier attempt sealed the log but failed to publish.
       to_seal               = spl->checkpoint.log_to_seal;
       spl->checkpoint.phase = CORE_CHECKPOINT_PUBLISHING;
       live                  = core_log_to_superblock_log_head(
-         spl->checkpoint.live_head, spl->checkpoint.live_start_generation);
+         log_get_head(spl->log), spl->checkpoint.live_start_generation);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
@@ -797,7 +799,6 @@ core_maybe_complete_checkpoint(core_handle *spl)
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (SUCCESS(rc)) {
       ZERO_CONTENTS(&spl->checkpoint.sealed_head);
-      ZERO_CONTENTS(&spl->checkpoint.live_head);
       spl->checkpoint.cut_generation = 0;
       /*
        * Count the completion only here, after shard_log_dec_ref() above:
@@ -840,15 +841,19 @@ core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
       case CORE_CHECKPOINT_IDLE:
          break;
       case CORE_CHECKPOINT_PENDING:
+      {
          /*
           * The next live log was pre-created but never installed; discard it.
           * As above, no seal: its extents are about to be freed.
           */
+         platform_assert(cp->pending_log != NULL);
+         log_head pending_head = log_get_head(cp->pending_log);
          log_deinit(cp->pending_log);
          if (reclaim_extents) {
-            shard_log_dec_ref(spl->cc, &cp->live_head);
+            shard_log_dec_ref(spl->cc, &pending_head);
          }
          break;
+      }
       case CORE_CHECKPOINT_SEALING:
       case CORE_CHECKPOINT_PUBLISHING:
          /*
