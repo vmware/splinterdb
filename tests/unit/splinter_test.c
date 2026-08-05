@@ -49,6 +49,118 @@ typedef struct trunk_shadow {
    writable_buffer data;
 } trunk_shadow;
 
+/*
+ * Test-only durable-barrier fault injection for checkpoint retries.
+ *
+ * The whole fixture shares one io_handle, so temporarily replacing its ops
+ * table reaches log, cache, and superblock barriers without changing any of
+ * their production interfaces.  Tests install only one injector at a time and
+ * keep it installed until the task system is quiescent.
+ */
+typedef struct checkpoint_barrier_fault {
+   io_handle    *io;
+   const io_ops *saved_ops;
+   io_ops        fault_ops;
+   uint64        skip_barriers;
+   uint64        fail_barriers;
+   uint64        barriers;
+   bool32        enabled;
+   bool32        installed;
+} checkpoint_barrier_fault;
+
+/*
+ * Long enough to cover both transition-triggered and explicit advance attempts,
+ * finite so an implementation which mistakenly swallows the errors eventually
+ * escapes and fails the test instead of hanging the test suite forever.
+ */
+#define CHECKPOINT_BARRIER_FAULT_COUNT 32
+
+static checkpoint_barrier_fault *active_checkpoint_barrier_fault;
+
+static platform_status
+checkpoint_fault_durable_barrier(io_handle *io)
+{
+   checkpoint_barrier_fault *fault =
+      __atomic_load_n(&active_checkpoint_barrier_fault, __ATOMIC_ACQUIRE);
+   platform_assert(fault != NULL && fault->installed && fault->io == io);
+
+   if (__atomic_load_n(&fault->enabled, __ATOMIC_ACQUIRE)) {
+      uint64 barrier =
+         __atomic_fetch_add(&fault->barriers, 1, __ATOMIC_RELAXED);
+      if (barrier >= fault->skip_barriers
+          && barrier - fault->skip_barriers < fault->fail_barriers)
+      {
+         return STATUS_IO_ERROR;
+      }
+   }
+
+   return fault->saved_ops->durable_barrier(io);
+}
+
+static void
+checkpoint_barrier_fault_install(checkpoint_barrier_fault *fault, io_handle *io)
+{
+   platform_assert(active_checkpoint_barrier_fault == NULL);
+   platform_assert(!fault->installed);
+
+   fault->io                        = io;
+   fault->saved_ops                 = io->ops;
+   fault->fault_ops                 = *io->ops;
+   fault->fault_ops.durable_barrier = checkpoint_fault_durable_barrier;
+   fault->installed                 = TRUE;
+
+   __atomic_store_n(&active_checkpoint_barrier_fault, fault, __ATOMIC_RELEASE);
+   io->ops = &fault->fault_ops;
+}
+
+static void
+checkpoint_barrier_fault_arm(checkpoint_barrier_fault *fault,
+                             uint64                    skip_barriers)
+{
+   platform_assert(fault->installed);
+   __atomic_store_n(&fault->enabled, FALSE, __ATOMIC_RELEASE);
+   fault->skip_barriers = skip_barriers;
+   fault->fail_barriers = CHECKPOINT_BARRIER_FAULT_COUNT;
+   __atomic_store_n(&fault->barriers, 0, __ATOMIC_RELAXED);
+   __atomic_store_n(&fault->enabled, TRUE, __ATOMIC_RELEASE);
+}
+
+static void
+checkpoint_barrier_fault_disable(checkpoint_barrier_fault *fault)
+{
+   __atomic_store_n(&fault->enabled, FALSE, __ATOMIC_RELEASE);
+}
+
+static void
+checkpoint_barrier_fault_uninstall(checkpoint_barrier_fault *fault)
+{
+   if (!fault->installed) {
+      return;
+   }
+
+   checkpoint_barrier_fault_disable(fault);
+   io_wait_all(fault->io);
+   fault->io->ops = fault->saved_ops;
+   __atomic_store_n(&active_checkpoint_barrier_fault, NULL, __ATOMIC_RELEASE);
+   fault->installed = FALSE;
+   fault->io        = NULL;
+   fault->saved_ops = NULL;
+}
+
+static bool32
+checkpoint_record_names_log(superblock_log_head recorded, log_head log)
+{
+   return !SUPERBLOCK_NO_LOG(recorded) && log_head_is_equal(recorded.head, log);
+}
+
+static bool32
+checkpoint_records_name_same_log(superblock_log_head left,
+                                 superblock_log_head right)
+{
+   return !SUPERBLOCK_NO_LOG(left) && !SUPERBLOCK_NO_LOG(right)
+          && log_head_is_equal(left.head, right.head);
+}
+
 /* Function prototypes */
 static uint64
 splinter_do_inserts(void         *datap,
@@ -90,12 +202,13 @@ CTEST_DATA(splinter)
    rc_allocator al;
 
    // Following get setup pointing to allocated memory
-   system_config         *system_cfg;
-   test_workload_config  *workload_cfg;
-   io_handle             *io;
-   clockcache            *clock_cache;
-   task_system            tasks;
-   test_message_generator gen;
+   system_config           *system_cfg;
+   test_workload_config    *workload_cfg;
+   io_handle               *io;
+   clockcache              *clock_cache;
+   task_system              tasks;
+   test_message_generator   gen;
+   checkpoint_barrier_fault checkpoint_fault;
 
    // Test execution related configuration
    test_exec_config test_exec_cfg;
@@ -135,6 +248,7 @@ CTEST_SETUP(splinter)
       TYPED_ARRAY_MALLOC(data->hid, data->workload_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
+   ZERO_STRUCT(data->checkpoint_fault);
 
    rc = test_parse_args_n(data->system_cfg,
                           &data->test_exec_cfg,
@@ -193,6 +307,8 @@ CTEST_SETUP(splinter)
  */
 CTEST_TEARDOWN(splinter)
 {
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+
    clockcache_deinit(data->clock_cache);
    platform_free(data->hid, data->clock_cache);
 
@@ -712,6 +828,225 @@ CTEST2(splinter, test_two_log_checkpoint)
    core_destroy(&spl);
 }
 
+typedef struct checkpoint_advance_fault_result {
+   platform_status mkfs_rc;
+   platform_status initial_quiesce_rc;
+   platform_status failure_rc;
+   platform_status failure_quiesce_rc;
+   platform_status fill_rc;
+   platform_status advance_rc;
+   platform_status retry_rc;
+   platform_status retry_quiesce_rc;
+
+   log_head retired_log;
+   uint64   barriers_after_failure;
+   uint64   retired_ref_after_failure;
+   uint64   retired_ref_after_retry;
+   bool32   threshold_reached;
+
+   superblock_tree_record failure_record;
+   superblock_tree_record pre_advance_record;
+   superblock_tree_record advance_record;
+   superblock_tree_record retry_record;
+} checkpoint_advance_fault_result;
+
+/*
+ * Run one bounded, persistent-looking barrier-failure/retry cycle without
+ * making assertions while the io ops table is overridden.  This guarantees
+ * that the override is kept alive until all checkpoint tasks are quiescent and
+ * restored even when an observed result is not the expected one.
+ */
+static checkpoint_advance_fault_result
+checkpoint_test_advance_retry(struct CTEST_IMPL_DATA_SNAME(splinter) * data,
+                              uint64 skip_barriers,
+                              bool32 exercise_chained_advance)
+{
+   checkpoint_advance_fault_result result;
+   ZERO_STRUCT(result);
+
+   allocator  *alp = (allocator *)&data->al;
+   core_handle spl;
+
+   result.mkfs_rc = core_mkfs(&spl,
+                              &data->system_cfg->splinter_cfg,
+                              alp,
+                              (cache *)data->clock_cache,
+                              data->io,
+                              &data->tasks,
+                              test_generate_allocator_root_id(),
+                              data->hid);
+   if (!SUCCESS(result.mkfs_rc)) {
+      return result;
+   }
+
+   result.initial_quiesce_rc = task_perform_until_quiescent(spl.ts);
+   result.retired_log        = log_get_head(spl.log);
+
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_arm(&data->checkpoint_fault, skip_barriers);
+
+   result.failure_rc = core_checkpoint(&spl, 0);
+   /*
+    * Leave the fault run armed while draining: a background
+    * incorporation may be the caller which first reaches COMPLETING.
+    */
+   result.failure_quiesce_rc = task_perform_until_quiescent(spl.ts);
+   superblock_get_tree_record(&spl.superblock, &result.failure_record);
+   result.barriers_after_failure =
+      __atomic_load_n(&data->checkpoint_fault.barriers, __ATOMIC_RELAXED);
+   result.retired_ref_after_failure =
+      allocator_get_refcount(alp, result.retired_log.meta_addr);
+
+   if (exercise_chained_advance) {
+      /* Give the threshold-crossing retry a fresh bounded failure budget. */
+      checkpoint_barrier_fault_arm(&data->checkpoint_fault, 0);
+      /*
+       * The failed cut's generation was incorporated by the quiesce above.
+       * While publication is still faulted, fill the current log just far
+       * enough to cross its extent-based size threshold.  The crossing attempt
+       * fails and leaves the threshold hint set.  After disabling the fault,
+       * exactly one more insert supplies the retry opportunity.  Its
+       * core_checkpoint_advance() call for this failed cut must both republish
+       * it and notice that completion is already eligible; no later
+       * incorporation edge is guaranteed to arrive.
+       */
+      platform_assert(spl.cfg.checkpoint_log_size_bytes != 0);
+      DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+      merge_accumulator msg;
+      merge_accumulator_init(&msg, data->hid);
+      for (uint64 i = 0;
+           i < 30000
+           && log_get_size(spl.log) < spl.cfg.checkpoint_log_size_bytes;
+           i++)
+      {
+         test_key(
+            &keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+         generate_test_message(&data->gen, i, &msg);
+         result.fill_rc = core_insert(&spl,
+                                      key_buffer_key(&keybuf),
+                                      merge_accumulator_to_message(&msg),
+                                      NULL);
+         if (!SUCCESS(result.fill_rc)) {
+            break;
+         }
+      }
+      result.threshold_reached =
+         log_get_size(spl.log) >= spl.cfg.checkpoint_log_size_bytes;
+      superblock_get_tree_record(&spl.superblock, &result.pre_advance_record);
+
+      checkpoint_barrier_fault_disable(&data->checkpoint_fault);
+      test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, 30000, &msg);
+      result.advance_rc = core_insert(&spl,
+                                      key_buffer_key(&keybuf),
+                                      merge_accumulator_to_message(&msg),
+                                      NULL);
+      merge_accumulator_deinit(&msg);
+      superblock_get_tree_record(&spl.superblock, &result.advance_record);
+   } else {
+      checkpoint_barrier_fault_disable(&data->checkpoint_fault);
+   }
+
+   result.retry_rc         = core_checkpoint(&spl, 0);
+   result.retry_quiesce_rc = task_perform_until_quiescent(spl.ts);
+   superblock_get_tree_record(&spl.superblock, &result.retry_record);
+   result.retired_ref_after_retry =
+      allocator_get_refcount(alp, result.retired_log.meta_addr);
+
+   /* Restore the real ops before any CTest assertion can leave this scope. */
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+   core_destroy(&spl);
+   return result;
+}
+
+/*
+ * Let the retiring log's durability barrier succeed, then start a long run of
+ * failures for barriers used to publish the log cut.  The durable record must
+ * continue to name the retiring log as live.  Once that generation has already
+ * been incorporated, one later core_checkpoint_advance() call must publish the
+ * cut and immediately complete it rather than waiting for a vanished
+ * incorporation edge.
+ */
+CTEST2(splinter, test_checkpoint_advance_retries_cut_publish_failure)
+{
+   data->system_cfg->splinter_cfg.use_log                   = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 1;
+
+   checkpoint_advance_fault_result result =
+      checkpoint_test_advance_retry(data, 1, TRUE);
+
+   ASSERT_TRUE(SUCCESS(result.mkfs_rc));
+   ASSERT_TRUE(SUCCESS(result.initial_quiesce_rc));
+   ASSERT_TRUE(STATUS_IS_EQ(result.failure_rc, STATUS_IO_ERROR),
+               "checkpoint returned %s instead of the injected IO error\n",
+               platform_status_to_string(result.failure_rc));
+   ASSERT_TRUE(SUCCESS(result.failure_quiesce_rc));
+   ASSERT_TRUE(result.barriers_after_failure >= 2);
+   ASSERT_TRUE(checkpoint_record_names_log(result.failure_record.live_log,
+                                           result.retired_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(result.failure_record.sealed_log));
+   ASSERT_NOT_EQUAL(0, result.retired_ref_after_failure);
+
+   ASSERT_TRUE(SUCCESS(result.fill_rc));
+   ASSERT_TRUE(result.threshold_reached);
+   ASSERT_TRUE(checkpoint_record_names_log(result.pre_advance_record.live_log,
+                                           result.retired_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(result.pre_advance_record.sealed_log));
+   ASSERT_TRUE(SUCCESS(result.advance_rc));
+   ASSERT_FALSE(SUPERBLOCK_NO_LOG(result.advance_record.live_log));
+   ASSERT_FALSE(checkpoint_record_names_log(result.advance_record.live_log,
+                                            result.retired_log));
+   ASSERT_FALSE(checkpoint_record_names_log(result.advance_record.sealed_log,
+                                            result.retired_log));
+
+   ASSERT_TRUE(SUCCESS(result.retry_rc),
+               "checkpoint retry failed: %s\n",
+               platform_status_to_string(result.retry_rc));
+   ASSERT_TRUE(SUCCESS(result.retry_quiesce_rc));
+   ASSERT_FALSE(SUPERBLOCK_NO_LOG(result.retry_record.live_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(result.retry_record.sealed_log));
+   ASSERT_FALSE(checkpoint_record_names_log(result.retry_record.live_log,
+                                            result.retired_log));
+}
+
+/*
+ * Once the cut is durable and its generation is incorporated, start a long run
+ * of root durability-barrier failures in COMPLETING.  The sealed log must
+ * remain reachable and referenced until a later advance call commits the root
+ * successfully.
+ */
+CTEST2(splinter, test_checkpoint_advance_retries_completion_failure)
+{
+   data->system_cfg->splinter_cfg.use_log                   = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   checkpoint_advance_fault_result result =
+      checkpoint_test_advance_retry(data, 2, FALSE);
+
+   ASSERT_TRUE(SUCCESS(result.mkfs_rc));
+   ASSERT_TRUE(SUCCESS(result.initial_quiesce_rc));
+   ASSERT_TRUE(STATUS_IS_EQ(result.failure_rc, STATUS_IO_ERROR),
+               "checkpoint returned %s instead of the injected IO error\n",
+               platform_status_to_string(result.failure_rc));
+   ASSERT_TRUE(SUCCESS(result.failure_quiesce_rc));
+   ASSERT_TRUE(result.barriers_after_failure >= 3);
+   ASSERT_TRUE(checkpoint_record_names_log(result.failure_record.sealed_log,
+                                           result.retired_log));
+   ASSERT_FALSE(checkpoint_record_names_log(result.failure_record.live_log,
+                                            result.retired_log));
+   ASSERT_NOT_EQUAL(0, result.retired_ref_after_failure);
+
+   ASSERT_TRUE(SUCCESS(result.retry_rc),
+               "checkpoint retry failed: %s\n",
+               platform_status_to_string(result.retry_rc));
+   ASSERT_TRUE(SUCCESS(result.retry_quiesce_rc));
+   ASSERT_FALSE(SUPERBLOCK_NO_LOG(result.retry_record.live_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(result.retry_record.sealed_log));
+   ASSERT_FALSE(checkpoint_record_names_log(result.retry_record.live_log,
+                                            result.retired_log));
+   ASSERT_EQUAL(0, result.retired_ref_after_retry);
+}
+
 /*
  * An application that manages checkpoints itself: the interval policy is off,
  * so nothing arms a checkpoint automatically and core_checkpoint() is the only
@@ -749,7 +1084,7 @@ CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
 
    for (uint64 i = 0; i < num_checkpoints; i++) {
       superblock_get_tree_record(&spl.superblock, &rec);
-      uint64 retired_meta_addr = rec.live_log.meta_addr;
+      uint64 retired_meta_addr = rec.live_log.head.meta_addr;
       ASSERT_NOT_EQUAL(0, retired_meta_addr);
 
       rc = core_checkpoint(&spl, 0);
@@ -758,7 +1093,7 @@ CTEST2(splinter, test_self_managed_checkpoints_reclaim_log_space)
       // (a) A cut happened: a different log is now live, and it covers only
       // generations from the cut onward.
       superblock_get_tree_record(&spl.superblock, &rec);
-      ASSERT_NOT_EQUAL(retired_meta_addr, rec.live_log.meta_addr);
+      ASSERT_NOT_EQUAL(retired_meta_addr, rec.live_log.head.meta_addr);
       ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
 
       // (b) The retired log's space came back.
@@ -814,6 +1149,9 @@ run_auto_checkpoint_workload(void *datap, uint64 log_size_threshold)
                                   data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
+   superblock_tree_record initial_rec;
+   superblock_get_tree_record(&spl.superblock, &initial_rec);
+
    uint64 num_inserts = splinter_do_inserts(data, &spl, FALSE, NULL);
    ASSERT_NOT_EQUAL(0, num_inserts);
 
@@ -822,16 +1160,13 @@ run_auto_checkpoint_workload(void *datap, uint64 log_size_threshold)
    ASSERT_TRUE(SUCCESS(rc));
 
    if (log_size_threshold != 0) {
-      // The inserts must have driven at least one automatic checkpoint through
-      // to completion.
-      ASSERT_NOT_EQUAL(0, spl.checkpoint.completions);
-
-      // At rest a checkpoint has either completed (IDLE) or been armed for a
-      // rotation that idle never triggered (PENDING); both leave no sealed log.
-      ASSERT_TRUE(spl.checkpoint.phase == CORE_CHECKPOINT_IDLE
-                  || spl.checkpoint.phase == CORE_CHECKPOINT_PENDING);
       superblock_tree_record rec;
       superblock_get_tree_record(&spl.superblock, &rec);
+
+      // The inserts drove at least one complete automatic log rotation.
+      ASSERT_FALSE(SUPERBLOCK_NO_LOG(rec.live_log));
+      ASSERT_FALSE(
+         checkpoint_records_name_same_log(initial_rec.live_log, rec.live_log));
       ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
       // A checkpoint published an advanced, incorporated durable root mid-run:
       // at least one generation was folded in, so the first unincorporated
@@ -888,7 +1223,7 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
    data->system_cfg->splinter_cfg.use_log = TRUE;
    data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
       2 * data->system_cfg->io_cfg.extent_size;
-   // Also verify the reported checkpoint count against the internal one.
+   // Also verify that the public checkpoint statistic is updated.
    data->system_cfg->splinter_cfg.use_stats = TRUE;
 
    core_handle     spl;
@@ -901,6 +1236,9 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
                                   test_generate_allocator_root_id(),
                                   data->hid);
    ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_tree_record initial_rec;
+   superblock_get_tree_record(&spl.superblock, &initial_rec);
 
    uint64 start_generation = memtable_generation(&spl.mt_ctxt);
 
@@ -927,28 +1265,28 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
     * policy would have had nothing to trigger on: any generation advance here
     * came from a checkpoint forcing a rotation, not from the memtable filling.
     */
-   ASSERT_NOT_EQUAL(0,
-                    spl.checkpoint.completions,
-                    "overwrite-only workload did not trigger a checkpoint; "
-                    "generation went %lu -> %lu\n",
-                    start_generation,
-                    memtable_generation(&spl.mt_ctxt));
+   superblock_tree_record rec;
+   superblock_get_tree_record(&spl.superblock, &rec);
+   ASSERT_FALSE(SUPERBLOCK_NO_LOG(rec.live_log));
+   ASSERT_FALSE(
+      checkpoint_records_name_same_log(initial_rec.live_log, rec.live_log),
+      "overwrite-only workload did not rotate the log; generation went %lu "
+      "-> %lu\n",
+      start_generation,
+      memtable_generation(&spl.mt_ctxt));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
 
-   /*
-    * The reported statistic must agree with the machinery's own count: it is
-    * summed across threads, so this catches both a missed increment and a
-    * double count.
-    */
+   /* The statistic is per-thread, so sum it across every registered thread. */
    uint64 reported = 0;
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       reported += spl.stats[thr_i].checkpoints_completed;
    }
-   ASSERT_EQUAL(spl.checkpoint.completions,
-                reported,
-                "checkpoints_completed stat (%lu) disagrees with the "
-                "checkpoint state's count (%lu)\n",
-                reported,
-                spl.checkpoint.completions);
+   ASSERT_NOT_EQUAL(0,
+                    reported,
+                    "overwrite-only workload did not complete a checkpoint; "
+                    "generation went %lu -> %lu\n",
+                    start_generation,
+                    memtable_generation(&spl.mt_ctxt));
 
    // The surviving value must be the last one written.
    lookup_result qdata;

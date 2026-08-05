@@ -123,19 +123,18 @@ typedef struct core_handle core_handle;
  *   IDLE          no checkpoint in progress.
  *   PENDING       the next live log is pre-created; the next memtable rotation
  *                 will swap it in under the insert lock.
- *   SEALING       the rotation swapped the new live log in; the old log still
- *                 needs sealing (which will be performed just after the
- *                 rotation critical section).
+ *   SEALING       the rotation swapped the new live log in; the old log must be
+ *                 sealed if needed and the cut still needs publication.
  *   PUBLISHING    a thread has claimed that work and is sealing the old log and
  *                 publishing the cut.  Distinct from INCORPORATING because the
  *                 two differ in exactly the way completion cares about: only
  *                 once the cut is published may the sealed log's extents be
- *                 freed, and core_maybe_complete_checkpoint() would otherwise
- *                 be free to run mid-publish and release extents the superblock
- *                 still names as live.  It is also where a failed seal returns
- *                 from: the phase goes back to SEALING, leaving the checkpoint
- *                 exactly as the rotation left it, to be retried by a later
- *                 rotation.
+ *                 freed, and a concurrent checkpoint advance would otherwise
+ *                 be free to complete mid-publish and release extents the
+ *                 superblock still names as live.  It is also where a failed
+ *                 seal returns from: the phase goes back to SEALING, leaving
+ *                 the checkpoint exactly as the rotation left it, to be
+ *                 retried by a later advance call.
  *   INCORPORATING the old log is sealed and the cut is published; waiting for
  *                 its generations to be incorporated into the trunk root.
  *   COMPLETING    the completion publish (advance root, clear sealed slot) is
@@ -145,8 +144,9 @@ typedef struct core_handle core_handle;
  * SEALING) runs inside the memtable rotation critical section, where the insert
  * lock is held exclusively; every log writer holds that lock shared across its
  * log_write, so no writer can be mid-write to, or newly enter, the old log once
- * it is swapped out.  All other fields are guarded by checkpoint_state_lock,
- * which is only ever held for brief, I/O-free updates.
+ * it is swapped out.  All live transitions and observations enter through the
+ * event-specific checkpoint functions in core.c.  The state lock is only ever
+ * held for brief, I/O-free updates.
  */
 typedef enum core_checkpoint_phase {
    CORE_CHECKPOINT_IDLE = 0,
@@ -174,9 +174,9 @@ typedef struct core_checkpoint_state {
     * the retired log, so it is the one observable meaning "that checkpoint's
     * space is back" -- every superblock-visible signal is necessarily written
     * before the free, since the superblock must stop naming a log before its
-    * extents are released.  core_checkpoint_begin() hands out `completions + 1`
-    * as a ticket so a caller can wait for its own checkpoint rather than merely
-    * for "none in flight."
+    * extents are released.  A checkpoint REQUEST hands out `completions + 1`
+    * as a ticket so a caller can wait for its own checkpoint rather than
+    * merely for "none in flight."
     */
    uint64 completions;
 } core_checkpoint_state;
@@ -248,8 +248,8 @@ struct core_handle {
     * core_log_insert() -- which already holds the shared insert lock, the same
     * lock that excludes the log swap, so it can read `log` safely -- and acted
     * on by core_insert() once that lock is released.  Cleared only by
-    * core_rotate_log() when it cuts the log, under the insert lock held
-    * exclusively, so set and clear cannot race.
+    * core_checkpoint_rotated_locked() when it cuts the log, under the insert
+    * lock held exclusively, so set and clear cannot race.
     *
     * Set-only on the insert path so the common case does no store and the cache
     * line stays shared across cores.  Being merely a hint, a stale TRUE costs

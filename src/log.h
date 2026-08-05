@@ -18,19 +18,6 @@ typedef struct log_handle   log_handle;
 typedef struct log_iterator log_iterator;
 typedef struct log_config   log_config;
 
-/*
- * The on-disk head of one mini-allocator-backed log stream: the data head
- * (where replay begins), the metadata head (which owns the stream's extents),
- * and a per-stream nonce that validates its pages.  Fixed at creation; a
- * higher-level checkpoint record stores it to later find the stream for replay
- * or reclaim it through the concrete log implementation.
- */
-typedef struct log_head {
-   uint64 addr;      // data head: first log page, where replay begins
-   uint64 meta_addr; // mini-allocator metadata head; owns the stream's extents
-   log_nonce nonce;  // random per-stream identity; validates its pages
-} log_head;
-
 typedef int (*log_write_fn)(log_handle *log,
                             key         tuple_key,
                             message     data,

@@ -47,15 +47,12 @@
 #define SUPERBLOCK_NUM_SLOTS (2)
 
 /*
- * A log's on-disk head, plus the range of memtable generations it covers.  The
- * addr/meta_addr/nonce tuple mirrors log_head's layout; the superblock stores
- * it opaquely and does not depend on the log module.  meta_addr == 0 means "no
- * log present".
+ * A log's shared on-disk head, plus the range of memtable generations it
+ * covers.  The superblock stores the head opaquely and does not depend on the
+ * log implementation.  head.meta_addr == 0 means "no log present".
  */
 typedef struct ONDISK superblock_log_head {
-   uint64    addr;
-   uint64    meta_addr;
-   log_nonce nonce;
+   log_head head;
    /*
     * First memtable generation whose entries this log received.  A log's
     * coverage ends where the next log's begins, so the sealed log covers
@@ -67,8 +64,17 @@ typedef struct ONDISK superblock_log_head {
    uint64 start_generation;
 } superblock_log_head;
 
-/* An empty (absent) log slot: meta_addr == 0. */
-#define SUPERBLOCK_NO_LOG(info) ((info).meta_addr == 0)
+/* Embedding log_head preserves the v3 addr/meta_addr/nonce byte layout. */
+_Static_assert(offsetof(superblock_log_head, head) == 0,
+               "log head must begin the superblock log descriptor");
+_Static_assert(offsetof(superblock_log_head, start_generation)
+                  == sizeof(log_head),
+               "superblock log generation layout changed");
+_Static_assert(sizeof(superblock_log_head) == sizeof(log_head) + sizeof(uint64),
+               "superblock log descriptor layout changed");
+
+/* An empty (absent) log slot: head.meta_addr == 0. */
+#define SUPERBLOCK_NO_LOG(info) ((info).head.meta_addr == 0)
 
 /*
  * The durable per-tree record.  The instance always has exactly one tree (from

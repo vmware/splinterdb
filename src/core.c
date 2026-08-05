@@ -182,30 +182,16 @@ core_checkpoint_capture_cut(core_handle    *spl,
 static superblock_log_head
 core_log_to_superblock_log_head(log_head info, uint64 start_generation)
 {
-   return (superblock_log_head){.addr             = info.addr,
-                                .meta_addr        = info.meta_addr,
-                                .nonce            = info.nonce,
+   return (superblock_log_head){.head             = info,
                                 .start_generation = start_generation};
-}
-
-/* The log module's view of a superblock log slot; the reverse of the above. */
-static log_head
-core_superblock_log_head_to_log(superblock_log_head info)
-{
-   return (log_head){
-      .addr      = info.addr,
-      .meta_addr = info.meta_addr,
-      .nonce     = info.nonce,
-   };
 }
 
 /* Does the durable record name this concrete log stream as its live log? */
 static bool32
 core_superblock_log_head_matches(superblock_log_head recorded, log_head live)
 {
-   return !SUPERBLOCK_NO_LOG(recorded) && recorded.addr == live.addr
-          && recorded.meta_addr == live.meta_addr
-          && log_nonce_is_equal(recorded.nonce, live.nonce);
+   return !SUPERBLOCK_NO_LOG(recorded)
+          && log_head_is_equal(recorded.head, live);
 }
 
 /*
@@ -418,14 +404,15 @@ unlock_superblock:
  * Incorporation-driven checkpoint (two-log protocol)
  *
  * A checkpoint rotates the log and advances the durable root without stopping
- * the world.  It is driven off memtable rotation and incorporation:
+ * the world.  Event-specific functions report facts to the state machine:
  *
- *   begin       (rotation): pre-create the next live log outside the critical
- *               section, swap it in under the insert lock (so no writer can be
- *               mid-write to the old log), then seal the old log just after.
- *   complete    (incorporation): once the sealed log's generations are folded
- *               into the trunk root, publish the advanced root with the sealed
- *               slot cleared and free the sealed log's extents.
+ * - core_checkpoint_request() pre-creates the next live log outside the
+ *   rotation critical section and arms the swap.
+ * - core_checkpoint_rotated_locked() swaps it in while writers are excluded
+ *   from the old log.
+ * - core_checkpoint_advance() seals and publishes the cut, or, once
+ *   incorporation has folded the cut generation into the trunk, publishes the
+ *   advanced root and frees the retired log.
  *
  * See core_checkpoint_state in core.h for the phase machine and its locking.
  *-----------------------------------------------------------------------------
@@ -437,7 +424,7 @@ unlock_superblock:
  * the only measure that tracks a workload which overwrites in place, filling
  * the log without ever filling a memtable.
  *
- * Callers hold checkpoint_state_lock, which is also held while spl->log is
+ * The caller holds checkpoint_state_lock, which is also held while spl->log is
  * swapped, so the log read below cannot race the cut.
  */
 static bool32
@@ -456,129 +443,356 @@ core_should_take_checkpoint(core_handle *spl)
 }
 
 /*
- * A consistent read of what a waiter needs to poll: the current phase (has the
- * cut happened yet?) and the completion count (has a given checkpoint finished
- * and freed its log?).  Taken together under one acquisition of the state lock.
+ * Every live checkpoint-state transition and observation enters through one of
+ * the event-specific functions below.  Their arguments describe the fact being
+ * reported directly rather than wrapping it in a generic event structure.
+ *
+ * core_checkpoint_rotated_locked() is the sole function legal under the
+ * exclusive memtable insert lock and is deliberately I/O-free.  All others are
+ * called without memtable, checkpoint-state, or superblock locks held.
+ * core_checkpoint_cleanup_quiesced() is destructive and is legal only after
+ * task/API quiescence.
  */
-typedef struct core_checkpoint_status {
-   core_checkpoint_phase phase;
-   uint64                completions;
-} core_checkpoint_status;
+typedef enum core_checkpoint_request_mode {
+   CORE_CHECKPOINT_REQUEST_IF_DUE = 0,
+   CORE_CHECKPOINT_REQUEST_REQUIRED,
+} core_checkpoint_request_mode;
 
-static core_checkpoint_status
-core_checkpoint_status_get(core_handle *spl)
+/*
+ * Results expose semantic predicates rather than the raw phase machine.  A
+ * ticket is complete only after its retired log has been released.
+ */
+typedef struct core_checkpoint_result {
+   /* Request returns its ticket; observe echoes the ticket it was given. */
+   uint64 ticket;
+
+   /* Request-only: this invocation installed the pending log. */
+   bool32 armed;
+
+   /* Predicates for `ticket`, valid for every function's result. */
+   bool32 ticket_complete;
+   bool32 ticket_needs_rearm;
+   bool32 rotation_pending;
+
+   /* Quiesced shutdown view of an unpublished, already-sealed cut. */
+   bool32   unpublished_sealed_log;
+   log_head retiring_log;
+} core_checkpoint_result;
+
+/*
+ * Fill the common semantic view returned by every checkpoint state-machine
+ * function.  The operation-specific function supplies the ticket it wants
+ * interpreted and whether it armed the checkpoint; the remaining predicates
+ * are sampled together under the state lock.
+ */
+static void
+core_checkpoint_fill_result(core_handle            *spl,
+                            uint64                  ticket,
+                            bool32                  armed,
+                            core_checkpoint_result *result)
 {
+   if (result == NULL) {
+      return;
+   }
+
+   ZERO_CONTENTS(result);
+   result->ticket = ticket;
+   result->armed  = armed;
+
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   core_checkpoint_status status = {.phase       = spl->checkpoint.phase,
-                                    .completions = spl->checkpoint.completions};
+   result->ticket_complete =
+      ticket == 0 || spl->checkpoint.completions >= ticket;
+   result->ticket_needs_rearm =
+      ticket != 0 && !result->ticket_complete
+      && spl->checkpoint.phase == CORE_CHECKPOINT_IDLE;
+   result->rotation_pending =
+      ticket != 0 && !result->ticket_complete
+      && spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
+      && spl->checkpoint.completions + 1 == ticket;
+   result->unpublished_sealed_log =
+      spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
+      && spl->checkpoint.log_to_seal == NULL;
+   result->retiring_log = spl->checkpoint.sealed_head;
    platform_mutex_unlock(&spl->checkpoint_state_lock);
-   return status;
 }
 
 /*
- * Begin, step 1 (outside the rotation critical section): if no checkpoint is in
- * progress, and either the caller forces it or the interval policy says so,
- * pre-create the next live log and arm the swap.  Log creation does no disk
- * I/O, but is kept off the insert-blocking path.
- *
- * `force` bypasses only the interval policy, never the live-log precondition:
- * without a log there is nothing to cut.  In particular, crash recovery
- * replays before this session's live stream is created, and its memtables may
- * still rotate while the replay is being folded into the trunk.
- *
- * On success, returns through `ticket_out` the completion to wait for and says
- * through `armed_out` whether this call installed the pending log.  If a
- * checkpoint is already in flight, the caller attaches to its next completion
- * instead of receiving 0; ticket 0 means that no checkpoint was wanted or
- * possible.  A ticket has finished, and freed its retired log, once
- * checkpoint.completions reaches it.  Tickets are 1-based, so 0 is
- * unambiguous.
+ * Publish a previously sealed log cut.  core_checkpoint_advance() owns the
+ * phase transition around this effect; this helper touches only the serialized
+ * superblock image.
  */
 static platform_status
-core_checkpoint_begin(core_handle *spl,
-                      bool32       force,
-                      uint64       expected_ticket,
-                      uint64      *ticket_out,
-                      bool32      *armed_out)
+core_checkpoint_publish_log_cut(core_handle *spl, superblock_log_head live)
 {
-   *ticket_out = 0;
-   *armed_out  = FALSE;
-   if (!spl->cfg.use_log || spl->log == NULL) {
-      return STATUS_OK;
+   platform_status rc = platform_mutex_lock(&spl->superblock_lock);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
+
+   superblock saved_superblock;
+   core_superblock_save_image(spl, &saved_superblock);
+   /* The current image still names the retiring stream as live. */
+   superblock_log_cut(&spl->superblock, live);
+   rc = superblock_make_durable(&spl->superblock);
+   if (!SUCCESS(rc)) {
+      /* A retry must start from the last confirmed image. */
+      core_superblock_restore_image(spl, &saved_superblock);
+   }
+
+   platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
+   platform_assert_status_ok(unlock_rc);
+   return rc;
+}
+
+/*
+ * Arm a checkpoint, either because the size policy says one is due or because
+ * a synchronous caller requires one.  Allocation happens outside the state
+ * lock and is revalidated before the pending log is installed.
+ */
+static platform_status
+core_checkpoint_request(core_handle                 *spl,
+                        core_checkpoint_request_mode mode,
+                        uint64                       expected_ticket,
+                        core_checkpoint_result      *result)
+{
+   platform_assert(mode == CORE_CHECKPOINT_REQUEST_IF_DUE
+                   || mode == CORE_CHECKPOINT_REQUEST_REQUIRED);
+   const bool32 required = mode == CORE_CHECKPOINT_REQUEST_REQUIRED;
+   platform_assert(expected_ticket == 0 || required);
+
+   platform_status rc         = STATUS_OK;
+   uint64          ticket     = 0;
+   bool32          armed      = FALSE;
+   bool32          create_log = FALSE;
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
-   if (expected_ticket != 0 && spl->checkpoint.completions >= expected_ticket) {
-      *ticket_out = expected_ticket;
+   if (!spl->cfg.use_log || spl->log == NULL) {
       platform_mutex_unlock(&spl->checkpoint_state_lock);
-      return STATUS_OK;
+      goto out;
+   }
+   if (expected_ticket != 0 && spl->checkpoint.completions >= expected_ticket) {
+      ticket = expected_ticket;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      goto out;
    }
    if (spl->checkpoint.phase != CORE_CHECKPOINT_IDLE) {
-      *ticket_out = spl->checkpoint.completions + 1;
+      ticket = spl->checkpoint.completions + 1;
       platform_mutex_unlock(&spl->checkpoint_state_lock);
-      return STATUS_OK;
+      goto out;
    }
-   bool32 begin = force || core_should_take_checkpoint(spl);
+   create_log = required || core_should_take_checkpoint(spl);
    platform_mutex_unlock(&spl->checkpoint_state_lock);
-   if (!begin) {
-      return STATUS_OK;
+   if (!create_log) {
+      goto out;
    }
 
-   log_handle     *next;
-   platform_status rc = shard_log_create(
+   /*
+    * Allocate outside the state lock, then revalidate.  A racing request
+    * may install its log while this allocation is in progress.
+    */
+   log_handle *next;
+   rc = shard_log_create(
       spl->cc, (shard_log_config *)spl->cfg.log_cfg, spl->heap_id, &next);
    if (!SUCCESS(rc)) {
-      platform_error_log("core_checkpoint_begin: shard_log_create failed: %s\n",
-                         platform_status_to_string(rc));
-      return rc;
+      goto out;
    }
    log_head next_head = log_get_head(next);
 
-   uint64 ticket = 0;
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (expected_ticket != 0 && spl->checkpoint.completions >= expected_ticket) {
       ticket = expected_ticket;
    } else if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE
-              && (force || core_should_take_checkpoint(spl)))
+              && (required || core_should_take_checkpoint(spl)))
    {
       spl->checkpoint.pending_log = next;
       spl->checkpoint.phase       = CORE_CHECKPOINT_PENDING;
-      next                        = NULL; // handed off to the checkpoint
-      // Ours is the next completion to be counted.
-      ticket     = spl->checkpoint.completions + 1;
-      *armed_out = TRUE;
+      next                        = NULL; // owned by checkpoint state
+      ticket                      = spl->checkpoint.completions + 1;
+      armed                       = TRUE;
    } else if (spl->checkpoint.phase != CORE_CHECKPOINT_IDLE) {
-      /* A competing caller armed one while this log was being created. */
       ticket = spl->checkpoint.completions + 1;
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
    if (next != NULL) {
-      /*
-       * Lost a race with a concurrent rotation; discard the speculative log.
-       */
       log_deinit(next);
       shard_log_dec_ref(spl->cc, &next_head);
    }
-   *ticket_out = ticket;
+
+out:
+   core_checkpoint_fill_result(spl, ticket, armed, result);
+   return rc;
+}
+
+/*
+ * Report a memtable rotation while the caller holds insert exclusion.  This is
+ * the sole checkpoint function that swaps spl->log and it remains I/O-free.
+ */
+static platform_status
+core_checkpoint_rotated_locked(core_handle            *spl,
+                               uint64                  finalized_generation,
+                               core_checkpoint_result *result)
+{
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (spl->checkpoint.phase == CORE_CHECKPOINT_PENDING) {
+      platform_assert(spl->log != NULL);
+      platform_assert(spl->checkpoint.pending_log != NULL);
+      spl->checkpoint.log_to_seal           = spl->log;
+      spl->checkpoint.sealed_head           = log_get_head(spl->log);
+      spl->log                              = spl->checkpoint.pending_log;
+      spl->checkpoint.pending_log           = NULL;
+      spl->checkpoint.live_start_generation = finalized_generation + 1;
+      spl->checkpoint.cut_generation        = finalized_generation;
+      spl->checkpoint.phase                 = CORE_CHECKPOINT_SEALING;
+
+      /* The size hint belonged to the stream just retired. */
+      __atomic_store_n(&spl->log_reached_threshold, FALSE, __ATOMIC_RELAXED);
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   core_checkpoint_fill_result(spl, 0, FALSE, result);
    return STATUS_OK;
 }
 
 /*
- * Abandon a checkpoint which this caller armed but could not rotate for.  The
- * ticket check prevents a delayed caller from cancelling a newer checkpoint:
- * every completed checkpoint advances completions before another one can be
- * armed with the same phase.
- *
- * Returning to IDLE leaves log_reached_threshold set, so a later insert will
- * re-check the current log size, arm a fresh pending log, and try again.  If a
- * natural rotation won the race and already cut this checkpoint, its phase is
- * no longer PENDING and there is nothing to cancel.
+ * Advance any eligible checkpoint work.  Long-running effects use
+ * claim/run/settle: claim PUBLISHING or COMPLETING under the state lock,
+ * release it for log/superblock work, then settle the exact claimed phase.
+ * There is intentionally no state-machine-wide mutex because forced rotation
+ * and task execution can synchronously re-enter through rotation and
+ * incorporation.
  */
-static void
-core_checkpoint_cancel_pending(core_handle *spl, uint64 ticket)
+static platform_status
+core_checkpoint_advance(core_handle *spl, core_checkpoint_result *result)
 {
-   log_handle *pending = NULL;
+   platform_status rc = STATUS_OK;
+
+   /* Claim and, if necessary, seal and publish the cut. */
+   log_handle         *to_seal = NULL;
+   superblock_log_head live    = {0};
+   bool32              publish = FALSE;
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
+      platform_assert(spl->log != NULL);
+      publish               = TRUE;
+      to_seal               = spl->checkpoint.log_to_seal;
+      spl->checkpoint.phase = CORE_CHECKPOINT_PUBLISHING;
+      live                  = core_log_to_superblock_log_head(
+         log_get_head(spl->log), spl->checkpoint.live_start_generation);
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (publish) {
+      if (to_seal != NULL) {
+         /*
+          * Sealing makes the retired log and its referenced blobs
+          * durable.  The cut needs no cache-wide writeback: replay walks
+          * the stream's page links, and allocator recovery rebuilds its
+          * state by walking the durable tree and logs.
+          */
+         rc = log_seal(to_seal);
+         if (!SUCCESS(rc)) {
+            platform_mutex_lock(&spl->checkpoint_state_lock);
+            platform_assert(spl->checkpoint.phase
+                            == CORE_CHECKPOINT_PUBLISHING);
+            platform_assert(spl->checkpoint.log_to_seal == to_seal);
+            spl->checkpoint.phase = CORE_CHECKPOINT_SEALING;
+            platform_mutex_unlock(&spl->checkpoint_state_lock);
+            platform_error_log(
+               "core_checkpoint_advance: failed to seal the log; leaving "
+               "the cut unpublished to retry: %s\n",
+               platform_status_to_string(rc));
+            goto out;
+         }
+
+         /*
+          * A successful seal consumes the handle even if publication
+          * later fails; a retry must publish without sealing twice.
+          */
+         log_deinit(to_seal);
+         platform_mutex_lock(&spl->checkpoint_state_lock);
+         platform_assert(spl->checkpoint.phase == CORE_CHECKPOINT_PUBLISHING);
+         platform_assert(spl->checkpoint.log_to_seal == to_seal);
+         spl->checkpoint.log_to_seal = NULL;
+         platform_mutex_unlock(&spl->checkpoint_state_lock);
+      }
+
+      rc = core_checkpoint_publish_log_cut(spl, live);
+      platform_mutex_lock(&spl->checkpoint_state_lock);
+      platform_assert(spl->checkpoint.phase == CORE_CHECKPOINT_PUBLISHING);
+      spl->checkpoint.phase =
+         SUCCESS(rc) ? CORE_CHECKPOINT_INCORPORATING : CORE_CHECKPOINT_SEALING;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "core_checkpoint_advance: failed to publish the log cut; "
+            "will retry: %s\n",
+            platform_status_to_string(rc));
+         goto out;
+      }
+   }
+
+   /*
+    * Re-evaluate completion even after publishing the cut in this same
+    * invocation.  Incorporation may have finished while PUBLISHING was
+    * owned, and that edge will not necessarily be delivered again.
+    */
+   log_head sealed   = {0};
+   bool32   complete = FALSE;
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   uint64 first_unincorporated = memtable_generation_retired(&spl->mt_ctxt) + 1;
+   complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
+              && first_unincorporated > spl->checkpoint.cut_generation;
+   if (complete) {
+      sealed                = spl->checkpoint.sealed_head;
+      spl->checkpoint.phase = CORE_CHECKPOINT_COMPLETING;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (!complete) {
+      goto out;
+   }
+
+   rc = core_checkpoint_commit_current_root(spl);
+   if (SUCCESS(rc)) {
+      /* Completion is not observable until reclamation has happened. */
+      shard_log_dec_ref(spl->cc, &sealed);
+   } else {
+      platform_error_log(
+         "core_checkpoint_advance: completion publish failed: %s\n",
+         platform_status_to_string(rc));
+   }
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   platform_assert(spl->checkpoint.phase == CORE_CHECKPOINT_COMPLETING);
+   if (SUCCESS(rc)) {
+      ZERO_CONTENTS(&spl->checkpoint.sealed_head);
+      spl->checkpoint.cut_generation = 0;
+      spl->checkpoint.completions++;
+      spl->checkpoint.phase = CORE_CHECKPOINT_IDLE;
+   } else {
+      spl->checkpoint.phase = CORE_CHECKPOINT_INCORPORATING;
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (SUCCESS(rc) && spl->cfg.use_stats) {
+      spl->stats[platform_get_tid()].checkpoints_completed++;
+   }
+
+out:
+   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   return rc;
+}
+
+/* Cancel the still-pending checkpoint identified by ticket, if it is ours. */
+static platform_status
+core_checkpoint_cancel_pending(core_handle            *spl,
+                               uint64                  ticket,
+                               core_checkpoint_result *result)
+{
+   log_handle *pending      = NULL;
+   log_head    pending_head = {0};
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (ticket != 0 && spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
@@ -587,29 +801,97 @@ core_checkpoint_cancel_pending(core_handle *spl, uint64 ticket)
       pending                     = spl->checkpoint.pending_log;
       spl->checkpoint.pending_log = NULL;
       spl->checkpoint.phase       = CORE_CHECKPOINT_IDLE;
+      platform_assert(pending != NULL);
+      pending_head = log_get_head(pending);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
    if (pending != NULL) {
-      log_head pending_head = log_get_head(pending);
       log_deinit(pending);
       shard_log_dec_ref(spl->cc, &pending_head);
    }
+
+   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   return STATUS_OK;
 }
 
-/* The automatic, policy-driven arm, run after every rotation. */
-static void
-core_checkpoint_maybe_begin(core_handle *spl)
+/* Return one atomic semantic view of the requested checkpoint ticket. */
+static platform_status
+core_checkpoint_observe(core_handle            *spl,
+                        uint64                  ticket,
+                        core_checkpoint_result *result)
 {
-   uint64          unused_ticket;
-   bool32          unused_armed;
-   platform_status rc = core_checkpoint_begin(
-      spl, FALSE /* force */, 0, &unused_ticket, &unused_armed);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_checkpoint_maybe_begin: could not arm a "
-                         "checkpoint: %s\n",
-                         platform_status_to_string(rc));
+   core_checkpoint_fill_result(spl, ticket, FALSE, result);
+   return STATUS_OK;
+}
+
+/*
+ * Detach all checkpoint-owned resources after task and API quiescence.  Extents
+ * are reclaimed only when the caller has first removed their durable
+ * reachability.
+ */
+static platform_status
+core_checkpoint_cleanup_quiesced(core_handle            *spl,
+                                 bool32                  reclaim_extents,
+                                 core_checkpoint_result *result)
+{
+   log_handle *pending         = NULL;
+   log_handle *to_seal         = NULL;
+   log_head    pending_head    = {0};
+   log_head    sealed          = {0};
+   bool32      release_pending = FALSE;
+   bool32      release_sealed  = FALSE;
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   core_checkpoint_state *cp = &spl->checkpoint;
+   switch (cp->phase) {
+      case CORE_CHECKPOINT_IDLE:
+         break;
+      case CORE_CHECKPOINT_PENDING:
+         platform_assert(cp->pending_log != NULL);
+         pending         = cp->pending_log;
+         pending_head    = log_get_head(pending);
+         release_pending = reclaim_extents;
+         break;
+      case CORE_CHECKPOINT_SEALING:
+         to_seal = cp->log_to_seal;
+         // fallthrough
+      case CORE_CHECKPOINT_INCORPORATING:
+         sealed         = cp->sealed_head;
+         release_sealed = reclaim_extents;
+         break;
+      case CORE_CHECKPOINT_PUBLISHING:
+      case CORE_CHECKPOINT_COMPLETING:
+         /*
+          * These phases mean another advance call owns an out-of-lock effect
+          * and may still be using the detached resources.  Quiescence
+          * requires that invocation to have settled first.
+          */
+         platform_assert(
+            FALSE, "active checkpoint phase %d at cleanup", cp->phase);
+         break;
+      default:
+         platform_assert(
+            FALSE, "unexpected checkpoint phase %d at cleanup", cp->phase);
    }
+   ZERO_CONTENTS(cp);
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   if (pending != NULL) {
+      log_deinit(pending);
+   }
+   if (to_seal != NULL) {
+      log_deinit(to_seal);
+   }
+   if (release_pending) {
+      shard_log_dec_ref(spl->cc, &pending_head);
+   }
+   if (release_sealed) {
+      shard_log_dec_ref(spl->cc, &sealed);
+   }
+
+   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   return STATUS_OK;
 }
 
 /*
@@ -618,23 +900,20 @@ core_checkpoint_maybe_begin(core_handle *spl)
  *
  * A rotation is the only point at which the log can be cut, and a workload that
  * overwrites in place updates the memtable without growing it -- so it may
- * never fill a memtable, never rotate, and never give
- * core_checkpoint_maybe_begin() (which only runs after a rotation) a chance to
- * arm anything.  Left to itself the log would grow without bound.
+ * never rotate naturally.  The size-policy path must therefore both arm and
+ * force its own rotation or the log can grow without bound.
  *
  * Arming and then forcing the rotation cuts the log in a single rotation, since
  * the rotate hook finds the checkpoint already PENDING.  Only the thread that
  * actually armed goes on to force, so concurrent inserters do not pile on.
  *
- * Not forcing the arm below is what makes this safe against a stale flag.  The
+ * CORE_CHECKPOINT_REQUEST_IF_DUE makes this safe against a stale flag.  The
  * flag is only a hint -- sampled on some earlier insert, and readable by
  * several threads at once -- so a thread can arrive here long after the log it
- * observed was already cut.  Passing force = FALSE has core_checkpoint_begin()
- * re-check the policy under the state lock against the *current* log, which
- * declines in exactly those cases (the fresh log reports zero bytes, or a
- * checkpoint is still in flight) and proceeds only when another cut is
- * genuinely due.  Forcing here would instead cut again on a log that no longer
- * needs it.
+ * observed was already cut.  core_checkpoint_request() re-checks the policy
+ * under the state lock against the *current* log and arms only when another cut
+ * is genuinely due.  Only the caller which successfully arms performs the
+ * force, so a stale observer cannot cut a fresh log.
  */
 static void
 core_maybe_cut_oversized_log(core_handle *spl)
@@ -642,17 +921,28 @@ core_maybe_cut_oversized_log(core_handle *spl)
    if (!__atomic_load_n(&spl->log_reached_threshold, __ATOMIC_RELAXED)) {
       return;
    }
-   uint64          ticket;
-   bool32          armed;
-   platform_status rc =
-      core_checkpoint_begin(spl, FALSE /* force */, 0, &ticket, &armed);
+
+   /*
+    * A previous size-triggered rotation may have cut the log and then failed
+    * while sealing or publishing it.  Overwrite-in-place traffic need not
+    * produce another natural rotation, so use the next threshold observation
+    * to resume that checkpoint before trying to arm a new one.
+    */
+   platform_status rc = core_checkpoint_advance(spl, NULL);
+   if (!SUCCESS(rc)) {
+      return;
+   }
+
+   core_checkpoint_result request;
+   rc =
+      core_checkpoint_request(spl, CORE_CHECKPOINT_REQUEST_IF_DUE, 0, &request);
    if (!SUCCESS(rc)) {
       platform_error_log("core_maybe_cut_oversized_log: could not arm a "
                          "checkpoint: %s\n",
                          platform_status_to_string(rc));
       return;
    }
-   if (armed) {
+   if (request.armed) {
       rc = memtable_force_rotation(&spl->mt_ctxt, NULL);
       if (!SUCCESS(rc)) {
          /*
@@ -660,7 +950,7 @@ core_maybe_cut_oversized_log(core_handle *spl)
           * still-pending checkpoint so later inserts can retry instead of
           * leaving it permanently PENDING.
           */
-         core_checkpoint_cancel_pending(spl, ticket);
+         (void)core_checkpoint_cancel_pending(spl, request.ticket, NULL);
          if (!STATUS_IS_EQ(rc, STATUS_BUSY)) {
             platform_error_log(
                "core_maybe_cut_oversized_log: failed to force a memtable "
@@ -672,309 +962,21 @@ core_maybe_cut_oversized_log(core_handle *spl)
 }
 
 /*
- * Begin, step 2 (inside the rotation critical section, insert lock held
- * exclusively): swap the pre-created live log in.  Registered as
- * mt_ctxt.rotate.  Every log writer holds the insert lock shared across its
- * log_write, so once this store retires no writer is mid-write to, or will
- * newly enter, the old log -- making the subsequent seal safe.
+ * Report a rotation while its critical section holds the insert lock
+ * exclusively.  core_checkpoint_rotated_locked() swaps the pre-created live
+ * log in.  Every log writer holds the insert lock shared across its log_write,
+ * so once this store retires no writer is mid-write to, or will newly enter,
+ * the old log -- making the subsequent seal safe.
  */
 static void
 core_rotate_log(void *arg, uint64 finalized_generation)
 {
    core_handle *spl = arg;
 
-   platform_mutex_lock(&spl->checkpoint_state_lock);
-   if (spl->checkpoint.phase == CORE_CHECKPOINT_PENDING) {
-      platform_assert(spl->log != NULL);
-      platform_assert(spl->checkpoint.pending_log != NULL);
-      spl->checkpoint.log_to_seal = spl->log;
-      spl->checkpoint.sealed_head = log_get_head(spl->log);
-      spl->log                    = spl->checkpoint.pending_log;
-      spl->checkpoint.pending_log = NULL;
-      /*
-       * The retiring log received everything up to and including
-       * finalized_generation, so the new live log's coverage starts at the next
-       * one.  The retiring log's own start generation needs no tracking here:
-       * the superblock already records it, and superblock_log_cut() carries it
-       * across into the sealed slot.
-       */
-      spl->checkpoint.live_start_generation = finalized_generation + 1;
-      spl->checkpoint.cut_generation        = finalized_generation;
-      spl->checkpoint.phase                 = CORE_CHECKPOINT_SEALING;
-
-      /*
-       * The size hint described the log we just retired; the fresh one has had
-       * nothing appended.  This is the only place the hint is cleared, and the
-       * insert lock is held exclusively here, so it cannot race the stores in
-       * core_log_insert().  A rotation that does not cut leaves the hint alone,
-       * which is correct: the same log is still live and still oversized.
-       */
-      __atomic_store_n(&spl->log_reached_threshold, FALSE, __ATOMIC_RELAXED);
-   }
-   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   platform_status rc =
+      core_checkpoint_rotated_locked(spl, finalized_generation, NULL);
+   platform_assert_status_ok(rc);
 }
-
-/* Move the checkpoint to `phase`, taking the state lock for the update. */
-static void
-core_checkpoint_set_phase(core_handle *spl, core_checkpoint_phase phase)
-{
-   platform_mutex_lock(&spl->checkpoint_state_lock);
-   spl->checkpoint.phase = phase;
-   platform_mutex_unlock(&spl->checkpoint_state_lock);
-}
-
-/*
- * Begin, step 3 (just after the rotation critical section): seal the
- * swapped-out log and publish the cut.  The swap drained and excluded all
- * writers, so sealing is safe.
- *
- * Either both halves succeed and the checkpoint advances to INCORPORATING, or
- * the phase returns to SEALING and nothing else has changed, so a later
- * rotation retries.  Half-done is not a state the rest of the machine can
- * tolerate: completion frees the sealed log's extents, which is only safe once
- * the superblock has stopped naming that log as the live one.
- *
- * Publishing here is what makes the cut crash-safe.  The rotation moved inserts
- * to the new live log, but the superblock still names the old one, so until
- * this runs a crash would lose everything written to the new log.  Order
- * matters: the sealed log's pages must be durable before the superblock names
- * it as sealed, since recovery replays it as-is.
- */
-static void
-core_checkpoint_seal_cut(core_handle *spl)
-{
-   /*
-    * Claim the work by moving to PUBLISHING, which both keeps a second caller
-    * out and keeps core_maybe_complete_checkpoint() out: it acts only on
-    * INCORPORATING, which we do not enter until the cut is actually published.
-    * Entering it earlier would let completion free the sealed log's extents
-    * while the superblock still names that log as live.
-    */
-   platform_mutex_lock(&spl->checkpoint_state_lock);
-   log_handle         *to_seal = NULL;
-   superblock_log_head live    = {0};
-   bool32              claimed = FALSE;
-   if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING) {
-      platform_assert(spl->log != NULL);
-      claimed = TRUE;
-      // NULL if an earlier attempt sealed the log but failed to publish.
-      to_seal               = spl->checkpoint.log_to_seal;
-      spl->checkpoint.phase = CORE_CHECKPOINT_PUBLISHING;
-      live                  = core_log_to_superblock_log_head(
-         log_get_head(spl->log), spl->checkpoint.live_start_generation);
-   }
-   platform_mutex_unlock(&spl->checkpoint_state_lock);
-
-   if (!claimed) {
-      return;
-   }
-
-   if (to_seal != NULL) {
-      platform_status seal_rc = log_seal(to_seal);
-      if (!SUCCESS(seal_rc)) {
-         /*
-          * The stream was left unterminated, so replay would discard part or
-          * all of it; publishing it as the sealed log would prevent recovery
-          * from being able to replay the live log (because there might be some
-          * missing updates at the end of the sealed log).  Put the checkpoint
-          * back exactly as the rotation left it -- log_to_seal still set, so
-          * the handle survives -- and let a later rotation retry.  Resuming a
-          * partly-sealed stream is safe: see log_seal_fn.
-          */
-         platform_error_log("core_checkpoint_seal_cut: failed to seal the log; "
-                            "leaving the cut unpublished to retry: %s\n",
-                            platform_status_to_string(seal_rc));
-         core_checkpoint_set_phase(spl, CORE_CHECKPOINT_SEALING);
-         return;
-      }
-      /*
-       * Sealed.  Drop the handle and forget it before anything else can fail,
-       * so that a retry publishes without trying to seal a second time -- which
-       * would write a second terminator into a closed group.
-       */
-      log_deinit(to_seal);
-      platform_mutex_lock(&spl->checkpoint_state_lock);
-      spl->checkpoint.log_to_seal = NULL;
-      platform_mutex_unlock(&spl->checkpoint_state_lock);
-   }
-
-   /*
-    * Serialize against any other superblock publisher (the superblock context
-    * is not thread safe).
-    */
-   platform_status rc = platform_mutex_lock(&spl->superblock_lock);
-   if (SUCCESS(rc)) {
-      superblock saved_superblock;
-      core_superblock_save_image(spl, &saved_superblock);
-      /*
-       * The sealed log -- and the blobs its records point at -- is already
-       * durable: log_seal() above did that, scoped to the log's own pages.  No
-       * cache-wide writeback here; the rest of the cache has nothing to do with
-       * this cut, and flushing it was costing a whole cache's worth of I/O per
-       * checkpoint.
-       *
-       * The new live log's mini-allocator metadata is deliberately not made
-       * durable.  Nothing needs it: replay walks a stream through the
-       * next_extent_addr chain in its own page headers, and the cut invalidates
-       * the persisted allocation map, so a crash rebuilds the allocator by
-       * walking rather than trusting that metadata.
-       */
-      // The image still names the retiring log as live, so the cut moves it
-      // into the sealed slot, carrying its recorded start generation along.
-      superblock_log_cut(&spl->superblock, live);
-      rc = superblock_make_durable(&spl->superblock);
-      if (!SUCCESS(rc)) {
-         /* Retry must cut the last confirmed image, not this staged one. */
-         core_superblock_restore_image(spl, &saved_superblock);
-      }
-      platform_status unlock_rc = platform_mutex_unlock(&spl->superblock_lock);
-      platform_assert_status_ok(unlock_rc);
-   }
-
-   if (!SUCCESS(rc)) {
-      // Back to SEALING to be retried; the log is already sealed, so the retry
-      // will find log_to_seal NULL and only redo the publish.
-      platform_error_log("core_checkpoint_seal_cut: failed to publish the log "
-                         "cut; will retry: %s\n",
-                         platform_status_to_string(rc));
-      core_checkpoint_set_phase(spl, CORE_CHECKPOINT_SEALING);
-      return;
-   }
-
-   core_checkpoint_set_phase(spl, CORE_CHECKPOINT_INCORPORATING);
-}
-
-/*
- * Complete (after an incorporation): if the sealed log's generations are all
- * folded into the trunk root, advance the durable root with the sealed slot
- * cleared (which makes the root and superblock durable) and free the sealed
- * log's extents.  Called from the single-threaded incorporation path.
- */
-static platform_status
-core_maybe_complete_checkpoint(core_handle *spl)
-{
-   platform_mutex_lock(&spl->checkpoint_state_lock);
-   // The sealed log's cut generation is fully incorporated once it falls below
-   // the first unincorporated generation.  When nothing has been retired,
-   // memtable_generation_retired() is UINT64_MAX and this wraps to 0, so the
-   // comparison is false without a sentinel check.
-   uint64 first_unincorporated = memtable_generation_retired(&spl->mt_ctxt) + 1;
-   bool32 complete = spl->checkpoint.phase == CORE_CHECKPOINT_INCORPORATING
-                     && first_unincorporated > spl->checkpoint.cut_generation;
-   log_head sealed = {0};
-   if (complete) {
-      sealed                = spl->checkpoint.sealed_head;
-      spl->checkpoint.phase = CORE_CHECKPOINT_COMPLETING;
-   }
-   platform_mutex_unlock(&spl->checkpoint_state_lock);
-
-   if (!complete) {
-      return STATUS_OK;
-   }
-
-   /*
-    * The live log is already recorded (core_checkpoint_seal_cut() published the
-    * cut), so this only advances the root -- which is what lets snapshot_tree
-    * drop the now-covered sealed log.
-    */
-   platform_status rc = core_checkpoint_commit_current_root(spl);
-   if (SUCCESS(rc)) {
-      // The sealed log's entries are now durably in the root; free its extents.
-      shard_log_dec_ref(spl->cc, &sealed);
-   } else {
-      platform_error_log("core_maybe_complete_checkpoint: publish failed: %s\n",
-                         platform_status_to_string(rc));
-   }
-
-   platform_mutex_lock(&spl->checkpoint_state_lock);
-   if (SUCCESS(rc)) {
-      ZERO_CONTENTS(&spl->checkpoint.sealed_head);
-      spl->checkpoint.cut_generation = 0;
-      /*
-       * Count the completion only here, after shard_log_dec_ref() above:
-       * waiters take this as proof the retired log's space is back.
-       */
-      spl->checkpoint.completions++;
-      spl->checkpoint.phase = CORE_CHECKPOINT_IDLE;
-   } else {
-      // Leave the sealed slot intact and retry on a later incorporation.
-      spl->checkpoint.phase = CORE_CHECKPOINT_INCORPORATING;
-   }
-   platform_mutex_unlock(&spl->checkpoint_state_lock);
-
-   // Outside the lock: this is a per-thread counter, so it needs none.
-   if (SUCCESS(rc) && spl->cfg.use_stats) {
-      spl->stats[platform_get_tid()].checkpoints_completed++;
-   }
-   return rc;
-}
-
-/*
- * Release any resources of an in-flight checkpoint during a quiesced shutdown,
- * before the unmount/destroy publish.  No locking: the caller has quiesced all
- * inserts and incorporations.  A completed checkpoint
- * (INCORPORATING/COMPLETING) is normally already reaped by the quiesce drain;
- * the residual cases below are defensive.
- *
- * reclaim_extents is TRUE only after a complete-root shutdown publication has
- * durably cleared every log slot.  Every recovery/fallback path passes FALSE:
- * it cannot know which of these logs the durable record may still name, and
- * freeing one it keeps would leave that record pointing at recycled space.
- * Nothing leaks permanently -- those paths leave allocation state invalid, so
- * the next mount rebuilds the map from exactly the tree and logs it can reach.
- */
-static void
-core_checkpoint_cleanup_for_shutdown(core_handle *spl, bool32 reclaim_extents)
-{
-   core_checkpoint_state *cp = &spl->checkpoint;
-   switch (cp->phase) {
-      case CORE_CHECKPOINT_IDLE:
-         break;
-      case CORE_CHECKPOINT_PENDING:
-      {
-         /*
-          * The next live log was pre-created but never installed; discard it.
-          * As above, no seal: its extents are about to be freed.
-          */
-         platform_assert(cp->pending_log != NULL);
-         log_head pending_head = log_get_head(cp->pending_log);
-         log_deinit(cp->pending_log);
-         if (reclaim_extents) {
-            shard_log_dec_ref(spl->cc, &pending_head);
-         }
-         break;
-      }
-      case CORE_CHECKPOINT_SEALING:
-      case CORE_CHECKPOINT_PUBLISHING:
-         /*
-          * The cut was never published, because sealing or publishing failed
-          * and kept failing -- out of log space does not fix itself while the
-          * checkpoint that would free the previous log cannot complete.  The
-          * handle may still be held for a retry that will now never happen.
-          *
-          * Falls through.  If reclaim_extents is TRUE, the complete root now
-          * supersedes both streams.  Otherwise their extents stay allocated
-          * until recovery determines which record reached disk.
-          */
-         if (cp->log_to_seal != NULL) {
-            log_deinit(cp->log_to_seal);
-         }
-         // fallthrough
-      case CORE_CHECKPOINT_INCORPORATING:
-      case CORE_CHECKPOINT_COMPLETING:
-         // Reclaim only after the shutdown record both covers the sealed log
-         // and names no logs (before map persistence, so the map reflects it).
-         if (reclaim_extents) {
-            shard_log_dec_ref(spl->cc, &cp->sealed_head);
-         }
-         break;
-      default:
-         platform_assert(
-            FALSE, "unexpected checkpoint phase %d at shutdown", cp->phase);
-   }
-   ZERO_CONTENTS(cp); // phase == CORE_CHECKPOINT_IDLE
-}
-
 /*
  *-----------------------------------------------------------------------------
  * Memtable Functions
@@ -1182,9 +1184,10 @@ core_log_insert(core_handle                *spl,
     * Only ever set it here, never clear it: this runs on every logged insert on
     * every thread, and writing a shared field that often would bounce its cache
     * line between cores for no reason.  Leaving the common case read-only keeps
-    * the line shared.  core_rotate_log() clears the flag when it cuts the log,
-    * which it does under the insert lock held exclusively -- so the clear
-    * cannot race this store.
+    * the line shared.  core_checkpoint_rotated_locked() clears the flag when it
+    * cuts the log,
+    * while the insert lock is held exclusively, so the clear cannot race this
+    * store.
     */
    if (spl->cfg.checkpoint_log_size_bytes != 0
        && log_get_size(spl->log) >= spl->cfg.checkpoint_log_size_bytes)
@@ -1458,8 +1461,8 @@ core_memtable_flush_internal(core_handle *spl, uint64 generation)
       generation++;
    } while (core_try_continue_incorporate(spl, generation));
 
-   // A checkpoint's sealed log may now be fully incorporated; complete it.
-   core_maybe_complete_checkpoint(spl);
+   // An incorporation can make a checkpoint eligible for completion.
+   (void)core_checkpoint_advance(spl, NULL);
 out:
    return STATUS_OK;
 }
@@ -1498,15 +1501,11 @@ core_memtable_flush_virtual(void *arg, uint64 generation)
 {
    core_handle *spl = arg;
 
-   // Begin, step 3: if this rotation's in-CS hook swapped the live log, seal
-   // the old one now that the critical section has been released.
-   core_checkpoint_seal_cut(spl);
+   // Advance any transition this rotation made eligible now that the critical
+   // section has been released.
+   (void)core_checkpoint_advance(spl, NULL);
 
    core_memtable_flush(spl, generation);
-
-   // Begin, step 1: decide whether the next rotation should start a checkpoint,
-   // pre-creating its live log outside any critical section.
-   core_checkpoint_maybe_begin(spl);
 }
 
 static inline uint64
@@ -2783,7 +2782,7 @@ core_rebuild_allocations(core_handle                  *spl,
          if (SUPERBLOCK_NO_LOG(slots[i])) {
             continue;
          }
-         log_head head = core_superblock_log_head_to_log(slots[i]);
+         log_head head = slots[i].head;
 
          rc =
             shard_log_recover_allocations(spl->cc, log_cfg, spl->heap_id, head);
@@ -2912,11 +2911,8 @@ core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
    superblock_log_head slots[2] = {rec->sealed_log, rec->live_log};
    for (uint64 i = 0; i < ARRAY_SIZE(slots); i++) {
       bool32          ran_to_end;
-      platform_status rc =
-         core_replay_log(spl,
-                         core_superblock_log_head_to_log(slots[i]),
-                         rec->first_unincorporated_generation,
-                         &ran_to_end);
+      platform_status rc = core_replay_log(
+         spl, slots[i].head, rec->first_unincorporated_generation, &ran_to_end);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -2925,7 +2921,7 @@ core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
             platform_error_log("core_mount: the log at %lu lost its tail, so "
                                "the log after it is not replayable and its "
                                "records are lost\n",
-                               slots[i].addr);
+                               slots[i].head.addr);
          }
          break;
       }
@@ -2943,7 +2939,9 @@ core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
                          "publishing a root that omits them\n");
       return STATUS_INVALID_STATE;
    }
-   core_checkpoint_cleanup_for_shutdown(spl, FALSE);
+   platform_status cleanup_rc =
+      core_checkpoint_cleanup_quiesced(spl, FALSE, NULL);
+   platform_assert_status_ok(cleanup_rc);
 
    /*
     * Publish the recovered root with both log slots cleared.  From here the
@@ -3468,21 +3466,24 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
    uint64 target = memtable_generation(&spl->mt_ctxt);
 
-   uint64          ticket;
-   bool32          armed;
-   platform_status rc =
-      core_checkpoint_begin(spl, TRUE /* force */, 0, &ticket, &armed);
+   core_checkpoint_result request;
+   platform_status        rc = core_checkpoint_request(
+      spl, CORE_CHECKPOINT_REQUEST_REQUIRED, 0, &request);
    if (!SUCCESS(rc)) {
       return rc;
    }
-   (void)armed;
+   uint64 ticket = request.ticket;
 
    uint64    wait     = 100;
    timestamp deadline = platform_get_timestamp();
    while (TRUE) {
       bool32 incorporated =
          memtable_generation_retired(&spl->mt_ctxt) + 1 > target;
-      core_checkpoint_status status = core_checkpoint_status_get(spl);
+      core_checkpoint_result state;
+      rc = core_checkpoint_observe(spl, ticket, &state);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
 
       /*
        * An automatic size-triggered attempt can cancel a still-PENDING
@@ -3490,22 +3491,15 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
        * had attached to that completion, re-arm the same completion ticket
        * instead of waiting forever or returning without a log cut.
        */
-      if (ticket != 0 && status.completions < ticket
-          && status.phase == CORE_CHECKPOINT_IDLE)
-      {
-         uint64 replacement_ticket;
-         bool32 replacement_armed;
-         rc = core_checkpoint_begin(spl,
-                                    TRUE /* force */,
-                                    ticket,
-                                    &replacement_ticket,
-                                    &replacement_armed);
+      if (state.ticket_needs_rearm) {
+         core_checkpoint_result replacement;
+         rc = core_checkpoint_request(
+            spl, CORE_CHECKPOINT_REQUEST_REQUIRED, ticket, &replacement);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         (void)replacement_armed;
-         platform_assert(replacement_ticket == ticket);
-         status = core_checkpoint_status_get(spl);
+         platform_assert(replacement.ticket == ticket);
+         state = replacement;
       }
       /*
        * Done once the target is durable-able and, if we started a checkpoint,
@@ -3514,8 +3508,7 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
        * flight" means neither an unrelated checkpoint nor one armed after ours
        * can hold us up.
        */
-      bool32 ours_completed = (ticket == 0) || (status.completions >= ticket);
-      if (incorporated && ours_completed) {
+      if (incorporated && state.ticket_complete) {
          break;
       }
 
@@ -3530,9 +3523,8 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
        * cut. On an otherwise idle system nothing would ever provide one, and
        * the wait for our completion would never finish.
        */
-      bool32 needs_rotation =
-         memtable_generation(&spl->mt_ctxt) == target
-         || (ticket != 0 && status.phase == CORE_CHECKPOINT_PENDING);
+      bool32 needs_rotation = memtable_generation(&spl->mt_ctxt) == target
+                              || (ticket != 0 && state.rotation_pending);
       if (needs_rotation
           && rotation_timeout_ns <= platform_timestamp_elapsed(deadline))
       {
@@ -3542,28 +3534,22 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
             // The force dispatched the flush itself.
             deadline = platform_get_timestamp();
          } else if (!STATUS_IS_EQ(rotation_rc, STATUS_BUSY)) {
-            core_checkpoint_cancel_pending(spl, ticket);
+            (void)core_checkpoint_cancel_pending(spl, ticket, NULL);
             return rotation_rc;
          }
       }
 
       /*
-       * Drive the cut ourselves rather than waiting for a rotation to do it.
-       * A no-op unless the checkpoint is sitting in SEALING, which happens when
-       * an earlier attempt to seal or publish failed and rolled back.  Nothing
-       * else would come along on an otherwise idle system -- needs_rotation
-       * above only covers PENDING -- so without this a failed attempt would
-       * wait here forever.
+       * Drive any eligible cut or completion ourselves.  This is a no-op when
+       * another thread owns the transition.  On an otherwise idle system no
+       * later rotation or incorporation may arrive to retry a failed
+       * transition, so the synchronous caller must both make progress and
+       * observe any error.
        */
-      core_checkpoint_seal_cut(spl);
-      /*
-       * And drive completion, for the same reason.  Completion is otherwise
-       * only attempted on the back of an incorporation; if the cut is published
-       * after the generations it covers were already incorporated -- which a
-       * retried cut can be -- that edge has passed and nothing would ever try
-       * again.
-       */
-      core_maybe_complete_checkpoint(spl);
+      rc = core_checkpoint_advance(spl, NULL);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
 
       task_perform_one_if_needed(spl->ts, 0);
       platform_sleep_ns(wait);
@@ -3597,11 +3583,14 @@ core_unmount(core_handle *spl, bool32 force)
 
    /*
     * A failed checkpoint cut can leave the newly installed live log unnamed by
-    * the durable superblock.  Retry the cut once before testing the log route.
-    * This is still safe to walk away from: sealing retires only the previous
-    * stream, while inserts already use the new one.
+    * the durable superblock.  Retry any eligible checkpoint transition once
+    * before testing the log route.  This is still safe to walk away from:
+    * sealing retires only the previous stream, while inserts already use the
+    * new one.
     */
-   core_checkpoint_seal_cut(spl);
+   core_checkpoint_result checkpoint_view;
+   platform_status        checkpoint_rc =
+      core_checkpoint_advance(spl, &checkpoint_view);
 
    platform_status log_rc      = STATUS_OK;
    bool32          have_log    = spl->cfg.use_log && spl->log != NULL;
@@ -3621,10 +3610,9 @@ core_unmount(core_handle *spl, bool32 force)
        * only when the newly installed, unnamed stream has accepted no records.
        */
       bool32 retiring_log_durable =
-         spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
-         && spl->checkpoint.log_to_seal == NULL && log_is_empty(spl->log)
+         checkpoint_view.unpublished_sealed_log && log_is_empty(spl->log)
          && core_superblock_log_head_matches(durable_rec.live_log,
-                                             spl->checkpoint.sealed_head);
+                                             checkpoint_view.retiring_log);
 
       log_rc = log_make_durable(spl->log);
       if (!SUCCESS(log_rc)) {
@@ -3690,6 +3678,8 @@ core_unmount(core_handle *spl, bool32 force)
          safety_rc = log_rc;
       } else if (!root_publish_succeeded) {
          safety_rc = root_publish_rc;
+      } else if (!SUCCESS(checkpoint_rc)) {
+         safety_rc = checkpoint_rc;
       } else {
          safety_rc = STATUS_BUSY;
       }
@@ -3723,8 +3713,10 @@ core_unmount(core_handle *spl, bool32 force)
     * case retain their extents; the invalid allocation-state marker makes the
     * next mount reconstruct exactly what the durable record still reaches.
     */
-   bool32 reclaim_logs = logs_discarded;
-   core_checkpoint_cleanup_for_shutdown(spl, reclaim_logs);
+   bool32          reclaim_logs = logs_discarded;
+   platform_status checkpoint_cleanup_rc =
+      core_checkpoint_cleanup_quiesced(spl, reclaim_logs, NULL);
+   platform_assert_status_ok(checkpoint_cleanup_rc);
 
    /*
     * Deliberately no seal of the current live stream.  make_durable above
@@ -3807,7 +3799,9 @@ core_destroy(core_handle *spl)
    (void)core_report_unincorporated_memtables(spl);
 
    // Reclaim any in-flight checkpoint's logs before teardown.
-   core_checkpoint_cleanup_for_shutdown(spl, TRUE);
+   platform_status checkpoint_cleanup_rc =
+      core_checkpoint_cleanup_quiesced(spl, TRUE, NULL);
+   platform_assert_status_ok(checkpoint_cleanup_rc);
 
    /*
     * Release the reference the published tree record holds on its root before
@@ -3905,14 +3899,14 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
                 spl->id,
                 rec.root_addr,
                 rec.first_unincorporated_generation,
-                rec.live_log.meta_addr,
-                rec.live_log.addr,
-                rec.live_log.nonce.high,
-                rec.live_log.nonce.low,
-                rec.sealed_log.meta_addr,
-                rec.sealed_log.addr,
-                rec.sealed_log.nonce.high,
-                rec.sealed_log.nonce.low,
+                rec.live_log.head.meta_addr,
+                rec.live_log.head.addr,
+                rec.live_log.head.nonce.high,
+                rec.live_log.head.nonce.low,
+                rec.sealed_log.head.meta_addr,
+                rec.sealed_log.head.addr,
+                rec.sealed_log.head.nonce.high,
+                rec.sealed_log.head.nonce.low,
                 superblock_allocation_state_valid(&spl->superblock) ? "valid"
                                                                     : "invalid",
                 superblock_allocation_state_addr(&spl->superblock));
