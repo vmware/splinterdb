@@ -18,32 +18,67 @@ typedef struct log_handle   log_handle;
 typedef struct log_iterator log_iterator;
 typedef struct log_config   log_config;
 
-typedef int (*log_write_fn)(log_handle *log,
-                            key         tuple_key,
-                            message     data,
-                            uint64      memtable_generation,
-                            uint64      leaf_generation);
 /*
- * Make everything written so far durable, and leave the stream open.
- *
- * Closes the current group -- writing out whatever each writer still has
- * staged, and marking the result as a complete unit for replay -- then waits
- * for those writes to land and takes a durable barrier.  Subsequent writes
- * begin a new group.
- *
- * The caller must exclude concurrent log_write() calls for the duration, for
- * the same reason log_seal() requires it and a stronger one besides: a group
- * boundary is only correct if no writer holds a record that is already visible
- * to readers but not yet staged.  Such a record would land in the *next* group
- * while records that happened after it sit in this one, so a crash that kept
- * this group and lost the next would recover a state that never existed.
- *
- * On failure nothing new is guaranteed durable.  The implementation retains
- * the exact close/writeback state. The implementation must complete that retry
- * before accepting another record (whether through an explicit retry here or
- * on the next append); once it succeeds, the stream is open on the next group.
+ * Opaque ownership of one in-flight write in a concrete log group.  Callers
+ * allocate this on their stack, initialize it with log_write_reserve(), and
+ * consume it exactly once with log_write_reserved().  The fields are private
+ * to the log implementation.
  */
-typedef platform_status (*log_make_durable_fn)(log_handle *log);
+typedef struct log_write_token {
+   log_handle *log;
+   void       *internal;
+} log_write_token;
+
+/*
+ * Opaque durability cut returned by log_make_durable_begin().  A successful
+ * begin holds one reference on the in-memory log handle until the matching
+ * log_make_durable_wait(). Once the owner has otherwise quiesced and retired
+ * the stream, that pin lets it deinit the stream between the two calls.
+ */
+typedef uint64 log_durable_ticket;
+
+/*
+ * Reserve the accepting durability group for a future append.  This operation
+ * is infallible for a live log: it performs no allocation or I/O and does not
+ * reject a group poisoned by an earlier append.  It only takes the log's short
+ * group-state mutex.
+ *
+ * A layer which publishes an update before writing its log record can invoke
+ * this while holding the lock which protects that update's linearization.  A
+ * durability cut which follows the reservation will then wait for its eventual
+ * append, without excluding other writers while it performs I/O.
+ *
+ * The caller must already have excluded seal/deinit and must consume the token
+ * exactly once with log_write_reserved().  There is deliberately no cancel:
+ * reserve belongs at a point after which the logical update cannot fail.
+ */
+typedef void (*log_write_reserve_fn)(log_handle *log, log_write_token *token);
+
+/* Append through, and always consume, a prior reservation. */
+typedef int (*log_write_reserved_fn)(log_write_token *token,
+                                     key              tuple_key,
+                                     message          data,
+                                     uint64           memtable_generation,
+                                     uint64           leaf_generation);
+/*
+ * Split-phase durability operation. Begin atomically closes the group which
+ * accepted every log_write_reserve() that selected it before the cut, installs
+ * a fresh group, and returns without waiting for those reservations or for I/O.
+ * Writers therefore need not be excluded from either phase.
+ *
+ * Wait drains the selected group and every predecessor, takes a durable
+ * barrier, and leaves the stream open. Concurrent begins and waits may pipeline
+ * groups; a later wait may make several earlier tickets durable at once.
+ * Transient graduation/writeback failures retain the exact state for a later
+ * begin/wait pair to retry. If log_write_reserved() failed after its update
+ * became visible, that group is permanently poisoned instead: every wait
+ * whose cut includes it returns the original append error and no later group
+ * may become complete on disk.
+ */
+typedef platform_status (
+   *log_make_durable_begin_fn)(log_handle *log, log_durable_ticket *ticket_out);
+typedef platform_status (*log_make_durable_wait_fn)(log_handle        *log,
+                                                    log_durable_ticket ticket);
 
 /*
  * Finish the stream: write out everything still staged, and mark the last of it
@@ -55,24 +90,31 @@ typedef platform_status (*log_make_durable_fn)(log_handle *log);
  * does -- there is no point completing a stream a crash could still lose -- so
  * callers need not follow with a barrier of their own.
  *
- * The caller must exclude concurrent log_write() and log_seal() calls.  The
- * stream's head is fixed at creation and obtained then via log_get_head(), so
- * seal needs no out-parameter; the caller asks the concrete implementation to
- * free the on-disk extents later.
+ * The caller must exclude concurrent reservations and log_seal() calls, and
+ * wait for every existing reservation to be consumed. The stream's head is
+ * fixed at creation and obtained then via log_get_head(), so seal needs no
+ * out-parameter; the caller asks the concrete implementation to free the
+ * on-disk extents later.
  *
  * A caller that is about to discard the stream outright should skip this and
  * call log_deinit() alone: there is no point writing a terminator onto extents
  * that are about to be freed.
  *
- * On failure nothing new is guaranteed durable, but seal may simply be called
- * again: the implementation retains the exact structural/writeback state and
- * resumes from where it stopped.  Calling seal again after success is
- * idempotent.
+ * On a transient failure nothing new is guaranteed durable, but seal may
+ * simply be called again: the implementation retains the exact
+ * structural/writeback state and resumes from where it stopped. A group
+ * poisoned by an earlier append failure is permanent, so seal continues to
+ * return that append error. Calling seal again after success is idempotent.
  */
 typedef platform_status (*log_seal_fn)(log_handle *log);
 /*
- * Release the stream's in-memory resources and free the handle, which is
- * invalid afterward.  Writes nothing, so it cannot fail.
+ * Release the stream owner's reference. Before calling this, the owner must
+ * exclude new reservations, log_make_durable_begin(), and log_seal() calls and
+ * wait for every reserved write to be consumed. It need not wait for
+ * log_make_durable_wait() calls consuming tickets issued before deinit: those
+ * tickets defer the actual free, and the final matching wait may free the
+ * handle as it returns. The handle is otherwise invalid as soon as deinit is
+ * called. Deinit writes nothing, so it cannot fail.
  *
  * Separate from seal because the two are wanted independently: a stream being
  * discarded needs only this, and a stream being finished needs seal's
@@ -87,7 +129,7 @@ typedef void (*log_deinit_fn)(log_handle *log);
 typedef log_head (*log_head_fn)(log_handle *log);
 /*
  * Whether the stream has ever accepted a record.  The caller must exclude
- * concurrent log_write() calls while inspecting this state.
+ * concurrent reserved writes while inspecting this state.
  */
 typedef bool32 (*log_is_empty_fn)(log_handle *log);
 /*
@@ -101,13 +143,15 @@ typedef bool32 (*log_is_empty_fn)(log_handle *log);
 typedef uint64 (*log_size_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_fn        write;
-   log_make_durable_fn make_durable;
-   log_seal_fn         seal;
-   log_deinit_fn       deinit;
-   log_head_fn         head;
-   log_is_empty_fn     is_empty;
-   log_size_fn         size;
+   log_write_reserve_fn      write_reserve;
+   log_write_reserved_fn     write_reserved;
+   log_make_durable_begin_fn make_durable_begin;
+   log_make_durable_wait_fn  make_durable_wait;
+   log_seal_fn               seal;
+   log_deinit_fn             deinit;
+   log_head_fn               head;
+   log_is_empty_fn           is_empty;
+   log_size_fn               size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -115,6 +159,30 @@ struct log_handle {
    const log_ops *ops;
 };
 
+static inline void
+log_write_reserve(log_handle *log, log_write_token *token)
+{
+   platform_assert(log != NULL);
+   platform_assert(token != NULL);
+   log->ops->write_reserve(log, token);
+}
+
+/* Append a reserved record and consume token on every return path. */
+static inline int
+log_write_reserved(log_write_token *token,
+                   key              tuple_key,
+                   message          data,
+                   uint64           memtable_generation,
+                   uint64           leaf_generation)
+{
+   platform_assert(token != NULL);
+   platform_assert(token->log != NULL,
+                   "log write token is absent or has already been consumed");
+   return token->log->ops->write_reserved(
+      token, tuple_key, data, memtable_generation, leaf_generation);
+}
+
+/* Convenience for callers whose reservation and append are adjacent. */
 static inline int
 log_write(log_handle *log,
           key         tuple_key,
@@ -122,18 +190,46 @@ log_write(log_handle *log,
           uint64      memtable_generation,
           uint64      leaf_generation)
 {
-   return log->ops->write(
-      log, tuple_key, data, memtable_generation, leaf_generation);
+   log_write_token token;
+   log_write_reserve(log, &token);
+   return log_write_reserved(
+      &token, tuple_key, data, memtable_generation, leaf_generation);
 }
 
 /*
- * Make everything written so far durable, leaving the stream open.  See
- * log_make_durable_fn for the required exclusion.
+ * Take a quick cut of everything written so far and return a ticket for it.
+ * Writers may run concurrently with this operation.  A successful begin must
+ * be paired with exactly one log_make_durable_wait(), even when ticket_out is
+ * zero or a later operation makes the cut durable first.
+ *
+ * The ticket pins the handle until wait consumes it. This permits a caller to
+ * release whatever external lock protects the live-log pointer before doing
+ * the slow wait. After separately excluding every new operation as required by
+ * log_deinit_fn, the owner may also deinit the stream before this wait.
  */
+static inline platform_status
+log_make_durable_begin(log_handle *log, log_durable_ticket *ticket_out)
+{
+   return log->ops->make_durable_begin(log, ticket_out);
+}
+
+/* Wait for the cut and consume the handle pin acquired by begin. */
+static inline platform_status
+log_make_durable_wait(log_handle *log, log_durable_ticket ticket)
+{
+   return log->ops->make_durable_wait(log, ticket);
+}
+
+/* Convenience wrapper for callers that do not need to release a lock early. */
 static inline platform_status
 log_make_durable(log_handle *log)
 {
-   return log->ops->make_durable(log);
+   log_durable_ticket ticket;
+   platform_status    rc = log_make_durable_begin(log, &ticket);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return log_make_durable_wait(log, ticket);
 }
 
 /*
@@ -147,7 +243,10 @@ log_seal(log_handle *log)
    return log->ops->seal(log);
 }
 
-/* Free the handle, which is invalid afterward.  See log_deinit_fn. */
+/*
+ * Release the quiesced owner; only already-issued ticket waits remain legal
+ * afterward. See log_deinit_fn for the required exclusion.
+ */
 static inline void
 log_deinit(log_handle *log)
 {

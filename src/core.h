@@ -142,11 +142,11 @@ typedef struct core_handle core_handle;
  *
  * The only transition that touches the shared spl->log pointer (PENDING ->
  * SEALING) runs inside the memtable rotation critical section, where the insert
- * lock is held exclusively; every log writer holds that lock shared across its
- * log_write, so no writer can be mid-write to, or newly enter, the old log once
- * it is swapped out.  All live transitions and observations enter through the
- * event-specific checkpoint functions in core.c.  The state lock is only ever
- * held for brief, I/O-free updates.
+ * lock is held exclusively; every log writer holds that lock shared from its
+ * group reservation through its reserved write, so no writer can still use,
+ * or newly enter, the old log once it is swapped out.  All live transitions
+ * and observations enter through the event-specific checkpoint functions in
+ * core.c.  The state lock is only ever held for brief, I/O-free updates.
  */
 typedef enum core_checkpoint_phase {
    CORE_CHECKPOINT_IDLE = 0,
@@ -169,6 +169,13 @@ typedef struct core_checkpoint_state {
    // superblock already holds it and carries it into the sealed slot.
    uint64 live_start_generation;
    uint64 cut_generation; // complete once retired >= this
+   /*
+    * Log cuts durably published so far.  A durability barrier that observes
+    * SEALING/PUBLISHING waits for the next value; unlike `completions`, this
+    * advances as soon as the superblock names both sides of the cut and does
+    * not wait for incorporation or log reclamation.
+    */
+   uint64 publications;
    /*
     * Checkpoints completed so far.  Bumped only after the completion has freed
     * the retired log, so it is the one observable meaning "that checkpoint's
@@ -257,6 +264,14 @@ struct core_handle {
     * current log before acting.
     */
    bool32 log_reached_threshold;
+
+   /*
+    * First failure to append an update after memtable insertion made it
+    * visible.  Such an update cannot be promised by the WAL, so later writes
+    * and durability barriers fail rather than reporting a false durability
+    * guarantee or extending a non-prefix log stream.
+    */
+   internal_platform_status durability_error;
 
    core_stats *stats;
 
@@ -393,6 +408,14 @@ core_mount(core_handle      *spl,
  */
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
+
+/*
+ * Make every update that linearized before this call recoverable after power
+ * loss.  Writers run concurrently with the in-memory log-group cut, page
+ * graduation, writeback, and the device barrier.
+ */
+platform_status
+core_durable_barrier(core_handle *spl);
 
 /*
  * Unmount the database without destroying it; it can be re-opened later with

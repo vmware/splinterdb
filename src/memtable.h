@@ -167,6 +167,15 @@ platform_status
 memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
                                        uint64           *generation);
 
+/*
+ * Pin the current insert generation without excluding other inserts.  This is
+ * useful for operations which need the same lifetime protection as an insert
+ * but do not themselves select or mutate a memtable.  Pair with
+ * memtable_end_insert().
+ */
+void
+memtable_begin_insert(memtable_context *ctxt);
+
 void
 memtable_end_insert(memtable_context *ctxt);
 

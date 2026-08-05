@@ -22,6 +22,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "core.h"
+#include "shard_log.h"
 #include "blob_build.h"
 #include "clockcache.h"
 #include "allocator.h"
@@ -29,6 +30,7 @@
 #include "rc_allocator.h"
 #include "task.h"
 #include "platform_threads.h"
+#include "platform_sleep.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"
@@ -64,7 +66,11 @@ typedef struct checkpoint_barrier_fault {
    uint64        skip_barriers;
    uint64        fail_barriers;
    uint64        barriers;
+   uint64        block_barrier;
    bool32        enabled;
+   bool32        block_enabled;
+   bool32        block_entered;
+   bool32        block_released;
    bool32        installed;
 } checkpoint_barrier_fault;
 
@@ -87,6 +93,14 @@ checkpoint_fault_durable_barrier(io_handle *io)
    if (__atomic_load_n(&fault->enabled, __ATOMIC_ACQUIRE)) {
       uint64 barrier =
          __atomic_fetch_add(&fault->barriers, 1, __ATOMIC_RELAXED);
+      if (__atomic_load_n(&fault->block_enabled, __ATOMIC_ACQUIRE)
+          && barrier == fault->block_barrier)
+      {
+         __atomic_store_n(&fault->block_entered, TRUE, __ATOMIC_RELEASE);
+         while (!__atomic_load_n(&fault->block_released, __ATOMIC_ACQUIRE)) {
+            platform_sleep_ns(USEC_TO_NSEC(50));
+         }
+      }
       if (barrier >= fault->skip_barriers
           && barrier - fault->skip_barriers < fault->fail_barriers)
       {
@@ -119,15 +133,45 @@ checkpoint_barrier_fault_arm(checkpoint_barrier_fault *fault,
 {
    platform_assert(fault->installed);
    __atomic_store_n(&fault->enabled, FALSE, __ATOMIC_RELEASE);
+   __atomic_store_n(&fault->block_released, TRUE, __ATOMIC_RELEASE);
+   __atomic_store_n(&fault->block_enabled, FALSE, __ATOMIC_RELEASE);
    fault->skip_barriers = skip_barriers;
    fault->fail_barriers = CHECKPOINT_BARRIER_FAULT_COUNT;
    __atomic_store_n(&fault->barriers, 0, __ATOMIC_RELAXED);
    __atomic_store_n(&fault->enabled, TRUE, __ATOMIC_RELEASE);
 }
 
+/* Block one selected successful device barrier until the test releases it. */
+static void
+checkpoint_barrier_fault_block(checkpoint_barrier_fault *fault,
+                               uint64                    block_barrier)
+{
+   platform_assert(fault->installed);
+   __atomic_store_n(&fault->enabled, FALSE, __ATOMIC_RELEASE);
+   __atomic_store_n(&fault->block_released, TRUE, __ATOMIC_RELEASE);
+   __atomic_store_n(&fault->block_enabled, FALSE, __ATOMIC_RELEASE);
+
+   fault->skip_barriers = 0;
+   fault->fail_barriers = 0;
+   fault->block_barrier = block_barrier;
+   __atomic_store_n(&fault->barriers, 0, __ATOMIC_RELAXED);
+   __atomic_store_n(&fault->block_entered, FALSE, __ATOMIC_RELAXED);
+   __atomic_store_n(&fault->block_released, FALSE, __ATOMIC_RELAXED);
+   __atomic_store_n(&fault->block_enabled, TRUE, __ATOMIC_RELEASE);
+   __atomic_store_n(&fault->enabled, TRUE, __ATOMIC_RELEASE);
+}
+
+static void
+checkpoint_barrier_fault_release(checkpoint_barrier_fault *fault)
+{
+   __atomic_store_n(&fault->block_released, TRUE, __ATOMIC_RELEASE);
+}
+
 static void
 checkpoint_barrier_fault_disable(checkpoint_barrier_fault *fault)
 {
+   checkpoint_barrier_fault_release(fault);
+   __atomic_store_n(&fault->block_enabled, FALSE, __ATOMIC_RELEASE);
    __atomic_store_n(&fault->enabled, FALSE, __ATOMIC_RELEASE);
 }
 
@@ -145,6 +189,209 @@ checkpoint_barrier_fault_uninstall(checkpoint_barrier_fault *fault)
    fault->installed = FALSE;
    fault->io        = NULL;
    fault->saved_ops = NULL;
+}
+
+/*
+ * Pause the first core insert after its leaf-lock callback has reserved a log
+ * group and made the memtable mutation visible, but before the reserved append
+ * consumes that reservation.  Later writes pass through so a test can prove
+ * that the blocked reservation does not exclude unrelated writers.
+ */
+typedef struct core_log_write_block {
+   log_handle    *log;
+   const log_ops *saved_ops;
+   log_ops        blocked_ops;
+   uint64         calls;
+   bool32         entered;
+   bool32         released;
+   bool32         installed;
+} core_log_write_block;
+
+static core_log_write_block *active_core_log_write_block;
+
+static int
+core_log_write_reserved_blocked(log_write_token *token,
+                                key              tuple_key,
+                                message          data,
+                                uint64           memtable_generation,
+                                uint64           leaf_generation)
+{
+   core_log_write_block *block =
+      __atomic_load_n(&active_core_log_write_block, __ATOMIC_ACQUIRE);
+   platform_assert(block != NULL && block->installed
+                   && block->log == token->log);
+
+   uint64 call = __atomic_fetch_add(&block->calls, 1, __ATOMIC_RELAXED);
+   if (call == 0) {
+      __atomic_store_n(&block->entered, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&block->released, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(USEC_TO_NSEC(50));
+      }
+   }
+   return block->saved_ops->write_reserved(
+      token, tuple_key, data, memtable_generation, leaf_generation);
+}
+
+static void
+core_log_write_block_install(core_log_write_block *block, log_handle *log)
+{
+   platform_assert(active_core_log_write_block == NULL);
+   platform_assert(!block->installed);
+
+   block->log                        = log;
+   block->saved_ops                  = log->ops;
+   block->blocked_ops                = *log->ops;
+   block->blocked_ops.write_reserved = core_log_write_reserved_blocked;
+   block->calls                      = 0;
+   block->entered                    = FALSE;
+   block->released                   = FALSE;
+   block->installed                  = TRUE;
+   __atomic_store_n(&active_core_log_write_block, block, __ATOMIC_RELEASE);
+   log->ops = &block->blocked_ops;
+}
+
+static void
+core_log_write_block_release(core_log_write_block *block)
+{
+   __atomic_store_n(&block->released, TRUE, __ATOMIC_RELEASE);
+}
+
+static void
+core_log_write_block_uninstall(core_log_write_block *block)
+{
+   if (!block->installed) {
+      return;
+   }
+   core_log_write_block_release(block);
+   block->log->ops = block->saved_ops;
+   __atomic_store_n(&active_core_log_write_block, NULL, __ATOMIC_RELEASE);
+   block->installed = FALSE;
+   block->log       = NULL;
+   block->saved_ops = NULL;
+}
+
+#define CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS SEC_TO_NSEC(10)
+
+static bool32
+core_durable_barrier_test_wait(const bool32 *flag)
+{
+   timestamp start = platform_get_timestamp();
+   while (!__atomic_load_n(flag, __ATOMIC_ACQUIRE)
+          && platform_timestamp_elapsed(start)
+                < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return __atomic_load_n(flag, __ATOMIC_ACQUIRE);
+}
+
+static bool32
+core_durable_barrier_test_wait_for_ticket_refs(shard_log *log, uint64 target)
+{
+   timestamp start = platform_get_timestamp();
+   while (platform_timestamp_elapsed(start)
+          < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      platform_status rc = platform_mutex_lock(&log->group_lock);
+      if (!SUCCESS(rc)) {
+         return FALSE;
+      }
+      uint64 refs = log->ticket_refs;
+      rc          = platform_mutex_unlock(&log->group_lock);
+      if (!SUCCESS(rc)) {
+         return FALSE;
+      }
+      if (refs >= target) {
+         return TRUE;
+      }
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return FALSE;
+}
+
+static bool32
+core_durable_barrier_test_wait_for_io_barriers(checkpoint_barrier_fault *fault,
+                                               uint64                    target)
+{
+   timestamp start = platform_get_timestamp();
+   while (__atomic_load_n(&fault->barriers, __ATOMIC_ACQUIRE) < target
+          && platform_timestamp_elapsed(start)
+                < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return __atomic_load_n(&fault->barriers, __ATOMIC_ACQUIRE) >= target;
+}
+
+static bool32
+core_durable_barrier_test_wait_for_live_log_durable(shard_log *log)
+{
+   timestamp start = platform_get_timestamp();
+   while (platform_timestamp_elapsed(start)
+          < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      platform_status rc = platform_mutex_lock(&log->group_lock);
+      if (!SUCCESS(rc)) {
+         return FALSE;
+      }
+      bool32 durable = log->last_cut_ticket != 0
+                       && log->durable_ticket >= log->last_cut_ticket;
+      rc = platform_mutex_unlock(&log->group_lock);
+      if (!SUCCESS(rc)) {
+         return FALSE;
+      }
+      if (durable) {
+         return TRUE;
+      }
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return FALSE;
+}
+
+typedef struct core_durable_barrier_thread_args {
+   core_handle    *spl;
+   platform_status rc;
+   bool32          started;
+   bool32          done;
+} core_durable_barrier_thread_args;
+
+static void
+core_durable_barrier_test_thread(void *arg)
+{
+   core_durable_barrier_thread_args *args = arg;
+   __atomic_store_n(&args->started, TRUE, __ATOMIC_RELEASE);
+   args->rc = core_durable_barrier(args->spl);
+   __atomic_store_n(&args->done, TRUE, __ATOMIC_RELEASE);
+}
+
+typedef struct core_checkpoint_thread_args {
+   core_handle    *spl;
+   platform_status rc;
+   bool32          done;
+} core_checkpoint_thread_args;
+
+static void
+core_checkpoint_test_thread(void *arg)
+{
+   core_checkpoint_thread_args *args = arg;
+   args->rc                          = core_checkpoint(args->spl, 0);
+   __atomic_store_n(&args->done, TRUE, __ATOMIC_RELEASE);
+}
+
+typedef struct core_durable_barrier_insert_args {
+   core_handle    *spl;
+   key             tuple_key;
+   message         msg;
+   platform_status rc;
+   bool32          done;
+} core_durable_barrier_insert_args;
+
+static void
+core_durable_barrier_insert_thread(void *arg)
+{
+   core_durable_barrier_insert_args *args = arg;
+   args->rc = core_insert(args->spl, args->tuple_key, args->msg, NULL);
+   __atomic_store_n(&args->done, TRUE, __ATOMIC_RELEASE);
 }
 
 static bool32
@@ -786,6 +1033,661 @@ CTEST2(splinter, test_two_log_checkpoint)
    ASSERT_TRUE(SUCCESS(rc));
 
    core_destroy(&spl);
+}
+
+/*
+ * Pause an insert after it has reserved a log group and made its memtable
+ * mutation visible, but before it consumes the reservation.  A durability
+ * barrier must cut that group and wait for the reserved write.  It must not
+ * take insert exclusion: a second insert should reserve the new group and
+ * finish while both the first insert and the barrier remain blocked.
+ */
+CTEST2(splinter, test_durable_barrier_waits_for_visible_insert_log_write)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(first_keybuf, data->hid);
+   DECLARE_AUTO_KEY_BUFFER(second_keybuf, data->hid);
+   merge_accumulator first_msg;
+   merge_accumulator second_msg;
+   merge_accumulator_init(&first_msg, data->hid);
+   merge_accumulator_init(&second_msg, data->hid);
+   test_key(
+      &first_keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &first_msg);
+   test_key(
+      &second_keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 2, &second_msg);
+
+   core_durable_barrier_insert_args first_insert_args = {
+      .spl       = &spl,
+      .tuple_key = key_buffer_key(&first_keybuf),
+      .msg       = merge_accumulator_to_message(&first_msg),
+      .rc        = STATUS_INVALID_STATE,
+   };
+   core_durable_barrier_insert_args second_insert_args = {
+      .spl       = &spl,
+      .tuple_key = key_buffer_key(&second_keybuf),
+      .msg       = merge_accumulator_to_message(&second_msg),
+      .rc        = STATUS_INVALID_STATE,
+   };
+   core_durable_barrier_thread_args barrier_args = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   platform_thread      first_insert_thread  = {0};
+   platform_thread      second_insert_thread = {0};
+   platform_thread      barrier_thread       = {0};
+   core_log_write_block log_block            = {0};
+
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+
+   bool32          first_insert_created             = FALSE;
+   bool32          second_insert_created            = FALSE;
+   bool32          barrier_created                  = FALSE;
+   bool32          write_blocked                    = FALSE;
+   bool32          visible_before_log_write         = FALSE;
+   bool32          log_cut_while_writer_blocked     = FALSE;
+   bool32          second_insert_completed          = FALSE;
+   bool32          barrier_completed_before_release = FALSE;
+   platform_status lookup_rc                        = STATUS_INVALID_STATE;
+   platform_status first_insert_create_rc           = STATUS_INVALID_STATE;
+   platform_status second_insert_create_rc          = STATUS_INVALID_STATE;
+   platform_status barrier_create_rc                = STATUS_INVALID_STATE;
+   platform_status first_insert_join_rc             = STATUS_INVALID_STATE;
+   platform_status second_insert_join_rc            = STATUS_INVALID_STATE;
+   platform_status barrier_join_rc                  = STATUS_INVALID_STATE;
+
+   core_log_write_block_install(&log_block, spl.log);
+   first_insert_create_rc =
+      platform_thread_create(&first_insert_thread,
+                             FALSE,
+                             core_durable_barrier_insert_thread,
+                             &first_insert_args,
+                             data->hid);
+   first_insert_created = SUCCESS(first_insert_create_rc);
+   if (first_insert_created) {
+      write_blocked = core_durable_barrier_test_wait(&log_block.entered);
+   }
+
+   if (write_blocked) {
+      lookup_rc = core_lookup(&spl, first_insert_args.tuple_key, &qdata);
+      if (SUCCESS(lookup_rc)) {
+         visible_before_log_write =
+            message_lex_cmp(
+               first_insert_args.msg,
+               merge_accumulator_to_message(lookup_result_accumulator(&qdata)))
+            == 0;
+      }
+
+      barrier_create_rc =
+         platform_thread_create(&barrier_thread,
+                                FALSE,
+                                core_durable_barrier_test_thread,
+                                &barrier_args,
+                                data->hid);
+      barrier_created = SUCCESS(barrier_create_rc);
+      if (barrier_created) {
+         log_cut_while_writer_blocked =
+            core_durable_barrier_test_wait_for_ticket_refs((shard_log *)spl.log,
+                                                           1);
+         if (log_cut_while_writer_blocked) {
+            second_insert_create_rc =
+               platform_thread_create(&second_insert_thread,
+                                      FALSE,
+                                      core_durable_barrier_insert_thread,
+                                      &second_insert_args,
+                                      data->hid);
+            second_insert_created = SUCCESS(second_insert_create_rc);
+            if (second_insert_created) {
+               second_insert_completed =
+                  core_durable_barrier_test_wait(&second_insert_args.done);
+            }
+         }
+         barrier_completed_before_release =
+            __atomic_load_n(&barrier_args.done, __ATOMIC_ACQUIRE);
+      }
+   }
+
+   core_log_write_block_release(&log_block);
+   if (first_insert_created) {
+      first_insert_join_rc = platform_thread_join(&first_insert_thread);
+   }
+   if (second_insert_created) {
+      second_insert_join_rc = platform_thread_join(&second_insert_thread);
+   }
+   if (barrier_created) {
+      barrier_join_rc = platform_thread_join(&barrier_thread);
+   }
+   core_log_write_block_uninstall(&log_block);
+
+   lookup_result_deinit(&qdata);
+   merge_accumulator_deinit(&second_msg);
+   merge_accumulator_deinit(&first_msg);
+   core_destroy(&spl);
+
+   ASSERT_TRUE(SUCCESS(first_insert_create_rc));
+   ASSERT_TRUE(write_blocked,
+               "insert did not reach the reserved-write blocking hook\n");
+   ASSERT_TRUE(SUCCESS(lookup_rc),
+               "lookup of the paused insert failed: %s\n",
+               platform_status_to_string(lookup_rc));
+   ASSERT_TRUE(visible_before_log_write,
+               "paused insert was not visible before its reserved write\n");
+   ASSERT_TRUE(SUCCESS(barrier_create_rc));
+   ASSERT_TRUE(
+      log_cut_while_writer_blocked,
+      "core_durable_barrier did not cut the reserved writer's group\n");
+   ASSERT_TRUE(SUCCESS(second_insert_create_rc));
+   ASSERT_TRUE(
+      second_insert_completed,
+      "core_durable_barrier excluded a writer after cutting the log\n");
+   ASSERT_FALSE(barrier_completed_before_release,
+                "core_durable_barrier passed a visible reserved insert\n");
+   ASSERT_TRUE(SUCCESS(first_insert_join_rc));
+   ASSERT_TRUE(SUCCESS(second_insert_join_rc));
+   ASSERT_TRUE(SUCCESS(barrier_join_rc));
+   ASSERT_TRUE(SUCCESS(first_insert_args.rc),
+               "paused insert failed: %s\n",
+               platform_status_to_string(first_insert_args.rc));
+   ASSERT_TRUE(SUCCESS(second_insert_args.rc),
+               "concurrent insert failed: %s\n",
+               platform_status_to_string(second_insert_args.rc));
+   ASSERT_TRUE(SUCCESS(barrier_args.rc),
+               "core_durable_barrier failed: %s\n",
+               platform_status_to_string(barrier_args.rc));
+}
+
+/* Without a WAL, the barrier must fold its frontier into a durable COW root. */
+CTEST2(splinter, test_durable_barrier_without_log_publishes_root)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = FALSE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_NULL(spl.log);
+
+   uint64 insert_generation = memtable_generation(&spl.mt_ctxt);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = core_durable_barrier(&spl);
+   ASSERT_TRUE(SUCCESS(rc),
+               "no-log core_durable_barrier failed: %s\n",
+               platform_status_to_string(rc));
+
+   /* Read a fresh image from disk rather than trusting the live context. */
+   superblock_context disk_superblock;
+   allocator_config  *allocator_cfg = allocator_get_config(alp);
+   rc                               = superblock_context_init(
+      &disk_superblock, data->io, allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_mount(&disk_superblock, allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_tree_record record;
+   superblock_get_tree_record(&disk_superblock, &record);
+   ASSERT_NOT_EQUAL(0, record.root_addr);
+   ASSERT_TRUE(record.first_unincorporated_generation > insert_generation,
+               "durable root stops at generation %lu, insert was in %lu\n",
+               record.first_unincorporated_generation,
+               insert_generation);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(record.sealed_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(record.live_log));
+
+   superblock_context_deinit(&disk_superblock);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
+/*
+ * The durability cut may briefly exclude inserts, but the slow device barrier
+ * must not.  Hold the first device barrier after a logged update reaches it,
+ * then require a new insert to finish while the barrier thread is still held
+ * inside the I/O hook.  Releasing the hook must let the original durability
+ * call finish successfully.
+ *
+ * No CTest assertion is made while the hook is installed or either worker may
+ * still be live.  That keeps a failed assertion from stranding a registered
+ * thread in the blocking hook and makes fixture cleanup deterministic.
+ */
+CTEST2(splinter, test_durable_barrier_reopens_writers_before_device_barrier)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* Keep the second tuple's storage alive until its worker has joined. */
+   test_key(&keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 2, &msg);
+   core_durable_barrier_insert_args insert_args = {
+      .spl       = &spl,
+      .tuple_key = key_buffer_key(&keybuf),
+      .msg       = merge_accumulator_to_message(&msg),
+      .rc        = STATUS_INVALID_STATE,
+   };
+   core_durable_barrier_thread_args barrier_args = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+
+   platform_thread barrier_thread                   = {0};
+   platform_thread insert_thread                    = {0};
+   bool32          barrier_created                  = FALSE;
+   bool32          insert_created                   = FALSE;
+   bool32          barrier_blocked                  = FALSE;
+   bool32          insert_completed_before_release  = FALSE;
+   bool32          barrier_completed_before_release = FALSE;
+   platform_status barrier_create_rc                = STATUS_INVALID_STATE;
+   platform_status insert_create_rc                 = STATUS_INVALID_STATE;
+   platform_status barrier_join_rc                  = STATUS_INVALID_STATE;
+   platform_status insert_join_rc                   = STATUS_INVALID_STATE;
+
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_block(&data->checkpoint_fault, 0);
+
+   barrier_create_rc = platform_thread_create(&barrier_thread,
+                                              FALSE,
+                                              core_durable_barrier_test_thread,
+                                              &barrier_args,
+                                              data->hid);
+   barrier_created   = SUCCESS(barrier_create_rc);
+   if (barrier_created) {
+      barrier_blocked =
+         core_durable_barrier_test_wait(&data->checkpoint_fault.block_entered);
+   }
+
+   if (barrier_blocked) {
+      insert_create_rc =
+         platform_thread_create(&insert_thread,
+                                FALSE,
+                                core_durable_barrier_insert_thread,
+                                &insert_args,
+                                data->hid);
+      insert_created = SUCCESS(insert_create_rc);
+      if (insert_created) {
+         insert_completed_before_release =
+            core_durable_barrier_test_wait(&insert_args.done);
+      }
+      barrier_completed_before_release =
+         __atomic_load_n(&barrier_args.done, __ATOMIC_ACQUIRE);
+   }
+
+   checkpoint_barrier_fault_release(&data->checkpoint_fault);
+   if (insert_created) {
+      insert_join_rc = platform_thread_join(&insert_thread);
+   }
+   if (barrier_created) {
+      barrier_join_rc = platform_thread_join(&barrier_thread);
+   }
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+
+   ASSERT_TRUE(SUCCESS(barrier_create_rc));
+   ASSERT_TRUE(barrier_blocked,
+               "core_durable_barrier did not reach the device barrier\n");
+   ASSERT_TRUE(SUCCESS(insert_create_rc));
+   ASSERT_TRUE(insert_completed_before_release,
+               "insert did not finish while the device barrier was blocked\n");
+   ASSERT_FALSE(barrier_completed_before_release,
+                "core_durable_barrier returned before its device barrier\n");
+   ASSERT_TRUE(SUCCESS(insert_join_rc));
+   ASSERT_TRUE(SUCCESS(barrier_join_rc));
+   ASSERT_TRUE(SUCCESS(insert_args.rc),
+               "concurrent insert failed: %s\n",
+               platform_status_to_string(insert_args.rc));
+   ASSERT_TRUE(SUCCESS(barrier_args.rc),
+               "core_durable_barrier failed: %s\n",
+               platform_status_to_string(barrier_args.rc));
+}
+
+/*
+ * Two barriers over the same write frontier share one group ticket.  Hold the
+ * first caller at the device, wait until both begin calls have pinned their
+ * tickets, then release them together.  The second caller must neither return
+ * early nor issue a redundant device barrier.
+ */
+CTEST2(splinter, test_concurrent_durable_barriers_coalesce)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   core_durable_barrier_thread_args first = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   core_durable_barrier_thread_args second = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   platform_thread first_thread                    = {0};
+   platform_thread second_thread                   = {0};
+   bool32          first_created                   = FALSE;
+   bool32          second_created                  = FALSE;
+   bool32          first_blocked                   = FALSE;
+   bool32          both_tickets_pinned             = FALSE;
+   bool32          second_completed_before_release = FALSE;
+   platform_status first_create_rc                 = STATUS_INVALID_STATE;
+   platform_status second_create_rc                = STATUS_INVALID_STATE;
+   platform_status first_join_rc                   = STATUS_INVALID_STATE;
+   platform_status second_join_rc                  = STATUS_INVALID_STATE;
+
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_block(&data->checkpoint_fault, 0);
+
+   first_create_rc = platform_thread_create(&first_thread,
+                                            FALSE,
+                                            core_durable_barrier_test_thread,
+                                            &first,
+                                            data->hid);
+   first_created   = SUCCESS(first_create_rc);
+   if (first_created) {
+      first_blocked =
+         core_durable_barrier_test_wait(&data->checkpoint_fault.block_entered);
+   }
+
+   if (first_blocked) {
+      second_create_rc =
+         platform_thread_create(&second_thread,
+                                FALSE,
+                                core_durable_barrier_test_thread,
+                                &second,
+                                data->hid);
+      second_created = SUCCESS(second_create_rc);
+      if (second_created) {
+         both_tickets_pinned = core_durable_barrier_test_wait_for_ticket_refs(
+            (shard_log *)spl.log, 2);
+         second_completed_before_release =
+            __atomic_load_n(&second.done, __ATOMIC_ACQUIRE);
+      }
+   }
+
+   checkpoint_barrier_fault_release(&data->checkpoint_fault);
+   if (second_created) {
+      second_join_rc = platform_thread_join(&second_thread);
+   }
+   if (first_created) {
+      first_join_rc = platform_thread_join(&first_thread);
+   }
+   uint64 device_barriers =
+      __atomic_load_n(&data->checkpoint_fault.barriers, __ATOMIC_ACQUIRE);
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+
+   ASSERT_TRUE(SUCCESS(first_create_rc));
+   ASSERT_TRUE(first_blocked,
+               "first core_durable_barrier did not reach the device\n");
+   ASSERT_TRUE(SUCCESS(second_create_rc));
+   ASSERT_TRUE(both_tickets_pinned,
+               "concurrent barriers did not both pin the in-flight ticket\n");
+   ASSERT_FALSE(second_completed_before_release,
+                "second barrier passed an undurable shared ticket\n");
+   ASSERT_TRUE(SUCCESS(first_join_rc));
+   ASSERT_TRUE(SUCCESS(second_join_rc));
+   ASSERT_TRUE(SUCCESS(first.rc),
+               "first core_durable_barrier failed: %s\n",
+               platform_status_to_string(first.rc));
+   ASSERT_TRUE(SUCCESS(second.rc),
+               "second core_durable_barrier failed: %s\n",
+               platform_status_to_string(second.rc));
+   ASSERT_EQUAL(1,
+                device_barriers,
+                "coalesced barriers issued %lu device barriers\n",
+                device_barriers);
+}
+
+/*
+ * A checkpoint cut is not recoverable through its new live log until the
+ * superblock durably names both the retired and live streams.  Block exactly
+ * that publication barrier (the retired-log seal is the preceding barrier),
+ * append to the already-installed live log, and start a durability barrier.
+ * The live log may become durable independently, but the core barrier must not
+ * return until the blocked cut publication completes.
+ *
+ * As in the other blocking-hook tests, collect predicates while workers are
+ * live and make CTest assertions only after releasing the hook and joining
+ * both workers.
+ */
+CTEST2(splinter, test_durable_barrier_waits_for_checkpoint_publication)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   platform_mutex_lock(&spl.checkpoint_state_lock);
+   uint64 publication_target = spl.checkpoint.publications + 1;
+   platform_mutex_unlock(&spl.checkpoint_state_lock);
+
+   core_checkpoint_thread_args checkpoint_args = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   core_durable_barrier_thread_args barrier_args = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   platform_thread checkpoint_thread = {0};
+   platform_thread barrier_thread    = {0};
+
+   bool32          checkpoint_created                  = FALSE;
+   bool32          barrier_created                     = FALSE;
+   bool32          publication_blocked                 = FALSE;
+   bool32          observed_publishing                 = FALSE;
+   bool32          retired_log_already_sealed          = FALSE;
+   bool32          live_insert_succeeded               = FALSE;
+   bool32          live_barrier_reached_device         = FALSE;
+   bool32          live_log_durable_before_publication = FALSE;
+   bool32          barrier_completed_before_release    = FALSE;
+   bool32          checkpoint_completed_before_release = FALSE;
+   bool32          publication_completed               = FALSE;
+   platform_status checkpoint_create_rc                = STATUS_INVALID_STATE;
+   platform_status barrier_create_rc                   = STATUS_INVALID_STATE;
+   platform_status live_insert_rc                      = STATUS_INVALID_STATE;
+   platform_status checkpoint_join_rc                  = STATUS_INVALID_STATE;
+   platform_status barrier_join_rc                     = STATUS_INVALID_STATE;
+
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   /* Seal is barrier 0; cut publication is barrier 1. */
+   checkpoint_barrier_fault_block(&data->checkpoint_fault, 1);
+
+   checkpoint_create_rc = platform_thread_create(&checkpoint_thread,
+                                                 FALSE,
+                                                 core_checkpoint_test_thread,
+                                                 &checkpoint_args,
+                                                 data->hid);
+   checkpoint_created   = SUCCESS(checkpoint_create_rc);
+   if (checkpoint_created) {
+      publication_blocked =
+         core_durable_barrier_test_wait(&data->checkpoint_fault.block_entered);
+   }
+
+   if (publication_blocked) {
+      platform_mutex_lock(&spl.checkpoint_state_lock);
+      observed_publishing = spl.checkpoint.phase == CORE_CHECKPOINT_PUBLISHING;
+      retired_log_already_sealed = spl.checkpoint.log_to_seal == NULL;
+      platform_mutex_unlock(&spl.checkpoint_state_lock);
+      checkpoint_completed_before_release =
+         __atomic_load_n(&checkpoint_args.done, __ATOMIC_ACQUIRE);
+
+      /* This update belongs to the new live log named by the blocked cut. */
+      test_key(&keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, 2, &msg);
+      live_insert_rc        = core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL);
+      live_insert_succeeded = SUCCESS(live_insert_rc);
+   }
+
+   if (live_insert_succeeded) {
+      barrier_create_rc =
+         platform_thread_create(&barrier_thread,
+                                FALSE,
+                                core_durable_barrier_test_thread,
+                                &barrier_args,
+                                data->hid);
+      barrier_created = SUCCESS(barrier_create_rc);
+      if (barrier_created) {
+         /* Barriers 0 and 1 belong to the checkpoint; 2 is the live log. */
+         live_barrier_reached_device =
+            core_durable_barrier_test_wait_for_io_barriers(
+               &data->checkpoint_fault, 3);
+         if (live_barrier_reached_device) {
+            live_log_durable_before_publication =
+               core_durable_barrier_test_wait_for_live_log_durable(
+                  (shard_log *)spl.log);
+         }
+         barrier_completed_before_release =
+            __atomic_load_n(&barrier_args.done, __ATOMIC_ACQUIRE);
+      }
+   }
+
+   checkpoint_barrier_fault_release(&data->checkpoint_fault);
+   if (barrier_created) {
+      barrier_join_rc = platform_thread_join(&barrier_thread);
+   }
+   if (checkpoint_created) {
+      checkpoint_join_rc = platform_thread_join(&checkpoint_thread);
+   }
+   platform_mutex_lock(&spl.checkpoint_state_lock);
+   publication_completed = spl.checkpoint.publications >= publication_target;
+   platform_mutex_unlock(&spl.checkpoint_state_lock);
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+
+   ASSERT_TRUE(SUCCESS(checkpoint_create_rc));
+   ASSERT_TRUE(publication_blocked,
+               "checkpoint did not reach its cut-publication barrier\n");
+   ASSERT_TRUE(observed_publishing,
+               "checkpoint was not PUBLISHING at the blocked barrier\n");
+   ASSERT_TRUE(retired_log_already_sealed,
+               "blocked the retired-log seal rather than cut publication\n");
+   ASSERT_FALSE(checkpoint_completed_before_release,
+                "checkpoint returned before its publication barrier\n");
+   ASSERT_TRUE(live_insert_succeeded,
+               "insert into the new live log failed: %s\n",
+               platform_status_to_string(live_insert_rc));
+   ASSERT_TRUE(SUCCESS(barrier_create_rc));
+   ASSERT_TRUE(live_barrier_reached_device,
+               "core_durable_barrier did not reach the live-log barrier\n");
+   ASSERT_TRUE(live_log_durable_before_publication,
+               "the new live log did not become durable while publication "
+               "was blocked\n");
+   ASSERT_FALSE(barrier_completed_before_release,
+                "core_durable_barrier returned before cut publication\n");
+   ASSERT_TRUE(SUCCESS(barrier_join_rc));
+   ASSERT_TRUE(SUCCESS(checkpoint_join_rc));
+   ASSERT_TRUE(SUCCESS(barrier_args.rc),
+               "core_durable_barrier failed: %s\n",
+               platform_status_to_string(barrier_args.rc));
+   ASSERT_TRUE(SUCCESS(checkpoint_args.rc),
+               "core_checkpoint failed: %s\n",
+               platform_status_to_string(checkpoint_args.rc));
+   ASSERT_TRUE(publication_completed,
+               "checkpoint publication counter did not advance\n");
 }
 
 typedef struct checkpoint_advance_fault_result {

@@ -48,7 +48,7 @@ typedef enum shard_log_group_state {
    SHARD_LOG_GROUP_CLOSING,
    SHARD_LOG_GROUP_TERMINATING,
    SHARD_LOG_GROUP_DURABILITY_PENDING,
-   SHARD_LOG_GROUP_SEALED,
+   SHARD_LOG_GROUP_DURABLE,
 } shard_log_group_state;
 
 /*
@@ -69,54 +69,86 @@ typedef struct shard_log_thread_data {
    shard_log_close        close;
    /* Held from cache_alloc() until writeback-set enrollment succeeds. */
    page_handle *incache_page;
-   bool32 has_records; // sticky for this thread over the stream's lifetime
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
+
+typedef struct shard_log_group shard_log_group;
+
+/*
+ * One independently staged and written-back durability group.  A cut closes
+ * this object and immediately installs another one for new writers; the slow
+ * graduation, writeback wait, and device barrier happen afterward.
+ */
+struct shard_log_group {
+   uint64                id; // on-disk id; tickets use id + 1
+   shard_log_group_state state;
+   shard_log_close       close;
+   /* Reservations not yet retired by their append, including across a cut. */
+   uint64 active_reservations;
+   uint64 page_count;
+   bool32 ever_used;
+   bool32 emergency;
+   /*
+    * First failed append after this group was selected. A non-success value
+    * permanently poisons the group: it must never receive a commit terminator.
+    * Protected by shard_log::group_lock.
+    */
+   platform_status append_error;
+
+   shard_log_thread_data *thread_data;
+   char                  *thread_buffers;
+
+   platform_mutex wbset_lock;
+   writeback_set  wbset;
+
+   shard_log_group *next;
+   shard_log_group *pool_next;
+};
+
+#define SHARD_LOG_NUM_EMERGENCY_GROUPS 2
 
 /*
  * Sharded log context structure.
  */
 typedef struct shard_log {
-   log_handle            super; // handle to log I/O ops abstraction.
-   cache                *cc;
-   shard_log_config     *cfg;
-   platform_heap_id      heap_id;
-   shard_log_thread_data thread_data[MAX_THREADS];
-   mini_allocator        mini;
-   // Backing block for thread_data[*].buf, one page per thread.
-   char *thread_buffers;
+   log_handle        super; // handle to log I/O ops abstraction.
+   cache            *cc;
+   shard_log_config *cfg;
+   platform_heap_id  heap_id;
+   mini_allocator    mini;
    /*
-    * The group currently accepting pages, and how many it holds so far.  Groups
-    * never span log streams, so numbering is per-stream and starts at 0: the
-    * exclusive insert lock held across a log cut guarantees every record
-    * destined for this stream is already staged by the time it is sealed.
+    * group_lock protects the group list, the accepting pointer, outstanding
+    * reservations and append errors, durability counters, stream state, and
+    * ticket_refs. It is never held while allocating, waiting for cache I/O, or
+    * issuing a durable barrier.
     */
-   uint64                group_id;
-   uint64                group_page_count;
-   shard_log_group_state group_state;
-   shard_log_close       group_close;
+   platform_mutex   group_lock;
+   shard_log_group *groups_head;
+   shard_log_group *groups_tail;
+   shard_log_group *accepting;
+   shard_log_group *emergency_pool;
+
+   uint64 last_cut_ticket;
+   uint64 graduated_ticket;
+   uint64 durable_ticket;
+   uint64 seal_ticket;
+
+   uint64 ticket_refs;
+   bool32 has_records;
+   bool32 sealing;
+   bool32 sealed;
+   bool32 deinit_requested;
+   bool32 destroying;
    /*
-    * Normal writers are sharded and never take this lock.  It serializes the
-    * rare recovery path after a failed group close with later close attempts:
-    * no new group becomes OPEN until the previous one's writeback and durable
-    * barrier have both succeeded.
+    * Graduation is serialized separately from durability.  This preserves
+    * physical group order while allowing later groups to stage records and
+    * issue their writebacks while an earlier group waits at the device.
     */
-   platform_mutex close_lock;
-   /*
-    * Receipts for every page handed over since the group opened, so that
-    * closing it can wait for exactly those writes rather than flushing the
-    * whole cache.  They have to be collected as pages graduate, not at close
-    * time: a page issued early is long gone by then and there would be no way
-    * left to tell whether it landed.
-    *
-    * Guarded by wbset_lock, since graduation is concurrent.  It includes log
-    * pages as well as blob pages/extents and is bounded by the group, which in
-    * turn is bounded by the log-cut policy.
-    */
-   platform_mutex wbset_lock;
-   writeback_set  wbset;
-   uint64         addr;
-   uint64         meta_head;
-   log_nonce      nonce;
+   platform_mutex graduate_lock;
+   platform_mutex durability_lock;
+
+   uint64    addr;
+   uint64    meta_head;
+   log_nonce nonce;
    /*
     * Extents the mini-allocator held once the stream was initialized -- its
     * fixed per-stream overhead (a metadata extent plus one per batch).
@@ -214,10 +246,12 @@ shard_log_iterator_create(cache            *cc,
                           log_iterator    **itor_out);
 
 /*
- * Release a stream identified by its log_head: drop the reference its metadata
- * head holds, freeing the stream's on-disk extents.  Takes no handle -- the
- * handle was freed by log_deinit(); the caller retained only the head
- * (log_get_head(), captured at creation).
+ * Release a stream identified by its log_head: drop the owner's reference from
+ * its metadata head. This normally frees the stream's on-disk extents. A
+ * split-phase durability ticket may keep them alive until its matching wait,
+ * so the release is not required to be the final reference. Takes no handle --
+ * the owner has called log_deinit() and retained only the head captured at
+ * creation.
  *
  * Do not use this for a stream left behind by a crash: its mini-allocator
  * metadata was not made durable.  Crash recovery rebuilds the allocator map

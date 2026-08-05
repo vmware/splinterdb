@@ -35,22 +35,13 @@ shard_log_iterator_create_internal(cache            *cc,
                                    log_iterator    **itor_out);
 
 static platform_status
-shard_log_close_group(shard_log *log, shard_log_close how);
+shard_log_graduate_through(shard_log *log, log_durable_ticket target);
 
 static platform_status
-shard_log_finish_close_durably(shard_log *log, shard_log_close how);
+shard_log_wait_for_ticket(shard_log *log, log_durable_ticket target);
 
-static inline shard_log_group_state
-shard_log_group_state_get(shard_log *log)
-{
-   return __atomic_load_n(&log->group_state, __ATOMIC_ACQUIRE);
-}
-
-static inline void
-shard_log_group_state_set(shard_log *log, shard_log_group_state state)
-{
-   __atomic_store_n(&log->group_state, state, __ATOMIC_RELEASE);
-}
+static void
+shard_log_destroy(shard_log *log);
 
 static inline uint64
 shard_log_page_size(shard_log_config *cfg)
@@ -78,9 +69,9 @@ shard_log_checksum(shard_log_config *cfg, page_handle *page)
 }
 
 static inline shard_log_thread_data *
-shard_log_get_thread_data(shard_log *log, threadid thr_id)
+shard_log_get_thread_data(shard_log_group *group, threadid thr_id)
 {
-   return &log->thread_data[thr_id];
+   return &group->thread_data[thr_id];
 }
 
 page_handle *
@@ -209,6 +200,142 @@ shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
    thread_data->close  = SHARD_LOG_CLOSE_NONE;
 }
 
+static void
+shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
+{
+   group->id                  = id;
+   group->state               = SHARD_LOG_GROUP_OPEN;
+   group->close               = SHARD_LOG_CLOSE_NONE;
+   group->active_reservations = 0;
+   group->page_count          = 0;
+   group->ever_used           = FALSE;
+   group->append_error        = STATUS_OK;
+   group->next                = NULL;
+   group->pool_next           = NULL;
+   writeback_set_reset(&group->wbset);
+
+   uint64 page_size = shard_log_page_size(log->cfg);
+   memset(group->thread_buffers, 0, MAX_THREADS * page_size);
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      thread_data->buf          = group->thread_buffers + thr_i * page_size;
+      thread_data->incache_page = NULL;
+      shard_log_reset_buffer(log, thread_data);
+   }
+}
+
+static void
+shard_log_group_free(shard_log *log, shard_log_group *group)
+{
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      if (thread_data->incache_page != NULL) {
+         cache_unget(log->cc, thread_data->incache_page);
+         thread_data->incache_page = NULL;
+      }
+   }
+   writeback_set_deinit(&group->wbset);
+   platform_status rc = platform_mutex_destroy(&group->wbset_lock);
+   platform_assert_status_ok(rc);
+   platform_free(log->heap_id, group->thread_buffers);
+   platform_free(log->heap_id, group->thread_data);
+   platform_free(log->heap_id, group);
+}
+
+static platform_status
+shard_log_group_alloc(shard_log        *log,
+                      bool32            emergency,
+                      shard_log_group **group_out)
+{
+   *group_out = NULL;
+
+   shard_log_group *group = TYPED_MALLOC(log->heap_id, group);
+   if (group == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   ZERO_CONTENTS(group);
+
+   group->thread_data =
+      TYPED_ARRAY_MALLOC(log->heap_id, group->thread_data, MAX_THREADS);
+   if (group->thread_data == NULL) {
+      platform_free(log->heap_id, group);
+      return STATUS_NO_MEMORY;
+   }
+
+   uint64 page_size      = shard_log_page_size(log->cfg);
+   group->thread_buffers = TYPED_ARRAY_MALLOC(
+      log->heap_id, group->thread_buffers, MAX_THREADS * page_size);
+   if (group->thread_buffers == NULL) {
+      platform_free(log->heap_id, group->thread_data);
+      platform_free(log->heap_id, group);
+      return STATUS_NO_MEMORY;
+   }
+
+   platform_status rc =
+      platform_mutex_init(&group->wbset_lock, 0, log->heap_id);
+   if (!SUCCESS(rc)) {
+      platform_free(log->heap_id, group->thread_buffers);
+      platform_free(log->heap_id, group->thread_data);
+      platform_free(log->heap_id, group);
+      return rc;
+   }
+   writeback_set_init(&group->wbset, log->cc, log->heap_id);
+   group->emergency = emergency;
+   shard_log_group_reset(log, group, 0);
+   group->emergency = emergency;
+   *group_out       = group;
+   return STATUS_OK;
+}
+
+/* Return an unused candidate group to its allocation source. */
+static void
+shard_log_put_unused_group(shard_log *log, shard_log_group *group)
+{
+   if (group == NULL) {
+      return;
+   }
+   if (!group->emergency) {
+      shard_log_group_free(log, group);
+      return;
+   }
+
+   platform_mutex_lock(&log->group_lock);
+   group->pool_next    = log->emergency_pool;
+   log->emergency_pool = group;
+   platform_mutex_unlock(&log->group_lock);
+}
+
+/*
+ * Allocate normally first.  The two preallocated groups are only consumed
+ * when the heap cannot provide a group, so normal bursts scale with device
+ * latency while low-memory progress retains a bounded reserve.
+ */
+static platform_status
+shard_log_get_candidate_group(shard_log *log, shard_log_group **group_out)
+{
+   platform_status rc = shard_log_group_alloc(log, FALSE, group_out);
+   if (SUCCESS(rc)) {
+      return STATUS_OK;
+   }
+
+   platform_mutex_lock(&log->group_lock);
+   shard_log_group *group = log->emergency_pool;
+   if (group != NULL) {
+      log->emergency_pool = group->pool_next;
+      group->pool_next    = NULL;
+   }
+   platform_mutex_unlock(&log->group_lock);
+   if (group == NULL) {
+      return rc;
+   }
+   shard_log_group_reset(log, group, 0);
+   group->emergency = TRUE;
+   *group_out       = group;
+   return STATUS_OK;
+}
+
 /*
  * Turn a thread's staged image into an on-disk log page: allocate the page,
  * copy the image in, and hand the write to the cache. A no-op if nothing has
@@ -220,6 +347,7 @@ shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
  */
 static platform_status
 shard_log_graduate_buffer(shard_log             *log,
+                          shard_log_group       *group,
                           shard_log_thread_data *thread_data,
                           shard_log_close        close)
 {
@@ -260,17 +388,17 @@ shard_log_graduate_buffer(shard_log             *log,
 
       shard_log_hdr *staged    = (shard_log_hdr *)thread_data->buf;
       staged->next_extent_addr = next_extent;
-      staged->group_id         = log->group_id;
+      staged->group_id         = group->id;
       /*
        * Count exactly once, when the frozen image obtains its permanent cache
        * page. If writeback enrollment fails, INCACHE retains both the page and
        * this ordinal for a retry.
        */
-      uint64 pages = __sync_add_and_fetch(&log->group_page_count, 1);
+      uint64 pages = __sync_add_and_fetch(&group->page_count, 1);
       if (close_group) {
          platform_assert(pages <= SHARD_LOG_PAGES_IN_GROUP_MASK,
                          "group %lu is too large to terminate: %lu pages",
-                         log->group_id,
+                         group->id,
                          pages);
          staged->pages_in_group =
             (uint32)pages
@@ -290,10 +418,10 @@ shard_log_graduate_buffer(shard_log             *log,
    }
 
    platform_assert(thread_data->state == SHARD_LOG_BUFFER_INCACHE);
-   platform_mutex_lock(&log->wbset_lock);
+   platform_mutex_lock(&group->wbset_lock);
    platform_status rc = writeback_set_add_page(
-      &log->wbset, thread_data->incache_page, PAGE_TYPE_LOG);
-   platform_mutex_unlock(&log->wbset_lock);
+      &group->wbset, thread_data->incache_page, PAGE_TYPE_LOG);
+   platform_mutex_unlock(&group->wbset_lock);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -304,51 +432,80 @@ shard_log_graduate_buffer(shard_log             *log,
    return STATUS_OK;
 }
 
-int
-shard_log_write(log_handle *logh,
-                key         tuple_key,
-                message     msg,
-                uint64      memtable_generation,
-                uint64      leaf_generation)
+static void
+shard_log_write_reserve(log_handle *logh, log_write_token *token)
+{
+   shard_log *log = (shard_log *)logh;
+
+   platform_status rc = platform_mutex_lock(&log->group_lock);
+   platform_assert_status_ok(rc);
+
+   shard_log_group *group = log->accepting;
+   platform_assert(group != NULL);
+   platform_assert(!log->deinit_requested);
+   platform_assert(group->state == SHARD_LOG_GROUP_OPEN);
+   platform_assert(group->active_reservations != UINT64_MAX);
+   group->active_reservations++;
+   group->ever_used = TRUE;
+   token->log       = logh;
+   token->internal  = group;
+
+   rc = platform_mutex_unlock(&log->group_lock);
+   platform_assert_status_ok(rc);
+}
+
+static platform_status
+shard_log_end_append(shard_log       *log,
+                     shard_log_group *group,
+                     bool32           accepted_record,
+                     platform_status  append_rc)
+{
+   platform_mutex_lock(&log->group_lock);
+   platform_assert(group->active_reservations != 0);
+   if (!SUCCESS(append_rc) && SUCCESS(group->append_error)) {
+      /*
+       * The caller's update was already visible before it entered the log.
+       * Remember the first missing append permanently; a later retry or error
+       * must not obscure the reason this recovery suffix is unusable.
+       */
+      group->append_error = append_rc;
+   }
+   group->active_reservations--;
+   if (accepted_record) {
+      log->has_records = TRUE;
+   }
+   platform_status result = group->append_error;
+   platform_mutex_unlock(&log->group_lock);
+   return result;
+}
+
+static int
+shard_log_write_reserved(log_write_token *token,
+                         key              tuple_key,
+                         message          msg,
+                         uint64           memtable_generation,
+                         uint64           leaf_generation)
 {
    debug_assert(key_is_user_key(tuple_key));
    debug_assert(memtable_generation != INVALID_LOG_GENERATION);
    debug_assert(leaf_generation != INVALID_LOG_GENERATION);
 
-   shard_log        *log = (shard_log *)logh;
-   cache            *cc  = log->cc;
+   platform_assert(token != NULL);
+   platform_assert(token->log != NULL);
+   platform_assert(token->internal != NULL);
+
+   shard_log       *log   = (shard_log *)token->log;
+   shard_log_group *group = token->internal;
+
+   /* Ownership is consumed on every return path from this point onward. */
+   token->log      = NULL;
+   token->internal = NULL;
+
+   cache            *cc = log->cc;
+   platform_status   rc = STATUS_OK;
    merge_accumulator log_blob;
    bool32            log_blob_inited = FALSE;
-
-   if (shard_log_group_state_get(log) != SHARD_LOG_GROUP_OPEN) {
-      /*
-       * A failed make_durable() can leave a structurally or durably incomplete
-       * GROUP close.  Finish it before accepting a record into the next group.
-       * This path is rare; ordinary sharded appends remain lock-free with
-       * respect to one another.
-       */
-      platform_status rc = platform_mutex_lock(&log->close_lock);
-      if (!SUCCESS(rc)) {
-         return rc.r;
-      }
-
-      shard_log_group_state state = shard_log_group_state_get(log);
-      if (state != SHARD_LOG_GROUP_OPEN) {
-         if (log->group_close != SHARD_LOG_CLOSE_GROUP) {
-            rc = STATUS_BUSY;
-         } else {
-            rc = shard_log_finish_close_durably(log, SHARD_LOG_CLOSE_GROUP);
-         }
-      }
-
-      platform_status unlock_rc = platform_mutex_unlock(&log->close_lock);
-      if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
-         rc = unlock_rc;
-      }
-      if (!SUCCESS(rc)) {
-         return rc.r;
-      }
-   }
+   bool32            accepted_record = FALSE;
 
    uint64 max_entry_size =
       shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
@@ -356,7 +513,6 @@ shard_log_write(log_handle *logh,
        || max_entry_size < log_entry_required_capacity(tuple_key, msg))
    {
       merge_accumulator_init(&log_blob, platform_get_heap_id());
-      platform_status rc;
       if (message_is_blob(msg)) {
          rc =
             message_clone(&log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
@@ -366,7 +522,7 @@ shard_log_write(log_handle *logh,
       }
       if (!SUCCESS(rc)) {
          merge_accumulator_deinit(&log_blob);
-         return rc.r;
+         goto out;
       }
       msg             = merge_accumulator_to_message(&log_blob);
       log_blob_inited = TRUE;
@@ -378,17 +534,16 @@ shard_log_write(log_handle *logh,
        * A partial blob-writeback enrollment may leave harmless extra receipts,
        * but it can no longer leave behind a record whose value was not covered.
        */
-      platform_mutex_lock(&log->wbset_lock);
-      platform_status rc = blob_writeback(cc, message_slice(msg), &log->wbset);
-      platform_mutex_unlock(&log->wbset_lock);
+      platform_mutex_lock(&group->wbset_lock);
+      rc = blob_writeback(cc, message_slice(msg), &group->wbset);
+      platform_mutex_unlock(&group->wbset_lock);
       if (!SUCCESS(rc)) {
-         merge_accumulator_deinit(&log_blob);
-         return rc.r;
+         goto out;
       }
    }
 
    shard_log_thread_data *thread_data =
-      shard_log_get_thread_data(log, platform_get_tid());
+      shard_log_get_thread_data(group, platform_get_tid());
 
    uint64 page_size      = shard_log_page_size(log->cfg);
    uint64 new_entry_size = log_entry_required_capacity(tuple_key, msg);
@@ -398,13 +553,18 @@ shard_log_write(log_handle *logh,
    if (thread_data->state != SHARD_LOG_BUFFER_OPEN
        || page_size - thread_data->offset < new_entry_size)
    {
-      platform_status rc =
-         shard_log_graduate_buffer(log, thread_data, SHARD_LOG_CLOSE_NONE);
+      /*
+       * Log pages must remain physically grouped.  A later group may stage
+       * records immediately, but before it allocates its first page it helps
+       * graduate every predecessor (including each predecessor terminator).
+       */
+      rc = shard_log_graduate_through(log, group->id);
+      if (SUCCESS(rc)) {
+         rc = shard_log_graduate_buffer(
+            log, group, thread_data, SHARD_LOG_CLOSE_NONE);
+      }
       if (!SUCCESS(rc)) {
-         if (log_blob_inited) {
-            merge_accumulator_deinit(&log_blob);
-         }
-         return rc.r;
+         goto out;
       }
    }
 
@@ -416,277 +576,472 @@ shard_log_write(log_handle *logh,
    ((shard_log_hdr *)thread_data->buf)->num_entries++;
 
    thread_data->offset += new_entry_size;
-   thread_data->has_records = TRUE;
+   accepted_record = TRUE;
    debug_assert(thread_data->offset <= page_size);
 
+out:
    if (log_blob_inited) {
       merge_accumulator_deinit(&log_blob);
    }
-
-   return 0;
+   rc = shard_log_end_append(log, group, accepted_record, rc);
+   return rc.r;
 }
 
-/*
- * shard_log_close_group --
- *
- *     Hand over every currently staged per-thread page (bounded by MAX_THREADS;
- *     it does not walk the historical log) and end the group, with `how`
- *     deciding whether the stream ends with it.  A terminal record (where there
- *     is room) and a checksum make each page readable by
- *     shard_log_iterator_init().
- *
- *     Issues the writes but does not wait for them; callers that need
- *     durability follow with the stream's writeback set.
- *
- *     The caller must prevent concurrent shard_log_write() and close calls.
- */
-static platform_status
-shard_log_close_group(shard_log *log, shard_log_close how)
+static shard_log_group *
+shard_log_find_group_locked(shard_log *log, log_durable_ticket ticket)
 {
-   platform_assert(how != SHARD_LOG_CLOSE_NONE);
-
-   shard_log_group_state state = shard_log_group_state_get(log);
-   if (state == SHARD_LOG_GROUP_SEALED) {
-      return how == SHARD_LOG_CLOSE_STREAM ? STATUS_OK : STATUS_INVALID_STATE;
-   }
-   if (state == SHARD_LOG_GROUP_DURABILITY_PENDING) {
-      return log->group_close == how ? STATUS_OK : STATUS_INVALID_STATE;
-   }
-
-   if (state == SHARD_LOG_GROUP_OPEN) {
-      bool32 has_pages = log->group_page_count != 0;
-      for (threadid thr_i = 0; thr_i < MAX_THREADS && !has_pages; thr_i++) {
-         shard_log_thread_data *thread_data =
-            shard_log_get_thread_data(log, thr_i);
-         has_pages = thread_data->state != SHARD_LOG_BUFFER_OPEN
-                     || thread_data->offset != sizeof(shard_log_hdr);
+   platform_assert(ticket != 0);
+   for (shard_log_group *group = log->groups_head; group != NULL;
+        group                  = group->next)
+   {
+      if (group->id + 1 == ticket) {
+         return group;
       }
+   }
+   return NULL;
+}
 
-      /* Retrying durability of an already closed group needs no empty group. */
-      if (!has_pages && how == SHARD_LOG_CLOSE_GROUP) {
-         return STATUS_OK;
+/* Wait for every reservation which selected this group before its cut. */
+static void
+shard_log_wait_for_reservations(shard_log *log, log_durable_ticket ticket)
+{
+   uint64 wait = 100;
+   while (TRUE) {
+      platform_mutex_lock(&log->group_lock);
+      if (log->graduated_ticket >= ticket) {
+         platform_mutex_unlock(&log->group_lock);
+         return;
       }
-      log->group_close = how;
-      shard_log_group_state_set(log, SHARD_LOG_GROUP_CLOSING);
-      state = SHARD_LOG_GROUP_CLOSING;
-   } else if (log->group_close != how) {
-      return STATUS_INVALID_STATE;
+      shard_log_group *group = shard_log_find_group_locked(log, ticket);
+      platform_assert(group != NULL);
+      uint64 active = group->active_reservations;
+      platform_mutex_unlock(&log->group_lock);
+      if (active == 0) {
+         return;
+      }
+      platform_sleep_ns(wait);
+      wait = wait > 2048 ? wait : 2 * wait;
+   }
+}
+
+/* graduate_lock must be held. */
+static platform_status
+shard_log_graduate_group(shard_log *log, shard_log_group *group)
+{
+   platform_assert(group->close != SHARD_LOG_CLOSE_NONE);
+   platform_mutex_lock(&log->group_lock);
+   platform_assert(group->active_reservations == 0);
+   platform_status append_error = group->append_error;
+   platform_mutex_unlock(&log->group_lock);
+
+   /*
+    * A terminator is the on-disk commit record for the whole group. Emitting
+    * one after any append failed would make recovery skip a visible update and
+    * then accept the suffix as complete. Data pages already graduated before
+    * the failure remain harmless because recovery discards an unterminated
+    * group and everything after it.
+    */
+   if (!SUCCESS(append_error)) {
+      return append_error;
    }
 
-   if (state == SHARD_LOG_GROUP_CLOSING) {
+   if (group->state == SHARD_LOG_GROUP_CLOSING) {
       /*
-       * First make every writer's page an ordinary data page. A separate empty
-       * terminator follows, which makes the group commit explicit and lets a
-       * failed hand-over resume without changing a previously frozen page.
+       * Freeze every writer's partial page as ordinary data first.  The
+       * dedicated empty terminator is emitted only after all of them succeed,
+       * so a retry never has to alter a previously frozen page.
        */
       for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-         platform_status rc = shard_log_graduate_buffer(
-            log, shard_log_get_thread_data(log, thr_i), SHARD_LOG_CLOSE_NONE);
+         platform_status rc =
+            shard_log_graduate_buffer(log,
+                                      group,
+                                      shard_log_get_thread_data(group, thr_i),
+                                      SHARD_LOG_CLOSE_NONE);
          if (!SUCCESS(rc)) {
-            platform_error_log("shard_log_close_group: failed to flush the "
-                               "staged page of thread %lu in group %lu: %s\n",
+            platform_error_log("shard_log_graduate_group: failed to flush "
+                               "thread %lu in group %lu: %s\n",
                                thr_i,
-                               log->group_id,
+                               group->id,
                                platform_status_to_string(rc));
             return rc;
          }
       }
-      shard_log_group_state_set(log, SHARD_LOG_GROUP_TERMINATING);
-      state = SHARD_LOG_GROUP_TERMINATING;
+      group->state = SHARD_LOG_GROUP_TERMINATING;
    }
 
-   platform_assert(state == SHARD_LOG_GROUP_TERMINATING);
-   platform_status rc =
-      shard_log_graduate_buffer(log, shard_log_get_thread_data(log, 0), how);
-   if (!SUCCESS(rc)) {
-      platform_error_log(
-         "shard_log_close_group: failed to terminate group %lu: "
-         "%s\n",
-         log->group_id,
-         platform_status_to_string(rc));
-      return rc;
+   if (group->state == SHARD_LOG_GROUP_TERMINATING) {
+      platform_status rc = shard_log_graduate_buffer(
+         log, group, shard_log_get_thread_data(group, 0), group->close);
+      if (!SUCCESS(rc)) {
+         platform_error_log("shard_log_graduate_group: failed to terminate "
+                            "group %lu: %s\n",
+                            group->id,
+                            platform_status_to_string(rc));
+         return rc;
+      }
+      group->state = SHARD_LOG_GROUP_DURABILITY_PENDING;
    }
 
-   /* Reopening (or sealing) waits until writeback and the barrier succeed. */
-   shard_log_group_state_set(log, SHARD_LOG_GROUP_DURABILITY_PENDING);
-   return STATUS_OK;
-}
-
-/* close_lock must be held. */
-static platform_status
-shard_log_finish_close_durably(shard_log *log, shard_log_close how)
-{
-   platform_status rc = shard_log_close_group(log, how);
-   if (!SUCCESS(rc)) {
-      // The buffer/group states retain the exact structural retry point.
-      return rc;
-   }
-
-   /* A successfully sealed stream has already drained and reset its wbset. */
-   if (shard_log_group_state_get(log) == SHARD_LOG_GROUP_SEALED) {
-      return STATUS_OK;
-   }
-   /*
-    * An empty GROUP has no terminator to commit, but its set can still contain
-    * harmless orphan receipts from an append that failed after blob
-    * enrollment. Drain those before returning or freeing the stream.
-    */
-   bool32 empty_group =
-      how == SHARD_LOG_CLOSE_GROUP
-      && shard_log_group_state_get(log) == SHARD_LOG_GROUP_OPEN;
-   if (!empty_group) {
-      platform_assert(shard_log_group_state_get(log)
-                      == SHARD_LOG_GROUP_DURABILITY_PENDING);
-      platform_assert(log->group_close == how);
-   }
-
-   platform_mutex_lock(&log->wbset_lock);
-   platform_status retry_rc = writeback_set_retry_incomplete(&log->wbset);
-   rc                       = writeback_set_wait(&log->wbset);
-   if (SUCCESS(retry_rc) && SUCCESS(rc)) {
-      rc = writeback_set_make_durable(&log->wbset);
-   } else if (!SUCCESS(retry_rc)) {
-      rc = retry_rc;
-   }
-   if (SUCCESS(rc)) {
-      writeback_set_reset(&log->wbset);
-   }
-   platform_mutex_unlock(&log->wbset_lock);
-
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   if (empty_group) {
-      return STATUS_OK;
-   }
-
-   if (how == SHARD_LOG_CLOSE_STREAM) {
-      shard_log_group_state_set(log, SHARD_LOG_GROUP_SEALED);
-   } else {
-      log->group_id++;
-      log->group_page_count = 0;
-      log->group_close      = SHARD_LOG_CLOSE_NONE;
-      shard_log_group_state_set(log, SHARD_LOG_GROUP_OPEN);
-   }
+   platform_assert(group->state == SHARD_LOG_GROUP_DURABILITY_PENDING
+                   || group->state == SHARD_LOG_GROUP_DURABLE);
    return STATUS_OK;
 }
 
 /*
- *-----------------------------------------------------------------------------
- * shard_log_close_group_durably --
- *
- *      Close the current group, wait for its pages to reach the device, and
- *      take a durable barrier.  Shared by make_durable and seal, which differ
- *      only in whether the stream ends with the group.
- *-----------------------------------------------------------------------------
+ * Allocate log pages in group-id order.  Later groups may already contain
+ * private staged records, but no page of N+1 is allocated until N's terminator
+ * has obtained its permanent address and writeback receipt.
  */
 static platform_status
-shard_log_close_group_durably(shard_log *log, shard_log_close how)
+shard_log_graduate_through(shard_log *log, log_durable_ticket target)
 {
-   platform_status rc = platform_mutex_lock(&log->close_lock);
+   if (target == 0) {
+      return STATUS_OK;
+   }
+
+   platform_status rc = platform_mutex_lock(&log->graduate_lock);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   /*
-    * A seal can follow a failed ordinary group close.  First finish that
-    * group's durability, then put the stream marker in a new empty group.
-    */
-   shard_log_group_state state = shard_log_group_state_get(log);
-   if (how == SHARD_LOG_CLOSE_STREAM && state != SHARD_LOG_GROUP_OPEN
-       && state != SHARD_LOG_GROUP_SEALED
-       && log->group_close == SHARD_LOG_CLOSE_GROUP)
-   {
-      rc = shard_log_finish_close_durably(log, SHARD_LOG_CLOSE_GROUP);
-   }
-   if (SUCCESS(rc)) {
-      rc = shard_log_finish_close_durably(log, how);
+   while (log->graduated_ticket < target) {
+      platform_mutex_lock(&log->group_lock);
+      log_durable_ticket next_ticket = log->graduated_ticket + 1;
+      shard_log_group   *group = shard_log_find_group_locked(log, next_ticket);
+      platform_assert(group != NULL);
+      platform_assert(group->state != SHARD_LOG_GROUP_OPEN);
+      uint64 active = group->active_reservations;
+      platform_mutex_unlock(&log->group_lock);
+
+      if (active != 0) {
+         /*
+          * Do not hold graduate_lock while draining the closed group. One of
+          * its reserved writers may be blocked in this function helping finish
+          * its predecessor before it can graduate a full buffer and consume
+          * its reservation. Closed groups cannot acquire new reservations, so
+          * it is safe to drop the driver lock, wait, and re-evaluate the
+          * frontier.
+          */
+         platform_mutex_unlock(&log->graduate_lock);
+         shard_log_wait_for_reservations(log, next_ticket);
+         rc = platform_mutex_lock(&log->graduate_lock);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         continue;
+      }
+
+      rc = shard_log_graduate_group(log, group);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+
+      platform_mutex_lock(&log->group_lock);
+      platform_assert(log->graduated_ticket + 1 == next_ticket);
+      log->graduated_ticket = next_ticket;
+      platform_mutex_unlock(&log->group_lock);
    }
 
-   platform_status unlock_rc = platform_mutex_unlock(&log->close_lock);
+   platform_status unlock_rc = platform_mutex_unlock(&log->graduate_lock);
    if (SUCCESS(rc) && !SUCCESS(unlock_rc)) {
       rc = unlock_rc;
    }
    return rc;
 }
 
-/*
- *-----------------------------------------------------------------------------
- * shard_log_make_durable --
- *
- *      Make everything written so far durable and leave the stream open; the
- *      next write starts a new group.
- *
- *      See log_make_durable_fn for the exclusion the caller must provide.
- *-----------------------------------------------------------------------------
- */
-static platform_status
-shard_log_make_durable(log_handle *logh)
+/* Remove and release the durable prefix. durability_lock is held. */
+static void
+shard_log_reclaim_durable_groups(shard_log *log)
 {
-   shard_log      *log = (shard_log *)logh;
-   platform_status rc =
-      shard_log_close_group_durably(log, SHARD_LOG_CLOSE_GROUP);
+   platform_mutex_lock(&log->graduate_lock);
+   platform_mutex_lock(&log->group_lock);
+
+   shard_log_group *reclaim_head = NULL;
+   shard_log_group *reclaim_tail = NULL;
+   while (log->groups_head != NULL
+          && log->groups_head->state == SHARD_LOG_GROUP_DURABLE)
+   {
+      shard_log_group *group = log->groups_head;
+      log->groups_head       = group->next;
+      group->next            = NULL;
+      if (reclaim_tail == NULL) {
+         reclaim_head = group;
+      } else {
+         reclaim_tail->next = group;
+      }
+      reclaim_tail = group;
+   }
+   if (log->groups_head == NULL) {
+      log->groups_tail = NULL;
+   }
+
+   platform_mutex_unlock(&log->group_lock);
+   platform_mutex_unlock(&log->graduate_lock);
+
+   while (reclaim_head != NULL) {
+      shard_log_group *group = reclaim_head;
+      reclaim_head           = group->next;
+      group->next            = NULL;
+      shard_log_put_unused_group(log, group);
+   }
+}
+
+/* Wait/writeback/barrier half shared by ticket wait and seal. */
+static platform_status
+shard_log_wait_for_ticket(shard_log *log, log_durable_ticket target)
+{
+   platform_status rc = shard_log_graduate_through(log, target);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   return STATUS_OK;
+   rc = platform_mutex_lock(&log->durability_lock);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   platform_status result = STATUS_OK;
+   if (log->durable_ticket < target) {
+      /*
+       * Issue every needed retry before waiting for any group, preserving the
+       * same all-I/O-first pipelining as writeback_set itself.
+       */
+      for (log_durable_ticket ticket = log->durable_ticket + 1;
+           ticket <= target;
+           ticket++)
+      {
+         platform_mutex_lock(&log->group_lock);
+         shard_log_group *group = shard_log_find_group_locked(log, ticket);
+         platform_assert(group != NULL);
+         platform_assert(group->state == SHARD_LOG_GROUP_DURABILITY_PENDING);
+         platform_mutex_unlock(&log->group_lock);
+
+         platform_status retry_rc =
+            writeback_set_retry_incomplete(&group->wbset);
+         if (SUCCESS(result) && !SUCCESS(retry_rc)) {
+            result = retry_rc;
+         }
+      }
+
+      for (log_durable_ticket ticket = log->durable_ticket + 1;
+           ticket <= target;
+           ticket++)
+      {
+         platform_mutex_lock(&log->group_lock);
+         shard_log_group *group = shard_log_find_group_locked(log, ticket);
+         platform_assert(group != NULL);
+         platform_mutex_unlock(&log->group_lock);
+
+         platform_status wait_rc = writeback_set_wait(&group->wbset);
+         if (SUCCESS(result) && !SUCCESS(wait_rc)) {
+            result = wait_rc;
+         }
+      }
+
+      if (SUCCESS(result)) {
+         result = cache_durable_barrier(log->cc);
+      }
+
+      if (SUCCESS(result)) {
+         platform_mutex_lock(&log->group_lock);
+         for (log_durable_ticket ticket = log->durable_ticket + 1;
+              ticket <= target;
+              ticket++)
+         {
+            shard_log_group *group = shard_log_find_group_locked(log, ticket);
+            platform_assert(group != NULL);
+            writeback_set_reset(&group->wbset);
+            group->state = SHARD_LOG_GROUP_DURABLE;
+         }
+         log->durable_ticket = target;
+         platform_mutex_unlock(&log->group_lock);
+         shard_log_reclaim_durable_groups(log);
+      }
+   }
+
+   platform_status unlock_rc = platform_mutex_unlock(&log->durability_lock);
+   if (SUCCESS(result) && !SUCCESS(unlock_rc)) {
+      result = unlock_rc;
+   }
+   return result;
 }
 
-/*
- *-----------------------------------------------------------------------------
- * shard_log_seal --
- *
- *      Finish the stream durably: close its final group, mark it as the end of
- *      the stream so replay can tell a complete stream from a truncated one,
- *      and make all of it durable.
- *
- *      Sealing makes its pages durable for the same reason make_durable does --
- *      there is no point finishing a stream that a crash could still lose --
- *      and callers no longer pair it with a barrier of their own.
- *
- *      The handle remains valid and must be released with shard_log_deinit().
- *-----------------------------------------------------------------------------
- */
+/* Install a fresh accepting group and return the closed group's ticket. */
+static platform_status
+shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
+{
+   if (ticket_out == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+   *ticket_out    = 0;
+   shard_log *log = (shard_log *)logh;
+
+   shard_log_group *candidate = NULL;
+   while (TRUE) {
+      platform_mutex_lock(&log->group_lock);
+      if (log->deinit_requested) {
+         platform_mutex_unlock(&log->group_lock);
+         shard_log_put_unused_group(log, candidate);
+         return STATUS_INVALID_STATE;
+      }
+
+      shard_log_group *current = log->accepting;
+      if (current == NULL || !current->ever_used) {
+         log_durable_ticket target = log->last_cut_ticket;
+         log->ticket_refs++;
+         (void)mini_inc_ref(log->cc, log->meta_head);
+         platform_mutex_unlock(&log->group_lock);
+         shard_log_put_unused_group(log, candidate);
+         *ticket_out = target;
+         return STATUS_OK;
+      }
+
+      if (candidate != NULL) {
+         platform_assert(current->state == SHARD_LOG_GROUP_OPEN);
+         platform_assert(current->id != UINT64_MAX);
+         current->state = SHARD_LOG_GROUP_CLOSING;
+         current->close = SHARD_LOG_CLOSE_GROUP;
+
+         candidate->id    = current->id + 1;
+         current->next    = candidate;
+         log->groups_tail = candidate;
+         log->accepting   = candidate;
+         candidate        = NULL;
+
+         log->last_cut_ticket = current->id + 1;
+         log->ticket_refs++;
+         log_durable_ticket target = log->last_cut_ticket;
+         (void)mini_inc_ref(log->cc, log->meta_head);
+         platform_mutex_unlock(&log->group_lock);
+
+         *ticket_out = target;
+         return STATUS_OK;
+      }
+      platform_mutex_unlock(&log->group_lock);
+
+      platform_status rc = shard_log_get_candidate_group(log, &candidate);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+}
+
+static platform_status
+shard_log_make_durable_wait(log_handle *logh, log_durable_ticket ticket)
+{
+   shard_log      *log = (shard_log *)logh;
+   platform_status rc  = shard_log_wait_for_ticket(log, ticket);
+
+   /*
+    * Capture these before dropping the in-memory pin.  A concurrent deinit may
+    * free the handle as soon as ticket_refs reaches zero, but it runs
+    * mini_release() before this ticket drops its independent on-disk ref.
+    */
+   cache *cc        = log->cc;
+   uint64 meta_head = log->meta_head;
+   bool32 destroy   = FALSE;
+   platform_mutex_lock(&log->group_lock);
+   platform_assert(log->ticket_refs != 0,
+                   "log durability ticket consumed more than once");
+   log->ticket_refs--;
+   if (log->deinit_requested && log->ticket_refs == 0 && !log->destroying) {
+      log->destroying = TRUE;
+      destroy         = TRUE;
+   }
+   platform_mutex_unlock(&log->group_lock);
+
+   if (destroy) {
+      shard_log_destroy(log);
+   }
+   (void)mini_dec_ref(cc, meta_head, PAGE_TYPE_LOG);
+   return rc;
+}
+
 platform_status
 shard_log_seal(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   return shard_log_close_group_durably(log, SHARD_LOG_CLOSE_STREAM);
+
+   platform_mutex_lock(&log->group_lock);
+   if (log->deinit_requested) {
+      platform_mutex_unlock(&log->group_lock);
+      return STATUS_INVALID_STATE;
+   }
+   if (!log->sealing) {
+      shard_log_group *current = log->accepting;
+      platform_assert(current != NULL);
+      platform_assert(current->state == SHARD_LOG_GROUP_OPEN);
+      current->state       = SHARD_LOG_GROUP_CLOSING;
+      current->close       = SHARD_LOG_CLOSE_STREAM;
+      log->accepting       = NULL;
+      log->last_cut_ticket = current->id + 1;
+      log->seal_ticket     = log->last_cut_ticket;
+      log->sealing         = TRUE;
+   }
+   log_durable_ticket target = log->seal_ticket;
+   platform_mutex_unlock(&log->group_lock);
+
+   platform_status rc = shard_log_wait_for_ticket(log, target);
+   if (SUCCESS(rc)) {
+      platform_mutex_lock(&log->group_lock);
+      log->sealed = TRUE;
+      platform_mutex_unlock(&log->group_lock);
+   }
+   return rc;
 }
 
-/*
- *-----------------------------------------------------------------------------
- * shard_log_deinit --
- *
- *      Release the stream's in-memory resources and free the handle.  Writes
- *      nothing, so it cannot fail.
- *
- *      Releasing the mini-allocator's unused per-batch reserve ensures no
- *      future allocation touches this stream.  The caller already holds the
- *      stream's identity (captured at creation) and frees the on-disk extents
- *      separately via shard_log_dec_ref().
- *-----------------------------------------------------------------------------
- */
+/* Final destruction, called once ticket_refs is zero. */
+static void
+shard_log_destroy(shard_log *log)
+{
+   mini_release(&log->mini);
+
+   shard_log_group *group = log->groups_head;
+   while (group != NULL) {
+      shard_log_group *next = group->next;
+      shard_log_group_free(log, group);
+      group = next;
+   }
+   group = log->emergency_pool;
+   while (group != NULL) {
+      shard_log_group *next = group->pool_next;
+      shard_log_group_free(log, group);
+      group = next;
+   }
+
+   platform_status rc = platform_mutex_destroy(&log->durability_lock);
+   platform_assert_status_ok(rc);
+   rc = platform_mutex_destroy(&log->graduate_lock);
+   platform_assert_status_ok(rc);
+   rc = platform_mutex_destroy(&log->group_lock);
+   platform_assert_status_ok(rc);
+   platform_free(log->heap_id, log);
+}
+
 static void
 shard_log_deinit(log_handle *logh)
 {
-   shard_log *log = (shard_log *)logh;
+   shard_log *log     = (shard_log *)logh;
+   bool32     destroy = FALSE;
 
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data =
-         shard_log_get_thread_data(log, thr_i);
-      if (thread_data->incache_page != NULL) {
-         cache_unget(log->cc, thread_data->incache_page);
-         thread_data->incache_page = NULL;
-      }
+   platform_mutex_lock(&log->group_lock);
+   platform_assert(!log->deinit_requested);
+   for (shard_log_group *group = log->groups_head; group != NULL;
+        group                  = group->next)
+   {
+      platform_assert(group->active_reservations == 0,
+                      "log_deinit with an unconsumed write reservation");
    }
-   mini_release(&log->mini);
-   writeback_set_deinit(&log->wbset);
-   platform_mutex_destroy(&log->wbset_lock);
-   platform_mutex_destroy(&log->close_lock);
-   platform_free(log->heap_id, log->thread_buffers);
-   platform_free(log->heap_id, log);
+   log->deinit_requested = TRUE;
+   if (log->ticket_refs == 0) {
+      log->destroying = TRUE;
+      destroy         = TRUE;
+   }
+   platform_mutex_unlock(&log->group_lock);
+
+   if (destroy) {
+      shard_log_destroy(log);
+   }
 }
 
 void
@@ -695,8 +1050,12 @@ shard_log_dec_ref(cache *cc, const log_head *segment)
    if (segment->meta_addr == 0) {
       return;
    }
-   refcount ref = mini_dec_ref(cc, segment->meta_addr, PAGE_TYPE_LOG);
-   platform_assert(ref == 0);
+   /*
+    * A split make-durable ticket holds its own mini-allocator reference.  The
+    * stream owner may therefore release the head while a ticket is waiting;
+    * the final ticket consumes the remaining reference after its barrier.
+    */
+   (void)mini_dec_ref(cc, segment->meta_addr, PAGE_TYPE_LOG);
 }
 
 log_head
@@ -1049,31 +1408,26 @@ shard_log_get_size(log_handle *logh)
           * shard_log_extent_size(log->cfg);
 }
 
-/*
- * Exact emptiness without a shared counter on the append path.  Each writer
- * owns its thread-local flag, and the log interface requires callers to exclude
- * writers while taking this snapshot.
- */
 static bool32
 shard_log_is_empty(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      if (shard_log_get_thread_data(log, thr_i)->has_records) {
-         return FALSE;
-      }
-   }
-   return TRUE;
+   platform_mutex_lock(&log->group_lock);
+   bool32 empty = !log->has_records;
+   platform_mutex_unlock(&log->group_lock);
+   return empty;
 }
 
 static log_ops shard_log_ops = {
-   .write        = shard_log_write,
-   .make_durable = shard_log_make_durable,
-   .seal         = shard_log_seal,
-   .deinit       = shard_log_deinit,
-   .head         = shard_log_get_head,
-   .is_empty     = shard_log_is_empty,
-   .size         = shard_log_get_size,
+   .write_reserve      = shard_log_write_reserve,
+   .write_reserved     = shard_log_write_reserved,
+   .make_durable_begin = shard_log_make_durable_begin,
+   .make_durable_wait  = shard_log_make_durable_wait,
+   .seal               = shard_log_seal,
+   .deinit             = shard_log_deinit,
+   .head               = shard_log_get_head,
+   .is_empty           = shard_log_is_empty,
+   .size               = shard_log_get_size,
 };
 
 static platform_status
@@ -1095,45 +1449,52 @@ shard_log_init(shard_log        *log,
       return rc;
    }
 
-   /*
-    * One page-sized staging buffer per thread. Allocated before anything that
-    * would need undoing, so a failure here can simply return.
-    */
-   uint64 page_size = shard_log_page_size(cfg);
-   log->thread_buffers =
-      TYPED_ARRAY_MALLOC(hid, log->thread_buffers, MAX_THREADS * page_size);
-   if (log->thread_buffers == NULL) {
-      platform_error_log("shard_log_init: failed to allocate %lu bytes of log "
-                         "staging buffers\n",
-                         MAX_THREADS * page_size);
-      return STATUS_NO_MEMORY;
+   rc = platform_mutex_init(&log->group_lock, 0, hid);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   log->group_id         = 0;
-   log->group_page_count = 0;
-   shard_log_group_state_set(log, SHARD_LOG_GROUP_OPEN);
-   log->group_close    = SHARD_LOG_CLOSE_NONE;
-   platform_status mrc = platform_mutex_init(&log->wbset_lock, 0, hid);
-   if (!SUCCESS(mrc)) {
-      platform_error_log("shard_log_init: failed to init the writeback-set "
-                         "lock: %s\n",
-                         platform_status_to_string(mrc));
-      platform_free(hid, log->thread_buffers);
-      return mrc;
+   rc = platform_mutex_init(&log->graduate_lock, 0, hid);
+   if (!SUCCESS(rc)) {
+      platform_mutex_destroy(&log->group_lock);
+      return rc;
    }
-   mrc = platform_mutex_init(&log->close_lock, 0, hid);
-   if (!SUCCESS(mrc)) {
-      platform_error_log("shard_log_init: failed to init the close lock: %s\n",
-                         platform_status_to_string(mrc));
-      platform_mutex_destroy(&log->wbset_lock);
-      platform_free(hid, log->thread_buffers);
-      return mrc;
+   rc = platform_mutex_init(&log->durability_lock, 0, hid);
+   if (!SUCCESS(rc)) {
+      platform_mutex_destroy(&log->graduate_lock);
+      platform_mutex_destroy(&log->group_lock);
+      return rc;
    }
-   writeback_set_init(&log->wbset, cc, hid);
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data =
-         shard_log_get_thread_data(log, thr_i);
-      thread_data->buf = log->thread_buffers + thr_i * page_size;
-      shard_log_reset_buffer(log, thread_data);
+
+   shard_log_group *current = NULL;
+   rc                       = shard_log_group_alloc(log, FALSE, &current);
+   if (!SUCCESS(rc)) {
+      platform_mutex_destroy(&log->durability_lock);
+      platform_mutex_destroy(&log->graduate_lock);
+      platform_mutex_destroy(&log->group_lock);
+      return rc;
+   }
+   log->groups_head = current;
+   log->groups_tail = current;
+   log->accepting   = current;
+
+   for (uint64 i = 0; i < SHARD_LOG_NUM_EMERGENCY_GROUPS; i++) {
+      shard_log_group *emergency = NULL;
+      rc                         = shard_log_group_alloc(log, TRUE, &emergency);
+      if (!SUCCESS(rc)) {
+         shard_log_group_free(log, current);
+         while (log->emergency_pool != NULL) {
+            emergency            = log->emergency_pool;
+            log->emergency_pool  = emergency->pool_next;
+            emergency->pool_next = NULL;
+            shard_log_group_free(log, emergency);
+         }
+         platform_mutex_destroy(&log->durability_lock);
+         platform_mutex_destroy(&log->graduate_lock);
+         platform_mutex_destroy(&log->group_lock);
+         return rc;
+      }
+      emergency->pool_next = log->emergency_pool;
+      log->emergency_pool  = emergency;
    }
 
    allocator *al = cache_get_allocator(cc);
@@ -1387,10 +1748,12 @@ shard_log_iterator_init(cache              *cc,
     * not be a prefix of anything that happened.
     *
     * A group is intact when the page count declared by its terminator matches
-    * the number of its pages actually present.  Groups close before the next
-    * one opens and pages are allocated in order, so a group's pages are
-    * contiguous in the traversal and the replayable portion is a prefix of it.
-    * We therefore only have to track a run at a time, and count pages.
+    * the number of its pages actually present. Later groups may already be
+    * staging records, but physical graduation is serialized: a group's
+    * terminator obtains its address before any page of the next group. A
+    * group's pages are therefore contiguous in the traversal and the
+    * replayable portion is a prefix of it. We only have to track a run at a
+    * time, and count pages.
     */
    uint64 group_id       = 0; // the run currently being tallied
    uint64 expect_group   = 0; // ids must run 0, 1, 2, ... with no gaps

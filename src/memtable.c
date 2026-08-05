@@ -68,7 +68,7 @@ memtable_process(memtable_context *ctxt, uint64 generation)
    ctxt->process(ctxt->process_ctxt, generation);
 }
 
-static inline void
+void
 memtable_begin_insert(memtable_context *ctxt)
 {
    batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);

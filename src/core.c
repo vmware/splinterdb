@@ -106,6 +106,26 @@ core_log_handle(core_handle *spl)
 }
 
 static inline platform_status
+core_durability_status(core_handle *spl)
+{
+   return (platform_status){
+      .r = __atomic_load_n(&spl->durability_error, __ATOMIC_ACQUIRE)};
+}
+
+static void
+core_latch_durability_error(core_handle *spl, platform_status rc)
+{
+   platform_assert(!SUCCESS(rc));
+   internal_platform_status expected = STATUS_OK.r;
+   (void)__atomic_compare_exchange_n(&spl->durability_error,
+                                     &expected,
+                                     rc.r,
+                                     FALSE,
+                                     __ATOMIC_RELEASE,
+                                     __ATOMIC_RELAXED);
+}
+
+static inline platform_status
 core_open_log_stream_if_enabled(core_handle            *spl,
                                 platform_stream_handle *stream)
 {
@@ -721,6 +741,10 @@ core_checkpoint_advance(core_handle *spl, core_checkpoint_result *result)
       rc = core_checkpoint_publish_log_cut(spl, live);
       platform_mutex_lock(&spl->checkpoint_state_lock);
       platform_assert(spl->checkpoint.phase == CORE_CHECKPOINT_PUBLISHING);
+      if (SUCCESS(rc)) {
+         spl->checkpoint.publications++;
+         platform_assert(spl->checkpoint.publications != 0);
+      }
       spl->checkpoint.phase =
          SUCCESS(rc) ? CORE_CHECKPOINT_INCORPORATING : CORE_CHECKPOINT_SEALING;
       platform_mutex_unlock(&spl->checkpoint_state_lock);
@@ -783,6 +807,48 @@ core_checkpoint_advance(core_handle *spl, core_checkpoint_result *result)
 out:
    core_checkpoint_fill_result(spl, 0, FALSE, result);
    return rc;
+}
+
+/*
+ * Wait until the checkpoint cut identified by `target` is durably published.
+ * Help a SEALING retry ourselves; if another thread owns PUBLISHING, poll
+ * until it settles.  Incorporation and completion are deliberately outside
+ * this wait -- once the cut is published, either that sealed/live pair or a
+ * later completed root is already a complete recovery route.
+ */
+static platform_status
+core_checkpoint_wait_for_publication(core_handle *spl, uint64 target)
+{
+   uint64 wait = 100;
+   while (TRUE) {
+      platform_mutex_lock(&spl->checkpoint_state_lock);
+      bool32 published = spl->checkpoint.publications >= target;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      if (published) {
+         return STATUS_OK;
+      }
+
+      platform_status rc = core_checkpoint_advance(spl, NULL);
+
+      /*
+       * advance() can publish the cut and then encounter an unrelated root-
+       * completion error in the same call.  The barrier only needs the former,
+       * so publication wins over that later error.
+       */
+      platform_mutex_lock(&spl->checkpoint_state_lock);
+      published = spl->checkpoint.publications >= target;
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      if (published) {
+         return STATUS_OK;
+      }
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+
+      task_perform_one_if_needed(spl->ts, 0);
+      platform_sleep_ns(wait);
+      wait = wait > 2048 ? wait : 2 * wait;
+   }
 }
 
 /* Cancel the still-pending checkpoint identified by ticket, if it is ours. */
@@ -964,9 +1030,10 @@ core_maybe_cut_oversized_log(core_handle *spl)
 /*
  * Report a rotation while its critical section holds the insert lock
  * exclusively.  core_checkpoint_rotated_locked() swaps the pre-created live
- * log in.  Every log writer holds the insert lock shared across its log_write,
- * so once this store retires no writer is mid-write to, or will newly enter,
- * the old log -- making the subsequent seal safe.
+ * log in.  Every log writer holds the insert lock shared from its group
+ * reservation through its reserved write, so once this store retires no
+ * writer is using, or can newly enter, the old log -- making the subsequent
+ * seal safe.
  */
 static void
 core_rotate_log(void *arg, uint64 finalized_generation)
@@ -1148,12 +1215,34 @@ core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
    return STATUS_OK;
 }
 
+typedef struct core_log_write_context {
+   log_handle     *log;
+   log_write_token token;
+   bool32          reserved;
+} core_log_write_context;
+
+/*
+ * This is the update's logical linearization point.  The btree invokes it
+ * exactly once with the final leaf write-locked, immediately before the
+ * guaranteed incorporation.  Reserving is allocation- and I/O-free.
+ */
+static void
+core_log_write_reserve(void *arg)
+{
+   core_log_write_context *ctxt = arg;
+   platform_assert(ctxt->log != NULL);
+   platform_assert(!ctxt->reserved);
+   log_write_reserve(ctxt->log, &ctxt->token);
+   ctxt->reserved = TRUE;
+}
+
 static platform_status
 core_log_insert(core_handle                *spl,
                 uint64                      memtable_generation,
                 key                         tuple_key,
                 message                     msg,
-                const btree_insert_results *insert_results)
+                const btree_insert_results *insert_results,
+                core_log_write_context     *write_ctxt)
 {
    /*
     * spl->log is NULL while crash recovery replays: the replayed records are
@@ -1162,18 +1251,23 @@ core_log_insert(core_handle                *spl,
     * waste, and there would be nowhere to put them.
     */
    if (!spl->cfg.use_log || spl->log == NULL) {
+      platform_assert(!write_ctxt->reserved);
       return STATUS_OK;
    }
+
+   platform_assert(write_ctxt->reserved);
+   platform_assert(write_ctxt->log == spl->log);
 
    message log_msg =
       merge_accumulator_is_null(&insert_results->msg_blob)
          ? msg
          : merge_accumulator_to_message(&insert_results->msg_blob);
-   int log_rc = log_write(spl->log,
-                          tuple_key,
-                          log_msg,
-                          memtable_generation,
-                          insert_results->leaf_generation);
+   int log_rc           = log_write_reserved(&write_ctxt->token,
+                                   tuple_key,
+                                   log_msg,
+                                   memtable_generation,
+                                   insert_results->leaf_generation);
+   write_ctxt->reserved = FALSE;
 
    /*
     * Sample the size policy while we still hold the shared insert lock, which
@@ -2318,6 +2412,12 @@ core_insert(core_handle   *spl,
 {
    timestamp      ts;
    const threadid tid = platform_get_tid();
+
+   platform_status rc = core_durability_status(spl);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    if (spl->cfg.use_stats) {
       ts = platform_get_timestamp();
    }
@@ -2330,15 +2430,30 @@ core_insert(core_handle   *spl,
       lookup_result_reset(old_result);
    }
 
-   uint64          generation;
-   memtable       *mt = NULL;
-   platform_status rc = core_begin_memtable_insert(spl, &generation, &mt);
+   uint64    generation;
+   memtable *mt = NULL;
+   rc           = core_begin_memtable_insert(spl, &generation, &mt);
    if (!SUCCESS(rc)) {
+      goto out;
+   }
+
+   /* Close the race with a failure latched while this writer acquired its
+    * shared insert slot. */
+   rc = core_durability_status(spl);
+   if (!SUCCESS(rc)) {
+      memtable_end_insert(&spl->mt_ctxt);
       goto out;
    }
 
    btree_insert_results insert_results;
    btree_insert_results_init(&insert_results, old_result);
+   core_log_write_context write_ctxt = {
+      .log = spl->cfg.use_log ? spl->log : NULL,
+   };
+   if (write_ctxt.log != NULL) {
+      btree_insert_results_set_callback(
+         &insert_results, core_log_write_reserve, &write_ctxt);
+   }
    rc = memtable_insert(&spl->mt_ctxt,
                         mt,
                         PROCESS_PRIVATE_HEAP_ID,
@@ -2346,11 +2461,15 @@ core_insert(core_handle   *spl,
                         data,
                         &insert_results);
    if (!SUCCESS(rc)) {
+      platform_assert(!write_ctxt.reserved,
+                      "btree insert failed after reserving a log group");
       goto end_insert;
    }
 
-   rc = core_log_insert(spl, generation, tuple_key, data, &insert_results);
+   rc = core_log_insert(
+      spl, generation, tuple_key, data, &insert_results, &write_ctxt);
    if (!SUCCESS(rc)) {
+      core_latch_durability_error(spl, rc);
       goto end_insert;
    }
 
@@ -3567,6 +3686,70 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
    return core_checkpoint_commit_current_root(spl);
 }
 
+platform_status
+core_durable_barrier(core_handle *spl)
+{
+   platform_status rc = core_durability_status(spl);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   /* Without a WAL, the COW root is the only available durability route. */
+   if (!spl->cfg.use_log) {
+      return core_checkpoint(spl, 0);
+   }
+
+   log_handle        *live               = NULL;
+   log_durable_ticket log_ticket         = 0;
+   uint64             publication_target = 0;
+
+   /*
+    * Pin the live-log pointer against memtable rotation while taking the cut.
+    * This is a shared insert slot, so writers continue to reserve and append
+    * concurrently.  The reservation callback under each final leaf lock is
+    * what orders visible updates with the group swap below.
+    */
+   memtable_begin_insert(&spl->mt_ctxt);
+
+   rc = core_durability_status(spl);
+   if (!SUCCESS(rc)) {
+      goto end_insert_epoch;
+   }
+   if (spl->log == NULL) {
+      rc = STATUS_INVALID_STATE;
+      goto end_insert_epoch;
+   }
+   live = spl->log;
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
+       || spl->checkpoint.phase == CORE_CHECKPOINT_PUBLISHING)
+   {
+      publication_target = spl->checkpoint.publications + 1;
+      platform_assert(publication_target != 0);
+   }
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+
+   rc = log_make_durable_begin(live, &log_ticket);
+
+end_insert_epoch:
+   memtable_end_insert(&spl->mt_ctxt);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   /* wait consumes the ticket and its pin on every return path. */
+   rc = log_make_durable_wait(live, log_ticket);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (publication_target != 0) {
+      rc = core_checkpoint_wait_for_publication(spl, publication_target);
+   }
+   return rc;
+}
+
 /*
  * Close (unmount) a database without destroying it.
  * It can be re-opened later with core_mount().  See core.h for the contract.
@@ -3592,11 +3775,12 @@ core_unmount(core_handle *spl, bool32 force)
    platform_status        checkpoint_rc =
       core_checkpoint_advance(spl, &checkpoint_view);
 
-   platform_status log_rc      = STATUS_OK;
-   bool32          have_log    = spl->cfg.use_log && spl->log != NULL;
-   log_head        live_log    = {0};
-   bool32          log_named   = FALSE;
-   bool32          log_durable = FALSE;
+   platform_status log_rc        = STATUS_OK;
+   platform_status durability_rc = core_durability_status(spl);
+   bool32          have_log      = spl->cfg.use_log && spl->log != NULL;
+   log_head        live_log      = {0};
+   bool32          log_named     = FALSE;
+   bool32          log_durable   = FALSE;
    if (have_log) {
       live_log = log_get_head(spl->log);
       superblock_tree_record durable_rec;
@@ -3620,7 +3804,14 @@ core_unmount(core_handle *spl, bool32 force)
                             "durable: %s\n",
                             platform_status_to_string(log_rc));
       }
-      log_durable = (log_named && SUCCESS(log_rc)) || retiring_log_durable;
+      /*
+       * A failed append after memtable insertion leaves a visible mutation
+       * absent from the WAL.  Syncing that stream cannot make it a valid
+       * recovery route; only a complete root which incorporated the mutation
+       * can make shutdown safe.
+       */
+      log_durable = SUCCESS(durability_rc)
+                    && ((log_named && SUCCESS(log_rc)) || retiring_log_durable);
    }
 
    /*
@@ -3674,7 +3865,9 @@ core_unmount(core_handle *spl, bool32 force)
    bool32          data_safe = root_anchor || log_durable;
    platform_status safety_rc = STATUS_OK;
    if (!data_safe) {
-      if (!all_incorporated && have_log && !SUCCESS(log_rc)) {
+      if (!SUCCESS(durability_rc)) {
+         safety_rc = durability_rc;
+      } else if (!all_incorporated && have_log && !SUCCESS(log_rc)) {
          safety_rc = log_rc;
       } else if (!root_publish_succeeded) {
          safety_rc = root_publish_rc;
