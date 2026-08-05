@@ -204,15 +204,16 @@ typedef struct ONDISK shard_log_hdr {
     */
    uint64 group_id;
    /*
-    * Non-zero only on the group's dedicated final terminator page, giving the
-    * total number of data-plus-terminator pages, with
+    * Non-zero only on the group's final page, giving its total page count, with
     * SHARD_LOG_END_OF_STREAM set when this is also the end of a sealed stream.
-    * Zero on every data page.
+    * Zero on every earlier page. The final page normally carries packed data;
+    * an empty group uses an empty final page.
     *
-    * The count cannot be stamped on data pages as they fill because the final
-    * group size is not known yet.  A separate empty terminator is a small space
-    * cost in exchange for a simple retry rule: no failed close ever has to
-    * modify or duplicate a frozen data page.
+    * The count cannot be stamped on earlier pages because the final group size
+    * is not known yet. Close therefore reserves one mutable thread buffer for
+    * the final page and graduates it only after every ordinary page has a
+    * permanent address. A failed close retries frozen images without modifying
+    * or duplicating them.
     */
    uint32 pages_in_group;
    uint16 num_entries;

@@ -200,6 +200,105 @@ shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
    thread_data->close  = SHARD_LOG_CLOSE_NONE;
 }
 
+static inline uint64
+shard_log_buffer_payload_size(const shard_log_thread_data *thread_data)
+{
+   platform_assert(thread_data->offset >= sizeof(shard_log_hdr));
+   return thread_data->offset - sizeof(shard_log_hdr);
+}
+
+/*
+ * Move every staged record from src to dst. Both images remain private and
+ * mutable until graduation freezes them, so copying the raw payload preserves
+ * the already-packed record representation. The caller has checked capacity.
+ */
+static void
+shard_log_merge_open_buffers(shard_log             *log,
+                             shard_log_thread_data *dst,
+                             shard_log_thread_data *src)
+{
+   platform_assert(dst != src);
+   platform_assert(dst->state == SHARD_LOG_BUFFER_OPEN);
+   platform_assert(src->state == SHARD_LOG_BUFFER_OPEN);
+   platform_assert(dst->close == SHARD_LOG_CLOSE_NONE);
+   platform_assert(src->close == SHARD_LOG_CLOSE_NONE);
+
+   uint64 src_payload = shard_log_buffer_payload_size(src);
+   platform_assert(src_payload != 0);
+   platform_assert(src_payload <= shard_log_page_size(log->cfg) - dst->offset);
+
+   shard_log_hdr *dst_hdr = (shard_log_hdr *)dst->buf;
+   shard_log_hdr *src_hdr = (shard_log_hdr *)src->buf;
+   platform_assert(src_hdr->num_entries != 0);
+   platform_assert(dst_hdr->num_entries <= UINT16_MAX - src_hdr->num_entries);
+
+   memcpy(
+      dst->buf + dst->offset, src->buf + sizeof(shard_log_hdr), src_payload);
+   dst->offset += src_payload;
+   dst_hdr->num_entries += src_hdr->num_entries;
+   shard_log_reset_buffer(log, src);
+}
+
+/*
+ * Compact the still-mutable buffers before closing a group. Thread 0 is never
+ * graduated as an ordinary page: it is kept for the final page carrying the
+ * group count. This makes a small group one page instead of data plus an empty
+ * terminator.
+ *
+ * A close retry may find another thread's image TERMINATED or INCACHE from a
+ * failed graduation. Never inspect or alter such a frozen image. Successful
+ * graduations reset their buffers to empty OPEN images, which may safely be
+ * reused as destinations for records that have not yet been frozen. Since a
+ * source is reset in the same step that copies its payload, retries cannot
+ * duplicate records.
+ */
+static void
+shard_log_pack_open_buffers(shard_log *log, shard_log_group *group)
+{
+   uint64 page_size = shard_log_page_size(log->cfg);
+
+   shard_log_thread_data *final = shard_log_get_thread_data(group, 0);
+   platform_assert(final->state == SHARD_LOG_BUFFER_OPEN);
+
+   /* Pack higher-numbered buffers into lower-numbered buffers when they fit. */
+   for (threadid dst_i = 0; dst_i < MAX_THREADS; dst_i++) {
+      shard_log_thread_data *dst = shard_log_get_thread_data(group, dst_i);
+      if (dst->state != SHARD_LOG_BUFFER_OPEN) {
+         continue;
+      }
+
+      /* Moving into an empty ordinary buffer would not reduce the page count.
+       */
+      if (dst_i != 0 && shard_log_buffer_payload_size(dst) == 0) {
+         continue;
+      }
+
+      for (threadid src_i = dst_i + 1; src_i < MAX_THREADS; src_i++) {
+         shard_log_thread_data *src = shard_log_get_thread_data(group, src_i);
+         if (src->state != SHARD_LOG_BUFFER_OPEN) {
+            continue;
+         }
+
+         uint64 src_payload = shard_log_buffer_payload_size(src);
+         if (src_payload == 0 || page_size - dst->offset < src_payload) {
+            continue;
+         }
+         shard_log_merge_open_buffers(log, dst, src);
+      }
+   }
+
+   /* If any mutable payload remains, thread 0 is the final data page. */
+   bool32 have_open_payload = FALSE;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      have_open_payload |= thread_data->state == SHARD_LOG_BUFFER_OPEN
+                           && shard_log_buffer_payload_size(thread_data) != 0;
+   }
+   platform_assert(!have_open_payload
+                   || shard_log_buffer_payload_size(final) != 0);
+}
+
 static void
 shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
 {
@@ -647,11 +746,12 @@ shard_log_graduate_group(shard_log *log, shard_log_group *group)
 
    if (group->state == SHARD_LOG_GROUP_CLOSING) {
       /*
-       * Freeze every writer's partial page as ordinary data first.  The
-       * dedicated empty terminator is emitted only after all of them succeed,
-       * so a retry never has to alter a previously frozen page.
+       * Pack only mutable images, then freeze every ordinary page before the
+       * reserved final page. A retry finishes TERMINATED/INCACHE images without
+       * repacking them; thread 0 remains OPEN throughout this phase.
        */
-      for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_pack_open_buffers(log, group);
+      for (threadid thr_i = 1; thr_i < MAX_THREADS; thr_i++) {
          platform_status rc =
             shard_log_graduate_buffer(log,
                                       group,

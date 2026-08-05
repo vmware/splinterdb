@@ -382,7 +382,11 @@ typedef struct core_durable_barrier_insert_args {
    core_handle    *spl;
    key             tuple_key;
    message         msg;
+   bool32         *start;
+   bool32         *release;
+   threadid        tid;
    platform_status rc;
+   bool32          ready;
    bool32          done;
 } core_durable_barrier_insert_args;
 
@@ -390,8 +394,43 @@ static void
 core_durable_barrier_insert_thread(void *arg)
 {
    core_durable_barrier_insert_args *args = arg;
+   args->tid                              = platform_get_tid();
+   __atomic_store_n(&args->ready, TRUE, __ATOMIC_RELEASE);
+   while (args->start != NULL
+          && !__atomic_load_n(args->start, __ATOMIC_ACQUIRE))
+   {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
    args->rc = core_insert(args->spl, args->tuple_key, args->msg, NULL);
    __atomic_store_n(&args->done, TRUE, __ATOMIC_RELEASE);
+   while (args->release != NULL
+          && !__atomic_load_n(args->release, __ATOMIC_ACQUIRE))
+   {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+}
+
+static bool32
+core_durable_barrier_test_wait_for_insert_threads(
+   core_durable_barrier_insert_args *args,
+   uint64                            num_args,
+   bool32                            wait_for_done)
+{
+   timestamp start = platform_get_timestamp();
+   while (platform_timestamp_elapsed(start)
+          < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      bool32 all_reached = TRUE;
+      for (uint64 i = 0; i < num_args; i++) {
+         const bool32 *flag = wait_for_done ? &args[i].done : &args[i].ready;
+         all_reached &= __atomic_load_n(flag, __ATOMIC_ACQUIRE);
+      }
+      if (all_reached) {
+         return TRUE;
+      }
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return FALSE;
 }
 
 static bool32
@@ -1212,6 +1251,177 @@ CTEST2(splinter, test_durable_barrier_waits_for_visible_insert_log_write)
                "core_durable_barrier failed: %s\n",
                platform_status_to_string(barrier_args.rc));
 }
+
+/*
+ * Closing a group coalesces the small private tails left by concurrent writers
+ * into one page.  That page also carries the group terminator, so the group's
+ * durable page count is one rather than one page per writer plus a dedicated
+ * terminator.  Keep every worker alive until after inspection to prevent the
+ * platform from recycling thread IDs and accidentally sharing a tail buffer.
+ */
+#define CORE_DURABLE_BARRIER_TAIL_WRITERS 4
+CTEST2(splinter, test_durable_barrier_packs_concurrent_small_tails)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   key_buffer        keybuf[CORE_DURABLE_BARRIER_TAIL_WRITERS];
+   merge_accumulator msg[CORE_DURABLE_BARRIER_TAIL_WRITERS];
+   core_durable_barrier_insert_args
+                   insert_args[CORE_DURABLE_BARRIER_TAIL_WRITERS];
+   platform_thread insert_thread[CORE_DURABLE_BARRIER_TAIL_WRITERS] = {0};
+   platform_status join_rc[CORE_DURABLE_BARRIER_TAIL_WRITERS];
+   bool32          start   = FALSE;
+   bool32          release = FALSE;
+
+   uint64 num_initialized = 0;
+   uint64 num_created     = 0;
+   for (uint64 i = 0; i < CORE_DURABLE_BARRIER_TAIL_WRITERS; i++) {
+      key_buffer_init(&keybuf[i], data->hid);
+      merge_accumulator_init(&msg[i], data->hid);
+      num_initialized++;
+      test_key(
+         &keybuf[i], TEST_RANDOM, i + 1, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, i + 1, &msg[i]);
+      insert_args[i] = (core_durable_barrier_insert_args){
+         .spl       = &spl,
+         .tuple_key = key_buffer_key(&keybuf[i]),
+         .msg       = merge_accumulator_to_message(&msg[i]),
+         .start     = &start,
+         .release   = &release,
+         .tid       = INVALID_TID,
+         .rc        = STATUS_INVALID_STATE,
+      };
+      join_rc[i] = STATUS_INVALID_STATE;
+
+      rc = platform_thread_create(&insert_thread[i],
+                                  FALSE,
+                                  core_durable_barrier_insert_thread,
+                                  &insert_args[i],
+                                  data->hid);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+      num_created++;
+   }
+
+   bool32 all_created = num_created == CORE_DURABLE_BARRIER_TAIL_WRITERS;
+   bool32 all_ready   = all_created
+                      && core_durable_barrier_test_wait_for_insert_threads(
+                         insert_args, num_created, FALSE);
+   bool32 distinct_tids = all_ready;
+   if (all_ready) {
+      for (uint64 i = 0; i < num_created; i++) {
+         distinct_tids &= insert_args[i].tid < MAX_THREADS;
+         for (uint64 j = 0; j < i; j++) {
+            distinct_tids &= insert_args[i].tid != insert_args[j].tid;
+         }
+      }
+   }
+
+   __atomic_store_n(&start, TRUE, __ATOMIC_RELEASE);
+   bool32 all_inserted = all_ready
+                         && core_durable_barrier_test_wait_for_insert_threads(
+                            insert_args, num_created, TRUE);
+   bool32 inserts_succeeded = all_inserted;
+   if (all_inserted) {
+      for (uint64 i = 0; i < num_created; i++) {
+         inserts_succeeded &= SUCCESS(insert_args[i].rc);
+      }
+   }
+
+   core_durable_barrier_thread_args barrier_args = {
+      .spl = &spl,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   platform_thread barrier_thread    = {0};
+   platform_status barrier_create_rc = STATUS_INVALID_STATE;
+   platform_status barrier_join_rc   = STATUS_INVALID_STATE;
+   bool32          barrier_created   = FALSE;
+   bool32          barrier_blocked   = FALSE;
+   bool32          inspected_group   = FALSE;
+   uint64          page_count        = 0;
+
+   if (inserts_succeeded && distinct_tids) {
+      checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+      checkpoint_barrier_fault_block(&data->checkpoint_fault, 0);
+      barrier_create_rc =
+         platform_thread_create(&barrier_thread,
+                                FALSE,
+                                core_durable_barrier_test_thread,
+                                &barrier_args,
+                                data->hid);
+      barrier_created = SUCCESS(barrier_create_rc);
+      if (barrier_created) {
+         barrier_blocked = core_durable_barrier_test_wait(
+            &data->checkpoint_fault.block_entered);
+      }
+
+      if (barrier_blocked) {
+         shard_log *log = (shard_log *)spl.log;
+         platform_mutex_lock(&log->group_lock);
+         shard_log_group *closed = log->groups_head;
+         inspected_group         = closed != NULL && closed != log->accepting
+                           && closed->active_reservations == 0;
+         if (inspected_group) {
+            page_count = closed->page_count;
+         }
+         platform_mutex_unlock(&log->group_lock);
+      }
+
+      checkpoint_barrier_fault_release(&data->checkpoint_fault);
+      if (barrier_created) {
+         barrier_join_rc = platform_thread_join(&barrier_thread);
+      }
+      checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+   }
+
+   __atomic_store_n(&release, TRUE, __ATOMIC_RELEASE);
+   for (uint64 i = 0; i < num_created; i++) {
+      join_rc[i] = platform_thread_join(&insert_thread[i]);
+   }
+   for (uint64 i = 0; i < num_initialized; i++) {
+      merge_accumulator_deinit(&msg[i]);
+      key_buffer_deinit(&keybuf[i]);
+   }
+   core_destroy(&spl);
+
+   ASSERT_TRUE(all_created, "failed to create all concurrent log writers\n");
+   ASSERT_TRUE(all_ready, "concurrent log writers did not reach their gate\n");
+   ASSERT_TRUE(distinct_tids,
+               "concurrent log writers did not retain distinct thread IDs\n");
+   ASSERT_TRUE(all_inserted, "concurrent log writers did not finish inserts\n");
+   ASSERT_TRUE(inserts_succeeded, "a concurrent log writer failed\n");
+   ASSERT_TRUE(SUCCESS(barrier_create_rc));
+   ASSERT_TRUE(barrier_blocked,
+               "core_durable_barrier did not reach the device barrier\n");
+   ASSERT_TRUE(inspected_group,
+               "could not inspect the closed durability group\n");
+   ASSERT_EQUAL(1,
+                page_count,
+                "small concurrent tails used %lu log pages instead of one\n",
+                page_count);
+   ASSERT_TRUE(SUCCESS(barrier_join_rc));
+   ASSERT_TRUE(SUCCESS(barrier_args.rc),
+               "core_durable_barrier failed: %s\n",
+               platform_status_to_string(barrier_args.rc));
+   for (uint64 i = 0; i < num_created; i++) {
+      ASSERT_TRUE(SUCCESS(join_rc[i]));
+   }
+}
+#undef CORE_DURABLE_BARRIER_TAIL_WRITERS
 
 /* Without a WAL, the barrier must fold its frontier into a durable COW root. */
 CTEST2(splinter, test_durable_barrier_without_log_publishes_root)
