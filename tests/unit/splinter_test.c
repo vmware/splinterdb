@@ -405,10 +405,9 @@ blob_checksum_test_build_and_check(const blob_build_config *cfg,
       return rc;
    }
 
-   checksum128 checksum;
-   rc = blob_get_checksum(sblob, &checksum);
-   if (!SUCCESS(rc)) {
-      return rc;
+   const blob *blobby = slice_data(sblob);
+   if (slice_length(sblob) < sizeof(*blobby) || blobby->format != BLOB_FORMAT) {
+      return STATUS_TEST_FAILED;
    }
 
    parsed_blob pblob;
@@ -421,10 +420,7 @@ blob_checksum_test_build_and_check(const blob_build_config *cfg,
       }
       num_addrs++;
    }
-   if (slice_length(sblob)
-       != sizeof(blob) + num_addrs * sizeof(uint64)
-             + sizeof(blob_checksum_trailer))
-   {
+   if (slice_length(sblob) != sizeof(blob) + num_addrs * sizeof(uint64)) {
       return STATUS_TEST_FAILED;
    }
 
@@ -478,22 +474,19 @@ CTEST2(splinter, test_blob_checksums)
    writable_buffer descriptor;
    writable_buffer materialized;
    writable_buffer checked_clone;
-   writable_buffer legacy_clone;
+   writable_buffer invalid_clone;
    writable_buffer_init(&source_data, data->hid);
    writable_buffer_init(&descriptor, data->hid);
    writable_buffer_init(&materialized, data->hid);
    writable_buffer_init(&checked_clone, data->hid);
-   writable_buffer_init(&legacy_clone, data->hid);
+   writable_buffer_init(&invalid_clone, data->hid);
 
    mini_allocator source_mini;
    mini_allocator checked_clone_mini;
-   mini_allocator legacy_clone_mini;
    bool32         source_mini_live        = FALSE;
    bool32         checked_clone_mini_live = FALSE;
-   bool32         legacy_clone_mini_live  = FALSE;
    uint64         source_meta_head        = 0;
    uint64         checked_clone_meta_head = 0;
-   uint64         legacy_clone_meta_head  = 0;
 
    platform_status rc =
       blob_checksum_test_mini_init(cc, &source_mini, &source_meta_head);
@@ -556,18 +549,15 @@ CTEST2(splinter, test_blob_checksums)
       goto cleanup;
    }
 
-   checksum128 source_checksum;
-   checksum128 clone_checksum;
-   rc = blob_get_checksum(writable_buffer_to_slice(&descriptor),
-                          &source_checksum);
-   if (!SUCCESS(rc)) {
+   const blob *source_blob = writable_buffer_data(&descriptor);
+   const blob *clone_blob  = writable_buffer_data(&checked_clone);
+   if (source_blob->format != BLOB_FORMAT || clone_blob->format != BLOB_FORMAT)
+   {
+      rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
-   rc = blob_get_checksum(writable_buffer_to_slice(&checked_clone),
-                          &clone_checksum);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
+   checksum128 source_checksum = source_blob->checksum;
+   checksum128 clone_checksum  = clone_blob->checksum;
    if (!platform_checksum_is_equal(source_checksum, clone_checksum)) {
       rc = STATUS_TEST_FAILED;
       goto cleanup;
@@ -600,45 +590,22 @@ CTEST2(splinter, test_blob_checksums)
       goto cleanup;
    }
 
-   /* Removing the trailer recreates the legacy descriptor format. */
-   slice descriptor_slice  = writable_buffer_to_slice(&descriptor);
-   slice legacy_descriptor = slice_create(slice_length(descriptor_slice)
-                                             - sizeof(blob_checksum_trailer),
-                                          slice_data(descriptor_slice));
-   rc                      = blob_validate(cc, legacy_descriptor);
-   if (!STATUS_IS_EQ(rc, STATUS_NOT_FOUND)) {
+   /* Unknown descriptor formats must be rejected, not treated as legacy. */
+   blob  *mutable_blob         = writable_buffer_data(&descriptor);
+   uint16 expected_format      = mutable_blob->format;
+   mutable_blob->format        = BLOB_FORMAT + 1;
+   slice           invalid     = writable_buffer_to_slice(&descriptor);
+   platform_status validate_rc = blob_validate(cc, invalid);
+   platform_status materialize_rc =
+      blob_materialize_full(cc, invalid, &materialized);
+   platform_status clone_rc =
+      blob_clone(&cfg, cc, &checked_clone_mini, invalid, &invalid_clone);
+   mutable_blob->format = expected_format;
+   if (!STATUS_IS_EQ(validate_rc, STATUS_INVALID_STATE)
+       || !STATUS_IS_EQ(materialize_rc, STATUS_INVALID_STATE)
+       || !STATUS_IS_EQ(clone_rc, STATUS_INVALID_STATE))
+   {
       rc = STATUS_TEST_FAILED;
-      goto cleanup;
-   }
-   rc = blob_checksum_test_roundtrip(cc,
-                                     legacy_descriptor,
-                                     writable_buffer_to_slice(&source_data),
-                                     &materialized);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-
-   rc = blob_checksum_test_mini_init(
-      cc, &legacy_clone_mini, &legacy_clone_meta_head);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-   legacy_clone_mini_live = TRUE;
-   rc                     = blob_clone(
-      &cfg, cc, &legacy_clone_mini, legacy_descriptor, &legacy_clone);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
-   }
-   rc = blob_validate(cc, writable_buffer_to_slice(&legacy_clone));
-   if (!STATUS_IS_EQ(rc, STATUS_NOT_FOUND)) {
-      rc = STATUS_TEST_FAILED;
-      goto cleanup;
-   }
-   rc = blob_checksum_test_roundtrip(cc,
-                                     writable_buffer_to_slice(&legacy_clone),
-                                     writable_buffer_to_slice(&source_data),
-                                     &materialized);
-   if (!SUCCESS(rc)) {
       goto cleanup;
    }
 
@@ -698,13 +665,6 @@ CTEST2(splinter, test_blob_checksums)
    rc = STATUS_OK;
 
 cleanup:
-   if (legacy_clone_mini_live) {
-      platform_status cleanup_rc = blob_checksum_test_mini_deinit(
-         cc, &legacy_clone_mini, legacy_clone_meta_head);
-      if (SUCCESS(rc) && !SUCCESS(cleanup_rc)) {
-         rc = cleanup_rc;
-      }
-   }
    if (checked_clone_mini_live) {
       platform_status cleanup_rc = blob_checksum_test_mini_deinit(
          cc, &checked_clone_mini, checked_clone_meta_head);
@@ -719,7 +679,7 @@ cleanup:
          rc = cleanup_rc;
       }
    }
-   writable_buffer_deinit(&legacy_clone);
+   writable_buffer_deinit(&invalid_clone);
    writable_buffer_deinit(&checked_clone);
    writable_buffer_deinit(&materialized);
    writable_buffer_deinit(&descriptor);

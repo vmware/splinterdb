@@ -7,6 +7,22 @@
 
 #define MIN_LIVE_PERCENTAGE (90ULL)
 
+static platform_status
+blob_get_descriptor(slice sblob, const blob **blobby)
+{
+   if (slice_length(sblob) < sizeof(blob)) {
+      return STATUS_INVALID_STATE;
+   }
+
+   const blob *candidate = slice_data(sblob);
+   if (candidate->format != BLOB_FORMAT) {
+      return STATUS_INVALID_STATE;
+   }
+
+   *blobby = candidate;
+   return STATUS_OK;
+}
+
 /* If the data is large enough (or close enough to a whole number of
  * rounded_size pieces), then we just put it entirely into
  * rounded_size pieces, since this won't waste too much space.
@@ -29,6 +45,7 @@ parse_blob(uint64       extent_size,
            const blob  *blobby,
            parsed_blob *pblobby)
 {
+   debug_assert(blobby->format == BLOB_FORMAT);
    pblobby->base    = blobby;
    uint64 remainder = blobby->length;
 
@@ -72,30 +89,8 @@ blob_length(slice sblobby)
 {
    const blob *blobby = slice_data(sblobby);
    debug_assert(sizeof(*blobby) <= slice_length(sblobby));
+   debug_assert(blobby->format == BLOB_FORMAT);
    return blobby->length;
-}
-
-platform_status
-blob_get_checksum(slice sblob, checksum128 *checksum)
-{
-   if (checksum == NULL) {
-      return STATUS_BAD_PARAM;
-   }
-   if (slice_length(sblob) < sizeof(blob) + sizeof(blob_checksum_trailer)) {
-      return STATUS_NOT_FOUND;
-   }
-
-   blob_checksum_trailer trailer;
-   memcpy(&trailer,
-          (const char *)slice_data(sblob) + slice_length(sblob)
-             - sizeof(trailer),
-          sizeof(trailer));
-   if (trailer.format != BLOB_CHECKSUM_FORMAT) {
-      return STATUS_NOT_FOUND;
-   }
-
-   *checksum = trailer.checksum;
-   return STATUS_OK;
 }
 
 static void
@@ -160,6 +155,12 @@ blob_page_iterator_init(cache                  *cc,
                 || mode == BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH
                 || mode == BLOB_PAGE_ITERATOR_MODE_ALLOC);
 
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblobby, &blobby);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    iter->cc          = cc;
    iter->mode        = mode;
    iter->extent_size = cache_extent_size(cc);
@@ -167,8 +168,7 @@ blob_page_iterator_init(cache                  *cc,
    iter->offset      = offset;
    iter->page        = NULL;
 
-   parse_blob(
-      iter->extent_size, iter->page_size, slice_data(sblobby), &iter->pblob);
+   parse_blob(iter->extent_size, iter->page_size, blobby, &iter->pblob);
 
    debug_assert(offset <= iter->pblob.base->length);
 
@@ -294,11 +294,12 @@ blob_validate(cache *cc, slice sblob)
       return STATUS_BAD_PARAM;
    }
 
-   checksum128     expected;
-   platform_status rc = blob_get_checksum(sblob, &expected);
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblob, &blobby);
    if (!SUCCESS(rc)) {
       return rc;
    }
+   checksum128 expected = blobby->checksum;
 
    XXH3_state_t *checksum_state = XXH3_createState();
    if (checksum_state == NULL) {
@@ -373,13 +374,17 @@ blob_materialize(cache           *cc,
                  uint64           end,
                  writable_buffer *result)
 {
-   const blob *blobby = slice_data(sblobby);
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblobby, &blobby);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    if (end < start || blobby->length < end) {
       return STATUS_BAD_PARAM;
    }
 
-   platform_status rc = writable_buffer_resize(result, end - start);
+   rc = writable_buffer_resize(result, end - start);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -411,6 +416,18 @@ out:
    return rc;
 }
 
+platform_status
+blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
+{
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblob, &blobby);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   return blob_materialize(cc, sblob, 0, blobby->length, result);
+}
+
 /*
  * Record one reference for the extent containing addr, unless something already
  * has.  See blob_recover_allocations().
@@ -431,14 +448,20 @@ blob_recover_extent(cache *cc, uint64 addr)
 platform_status
 blob_recover_allocations(cache *cc, slice sblob)
 {
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblob, &blobby);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    uint64      extent_size = cache_extent_size(cc);
    uint64      page_size   = cache_page_size(cc);
    parsed_blob pblob;
 
-   parse_blob(extent_size, page_size, (const blob *)slice_data(sblob), &pblob);
+   parse_blob(extent_size, page_size, blobby, &pblob);
 
    for (uint64 i = 0; i < pblob.num_extents; i++) {
-      platform_status rc = blob_recover_extent(cc, pblob.base->addrs[i]);
+      rc = blob_recover_extent(cc, pblob.base->addrs[i]);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -451,7 +474,7 @@ blob_recover_allocations(cache *cc, slice sblob)
       if (pblob.leftovers[i].length == 0) {
          break;
       }
-      platform_status rc = blob_recover_extent(cc, pblob.leftovers[i].addr);
+      rc = blob_recover_extent(cc, pblob.leftovers[i].addr);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -462,14 +485,19 @@ blob_recover_allocations(cache *cc, slice sblob)
 platform_status
 blob_writeback(cache *cc, slice sblob, writeback_set *set)
 {
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblob, &blobby);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    uint64      extent_size = cache_extent_size(cc);
    uint64      page_size   = cache_page_size(cc);
    parsed_blob pblob;
 
-   parse_blob(extent_size, page_size, (const blob *)slice_data(sblob), &pblob);
+   parse_blob(extent_size, page_size, blobby, &pblob);
 
    for (uint64 i = 0; i < pblob.num_extents; i++) {
-      platform_status rc;
       if (set != NULL) {
          rc =
             writeback_set_add_extent(set, pblob.base->addrs[i], PAGE_TYPE_BLOB);
@@ -500,7 +528,6 @@ blob_writeback(cache *cc, slice sblob, writeback_set *set)
             return STATUS_IO_ERROR;
          }
 
-         platform_status rc;
          if (set != NULL) {
             rc = writeback_set_add_page(set, page, PAGE_TYPE_BLOB);
          } else {

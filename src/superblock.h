@@ -40,8 +40,11 @@
 #include "log_data.h"
 
 #define SUPERBLOCK_FORMAT_MAGIC (0x5344425355504552ULL) // SDBSUPER
-/* v2 added start_generation; v3 widened log identity to a 128-bit nonce. */
-#define SUPERBLOCK_FORMAT_VERSION (3)
+/*
+ * v2 added start_generation; v3 widened log identity to a 128-bit nonce; v4
+ * moved the checksum and uint16 format into the fixed blob header.
+ */
+#define SUPERBLOCK_FORMAT_VERSION (4)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)

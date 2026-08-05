@@ -3,32 +3,30 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include "platform_hash.h"
 #include "cache.h"
 #include "util.h"
 #include "writeback_set.h"
 
+#define BLOB_FORMAT        UINT16_C(1)
+#define BLOB_CHECKSUM_SEED UINT64_C(0x424C4F424353554D)
+
 typedef struct ONDISK blob {
-   uint64 length;
-   uint64 addrs[];
+   uint64      length;
+   checksum128 checksum;
+   uint16      format;
+   uint64      addrs[];
 } blob;
 
-/*
- * The checksum trailer follows the last address in a checksummed blob
- * descriptor.  Keeping it at the end preserves the layout of length and
- * addrs[], so descriptors written before checksums were introduced remain
- * readable and old readers can ignore the trailer.
- */
-#define BLOB_CHECKSUM_FORMAT (UINT64_C(0x424C4F4243530001))
-#define BLOB_CHECKSUM_SEED   (UINT64_C(0x424C4F424353554D))
-
-typedef struct ONDISK blob_checksum_trailer {
-   uint64      format;
-   checksum128 checksum;
-} blob_checksum_trailer;
-
-_Static_assert(sizeof(blob_checksum_trailer) == 24,
-               "blob checksum trailer layout changed");
+_Static_assert(offsetof(blob, length) == 0, "blob length layout changed");
+_Static_assert(offsetof(blob, checksum) == 8, "blob checksum layout changed");
+_Static_assert(offsetof(blob, format) == 24, "blob format layout changed");
+_Static_assert(sizeof(((blob *)0)->format) == sizeof(uint16),
+               "blob format must be uint16");
+_Static_assert(offsetof(blob, addrs) == 26, "blob address layout changed");
+_Static_assert(sizeof(blob) == 26, "blob header layout changed");
 
 typedef struct parsed_blob_entry {
    uint64 addr;
@@ -78,19 +76,11 @@ uint64
 blob_length(slice sblob);
 
 /*
- * Return the checksum stored in sblob's trailer.  Legacy blob descriptors do
- * not have a trailer and return STATUS_NOT_FOUND; callers must not interpret
- * that as successful validation.
- */
-platform_status
-blob_get_checksum(slice sblob, checksum128 *checksum);
-
-/*
  * Read and checksum all logical bytes referenced by sblob.  Every backing page
  * must be readable from the I/O address space; this is intended for recovery,
- * after the blob's writeback has completed.  Returns STATUS_NOT_FOUND for a
- * legacy/unchecksummed descriptor and STATUS_IO_ERROR when a page is absent or
- * the stored checksum does not match.
+ * after the blob's writeback has completed.  Returns STATUS_INVALID_STATE for
+ * an invalid descriptor format and STATUS_IO_ERROR when a page is absent or the
+ * stored checksum does not match.
  */
 platform_status
 blob_validate(cache *cc, slice sblob);
@@ -126,11 +116,8 @@ blob_materialize(cache           *cc,
                  uint64           end,
                  writable_buffer *result);
 
-static inline platform_status
-blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
-{
-   return blob_materialize(cc, sblob, 0, blob_length(sblob), result);
-}
+platform_status
+blob_materialize_full(cache *cc, slice sblob, writable_buffer *result);
 
 /*
  * Issue writeback of every page of the blob, recording each in `set` so the

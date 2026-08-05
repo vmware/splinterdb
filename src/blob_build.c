@@ -4,16 +4,6 @@
 #include "blob_build.h"
 #include "poison.h"
 
-static platform_status
-append_blob_checksum(writable_buffer *result, checksum128 checksum)
-{
-   blob_checksum_trailer trailer = {
-      .format   = BLOB_CHECKSUM_FORMAT,
-      .checksum = checksum,
-   };
-   return writable_buffer_append(result, sizeof(trailer), &trailer);
-}
-
 static checksum128
 checksum_blob_data(slice data)
 {
@@ -137,8 +127,10 @@ build_blob_table(const blob_build_config *cfg,
       return rc;
    }
 
-   blob *blobby   = writable_buffer_data(result);
-   blobby->length = data_len;
+   blob *blobby     = writable_buffer_data(result);
+   blobby->length   = data_len;
+   blobby->checksum = (checksum128){0};
+   blobby->format   = BLOB_FORMAT;
 
    for (uint64 i = 0; i < num_extents; i++) {
       uint64 alloced_page = mini_alloc_extent(mini, cfg->extent_batch, NULL);
@@ -193,7 +185,8 @@ blob_build(const blob_build_config *cfg,
 out:
    blob_page_iterator_deinit(&iter);
    if (SUCCESS(rc)) {
-      rc = append_blob_checksum(result, checksum_blob_data(data));
+      blob *blobby     = writable_buffer_data(result);
+      blobby->checksum = checksum_blob_data(data);
    }
    return rc;
 }
@@ -211,8 +204,8 @@ clone_blob_table(const blob_build_config *cfg,
       return rc;
    }
 
-   blob *blobby   = writable_buffer_data(result);
-   blobby->length = pblobby->base->length;
+   blob *blobby = writable_buffer_data(result);
+   memcpy(blobby, pblobby->base, sizeof(*blobby));
 
    for (uint64 i = 0; i < pblobby->num_extents; i++) {
       blobby->addrs[i] = pblobby->base->addrs[i];
@@ -240,26 +233,21 @@ blob_clone(const blob_build_config *cfg,
            slice                    sblob,
            writable_buffer         *result)
 {
-   checksum128 checksum;
-   bool32      has_checksum = FALSE;
-
-   platform_status rc = blob_get_checksum(sblob, &checksum);
-   if (SUCCESS(rc)) {
-      has_checksum = TRUE;
-   } else if (STATUS_IS_EQ(rc, STATUS_NOT_FOUND)) {
-      rc = STATUS_OK;
-   } else {
-      return rc;
+   if (slice_length(sblob) < sizeof(blob)) {
+      return STATUS_INVALID_STATE;
    }
 
    uint64      extent_size = cache_extent_size(cc);
    uint64      page_size   = cache_page_size(cc);
    const blob *blobby      = slice_data(sblob);
+   if (blobby->format != BLOB_FORMAT) {
+      return STATUS_INVALID_STATE;
+   }
    parsed_blob pblobby;
 
    parse_blob(extent_size, page_size, blobby, &pblobby);
 
-   rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
+   platform_status rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -319,8 +307,5 @@ blob_clone(const blob_build_config *cfg,
       blob_page_iterator_deinit(&dst_iter);
    }
 
-   if (SUCCESS(rc) && has_checksum) {
-      rc = append_blob_checksum(result, checksum);
-   }
    return rc;
 }
