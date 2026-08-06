@@ -554,9 +554,26 @@ test_log_concurrent_begin_handoff(clockcache             *cc,
    platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    log_head segment = log_get_head(log);
 
+   shard_log       *slog = (shard_log *)log;
+   shard_log_group *initial =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(initial != NULL);
+   platform_assert(initial->id == SHARD_LOG_FIRST_GROUP_ID);
+   platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
+                   == initial->id);
+   platform_assert(__atomic_load_n(&slog->install.state, __ATOMIC_ACQUIRE)
+                   == initial->id);
+
    test_log_write_range(log, gen, hid, key_size, 0, 1);
    log_durable_ticket first =
       test_log_concurrent_begin_round(log, hid, num_cutters);
+   platform_assert(first == SHARD_LOG_FIRST_GROUP_ID);
+   shard_log_group *successor =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(successor != NULL);
+   platform_assert(successor->id == first + 1);
+   platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
+                   == successor->id);
 
    test_log_write_range(log, gen, hid, key_size, 1, 1);
    log_durable_ticket second =

@@ -74,7 +74,7 @@ typedef struct shard_log_thread_data {
  * line merely to publish their group-selection hazards.
  */
 typedef struct shard_log_reservation_slot {
-   uint64 ticket; // group id + 1, or zero when this thread has no reservation
+   uint64 ticket; // exact group id, or zero when this thread has no reservation
 } PLATFORM_CACHELINE_ALIGNED shard_log_reservation_slot;
 
 _Static_assert(sizeof(shard_log_reservation_slot) == PLATFORM_CACHELINE_SIZE,
@@ -101,6 +101,7 @@ _Static_assert(sizeof(shard_log_install_claim) == PLATFORM_CACHELINE_SIZE,
                "installation claim must occupy exactly one cache line");
 
 /* The high bit turns the versioned installation claim into a terminal claim. */
+#define SHARD_LOG_FIRST_GROUP_ID      1ULL
 #define SHARD_LOG_INSTALL_SEALING_BIT (1ULL << 63)
 #define SHARD_LOG_INSTALL_ID_MASK     (SHARD_LOG_INSTALL_SEALING_BIT - 1)
 
@@ -110,7 +111,7 @@ _Static_assert(sizeof(shard_log_install_claim) == PLATFORM_CACHELINE_SIZE,
  * graduation, writeback wait, and device barrier happen afterward.
  */
 struct shard_log_group {
-   uint64                id; // on-disk id; tickets use id + 1
+   uint64                id; // on-disk id and durability ticket once installed
    shard_log_group_state state;
    shard_log_close_mode  close;
    uint64 page_count; // Number of disk pages allocated by this group
@@ -160,12 +161,11 @@ typedef struct shard_log {
    platform_mutex   group_lock;
    shard_log_group *groups_head;
    /*
-    * Atomically published current group and its ticket. The pointer is
-    * published before its ticket. accepting.ticket names the published group
-    * as id + 1. install.state is the accepting group's id at rest and one
-    * greater while its successor is being installed. Once sealing wins the
-    * same claim, its high bit remains set and its low bits name the final
-    * group.
+    * Atomically published current group and its id. The pointer is published
+    * before its id. The id is also the group's durability ticket.
+    * install.state is the accepting group's id at rest and its successor's id
+    * while that successor is being installed. Once sealing wins the same
+    * claim, its high bit remains set and its low bits name the final group.
     */
    shard_log_accepting_frontier accepting;
    shard_log_install_claim      install;
@@ -174,6 +174,7 @@ typedef struct shard_log {
    shard_log_group *emergency_pool;
 
    uint64 last_cut_ticket;
+   /* Atomic, monotonically published after a group finishes graduation. */
    uint64 graduated_ticket;
    uint64 durable_ticket;
    uint64 seal_ticket;
