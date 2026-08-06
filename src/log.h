@@ -40,6 +40,13 @@ typedef struct log_config   log_config;
 typedef struct log_write_token {
    log_handle *log;
    void       *internal;
+   /*
+    * Reservations are thread-affine and may not be nested.  The concrete log
+    * records both the originating thread and its reservation ticket here so
+    * write_reserved() can validate the receipt before consuming it.
+    */
+   threadid owner_tid;
+   uint64   internal_ticket;
 } log_write_token;
 
 typedef void (*log_write_reserve_fn)(log_handle *log, log_write_token *token);
@@ -67,6 +74,10 @@ typedef int (*log_write_reserved_fn)(log_write_token *token,
  *
  * If a covered write fails, then make_durable_wait will return an error -- the
  * log can never ensure that all covered writes have been made durable.
+ *
+ * A thread may not call make_durable_begin() while it owns a write reservation
+ * on this log. Writers, other make_durable_begin() calls, and log_seal() may
+ * run concurrently, subject to log_seal()'s exclusion of new reservations.
  */
 typedef uint64 log_durable_ticket;
 
@@ -82,7 +93,10 @@ typedef platform_status (*log_make_durable_wait_fn)(log_handle        *log,
  * one that a crash truncated.  The log is immutable afterward, but the handle
  * remains valid and must still be released with log_deinit().
  *
- * The caller must exclude concurrent reservations and log_seal() calls.
+ * The caller must exclude concurrent execution of log_write_reserve() and
+ * log_seal(). Tokens returned by earlier reservations may remain outstanding
+ * and are included in the sealed stream, but the sealing thread must not itself
+ * own one because seal waits for all such reservations to complete.
  *
  * A caller that is about to discard the log outright can skip this and
  * call log_deinit() alone.
@@ -112,7 +126,7 @@ typedef void (*log_deinit_fn)(log_handle *log);
 typedef log_head (*log_head_fn)(log_handle *log);
 
 /*
- * Whether the log has ever accepted a reservation.
+ * Whether the log has ever accepted a record.
  */
 typedef bool32 (*log_is_empty_fn)(log_handle *log);
 
@@ -190,6 +204,8 @@ log_write(log_handle *log,
 static inline platform_status
 log_make_durable_begin(log_handle *log, log_durable_ticket *ticket_out)
 {
+   platform_assert(log != NULL);
+   platform_assert(ticket_out != NULL);
    return log->ops->make_durable_begin(log, ticket_out);
 }
 

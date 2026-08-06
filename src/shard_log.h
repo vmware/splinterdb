@@ -28,18 +28,16 @@ typedef struct shard_log_config {
    data_config      *data_cfg;
    uint64            seed;
    blob_build_config blob_cfg;
-   // data config of point message tree
 } shard_log_config;
 
-typedef enum shard_log_close {
+typedef enum shard_log_close_mode {
    SHARD_LOG_CLOSE_NONE,   // an ordinary page; the group stays open
    SHARD_LOG_CLOSE_GROUP,  // last page of its group
    SHARD_LOG_CLOSE_STREAM, // last page of its group and of the stream
-} shard_log_close;
+} shard_log_close_mode;
 
 typedef enum shard_log_buffer_state {
    SHARD_LOG_BUFFER_OPEN,
-   SHARD_LOG_BUFFER_TERMINATED,
    SHARD_LOG_BUFFER_INCACHE,
 } shard_log_buffer_state;
 
@@ -66,12 +64,45 @@ typedef struct shard_log_thread_data {
    char                  *buf;    // page-sized image under construction
    uint64                 offset; // append cursor within buf
    shard_log_buffer_state state;
-   shard_log_close        close;
    /* Held from cache_alloc() until writeback-set enrollment succeeds. */
    page_handle *incache_page;
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
+/*
+ * A reservation or durability cut writes only its calling thread's slot.
+ * Cache-line separation keeps unrelated operations from bouncing the same
+ * line merely to publish their group-selection hazards.
+ */
+typedef struct shard_log_reservation_slot {
+   uint64 ticket; // group id + 1, or zero when this thread has no reservation
+} PLATFORM_CACHELINE_ALIGNED shard_log_reservation_slot;
+
+_Static_assert(sizeof(shard_log_reservation_slot) == PLATFORM_CACHELINE_SIZE,
+               "reservation slot must occupy exactly one cache line");
+
 typedef struct shard_log_group shard_log_group;
+
+/* Read together by every operation, separate from the contended cut claim. */
+typedef struct shard_log_accepting_frontier {
+   shard_log_group *group;
+   uint64           id;
+   /* Atomic, set once after the first record reaches a staging buffer. */
+   bool32 has_records;
+} PLATFORM_CACHELINE_ALIGNED shard_log_accepting_frontier;
+
+_Static_assert(sizeof(shard_log_accepting_frontier) == PLATFORM_CACHELINE_SIZE,
+               "accepting frontier must occupy exactly one cache line");
+
+typedef struct shard_log_install_claim {
+   uint64 state;
+} PLATFORM_CACHELINE_ALIGNED shard_log_install_claim;
+
+_Static_assert(sizeof(shard_log_install_claim) == PLATFORM_CACHELINE_SIZE,
+               "installation claim must occupy exactly one cache line");
+
+/* The high bit turns the versioned installation claim into a terminal claim. */
+#define SHARD_LOG_INSTALL_SEALING_BIT (1ULL << 63)
+#define SHARD_LOG_INSTALL_ID_MASK     (SHARD_LOG_INSTALL_SEALING_BIT - 1)
 
 /*
  * One independently staged and written-back durability group.  A cut closes
@@ -81,16 +112,15 @@ typedef struct shard_log_group shard_log_group;
 struct shard_log_group {
    uint64                id; // on-disk id; tickets use id + 1
    shard_log_group_state state;
-   shard_log_close       close;
-   /* Reservations not yet retired by their append, including across a cut. */
-   uint64 active_reservations;
-   uint64 page_count;
+   shard_log_close_mode  close;
+   uint64 page_count; // Number of disk pages allocated by this group
+   /* Atomic, set once by the first reservation in this incarnation. */
    bool32 ever_used;
-   bool32 emergency;
+   bool32 emergency; // Is this group from the pool of emergency groups?
    /*
     * First failed append after this group was selected. A non-success value
     * permanently poisons the group: it must never receive a commit terminator.
-    * Protected by shard_log::group_lock.
+    * The first error is installed atomically by a completing reservation.
     */
    platform_status append_error;
 
@@ -115,16 +145,32 @@ typedef struct shard_log {
    shard_log_config *cfg;
    platform_heap_id  heap_id;
    mini_allocator    mini;
+
+   /* Immutable state, once the log is inited. */
+   uint64    addr;
+   uint64    meta_head;
+   log_nonce nonce;
+
    /*
-    * group_lock protects the group list, the accepting pointer, outstanding
-    * reservations and append errors, durability counters, stream state, and
-    * ticket_refs. It is never held while allocating, waiting for cache I/O, or
-    * issuing a durable barrier.
+    * group_lock protects the group list, durability frontiers, stream state,
+    * emergency pool, and ticket_refs. It is never held while allocating,
+    * waiting for cache I/O, or issuing a durable barrier. Reservations use the
+    * cache-line-private slots below and do not acquire it.
     */
    platform_mutex   group_lock;
    shard_log_group *groups_head;
-   shard_log_group *groups_tail;
-   shard_log_group *accepting;
+   /*
+    * Atomically published current group and its ticket. The pointer is
+    * published before its ticket. accepting.ticket names the published group
+    * as id + 1. install.state is the accepting group's id at rest and one
+    * greater while its successor is being installed. Once sealing wins the
+    * same claim, its high bit remains set and its low bits name the final
+    * group.
+    */
+   shard_log_accepting_frontier accepting;
+   shard_log_install_claim      install;
+   shard_log_reservation_slot   reservation_slots[MAX_THREADS];
+
    shard_log_group *emergency_pool;
 
    uint64 last_cut_ticket;
@@ -133,7 +179,6 @@ typedef struct shard_log {
    uint64 seal_ticket;
 
    uint64 ticket_refs;
-   bool32 has_records;
    bool32 sealing;
    bool32 sealed;
    bool32 deinit_requested;
@@ -146,9 +191,6 @@ typedef struct shard_log {
    platform_mutex graduate_lock;
    platform_mutex durability_lock;
 
-   uint64    addr;
-   uint64    meta_head;
-   log_nonce nonce;
    /*
     * Extents the mini-allocator held once the stream was initialized -- its
     * fixed per-stream overhead (a metadata extent plus one per batch).

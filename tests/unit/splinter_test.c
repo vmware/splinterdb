@@ -1373,8 +1373,9 @@ CTEST2(splinter, test_durable_barrier_packs_concurrent_small_tails)
          shard_log *log = (shard_log *)spl.log;
          platform_mutex_lock(&log->group_lock);
          shard_log_group *closed = log->groups_head;
-         inspected_group         = closed != NULL && closed != log->accepting
-                           && closed->active_reservations == 0;
+         shard_log_group *accepting =
+            __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
+         inspected_group = closed != NULL && closed != accepting;
          if (inspected_group) {
             page_count = closed->page_count;
          }
@@ -1422,6 +1423,426 @@ CTEST2(splinter, test_durable_barrier_packs_concurrent_small_tails)
    }
 }
 #undef CORE_DURABLE_BARRIER_TAIL_WRITERS
+
+/*
+ * This order is a counterexample for both the old in-thread-order First Fit
+ * packer and a largest-first packer which fills bins from the smallest item
+ * backward.  With C as the page payload capacity, those algorithms produce
+ * three pages:
+ *
+ *    old FF:  (.08 + .18 + .18), .68, .78
+ *    reverse: (.78 + .08), (.68 + .18), .18
+ *
+ * First Fit Decreasing instead produces exactly two:
+ *
+ *    (.78 + .18), (.68 + .18 + .08)
+ */
+#define SHARD_LOG_FFD_TEST_WRITERS 5
+static const uint64 shard_log_ffd_test_percent[SHARD_LOG_FFD_TEST_WRITERS] = {
+   8,
+   18,
+   18,
+   68,
+   78,
+};
+
+typedef struct shard_log_ffd_test_writer {
+   log_handle     *log;
+   platform_thread thread;
+   bool32         *start;
+   bool32         *release;
+   message         msg;
+   uint64          entry_num;
+   uint64          key_size;
+   threadid        tid;
+   int             log_rc;
+   bool32          ready;
+   bool32          done;
+} shard_log_ffd_test_writer;
+
+static void
+shard_log_ffd_test_write(void *arg)
+{
+   shard_log_ffd_test_writer *writer = arg;
+   platform_heap_id           hid    = platform_get_heap_id();
+   DECLARE_AUTO_KEY_BUFFER(keybuf, hid);
+
+   writer->tid = platform_get_tid();
+   __atomic_store_n(&writer->ready, TRUE, __ATOMIC_RELEASE);
+   while (!__atomic_load_n(writer->start, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+
+   key tuple_key = test_key(
+      &keybuf, TEST_RANDOM, writer->entry_num, 0, 0, writer->key_size, 0);
+   writer->log_rc =
+      log_write(writer->log, tuple_key, writer->msg, writer->entry_num, 0);
+   __atomic_store_n(&writer->done, TRUE, __ATOMIC_RELEASE);
+
+   /* Keep the thread ID, and therefore its staging-buffer assignment, live. */
+   while (!__atomic_load_n(writer->release, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+}
+
+static bool32
+shard_log_ffd_test_wait_for_writers(shard_log_ffd_test_writer *writers,
+                                    bool32                     wait_for_done)
+{
+   timestamp start = platform_get_timestamp();
+   while (platform_timestamp_elapsed(start)
+          < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      bool32 all_reached = TRUE;
+      for (uint64 i = 0; i < SHARD_LOG_FFD_TEST_WRITERS; i++) {
+         const bool32 *flag =
+            wait_for_done ? &writers[i].done : &writers[i].ready;
+         all_reached &= __atomic_load_n(flag, __ATOMIC_ACQUIRE);
+      }
+      if (all_reached) {
+         return TRUE;
+      }
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return FALSE;
+}
+
+typedef struct shard_log_ffd_test_sealer {
+   log_handle     *log;
+   platform_thread thread;
+   platform_status rc;
+} shard_log_ffd_test_sealer;
+
+static void
+shard_log_ffd_test_seal(void *arg)
+{
+   shard_log_ffd_test_sealer *sealer = arg;
+   sealer->rc                        = log_seal(sealer->log);
+}
+
+CTEST2(splinter, test_shard_log_first_fit_decreasing_packing)
+{
+   const uint64 key_size = 8;
+   uint64       page_capacity =
+      cache_page_size((cache *)data->clock_cache) - sizeof(shard_log_hdr);
+   /* sizeof(log_entry), which is private to shard_log.c. */
+   uint64 entry_overhead = 2 * sizeof(uint64) + sizeof(ondisk_tuple) + key_size;
+
+   char   *payload[SHARD_LOG_FFD_TEST_WRITERS] = {0};
+   message expected_msg[SHARD_LOG_FFD_TEST_WRITERS];
+   uint64  expected_size[SHARD_LOG_FFD_TEST_WRITERS];
+   for (uint64 rank = 0; rank < SHARD_LOG_FFD_TEST_WRITERS; rank++) {
+      expected_size[rank] =
+         page_capacity * shard_log_ffd_test_percent[rank] / 100;
+      platform_assert(expected_size[rank] > entry_overhead);
+      uint64 message_size = expected_size[rank] - entry_overhead;
+      platform_assert(message_size <= UINT16_MAX);
+      payload[rank] =
+         TYPED_ARRAY_MALLOC(data->hid, payload[rank], message_size);
+      platform_assert(payload[rank] != NULL);
+      memset(payload[rank], (int)(rank + 1), message_size);
+      expected_msg[rank] = message_create(
+         MESSAGE_TYPE_INSERT, NULL, slice_create(message_size, payload[rank]));
+   }
+
+   log_handle *log = NULL;
+   platform_assert_status_ok(shard_log_create(
+      (cache *)data->clock_cache, &data->system_cfg->log_cfg, data->hid, &log));
+   log_head segment = log_get_head(log);
+
+   shard_log_ffd_test_writer writers[SHARD_LOG_FFD_TEST_WRITERS] = {0};
+   uint64                    order[SHARD_LOG_FFD_TEST_WRITERS];
+   bool32                    selected[SHARD_LOG_FFD_TEST_WRITERS] = {0};
+   bool32                    start                                = FALSE;
+   bool32                    release                              = FALSE;
+   for (uint64 i = 0; i < SHARD_LOG_FFD_TEST_WRITERS; i++) {
+      writers[i] = (shard_log_ffd_test_writer){
+         .log      = log,
+         .start    = &start,
+         .release  = &release,
+         .tid      = INVALID_TID,
+         .log_rc   = -1,
+         .key_size = key_size,
+      };
+      platform_assert_status_ok(platform_thread_create(&writers[i].thread,
+                                                       FALSE,
+                                                       shard_log_ffd_test_write,
+                                                       &writers[i],
+                                                       data->hid));
+   }
+
+   bool32 all_ready = shard_log_ffd_test_wait_for_writers(writers, FALSE);
+   platform_assert(all_ready, "FFD test writers did not become ready");
+
+   /* Assign payload sizes by actual tid, not scheduler-dependent spawn order.
+    */
+   for (uint64 rank = 0; rank < SHARD_LOG_FFD_TEST_WRITERS; rank++) {
+      threadid lowest_tid = INVALID_TID;
+      uint64   lowest_i   = SHARD_LOG_FFD_TEST_WRITERS;
+      for (uint64 i = 0; i < SHARD_LOG_FFD_TEST_WRITERS; i++) {
+         if (!selected[i] && writers[i].tid < lowest_tid) {
+            lowest_tid = writers[i].tid;
+            lowest_i   = i;
+         }
+      }
+      platform_assert(lowest_i != SHARD_LOG_FFD_TEST_WRITERS);
+      platform_assert(lowest_tid != 0,
+                      "thread 0 must remain the empty final-page buffer");
+      selected[lowest_i]          = TRUE;
+      order[rank]                 = lowest_i;
+      writers[lowest_i].msg       = expected_msg[rank];
+      writers[lowest_i].entry_num = rank;
+   }
+
+   __atomic_store_n(&start, TRUE, __ATOMIC_RELEASE);
+   bool32 all_done = shard_log_ffd_test_wait_for_writers(writers, TRUE);
+   platform_assert(all_done, "FFD test writers did not finish appending");
+   for (uint64 i = 0; i < SHARD_LOG_FFD_TEST_WRITERS; i++) {
+      platform_assert(writers[i].log_rc == 0);
+   }
+
+   shard_log       *slog = (shard_log *)log;
+   shard_log_group *group =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_SEQ_CST);
+   platform_assert(group != NULL);
+   platform_assert(group->thread_data[0].offset == sizeof(shard_log_hdr));
+   for (uint64 rank = 0; rank < SHARD_LOG_FFD_TEST_WRITERS; rank++) {
+      shard_log_ffd_test_writer *writer      = &writers[order[rank]];
+      shard_log_thread_data     *thread_data = &group->thread_data[writer->tid];
+      platform_assert(thread_data->state == SHARD_LOG_BUFFER_OPEN);
+      ASSERT_EQUAL(expected_size[rank],
+                   thread_data->offset - sizeof(shard_log_hdr),
+                   "writer rank %lu staged an unexpected payload size\n",
+                   rank);
+   }
+
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_block(&data->checkpoint_fault, 0);
+   shard_log_ffd_test_sealer sealer = {
+      .log = log,
+      .rc  = STATUS_INVALID_STATE,
+   };
+   platform_assert_status_ok(platform_thread_create(
+      &sealer.thread, FALSE, shard_log_ffd_test_seal, &sealer, data->hid));
+   bool32 barrier_blocked =
+      core_durable_barrier_test_wait(&data->checkpoint_fault.block_entered);
+
+   uint64 page_count      = 0;
+   bool32 inspected_group = FALSE;
+   if (barrier_blocked) {
+      platform_mutex_lock(&slog->group_lock);
+      shard_log_group *sealed_group = slog->groups_head;
+      shard_log_group *accepting =
+         __atomic_load_n(&slog->accepting.group, __ATOMIC_SEQ_CST);
+      inspected_group = sealed_group != NULL && accepting == NULL;
+      if (inspected_group) {
+         page_count = sealed_group->page_count;
+      }
+      platform_mutex_unlock(&slog->group_lock);
+   }
+
+   checkpoint_barrier_fault_release(&data->checkpoint_fault);
+   platform_status seal_join_rc = platform_thread_join(&sealer.thread);
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+
+   __atomic_store_n(&release, TRUE, __ATOMIC_RELEASE);
+   for (uint64 i = 0; i < SHARD_LOG_FFD_TEST_WRITERS; i++) {
+      platform_assert_status_ok(platform_thread_join(&writers[i].thread));
+   }
+
+   ASSERT_TRUE(barrier_blocked,
+               "sealed log did not reach the device barrier\n");
+   ASSERT_TRUE(inspected_group,
+               "could not inspect the sealed FFD test group\n");
+   ASSERT_EQUAL(2,
+                page_count,
+                "FFD packed the counterexample into %lu pages, not two\n",
+                page_count);
+   ASSERT_TRUE(SUCCESS(seal_join_rc));
+   ASSERT_TRUE(SUCCESS(sealer.rc),
+               "sealing the FFD test log failed: %s\n",
+               platform_status_to_string(sealer.rc));
+
+   log_deinit(log);
+
+   log_iterator   *itor = NULL;
+   platform_status rc   = shard_log_iterator_create((cache *)data->clock_cache,
+                                                  &data->system_cfg->log_cfg,
+                                                  data->hid,
+                                                  segment,
+                                                  0,
+                                                  &itor);
+   platform_assert_status_ok(rc);
+   ASSERT_TRUE(log_iterator_stream_complete(itor));
+   DECLARE_AUTO_KEY_BUFFER(expected_keybuf, data->hid);
+   for (uint64 rank = 0; rank < SHARD_LOG_FFD_TEST_WRITERS; rank++) {
+      ASSERT_TRUE(log_iterator_can_next(itor));
+      key expected_key =
+         test_key(&expected_keybuf, TEST_RANDOM, rank, 0, 0, key_size, 0);
+      key     actual_key;
+      message actual_msg;
+      log_iterator_curr(itor, &actual_key, &actual_msg);
+      uint64 memtable_generation;
+      uint64 leaf_generation;
+      log_iterator_curr_generations(
+         itor, &memtable_generation, &leaf_generation);
+      ASSERT_EQUAL(rank, memtable_generation);
+      ASSERT_EQUAL(0, leaf_generation);
+      ASSERT_EQUAL(0,
+                   data_key_compare(
+                      data->system_cfg->data_cfg, expected_key, actual_key));
+      ASSERT_EQUAL(0, message_lex_cmp(expected_msg[rank], actual_msg));
+      platform_assert_status_ok(log_iterator_next(itor));
+   }
+   ASSERT_FALSE(log_iterator_can_next(itor));
+   log_iterator_deinit(itor);
+   shard_log_dec_ref((cache *)data->clock_cache, &segment);
+
+   for (uint64 rank = 0; rank < SHARD_LOG_FFD_TEST_WRITERS; rank++) {
+      platform_free(data->hid, payload[rank]);
+   }
+}
+#undef SHARD_LOG_FFD_TEST_WRITERS
+
+typedef struct shard_log_page_alloc_fault {
+   cache           *cc;
+   const cache_ops *saved_ops;
+   cache_ops        fault_ops;
+   bool32           fail_next_log_page;
+   uint64           failures;
+} shard_log_page_alloc_fault;
+
+static shard_log_page_alloc_fault *active_shard_log_page_alloc_fault;
+
+static page_handle *
+shard_log_test_page_alloc(cache *cc, uint64 addr, page_type type)
+{
+   shard_log_page_alloc_fault *fault =
+      __atomic_load_n(&active_shard_log_page_alloc_fault, __ATOMIC_ACQUIRE);
+   platform_assert(fault != NULL && fault->cc == cc);
+
+   if (type == PAGE_TYPE_LOG
+       && __atomic_exchange_n(
+          &fault->fail_next_log_page, FALSE, __ATOMIC_ACQ_REL))
+   {
+      __atomic_fetch_add(&fault->failures, 1, __ATOMIC_RELAXED);
+      return NULL;
+   }
+   return fault->saved_ops->page_alloc(cc, addr, type);
+}
+
+static void
+shard_log_page_alloc_fault_install(shard_log_page_alloc_fault *fault, cache *cc)
+{
+   platform_assert(
+      __atomic_load_n(&active_shard_log_page_alloc_fault, __ATOMIC_ACQUIRE)
+      == NULL);
+   ZERO_CONTENTS(fault);
+   fault->cc                   = cc;
+   fault->saved_ops            = cc->ops;
+   fault->fault_ops            = *cc->ops;
+   fault->fault_ops.page_alloc = shard_log_test_page_alloc;
+   fault->fail_next_log_page   = TRUE;
+   __atomic_store_n(
+      &active_shard_log_page_alloc_fault, fault, __ATOMIC_RELEASE);
+   cc->ops = &fault->fault_ops;
+}
+
+static void
+shard_log_page_alloc_fault_uninstall(shard_log_page_alloc_fault *fault)
+{
+   platform_assert(
+      __atomic_load_n(&active_shard_log_page_alloc_fault, __ATOMIC_ACQUIRE)
+      == fault);
+   fault->cc->ops = fault->saved_ops;
+   __atomic_store_n(&active_shard_log_page_alloc_fault, NULL, __ATOMIC_RELEASE);
+   fault->cc        = NULL;
+   fault->saved_ops = NULL;
+}
+
+/*
+ * Page-slot allocation happens before an OPEN staging image is frozen. A
+ * transient failure must therefore leave the image mutable and intact; a
+ * later seal can allocate a different page and finish the exact same record.
+ */
+CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
+{
+   cache      *cc = (cache *)data->clock_cache;
+   log_handle *log;
+   platform_assert_status_ok(
+      shard_log_create(cc, &data->system_cfg->log_cfg, data->hid, &log));
+   log_head segment = log_get_head(log);
+
+   const uint64      entry_num = 8675309;
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   generate_test_message(&data->gen, entry_num, &msg);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   key tuple_key = test_key(
+      &keybuf, TEST_RANDOM, entry_num, 0, 0, data->workload_cfg->key_size, 0);
+   int log_rc = log_write(
+      log, tuple_key, merge_accumulator_to_message(&msg), entry_num, 0);
+   platform_assert(log_rc == 0);
+
+   shard_log_page_alloc_fault fault;
+   shard_log_page_alloc_fault_install(&fault, cc);
+   platform_status first_seal_rc = log_seal(log);
+   shard_log_page_alloc_fault_uninstall(&fault);
+
+   ASSERT_TRUE(STATUS_IS_EQ(first_seal_rc, STATUS_NO_SPACE),
+               "faulted seal returned %s, not out-of-space\n",
+               platform_status_to_string(first_seal_rc));
+   ASSERT_EQUAL(1, __atomic_load_n(&fault.failures, __ATOMIC_RELAXED));
+
+   shard_log *slog = (shard_log *)log;
+   platform_mutex_lock(&slog->group_lock);
+   shard_log_group *group              = slog->groups_head;
+   bool32           group_is_retryable = FALSE;
+   if (group != NULL) {
+      shard_log_thread_data *final = &group->thread_data[0];
+      group_is_retryable           = group->state == SHARD_LOG_GROUP_TERMINATING
+                           && final->state == SHARD_LOG_BUFFER_OPEN
+                           && final->offset > sizeof(shard_log_hdr)
+                           && final->incache_page == NULL
+                           && group->page_count == 0
+                           && writeback_set_num_requests(&group->wbset) == 0;
+   }
+   platform_mutex_unlock(&slog->group_lock);
+   ASSERT_TRUE(group_is_retryable,
+               "page allocation failure did not preserve the OPEN image\n");
+
+   platform_status retry_rc = log_seal(log);
+   ASSERT_TRUE(SUCCESS(retry_rc),
+               "seal retry failed: %s\n",
+               platform_status_to_string(retry_rc));
+   log_deinit(log);
+
+   log_iterator   *itor = NULL;
+   platform_status rc   = shard_log_iterator_create(
+      cc, &data->system_cfg->log_cfg, data->hid, segment, 0, &itor);
+   platform_assert_status_ok(rc);
+   ASSERT_TRUE(log_iterator_stream_complete(itor));
+   ASSERT_TRUE(log_iterator_can_next(itor));
+
+   key     replayed_key;
+   message replayed_msg;
+   log_iterator_curr(itor, &replayed_key, &replayed_msg);
+   uint64 memtable_generation;
+   uint64 leaf_generation;
+   log_iterator_curr_generations(itor, &memtable_generation, &leaf_generation);
+   ASSERT_EQUAL(entry_num, memtable_generation);
+   ASSERT_EQUAL(0, leaf_generation);
+   ASSERT_EQUAL(
+      0, data_key_compare(data->system_cfg->data_cfg, tuple_key, replayed_key));
+   ASSERT_EQUAL(
+      0, message_lex_cmp(merge_accumulator_to_message(&msg), replayed_msg));
+   platform_assert_status_ok(log_iterator_next(itor));
+   ASSERT_FALSE(log_iterator_can_next(itor));
+
+   log_iterator_deinit(itor);
+   shard_log_dec_ref(cc, &segment);
+   merge_accumulator_deinit(&msg);
+}
 
 /* Without a WAL, the barrier must fold its frontier into a durable COW root. */
 CTEST2(splinter, test_durable_barrier_without_log_publishes_root)
