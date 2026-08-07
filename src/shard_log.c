@@ -38,7 +38,8 @@ static platform_status
 shard_log_graduate_through(shard_log *log, log_durable_ticket target);
 
 static platform_status
-shard_log_wait_for_ticket(shard_log *log, log_durable_ticket target);
+shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
+                                        log_durable_ticket target);
 
 static void
 shard_log_destroy(shard_log *log);
@@ -1180,7 +1181,8 @@ shard_log_reclaim_durable_groups(shard_log *log)
 
 /* Wait/writeback/barrier half shared by ticket wait and seal. */
 static platform_status
-shard_log_wait_for_ticket(shard_log *log, log_durable_ticket target)
+shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
+                                        log_durable_ticket target)
 {
    platform_status rc = shard_log_graduate_through(log, target);
    if (!SUCCESS(rc)) {
@@ -1366,7 +1368,7 @@ static platform_status
 shard_log_make_durable_wait(log_handle *logh, log_durable_ticket ticket)
 {
    shard_log      *log = (shard_log *)logh;
-   platform_status rc  = shard_log_wait_for_ticket(log, ticket);
+   platform_status rc  = shard_log_wait_for_ticket_to_be_durable(log, ticket);
 
    bool32 destroy = FALSE;
    platform_mutex_lock(&log->group_lock);
@@ -1452,7 +1454,7 @@ shard_log_seal(log_handle *logh)
       break;
    }
 
-   platform_status rc = shard_log_wait_for_ticket(log, target);
+   platform_status rc = shard_log_wait_for_ticket_to_be_durable(log, target);
    if (SUCCESS(rc)) {
       platform_mutex_lock(&log->group_lock);
       log->sealed = TRUE;
