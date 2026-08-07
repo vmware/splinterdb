@@ -152,15 +152,18 @@ typedef struct shard_log {
 
    /*
     * group_lock protects the group list, durability frontiers, stream state,
-    * emergency pool, and ticket_refs. It is never held while allocating,
-    * waiting for cache I/O, or issuing a durable barrier. Reservations use the
-    * cache-line-private slots below and do not acquire it.
+    * emergency pool, and the final ticket-ref/deinit destruction decision. It
+    * is never held while allocating, waiting for cache I/O, or issuing a
+    * durable barrier. Reservations and ticket-ref acquisition do not acquire
+    * it.
     */
    platform_mutex   group_lock;
    shard_log_group *groups_head;
    /*
     * Atomically published current group and its id. The pointer is published
     * before its id. The id is also the group's durability ticket.
+    * Under group_lock, id - 1 is the highest closed group while group is
+    * non-NULL; once group is NULL, seal_ticket is the closed frontier.
     * install.state is the accepting group's id at rest and its successor's id
     * while that successor is being installed. Once sealing wins the same
     * claim, its high bit remains set and its low bits name the final group.
@@ -171,13 +174,12 @@ typedef struct shard_log {
 
    shard_log_group *emergency_pool;
 
-   uint64 last_cut_ticket;
    /* Atomic, monotonically published after a group finishes graduation. */
    uint64 graduated_ticket;
    uint64 durable_ticket;
    uint64 seal_ticket;
 
-   uint64 ticket_refs;
+   uint64 ticket_refs; // Atomic; each successful begin acquires one.
    /* Stream-wide atomic, set once after the first record is staged. */
    bool32 has_records;
    bool32 sealing;

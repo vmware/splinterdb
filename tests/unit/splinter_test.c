@@ -292,15 +292,7 @@ core_durable_barrier_test_wait_for_ticket_refs(shard_log *log, uint64 target)
    while (platform_timestamp_elapsed(start)
           < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
    {
-      platform_status rc = platform_mutex_lock(&log->group_lock);
-      if (!SUCCESS(rc)) {
-         return FALSE;
-      }
-      uint64 refs = log->ticket_refs;
-      rc          = platform_mutex_unlock(&log->group_lock);
-      if (!SUCCESS(rc)) {
-         return FALSE;
-      }
+      uint64 refs = __atomic_load_n(&log->ticket_refs, __ATOMIC_RELAXED);
       if (refs >= target) {
          return TRUE;
       }
@@ -323,6 +315,47 @@ core_durable_barrier_test_wait_for_io_barriers(checkpoint_barrier_fault *fault,
    return __atomic_load_n(&fault->barriers, __ATOMIC_ACQUIRE) >= target;
 }
 
+/* log->group_lock is held. */
+static log_durable_ticket
+core_durable_barrier_test_cut_frontier_locked(shard_log *log)
+{
+   shard_log_group *current =
+      __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
+   if (current == NULL) {
+      return log->seal_ticket;
+   }
+
+   uint64 current_ticket =
+      __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
+   platform_assert(current_ticket == current->id);
+   platform_assert(current_ticket >= SHARD_LOG_FIRST_GROUP_ID);
+   return current_ticket - 1;
+}
+
+static bool32
+core_durable_barrier_test_wait_for_live_log_cut(shard_log *log)
+{
+   timestamp start = platform_get_timestamp();
+   while (platform_timestamp_elapsed(start)
+          < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
+   {
+      platform_status rc = platform_mutex_lock(&log->group_lock);
+      if (!SUCCESS(rc)) {
+         return FALSE;
+      }
+      bool32 cut = core_durable_barrier_test_cut_frontier_locked(log) != 0;
+      rc         = platform_mutex_unlock(&log->group_lock);
+      if (!SUCCESS(rc)) {
+         return FALSE;
+      }
+      if (cut) {
+         return TRUE;
+      }
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return FALSE;
+}
+
 static bool32
 core_durable_barrier_test_wait_for_live_log_durable(shard_log *log)
 {
@@ -334,9 +367,10 @@ core_durable_barrier_test_wait_for_live_log_durable(shard_log *log)
       if (!SUCCESS(rc)) {
          return FALSE;
       }
-      bool32 durable = log->last_cut_ticket != 0
-                       && log->durable_ticket >= log->last_cut_ticket;
-      rc = platform_mutex_unlock(&log->group_lock);
+      log_durable_ticket cut_frontier =
+         core_durable_barrier_test_cut_frontier_locked(log);
+      bool32 durable = cut_frontier != 0 && log->durable_ticket >= cut_frontier;
+      rc             = platform_mutex_unlock(&log->group_lock);
       if (!SUCCESS(rc)) {
          return FALSE;
       }
@@ -1183,8 +1217,8 @@ CTEST2(splinter, test_durable_barrier_waits_for_visible_insert_log_write)
       barrier_created = SUCCESS(barrier_create_rc);
       if (barrier_created) {
          log_cut_while_writer_blocked =
-            core_durable_barrier_test_wait_for_ticket_refs((shard_log *)spl.log,
-                                                           1);
+            core_durable_barrier_test_wait_for_live_log_cut(
+               (shard_log *)spl.log);
          if (log_cut_while_writer_blocked) {
             second_insert_create_rc =
                platform_thread_create(&second_insert_thread,

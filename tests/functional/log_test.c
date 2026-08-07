@@ -313,7 +313,10 @@ test_log_multiple_groups(clockcache             *cc,
    log_handle *log;
    platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    platform_assert(log_is_empty(log));
-   platform_assert_status_ok(log_make_durable(log));
+   log_durable_ticket empty_ticket;
+   platform_assert_status_ok(log_make_durable_begin(log, &empty_ticket));
+   platform_assert(empty_ticket == 0);
+   platform_assert_status_ok(log_make_durable_wait(log, empty_ticket));
    platform_assert(log_is_empty(log));
    segment = log_get_head(log);
 
@@ -321,7 +324,14 @@ test_log_multiple_groups(clockcache             *cc,
       test_log_write_range(log, gen, hid, key_size, g * per_group, per_group);
       platform_assert(!log_is_empty(log));
       // Ends this group and starts the next; the stream stays open.
-      platform_assert_status_ok(log_make_durable(log));
+      log_durable_ticket cut_ticket;
+      platform_assert_status_ok(log_make_durable_begin(log, &cut_ticket));
+      platform_assert_status_ok(log_make_durable_wait(log, cut_ticket));
+
+      /* The empty successor's frontier is exactly the group just closed. */
+      platform_assert_status_ok(log_make_durable_begin(log, &empty_ticket));
+      platform_assert(empty_ticket == cut_ticket);
+      platform_assert_status_ok(log_make_durable_wait(log, empty_ticket));
       platform_assert(!log_is_empty(log));
    }
 
@@ -703,6 +713,105 @@ test_log_finish_claim_race(clockcache             *cc,
    test_log_verify_segment(
       (cache *)cc, cfg, segment, gen, hid, key_size, first_entry, num_entries);
    shard_log_dec_ref((cache *)cc, segment);
+}
+
+/*
+ * Stop an installation immediately after its atomic claim, before the cut is
+ * published under group_lock. A concurrent begin must return the claimed
+ * group's ticket without chasing a successor, while its wait must remain
+ * blocked until some caller finishes that cut.
+ */
+static int
+test_log_begin_loses_install_claim(clockcache             *cc,
+                                   clockcache_config      *cache_cfg,
+                                   io_handle              *io,
+                                   allocator              *al,
+                                   shard_log_config       *cfg,
+                                   platform_heap_id        hid,
+                                   test_message_generator *gen,
+                                   uint64                  key_size)
+{
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
+   log_head segment = log_get_head(log);
+   test_log_write_range(log, gen, hid, key_size, 0, 1);
+
+   shard_log       *slog = (shard_log *)log;
+   shard_log_group *current =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(current != NULL);
+   log_durable_ticket target = current->id;
+
+   /* Synthesize a winning caller paused between its claim and publication. */
+   uint64 expected_state = target;
+   bool32 claimed        = __atomic_compare_exchange_n(&slog->install.state,
+                                                &expected_state,
+                                                target + 1,
+                                                FALSE,
+                                                __ATOMIC_SEQ_CST,
+                                                __ATOMIC_SEQ_CST);
+   platform_assert(claimed);
+
+   test_log_begin_actor loser = {
+      .log      = log,
+      .begin_rc = STATUS_INVALID_STATE,
+      .wait_rc  = STATUS_INVALID_STATE,
+   };
+   platform_assert_status_ok(platform_thread_create(
+      &loser.thread, FALSE, test_log_begin_actor_run, &loser, hid));
+
+   bool32 loser_began = test_log_wait_for_flag(&loser.began);
+   if (!loser_began) {
+      /* Let a broken implementation escape its retry loop before asserting. */
+      __atomic_store_n(&slog->install.state, target, __ATOMIC_SEQ_CST);
+      platform_thread_join(&loser.thread);
+   }
+   platform_assert(loser_began,
+                   "begin retried after losing the installation claim");
+   platform_assert_status_ok(loser.begin_rc);
+   platform_assert(loser.ticket == target,
+                   "begin advanced from ticket %lu to %lu",
+                   target,
+                   loser.ticket);
+   platform_assert(!__atomic_load_n(&loser.done, __ATOMIC_ACQUIRE),
+                   "ticket wait graduated an OPEN group");
+
+   /*
+    * Relinquish the synthetic claim, then use the production path to publish
+    * the cut. The already-returned ticket waiter must now be able to finish.
+    */
+   expected_state  = target + 1;
+   bool32 released = __atomic_compare_exchange_n(&slog->install.state,
+                                                 &expected_state,
+                                                 target,
+                                                 FALSE,
+                                                 __ATOMIC_SEQ_CST,
+                                                 __ATOMIC_SEQ_CST);
+   platform_assert(released);
+
+   log_durable_ticket publisher_ticket;
+   platform_assert_status_ok(log_make_durable_begin(log, &publisher_ticket));
+   platform_assert(publisher_ticket == target);
+   platform_assert_status_ok(log_make_durable_wait(log, publisher_ticket));
+
+   platform_thread_join(&loser.thread);
+   test_log_assert_begin_actor(&loser);
+   platform_assert(loser.ticket == target);
+
+   test_log_finish_claim_race(cc,
+                              cache_cfg,
+                              io,
+                              al,
+                              cfg,
+                              hid,
+                              gen,
+                              key_size,
+                              log,
+                              &segment,
+                              "begin-loses-install-claim",
+                              0,
+                              1);
+   return 0;
 }
 
 /*
@@ -1790,6 +1899,16 @@ log_test(int argc, char *argv[])
                                           hid,
                                           &gen,
                                           workload_cfg.key_size);
+   platform_assert(rc == 0);
+
+   rc = test_log_begin_loses_install_claim(cc,
+                                           &system_cfg.cache_cfg,
+                                           io,
+                                           (allocator *)&al,
+                                           &system_cfg.log_cfg,
+                                           hid,
+                                           &gen,
+                                           workload_cfg.key_size);
    platform_assert(rc == 0);
 
    rc = test_log_begin_claim_precedes_seal(cc,
