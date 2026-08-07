@@ -783,7 +783,7 @@ shard_log_end_append(shard_log       *log,
                                         __ATOMIC_SEQ_CST);
    }
    if (accepted_record) {
-      shard_log_atomic_bool_set_once(&log->accepting.has_records);
+      shard_log_atomic_bool_set_once(&log->has_records);
    }
    platform_status result = {
       .r = __atomic_load_n(&group->append_error.r, __ATOMIC_SEQ_CST),
@@ -1226,7 +1226,6 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
                          == log->last_cut_ticket);
          log_durable_ticket target = log->last_cut_ticket;
          log->ticket_refs++;
-         (void)mini_inc_ref(log->cc, log->meta_head);
          platform_mutex_unlock(&log->group_lock);
 
          shard_log_put_unused_group(log, candidate);
@@ -1240,7 +1239,6 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
             !__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
          log_durable_ticket target = log->last_cut_ticket;
          log->ticket_refs++;
-         (void)mini_inc_ref(log->cc, log->meta_head);
          platform_mutex_unlock(&log->group_lock);
 
          shard_log_reservation_slot_store(log, tid, 0);
@@ -1305,7 +1303,6 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
       log->last_cut_ticket = current_ticket;
       log->ticket_refs++;
       log_durable_ticket target = log->last_cut_ticket;
-      (void)mini_inc_ref(log->cc, log->meta_head);
 
       /* Pointer first, ticket last: see shard_log_publish_reservation(). */
       __atomic_store_n(&log->accepting.group, candidate, __ATOMIC_SEQ_CST);
@@ -1325,14 +1322,7 @@ shard_log_make_durable_wait(log_handle *logh, log_durable_ticket ticket)
    shard_log      *log = (shard_log *)logh;
    platform_status rc  = shard_log_wait_for_ticket(log, ticket);
 
-   /*
-    * Capture these before dropping the in-memory pin.  A concurrent deinit may
-    * free the handle as soon as ticket_refs reaches zero, but it runs
-    * mini_release() before this ticket drops its independent on-disk ref.
-    */
-   cache *cc        = log->cc;
-   uint64 meta_head = log->meta_head;
-   bool32 destroy   = FALSE;
+   bool32 destroy = FALSE;
    platform_mutex_lock(&log->group_lock);
    platform_assert(log->ticket_refs != 0,
                    "log durability ticket consumed more than once");
@@ -1348,7 +1338,6 @@ shard_log_make_durable_wait(log_handle *logh, log_durable_ticket ticket)
    if (destroy) {
       shard_log_destroy(log);
    }
-   (void)mini_dec_ref(cc, meta_head, PAGE_TYPE_LOG);
    return rc;
 }
 
@@ -1452,6 +1441,13 @@ shard_log_destroy(shard_log *log)
    platform_assert_status_ok(rc);
    rc = platform_mutex_destroy(&log->group_lock);
    platform_assert_status_ok(rc);
+
+   /*
+    * The handle's mini-allocator reference is dropped last. If the owner has
+    * already released the log_head, this deallocates the stream, so all staged
+    * page handles and unused reserve extents must be released first.
+    */
+   (void)mini_dec_ref(log->cc, log->meta_head, PAGE_TYPE_LOG);
    platform_free(log->heap_id, log);
 }
 
@@ -1486,9 +1482,9 @@ shard_log_dec_ref(cache *cc, const log_head *segment)
       return;
    }
    /*
-    * A split make-durable ticket holds its own mini-allocator reference.  The
-    * stream owner may therefore release the head while a ticket is waiting;
-    * the final ticket consumes the remaining reference after its barrier.
+    * The live handle holds an independent mini-allocator reference. A split
+    * make-durable ticket keeps that handle alive, so the owner may release the
+    * head while a ticket is waiting.
     */
    (void)mini_dec_ref(cc, segment->meta_addr, PAGE_TYPE_LOG);
 }
@@ -1847,7 +1843,7 @@ static bool32
 shard_log_is_empty(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
-   return !shard_log_atomic_bool_load(&log->accepting.has_records);
+   return !shard_log_atomic_bool_load(&log->has_records);
 }
 
 static log_ops shard_log_ops = {
@@ -1942,6 +1938,13 @@ shard_log_init(shard_log        *log,
                                     NUM_BLOB_BATCHES + 1,
                                     PAGE_TYPE_LOG,
                                     shard_log_page_type_table);
+   /*
+    * mini_init's initial external reference belongs to the log_head owner.
+    * Keep a second reference for the live handle, so ticket_refs can extend
+    * both the in-memory and allocation lifetimes without per-ticket refcount
+    * traffic.
+    */
+   (void)mini_inc_ref(cc, log->meta_head);
    // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
    // log->meta_head);
 

@@ -86,8 +86,6 @@ typedef struct shard_log_group shard_log_group;
 typedef struct shard_log_accepting_frontier {
    shard_log_group *group;
    uint64           id;
-   /* Atomic, set once after the first record reaches a staging buffer. */
-   bool32 has_records;
 } PLATFORM_CACHELINE_ALIGNED shard_log_accepting_frontier;
 
 _Static_assert(sizeof(shard_log_accepting_frontier) == PLATFORM_CACHELINE_SIZE,
@@ -180,6 +178,8 @@ typedef struct shard_log {
    uint64 seal_ticket;
 
    uint64 ticket_refs;
+   /* Stream-wide atomic, set once after the first record is staged. */
+   bool32 has_records;
    bool32 sealing;
    bool32 sealed;
    bool32 deinit_requested;
@@ -291,11 +291,11 @@ shard_log_iterator_create(cache            *cc,
 
 /*
  * Release a stream identified by its log_head: drop the owner's reference from
- * its metadata head. This normally frees the stream's on-disk extents. A
- * split-phase durability ticket may keep them alive until its matching wait,
- * so the release is not required to be the final reference. Takes no handle --
- * the owner has called log_deinit() and retained only the head captured at
- * creation.
+ * its metadata head. This normally frees the stream's on-disk extents. The live
+ * handle owns an independent reference, and a split-phase durability ticket
+ * may keep that handle alive until its matching wait, so this release is not
+ * required to be the final reference. Takes no handle -- the owner has called
+ * log_deinit() and retained only the head captured at creation.
  *
  * Do not use this for a stream left behind by a crash: its mini-allocator
  * metadata was not made durable.  Crash recovery rebuilds the allocator map

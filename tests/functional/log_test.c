@@ -994,9 +994,10 @@ test_log_append_failure_poison(clockcache             *cc,
 }
 
 /*
- * A begin ticket pins both the handle and the stream's mini allocator.  The
- * owner may retire the handle and release its on-disk head before the waiter
- * runs; the ticket must keep graduation safe and perform the final cleanup.
+ * A begin ticket pins the handle, whose persistent mini-allocator reference
+ * also pins the stream's allocations. The owner may retire the handle and
+ * release its on-disk head before the waiter runs; the ticket must keep
+ * graduation safe and perform the final cleanup.
  */
 static int
 test_log_ticket_lifetime(cache                  *cc,
@@ -1009,14 +1010,27 @@ test_log_ticket_lifetime(cache                  *cc,
    platform_assert_status_ok(shard_log_create(cc, cfg, hid, &log));
    log_head head = log_get_head(log);
    test_log_write_range(log, gen, hid, key_size, 0, 1);
+   allocator *al                 = cache_get_allocator(cc);
+   refcount   refs_before_ticket = allocator_get_refcount(al, head.meta_addr);
 
    log_durable_ticket ticket;
    platform_assert_status_ok(log_make_durable_begin(log, &ticket));
    platform_assert(ticket != 0);
+   platform_assert(allocator_get_refcount(al, head.meta_addr)
+                      == refs_before_ticket,
+                   "durability ticket changed the allocator refcount");
 
    log_deinit(log);
+   platform_assert(allocator_get_refcount(al, head.meta_addr)
+                      == refs_before_ticket,
+                   "ticket did not keep the handle reference alive");
    shard_log_dec_ref(cc, &head);
+   platform_assert(allocator_get_refcount(al, head.meta_addr)
+                      == refs_before_ticket - 1,
+                   "head release did not leave only the handle reference");
    platform_assert_status_ok(log_make_durable_wait(log, ticket));
+   platform_assert(allocator_get_refcount(al, head.meta_addr) == AL_FREE,
+                   "final wait did not release the handle reference");
    return 0;
 }
 
