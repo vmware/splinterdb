@@ -1231,8 +1231,7 @@ shard_log_graduate_group(shard_log *log, shard_log_group *group)
       group->state = SHARD_LOG_GROUP_DURABILITY_PENDING;
    }
 
-   platform_assert(group->state == SHARD_LOG_GROUP_DURABILITY_PENDING
-                   || group->state == SHARD_LOG_GROUP_DURABLE);
+   platform_assert(group->state == SHARD_LOG_GROUP_DURABILITY_PENDING);
    return STATUS_OK;
 }
 
@@ -1313,25 +1312,40 @@ shard_log_graduate_through(shard_log *log, log_durable_ticket target)
    return rc;
 }
 
-/* Remove and release the durable prefix. durability_lock is held. */
+/*
+ * Publish and remove exactly the newly durable numeric prefix.
+ * durability_lock is held and the device barrier has succeeded.
+ */
 static void
-shard_log_reclaim_durable_groups(shard_log *log)
+shard_log_publish_durable_prefix(shard_log         *log,
+                                 log_durable_ticket previous_durable,
+                                 log_durable_ticket target)
 {
+   platform_assert(previous_durable < target);
+   platform_assert(previous_durable == shard_log_durable_ticket_load(log));
+
    platform_mutex_lock(&log->graduate_lock);
    platform_mutex_lock(&log->group_lock);
 
-   shard_log_group *reclaim_head     = log->groups_head;
-   shard_log_group *first_nondurable = reclaim_head;
-   while (first_nondurable != NULL
-          && first_nondurable->state == SHARD_LOG_GROUP_DURABLE)
+   shard_log_group *reclaim_head = log->groups_head;
+   shard_log_group *remaining    = reclaim_head;
+   for (log_durable_ticket ticket = previous_durable + 1; ticket <= target;
+        ticket++)
    {
-      first_nondurable = first_nondurable->next;
+      platform_assert(remaining != NULL);
+      platform_assert(remaining->id == ticket);
+      platform_assert(remaining->state == SHARD_LOG_GROUP_DURABILITY_PENDING);
+      shard_log_group_reset_writebacks(remaining);
+      remaining = remaining->next;
    }
-   log->groups_head = first_nondurable;
+   log->groups_head = remaining;
+   shard_log_durable_ticket_store(log, target);
    platform_mutex_unlock(&log->group_lock);
    platform_mutex_unlock(&log->graduate_lock);
 
-   while (reclaim_head != first_nondurable) {
+   /* The release publication above lets coalesced waiters return while this
+    * caller performs allocation housekeeping on the now-detached objects. */
+   while (reclaim_head != remaining) {
       shard_log_group *group = reclaim_head;
       reclaim_head           = group->next;
       group->next            = NULL;
@@ -1413,20 +1427,7 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
       }
 
       if (SUCCESS(result)) {
-         platform_mutex_lock(&log->group_lock);
-         group = first;
-         for (log_durable_ticket ticket = durable + 1; ticket <= target;
-              ticket++)
-         {
-            platform_assert(group != NULL);
-            platform_assert(group->id == ticket);
-            shard_log_group_reset_writebacks(group);
-            group->state = SHARD_LOG_GROUP_DURABLE;
-            group        = group->next;
-         }
-         shard_log_durable_ticket_store(log, target);
-         platform_mutex_unlock(&log->group_lock);
-         shard_log_reclaim_durable_groups(log);
+         shard_log_publish_durable_prefix(log, durable, target);
       }
    }
 

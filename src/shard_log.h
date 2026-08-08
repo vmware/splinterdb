@@ -46,7 +46,6 @@ typedef enum shard_log_group_state {
    SHARD_LOG_GROUP_CLOSING,
    SHARD_LOG_GROUP_TERMINATING,
    SHARD_LOG_GROUP_DURABILITY_PENDING,
-   SHARD_LOG_GROUP_DURABLE,
 } shard_log_group_state;
 
 /*
