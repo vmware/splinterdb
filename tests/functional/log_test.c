@@ -942,7 +942,7 @@ test_log_seal_claim_precedes_begin(clockcache             *cc,
    shard_log_group *current =
       __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
    platform_assert(current != NULL);
-   uint64 sealing_state = SHARD_LOG_INSTALL_SEALING_BIT | current->id;
+   uint64 terminal_state = SHARD_LOG_INSTALL_TERMINAL_BIT | current->id;
 
    test_log_seal_actor seal = {
       .log = log,
@@ -951,7 +951,7 @@ test_log_seal_claim_precedes_begin(clockcache             *cc,
    platform_assert_status_ok(platform_thread_create(
       &seal.thread, FALSE, test_log_seal_actor_run, &seal, hid));
    bool32 seal_claimed =
-      test_log_wait_for_install_state(slog, sealing_state, TRUE);
+      test_log_wait_for_install_state(slog, terminal_state, TRUE);
    if (!seal_claimed) {
       __atomic_store_n(&writer.release, TRUE, __ATOMIC_RELEASE);
       platform_thread_join(&writer.thread);
@@ -1285,7 +1285,9 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 
 /*
  * A checksum failure in one blob invalidates its whole log group, not merely
- * that record.  Earlier durable groups remain a replayable prefix.
+ * that record. Earlier durable groups remain a replayable prefix, while an
+ * iterator whose generation bound excludes the blob need neither validate nor
+ * retain it.
  */
 static int
 test_log_blob_checksum_prefix(clockcache        *cc,
@@ -1400,6 +1402,23 @@ test_log_blob_checksum_prefix(clockcache        *cc,
    platform_assert(!log_iterator_can_next(itor));
 
    log_iterator_deinit(itor);
+
+   /*
+    * Both records are already represented by a generation-2 checkpoint. The
+    * corrupted blob is therefore irrelevant, but group completeness and the
+    * stream terminator still have to be validated. Exact retained-byte sizing
+    * should make this an allocation-free empty iterator.
+    */
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, sealed, 2, &itor));
+   platform_assert(log_iterator_stream_complete(itor));
+   platform_assert(!log_iterator_can_next(itor));
+   shard_log_iterator *shard_itor = (shard_log_iterator *)itor;
+   platform_assert(shard_itor->num_entries == 0);
+   platform_assert(shard_itor->entries == NULL);
+   platform_assert(shard_itor->contents == NULL);
+   log_iterator_deinit(itor);
+
    merge_accumulator_deinit(&msg);
    shard_log_dec_ref((cache *)cc, &sealed);
    return 0;

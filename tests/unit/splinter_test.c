@@ -322,7 +322,10 @@ core_durable_barrier_test_cut_frontier_locked(shard_log *log)
    shard_log_group *current =
       __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
    if (current == NULL) {
-      return log->seal_ticket;
+      uint64 install_state =
+         __atomic_load_n(&log->install.state, __ATOMIC_ACQUIRE);
+      platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
+      return install_state & SHARD_LOG_INSTALL_ID_MASK;
    }
 
    uint64 current_ticket =
@@ -369,8 +372,11 @@ core_durable_barrier_test_wait_for_live_log_durable(shard_log *log)
       }
       log_durable_ticket cut_frontier =
          core_durable_barrier_test_cut_frontier_locked(log);
-      bool32 durable = cut_frontier != 0 && log->durable_ticket >= cut_frontier;
-      rc             = platform_mutex_unlock(&log->group_lock);
+      bool32 durable =
+         cut_frontier != 0
+         && __atomic_load_n(&log->durable_ticket, __ATOMIC_ACQUIRE)
+               >= cut_frontier;
+      rc = platform_mutex_unlock(&log->group_lock);
       if (!SUCCESS(rc)) {
          return FALSE;
       }
@@ -1833,13 +1839,17 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
    shard_log_group *group              = slog->groups_head;
    bool32           group_is_retryable = FALSE;
    if (group != NULL) {
-      shard_log_thread_data *final = &group->thread_data[0];
-      group_is_retryable           = group->state == SHARD_LOG_GROUP_TERMINATING
+      shard_log_thread_data *final              = &group->thread_data[0];
+      uint64                 writeback_requests = 0;
+      for (threadid tid = 0; tid < MAX_THREADS; tid++) {
+         writeback_requests +=
+            writeback_set_num_requests(&group->thread_data[tid].wbset);
+      }
+      group_is_retryable = group->state == SHARD_LOG_GROUP_TERMINATING
                            && final->state == SHARD_LOG_BUFFER_OPEN
                            && final->offset > sizeof(shard_log_hdr)
                            && final->incache_page == NULL
-                           && group->page_count == 0
-                           && writeback_set_num_requests(&group->wbset) == 0;
+                           && group->page_count == 0 && writeback_requests == 0;
    }
    platform_mutex_unlock(&slog->group_lock);
    ASSERT_TRUE(group_is_retryable,

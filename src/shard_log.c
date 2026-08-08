@@ -27,14 +27,6 @@ static const page_type shard_log_page_type_table[NUM_BLOB_BATCHES + 1] = {
 };
 
 static platform_status
-shard_log_iterator_create_internal(cache            *cc,
-                                   shard_log_config *cfg,
-                                   platform_heap_id  hid,
-                                   log_head          head,
-                                   uint64            first_needed_generation,
-                                   log_iterator    **itor_out);
-
-static platform_status
 shard_log_graduate_through(shard_log *log, log_durable_ticket target);
 
 static platform_status
@@ -82,6 +74,12 @@ shard_log_get_reservation_slot(shard_log *log, threadid tid)
    return &log->reservation_slots[tid];
 }
 
+/*
+ * A scanner must not miss the sequentially consistent initial publication of
+ * a reservation which selected the old accepting group.  Keep these scans SC;
+ * if they instead observe the later release-clear, that acquire publishes the
+ * protected staging writes and per-thread counters.
+ */
 static inline uint64
 shard_log_reservation_slot_load(shard_log *log, threadid tid)
 {
@@ -89,12 +87,45 @@ shard_log_reservation_slot_load(shard_log *log, threadid tid)
                           __ATOMIC_SEQ_CST);
 }
 
+static inline uint64
+shard_log_reservation_slot_load_relaxed(shard_log *log, threadid tid)
+{
+   return __atomic_load_n(&shard_log_get_reservation_slot(log, tid)->ticket,
+                          __ATOMIC_RELAXED);
+}
+
+/*
+ * The initial hazard publication and the accepting-pointer load below form the
+ * store/load half of the reservation protocol.  Keep the exchange sequentially
+ * consistent; as a bonus, its returned value performs the non-nesting check
+ * without a separate atomic load.
+ */
 static inline void
-shard_log_reservation_slot_store(shard_log *log, threadid tid, uint64 ticket)
+shard_log_reservation_slot_publish(shard_log *log, threadid tid, uint64 ticket)
+{
+   uint64 previous =
+      __atomic_exchange_n(&shard_log_get_reservation_slot(log, tid)->ticket,
+                          ticket,
+                          __ATOMIC_SEQ_CST);
+   platform_assert(previous == 0,
+                   "log reservations may not be nested on one thread");
+}
+
+/* Replacing a conservative lower bound by the selected group's exact id. */
+static inline void
+shard_log_reservation_slot_refine(shard_log *log, threadid tid, uint64 ticket)
 {
    __atomic_store_n(&shard_log_get_reservation_slot(log, tid)->ticket,
                     ticket,
-                    __ATOMIC_SEQ_CST);
+                    __ATOMIC_RELAXED);
+}
+
+/* Publish all work protected by the reservation before withdrawing it. */
+static inline void
+shard_log_reservation_slot_clear(shard_log *log, threadid tid)
+{
+   __atomic_store_n(
+      &shard_log_get_reservation_slot(log, tid)->ticket, 0, __ATOMIC_RELEASE);
 }
 
 /*
@@ -107,17 +138,14 @@ shard_log_reservation_slot_store(shard_log *log, threadid tid, uint64 ticket)
 static shard_log_group *
 shard_log_publish_reservation(shard_log *log, threadid tid, uint64 *ticket_out)
 {
-   platform_assert(shard_log_reservation_slot_load(log, tid) == 0,
-                   "log reservations may not be nested on one thread");
-
    uint64 lower = __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
    platform_assert(lower != 0);
-   shard_log_reservation_slot_store(log, tid, lower);
+   shard_log_reservation_slot_publish(log, tid, lower);
 
    shard_log_group *group =
       __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
    if (group == NULL) {
-      shard_log_reservation_slot_store(log, tid, 0);
+      shard_log_reservation_slot_clear(log, tid);
       *ticket_out = 0;
       return NULL;
    }
@@ -126,7 +154,7 @@ shard_log_publish_reservation(shard_log *log, threadid tid, uint64 *ticket_out)
    platform_assert(ticket != 0);
    platform_assert(ticket >= lower);
    if (ticket != lower) {
-      shard_log_reservation_slot_store(log, tid, ticket);
+      shard_log_reservation_slot_refine(log, tid, ticket);
    }
    *ticket_out = ticket;
    return group;
@@ -179,6 +207,18 @@ shard_log_graduated_ticket_store(shard_log *log, log_durable_ticket ticket)
    __atomic_store_n(&log->graduated_ticket, ticket, __ATOMIC_RELEASE);
 }
 
+static inline log_durable_ticket
+shard_log_durable_ticket_load(const shard_log *log)
+{
+   return __atomic_load_n(&log->durable_ticket, __ATOMIC_ACQUIRE);
+}
+
+static inline void
+shard_log_durable_ticket_store(shard_log *log, log_durable_ticket ticket)
+{
+   __atomic_store_n(&log->durable_ticket, ticket, __ATOMIC_RELEASE);
+}
+
 static bool32
 shard_log_operations_are_after(shard_log *log, log_durable_ticket ticket)
 {
@@ -191,7 +231,7 @@ shard_log_operations_are_after(shard_log *log, log_durable_ticket ticket)
    return TRUE;
 }
 
-page_handle *
+static page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
    uint64 addr = mini_alloc_page(&log->mini, 0, next_extent);
@@ -279,25 +319,38 @@ log_entry_next(log_entry *le)
 }
 
 static platform_status
-shard_log_validate_page_blobs(cache            *cc,
-                              shard_log_config *cfg,
-                              page_handle      *page,
-                              uint64            first_needed_generation)
+shard_log_measure_page_records(cache            *cc,
+                               shard_log_config *cfg,
+                               page_handle      *page,
+                               uint64            first_needed_generation,
+                               uint64           *num_entries_out,
+                               uint64           *contents_size_out)
 {
+   *num_entries_out   = 0;
+   *contents_size_out = 0;
    for (log_entry *le = first_log_entry(page->data);
         !terminal_log_entry(cfg, page->data, le);
         le = log_entry_next(le))
    {
-      if (le->memtable_generation < first_needed_generation
-          || !log_entry_message_is_blob(le))
-      {
+      if (le->memtable_generation < first_needed_generation) {
          continue;
       }
-      message         msg = log_entry_message(cc, le);
-      platform_status rc  = message_validate(msg);
-      if (!SUCCESS(rc)) {
-         return rc;
+      if (log_entry_message_is_blob(le)) {
+         message         msg = log_entry_message(cc, le);
+         platform_status rc  = message_validate(msg);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
+
+      uint64 entry_size = sizeof_log_entry(le);
+      if (*num_entries_out == UINT64_MAX
+          || entry_size > UINT64_MAX - *contents_size_out)
+      {
+         return STATUS_LIMIT_EXCEEDED;
+      }
+      (*num_entries_out)++;
+      *contents_size_out += entry_size;
    }
    return STATUS_OK;
 }
@@ -446,6 +499,7 @@ shard_log_pack_open_buffers(shard_log *log, shard_log_group *group)
    uint16 items[MAX_THREADS];
    uint16 payloads[MAX_THREADS] = {0};
    uint16 num_items             = 0;
+   uint64 total_payload         = 0;
    for (uint16 thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
@@ -455,8 +509,21 @@ shard_log_pack_open_buffers(shard_log *log, shard_log_group *group)
             platform_assert(payload <= page_capacity);
             items[num_items++] = thr_i;
             payloads[thr_i]    = (uint16)payload;
+            total_payload += payload;
          }
       }
+   }
+
+   /* Frequent barriers normally close a collection of small buffers. */
+   if (total_payload <= page_capacity) {
+      for (uint16 item_i = 0; item_i < num_items; item_i++) {
+         shard_log_thread_data *src =
+            shard_log_get_thread_data(group, items[item_i]);
+         if (src != final) {
+            shard_log_merge_open_buffers(log, final, src);
+         }
+      }
+      return;
    }
 
    if (num_items != 0) {
@@ -530,17 +597,78 @@ shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
    group->pool_next  = NULL;
    __atomic_store_n(&group->ever_used, FALSE, __ATOMIC_RELAXED);
    __atomic_store_n(&group->append_error.r, STATUS_OK.r, __ATOMIC_RELAXED);
-   writeback_set_reset(&group->wbset);
 
    uint64 page_size = shard_log_page_size(log->cfg);
-   memset(group->thread_buffers, 0, MAX_THREADS * page_size);
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
-      thread_data->buf          = group->thread_buffers + thr_i * page_size;
-      thread_data->incache_page = NULL;
+      platform_assert(thread_data->incache_page == NULL);
+      thread_data->buf        = group->thread_buffers + thr_i * page_size;
+      thread_data->page_count = 0;
+      writeback_set_reset(&thread_data->wbset);
       shard_log_reset_buffer(log, thread_data);
    }
+}
+
+/* Preserve all-I/O-first pipelining by calling these group helpers in passes.
+ */
+static platform_status
+shard_log_group_retry_writebacks(shard_log_group *group)
+{
+   platform_status result = STATUS_OK;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      platform_status rc = writeback_set_retry_incomplete(&thread_data->wbset);
+      if (SUCCESS(result) && !SUCCESS(rc)) {
+         result = rc;
+      }
+   }
+   return result;
+}
+
+static platform_status
+shard_log_group_wait_for_writebacks(shard_log_group *group)
+{
+   platform_status result = STATUS_OK;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      platform_status rc = writeback_set_wait(&thread_data->wbset);
+      if (SUCCESS(result) && !SUCCESS(rc)) {
+         result = rc;
+      }
+   }
+   return result;
+}
+
+static void
+shard_log_group_reset_writebacks(shard_log_group *group)
+{
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      writeback_set_reset(&thread_data->wbset);
+   }
+}
+
+static uint64
+shard_log_group_page_count(const shard_log_group *group)
+{
+   uint64 pages = 0;
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      const shard_log_thread_data *thread_data = &group->thread_data[thr_i];
+      platform_assert(thread_data->page_count <= SHARD_LOG_PAGES_IN_GROUP_MASK,
+                      "thread %lu allocated too many pages in group %lu",
+                      thr_i,
+                      group->id);
+      platform_assert(thread_data->page_count
+                         <= SHARD_LOG_PAGES_IN_GROUP_MASK - pages,
+                      "group %lu is too large to terminate",
+                      group->id);
+      pages += thread_data->page_count;
+   }
+   return pages;
 }
 
 static void
@@ -553,26 +681,40 @@ shard_log_group_free(shard_log *log, shard_log_group *group)
          cache_unget(log->cc, thread_data->incache_page);
          thread_data->incache_page = NULL;
       }
+      writeback_set_deinit(&thread_data->wbset);
    }
-   writeback_set_deinit(&group->wbset);
-   platform_status rc = platform_mutex_destroy(&group->wbset_lock);
-   platform_assert_status_ok(rc);
    platform_free(log->heap_id, group->thread_buffers);
    platform_free(log->heap_id, group->thread_data);
    platform_free(log->heap_id, group);
 }
 
-static platform_status
-shard_log_group_malloc(shard_log        *log,
-                       bool32            emergency,
-                       shard_log_group **group_out)
+#define SHARD_LOG_MAX_RETAINED_WBSET_ENTRIES 16
+
+/* Keep useful small vectors, but do not retain storage sized for a huge cut. */
+static void
+shard_log_group_trim_writeback_storage(shard_log *log, shard_log_group *group)
+{
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      platform_assert(writeback_set_num_requests(&thread_data->wbset) == 0);
+      if (vector_capacity(&thread_data->wbset.entries)
+          > SHARD_LOG_MAX_RETAINED_WBSET_ENTRIES)
+      {
+         writeback_set_deinit(&thread_data->wbset);
+         writeback_set_init(&thread_data->wbset, log->cc, log->heap_id);
+      }
+   }
+}
+
+static shard_log_group *
+shard_log_group_malloc(shard_log *log, bool32 emergency)
 {
    uint64 page_size = shard_log_page_size(log->cfg);
-   *group_out       = NULL;
 
    shard_log_group *group = TYPED_MALLOC(log->heap_id, group);
    if (group == NULL) {
-      return STATUS_NO_MEMORY;
+      return NULL;
    }
    ZERO_CONTENTS(group);
 
@@ -588,17 +730,17 @@ shard_log_group_malloc(shard_log        *log,
       goto cleanup;
    }
 
-   platform_status rc =
-      platform_mutex_init(&group->wbset_lock, 0, log->heap_id);
-   if (!SUCCESS(rc)) {
-      goto cleanup;
+   memset(group->thread_buffers, 0, MAX_THREADS * page_size);
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(group, thr_i);
+      thread_data->buf          = group->thread_buffers + thr_i * page_size;
+      thread_data->incache_page = NULL;
+      writeback_set_init(&thread_data->wbset, log->cc, log->heap_id);
    }
-
-   writeback_set_init(&group->wbset, log->cc, log->heap_id);
    shard_log_group_reset(log, group, 0);
    group->emergency = emergency;
-   *group_out       = group;
-   return STATUS_OK;
+   return group;
 
 cleanup:
    if (group->thread_buffers) {
@@ -608,7 +750,7 @@ cleanup:
       platform_free(log->heap_id, group->thread_data);
    }
    platform_free(log->heap_id, group);
-   return rc;
+   return NULL;
 }
 
 /* Return an unused candidate group to its allocation source. */
@@ -618,39 +760,70 @@ shard_log_put_unused_group(shard_log *log, shard_log_group *group)
    if (group == NULL) {
       return;
    }
-   if (!group->emergency) {
-      shard_log_group_free(log, group);
+   shard_log_group_trim_writeback_storage(log, group);
+   if (group->emergency) {
+      platform_mutex_lock(&log->group_lock);
+      group->pool_next    = log->emergency_pool;
+      log->emergency_pool = group;
+      platform_mutex_unlock(&log->group_lock);
       return;
    }
 
-   platform_mutex_lock(&log->group_lock);
-   group->pool_next    = log->emergency_pool;
-   log->emergency_pool = group;
-   platform_mutex_unlock(&log->group_lock);
+   platform_mutex_lock(&log->reusable_pool_lock);
+   if (log->reusable_pool_count < SHARD_LOG_NUM_REUSABLE_GROUPS) {
+      group->pool_next   = log->reusable_pool;
+      log->reusable_pool = group;
+      log->reusable_pool_count++;
+      group = NULL;
+   }
+   platform_mutex_unlock(&log->reusable_pool_lock);
+
+   if (group != NULL) {
+      shard_log_group_free(log, group);
+   }
 }
 
 /*
- * Allocate normally first.  The two preallocated groups are only consumed
- * when the heap cannot provide a group, so normal bursts scale with device
- * latency while low-memory progress retains a bounded reserve.
+ * Reuse a recently retired ordinary group, then allocate normally. The two
+ * preallocated emergency groups are consumed only when the heap cannot provide
+ * a group, so normal bursts scale with device latency while low-memory progress
+ * retains a bounded reserve.
  */
 static platform_status
 shard_log_allocate_group(shard_log *log, shard_log_group **group_out)
 {
-   platform_status rc = shard_log_group_malloc(log, FALSE, group_out);
-   if (SUCCESS(rc)) {
+   platform_mutex_lock(&log->reusable_pool_lock);
+   shard_log_group *group = log->reusable_pool;
+   if (group != NULL) {
+      log->reusable_pool = group->pool_next;
+      group->pool_next   = NULL;
+      platform_assert(log->reusable_pool_count != 0);
+      log->reusable_pool_count--;
+   }
+   platform_mutex_unlock(&log->reusable_pool_lock);
+
+   if (group != NULL) {
+      shard_log_group_reset(log, group, 0);
+      *group_out = group;
+      return STATUS_OK;
+   }
+
+   group = shard_log_group_malloc(log, FALSE);
+   if (group != NULL) {
+      *group_out = group;
       return STATUS_OK;
    }
 
    platform_mutex_lock(&log->group_lock);
-   shard_log_group *group = log->emergency_pool;
+   group = log->emergency_pool;
    if (group != NULL) {
       log->emergency_pool = group->pool_next;
       group->pool_next    = NULL;
    }
    platform_mutex_unlock(&log->group_lock);
    if (group == NULL) {
-      return rc;
+      *group_out = NULL;
+      return STATUS_NO_MEMORY;
    }
    shard_log_group_reset(log, group, 0);
    *group_out = group;
@@ -711,12 +884,14 @@ shard_log_graduate_buffer_internal(shard_log             *log,
        * writeback enrollment fails, INCACHE retains both the page and this
        * ordinal for a retry.
        */
-      uint64 pages = __sync_add_and_fetch(&group->page_count, 1);
+      thread_data->page_count++;
       if (close_group) {
+         uint64 pages = shard_log_group_page_count(group);
          platform_assert(pages <= SHARD_LOG_PAGES_IN_GROUP_MASK,
                          "group %lu is too large to terminate: %lu pages",
                          group->id,
                          pages);
+         group->page_count = pages;
          staged->pages_in_group =
             (uint32)pages
             | (close == SHARD_LOG_CLOSE_STREAM ? SHARD_LOG_END_OF_STREAM : 0);
@@ -735,10 +910,8 @@ shard_log_graduate_buffer_internal(shard_log             *log,
    }
 
    platform_assert(thread_data->state == SHARD_LOG_BUFFER_INCACHE);
-   platform_mutex_lock(&group->wbset_lock);
    platform_status rc = writeback_set_add_page(
-      &group->wbset, thread_data->incache_page, PAGE_TYPE_LOG);
-   platform_mutex_unlock(&group->wbset_lock);
+      &thread_data->wbset, thread_data->incache_page, PAGE_TYPE_LOG);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -791,7 +964,7 @@ shard_log_end_append(shard_log       *log,
                      bool32           accepted_record,
                      platform_status  append_rc)
 {
-   platform_assert(shard_log_reservation_slot_load(log, tid) == ticket);
+   platform_assert(shard_log_reservation_slot_load_relaxed(log, tid) == ticket);
    if (!SUCCESS(append_rc)) {
       /*
        * The caller's update was already visible before it entered the log.
@@ -814,7 +987,7 @@ shard_log_end_append(shard_log       *log,
    };
 
    /* Publish every staging-buffer write before allowing group graduation. */
-   shard_log_reservation_slot_store(log, tid, 0);
+   shard_log_reservation_slot_clear(log, tid);
    return result;
 }
 
@@ -841,7 +1014,7 @@ shard_log_write_reserved(log_write_token *token,
    platform_assert(token->owner_tid == tid,
                    "log reservations must be consumed by their owner thread");
    platform_assert(ticket == group->id);
-   platform_assert(shard_log_reservation_slot_load(log, tid) == ticket,
+   platform_assert(shard_log_reservation_slot_load_relaxed(log, tid) == ticket,
                    "log write receipt does not match the active reservation");
 
    /* Ownership is consumed on every return path from this point onward. */
@@ -850,19 +1023,21 @@ shard_log_write_reserved(log_write_token *token,
    token->owner_tid       = INVALID_TID;
    token->internal_ticket = 0;
 
-   cache            *cc = log->cc;
-   platform_status   rc = STATUS_OK;
-   merge_accumulator log_blob;
-   bool32            log_blob_inited = FALSE;
-   bool32            accepted_record = FALSE;
+   cache                 *cc = log->cc;
+   platform_status        rc = STATUS_OK;
+   merge_accumulator      log_blob;
+   bool32                 log_blob_inited = FALSE;
+   bool32                 accepted_record = FALSE;
+   shard_log_thread_data *thread_data = shard_log_get_thread_data(group, tid);
 
-   uint64 max_entry_size =
-      shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
-   if (message_is_blob(msg)
-       || max_entry_size < log_entry_required_capacity(tuple_key, msg))
-   {
+   uint64 page_size      = shard_log_page_size(log->cfg);
+   uint64 max_entry_size = page_size - sizeof(shard_log_hdr);
+   bool32 input_is_blob  = message_is_blob(msg);
+   uint64 new_entry_size =
+      input_is_blob ? 0 : log_entry_required_capacity(tuple_key, msg);
+   if (input_is_blob || max_entry_size < new_entry_size) {
       merge_accumulator_init(&log_blob, platform_get_heap_id());
-      if (message_is_blob(msg)) {
+      if (input_is_blob) {
          rc =
             message_clone(&log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
       } else {
@@ -875,6 +1050,7 @@ shard_log_write_reserved(log_write_token *token,
       }
       msg             = merge_accumulator_to_message(&log_blob);
       log_blob_inited = TRUE;
+      new_entry_size  = log_entry_required_capacity(tuple_key, msg);
    }
 
    if (log_blob_inited) {
@@ -883,18 +1059,12 @@ shard_log_write_reserved(log_write_token *token,
        * A partial blob-writeback enrollment may leave harmless extra receipts,
        * but it can no longer leave behind a record whose value was not covered.
        */
-      platform_mutex_lock(&group->wbset_lock);
-      rc = blob_writeback(cc, message_slice(msg), &group->wbset);
-      platform_mutex_unlock(&group->wbset_lock);
+      rc = blob_writeback(cc, message_slice(msg), &thread_data->wbset);
       if (!SUCCESS(rc)) {
          goto out;
       }
    }
 
-   shard_log_thread_data *thread_data = shard_log_get_thread_data(group, tid);
-
-   uint64 page_size      = shard_log_page_size(log->cfg);
-   uint64 new_entry_size = log_entry_required_capacity(tuple_key, msg);
    debug_assert(new_entry_size <= page_size - sizeof(shard_log_hdr));
 
    // Full, or retrying an earlier hand-over: finish that frozen image first.
@@ -974,38 +1144,30 @@ shard_log_wait_for_operations(shard_log *log, log_durable_ticket ticket)
    }
 }
 
-/* group_lock is held. */
-static log_durable_ticket
-shard_log_cut_frontier_locked(shard_log *log)
-{
-   shard_log_group *current =
-      __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
-   if (current == NULL) {
-      platform_assert(log->sealing);
-      return log->seal_ticket;
-   }
-
-   uint64 current_ticket =
-      __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
-   platform_assert(current_ticket == current->id);
-   platform_assert(current_ticket >= SHARD_LOG_FIRST_GROUP_ID);
-   return current_ticket - 1;
-}
-
 /*
  * A make_durable_begin() caller which loses the installation claim may return
- * before the winner has published the cut under group_lock.  Wait for that
- * infallible publication before looking up the group for graduation.
+ * before the winner has published the cut.  The accepting id advances only
+ * after a normal successor is fully linked, while NULL is the final seal
+ * publication.  Wait for either publication without contending on group_lock.
  */
 static void
 shard_log_wait_for_cut(shard_log *log, log_durable_ticket ticket)
 {
    uint64 wait = 100;
    while (TRUE) {
-      platform_mutex_lock(&log->group_lock);
-      bool32 cut = ticket <= shard_log_cut_frontier_locked(log);
-      platform_mutex_unlock(&log->group_lock);
-      if (cut) {
+      uint64 accepting_id =
+         __atomic_load_n(&log->accepting.id, __ATOMIC_ACQUIRE);
+      if (ticket < accepting_id) {
+         return;
+      }
+
+      shard_log_group *accepting =
+         __atomic_load_n(&log->accepting.group, __ATOMIC_ACQUIRE);
+      if (accepting == NULL) {
+         uint64 install_state =
+            __atomic_load_n(&log->install.state, __ATOMIC_ACQUIRE);
+         platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
+         platform_assert(ticket <= (install_state & SHARD_LOG_INSTALL_ID_MASK));
          return;
       }
 
@@ -1137,10 +1299,8 @@ shard_log_graduate_through(shard_log *log, log_durable_ticket target)
          break;
       }
 
-      platform_mutex_lock(&log->group_lock);
       platform_assert(shard_log_graduated_ticket_load(log) == graduated);
       shard_log_graduated_ticket_store(log, next_ticket);
-      platform_mutex_unlock(&log->group_lock);
 
       graduated = next_ticket;
       group     = group->next;
@@ -1184,9 +1344,19 @@ static platform_status
 shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
                                         log_durable_ticket target)
 {
+   /* Release publication makes an already-durable target lock-free. */
+   if (target <= shard_log_durable_ticket_load(log)) {
+      return STATUS_OK;
+   }
+
    platform_status rc = shard_log_graduate_through(log, target);
    if (!SUCCESS(rc)) {
       return rc;
+   }
+
+   /* Another waiter may have completed the target while we graduated it. */
+   if (target <= shard_log_durable_ticket_load(log)) {
+      return STATUS_OK;
    }
 
    rc = platform_mutex_lock(&log->durability_lock);
@@ -1194,42 +1364,48 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
       return rc;
    }
 
-   platform_status result = STATUS_OK;
-   if (log->durable_ticket < target) {
+   platform_status    result  = STATUS_OK;
+   log_durable_ticket durable = shard_log_durable_ticket_load(log);
+   if (durable < target) {
+      /*
+       * durability_lock excludes reclamation, so this cursor and the immutable
+       * closed-group links through target remain valid across all three passes.
+       */
+      platform_mutex_lock(&log->group_lock);
+      shard_log_group *first = shard_log_find_group_locked(log, durable + 1);
+      platform_assert(first != NULL);
+      platform_assert(first->state == SHARD_LOG_GROUP_DURABILITY_PENDING);
+      platform_mutex_unlock(&log->group_lock);
+
       /*
        * Issue every needed retry before waiting for any group, preserving the
        * same all-I/O-first pipelining as writeback_set itself.
        */
-      for (log_durable_ticket ticket = log->durable_ticket + 1;
-           ticket <= target;
-           ticket++)
+      shard_log_group *group = first;
+      for (log_durable_ticket ticket = durable + 1; ticket <= target; ticket++)
       {
-         platform_mutex_lock(&log->group_lock);
-         shard_log_group *group = shard_log_find_group_locked(log, ticket);
          platform_assert(group != NULL);
+         platform_assert(group->id == ticket);
          platform_assert(group->state == SHARD_LOG_GROUP_DURABILITY_PENDING);
-         platform_mutex_unlock(&log->group_lock);
 
-         platform_status retry_rc =
-            writeback_set_retry_incomplete(&group->wbset);
+         platform_status retry_rc = shard_log_group_retry_writebacks(group);
          if (SUCCESS(result) && !SUCCESS(retry_rc)) {
             result = retry_rc;
          }
+         group = group->next;
       }
 
-      for (log_durable_ticket ticket = log->durable_ticket + 1;
-           ticket <= target;
-           ticket++)
+      group = first;
+      for (log_durable_ticket ticket = durable + 1; ticket <= target; ticket++)
       {
-         platform_mutex_lock(&log->group_lock);
-         shard_log_group *group = shard_log_find_group_locked(log, ticket);
          platform_assert(group != NULL);
-         platform_mutex_unlock(&log->group_lock);
+         platform_assert(group->id == ticket);
 
-         platform_status wait_rc = writeback_set_wait(&group->wbset);
+         platform_status wait_rc = shard_log_group_wait_for_writebacks(group);
          if (SUCCESS(result) && !SUCCESS(wait_rc)) {
             result = wait_rc;
          }
+         group = group->next;
       }
 
       if (SUCCESS(result)) {
@@ -1238,16 +1414,17 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
 
       if (SUCCESS(result)) {
          platform_mutex_lock(&log->group_lock);
-         for (log_durable_ticket ticket = log->durable_ticket + 1;
-              ticket <= target;
+         group = first;
+         for (log_durable_ticket ticket = durable + 1; ticket <= target;
               ticket++)
          {
-            shard_log_group *group = shard_log_find_group_locked(log, ticket);
             platform_assert(group != NULL);
-            writeback_set_reset(&group->wbset);
+            platform_assert(group->id == ticket);
+            shard_log_group_reset_writebacks(group);
             group->state = SHARD_LOG_GROUP_DURABLE;
+            group        = group->next;
          }
-         log->durable_ticket = target;
+         shard_log_durable_ticket_store(log, target);
          platform_mutex_unlock(&log->group_lock);
          shard_log_reclaim_durable_groups(log);
       }
@@ -1276,7 +1453,7 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
    if (current == NULL) {
       uint64 install_state =
          __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
-      platform_assert(install_state & SHARD_LOG_INSTALL_SEALING_BIT);
+      platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
       target = install_state & SHARD_LOG_INSTALL_ID_MASK;
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
       shard_log_ticket_ref_acquire(log);
@@ -1290,13 +1467,13 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
       target--;
       shard_log_ticket_ref_acquire(log);
 
-      shard_log_reservation_slot_store(log, tid, 0);
+      shard_log_reservation_slot_clear(log, tid);
       *ticket_out = target;
       return STATUS_OK;
    }
 
    platform_assert(target < SHARD_LOG_INSTALL_ID_MASK);
-   shard_log_reservation_slot_store(log, tid, 0);
+   shard_log_reservation_slot_clear(log, tid);
 
    /*
     * Avoid allocating a candidate when another caller has already claimed this
@@ -1311,48 +1488,63 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
        * avoid having to deal with failures after claiming the job. */
       platform_status rc = shard_log_allocate_group(log, &candidate);
       if (!SUCCESS(rc)) {
-         return rc;
-      }
-
-      uint64 expected_state = target;
-      if (__atomic_compare_exchange_n(&log->install.state,
-                                      &expected_state,
-                                      target + 1,
-                                      FALSE,
-                                      __ATOMIC_SEQ_CST,
-                                      __ATOMIC_SEQ_CST))
-      {
          /*
-          * Although we've already released our reservation, a successful
-          * claim proves that target was never cut and current remains valid.
-          * The claim makes the remaining installation path infallible.
+          * Allocation raced with another caller taking this cut.  Once the
+          * install state advances, that caller's publication path is
+          * infallible, so our original target remains a successful cut even
+          * though we could not allocate its successor ourselves.
           */
-         platform_mutex_lock(&log->group_lock);
-         debug_assert(
-            !__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
-         platform_assert(!log->sealing);
-         debug_assert(__atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST)
-                      == current);
-         platform_assert(current->id == target);
-         platform_assert(current->state == SHARD_LOG_GROUP_OPEN);
+         install_state = __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
+         if (install_state == target) {
+            return rc;
+         }
+      } else {
+         uint64 expected_state = target;
+         if (__atomic_compare_exchange_n(&log->install.state,
+                                         &expected_state,
+                                         target + 1,
+                                         FALSE,
+                                         __ATOMIC_SEQ_CST,
+                                         __ATOMIC_SEQ_CST))
+         {
+            /*
+             * Although we've already released our reservation, a successful
+             * claim proves that target was never cut and current remains valid.
+             * The claim makes the remaining installation path infallible.
+             */
+            platform_mutex_lock(&log->group_lock);
+            debug_assert(
+               !__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
+            platform_assert(
+               __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST)
+               == target + 1);
+            debug_assert(
+               __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST)
+               == current);
+            platform_assert(current->id == target);
+            platform_assert(current->state == SHARD_LOG_GROUP_OPEN);
 
-         current->state = SHARD_LOG_GROUP_CLOSING;
-         current->close = SHARD_LOG_CLOSE_GROUP;
+            current->state = SHARD_LOG_GROUP_CLOSING;
+            current->close = SHARD_LOG_CLOSE_GROUP;
 
-         candidate->id = target + 1;
-         current->next = candidate;
+            candidate->id = target + 1;
+            current->next = candidate;
 
-         shard_log_ticket_ref_acquire(log);
+            shard_log_ticket_ref_acquire(log);
 
-         /* Pointer first, ticket last: see shard_log_publish_reservation(). */
-         __atomic_store_n(&log->accepting.group, candidate, __ATOMIC_SEQ_CST);
-         __atomic_store_n(&log->accepting.id, candidate->id, __ATOMIC_SEQ_CST);
-         platform_mutex_unlock(&log->group_lock);
+            /* Pointer first, ticket last: see shard_log_publish_reservation().
+             */
+            __atomic_store_n(
+               &log->accepting.group, candidate, __ATOMIC_SEQ_CST);
+            __atomic_store_n(
+               &log->accepting.id, candidate->id, __ATOMIC_SEQ_CST);
+            platform_mutex_unlock(&log->group_lock);
 
-         *ticket_out = target;
-         return STATUS_OK;
+            *ticket_out = target;
+            return STATUS_OK;
+         }
+         install_state = expected_state;
       }
-      install_state = expected_state;
    }
 
    /* Another installer or seal owns this target; never chase its successor. */
@@ -1397,20 +1589,20 @@ shard_log_seal(log_handle *logh)
    log_durable_ticket target;
 
    platform_assert(
-      shard_log_reservation_slot_load(log, platform_get_tid()) == 0,
+      shard_log_reservation_slot_load_relaxed(log, platform_get_tid()) == 0,
       "log_seal cannot wait on its calling thread's write reservation");
 
    while (TRUE) {
       platform_mutex_lock(&log->group_lock);
       platform_assert(
          !__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
-      if (log->sealing) {
-         uint64 install_state =
-            __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
-         platform_assert(install_state & SHARD_LOG_INSTALL_SEALING_BIT);
-         platform_assert((install_state & SHARD_LOG_INSTALL_ID_MASK)
-                         == log->seal_ticket);
-         target = log->seal_ticket;
+      uint64 install_state =
+         __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
+      if (install_state & SHARD_LOG_INSTALL_TERMINAL_BIT) {
+         target = install_state & SHARD_LOG_INSTALL_ID_MASK;
+         platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
+         platform_assert(
+            __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST) == NULL);
          platform_mutex_unlock(&log->group_lock);
          break;
       }
@@ -1422,10 +1614,10 @@ shard_log_seal(log_handle *logh)
                       == current->id);
 
       uint64 expected_state = current->id;
-      uint64 sealing_state  = SHARD_LOG_INSTALL_SEALING_BIT | current->id;
+      uint64 terminal_state = SHARD_LOG_INSTALL_TERMINAL_BIT | current->id;
       if (!__atomic_compare_exchange_n(&log->install.state,
                                        &expected_state,
-                                       sealing_state,
+                                       terminal_state,
                                        FALSE,
                                        __ATOMIC_SEQ_CST,
                                        __ATOMIC_SEQ_CST))
@@ -1443,24 +1635,16 @@ shard_log_seal(log_handle *logh)
       }
 
       platform_assert(current->state == SHARD_LOG_GROUP_OPEN);
-      current->state   = SHARD_LOG_GROUP_CLOSING;
-      current->close   = SHARD_LOG_CLOSE_STREAM;
-      log->seal_ticket = current->id;
-      log->sealing     = TRUE;
-      target           = log->seal_ticket;
-      /* Publish terminal state only after the final ticket is available. */
+      current->state = SHARD_LOG_GROUP_CLOSING;
+      current->close = SHARD_LOG_CLOSE_STREAM;
+      target         = current->id;
+      /* install.state already publishes the terminal ticket. */
       __atomic_store_n(&log->accepting.group, NULL, __ATOMIC_SEQ_CST);
       platform_mutex_unlock(&log->group_lock);
       break;
    }
 
-   platform_status rc = shard_log_wait_for_ticket_to_be_durable(log, target);
-   if (SUCCESS(rc)) {
-      platform_mutex_lock(&log->group_lock);
-      log->sealed = TRUE;
-      platform_mutex_unlock(&log->group_lock);
-   }
-   return rc;
+   return shard_log_wait_for_ticket_to_be_durable(log, target);
 }
 
 /* Final destruction, called once ticket_refs is zero. */
@@ -1475,6 +1659,12 @@ shard_log_destroy(shard_log *log)
       shard_log_group_free(log, group);
       group = next;
    }
+   group = log->reusable_pool;
+   while (group != NULL) {
+      shard_log_group *next = group->pool_next;
+      shard_log_group_free(log, group);
+      group = next;
+   }
    group = log->emergency_pool;
    while (group != NULL) {
       shard_log_group *next = group->pool_next;
@@ -1485,6 +1675,8 @@ shard_log_destroy(shard_log *log)
    platform_status rc = platform_mutex_destroy(&log->durability_lock);
    platform_assert_status_ok(rc);
    rc = platform_mutex_destroy(&log->graduate_lock);
+   platform_assert_status_ok(rc);
+   rc = platform_mutex_destroy(&log->reusable_pool_lock);
    platform_assert_status_ok(rc);
    rc = platform_mutex_destroy(&log->group_lock);
    platform_assert_status_ok(rc);
@@ -1536,7 +1728,7 @@ shard_log_dec_ref(cache *cc, const log_head *segment)
    (void)mini_dec_ref(cc, segment->meta_addr, PAGE_TYPE_LOG);
 }
 
-log_head
+static log_head
 shard_log_get_head(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
@@ -1547,7 +1739,7 @@ shard_log_get_head(log_handle *logh)
    };
 }
 
-bool32
+static bool32
 shard_log_valid(shard_log_config *cfg, page_handle *page, log_nonce nonce)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
@@ -1556,7 +1748,7 @@ shard_log_valid(shard_log_config *cfg, page_handle *page, log_nonce nonce)
                                         shard_log_checksum(cfg, page));
 }
 
-uint64
+static uint64
 shard_log_next_extent_addr(shard_log_config *cfg, page_handle *page)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
@@ -1570,9 +1762,6 @@ shard_log_extent_base(cache *cc, uint64 addr)
    return allocator_config_extent_base_addr(
       allocator_get_config(cache_get_allocator(cc)), addr);
 }
-
-/* Visitor for shard_log_for_each_extent(); a failure abandons the walk. */
-typedef platform_status (*shard_log_extent_fn)(void *arg, uint64 extent_addr);
 
 /*
  * Could addr be the base address of a log extent on this device?
@@ -1651,198 +1840,28 @@ shard_log_prefetch_readable_pages(
    }
 }
 
-/*
- * The next-extent link of the extent at extent_addr, or 0 if the chain ends
- * here.
- *
- * Taken from the last page of the extent that validates, not the first: the
- * link is stamped into each page as that page is written, and a page written
- * early can predate the allocation of the extent that follows, so only the
- * latest page's copy is guaranteed to name it.  Backing-store readability only
- * decides whether it is safe to issue a read; nonce and checksum still decide
- * whether that page contributes a link.
- */
 static platform_status
-shard_log_extent_next_link(cache            *cc,
-                           shard_log_config *cfg,
-                           uint64            extent_addr,
-                           log_nonce         nonce,
-                           uint64           *next_extent_addr)
+shard_log_recover_page_blob_allocations(cache            *cc,
+                                        shard_log_config *cfg,
+                                        page_handle      *page)
 {
-   uint64 pages_per_extent = shard_log_pages_per_extent(cfg);
-   uint64 page_size        = shard_log_page_size(cfg);
-   *next_extent_addr       = 0;
-   bool32 readable_pages[MAX_PAGES_PER_EXTENT];
-
-   platform_status rc =
-      shard_log_extent_readable_pages(cc, cfg, extent_addr, readable_pages);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   for (uint64 i = 0; i < pages_per_extent; i++) {
-      uint64 page_addr = extent_addr + i * page_size;
-      if (!readable_pages[i]) {
-         continue;
-      }
-
-      page_handle *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
-      if (shard_log_valid(cfg, page, nonce)) {
-         *next_extent_addr = shard_log_next_extent_addr(cfg, page);
-      }
-      cache_unget(cc, page);
-   }
-   return STATUS_OK;
-}
-
-/*
- * Visit every data extent of a stream, in order.  See
- * shard_log_valid_extent_addr() for why this consults no refcounts, and
- * shard_log_recover_allocations() in shard_log.h for what recovery does with
- * it.
- *
- * The visit budget is not a policy limit but a corruption backstop: a garbled
- * link that happens to name an earlier extent of this same stream would carry
- * the stream's own nonce, so the per-page checks cannot rule out a cycle. A
- * stream cannot hold more extents than the device has.
- */
-static platform_status
-shard_log_for_each_extent(cache              *cc,
-                          shard_log_config   *cfg,
-                          log_head            head,
-                          shard_log_extent_fn fn,
-                          void               *arg)
-{
-   uint64 budget = allocator_get_capacity(cache_get_allocator(cc))
-                   / shard_log_extent_size(cfg);
-   uint64 extent_addr = head.addr;
-
-   while (shard_log_valid_extent_addr(cc, cfg, extent_addr)) {
-      if (budget-- == 0) {
-         platform_error_log("shard_log_for_each_extent: stream from %lu has "
-                            "more extents than the device holds; its "
-                            "next-extent chain is corrupt\n",
-                            head.addr);
-         return STATUS_INVALID_STATE;
-      }
-
-      /*
-       * Visited before the read that follows the chain onwards, not after:
-       * cache_get() requires a page's extent to be allocated, and to a map
-       * being rebuilt it is not yet.  Recording the reference is what makes the
-       * extent readable.  Same reason mini_recover_allocations() has a "before"
-       * hook.
-       *
-       * This deliberately records an entirely unreadable successor too.  The
-       * last written log page names the mini allocator's unused reserve, and
-       * that stale link remains reachable until replay is finished.  Protecting
-       * the reserve prevents replay allocations from reusing it as a non-log
-       * extent before an iterator follows the link and rejects its pages.  The
-       * root-only rebuild after replay reclaims it.
-       */
-      platform_status rc = fn(arg, extent_addr);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-      rc = shard_log_extent_next_link(
-         cc, cfg, extent_addr, head.nonce, &extent_addr);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   }
-   return STATUS_OK;
-}
-
-static platform_status
-shard_log_record_extent_reference(void *arg, uint64 extent_addr)
-{
-   return allocator_recovery_record_reference(
-      (allocator *)arg, extent_addr, PAGE_TYPE_LOG);
-}
-
-typedef struct shard_log_recover_blob_state {
-   cache            *cc;
-   shard_log_config *cfg;
-   log_nonce         nonce;
-} shard_log_recover_blob_state;
-
-static platform_status
-shard_log_recover_blob_extent(void *arg, uint64 extent_addr)
-{
-   shard_log_recover_blob_state *state = arg;
-
-   cache            *cc               = state->cc;
-   shard_log_config *cfg              = state->cfg;
-   uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
-   uint64            page_size        = shard_log_page_size(cfg);
-   bool32            readable_pages[MAX_PAGES_PER_EXTENT];
-
-   platform_status rc =
-      shard_log_extent_readable_pages(cc, cfg, extent_addr, readable_pages);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   shard_log_prefetch_readable_pages(cc, cfg, extent_addr, readable_pages);
-
-   for (uint64 i = 0; i < pages_per_extent; i++) {
-      if (!readable_pages[i]) {
-         continue;
-      }
-
-      uint64       page_addr = extent_addr + i * page_size;
-      page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
-      if (!shard_log_valid(cfg, page, state->nonce)) {
-         cache_unget(cc, page);
-         continue;
-      }
-
-      for (log_entry *le = first_log_entry(page->data);
-           !terminal_log_entry(cfg, page->data, le);
-           le = log_entry_next(le))
-      {
-         if (log_entry_message_is_blob(le)) {
-            message msg = log_entry_message(cc, le);
-            rc          = blob_recover_allocations(cc, message_slice(msg));
-            if (!SUCCESS(rc)) {
-               cache_unget(cc, page);
-               return rc;
-            }
+   for (log_entry *le = first_log_entry(page->data);
+        !terminal_log_entry(cfg, page->data, le);
+        le = log_entry_next(le))
+   {
+      if (log_entry_message_is_blob(le)) {
+         message         msg = log_entry_message(cc, le);
+         platform_status rc  = blob_recover_allocations(cc, message_slice(msg));
+         if (!SUCCESS(rc)) {
+            return rc;
          }
       }
-      cache_unget(cc, page);
    }
    return STATUS_OK;
-}
-
-static platform_status
-shard_log_recover_blob_allocations(cache            *cc,
-                                   shard_log_config *cfg,
-                                   platform_heap_id  hid,
-                                   log_head          head)
-{
-   if (head.addr == 0) {
-      return STATUS_OK; // no such log
-   }
-   (void)hid;
-
-   /*
-    * Scan every individually valid page, not only complete groups.  The replay
-    * validator examines a trailing incomplete group before it knows that the
-    * terminator is absent, and cache_get() requires those blob extents to be
-    * protected from allocator reuse first.  The later root-only rebuild drops
-    * these conservative references along with the rest of the old log.
-    */
-   shard_log_recover_blob_state state = {
-      .cc = cc, .cfg = cfg, .nonce = head.nonce};
-   return shard_log_for_each_extent(
-      cc, cfg, head, shard_log_recover_blob_extent, &state);
 }
 
 platform_status
-shard_log_recover_allocations(cache            *cc,
-                              shard_log_config *cfg,
-                              platform_heap_id  hid,
-                              log_head          head)
+shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
 {
    if (head.addr == 0) {
       return STATUS_OK; // no such log
@@ -1856,18 +1875,67 @@ shard_log_recover_allocations(cache            *cc,
     */
    allocator      *al        = cache_get_allocator(cc);
    uint64          meta_base = shard_log_extent_base(cc, head.meta_addr);
-   platform_status rc        = shard_log_record_extent_reference(al, meta_base);
+   platform_status rc =
+      allocator_recovery_record_reference(al, meta_base, PAGE_TYPE_LOG);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   rc = shard_log_for_each_extent(
-      cc, cfg, head, shard_log_record_extent_reference, al);
-   if (!SUCCESS(rc)) {
-      return rc;
+   uint64 budget      = allocator_get_capacity(al) / shard_log_extent_size(cfg);
+   uint64 extent_addr = head.addr;
+   while (shard_log_valid_extent_addr(cc, cfg, extent_addr)) {
+      if (budget-- == 0) {
+         platform_error_log("shard_log_recover_allocations: stream from %lu "
+                            "has more extents than the device holds; its "
+                            "next-extent chain is corrupt\n",
+                            head.addr);
+         return STATUS_INVALID_STATE;
+      }
+
+      /*
+       * Record the current extent before cache_get(): the map being rebuilt
+       * does not yet permit reads from it.  This also records a wholly
+       * unreadable successor named by the final valid page, protecting the
+       * mini allocator's unused reserve until replay completes.
+       */
+      rc = allocator_recovery_record_reference(al, extent_addr, PAGE_TYPE_LOG);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+
+      bool32 readable_pages[MAX_PAGES_PER_EXTENT];
+      rc =
+         shard_log_extent_readable_pages(cc, cfg, extent_addr, readable_pages);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      shard_log_prefetch_readable_pages(cc, cfg, extent_addr, readable_pages);
+
+      uint64 next_extent_addr = 0;
+      uint64 pages_per_extent = shard_log_pages_per_extent(cfg);
+      uint64 page_size        = shard_log_page_size(cfg);
+      for (uint64 i = 0; i < pages_per_extent; i++) {
+         if (!readable_pages[i]) {
+            continue;
+         }
+
+         uint64       page_addr = extent_addr + i * page_size;
+         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         if (shard_log_valid(cfg, page, head.nonce)) {
+            /* The latest valid page has the newest successor link. */
+            next_extent_addr = shard_log_next_extent_addr(cfg, page);
+            /* Include valid pages in a trailing incomplete group. */
+            rc = shard_log_recover_page_blob_allocations(cc, cfg, page);
+         }
+         cache_unget(cc, page);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+      }
+      extent_addr = next_extent_addr;
    }
 
-   return shard_log_recover_blob_allocations(cc, cfg, hid, head);
+   return STATUS_OK;
 }
 
 /*
@@ -1878,7 +1946,7 @@ shard_log_recover_allocations(cache            *cc,
  * fresh stream reports 0, so a caller comparing against a threshold cannot be
  * tricked into rotating a stream that has had nothing written to it.
  */
-uint64
+static uint64
 shard_log_get_size(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
@@ -1928,25 +1996,32 @@ shard_log_init(shard_log        *log,
    if (!SUCCESS(rc)) {
       return rc;
    }
+   rc = platform_mutex_init(&log->reusable_pool_lock, 0, hid);
+   if (!SUCCESS(rc)) {
+      platform_mutex_destroy(&log->group_lock);
+      return rc;
+   }
    rc = platform_mutex_init(&log->graduate_lock, 0, hid);
    if (!SUCCESS(rc)) {
+      platform_mutex_destroy(&log->reusable_pool_lock);
       platform_mutex_destroy(&log->group_lock);
       return rc;
    }
    rc = platform_mutex_init(&log->durability_lock, 0, hid);
    if (!SUCCESS(rc)) {
       platform_mutex_destroy(&log->graduate_lock);
+      platform_mutex_destroy(&log->reusable_pool_lock);
       platform_mutex_destroy(&log->group_lock);
       return rc;
    }
 
-   shard_log_group *current = NULL;
-   rc                       = shard_log_group_malloc(log, FALSE, &current);
-   if (!SUCCESS(rc)) {
+   shard_log_group *current = shard_log_group_malloc(log, FALSE);
+   if (current == NULL) {
       platform_mutex_destroy(&log->durability_lock);
       platform_mutex_destroy(&log->graduate_lock);
+      platform_mutex_destroy(&log->reusable_pool_lock);
       platform_mutex_destroy(&log->group_lock);
-      return rc;
+      return STATUS_NO_MEMORY;
    }
    current->id      = SHARD_LOG_FIRST_GROUP_ID;
    log->groups_head = current;
@@ -1955,9 +2030,8 @@ shard_log_init(shard_log        *log,
    __atomic_store_n(&log->install.state, current->id, __ATOMIC_RELAXED);
 
    for (uint64 i = 0; i < SHARD_LOG_NUM_EMERGENCY_GROUPS; i++) {
-      shard_log_group *emergency = NULL;
-      rc = shard_log_group_malloc(log, TRUE, &emergency);
-      if (!SUCCESS(rc)) {
+      shard_log_group *emergency = shard_log_group_malloc(log, TRUE);
+      if (emergency == NULL) {
          shard_log_group_free(log, current);
          while (log->emergency_pool != NULL) {
             emergency            = log->emergency_pool;
@@ -1967,8 +2041,9 @@ shard_log_init(shard_log        *log,
          }
          platform_mutex_destroy(&log->durability_lock);
          platform_mutex_destroy(&log->graduate_lock);
+         platform_mutex_destroy(&log->reusable_pool_lock);
          platform_mutex_destroy(&log->group_lock);
-         return rc;
+         return STATUS_NO_MEMORY;
       }
       emergency->pool_next = log->emergency_pool;
       log->emergency_pool  = emergency;
@@ -2030,7 +2105,7 @@ shard_log_create(cache            *cc,
    return STATUS_OK;
 }
 
-int
+static int
 shard_log_compare(const void *p1, const void *p2, void *unused)
 {
    log_entry **le1 = (log_entry **)p1;
@@ -2051,7 +2126,7 @@ shard_log_compare(const void *p1, const void *p2, void *unused)
    return 0;
 }
 
-void
+static void
 shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
@@ -2070,21 +2145,21 @@ shard_log_iterator_curr_generations(log_iterator *itorh,
    *leaf_generation     = itor->entries[itor->pos]->leaf_generation;
 }
 
-bool32
+static bool32
 shard_log_iterator_can_prev(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    return itor->pos >= 0;
 }
 
-bool32
+static bool32
 shard_log_iterator_can_next(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    return itor->pos < itor->num_entries;
 }
 
-platform_status
+static platform_status
 shard_log_iterator_next(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
@@ -2168,7 +2243,7 @@ shard_log_iterator_deinit(log_iterator *itorh)
    platform_free(hid, itor); // the handle, from shard_log_iterator_create()
 }
 
-const static iterator_ops shard_log_iterator_ops = {
+static const iterator_ops shard_log_iterator_ops = {
    .curr     = shard_log_iterator_curr,
    .can_prev = shard_log_iterator_can_prev,
    .can_next = shard_log_iterator_can_next,
@@ -2189,11 +2264,40 @@ shard_log_iterator_stream_complete(log_iterator *itorh)
    return itor->stream_complete;
 }
 
-const static log_iterator_ops shard_log_log_iterator_ops = {
+static const log_iterator_ops shard_log_log_iterator_ops = {
    .curr_generations = shard_log_iterator_curr_generations,
    .deinit           = shard_log_iterator_deinit,
    .stream_complete  = shard_log_iterator_stream_complete,
 };
+
+static platform_status
+shard_log_iterator_accept_group(shard_log_iterator *itor,
+                                uint64              group_pages,
+                                uint64              group_entries,
+                                uint64              group_contents_size,
+                                uint64             *num_valid_pages,
+                                uint64             *contents_size)
+{
+   if (group_pages > UINT64_MAX - *num_valid_pages
+       || group_entries > UINT64_MAX - itor->num_entries
+       || group_contents_size > UINT64_MAX - *contents_size)
+   {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   uint64 new_num_entries   = itor->num_entries + group_entries;
+   uint64 new_contents_size = *contents_size + group_contents_size;
+   if (new_num_entries > SIZE_MAX / sizeof(*itor->entries)
+       || new_contents_size > SIZE_MAX)
+   {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   *num_valid_pages += group_pages;
+   itor->num_entries = new_num_entries;
+   *contents_size    = new_contents_size;
+   return STATUS_OK;
+}
 
 static platform_status
 shard_log_iterator_init(cache              *cc,
@@ -2211,7 +2315,7 @@ shard_log_iterator_init(cache              *cc,
    uint64          num_valid_pages = 0;
    uint64          extent_addr;
    uint64          next_extent_addr;
-   uint64          contents_size;
+   uint64          contents_size = 0;
    platform_status rc;
    bool32          readable_pages[MAX_PAGES_PER_EXTENT];
 
@@ -2241,11 +2345,12 @@ shard_log_iterator_init(cache              *cc,
     */
    uint64 group_id = 0; // the run currently being tallied
    // On-disk ids must run 1, 2, 3, ... with no gaps.
-   uint64 expect_group   = SHARD_LOG_FIRST_GROUP_ID;
-   bool32 in_group       = FALSE;
-   uint64 group_pages    = 0; // pages of it seen
-   uint64 group_entries  = 0;
-   uint64 group_declared = 0; // pages its terminator claims, 0 if unseen
+   uint64 expect_group        = SHARD_LOG_FIRST_GROUP_ID;
+   bool32 in_group            = FALSE;
+   uint64 group_pages         = 0; // pages of it seen
+   uint64 group_entries       = 0;
+   uint64 group_contents_size = 0;
+   uint64 group_declared      = 0; // pages its terminator claims, 0 if unseen
    // whether its terminator also says the stream ends here
    bool32 group_ends_stream = FALSE;
    bool32 broken            = FALSE; // hit a group we cannot replay
@@ -2298,8 +2403,16 @@ shard_log_iterator_init(cache              *cc,
          if (in_group && hdr->group_id != group_id) {
             // The run ended; judge it before starting the next.
             if (group_declared != 0 && group_pages == group_declared) {
-               num_valid_pages += group_pages;
-               itor->num_entries += group_entries;
+               rc = shard_log_iterator_accept_group(itor,
+                                                    group_pages,
+                                                    group_entries,
+                                                    group_contents_size,
+                                                    &num_valid_pages,
+                                                    &contents_size);
+               if (!SUCCESS(rc)) {
+                  cache_unget(cc, page);
+                  return rc;
+               }
                expect_group          = group_id + 1;
                itor->stream_complete = group_ends_stream;
                if (group_ends_stream) {
@@ -2335,32 +2448,49 @@ shard_log_iterator_init(cache              *cc,
                broken = TRUE;
                break;
             }
-            in_group          = TRUE;
-            group_id          = hdr->group_id;
-            group_pages       = 0;
-            group_entries     = 0;
-            group_declared    = 0;
-            group_ends_stream = FALSE;
+            in_group            = TRUE;
+            group_id            = hdr->group_id;
+            group_pages         = 0;
+            group_entries       = 0;
+            group_contents_size = 0;
+            group_declared      = 0;
+            group_ends_stream   = FALSE;
          }
 
-         rc = shard_log_validate_page_blobs(
-            cc, cfg, page, first_needed_generation);
+         uint64 page_entries;
+         uint64 page_contents_size;
+         rc = shard_log_measure_page_records(cc,
+                                             cfg,
+                                             page,
+                                             first_needed_generation,
+                                             &page_entries,
+                                             &page_contents_size);
          if (!SUCCESS(rc)) {
-            platform_error_log("shard_log_iterator_init: blob validation "
+            platform_error_log("shard_log_iterator_init: record validation "
                                "failed in group %lu at log page %lu: %s; "
                                "discarding this group and the rest\n",
                                group_id,
                                page_addr,
                                platform_status_to_string(rc));
             cache_unget(cc, page);
-            if (STATUS_IS_EQ(rc, STATUS_NO_MEMORY)) {
+            if (STATUS_IS_EQ(rc, STATUS_NO_MEMORY)
+                || STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED))
+            {
                return rc;
             }
             broken = TRUE;
             break;
          }
+         if (group_pages == UINT64_MAX
+             || page_entries > UINT64_MAX - group_entries
+             || page_contents_size > UINT64_MAX - group_contents_size)
+         {
+            cache_unget(cc, page);
+            return STATUS_LIMIT_EXCEEDED;
+         }
          group_pages++;
-         group_entries += hdr->num_entries;
+         group_entries += page_entries;
+         group_contents_size += page_contents_size;
          if (hdr->pages_in_group != 0) {
             if (group_declared != 0) {
                platform_error_log("shard_log_iterator_init: group %lu has two "
@@ -2382,14 +2512,20 @@ shard_log_iterator_init(cache              *cc,
    }
    if (!broken && !finished && in_group) {
       if (group_declared != 0 && group_pages == group_declared) {
-         num_valid_pages += group_pages;
-         itor->num_entries += group_entries;
+         rc = shard_log_iterator_accept_group(itor,
+                                              group_pages,
+                                              group_entries,
+                                              group_contents_size,
+                                              &num_valid_pages,
+                                              &contents_size);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          itor->stream_complete = group_ends_stream;
       }
       // Otherwise the stream ends in an unclosed group: discard it.
    }
 
-   contents_size = num_valid_pages * shard_log_page_size(cfg);
    if (contents_size != 0) {
       itor->contents = TYPED_ARRAY_MALLOC(hid, itor->contents, contents_size);
       if (itor->contents == NULL) {
@@ -2415,9 +2551,10 @@ shard_log_iterator_init(cache              *cc,
     * Those are the first num_valid_pages valid pages of the traversal, since
     * the replayable portion is a prefix.
     */
-   log_entry *cursor      = (log_entry *)itor->contents;
-   uint64     entry_idx   = 0;
-   uint64     pages_taken = 0;
+   char  *cursor          = itor->contents;
+   uint64 contents_copied = 0;
+   uint64 entry_idx       = 0;
+   uint64 pages_taken     = 0;
    extent_addr            = addr;
    while (pages_taken < num_valid_pages && extent_addr != 0
           && allocator_get_refcount(al, extent_addr) > 0)
@@ -2449,10 +2586,17 @@ shard_log_iterator_init(cache              *cc,
               !terminal_log_entry(cfg, page->data, le);
               le = log_entry_next(le))
          {
-            memmove(cursor, le, sizeof_log_entry(le));
-            itor->entries[entry_idx] = cursor;
+            if (le->memtable_generation < first_needed_generation) {
+               continue;
+            }
+            uint64 entry_size = sizeof_log_entry(le);
+            platform_assert(entry_idx < itor->num_entries);
+            platform_assert(entry_size <= contents_size - contents_copied);
+            memmove(cursor, le, entry_size);
+            itor->entries[entry_idx] = (log_entry *)cursor;
             entry_idx++;
-            cursor = log_entry_next(cursor);
+            cursor += entry_size;
+            contents_copied += entry_size;
          }
          next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);
@@ -2461,6 +2605,7 @@ shard_log_iterator_init(cache              *cc,
    }
 
    debug_assert(entry_idx == itor->num_entries);
+   debug_assert(contents_copied == contents_size);
 
    // sort by generation
    if (itor->num_entries != 0) {
@@ -2476,13 +2621,13 @@ shard_log_iterator_init(cache              *cc,
    return STATUS_OK;
 }
 
-static platform_status
-shard_log_iterator_create_internal(cache            *cc,
-                                   shard_log_config *cfg,
-                                   platform_heap_id  hid,
-                                   log_head          head,
-                                   uint64            first_needed_generation,
-                                   log_iterator    **itor_out)
+platform_status
+shard_log_iterator_create(cache            *cc,
+                          shard_log_config *cfg,
+                          platform_heap_id  hid,
+                          log_head          head,
+                          uint64            first_needed_generation,
+                          log_iterator    **itor_out)
 {
    if (itor_out == NULL) {
       return STATUS_BAD_PARAM;
@@ -2506,16 +2651,4 @@ shard_log_iterator_create_internal(cache            *cc,
    }
    *itor_out = &itor->super;
    return STATUS_OK;
-}
-
-platform_status
-shard_log_iterator_create(cache            *cc,
-                          shard_log_config *cfg,
-                          platform_heap_id  hid,
-                          log_head          head,
-                          uint64            first_needed_generation,
-                          log_iterator    **itor_out)
-{
-   return shard_log_iterator_create_internal(
-      cc, cfg, hid, head, first_needed_generation, itor_out);
 }

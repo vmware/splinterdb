@@ -2903,8 +2903,7 @@ core_rebuild_allocations(core_handle                  *spl,
          }
          log_head head = slots[i].head;
 
-         rc =
-            shard_log_recover_allocations(spl->cc, log_cfg, spl->heap_id, head);
+         rc = shard_log_recover_allocations(spl->cc, log_cfg, head);
          if (!SUCCESS(rc)) {
             platform_error_log("core_mount: could not rebuild the allocations "
                                "of the log at %lu: %s\n",
@@ -2957,9 +2956,8 @@ core_replay_log(core_handle *spl,
       return rc;
    }
 
-   rc              = STATUS_OK;
-   uint64 applied  = 0;
-   uint64 bypassed = 0;
+   rc             = STATUS_OK;
+   uint64 applied = 0;
    while (SUCCESS(rc) && log_iterator_can_next(itor)) {
       key     tuple_key;
       message msg;
@@ -2971,17 +2969,13 @@ core_replay_log(core_handle *spl,
 
       /*
        * The iterator yields records in (memtable generation, leaf generation)
-       * order, which is the order they were applied in, so replaying them as
-       * they come reproduces the state the tree was in.  Anything below the
-       * bound is already folded into the root.
+       * order, which is the order they were applied in, and has already omitted
+       * anything below the bound because it is folded into the durable root.
        */
-      if (memtable_generation < first_unincorporated_generation) {
-         bypassed++;
-      } else {
-         rc = core_insert(spl, tuple_key, msg, NULL);
-         if (SUCCESS(rc)) {
-            applied++;
-         }
+      platform_assert(memtable_generation >= first_unincorporated_generation);
+      rc = core_insert(spl, tuple_key, msg, NULL);
+      if (SUCCESS(rc)) {
+         applied++;
       }
       if (SUCCESS(rc)) {
          rc = log_iterator_next(itor);
@@ -2991,10 +2985,9 @@ core_replay_log(core_handle *spl,
    if (SUCCESS(rc)) {
       *ran_to_end = log_iterator_stream_complete(itor);
       platform_default_log("core_mount: replayed %lu records from the log at "
-                           "%lu (%lu already in the root)%s\n",
+                           "%lu%s\n",
                            applied,
                            head.addr,
-                           bypassed,
                            *ran_to_end ? "" : "; its tail was lost");
    }
    log_iterator_deinit(itor);

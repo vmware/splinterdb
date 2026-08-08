@@ -64,8 +64,12 @@ typedef struct shard_log_thread_data {
    char                  *buf;    // page-sized image under construction
    uint64                 offset; // append cursor within buf
    shard_log_buffer_state state;
+   /* Number of permanent log pages allocated from this buffer. */
+   uint64 page_count;
    /* Held from cache_alloc() until writeback-set enrollment succeeds. */
    page_handle *incache_page;
+   /* Privately owned while this thread has a reservation for the group. */
+   writeback_set wbset;
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
 /*
@@ -74,7 +78,8 @@ typedef struct shard_log_thread_data {
  * line merely to publish their group-selection hazards.
  */
 typedef struct shard_log_reservation_slot {
-   uint64 ticket; // exact group id, or zero when this thread has no reservation
+   /* Conservative lower bound, refined to the selected id; zero when idle. */
+   uint64 ticket;
 } PLATFORM_CACHELINE_ALIGNED shard_log_reservation_slot;
 
 _Static_assert(sizeof(shard_log_reservation_slot) == PLATFORM_CACHELINE_SIZE,
@@ -99,9 +104,9 @@ _Static_assert(sizeof(shard_log_install_claim) == PLATFORM_CACHELINE_SIZE,
                "installation claim must occupy exactly one cache line");
 
 /* The high bit turns the versioned installation claim into a terminal claim. */
-#define SHARD_LOG_FIRST_GROUP_ID      1ULL
-#define SHARD_LOG_INSTALL_SEALING_BIT (1ULL << 63)
-#define SHARD_LOG_INSTALL_ID_MASK     (SHARD_LOG_INSTALL_SEALING_BIT - 1)
+#define SHARD_LOG_FIRST_GROUP_ID       1ULL
+#define SHARD_LOG_INSTALL_TERMINAL_BIT (1ULL << 63)
+#define SHARD_LOG_INSTALL_ID_MASK      (SHARD_LOG_INSTALL_TERMINAL_BIT - 1)
 
 /*
  * One independently staged and written-back durability group.  A cut closes
@@ -112,7 +117,8 @@ struct shard_log_group {
    uint64                id; // on-disk id and durability ticket once installed
    shard_log_group_state state;
    shard_log_close_mode  close;
-   uint64 page_count; // Number of disk pages allocated by this group
+   /* Assigned once by the final-page writer from the per-thread counters. */
+   uint64 page_count;
    /* Atomic, set once by the first reservation in this incarnation. */
    bool32 ever_used;
    bool32 emergency; // Is this group from the pool of emergency groups?
@@ -126,14 +132,12 @@ struct shard_log_group {
    shard_log_thread_data *thread_data;
    char                  *thread_buffers;
 
-   platform_mutex wbset_lock;
-   writeback_set  wbset;
-
    shard_log_group *next;
    shard_log_group *pool_next;
 };
 
 #define SHARD_LOG_NUM_EMERGENCY_GROUPS 2
+#define SHARD_LOG_NUM_REUSABLE_GROUPS  2
 
 /*
  * Sharded log context structure.
@@ -151,39 +155,41 @@ typedef struct shard_log {
    log_nonce nonce;
 
    /*
-    * group_lock protects the group list, durability frontiers, stream state,
-    * emergency pool, and the final ticket-ref/deinit destruction decision. It
-    * is never held while allocating, waiting for cache I/O, or issuing a
-    * durable barrier. Reservations and ticket-ref acquisition do not acquire
-    * it.
+    * group_lock protects group-list publication and detachment, the cut from
+    * OPEN to CLOSING, the emergency pool, and the final ticket-ref/deinit
+    * destruction decision. graduate_lock serializes subsequent graduation
+    * state changes; durability_lock serializes durable-prefix publication and
+    * reclamation. None is held while allocating or waiting for cache I/O.
+    * Reservations and ticket-ref acquisition do not acquire group_lock.
     */
    platform_mutex   group_lock;
    shard_log_group *groups_head;
    /*
     * Atomically published current group and its id. The pointer is published
     * before its id. The id is also the group's durability ticket.
-    * Under group_lock, id - 1 is the highest closed group while group is
-    * non-NULL; once group is NULL, seal_ticket is the closed frontier.
-    * install.state is the accepting group's id at rest and its successor's id
-    * while that successor is being installed. Once sealing wins the same
-    * claim, its high bit remains set and its low bits name the final group.
+    * id - 1 is the highest published closed group while group is non-NULL;
+    * group == NULL publishes the terminal cut. install.state is the accepting
+    * group's id at rest and its successor's id while that successor is being
+    * installed. Once the terminal cut wins the same claim, its high bit remains
+    * set and its low bits name the final group.
     */
    shard_log_accepting_frontier accepting;
    shard_log_install_claim      install;
    shard_log_reservation_slot   reservation_slots[MAX_THREADS];
 
    shard_log_group *emergency_pool;
+   /* Separate so pre-CAS candidate allocation never waits for group_lock. */
+   platform_mutex   reusable_pool_lock;
+   shard_log_group *reusable_pool;
+   uint64           reusable_pool_count;
 
-   /* Atomic, monotonically published after a group finishes graduation. */
+   /* Atomic, monotonically published group frontiers. */
    uint64 graduated_ticket;
    uint64 durable_ticket;
-   uint64 seal_ticket;
 
    uint64 ticket_refs; // Atomic; each successful begin acquires one.
    /* Stream-wide atomic, set once after the first record is staged. */
    bool32 has_records;
-   bool32 sealing;
-   bool32 sealed;
    bool32 deinit_requested;
    bool32 destroying;
    /*
@@ -277,11 +283,11 @@ shard_log_create(cache            *cc,
 
 /*
  * Create an iterator over the sharded log identified by `head`, reading its
- * records in generation order. Blob checksums are required for records at or
- * above `first_needed_generation`; older records are already represented by
- * the checkpoint root and their value pages need not survive replay. Returns
- * an abstract log_iterator through `itor_out` to be driven through the log.h
- * interface and freed with log_iterator_deinit().
+ * records at or above `first_needed_generation` in generation order. Older
+ * records are already represented by the checkpoint root, so they are neither
+ * returned nor have their blob checksums validated. Returns an abstract
+ * log_iterator through `itor_out` to be driven through the log.h interface and
+ * freed with log_iterator_deinit().
  */
 platform_status
 shard_log_iterator_create(cache            *cc,
@@ -325,13 +331,14 @@ shard_log_dec_ref(cache *cc, const log_head *head);
  * recorded: both remain reachable from the durable log identity during replay,
  * so neither may be reused until the root-only rebuild drops the log.
  *
- * The metadata head and stream extents are recorded first.  Every individually
- * valid log page is then scanned to recover the separate storage of each blob
- * it names, including pages in a trailing incomplete group.  Replay validates
- * those blobs before it can decide that the group is incomplete, and cache
- * reads require their extents not to have been reused meanwhile.  Blob recovery
- * therefore has to precede any replay allocation; the conservative suffix-only
- * references disappear in the root-only rebuild below.
+ * The metadata head is recorded first. Each stream extent is recorded before
+ * any of its pages are read, then every individually valid page is scanned in
+ * that same pass to recover the separate storage of each blob it names,
+ * including pages in a trailing incomplete group. Replay validates those blobs
+ * before it can decide that the group is incomplete, and cache reads require
+ * their extents not to have been reused meanwhile. Blob recovery therefore has
+ * to precede any replay allocation; the conservative suffix-only references
+ * disappear in the root-only rebuild below.
  *
  * The recovered references need no matching release pass.  After replay is
  * folded into the tree, recovery publishes a root naming no logs and rebuilds
@@ -339,10 +346,7 @@ shard_log_dec_ref(cache *cc, const log_head *head);
  * absent from the second map.
  */
 platform_status
-shard_log_recover_allocations(cache            *cc,
-                              shard_log_config *cfg,
-                              platform_heap_id  hid,
-                              log_head          head);
+shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head);
 
 void
 shard_log_config_init(shard_log_config *log_cfg,
