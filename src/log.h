@@ -112,10 +112,11 @@ typedef platform_status (*log_seal_fn)(log_handle *log);
 
 /*
  * Release the stream owner's reference. Before calling this, the owner must
- * exclude new reservations, log_make_durable_begin(), and log_seal() calls. It
- * need not wait for log_make_durable_wait() calls consuming tickets issued
- * before deinit. The handle is otherwise invalid as soon as deinit is called.
- * Deinit writes nothing, so it cannot fail.
+ * exclude concurrent reservations, log_make_durable_begin(), and log_seal()
+ * calls, including waiting for any already executing calls to return. It need
+ * not wait for log_make_durable_wait() calls consuming tickets issued before
+ * deinit. The handle is otherwise invalid as soon as deinit is called. Deinit
+ * writes nothing, so it cannot fail.
  */
 typedef void (*log_deinit_fn)(log_handle *log);
 

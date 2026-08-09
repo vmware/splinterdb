@@ -107,6 +107,17 @@ _Static_assert(sizeof(shard_log_install_claim) == PLATFORM_CACHELINE_SIZE,
 #define SHARD_LOG_INSTALL_TERMINAL_BIT (1ULL << 63)
 #define SHARD_LOG_INSTALL_ID_MASK      (SHARD_LOG_INSTALL_TERMINAL_BIT - 1)
 
+#if SPLINTER_DEBUG
+typedef enum shard_log_test_hook_event {
+   SHARD_LOG_TEST_SUCCESSOR_POINTER_PUBLISHED,
+   SHARD_LOG_TEST_ACCEPTING_HANDOFF_WAIT,
+} shard_log_test_hook_event;
+
+typedef void (*shard_log_test_hook_fn)(void                     *arg,
+                                       shard_log_test_hook_event event,
+                                       uint64                    group_id);
+#endif
+
 /*
  * One independently staged and written-back durability group.  A cut closes
  * this object and immediately installs another one for new writers; the slow
@@ -153,48 +164,54 @@ typedef struct shard_log {
    uint64    meta_head;
    log_nonce nonce;
 
-   /*
-    * group_lock protects group-list publication and detachment, the cut from
-    * OPEN to CLOSING, the emergency pool, and the final ticket-ref/deinit
-    * destruction decision. graduate_lock serializes subsequent graduation
-    * state changes; durability_lock serializes durable-prefix publication and
-    * reclamation. None is held while allocating or waiting for cache I/O.
-    * Reservations and ticket-ref acquisition do not acquire group_lock.
-    */
-   platform_mutex   group_lock;
    shard_log_group *groups_head;
    /*
-    * Atomically published current group and its id. The pointer is published
-    * before its id. The id is also the group's durability ticket.
-    * id - 1 is the highest published closed group while group is non-NULL;
-    * group == NULL publishes the terminal cut. install.state is the accepting
-    * group's id at rest and its successor's id while that successor is being
-    * installed. Once the terminal cut wins the same claim, its high bit remains
-    * set and its low bits name the final group.
+    * Current group and its id. The pointer is published before its id, and the
+    * id is the release marker that completes that publication. The id is also
+    * the group's durability ticket. id - 1 is the highest published closed
+    * group while group is non-NULL; group == NULL publishes the terminal cut.
+    * install.state is the accepting group's id at rest and its successor's id
+    * while that successor is being installed. Threads claim installation by
+    * CASing install to the next group's id.  A thread may claim the next
+    * installation after seeing the new pointer but must wait for accepting.id
+    * to catch up before publishing. Once the terminal cut wins the same claim,
+    * its high bit remains set and its low bits name the final group.
     */
    shard_log_accepting_frontier accepting;
    shard_log_install_claim      install;
    shard_log_reservation_slot   reservation_slots[MAX_THREADS];
+#if SPLINTER_DEBUG
+   /* Optional deterministic scheduling hook for state-machine tests. */
+   shard_log_test_hook_fn test_hook;
+   void                  *test_hook_arg;
+#endif
 
    shard_log_group *emergency_pool;
-   /* Separate so pre-CAS candidate allocation never waits for group_lock. */
-   platform_mutex   reusable_pool_lock;
+   /* Protects both pools and reusable_pool_count. */
+   platform_mutex   group_pool_lock;
    shard_log_group *reusable_pool;
    uint64           reusable_pool_count;
 
-   /* Atomic, monotonically published group frontiers. */
+   /* Mmonotonically published group frontiers. */
    uint64 graduated_ticket;
    uint64 durable_ticket;
 
-   uint64 ticket_refs; // Atomic; each successful begin acquires one.
-   /* Stream-wide atomic, set once after the first record is staged. */
+   /* Includes one owner ref plus one per successful durability begin.
+    */
+   uint64 handle_refs;
+   /* Atomic diagnostic: the owner has consumed its handle reference. */
+#if SPLINTER_DEBUG
+   bool32 owner_released;
+#endif
+   /* Stream-wide: set once after the first record is staged. */
    bool32 has_records;
-   bool32 deinit_requested;
-   bool32 destroying;
    /*
-    * Graduation is serialized separately from durability.  This preserves
-    * physical group order while allowing later groups to stage records and
-    * issue their writebacks while an earlier group waits at the device.
+    * graduate_lock serializes group state transitions and protects groups_head
+    * against durable-prefix detachment. durability_lock serializes durable
+    * publication and reclamation. This preserves physical group order while
+    * allowing later groups to stage records and issue their writebacks while
+    * an earlier group waits at the device. Neither is held while allocating or
+    * waiting for cache I/O.
     */
    platform_mutex graduate_lock;
    platform_mutex durability_lock;

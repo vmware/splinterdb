@@ -36,6 +36,18 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
 static void
 shard_log_destroy(shard_log *log);
 
+#if SPLINTER_DEBUG
+static inline void
+shard_log_run_test_hook(shard_log                *log,
+                        shard_log_test_hook_event event,
+                        uint64                    group_id)
+{
+   if (log->test_hook != NULL) {
+      log->test_hook(log->test_hook_arg, event, group_id);
+   }
+}
+#endif
+
 static inline uint64
 shard_log_page_size(shard_log_config *cfg)
 {
@@ -177,22 +189,27 @@ shard_log_atomic_bool_set_once(bool32 *value)
    }
 }
 
-/*
- * Begin calls are externally excluded from deinit. The count itself is atomic
- * so concurrent begin calls need not take group_lock merely to pin the handle;
- * group_lock still arbitrates the final decrement against deinit/destruction.
- */
+/* Begin calls are externally excluded from deinit, so the owner's reference
+ * guarantees that this relaxed increment cannot resurrect a dead handle. */
 static inline void
-shard_log_ticket_ref_acquire(shard_log *log)
+shard_log_handle_ref_acquire(shard_log *log)
 {
-   platform_assert(!__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
-   (void)__atomic_fetch_add(&log->ticket_refs, 1, __ATOMIC_RELAXED);
+   debug_assert(!__atomic_load_n(&log->owner_released, __ATOMIC_ACQUIRE));
+   uint64 old = __atomic_fetch_add(&log->handle_refs, 1, __ATOMIC_RELAXED);
+   platform_assert(old != 0);
 }
 
-static inline uint64
-shard_log_ticket_refs_load(const shard_log *log)
+/* Release either the owner reference or a durability-ticket reference. */
+static void
+shard_log_handle_ref_release(shard_log *log)
 {
-   return __atomic_load_n(&log->ticket_refs, __ATOMIC_RELAXED);
+   uint64 old = __atomic_fetch_sub(&log->handle_refs, 1, __ATOMIC_ACQ_REL);
+   platform_assert(old != 0, "log handle reference consumed more than once");
+   if (old == 1) {
+      debug_assert(__atomic_load_n(&log->owner_released, __ATOMIC_ACQUIRE),
+                   "durability ticket consumed more than once");
+      shard_log_destroy(log);
+   }
 }
 
 static inline log_durable_ticket
@@ -762,21 +779,21 @@ shard_log_put_unused_group(shard_log *log, shard_log_group *group)
    }
    shard_log_group_trim_writeback_storage(log, group);
    if (group->emergency) {
-      platform_mutex_lock(&log->group_lock);
+      platform_mutex_lock(&log->group_pool_lock);
       group->pool_next    = log->emergency_pool;
       log->emergency_pool = group;
-      platform_mutex_unlock(&log->group_lock);
+      platform_mutex_unlock(&log->group_pool_lock);
       return;
    }
 
-   platform_mutex_lock(&log->reusable_pool_lock);
+   platform_mutex_lock(&log->group_pool_lock);
    if (log->reusable_pool_count < SHARD_LOG_NUM_REUSABLE_GROUPS) {
       group->pool_next   = log->reusable_pool;
       log->reusable_pool = group;
       log->reusable_pool_count++;
       group = NULL;
    }
-   platform_mutex_unlock(&log->reusable_pool_lock);
+   platform_mutex_unlock(&log->group_pool_lock);
 
    if (group != NULL) {
       shard_log_group_free(log, group);
@@ -792,7 +809,7 @@ shard_log_put_unused_group(shard_log *log, shard_log_group *group)
 static platform_status
 shard_log_allocate_group(shard_log *log, shard_log_group **group_out)
 {
-   platform_mutex_lock(&log->reusable_pool_lock);
+   platform_mutex_lock(&log->group_pool_lock);
    shard_log_group *group = log->reusable_pool;
    if (group != NULL) {
       log->reusable_pool = group->pool_next;
@@ -800,7 +817,7 @@ shard_log_allocate_group(shard_log *log, shard_log_group **group_out)
       platform_assert(log->reusable_pool_count != 0);
       log->reusable_pool_count--;
    }
-   platform_mutex_unlock(&log->reusable_pool_lock);
+   platform_mutex_unlock(&log->group_pool_lock);
 
    if (group != NULL) {
       shard_log_group_reset(log, group, 0);
@@ -814,13 +831,13 @@ shard_log_allocate_group(shard_log *log, shard_log_group **group_out)
       return STATUS_OK;
    }
 
-   platform_mutex_lock(&log->group_lock);
+   platform_mutex_lock(&log->group_pool_lock);
    group = log->emergency_pool;
    if (group != NULL) {
       log->emergency_pool = group->pool_next;
       group->pool_next    = NULL;
    }
-   platform_mutex_unlock(&log->group_lock);
+   platform_mutex_unlock(&log->group_pool_lock);
    if (group == NULL) {
       *group_out = NULL;
       return STATUS_NO_MEMORY;
@@ -1106,8 +1123,9 @@ out:
    return rc.r;
 }
 
+/* Caller holds graduate_lock or durability_lock, excluding reclamation. */
 static shard_log_group *
-shard_log_find_group_locked(shard_log *log, log_durable_ticket ticket)
+shard_log_find_group(shard_log *log, log_durable_ticket ticket)
 {
    platform_assert(ticket != 0);
    for (shard_log_group *group = log->groups_head; group != NULL;
@@ -1125,11 +1143,9 @@ static shard_log_group *
 shard_log_find_next_group_to_graduate(shard_log         *log,
                                       log_durable_ticket next_ticket)
 {
-   platform_mutex_lock(&log->group_lock);
-   shard_log_group *group = shard_log_find_group_locked(log, next_ticket);
+   shard_log_group *group = shard_log_find_group(log, next_ticket);
    platform_assert(group != NULL);
    platform_assert(group->state != SHARD_LOG_GROUP_OPEN);
-   platform_mutex_unlock(&log->group_lock);
    return group;
 }
 
@@ -1145,10 +1161,43 @@ shard_log_wait_for_operations(shard_log *log, log_durable_ticket ticket)
 }
 
 /*
+ * A cutter may select a successor after its pointer is published but before
+ * the preceding cutter advances accepting.id. After winning the next claim,
+ * wait for that final id store before modifying the selected group. This makes
+ * accepting.id the ordered publication handoff between adjacent cutters.
+ */
+static void
+shard_log_wait_for_accepting_publication(shard_log       *log,
+                                         shard_log_group *current)
+{
+   uint64 wait = 100;
+   debug_code(bool32 hook_called = FALSE);
+   while (TRUE) {
+      uint64 accepting_id =
+         __atomic_load_n(&log->accepting.id, __ATOMIC_ACQUIRE);
+      platform_assert(accepting_id <= current->id);
+      if (accepting_id == current->id) {
+         platform_assert(
+            __atomic_load_n(&log->accepting.group, __ATOMIC_ACQUIRE)
+            == current);
+         return;
+      }
+
+      debug_code(if (!hook_called) {
+         shard_log_run_test_hook(
+            log, SHARD_LOG_TEST_ACCEPTING_HANDOFF_WAIT, current->id);
+         hook_called = TRUE;
+      });
+      platform_sleep_ns(wait);
+      wait = wait > 2048 ? wait : 2 * wait;
+   }
+}
+
+/*
  * A make_durable_begin() caller which loses the installation claim may return
  * before the winner has published the cut.  The accepting id advances only
  * after a normal successor is fully linked, while NULL is the final seal
- * publication.  Wait for either publication without contending on group_lock.
+ * publication. Wait for either publication without contending with cutters.
  */
 static void
 shard_log_wait_for_cut(shard_log *log, log_durable_ticket ticket)
@@ -1325,7 +1374,6 @@ shard_log_publish_durable_prefix(shard_log         *log,
    platform_assert(previous_durable == shard_log_durable_ticket_load(log));
 
    platform_mutex_lock(&log->graduate_lock);
-   platform_mutex_lock(&log->group_lock);
 
    shard_log_group *reclaim_head = log->groups_head;
    shard_log_group *remaining    = reclaim_head;
@@ -1340,7 +1388,6 @@ shard_log_publish_durable_prefix(shard_log         *log,
    }
    log->groups_head = remaining;
    shard_log_durable_ticket_store(log, target);
-   platform_mutex_unlock(&log->group_lock);
    platform_mutex_unlock(&log->graduate_lock);
 
    /* The release publication above lets coalesced waiters return while this
@@ -1385,11 +1432,9 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
        * durability_lock excludes reclamation, so this cursor and the immutable
        * closed-group links through target remain valid across all three passes.
        */
-      platform_mutex_lock(&log->group_lock);
-      shard_log_group *first = shard_log_find_group_locked(log, durable + 1);
+      shard_log_group *first = shard_log_find_group(log, durable + 1);
       platform_assert(first != NULL);
       platform_assert(first->state == SHARD_LOG_GROUP_DURABILITY_PENDING);
-      platform_mutex_unlock(&log->group_lock);
 
       /*
        * Issue every needed retry before waiting for any group, preserving the
@@ -1447,8 +1492,6 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
    shard_log *log = (shard_log *)logh;
    threadid   tid = platform_get_tid();
 
-   debug_assert(!__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
-
    log_durable_ticket target;
    shard_log_group *current = shard_log_publish_reservation(log, tid, &target);
    if (current == NULL) {
@@ -1457,7 +1500,7 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
       platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
       target = install_state & SHARD_LOG_INSTALL_ID_MASK;
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
-      shard_log_ticket_ref_acquire(log);
+      shard_log_handle_ref_acquire(log);
 
       *ticket_out = target;
       return STATUS_OK;
@@ -1466,7 +1509,7 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
    if (!shard_log_atomic_bool_load(&current->ever_used)) {
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
       target--;
-      shard_log_ticket_ref_acquire(log);
+      shard_log_handle_ref_acquire(log);
 
       shard_log_reservation_slot_clear(log, tid);
       *ticket_out = target;
@@ -1511,11 +1554,12 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
             /*
              * Although we've already released our reservation, a successful
              * claim proves that target was never cut and current remains valid.
-             * The claim makes the remaining installation path infallible.
+             * The claim makes the remaining installation path infallible. A
+             * preceding cutter may still be finishing the pointer-first
+             * publication by which we selected current, so wait for its id
+             * handoff before changing current or publishing our successor.
              */
-            platform_mutex_lock(&log->group_lock);
-            debug_assert(
-               !__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
+            shard_log_wait_for_accepting_publication(log, current);
             platform_assert(
                __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST)
                == target + 1);
@@ -1531,15 +1575,16 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
             candidate->id = target + 1;
             current->next = candidate;
 
-            shard_log_ticket_ref_acquire(log);
+            shard_log_handle_ref_acquire(log);
 
             /* Pointer first, ticket last: see shard_log_publish_reservation().
              */
             __atomic_store_n(
                &log->accepting.group, candidate, __ATOMIC_SEQ_CST);
+            debug_code(shard_log_run_test_hook(
+               log, SHARD_LOG_TEST_SUCCESSOR_POINTER_PUBLISHED, candidate->id));
             __atomic_store_n(
                &log->accepting.id, candidate->id, __ATOMIC_SEQ_CST);
-            platform_mutex_unlock(&log->group_lock);
 
             *ticket_out = target;
             return STATUS_OK;
@@ -1550,7 +1595,7 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
 
    /* Another installer or seal owns this target; never chase its successor. */
    platform_assert((install_state & SHARD_LOG_INSTALL_ID_MASK) >= target);
-   shard_log_ticket_ref_acquire(log);
+   shard_log_handle_ref_acquire(log);
 
    shard_log_put_unused_group(log, candidate);
    *ticket_out = target;
@@ -1562,23 +1607,7 @@ shard_log_make_durable_wait(log_handle *logh, log_durable_ticket ticket)
 {
    shard_log      *log = (shard_log *)logh;
    platform_status rc  = shard_log_wait_for_ticket_to_be_durable(log, ticket);
-
-   bool32 destroy = FALSE;
-   platform_mutex_lock(&log->group_lock);
-   platform_assert(shard_log_ticket_refs_load(log) != 0,
-                   "log durability ticket consumed more than once");
-   uint64 refs = __atomic_sub_fetch(&log->ticket_refs, 1, __ATOMIC_RELAXED);
-   if (__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST) && refs == 0
-       && !log->destroying)
-   {
-      log->destroying = TRUE;
-      destroy         = TRUE;
-   }
-   platform_mutex_unlock(&log->group_lock);
-
-   if (destroy) {
-      shard_log_destroy(log);
-   }
+   shard_log_handle_ref_release(log);
    return rc;
 }
 
@@ -1588,34 +1617,27 @@ shard_log_seal(log_handle *logh)
    shard_log         *log  = (shard_log *)logh;
    uint64             wait = 100;
    log_durable_ticket target;
+   threadid           tid = platform_get_tid();
 
    platform_assert(
-      shard_log_reservation_slot_load_relaxed(log, platform_get_tid()) == 0,
+      shard_log_reservation_slot_load_relaxed(log, tid) == 0,
       "log_seal cannot wait on its calling thread's write reservation");
 
    while (TRUE) {
-      platform_mutex_lock(&log->group_lock);
-      platform_assert(
-         !__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
-      uint64 install_state =
-         __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
-      if (install_state & SHARD_LOG_INSTALL_TERMINAL_BIT) {
+      shard_log_group *current =
+         shard_log_publish_reservation(log, tid, &target);
+      if (current == NULL) {
+         uint64 install_state =
+            __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
+         platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
          target = install_state & SHARD_LOG_INSTALL_ID_MASK;
          platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
-         platform_assert(
-            __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST) == NULL);
-         platform_mutex_unlock(&log->group_lock);
          break;
       }
 
-      shard_log_group *current =
-         __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
-      platform_assert(current != NULL);
-      platform_assert(__atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST)
-                      == current->id);
-
-      uint64 expected_state = current->id;
-      uint64 terminal_state = SHARD_LOG_INSTALL_TERMINAL_BIT | current->id;
+      platform_assert(target == current->id);
+      uint64 expected_state = target;
+      uint64 terminal_state = SHARD_LOG_INSTALL_TERMINAL_BIT | target;
       if (!__atomic_compare_exchange_n(&log->install.state,
                                        &expected_state,
                                        terminal_state,
@@ -1623,32 +1645,47 @@ shard_log_seal(log_handle *logh)
                                        __ATOMIC_SEQ_CST,
                                        __ATOMIC_SEQ_CST))
       {
+         shard_log_reservation_slot_clear(log, tid);
+         if (expected_state & SHARD_LOG_INSTALL_TERMINAL_BIT) {
+            target = expected_state & SHARD_LOG_INSTALL_ID_MASK;
+            platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
+            while (__atomic_load_n(&log->accepting.group, __ATOMIC_ACQUIRE)
+                   != NULL)
+            {
+               platform_sleep_ns(wait);
+               wait = wait > 2048 ? wait : 2 * wait;
+            }
+            break;
+         }
+
          /* An installer owns this generation; let it publish and retry. */
-         platform_assert(
-            expected_state == current->id + 1,
-            "unexpected install state while sealing group %lu: %lu",
-            current->id,
-            expected_state);
-         platform_mutex_unlock(&log->group_lock);
+         platform_assert(expected_state >= target,
+                         "unexpected install state while sealing group %lu: "
+                         "%lu",
+                         target,
+                         expected_state);
          platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
          continue;
       }
 
+      /* The terminal claim now protects current after its hazard is cleared. */
+      shard_log_reservation_slot_clear(log, tid);
+      shard_log_wait_for_accepting_publication(log, current);
       platform_assert(current->state == SHARD_LOG_GROUP_OPEN);
       current->state = SHARD_LOG_GROUP_CLOSING;
       current->close = SHARD_LOG_CLOSE_STREAM;
       target         = current->id;
       /* install.state already publishes the terminal ticket. */
       __atomic_store_n(&log->accepting.group, NULL, __ATOMIC_SEQ_CST);
-      platform_mutex_unlock(&log->group_lock);
       break;
    }
 
    return shard_log_wait_for_ticket_to_be_durable(log, target);
 }
 
-/* Final destruction, called once ticket_refs is zero. */
+/* Final destruction, called by the thread which releases the last handle ref.
+ */
 static void
 shard_log_destroy(shard_log *log)
 {
@@ -1677,9 +1714,7 @@ shard_log_destroy(shard_log *log)
    platform_assert_status_ok(rc);
    rc = platform_mutex_destroy(&log->graduate_lock);
    platform_assert_status_ok(rc);
-   rc = platform_mutex_destroy(&log->reusable_pool_lock);
-   platform_assert_status_ok(rc);
-   rc = platform_mutex_destroy(&log->group_lock);
+   rc = platform_mutex_destroy(&log->group_pool_lock);
    platform_assert_status_ok(rc);
 
    /*
@@ -1694,25 +1729,16 @@ shard_log_destroy(shard_log *log)
 static void
 shard_log_deinit(log_handle *logh)
 {
-   shard_log *log     = (shard_log *)logh;
-   bool32     destroy = FALSE;
+   shard_log *log = (shard_log *)logh;
 
-   platform_mutex_lock(&log->group_lock);
-   platform_assert(!__atomic_load_n(&log->deinit_requested, __ATOMIC_SEQ_CST));
    for (threadid tid = 0; tid < MAX_THREADS; tid++) {
       platform_assert(shard_log_reservation_slot_load(log, tid) == 0,
                       "log_deinit with an unconsumed operation");
    }
-   __atomic_store_n(&log->deinit_requested, TRUE, __ATOMIC_SEQ_CST);
-   if (shard_log_ticket_refs_load(log) == 0) {
-      log->destroying = TRUE;
-      destroy         = TRUE;
-   }
-   platform_mutex_unlock(&log->group_lock);
-
-   if (destroy) {
-      shard_log_destroy(log);
-   }
+   debug_assert(
+      !__atomic_exchange_n(&log->owner_released, TRUE, __ATOMIC_ACQ_REL),
+      "log owner reference consumed more than once");
+   shard_log_handle_ref_release(log);
 }
 
 void
@@ -1993,26 +2019,19 @@ shard_log_init(shard_log        *log,
       return rc;
    }
 
-   rc = platform_mutex_init(&log->group_lock, 0, hid);
+   rc = platform_mutex_init(&log->group_pool_lock, 0, hid);
    if (!SUCCESS(rc)) {
-      return rc;
-   }
-   rc = platform_mutex_init(&log->reusable_pool_lock, 0, hid);
-   if (!SUCCESS(rc)) {
-      platform_mutex_destroy(&log->group_lock);
       return rc;
    }
    rc = platform_mutex_init(&log->graduate_lock, 0, hid);
    if (!SUCCESS(rc)) {
-      platform_mutex_destroy(&log->reusable_pool_lock);
-      platform_mutex_destroy(&log->group_lock);
+      platform_mutex_destroy(&log->group_pool_lock);
       return rc;
    }
    rc = platform_mutex_init(&log->durability_lock, 0, hid);
    if (!SUCCESS(rc)) {
       platform_mutex_destroy(&log->graduate_lock);
-      platform_mutex_destroy(&log->reusable_pool_lock);
-      platform_mutex_destroy(&log->group_lock);
+      platform_mutex_destroy(&log->group_pool_lock);
       return rc;
    }
 
@@ -2020,8 +2039,7 @@ shard_log_init(shard_log        *log,
    if (current == NULL) {
       platform_mutex_destroy(&log->durability_lock);
       platform_mutex_destroy(&log->graduate_lock);
-      platform_mutex_destroy(&log->reusable_pool_lock);
-      platform_mutex_destroy(&log->group_lock);
+      platform_mutex_destroy(&log->group_pool_lock);
       return STATUS_NO_MEMORY;
    }
    current->id      = SHARD_LOG_FIRST_GROUP_ID;
@@ -2042,8 +2060,7 @@ shard_log_init(shard_log        *log,
          }
          platform_mutex_destroy(&log->durability_lock);
          platform_mutex_destroy(&log->graduate_lock);
-         platform_mutex_destroy(&log->reusable_pool_lock);
-         platform_mutex_destroy(&log->group_lock);
+         platform_mutex_destroy(&log->group_pool_lock);
          return STATUS_NO_MEMORY;
       }
       emergency->pool_next = log->emergency_pool;
@@ -2063,7 +2080,7 @@ shard_log_init(shard_log        *log,
                                     shard_log_page_type_table);
    /*
     * mini_init's initial external reference belongs to the log_head owner.
-    * Keep a second reference for the live handle, so ticket_refs can extend
+    * Keep a second reference for the live handle, so handle_refs can extend
     * both the in-memory and allocation lifetimes without per-ticket refcount
     * traffic.
     */
@@ -2073,6 +2090,7 @@ shard_log_init(shard_log        *log,
 
    // Baseline for shard_log_get_size(): the stream's fixed overhead.
    log->initial_extents = mini_num_extents(&log->mini);
+   __atomic_store_n(&log->handle_refs, 1, __ATOMIC_RELAXED);
 
    return STATUS_OK;
 }

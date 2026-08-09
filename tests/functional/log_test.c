@@ -717,9 +717,9 @@ test_log_finish_claim_race(clockcache             *cc,
 
 /*
  * Stop an installation immediately after its atomic claim, before the cut is
- * published under group_lock. A concurrent begin must return the claimed
- * group's ticket without chasing a successor, while its wait must remain
- * blocked until some caller finishes that cut.
+ * published. A concurrent begin must return the claimed group's ticket without
+ * chasing a successor, while its wait must remain blocked until some caller
+ * finishes that cut.
  */
 static int
 test_log_begin_loses_install_claim(clockcache             *cc,
@@ -814,12 +814,150 @@ test_log_begin_loses_install_claim(clockcache             *cc,
    return 0;
 }
 
+#if SPLINTER_DEBUG
+typedef struct test_log_publication_hook {
+   uint64          group_id;
+   volatile bool32 successor_published;
+   volatile bool32 handoff_waited;
+   volatile bool32 release_successor;
+} test_log_publication_hook;
+
+static void
+test_log_publication_hook_run(void                     *arg,
+                              shard_log_test_hook_event event,
+                              uint64                    group_id)
+{
+   test_log_publication_hook *hook = arg;
+   if (group_id != hook->group_id) {
+      return;
+   }
+
+   if (event == SHARD_LOG_TEST_SUCCESSOR_POINTER_PUBLISHED) {
+      __atomic_store_n(&hook->successor_published, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&hook->release_successor, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(USEC_TO_NSEC(50));
+      }
+   } else {
+      platform_assert(event == SHARD_LOG_TEST_ACCEPTING_HANDOFF_WAIT);
+      __atomic_store_n(&hook->handoff_waited, TRUE, __ATOMIC_RELEASE);
+   }
+}
+
+static bool32
+test_log_wait_for_handoff_or_done(const test_log_publication_hook *hook,
+                                  const volatile bool32           *escape)
+{
+   uint64 start = platform_get_timestamp();
+   while (platform_timestamp_elapsed(start) < SEC_TO_NSEC(10)) {
+      if (__atomic_load_n(&hook->handoff_waited, __ATOMIC_ACQUIRE)) {
+         return TRUE;
+      }
+      if (__atomic_load_n(escape, __ATOMIC_ACQUIRE)) {
+         return FALSE;
+      }
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   return FALSE;
+}
+
 /*
- * Pin group_lock after a record is present, so make_durable_begin() can win
- * the atomic successor-installation claim but cannot publish that successor.
- * Starting seal only after observing that claim makes this ordering
- * deterministic; releasing group_lock then lets begin publish and seal claim
- * and terminate the successor.
+ * Pause one cutter after publishing its successor pointer but before its id.
+ * A cutter of that now-used successor may win the following claim, but must
+ * wait for the first cutter's id handoff before changing or publishing it.
+ */
+static int
+test_log_nested_cutter_publication_handoff(
+   clockcache             *cc,
+   clockcache_config      *cache_cfg,
+   io_handle              *io,
+   allocator              *al,
+   shard_log_config       *cfg,
+   platform_heap_id        hid,
+   test_message_generator *gen,
+   uint64                  key_size)
+{
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
+   log_head segment = log_get_head(log);
+   test_log_write_range(log, gen, hid, key_size, 0, 1);
+
+   shard_log       *slog = (shard_log *)log;
+   shard_log_group *initial =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(initial != NULL);
+   uint64 initial_id = initial->id;
+   test_log_publication_hook hook = {
+      .group_id = initial_id + 1,
+   };
+   slog->test_hook     = test_log_publication_hook_run;
+   slog->test_hook_arg = &hook;
+
+   test_log_begin_actor first = {
+      .log      = log,
+      .begin_rc = STATUS_INVALID_STATE,
+      .wait_rc  = STATUS_INVALID_STATE,
+   };
+   platform_assert_status_ok(platform_thread_create(
+      &first.thread, FALSE, test_log_begin_actor_run, &first, hid));
+   platform_assert(test_log_wait_for_flag(&hook.successor_published),
+                   "first cutter did not publish its successor pointer");
+
+   shard_log_group *successor =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(successor != NULL);
+   platform_assert(successor->id == hook.group_id);
+   uint64 successor_id = successor->id;
+   platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
+                   == initial_id);
+   test_log_write_range(log, gen, hid, key_size, 1, 1);
+
+   test_log_begin_actor second = {
+      .log      = log,
+      .begin_rc = STATUS_INVALID_STATE,
+      .wait_rc  = STATUS_INVALID_STATE,
+   };
+   platform_assert_status_ok(platform_thread_create(
+      &second.thread, FALSE, test_log_begin_actor_run, &second, hid));
+   platform_assert(
+      test_log_wait_for_handoff_or_done(&hook, &second.began),
+      "nested cutter did not wait for the predecessor id publication");
+   platform_assert(__atomic_load_n(&slog->install.state, __ATOMIC_ACQUIRE)
+                   == successor_id + 1);
+   platform_assert(__atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE)
+                   == successor);
+   platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
+                   == initial_id);
+
+   __atomic_store_n(&hook.release_successor, TRUE, __ATOMIC_RELEASE);
+   platform_thread_join(&first.thread);
+   platform_thread_join(&second.thread);
+   test_log_assert_begin_actor(&first);
+   test_log_assert_begin_actor(&second);
+   platform_assert(first.ticket == initial_id);
+   platform_assert(second.ticket == successor_id);
+   slog->test_hook     = NULL;
+   slog->test_hook_arg = NULL;
+
+   test_log_finish_claim_race(cc,
+                              cache_cfg,
+                              io,
+                              al,
+                              cfg,
+                              hid,
+                              gen,
+                              key_size,
+                              log,
+                              &segment,
+                              "nested-cutter-publication-handoff",
+                              0,
+                              2);
+   return 0;
+}
+
+/*
+ * Pause a cutter after publishing its successor pointer but before its id.
+ * Seal may win the terminal claim for that successor, but must wait for the
+ * predecessor's id handoff before closing it and publishing NULL.
  */
 static int
 test_log_begin_claim_precedes_seal(clockcache             *cc,
@@ -837,15 +975,16 @@ test_log_begin_claim_precedes_seal(clockcache             *cc,
    test_log_write_range(log, gen, hid, key_size, 0, 1);
 
    shard_log       *slog = (shard_log *)log;
-   shard_log_group *accepting_before =
+   shard_log_group *initial =
       __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
-   uint64 accepting_ticket_before =
-      __atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE);
-   platform_assert(accepting_before != NULL);
-   platform_assert(__atomic_load_n(&slog->install.state, __ATOMIC_ACQUIRE)
-                   == accepting_before->id);
+   platform_assert(initial != NULL);
+   uint64 initial_id = initial->id;
+   test_log_publication_hook hook = {
+      .group_id = initial_id + 1,
+   };
+   slog->test_hook     = test_log_publication_hook_run;
+   slog->test_hook_arg = &hook;
 
-   platform_mutex_lock(&slog->group_lock);
    test_log_begin_actor begin = {
       .log      = log,
       .begin_rc = STATUS_INVALID_STATE,
@@ -853,19 +992,15 @@ test_log_begin_claim_precedes_seal(clockcache             *cc,
    };
    platform_assert_status_ok(platform_thread_create(
       &begin.thread, FALSE, test_log_begin_actor_run, &begin, hid));
-
-   bool32 begin_claimed =
-      test_log_wait_for_install_state(slog, accepting_before->id + 1, FALSE);
-   if (!begin_claimed) {
-      platform_mutex_unlock(&slog->group_lock);
-      platform_thread_join(&begin.thread);
-   }
-   platform_assert(begin_claimed,
-                   "make_durable_begin did not publish its install claim");
-   platform_assert(__atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE)
-                   == accepting_before);
+   platform_assert(test_log_wait_for_flag(&hook.successor_published),
+                   "begin did not publish its successor pointer");
+   shard_log_group *successor =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(successor != NULL);
+   platform_assert(successor->id == hook.group_id);
+   uint64 successor_id = successor->id;
    platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
-                   == accepting_ticket_before);
+                   == initial_id);
 
    test_log_seal_actor seal = {
       .log = log,
@@ -873,15 +1008,23 @@ test_log_begin_claim_precedes_seal(clockcache             *cc,
    };
    platform_assert_status_ok(platform_thread_create(
       &seal.thread, FALSE, test_log_seal_actor_run, &seal, hid));
-   bool32 seal_entered = test_log_wait_for_flag(&seal.entered);
-   platform_mutex_unlock(&slog->group_lock);
+   platform_assert(test_log_wait_for_handoff_or_done(&hook, &seal.done),
+                   "seal did not wait for the predecessor id publication");
+   platform_assert(__atomic_load_n(&slog->install.state, __ATOMIC_ACQUIRE)
+                   == (SHARD_LOG_INSTALL_TERMINAL_BIT | successor_id));
+   platform_assert(__atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE)
+                   == successor);
+   platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
+                   == initial_id);
 
+   __atomic_store_n(&hook.release_successor, TRUE, __ATOMIC_RELEASE);
    platform_thread_join(&begin.thread);
    platform_thread_join(&seal.thread);
-   platform_assert(seal_entered, "seal worker did not start");
    test_log_assert_begin_actor(&begin);
    platform_assert(__atomic_load_n(&seal.done, __ATOMIC_ACQUIRE));
    platform_assert_status_ok(seal.rc);
+   slog->test_hook     = NULL;
+   slog->test_hook_arg = NULL;
 
    test_log_finish_claim_race(cc,
                               cache_cfg,
@@ -898,6 +1041,7 @@ test_log_begin_claim_precedes_seal(clockcache             *cc,
                               1);
    return 0;
 }
+#endif
 
 /*
  * Hold a real write reservation so seal can publish its terminal claim and
@@ -1140,6 +1284,76 @@ test_log_ticket_lifetime(cache                  *cc,
    platform_assert_status_ok(log_make_durable_wait(log, ticket));
    platform_assert(allocator_get_refcount(al, head.meta_addr) == AL_FREE,
                    "final wait did not release the handle reference");
+   return 0;
+}
+
+typedef struct test_log_wait_actor {
+   log_handle        *log;
+   log_durable_ticket ticket;
+   const bool32      *start;
+   platform_thread    thread;
+   volatile bool32    ready;
+   platform_status    rc;
+} test_log_wait_actor;
+
+static void
+test_log_wait_actor_run(void *arg)
+{
+   test_log_wait_actor *actor = arg;
+   __atomic_store_n(&actor->ready, TRUE, __ATOMIC_RELEASE);
+   while (!__atomic_load_n(actor->start, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   actor->rc = log_make_durable_wait(actor->log, actor->ticket);
+}
+
+/* The last of several ticket waiters must uniquely destroy a retired handle. */
+static int
+test_log_concurrent_ticket_lifetime(cache                  *cc,
+                                    shard_log_config       *cfg,
+                                    platform_heap_id        hid,
+                                    test_message_generator *gen,
+                                    uint64                  key_size)
+{
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &log));
+   log_head head = log_get_head(log);
+   test_log_write_range(log, gen, hid, key_size, 0, 1);
+   allocator *al                = cache_get_allocator(cc);
+   refcount   refs_before_waits = allocator_get_refcount(al, head.meta_addr);
+
+   bool32             start = FALSE;
+   test_log_wait_actor actors[2] = {0};
+   for (uint64 i = 0; i < ARRAY_SIZE(actors); i++) {
+      actors[i].log   = log;
+      actors[i].start = &start;
+      actors[i].rc    = STATUS_INVALID_STATE;
+      platform_assert_status_ok(
+         log_make_durable_begin(log, &actors[i].ticket));
+      platform_assert(actors[i].ticket != 0);
+      platform_assert_status_ok(platform_thread_create(&actors[i].thread,
+                                                       FALSE,
+                                                       test_log_wait_actor_run,
+                                                       &actors[i],
+                                                       hid));
+   }
+   for (uint64 i = 0; i < ARRAY_SIZE(actors); i++) {
+      platform_assert(test_log_wait_for_flag(&actors[i].ready));
+   }
+
+   log_deinit(log);
+   __atomic_store_n(&start, TRUE, __ATOMIC_RELEASE);
+   for (uint64 i = 0; i < ARRAY_SIZE(actors); i++) {
+      platform_assert_status_ok(platform_thread_join(&actors[i].thread));
+      platform_assert_status_ok(actors[i].rc);
+   }
+
+   platform_assert(allocator_get_refcount(al, head.meta_addr)
+                      == refs_before_waits - 1,
+                   "final concurrent wait did not release the handle ref");
+   shard_log_dec_ref(cc, &head);
+   platform_assert(allocator_get_refcount(al, head.meta_addr) == AL_FREE,
+                   "head release did not free the retired log");
    return 0;
 }
 
@@ -1930,6 +2144,17 @@ log_test(int argc, char *argv[])
                                            workload_cfg.key_size);
    platform_assert(rc == 0);
 
+#if SPLINTER_DEBUG
+   rc = test_log_nested_cutter_publication_handoff(cc,
+                                                    &system_cfg.cache_cfg,
+                                                    io,
+                                                    (allocator *)&al,
+                                                    &system_cfg.log_cfg,
+                                                    hid,
+                                                    &gen,
+                                                    workload_cfg.key_size);
+   platform_assert(rc == 0);
+
    rc = test_log_begin_claim_precedes_seal(cc,
                                            &system_cfg.cache_cfg,
                                            io,
@@ -1939,6 +2164,7 @@ log_test(int argc, char *argv[])
                                            &gen,
                                            workload_cfg.key_size);
    platform_assert(rc == 0);
+#endif
 
    rc = test_log_seal_claim_precedes_begin(cc,
                                            &system_cfg.cache_cfg,
@@ -1961,6 +2187,10 @@ log_test(int argc, char *argv[])
    platform_assert(rc == 0);
 
    rc = test_log_ticket_lifetime(
+      (cache *)cc, &system_cfg.log_cfg, hid, &gen, workload_cfg.key_size);
+   platform_assert(rc == 0);
+
+   rc = test_log_concurrent_ticket_lifetime(
       (cache *)cc, &system_cfg.log_cfg, hid, &gen, workload_cfg.key_size);
    platform_assert(rc == 0);
 

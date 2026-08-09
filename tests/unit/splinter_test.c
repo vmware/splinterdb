@@ -286,13 +286,13 @@ core_durable_barrier_test_wait(const bool32 *flag)
 }
 
 static bool32
-core_durable_barrier_test_wait_for_ticket_refs(shard_log *log, uint64 target)
+core_durable_barrier_test_wait_for_handle_refs(shard_log *log, uint64 target)
 {
    timestamp start = platform_get_timestamp();
    while (platform_timestamp_elapsed(start)
           < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
    {
-      uint64 refs = __atomic_load_n(&log->ticket_refs, __ATOMIC_RELAXED);
+      uint64 refs = __atomic_load_n(&log->handle_refs, __ATOMIC_RELAXED);
       if (refs >= target) {
          return TRUE;
       }
@@ -315,24 +315,38 @@ core_durable_barrier_test_wait_for_io_barriers(checkpoint_barrier_fault *fault,
    return __atomic_load_n(&fault->barriers, __ATOMIC_ACQUIRE) >= target;
 }
 
-/* log->group_lock is held. */
-static log_durable_ticket
-core_durable_barrier_test_cut_frontier_locked(shard_log *log)
+/* Take a stable frontier snapshot without dereferencing the unhazarded group. */
+static bool32
+core_durable_barrier_test_try_cut_frontier(shard_log         *log,
+                                           log_durable_ticket *frontier_out)
 {
-   shard_log_group *current =
+   uint64 install_before =
+      __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
+   shard_log_group *accepting =
       __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
-   if (current == NULL) {
-      uint64 install_state =
-         __atomic_load_n(&log->install.state, __ATOMIC_ACQUIRE);
-      platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
-      return install_state & SHARD_LOG_INSTALL_ID_MASK;
+   uint64 accepting_id =
+      __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
+   uint64 install_after =
+      __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
+
+   if (install_before != install_after) {
+      return FALSE;
    }
 
-   uint64 current_ticket =
-      __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
-   platform_assert(current_ticket == current->id);
-   platform_assert(current_ticket >= SHARD_LOG_FIRST_GROUP_ID);
-   return current_ticket - 1;
+   if (install_after & SHARD_LOG_INSTALL_TERMINAL_BIT) {
+      if (accepting != NULL) {
+         return FALSE;
+      }
+      *frontier_out = install_after & SHARD_LOG_INSTALL_ID_MASK;
+      return TRUE;
+   }
+
+   if (accepting == NULL || install_after != accepting_id) {
+      return FALSE;
+   }
+   platform_assert(accepting_id >= SHARD_LOG_FIRST_GROUP_ID);
+   *frontier_out = accepting_id - 1;
+   return TRUE;
 }
 
 static bool32
@@ -342,16 +356,10 @@ core_durable_barrier_test_wait_for_live_log_cut(shard_log *log)
    while (platform_timestamp_elapsed(start)
           < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
    {
-      platform_status rc = platform_mutex_lock(&log->group_lock);
-      if (!SUCCESS(rc)) {
-         return FALSE;
-      }
-      bool32 cut = core_durable_barrier_test_cut_frontier_locked(log) != 0;
-      rc         = platform_mutex_unlock(&log->group_lock);
-      if (!SUCCESS(rc)) {
-         return FALSE;
-      }
-      if (cut) {
+      log_durable_ticket cut_frontier;
+      if (core_durable_barrier_test_try_cut_frontier(log, &cut_frontier)
+          && cut_frontier != 0)
+      {
          return TRUE;
       }
       platform_sleep_ns(USEC_TO_NSEC(50));
@@ -366,21 +374,12 @@ core_durable_barrier_test_wait_for_live_log_durable(shard_log *log)
    while (platform_timestamp_elapsed(start)
           < CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS)
    {
-      platform_status rc = platform_mutex_lock(&log->group_lock);
-      if (!SUCCESS(rc)) {
-         return FALSE;
-      }
-      log_durable_ticket cut_frontier =
-         core_durable_barrier_test_cut_frontier_locked(log);
-      bool32 durable =
-         cut_frontier != 0
-         && __atomic_load_n(&log->durable_ticket, __ATOMIC_ACQUIRE)
-               >= cut_frontier;
-      rc = platform_mutex_unlock(&log->group_lock);
-      if (!SUCCESS(rc)) {
-         return FALSE;
-      }
-      if (durable) {
+      log_durable_ticket cut_frontier;
+      if (core_durable_barrier_test_try_cut_frontier(log, &cut_frontier)
+          && cut_frontier != 0
+          && __atomic_load_n(&log->durable_ticket, __ATOMIC_ACQUIRE)
+                >= cut_frontier)
+      {
          return TRUE;
       }
       platform_sleep_ns(USEC_TO_NSEC(50));
@@ -1411,7 +1410,7 @@ CTEST2(splinter, test_durable_barrier_packs_concurrent_small_tails)
 
       if (barrier_blocked) {
          shard_log *log = (shard_log *)spl.log;
-         platform_mutex_lock(&log->group_lock);
+         platform_mutex_lock(&log->graduate_lock);
          shard_log_group *closed = log->groups_head;
          shard_log_group *accepting =
             __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
@@ -1419,7 +1418,7 @@ CTEST2(splinter, test_durable_barrier_packs_concurrent_small_tails)
          if (inspected_group) {
             page_count = closed->page_count;
          }
-         platform_mutex_unlock(&log->group_lock);
+         platform_mutex_unlock(&log->graduate_lock);
       }
 
       checkpoint_barrier_fault_release(&data->checkpoint_fault);
@@ -1670,7 +1669,7 @@ CTEST2(splinter, test_shard_log_first_fit_decreasing_packing)
    uint64 page_count      = 0;
    bool32 inspected_group = FALSE;
    if (barrier_blocked) {
-      platform_mutex_lock(&slog->group_lock);
+      platform_mutex_lock(&slog->graduate_lock);
       shard_log_group *sealed_group = slog->groups_head;
       shard_log_group *accepting =
          __atomic_load_n(&slog->accepting.group, __ATOMIC_SEQ_CST);
@@ -1678,7 +1677,7 @@ CTEST2(splinter, test_shard_log_first_fit_decreasing_packing)
       if (inspected_group) {
          page_count = sealed_group->page_count;
       }
-      platform_mutex_unlock(&slog->group_lock);
+      platform_mutex_unlock(&slog->graduate_lock);
    }
 
    checkpoint_barrier_fault_release(&data->checkpoint_fault);
@@ -1835,7 +1834,7 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
    ASSERT_EQUAL(1, __atomic_load_n(&fault.failures, __ATOMIC_RELAXED));
 
    shard_log *slog = (shard_log *)log;
-   platform_mutex_lock(&slog->group_lock);
+   platform_mutex_lock(&slog->graduate_lock);
    shard_log_group *group              = slog->groups_head;
    bool32           group_is_retryable = FALSE;
    if (group != NULL) {
@@ -1851,7 +1850,7 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
                            && final->incache_page == NULL
                            && group->page_count == 0 && writeback_requests == 0;
    }
-   platform_mutex_unlock(&slog->group_lock);
+   platform_mutex_unlock(&slog->graduate_lock);
    ASSERT_TRUE(group_is_retryable,
                "page allocation failure did not preserve the OPEN image\n");
 
@@ -2149,8 +2148,8 @@ CTEST2(splinter, test_concurrent_durable_barriers_coalesce)
                                 data->hid);
       second_created = SUCCESS(second_create_rc);
       if (second_created) {
-         both_tickets_pinned = core_durable_barrier_test_wait_for_ticket_refs(
-            (shard_log *)spl.log, 2);
+         both_tickets_pinned = core_durable_barrier_test_wait_for_handle_refs(
+            (shard_log *)spl.log, 3);
          second_completed_before_release =
             __atomic_load_n(&second.done, __ATOMIC_ACQUIRE);
       }
