@@ -614,6 +614,8 @@ core_checkpoint_request(core_handle                 *spl,
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
+   /* We lost a race to start the next checkpoint, so our speculatively created
+    * log is not needed. */
    if (next != NULL) {
       log_deinit(next);
       shard_log_dec_ref(spl->cc, &next_head);
