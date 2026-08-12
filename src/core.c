@@ -466,13 +466,16 @@ typedef struct core_checkpoint_result {
    /* Request returns its ticket; observe echoes the ticket it was given. */
    uint64 ticket;
 
-   /* Request-only: this invocation installed the pending log. */
-   bool32 armed;
+   /* Identity of the PENDING incarnation observed by this result. */
+   uint64 pending_epoch;
 
    /* Predicates for `ticket`, valid for every function's result. */
    bool32 ticket_complete;
    bool32 ticket_needs_rearm;
    bool32 rotation_pending;
+
+   /* An automatic PENDING checkpoint has consumed its byte grace period. */
+   bool32 automatic_rotation_force_due;
 
    /* Quiesced shutdown view of an unpublished, already-sealed cut. */
    bool32   unpublished_sealed_log;
@@ -482,13 +485,12 @@ typedef struct core_checkpoint_result {
 /*
  * Fill the common semantic view returned by every checkpoint state-machine
  * function.  The operation-specific function supplies the ticket it wants
- * interpreted and whether it armed the checkpoint; the remaining predicates
- * are sampled together under the state lock.
+ * interpreted; the remaining predicates are sampled together under the state
+ * lock.
  */
 static void
 core_checkpoint_fill_result(core_handle            *spl,
                             uint64                  ticket,
-                            bool32                  armed,
                             core_checkpoint_result *result)
 {
    if (result == NULL) {
@@ -497,9 +499,11 @@ core_checkpoint_fill_result(core_handle            *spl,
 
    ZERO_CONTENTS(result);
    result->ticket = ticket;
-   result->armed  = armed;
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
+   result->pending_epoch = spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
+                              ? spl->checkpoint.pending_epoch
+                              : 0;
    result->ticket_complete =
       ticket == 0 || spl->checkpoint.completions >= ticket;
    result->ticket_needs_rearm =
@@ -509,11 +513,26 @@ core_checkpoint_fill_result(core_handle            *spl,
       ticket != 0 && !result->ticket_complete
       && spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
       && spl->checkpoint.completions + 1 == ticket;
+   result->automatic_rotation_force_due =
+      result->rotation_pending
+      && spl->checkpoint.force_at_log_size != UINT64_MAX
+      && log_get_size(spl->log) >= spl->checkpoint.force_at_log_size;
    result->unpublished_sealed_log =
       spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
       && spl->checkpoint.log_to_seal == NULL;
    result->retiring_log = spl->checkpoint.sealed_head;
    platform_mutex_unlock(&spl->checkpoint_state_lock);
+}
+
+/*
+ * Saturating addition for byte boundaries.  UINT64_MAX means the boundary can
+ * never be reached; unlike ordinary wraparound, that safely disables the
+ * forced-rotation backstop for an unusually large configured grace interval.
+ */
+static inline uint64
+core_saturating_add(uint64 lhs, uint64 rhs)
+{
+   return rhs > UINT64_MAX - lhs ? UINT64_MAX : lhs + rhs;
 }
 
 /*
@@ -562,7 +581,6 @@ core_checkpoint_request(core_handle                 *spl,
 
    platform_status rc         = STATUS_OK;
    uint64          ticket     = 0;
-   bool32          armed      = FALSE;
    bool32          create_log = FALSE;
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
@@ -604,11 +622,18 @@ core_checkpoint_request(core_handle                 *spl,
    } else if (spl->checkpoint.phase == CORE_CHECKPOINT_IDLE
               && (required || core_should_take_checkpoint(spl)))
    {
+      uint64 force_at_log_size = UINT64_MAX;
+      if (!required && spl->cfg.checkpoint_log_grace_bytes != UINT64_MAX) {
+         force_at_log_size = core_saturating_add(
+            log_get_size(spl->log), spl->cfg.checkpoint_log_grace_bytes);
+      }
       spl->checkpoint.pending_log = next;
-      spl->checkpoint.phase       = CORE_CHECKPOINT_PENDING;
-      next                        = NULL; // owned by checkpoint state
-      ticket                      = spl->checkpoint.completions + 1;
-      armed                       = TRUE;
+      spl->checkpoint.pending_epoch++;
+      platform_assert(spl->checkpoint.pending_epoch != 0);
+      spl->checkpoint.force_at_log_size = force_at_log_size;
+      spl->checkpoint.phase             = CORE_CHECKPOINT_PENDING;
+      next                              = NULL; // owned by checkpoint state
+      ticket                            = spl->checkpoint.completions + 1;
    } else if (spl->checkpoint.phase != CORE_CHECKPOINT_IDLE) {
       ticket = spl->checkpoint.completions + 1;
    }
@@ -622,7 +647,7 @@ core_checkpoint_request(core_handle                 *spl,
    }
 
 out:
-   core_checkpoint_fill_result(spl, ticket, armed, result);
+   core_checkpoint_fill_result(spl, ticket, result);
    return rc;
 }
 
@@ -643,6 +668,7 @@ core_checkpoint_rotated_locked(core_handle            *spl,
       spl->checkpoint.sealed_head           = log_get_head(spl->log);
       spl->log                              = spl->checkpoint.pending_log;
       spl->checkpoint.pending_log           = NULL;
+      spl->checkpoint.force_at_log_size     = 0;
       spl->checkpoint.live_start_generation = finalized_generation + 1;
       spl->checkpoint.cut_generation        = finalized_generation;
       spl->checkpoint.phase                 = CORE_CHECKPOINT_SEALING;
@@ -652,7 +678,7 @@ core_checkpoint_rotated_locked(core_handle            *spl,
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
-   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   core_checkpoint_fill_result(spl, 0, result);
    return STATUS_OK;
 }
 
@@ -787,7 +813,7 @@ core_checkpoint_advance(core_handle *spl, core_checkpoint_result *result)
    }
 
 out:
-   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   core_checkpoint_fill_result(spl, 0, result);
    return rc;
 }
 
@@ -833,10 +859,11 @@ core_checkpoint_wait_for_publication(core_handle *spl, uint64 target)
    }
 }
 
-/* Cancel the still-pending checkpoint identified by ticket, if it is ours. */
+/* Cancel the still-pending checkpoint identified by ticket and epoch. */
 static platform_status
 core_checkpoint_cancel_pending(core_handle            *spl,
                                uint64                  ticket,
+                               uint64                  pending_epoch,
                                core_checkpoint_result *result)
 {
    log_handle *pending      = NULL;
@@ -844,11 +871,13 @@ core_checkpoint_cancel_pending(core_handle            *spl,
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (ticket != 0 && spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
-       && spl->checkpoint.completions + 1 == ticket)
+       && spl->checkpoint.completions + 1 == ticket
+       && spl->checkpoint.pending_epoch == pending_epoch)
    {
-      pending                     = spl->checkpoint.pending_log;
-      spl->checkpoint.pending_log = NULL;
-      spl->checkpoint.phase       = CORE_CHECKPOINT_IDLE;
+      pending                           = spl->checkpoint.pending_log;
+      spl->checkpoint.pending_log       = NULL;
+      spl->checkpoint.force_at_log_size = 0;
+      spl->checkpoint.phase             = CORE_CHECKPOINT_IDLE;
       platform_assert(pending != NULL);
       pending_head = log_get_head(pending);
    }
@@ -859,7 +888,7 @@ core_checkpoint_cancel_pending(core_handle            *spl,
       shard_log_dec_ref(spl->cc, &pending_head);
    }
 
-   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   core_checkpoint_fill_result(spl, 0, result);
    return STATUS_OK;
 }
 
@@ -869,7 +898,7 @@ core_checkpoint_observe(core_handle            *spl,
                         uint64                  ticket,
                         core_checkpoint_result *result)
 {
-   core_checkpoint_fill_result(spl, ticket, FALSE, result);
+   core_checkpoint_fill_result(spl, ticket, result);
    return STATUS_OK;
 }
 
@@ -938,7 +967,7 @@ core_checkpoint_cleanup_quiesced(core_handle            *spl,
       shard_log_dec_ref(spl->cc, &sealed);
    }
 
-   core_checkpoint_fill_result(spl, 0, FALSE, result);
+   core_checkpoint_fill_result(spl, 0, result);
    return STATUS_OK;
 }
 
@@ -946,23 +975,70 @@ core_checkpoint_cleanup_quiesced(core_handle            *spl,
  * Act on the size policy from the insert path.  Called by core_insert() once
  * the insert lock is released.
  *
- * A rotation is the only point at which the log can be cut, and a workload that
- * overwrites in place updates the memtable without growing it -- so it may
- * never rotate naturally.  The size-policy path must therefore both arm and
- * force its own rotation or the log can grow without bound.
- *
- * Arming and then forcing the rotation cuts the log in a single rotation, since
- * the rotate hook finds the checkpoint already PENDING.  Only the thread that
- * actually armed goes on to force, so concurrent inserters do not pile on.
+ * Crossing the soft threshold arms a checkpoint, then leaves it PENDING for a
+ * byte grace period so a normal fullness-driven memtable rotation can consume
+ * it.  Overwrite-in-place traffic may never fill a memtable, so once the live
+ * log consumes that grace this path forces the rotation as a backstop.
  *
  * CORE_CHECKPOINT_REQUEST_IF_DUE makes this safe against a stale flag.  The
  * flag is only a hint -- sampled on some earlier insert, and readable by
  * several threads at once -- so a thread can arrive here long after the log it
  * observed was already cut.  core_checkpoint_request() re-checks the policy
  * under the state lock against the *current* log and arms only when another cut
- * is genuinely due.  Only the caller which successfully arms performs the
- * force, so a stale observer cannot cut a fresh log.
+ * is genuinely due.  The conditional force revalidates PENDING and its hard
+ * byte limit after obtaining insert exclusion, so a natural rotation or a
+ * competing force cannot make a stale observer rotate the new memtable again.
  */
+typedef struct core_automatic_checkpoint_force_context {
+   core_handle *spl;
+   uint64       ticket;
+   uint64       pending_epoch;
+} core_automatic_checkpoint_force_context;
+
+static bool32
+core_automatic_checkpoint_rotation_due(void *arg)
+{
+   core_automatic_checkpoint_force_context *ctxt = arg;
+   core_handle                             *spl  = ctxt->spl;
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   bool32 due = spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
+                && spl->checkpoint.completions + 1 == ctxt->ticket
+                && spl->checkpoint.pending_epoch == ctxt->pending_epoch
+                && spl->checkpoint.force_at_log_size != UINT64_MAX
+                && log_get_size(spl->log) >= spl->checkpoint.force_at_log_size;
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   return due;
+}
+
+/*
+ * Fast path for the potentially long grace window.  Most inserts after the
+ * soft threshold merely observe the same PENDING checkpoint below its hard
+ * limit; sample that state once rather than running the general advance and
+ * request machinery on every insert.
+ */
+static bool32
+core_automatic_checkpoint_observe_pending(core_handle            *spl,
+                                          core_checkpoint_result *result)
+{
+   ZERO_CONTENTS(result);
+
+   platform_mutex_lock(&spl->checkpoint_state_lock);
+   if (spl->checkpoint.phase != CORE_CHECKPOINT_PENDING) {
+      platform_mutex_unlock(&spl->checkpoint_state_lock);
+      return FALSE;
+   }
+
+   result->ticket           = spl->checkpoint.completions + 1;
+   result->pending_epoch    = spl->checkpoint.pending_epoch;
+   result->rotation_pending = TRUE;
+   result->automatic_rotation_force_due =
+      spl->checkpoint.force_at_log_size != UINT64_MAX
+      && log_get_size(spl->log) >= spl->checkpoint.force_at_log_size;
+   platform_mutex_unlock(&spl->checkpoint_state_lock);
+   return TRUE;
+}
+
 static void
 core_maybe_cut_oversized_log(core_handle *spl)
 {
@@ -970,36 +1046,49 @@ core_maybe_cut_oversized_log(core_handle *spl)
       return;
    }
 
-   /*
-    * A previous size-triggered rotation may have cut the log and then failed
-    * while sealing or publishing it.  Overwrite-in-place traffic need not
-    * produce another natural rotation, so use the next threshold observation
-    * to resume that checkpoint before trying to arm a new one.
-    */
-   platform_status rc = core_checkpoint_advance(spl, NULL);
-   if (!SUCCESS(rc)) {
-      return;
-   }
-
    core_checkpoint_result request;
-   rc =
-      core_checkpoint_request(spl, CORE_CHECKPOINT_REQUEST_IF_DUE, 0, &request);
-   if (!SUCCESS(rc)) {
-      platform_error_log("core_maybe_cut_oversized_log: could not arm a "
-                         "checkpoint: %s\n",
-                         platform_status_to_string(rc));
-      return;
+   if (!core_automatic_checkpoint_observe_pending(spl, &request)) {
+      /*
+       * A previous size-triggered rotation may have cut the log and then
+       * failed while sealing or publishing it.  Overwrite-in-place traffic
+       * need not produce another natural rotation, so use the next threshold
+       * observation to resume that checkpoint before trying to arm a new one.
+       */
+      platform_status rc = core_checkpoint_advance(spl, NULL);
+      if (!SUCCESS(rc)) {
+         return;
+      }
+
+      rc = core_checkpoint_request(
+         spl, CORE_CHECKPOINT_REQUEST_IF_DUE, 0, &request);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_maybe_cut_oversized_log: could not arm a "
+                            "checkpoint: %s\n",
+                            platform_status_to_string(rc));
+         return;
+      }
    }
-   if (request.armed) {
-      rc = memtable_force_rotation(&spl->mt_ctxt, NULL);
+   if (request.automatic_rotation_force_due) {
+      core_automatic_checkpoint_force_context force_ctxt = {
+         .spl           = spl,
+         .ticket        = request.ticket,
+         .pending_epoch = request.pending_epoch,
+      };
+      platform_status rc =
+         memtable_force_rotation_if(&spl->mt_ctxt,
+                                    core_automatic_checkpoint_rotation_due,
+                                    &force_ctxt,
+                                    NULL);
       if (!SUCCESS(rc)) {
          /*
-          * Only the arming caller forces.  If it cannot rotate now, disarm its
-          * still-pending checkpoint so later inserts can retry instead of
-          * leaving it permanently PENDING.
+          * A full memtable ring is transient: retain both PENDING and its
+          * original byte deadline so a later insert can retry.  A recorded
+          * incorporation failure is terminal for this attempt, so release the
+          * speculative next log rather than leaving it permanently PENDING.
           */
-         (void)core_checkpoint_cancel_pending(spl, request.ticket, NULL);
          if (!STATUS_IS_EQ(rc, STATUS_BUSY)) {
+            (void)core_checkpoint_cancel_pending(
+               spl, request.ticket, request.pending_epoch, NULL);
             platform_error_log(
                "core_maybe_cut_oversized_log: failed to force a memtable "
                "rotation: %s\n",
@@ -3542,6 +3631,29 @@ core_quiesce(core_handle *spl)
  * spending a generation and a log extent each time.  A longer timeout lets real
  * traffic drive the cut instead.
  */
+typedef struct core_checkpoint_rotation_context {
+   core_handle *spl;
+   uint64       target_generation;
+   uint64       ticket;
+} core_checkpoint_rotation_context;
+
+/* Called with memtable inserts excluded by memtable_force_rotation_if(). */
+static bool32
+core_checkpoint_rotation_still_needed(void *arg)
+{
+   core_checkpoint_rotation_context *ctxt = arg;
+   if (memtable_generation(&ctxt->spl->mt_ctxt) == ctxt->target_generation) {
+      return TRUE;
+   }
+
+   platform_mutex_lock(&ctxt->spl->checkpoint_state_lock);
+   bool32 pending = ctxt->ticket != 0
+                    && ctxt->spl->checkpoint.phase == CORE_CHECKPOINT_PENDING
+                    && ctxt->spl->checkpoint.completions + 1 == ctxt->ticket;
+   platform_mutex_unlock(&ctxt->spl->checkpoint_state_lock);
+   return pending;
+}
+
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
@@ -3568,9 +3680,9 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 
       /*
        * An automatic size-triggered attempt can cancel a still-PENDING
-       * checkpoint when the memtable ring is temporarily full.  If this call
-       * had attached to that completion, re-arm the same completion ticket
-       * instead of waiting forever or returning without a log cut.
+       * checkpoint after a terminal rotation failure.  If this call had
+       * attached to that completion, re-arm the same completion ticket instead
+       * of waiting forever or returning without a log cut.
        */
       if (state.ticket_needs_rearm) {
          core_checkpoint_result replacement;
@@ -3609,13 +3721,23 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
       if (needs_rotation
           && rotation_timeout_ns <= platform_timestamp_elapsed(deadline))
       {
+         core_checkpoint_rotation_context rotation_ctxt = {
+            .spl               = spl,
+            .target_generation = target,
+            .ticket            = ticket,
+         };
+
          platform_status rotation_rc =
-            memtable_force_rotation(&spl->mt_ctxt, NULL);
+            memtable_force_rotation_if(&spl->mt_ctxt,
+                                       core_checkpoint_rotation_still_needed,
+                                       &rotation_ctxt,
+                                       NULL);
          if (SUCCESS(rotation_rc)) {
-            // The force dispatched the flush itself.
+            /* A no-op means another rotation already supplied the progress. */
             deadline = platform_get_timestamp();
          } else if (!STATUS_IS_EQ(rotation_rc, STATUS_BUSY)) {
-            (void)core_checkpoint_cancel_pending(spl, ticket, NULL);
+            (void)core_checkpoint_cancel_pending(
+               spl, ticket, state.pending_epoch, NULL);
             return rotation_rc;
          }
       }
@@ -4341,6 +4463,7 @@ core_config_init(core_config         *core_cfg,
                  uint64               prefetch_budget,
                  bool32               use_log,
                  uint64               checkpoint_log_size_bytes,
+                 uint64               checkpoint_log_grace_bytes,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle)
@@ -4355,13 +4478,14 @@ core_config_init(core_config         *core_cfg,
    core_cfg->trunk_node_cfg = trunk_node_cfg;
    core_cfg->log_cfg        = log_cfg;
 
-   core_cfg->queue_scale_percent       = queue_scale_percent;
-   core_cfg->prefetch_budget           = prefetch_budget;
-   core_cfg->use_log                   = use_log;
-   core_cfg->checkpoint_log_size_bytes = checkpoint_log_size_bytes;
-   core_cfg->use_stats                 = use_stats;
-   core_cfg->verbose_logging_enabled   = verbose_logging;
-   core_cfg->log_handle                = log_handle;
+   core_cfg->queue_scale_percent        = queue_scale_percent;
+   core_cfg->prefetch_budget            = prefetch_budget;
+   core_cfg->use_log                    = use_log;
+   core_cfg->checkpoint_log_size_bytes  = checkpoint_log_size_bytes;
+   core_cfg->checkpoint_log_grace_bytes = checkpoint_log_grace_bytes;
+   core_cfg->use_stats                  = use_stats;
+   core_cfg->verbose_logging_enabled    = verbose_logging;
+   core_cfg->log_handle                 = log_handle;
 
    memtable_config_init(&core_cfg->mt_cfg,
                         core_cfg->btree_cfg,

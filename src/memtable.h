@@ -112,6 +112,16 @@ memtable_transition(memtable      *mt,
 
 typedef void (*process_fn)(void *arg, uint64 generation);
 
+/*
+ * Called with inserts excluded to decide whether a requested forced rotation
+ * is still needed.  The callback must remain I/O-free, must not acquire a
+ * memtable lock, and must not mutate the memtable context; lock-free inspection
+ * such as memtable_generation() is permitted.  It is an observation-only
+ * predicate: it must not claim or otherwise mutate higher-level state, because
+ * a later ring-readiness check can still prevent the requested rotation.
+ */
+typedef bool32 (*memtable_rotation_predicate_fn)(void *arg);
+
 typedef struct memtable_config {
    uint64        max_extents_per_memtable;
    uint64        max_memtables;
@@ -215,6 +225,34 @@ const char *
 memtable_state_string(memtable_state state);
 
 /*
+ * Conditionally rotate the current memtable, regardless of fullness.
+ *
+ * This function first excludes inserts and invokes predicate(arg).  If the
+ * predicate returns FALSE, no memtable state is changed and the function
+ * returns STATUS_OK, leaving generation_out unchanged.  This revalidation
+ * prevents a stale higher-level request from causing a second rotation after a
+ * natural rotation already satisfied it.
+ *
+ * If the predicate returns TRUE, the function next checks whether the following
+ * memtable-ring slot is ready.  It returns STATUS_BUSY without changing the
+ * context if work on that slot is still in progress, or propagates the slot's
+ * recorded failure if incorporation failed.  Because this check can fail after
+ * predicate returns TRUE, the predicate must not claim state.
+ *
+ * Once the ring slot is ready, this performs the same sequence as a natural
+ * (fullness-triggered) rotation: finalize the memtable, advance the generation,
+ * invoke the rotate callback under insert exclusion, then -- once inserts are
+ * unblocked -- invoke the process callback to dispatch the rotated memtable.
+ * If it rotates, the finalized generation is written to generation_out when
+ * non-NULL.
+ */
+platform_status
+memtable_force_rotation_if(memtable_context              *ctxt,
+                           memtable_rotation_predicate_fn predicate,
+                           void                          *predicate_arg,
+                           uint64                        *generation_out);
+
+/*
  * Rotate the current memtable now, regardless of fullness.  Performs the same
  * sequence as the natural (fullness-triggered) rotation: finalize the memtable,
  * advance the generation, invoke the rotate callback under insert exclusion,
@@ -227,6 +265,7 @@ memtable_state_string(memtable_state state);
  * prevents a natural rotation from overtaking incorporation.  On success,
  * writes the finalized generation to generation_out when non-NULL.
  *
+ * This is the unconditional wrapper around memtable_force_rotation_if().
  * Callers therefore need do nothing further after success: whatever the rotate
  * callback started (e.g. core's checkpoint log cut) is resolved by the process
  * callback, just as it is for a natural rotation.

@@ -102,9 +102,10 @@ typedef struct splinterdb_config {
    _Bool use_log;
 
    // Automatic checkpoints: once the write-ahead log has grown by this many
-   // bytes, SplinterDB takes a checkpoint, which folds the logged updates into
-   // the durable tree and reclaims that log's space.  This bounds both how much
-   // log a crash has to replay and how much space the log occupies.
+   // bytes, SplinterDB arms a checkpoint.  The next natural memtable rotation
+   // cuts the log, after which the checkpoint folds the logged updates into the
+   // durable tree and reclaims that log's space.  This bounds both how much log
+   // a crash has to replay and how much space the log occupies.
    //
    // The trigger is sized in log bytes rather than in updates because the two
    // are independent: a workload that repeatedly overwrites the same keys grows
@@ -116,6 +117,13 @@ typedef struct splinterdb_config {
    // for them itself, and accepts that the log grows until it does -- set this
    // very large (UINT64_MAX).
    uint64 checkpoint_log_size_bytes;
+
+   // Once an automatic checkpoint is armed, allow the live log to grow by this
+   // many additional bytes while waiting for a natural memtable rotation.  If
+   // the memtable has not rotated by then, SplinterDB forces a rotation.  Zero
+   // selects a default of twice the memtable capacity; UINT64_MAX effectively
+   // disables forced rotation while retaining the soft checkpoint trigger.
+   uint64 checkpoint_log_grace_bytes;
 
    // splinter
    uint64 memtable_capacity;

@@ -52,10 +52,12 @@ typedef struct core_config {
    bool32          use_log;
    log_config     *log_cfg;
    /*
-    * Automatic-checkpoint policy: take a checkpoint (rotate the log and advance
-    * the durable root) once the live log reaches this many bytes.  0 disables
-    * automatic checkpoints, leaving durability and log reclamation entirely to
-    * explicit core_checkpoint() calls.  Defaults to the cache size.
+    * Automatic-checkpoint policy: arm a checkpoint once the live log reaches
+    * this many bytes.  The next natural memtable rotation cuts the log; if none
+    * arrives within checkpoint_log_grace_bytes, continued log growth forces
+    * one.  0 disables automatic checkpoints, leaving durability and log
+    * reclamation entirely to explicit core_checkpoint() calls.  The public API
+    * resolves its zero default to the cache size before initializing core.
     *
     * Sizing the trigger by log bytes rather than by memtable generations
     * matters because the two are independent: a workload that repeatedly
@@ -64,7 +66,14 @@ typedef struct core_config {
     * to the log.  A generation-based trigger would never fire and the log would
     * grow without bound.
     */
-   uint64        checkpoint_log_size_bytes;
+   uint64 checkpoint_log_size_bytes;
+   /*
+    * Additional live-log bytes allowed after an automatic checkpoint is armed
+    * while waiting for a natural memtable rotation.  At this internal layer, 0
+    * means no grace and UINT64_MAX disables the forced-rotation backstop; the
+    * public API resolves its zero default to twice the memtable capacity.
+    */
+   uint64        checkpoint_log_grace_bytes;
    trunk_config *trunk_node_cfg;
 
    // verbose logging
@@ -160,6 +169,16 @@ typedef enum core_checkpoint_phase {
 typedef struct core_checkpoint_state {
    core_checkpoint_phase phase;
    log_handle           *pending_log; // next live log, pre-created (PENDING)
+   /* Monotonic identity of each installed PENDING checkpoint. */
+   uint64 pending_epoch;
+   /*
+    * Automatic PENDING checkpoints force a rotation once the current live log
+    * reaches this size.  UINT64_MAX means the pending checkpoint was requested
+    * explicitly, or automatic forced rotation is disabled.  The value is
+    * recorded when PENDING is installed so every concurrent observer uses the
+    * same grace interval.
+    */
+   uint64 force_at_log_size;
    // Old live log awaiting seal (SEALING), or being sealed (PUBLISHING).  Kept
    // across a failed attempt so the retry has something to resume.
    log_handle *log_to_seal;
@@ -499,6 +518,7 @@ core_config_init(core_config         *trunk_cfg,
                  uint64               prefetch_budget,
                  bool32               use_log,
                  uint64               checkpoint_log_size_bytes,
+                 uint64               checkpoint_log_grace_bytes,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle);

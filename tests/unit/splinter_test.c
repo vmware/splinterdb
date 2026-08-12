@@ -2909,7 +2909,7 @@ run_auto_checkpoint_workload(void *datap, uint64 log_size_threshold)
 
    allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
-   // Rotate the log / advance the durable root once the log reaches this size.
+   // Arm an automatic checkpoint once the log reaches this size.
    data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
       log_size_threshold;
 
@@ -2984,6 +2984,213 @@ CTEST2(splinter, test_auto_checkpoint)
 }
 
 /*
+ * Crossing the soft log-size threshold should arm a checkpoint without
+ * immediately forcing a memtable rotation.  If the memtable subsequently
+ * fills during the byte grace period, the ordinary insert-time rotation must
+ * consume that pending checkpoint and cut the log exactly once.
+ *
+ * Repeatedly overwriting one key gets the log to the soft threshold without
+ * filling the memtable.  Once PENDING is observed, lower the live memtable's
+ * extent ceiling to one beyond its current allocation.  Distinct inserts then
+ * take the normal fullness-triggered path in
+ * memtable_maybe_rotate_and_begin_insert; no timing or scheduler assumptions
+ * are involved.
+ */
+CTEST2(splinter, test_auto_checkpoint_grace_allows_natural_rotation)
+{
+   allocator *alp         = (allocator *)&data->al;
+   uint64     extent_size = data->system_cfg->io_cfg.extent_size;
+   uint64     grace_bytes = 64 * extent_size;
+   data->system_cfg->splinter_cfg.use_log                    = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes  = extent_size;
+   data->system_cfg->splinter_cfg.checkpoint_log_grace_bytes = grace_bytes;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64   start_generation = memtable_generation(&spl.mt_ctxt);
+   log_head start_log        = log_get_head(spl.log);
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+
+   bool32 pending = FALSE;
+   for (uint64 i = 0; i < 30000 && !pending; i++) {
+      test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, i, &msg);
+      rc = core_insert(&spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      platform_mutex_lock(&spl.checkpoint_state_lock);
+      pending = spl.checkpoint.phase == CORE_CHECKPOINT_PENDING;
+      platform_mutex_unlock(&spl.checkpoint_state_lock);
+   }
+   ASSERT_TRUE(pending, "soft threshold did not arm a checkpoint\n");
+
+   uint64 arm_size;
+   uint64 force_at_log_size;
+   platform_mutex_lock(&spl.checkpoint_state_lock);
+   arm_size          = log_get_size(spl.log);
+   force_at_log_size = spl.checkpoint.force_at_log_size;
+   platform_mutex_unlock(&spl.checkpoint_state_lock);
+
+   ASSERT_EQUAL(start_generation, memtable_generation(&spl.mt_ctxt));
+   ASSERT_TRUE(log_head_is_equal(start_log, log_get_head(spl.log)));
+   ASSERT_EQUAL(arm_size + grace_bytes, force_at_log_size);
+   ASSERT_TRUE(arm_size < force_at_log_size);
+
+   /*
+    * Make this memtable fill after allocating one more extent.  The fresh
+    * successor starts below this limit, avoiding an artificial rotation loop.
+    */
+   uint64 active_index = start_generation % spl.mt_ctxt.cfg.max_memtables;
+   uint64 original_max_extents = spl.mt_ctxt.cfg.max_extents_per_memtable;
+   spl.mt_ctxt.cfg.max_extents_per_memtable =
+      mini_num_extents(&spl.mt_ctxt.mt[active_index].mini) + 1;
+
+   bool32 rotated = FALSE;
+   for (uint64 i = 1; i < 30000 && !rotated; i++) {
+      ASSERT_TRUE(log_get_size(spl.log) < force_at_log_size,
+                  "log exhausted grace before natural rotation\n");
+      test_key(&keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, 30000 + i, &msg);
+      rc = core_insert(&spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+      rotated = memtable_generation(&spl.mt_ctxt) != start_generation;
+   }
+   spl.mt_ctxt.cfg.max_extents_per_memtable = original_max_extents;
+
+   ASSERT_TRUE(rotated, "memtable never rotated naturally\n");
+   ASSERT_EQUAL(start_generation + 1, memtable_generation(&spl.mt_ctxt));
+   ASSERT_FALSE(log_head_is_equal(start_log, log_get_head(spl.log)));
+   platform_mutex_lock(&spl.checkpoint_state_lock);
+   pending = spl.checkpoint.phase == CORE_CHECKPOINT_PENDING;
+   platform_mutex_unlock(&spl.checkpoint_state_lock);
+   ASSERT_FALSE(pending,
+                "natural rotation did not consume the pending checkpoint\n");
+
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
+/*
+ * An overwrite-only workload does not fill its memtable, so after the grace
+ * bytes are consumed the automatic policy must force the pending rotation.
+ * The test observes the per-PENDING byte deadline directly and verifies that
+ * every insert below it leaves both the generation and live log unchanged.
+ */
+CTEST2(splinter, test_auto_checkpoint_grace_forces_overwrite_rotation)
+{
+   allocator *alp         = (allocator *)&data->al;
+   uint64     extent_size = data->system_cfg->io_cfg.extent_size;
+   uint64     grace_bytes = 2 * extent_size;
+   data->system_cfg->splinter_cfg.use_log                    = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes  = extent_size;
+   data->system_cfg->splinter_cfg.checkpoint_log_grace_bytes = grace_bytes;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64   start_generation = memtable_generation(&spl.mt_ctxt);
+   log_head start_log        = log_get_head(spl.log);
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+
+   bool32 pending = FALSE;
+   uint64 value_i = 0;
+   for (; value_i < 30000 && !pending; value_i++) {
+      test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, value_i, &msg);
+      rc = core_insert(&spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      platform_mutex_lock(&spl.checkpoint_state_lock);
+      pending = spl.checkpoint.phase == CORE_CHECKPOINT_PENDING;
+      platform_mutex_unlock(&spl.checkpoint_state_lock);
+   }
+   ASSERT_TRUE(pending, "soft threshold did not arm a checkpoint\n");
+
+   uint64 arm_size;
+   uint64 force_at_log_size;
+   platform_mutex_lock(&spl.checkpoint_state_lock);
+   arm_size          = log_get_size(spl.log);
+   force_at_log_size = spl.checkpoint.force_at_log_size;
+   platform_mutex_unlock(&spl.checkpoint_state_lock);
+
+   ASSERT_EQUAL(start_generation, memtable_generation(&spl.mt_ctxt));
+   ASSERT_TRUE(log_head_is_equal(start_log, log_get_head(spl.log)));
+   ASSERT_EQUAL(arm_size + grace_bytes, force_at_log_size);
+   ASSERT_TRUE(arm_size < force_at_log_size);
+
+   bool32 rotated = FALSE;
+   for (uint64 i = 0; i < 30000 && !rotated; i++, value_i++) {
+      uint64 size_before = log_get_size(spl.log);
+      ASSERT_TRUE(size_before < force_at_log_size,
+                  "pending checkpoint remained unrotated at hard limit: "
+                  "size=%lu force_at=%lu\n",
+                  size_before,
+                  force_at_log_size);
+
+      test_key(&keybuf, TEST_RANDOM, 0, 0, 0, data->workload_cfg->key_size, 0);
+      generate_test_message(&data->gen, value_i, &msg);
+      rc = core_insert(&spl,
+                       key_buffer_key(&keybuf),
+                       merge_accumulator_to_message(&msg),
+                       NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      rotated = memtable_generation(&spl.mt_ctxt) != start_generation;
+      if (!rotated) {
+         ASSERT_TRUE(log_head_is_equal(start_log, log_get_head(spl.log)));
+         ASSERT_TRUE(log_get_size(spl.log) < force_at_log_size,
+                     "policy did not force at byte deadline: size=%lu "
+                     "force_at=%lu\n",
+                     log_get_size(spl.log),
+                     force_at_log_size);
+      }
+   }
+
+   ASSERT_TRUE(rotated, "overwrite workload never forced a rotation\n");
+   ASSERT_EQUAL(start_generation + 1, memtable_generation(&spl.mt_ctxt));
+   ASSERT_FALSE(log_head_is_equal(start_log, log_get_head(spl.log)));
+
+   rc = task_perform_until_quiescent(spl.ts);
+   ASSERT_TRUE(SUCCESS(rc));
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
+/*
  * The reason the policy is sized in log bytes rather than memtable generations.
  *
  * Repeatedly overwriting one key updates the memtable btree in place, so it
@@ -2997,6 +3204,8 @@ CTEST2(splinter, test_auto_checkpoint_on_overwrites)
    allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
    data->system_cfg->splinter_cfg.checkpoint_log_size_bytes =
+      2 * data->system_cfg->io_cfg.extent_size;
+   data->system_cfg->splinter_cfg.checkpoint_log_grace_bytes =
       2 * data->system_cfg->io_cfg.extent_size;
    // Also verify that the public checkpoint statistic is updated.
    data->system_cfg->splinter_cfg.use_stats = TRUE;

@@ -166,11 +166,22 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    }
    if (!cfg->checkpoint_log_size_bytes) {
       /*
-       * Checkpoint once the log has grown by a cache's worth: replaying much
-       * more log than the cache can hold gains little, since those pages cannot
-       * stay resident anyway.
+       * Arm a checkpoint once the log has grown by a cache's worth: replaying
+       * much more log than the cache can hold gains little, since those pages
+       * cannot stay resident anyway.
        */
       cfg->checkpoint_log_size_bytes = cfg->cache_size;
+   }
+   if (!cfg->checkpoint_log_grace_bytes) {
+      /*
+       * Give a newly armed checkpoint one physical memtable budget in which to
+       * catch a natural rotation.  The memtable space budget is twice its
+       * configured logical capacity; saturate so the eventual hard log limit
+       * cannot wrap.
+       */
+      cfg->checkpoint_log_grace_bytes = cfg->memtable_capacity > UINT64_MAX / 2
+                                           ? UINT64_MAX
+                                           : 2 * cfg->memtable_capacity;
    }
 }
 
@@ -320,6 +331,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                          cfg.prefetch_budget,
                          cfg.use_log,
                          cfg.checkpoint_log_size_bytes,
+                         cfg.checkpoint_log_grace_bytes,
                          cfg.use_stats,
                          FALSE,
                          Platform_default_log_handle);

@@ -332,9 +332,24 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status)
 }
 
 platform_status
-memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out)
+memtable_force_rotation_if(memtable_context              *ctxt,
+                           memtable_rotation_predicate_fn predicate,
+                           void                          *predicate_arg,
+                           uint64                        *generation_out)
 {
+   platform_assert(predicate != NULL);
+
    memtable_block_inserts(ctxt);
+
+   /*
+    * Revalidate before the ring-readiness check so a stale request is a clean
+    * no-op even when the next ring slot is busy.  The predicate is observation-
+    * only: a later readiness failure must leave its higher-level state pending.
+    */
+   if (!predicate(predicate_arg)) {
+      memtable_unblock_inserts(ctxt);
+      return STATUS_OK;
+   }
 
    uint64          generation = ctxt->generation;
    platform_status rc = memtable_next_generation_status(ctxt, generation);
@@ -371,6 +386,20 @@ memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out)
       *generation_out = current_generation;
    }
    return STATUS_OK;
+}
+
+static bool32
+memtable_rotation_always_requested(void *arg)
+{
+   (void)arg;
+   return TRUE;
+}
+
+platform_status
+memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out)
+{
+   return memtable_force_rotation_if(
+      ctxt, memtable_rotation_always_requested, NULL, generation_out);
 }
 
 void

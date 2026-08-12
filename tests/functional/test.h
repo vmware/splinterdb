@@ -303,6 +303,12 @@ test_config_init(system_config *system_cfg, // OUT
    uint64 checkpoint_log_size = master_cfg->checkpoint_log_size != 0
                                    ? master_cfg->checkpoint_log_size
                                    : master_cfg->cache_capacity;
+   uint64 checkpoint_log_grace_bytes =
+      master_cfg->checkpoint_log_grace_bytes != 0
+         ? master_cfg->checkpoint_log_grace_bytes
+         : (master_cfg->memtable_capacity > UINT64_MAX / 2
+               ? UINT64_MAX
+               : 2 * master_cfg->memtable_capacity);
 
    rc = core_config_init(&system_cfg->splinter_cfg,
                          &system_cfg->cache_cfg.super,
@@ -314,6 +320,7 @@ test_config_init(system_config *system_cfg, // OUT
                          master_cfg->prefetch_budget,
                          master_cfg->use_log,
                          checkpoint_log_size,
+                         checkpoint_log_grace_bytes,
                          master_cfg->use_stats,
                          master_cfg->verbose_logging_enabled,
                          master_cfg->log_handle);

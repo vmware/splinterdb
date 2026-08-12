@@ -84,7 +84,9 @@ config_set_defaults(master_config *cfg)
       .filter_log_index_size        = TEST_CONFIG_DEFAULT_FILTER_LOG_INDEX_SIZE,
       .use_log                  = FALSE,
       // 0 == follow cache_capacity; see master_config.
-      .checkpoint_log_size      = 0,
+      .checkpoint_log_size        = 0,
+      // 0 == twice memtable_capacity; see master_config.
+      .checkpoint_log_grace_bytes = 0,
       .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
       .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,
       .memtable_capacity        = MiB_TO_B(TEST_CONFIG_DEFAULT_MEMTABLE_CAPACITY_MB),
@@ -158,6 +160,10 @@ config_usage()
    platform_error_log("\t--checkpoint-log-size-gib\n");
    platform_error_log("\t--checkpoint-log-size-mib\n");
    platform_error_log("\t--checkpoint-log-size-bytes (0 => cache capacity)\n");
+   platform_error_log("\t--checkpoint-log-grace-gib\n");
+   platform_error_log("\t--checkpoint-log-grace-mib\n");
+   platform_error_log(
+      "\t--checkpoint-log-grace-bytes (0 => twice memtable capacity)\n");
    platform_error_log("\t--verbose-logging\n");
    platform_error_log("\t--no-verbose-logging\n");
    platform_error_log("\t--verbose-progress\n");
@@ -393,6 +399,16 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_gib("checkpoint-log-size", cfg, checkpoint_log_size) {}
          config_set_uint64(
             "checkpoint-log-size-bytes", cfg, checkpoint_log_size)
+         {
+         }
+         config_set_mib("checkpoint-log-grace", cfg, checkpoint_log_grace_bytes)
+         {
+         }
+         config_set_gib("checkpoint-log-grace", cfg, checkpoint_log_grace_bytes)
+         {
+         }
+         config_set_uint64(
+            "checkpoint-log-grace-bytes", cfg, checkpoint_log_grace_bytes)
          {
          }
          config_set_mib("memtable-capacity", cfg, memtable_capacity) {}

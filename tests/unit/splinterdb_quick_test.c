@@ -192,6 +192,13 @@ CTEST_TEARDOWN(splinterdb_quick)
  * The 2nd term is the test-case name, e.g., 'test_basic_flow'.
  * ***********************************************************************
  */
+CTEST2(splinterdb_quick, test_checkpoint_log_grace_default)
+{
+   const core_handle *core = splinterdb_get_trunk_handle(data->kvsb);
+   ASSERT_EQUAL(2 * core->cfg.trunk_node_cfg->incorporation_size_kv_bytes,
+                core->cfg.checkpoint_log_grace_bytes);
+}
+
 /*
  *
  * Basic test case that exercises and validates the basic flow of the
