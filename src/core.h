@@ -265,14 +265,6 @@ struct core_handle {
     */
    bool32 log_reached_threshold;
 
-   /*
-    * First failure to append an update after memtable insertion made it
-    * visible.  Such an update cannot be promised by the WAL, so later writes
-    * and durability barriers fail rather than reporting a false durability
-    * guarantee or extending a non-prefix log stream.
-    */
-   internal_platform_status durability_error;
-
    core_stats *stats;
 
    core_compacted_memtable compacted_memtable[MAX_MEMTABLES];

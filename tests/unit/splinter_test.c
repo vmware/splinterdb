@@ -270,6 +270,79 @@ core_log_write_block_uninstall(core_log_write_block *block)
    block->saved_ops = NULL;
 }
 
+/*
+ * Replace one valid core update's log message with a malformed blob only after
+ * the memtable mutation has linearized.  The concrete log consumes the real
+ * reservation and records the append failure in its group, while the memtable
+ * retains the caller's original value.
+ */
+typedef struct core_log_append_fault {
+   log_handle    *log;
+   const log_ops *saved_ops;
+   log_ops        fault_ops;
+   uint64         calls;
+   bool32         installed;
+} core_log_append_fault;
+
+static core_log_append_fault *active_core_log_append_fault;
+
+static int
+core_log_write_reserved_invalid_blob(log_write_token *token,
+                                     key              tuple_key,
+                                     message          data,
+                                     uint64           memtable_generation,
+                                     uint64           leaf_generation)
+{
+   core_log_append_fault *fault =
+      __atomic_load_n(&active_core_log_append_fault, __ATOMIC_ACQUIRE);
+   platform_assert(fault != NULL && fault->installed
+                   && fault->log == token->log);
+   (void)data;
+
+   __atomic_fetch_add(&fault->calls, 1, __ATOMIC_RELAXED);
+   blob invalid_blob = {
+      .length   = 0,
+      .checksum = {0},
+      .format   = BLOB_FORMAT + 1,
+   };
+   message invalid_msg =
+      message_create(MESSAGE_TYPE_INSERT,
+                     ((shard_log *)fault->log)->cc,
+                     slice_create(sizeof(invalid_blob), &invalid_blob));
+   return fault->saved_ops->write_reserved(
+      token, tuple_key, invalid_msg, memtable_generation, leaf_generation);
+}
+
+static void
+core_log_append_fault_install(core_log_append_fault *fault, log_handle *log)
+{
+   platform_assert(active_core_log_append_fault == NULL);
+   platform_assert(!fault->installed);
+
+   fault->log                      = log;
+   fault->saved_ops                = log->ops;
+   fault->fault_ops                = *log->ops;
+   fault->fault_ops.write_reserved = core_log_write_reserved_invalid_blob;
+   fault->calls                    = 0;
+   fault->installed                = TRUE;
+   __atomic_store_n(&active_core_log_append_fault, fault, __ATOMIC_RELEASE);
+   log->ops = &fault->fault_ops;
+}
+
+static void
+core_log_append_fault_uninstall(core_log_append_fault *fault)
+{
+   if (!fault->installed) {
+      return;
+   }
+
+   fault->log->ops = fault->saved_ops;
+   __atomic_store_n(&active_core_log_append_fault, NULL, __ATOMIC_RELEASE);
+   fault->installed = FALSE;
+   fault->log       = NULL;
+   fault->saved_ops = NULL;
+}
+
 #define CORE_DURABLE_BARRIER_TEST_TIMEOUT_NS SEC_TO_NSEC(10)
 
 static bool32
@@ -2362,6 +2435,172 @@ CTEST2(splinter, test_durable_barrier_waits_for_checkpoint_publication)
                platform_status_to_string(checkpoint_args.rc));
    ASSERT_TRUE(publication_completed,
                "checkpoint publication counter did not advance\n");
+}
+
+/*
+ * A failed cut publication leaves the sealed retiring log durably named and
+ * the empty replacement log unnamed.  If that replacement's first append
+ * fails before accepting a record, log_is_empty() remains true even though the
+ * memtable mutation is visible.  With root publication faulted as well,
+ * unmount must reject the retiring-log fallback because make_durable() exposes
+ * the replacement log's poisoned group.
+ */
+CTEST2(splinter, test_unmount_rejects_empty_poisoned_replacement_log)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       spl;
+   platform_status   rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  (cache *)data->clock_cache,
+                                  data->io,
+                                  &data->tasks,
+                                  root_id,
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   log_head retiring_log = log_get_head(spl.log);
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   /* Barrier 0 seals retiring_log; barrier 1 faults cut publication. */
+   checkpoint_barrier_fault_arm(&data->checkpoint_fault, 1);
+   platform_status checkpoint_rc         = core_checkpoint(&spl, 0);
+   platform_status checkpoint_quiesce_rc = task_perform_until_quiescent(spl.ts);
+
+   platform_mutex_lock(&spl.checkpoint_state_lock);
+   bool32 unpublished_sealed_cut =
+      spl.checkpoint.phase == CORE_CHECKPOINT_SEALING
+      && spl.checkpoint.log_to_seal == NULL;
+   bool32 retiring_head_retained =
+      log_head_is_equal(spl.checkpoint.sealed_head, retiring_log);
+   platform_mutex_unlock(&spl.checkpoint_state_lock);
+
+   log_head live_log             = log_get_head(spl.log);
+   bool32   replacement_distinct = !log_head_is_equal(retiring_log, live_log);
+   bool32   replacement_initially_empty = log_is_empty(spl.log);
+   superblock_tree_record failed_cut_record;
+   superblock_get_tree_record(&spl.superblock, &failed_cut_record);
+   bool32 retiring_log_still_named =
+      checkpoint_record_names_log(failed_cut_record.live_log, retiring_log);
+   bool32 no_sealed_log_published =
+      SUPERBLOCK_NO_LOG(failed_cut_record.sealed_log);
+
+   core_log_append_fault append_fault = {0};
+   core_log_append_fault_install(&append_fault, spl.log);
+   test_key(&keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 2, &msg);
+   message         expected = merge_accumulator_to_message(&msg);
+   platform_status append_rc =
+      core_insert(&spl, key_buffer_key(&keybuf), expected, NULL);
+   uint64 append_fault_calls =
+      __atomic_load_n(&append_fault.calls, __ATOMIC_RELAXED);
+   core_log_append_fault_uninstall(&append_fault);
+
+   bool32        replacement_still_empty = log_is_empty(spl.log);
+   lookup_result found;
+   lookup_result_init(
+      &found, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   platform_status lookup_rc =
+      core_lookup(&spl, key_buffer_key(&keybuf), &found);
+   bool32 failed_update_visible =
+      SUCCESS(lookup_rc) && lookup_result_found(&found)
+      && message_lex_cmp(
+            expected,
+            merge_accumulator_to_message(lookup_result_accumulator(&found)))
+            == 0;
+   lookup_result_deinit(&found);
+
+   platform_status durability_rc = core_durable_barrier(&spl);
+
+   /* Reset the fault budget for both cut retry and root publication. */
+   checkpoint_barrier_fault_arm(&data->checkpoint_fault, 0);
+   platform_status unmount_rc = core_unmount(&spl, FALSE);
+   uint64          unmount_barriers =
+      __atomic_load_n(&data->checkpoint_fault.barriers, __ATOMIC_RELAXED);
+   bool32 handle_remained_mounted = spl.log != NULL;
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+
+   platform_status cleanup_mount_rc       = STATUS_OK;
+   bool32          handle_remained_usable = FALSE;
+   if (!SUCCESS(unmount_rc)) {
+      /* A refused non-forced unmount leaves the original handle usable. */
+      lookup_result after_unmount;
+      lookup_result_init(
+         &after_unmount, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      platform_status after_unmount_rc =
+         core_lookup(&spl, key_buffer_key(&keybuf), &after_unmount);
+      handle_remained_usable =
+         SUCCESS(after_unmount_rc) && lookup_result_found(&after_unmount);
+      lookup_result_deinit(&after_unmount);
+      core_destroy(&spl);
+   } else {
+      /* Keep a regressed implementation from leaking into fixture teardown. */
+      core_handle cleanup;
+      cleanup_mount_rc = core_mount(&cleanup,
+                                    &data->system_cfg->splinter_cfg,
+                                    alp,
+                                    (cache *)data->clock_cache,
+                                    data->io,
+                                    &data->tasks,
+                                    root_id,
+                                    data->hid);
+      if (SUCCESS(cleanup_mount_rc)) {
+         core_destroy(&cleanup);
+      }
+   }
+   merge_accumulator_deinit(&msg);
+
+   ASSERT_TRUE(STATUS_IS_EQ(checkpoint_rc, STATUS_IO_ERROR),
+               "checkpoint returned %s instead of the injected IO error\n",
+               platform_status_to_string(checkpoint_rc));
+   ASSERT_TRUE(SUCCESS(checkpoint_quiesce_rc));
+   ASSERT_TRUE(unpublished_sealed_cut,
+               "failed checkpoint did not leave a sealed unpublished cut\n");
+   ASSERT_TRUE(retiring_head_retained,
+               "failed checkpoint did not retain the sealed log head\n");
+   ASSERT_TRUE(replacement_distinct,
+               "checkpoint did not install a replacement live log\n");
+   ASSERT_TRUE(replacement_initially_empty,
+               "replacement log was not initially empty\n");
+   ASSERT_TRUE(retiring_log_still_named,
+               "failed cut publication did not retain the retiring log\n");
+   ASSERT_TRUE(no_sealed_log_published,
+               "failed cut publication unexpectedly changed the sealed slot\n");
+   ASSERT_EQUAL(1, append_fault_calls);
+   ASSERT_TRUE(STATUS_IS_EQ(append_rc, STATUS_INVALID_STATE),
+               "injected append returned %s\n",
+               platform_status_to_string(append_rc));
+   ASSERT_TRUE(failed_update_visible,
+               "failed log append did not leave its memtable update visible\n");
+   ASSERT_TRUE(replacement_still_empty,
+               "failed first append incorrectly marked the log non-empty\n");
+   ASSERT_FALSE(SUCCESS(durability_rc),
+                "durability barrier crossed the poisoned replacement log\n");
+   ASSERT_FALSE(SUCCESS(unmount_rc),
+                "unmount accepted the retiring log despite a poisoned "
+                "replacement\n");
+   ASSERT_TRUE(unmount_barriers >= 2,
+               "unmount reached only %lu faulted barriers\n",
+               unmount_barriers);
+   ASSERT_TRUE(handle_remained_mounted,
+               "failed non-forced unmount consumed the core handle\n");
+   ASSERT_TRUE(handle_remained_usable,
+               "failed non-forced unmount left the core handle unusable\n");
+   ASSERT_TRUE(SUCCESS(cleanup_mount_rc),
+               "cleanup mount failed after unexpected unmount success: %s\n",
+               platform_status_to_string(cleanup_mount_rc));
 }
 
 typedef struct checkpoint_advance_fault_result {

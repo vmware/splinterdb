@@ -106,26 +106,6 @@ core_log_handle(core_handle *spl)
 }
 
 static inline platform_status
-core_durability_status(core_handle *spl)
-{
-   return (platform_status){
-      .r = __atomic_load_n(&spl->durability_error, __ATOMIC_ACQUIRE)};
-}
-
-static void
-core_latch_durability_error(core_handle *spl, platform_status rc)
-{
-   platform_assert(!SUCCESS(rc));
-   internal_platform_status expected = STATUS_OK.r;
-   (void)__atomic_compare_exchange_n(&spl->durability_error,
-                                     &expected,
-                                     rc.r,
-                                     FALSE,
-                                     __ATOMIC_RELEASE,
-                                     __ATOMIC_RELAXED);
-}
-
-static inline platform_status
 core_open_log_stream_if_enabled(core_handle            *spl,
                                 platform_stream_handle *stream)
 {
@@ -2410,13 +2390,9 @@ core_insert(core_handle   *spl,
             message        data,
             lookup_result *old_result)
 {
-   timestamp      ts;
-   const threadid tid = platform_get_tid();
-
-   platform_status rc = core_durability_status(spl);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
+   timestamp       ts;
+   const threadid  tid = platform_get_tid();
+   platform_status rc;
 
    if (spl->cfg.use_stats) {
       ts = platform_get_timestamp();
@@ -2434,14 +2410,6 @@ core_insert(core_handle   *spl,
    memtable *mt = NULL;
    rc           = core_begin_memtable_insert(spl, &generation, &mt);
    if (!SUCCESS(rc)) {
-      goto out;
-   }
-
-   /* Close the race with a failure latched while this writer acquired its
-    * shared insert slot. */
-   rc = core_durability_status(spl);
-   if (!SUCCESS(rc)) {
-      memtable_end_insert(&spl->mt_ctxt);
       goto out;
    }
 
@@ -2469,7 +2437,6 @@ core_insert(core_handle   *spl,
    rc = core_log_insert(
       spl, generation, tuple_key, data, &insert_results, &write_ctxt);
    if (!SUCCESS(rc)) {
-      core_latch_durability_error(spl, rc);
       goto end_insert;
    }
 
@@ -3682,11 +3649,6 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 platform_status
 core_durable_barrier(core_handle *spl)
 {
-   platform_status rc = core_durability_status(spl);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
    /* Without a WAL, the COW root is the only available durability route. */
    if (!spl->cfg.use_log) {
       return core_checkpoint(spl, 0);
@@ -3695,6 +3657,7 @@ core_durable_barrier(core_handle *spl)
    log_handle        *live               = NULL;
    log_durable_ticket log_ticket         = 0;
    uint64             publication_target = 0;
+   platform_status    rc;
 
    /*
     * Pin the live-log pointer against memtable rotation while taking the cut.
@@ -3703,11 +3666,6 @@ core_durable_barrier(core_handle *spl)
     * what orders visible updates with the group swap below.
     */
    memtable_begin_insert(&spl->mt_ctxt);
-
-   rc = core_durability_status(spl);
-   if (!SUCCESS(rc)) {
-      goto end_insert_epoch;
-   }
    if (spl->log == NULL) {
       rc = STATUS_INVALID_STATE;
       goto end_insert_epoch;
@@ -3768,12 +3726,11 @@ core_unmount(core_handle *spl, bool32 force)
    platform_status        checkpoint_rc =
       core_checkpoint_advance(spl, &checkpoint_view);
 
-   platform_status log_rc        = STATUS_OK;
-   platform_status durability_rc = core_durability_status(spl);
-   bool32          have_log      = spl->cfg.use_log && spl->log != NULL;
-   log_head        live_log      = {0};
-   bool32          log_named     = FALSE;
-   bool32          log_durable   = FALSE;
+   platform_status log_rc      = STATUS_OK;
+   bool32          have_log    = spl->cfg.use_log && spl->log != NULL;
+   log_head        live_log    = {0};
+   bool32          log_named   = FALSE;
+   bool32          log_durable = FALSE;
    if (have_log) {
       live_log = log_get_head(spl->log);
       superblock_tree_record durable_rec;
@@ -3798,13 +3755,13 @@ core_unmount(core_handle *spl, bool32 force)
                             platform_status_to_string(log_rc));
       }
       /*
-       * A failed append after memtable insertion leaves a visible mutation
-       * absent from the WAL.  Syncing that stream cannot make it a valid
-       * recovery route; only a complete root which incorporated the mutation
-       * can make shutdown safe.
+       * make_durable() also distinguishes a genuinely empty new stream from
+       * one whose first reserved append failed before accepting a record.  In
+       * the latter case log_is_empty() is still true, but the poisoned stream
+       * must not let the still-named retiring log stand in for the missing
+       * update.
        */
-      log_durable = SUCCESS(durability_rc)
-                    && ((log_named && SUCCESS(log_rc)) || retiring_log_durable);
+      log_durable = SUCCESS(log_rc) && (log_named || retiring_log_durable);
    }
 
    /*
@@ -3858,9 +3815,7 @@ core_unmount(core_handle *spl, bool32 force)
    bool32          data_safe = root_anchor || log_durable;
    platform_status safety_rc = STATUS_OK;
    if (!data_safe) {
-      if (!SUCCESS(durability_rc)) {
-         safety_rc = durability_rc;
-      } else if (!all_incorporated && have_log && !SUCCESS(log_rc)) {
+      if (!all_incorporated && have_log && !SUCCESS(log_rc)) {
          safety_rc = log_rc;
       } else if (!root_publish_succeeded) {
          safety_rc = root_publish_rc;
