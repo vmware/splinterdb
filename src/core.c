@@ -1115,6 +1115,7 @@ core_rotate_log(void *arg, uint64 finalized_generation)
       core_checkpoint_rotated_locked(spl, finalized_generation, NULL);
    platform_assert_status_ok(rc);
 }
+
 /*
  *-----------------------------------------------------------------------------
  * Memtable Functions
