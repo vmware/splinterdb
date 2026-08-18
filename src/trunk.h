@@ -172,8 +172,8 @@ typedef struct trunk_context {
    pending_gc            *pending_gcs;
    pending_gc            *pending_gcs_tail;
    /* Sticky first error from releasing allocator references during tree GC. */
-   platform_status        allocator_cleanup_status;
-   incorporation_tasks    tasks;
+   platform_status     allocator_cleanup_status;
+   incorporation_tasks tasks;
 } trunk_context;
 
 /*

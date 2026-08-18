@@ -1754,7 +1754,7 @@ trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
    if (SUCCESS(rc)) {
       if (!trunk_node_is_leaf(&node)) {
          for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
-            trunk_pivot *pvt = vector_get(&node.pivots, i);
+            trunk_pivot    *pvt = vector_get(&node.pivots, i);
             platform_status child_rc =
                trunk_ondisk_node_dec_ref(context, pvt->child_addr);
             if (SUCCESS(rc) && !SUCCESS(child_rc)) {
@@ -1797,8 +1797,7 @@ pending_gcs_unlock(trunk_context *context)
 }
 
 static void
-trunk_record_allocator_cleanup_error(trunk_context *context,
-                                     platform_status rc)
+trunk_record_allocator_cleanup_error(trunk_context *context, platform_status rc)
 {
    if (!SUCCESS(rc)) {
       (void)__sync_bool_compare_and_swap(

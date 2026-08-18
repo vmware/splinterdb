@@ -388,17 +388,17 @@ core_durable_barrier_test_wait_for_io_barriers(checkpoint_barrier_fault *fault,
    return __atomic_load_n(&fault->barriers, __ATOMIC_ACQUIRE) >= target;
 }
 
-/* Take a stable frontier snapshot without dereferencing the unhazarded group. */
+/* Take a stable frontier snapshot without dereferencing the unhazarded group.
+ */
 static bool32
-core_durable_barrier_test_try_cut_frontier(shard_log         *log,
+core_durable_barrier_test_try_cut_frontier(shard_log          *log,
                                            log_durable_ticket *frontier_out)
 {
    uint64 install_before =
       __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
    shard_log_group *accepting =
       __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
-   uint64 accepting_id =
-      __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
+   uint64 accepting_id = __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
    uint64 install_after =
       __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
 

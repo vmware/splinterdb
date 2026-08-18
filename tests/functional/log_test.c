@@ -866,15 +866,14 @@ test_log_wait_for_handoff_or_done(const test_log_publication_hook *hook,
  * wait for the first cutter's id handoff before changing or publishing it.
  */
 static int
-test_log_nested_cutter_publication_handoff(
-   clockcache             *cc,
-   clockcache_config      *cache_cfg,
-   io_handle              *io,
-   allocator              *al,
-   shard_log_config       *cfg,
-   platform_heap_id        hid,
-   test_message_generator *gen,
-   uint64                  key_size)
+test_log_nested_cutter_publication_handoff(clockcache             *cc,
+                                           clockcache_config      *cache_cfg,
+                                           io_handle              *io,
+                                           allocator              *al,
+                                           shard_log_config       *cfg,
+                                           platform_heap_id        hid,
+                                           test_message_generator *gen,
+                                           uint64                  key_size)
 {
    log_handle *log;
    platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
@@ -885,9 +884,9 @@ test_log_nested_cutter_publication_handoff(
    shard_log_group *initial =
       __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
    platform_assert(initial != NULL);
-   uint64 initial_id = initial->id;
-   test_log_publication_hook hook = {
-      .group_id = initial_id + 1,
+   uint64                    initial_id = initial->id;
+   test_log_publication_hook hook       = {
+            .group_id = initial_id + 1,
    };
    slog->test_hook     = test_log_publication_hook_run;
    slog->test_hook_arg = &hook;
@@ -978,9 +977,9 @@ test_log_begin_claim_precedes_seal(clockcache             *cc,
    shard_log_group *initial =
       __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
    platform_assert(initial != NULL);
-   uint64 initial_id = initial->id;
-   test_log_publication_hook hook = {
-      .group_id = initial_id + 1,
+   uint64                    initial_id = initial->id;
+   test_log_publication_hook hook       = {
+            .group_id = initial_id + 1,
    };
    slog->test_hook     = test_log_publication_hook_run;
    slog->test_hook_arg = &hook;
@@ -1322,20 +1321,16 @@ test_log_concurrent_ticket_lifetime(cache                  *cc,
    allocator *al                = cache_get_allocator(cc);
    refcount   refs_before_waits = allocator_get_refcount(al, head.meta_addr);
 
-   bool32             start = FALSE;
+   bool32              start     = FALSE;
    test_log_wait_actor actors[2] = {0};
    for (uint64 i = 0; i < ARRAY_SIZE(actors); i++) {
       actors[i].log   = log;
       actors[i].start = &start;
       actors[i].rc    = STATUS_INVALID_STATE;
-      platform_assert_status_ok(
-         log_make_durable_begin(log, &actors[i].ticket));
+      platform_assert_status_ok(log_make_durable_begin(log, &actors[i].ticket));
       platform_assert(actors[i].ticket != 0);
-      platform_assert_status_ok(platform_thread_create(&actors[i].thread,
-                                                       FALSE,
-                                                       test_log_wait_actor_run,
-                                                       &actors[i],
-                                                       hid));
+      platform_assert_status_ok(platform_thread_create(
+         &actors[i].thread, FALSE, test_log_wait_actor_run, &actors[i], hid));
    }
    for (uint64 i = 0; i < ARRAY_SIZE(actors); i++) {
       platform_assert(test_log_wait_for_flag(&actors[i].ready));
@@ -2146,13 +2141,13 @@ log_test(int argc, char *argv[])
 
 #if SPLINTER_DEBUG
    rc = test_log_nested_cutter_publication_handoff(cc,
-                                                    &system_cfg.cache_cfg,
-                                                    io,
-                                                    (allocator *)&al,
-                                                    &system_cfg.log_cfg,
-                                                    hid,
-                                                    &gen,
-                                                    workload_cfg.key_size);
+                                                   &system_cfg.cache_cfg,
+                                                   io,
+                                                   (allocator *)&al,
+                                                   &system_cfg.log_cfg,
+                                                   hid,
+                                                   &gen,
+                                                   workload_cfg.key_size);
    platform_assert(rc == 0);
 
    rc = test_log_begin_claim_precedes_seal(cc,
