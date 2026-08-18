@@ -362,6 +362,9 @@ splinterdb_lookup(splinterdb               *kvs,   // IN
 // Updates
 /////////////////////////////////
 
+// A successful update is visible to subsequent operations, but is not
+// necessarily durable. Use splinterdb_durable_barrier() to establish crash
+// durability for a prefix of updates.
 
 // Insert a key and value.  Overwrites any previous value associated with the
 // key.
@@ -400,6 +403,29 @@ splinterdb_optimize(splinterdb              *kvs,
                     slice                    max_key,
                     _Bool                    full_leaf_compactions,
                     splinterdb_notification *notification);
+
+/////////////////////////////////
+// Durability
+/////////////////////////////////
+
+// Establish a durability barrier.
+//
+// On success, every update to kvs that linearized before this call began is
+// recoverable after a crash or power loss. This includes every successful
+// insert, update, or delete that returned before the call began. Updates may
+// proceed concurrently; an update overlapping the call may or may not be
+// covered.
+//
+// This establishes durability only. With the write-ahead log enabled, it does
+// not promise a checkpoint, log reclamation, a clean cache, or recovery without
+// log replay. Without the write-ahead log, SplinterDB obtains the same
+// guarantee by checkpointing the tree, which may be substantially more
+// expensive.
+//
+// Returns 0 on success. A nonzero return means the guarantee was not
+// established; some or all updates may nevertheless already be durable.
+int
+splinterdb_durable_barrier(splinterdb *kvs);
 
 /*
 Iterator API (range query)

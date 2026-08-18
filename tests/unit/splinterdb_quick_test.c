@@ -199,6 +199,25 @@ CTEST2(splinterdb_quick, test_checkpoint_log_grace_default)
                 core->cfg.checkpoint_log_grace_bytes);
 }
 
+CTEST2(splinterdb_quick, test_durable_barrier)
+{
+   // Re-create the instance with logging enabled (SETUP created it without).
+   int rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
+   data->cfg.use_log = TRUE;
+   rc                = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   slice key   = slice_create(strlen("durable-key"), "durable-key");
+   slice value = slice_create(strlen("durable-value"), "durable-value");
+
+   rc = splinterdb_insert(data->kvsb, key, value, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_durable_barrier(data->kvsb);
+   ASSERT_EQUAL(0, rc);
+}
+
 /*
  *
  * Basic test case that exercises and validates the basic flow of the

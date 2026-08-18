@@ -12,7 +12,6 @@ Thus, SplinterDB is provided *as-is* given the following limitations and missing
   between 8 to 105 bytes. Support for smaller key-sizes is experimental.
 * The application must specify the minimum and maximum of the key range.
 * SplinterDB on-disk size is fixed at compile time.
-* SplinterDB does not expose an API to force the latest write to be durable (e.g., fsync/commit.)
 * SplinterDB disk size cannot be changed once configured.
 * SplinterDB does not have a public API for the experimental async features.
 * SplinterDB does not retain configuration parameters and metadata. (These cannot

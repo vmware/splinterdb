@@ -852,6 +852,18 @@ splinterdb_optimize(splinterdb              *kvs,
    return 0;
 }
 
+int
+splinterdb_durable_barrier(splinterdb *kvs)
+{
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   platform_assert(kvs != NULL);
+   return platform_status_to_int(core_durable_barrier(&kvs->spl));
+}
+
 struct splinterdb_iterator {
    core_range_iterator sri;
    platform_status     last_rc;
