@@ -17,12 +17,10 @@
  *     page.  Mount picks the newest copy that passes magic/version/checksum/
  *     geometry validation.
  *
- *     The disk geometry is the first field (offset 0) so it can be read via a
- *     raw bootstrap read before any page size is known.  Geometry is
- *     write-invariant -- every generation writes identical geometry bytes --
- *     so a torn write to page 0 can only damage the checksummed mutable fields
- *     (recovered from the other page), never the geometry the bootstrap read
- *     depends on.
+ *     The disk geometry is the first field (offset 0), but bootstrap does not
+ *     trust those bytes in isolation.  It reads both slots at the format's
+ *     fixed page size, validates magic/version/checksum/basic geometry, and
+ *     takes the newest valid copy before geometry configures any subsystem.
  *
  *     The instance holds a single tree today: its per-tree record is embedded
  *     directly rather than as an array.  Supporting multiple trees would be an
@@ -146,9 +144,10 @@ typedef struct superblock_context {
 } superblock_context;
 
 /*
- * Read the raw disk geometry via a bootstrap read of page 0, before any
- * subsystem is configured.  Safe against torn writes because geometry is
- * write-invariant.  Does not validate the checksum (the full mount does).
+ * Read both complete superblock records before any subsystem is configured,
+ * validate their checksums and fixed format geometry, and return the geometry
+ * from the newest valid slot.  The full mount later rechecks it against the
+ * resolved allocator configuration.
  */
 platform_status
 superblock_read_geometry(const char *filename, disk_geometry *geometry);

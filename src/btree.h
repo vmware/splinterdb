@@ -185,14 +185,15 @@ typedef struct btree_iterator {
    comparison max_key_comparison;
    key        max_key;
 
-   uint64     root_addr;
-   btree_node curr;
-   char      *node_copy;
-   int64      idx;
-   int64      curr_min_idx;
-   uint64     end_addr;
-   int64      end_idx;
-   bool32     end_idx_valid;
+   uint64          root_addr;
+   btree_node      curr;
+   char           *node_copy;
+   int64           idx;
+   int64           curr_min_idx;
+   uint64          end_addr;
+   int64           end_idx;
+   bool32          end_idx_valid;
+   platform_status validation_status;
 
    btree_prefetch_cursor prefetch;
 } btree_iterator;

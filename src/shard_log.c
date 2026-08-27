@@ -310,13 +310,6 @@ first_log_entry(char *page)
    return (log_entry *)(page + sizeof(shard_log_hdr));
 }
 
-static bool32
-terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
-{
-   return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
-          || le->memtable_generation == INVALID_LOG_GENERATION;
-}
-
 static inline void
 log_entry_set_terminal(log_entry *le)
 {
@@ -329,10 +322,80 @@ log_entry_set_terminal(log_entry *le)
    le->memtable_generation = INVALID_LOG_GENERATION;
 }
 
-static log_entry *
-log_entry_next(log_entry *le)
+/*
+ * The page checksum detects accidental damage, but is not a memory-safety
+ * boundary: a malformed page can carry a recomputed checksum.  Validate all
+ * variable-length fields using integer offsets before constructing keys,
+ * messages, or next-entry pointers from them.
+ */
+static platform_status
+shard_log_validate_page_records(cache            *cc,
+                                shard_log_config *cfg,
+                                page_handle      *page)
 {
-   return (log_entry *)((char *)le + sizeof_log_entry(le));
+   uint64 page_size = shard_log_page_size(cfg);
+   if (page_size < sizeof(shard_log_hdr)) {
+      return STATUS_INVALID_STATE;
+   }
+
+   shard_log_hdr *hdr         = (shard_log_hdr *)page->data;
+   uint64         offset      = sizeof(*hdr);
+   uint64         max_entries = (page_size - offset) / sizeof(log_entry);
+   if (max_entries < hdr->num_entries) {
+      return STATUS_INVALID_STATE;
+   }
+
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
+      uint64 remaining = page_size - offset;
+      if (remaining < sizeof(log_entry)) {
+         return STATUS_INVALID_STATE;
+      }
+
+      log_entry    *le            = (log_entry *)(page->data + offset);
+      ondisk_tuple *tuple         = &le->tuple;
+      message_type  message_class = ondisk_tuple_message_class(tuple);
+      if (le->memtable_generation == INVALID_LOG_GENERATION
+          || le->leaf_generation == INVALID_LOG_GENERATION
+          || tuple->key_flags != ONDISK_KEY_DEFAULT_FLAGS
+          || tuple->key_length == ONDISK_KEY_NEGATIVE_INFINITY
+          || tuple->key_length == ONDISK_KEY_POSITIVE_INFINITY
+          || (tuple->flags
+              & ~(ONDISK_MESSAGE_TYPE_MASK | ONDISK_MESSAGE_IS_BLOB))
+                != 0
+          || message_class == MESSAGE_TYPE_INVALID
+          || message_class > MESSAGE_TYPE_MAX_VALID_USER_TYPE)
+      {
+         return STATUS_INVALID_STATE;
+      }
+
+      uint64 data_size = (uint64)tuple->key_length + tuple->message_length;
+      if (data_size > remaining - sizeof(log_entry)) {
+         return STATUS_INVALID_STATE;
+      }
+
+      if (ondisk_tuple_message_is_blob(tuple)) {
+         parsed_blob     blob_descriptor;
+         platform_status rc = blob_parse_descriptor(
+            cc,
+            message_slice(ondisk_tuple_message(cc, tuple)),
+            &blob_descriptor);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+      }
+      offset += sizeof(log_entry) + data_size;
+   }
+
+   /* A terminator is present whenever the writer had room for its header. */
+   if (sizeof(log_entry) <= page_size - offset) {
+      log_entry *terminal = (log_entry *)(page->data + offset);
+      if (terminal->memtable_generation != INVALID_LOG_GENERATION
+          || terminal->leaf_generation != INVALID_LOG_GENERATION)
+      {
+         return STATUS_INVALID_STATE;
+      }
+   }
+   return STATUS_OK;
 }
 
 static platform_status
@@ -345,16 +408,20 @@ shard_log_measure_page_records(cache            *cc,
 {
    *num_entries_out   = 0;
    *contents_size_out = 0;
-   for (log_entry *le = first_log_entry(page->data);
-        !terminal_log_entry(cfg, page->data, le);
-        le = log_entry_next(le))
-   {
+   platform_status rc = shard_log_validate_page_records(cc, cfg, page);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   log_entry     *le  = first_log_entry(page->data);
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
       if (le->memtable_generation < first_needed_generation) {
+         le = (log_entry *)((char *)le + sizeof_log_entry(le));
          continue;
-      }
-      if (log_entry_message_is_blob(le)) {
-         message         msg = log_entry_message(cc, le);
-         platform_status rc  = message_validate(msg);
+      } else if (log_entry_message_is_blob(le)) {
+         message msg = log_entry_message(cc, le);
+         rc          = message_validate(msg);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -368,6 +435,7 @@ shard_log_measure_page_records(cache            *cc,
       }
       (*num_entries_out)++;
       *contents_size_out += entry_size;
+      le = (log_entry *)((char *)le + entry_size);
    }
    return STATUS_OK;
 }
@@ -1872,17 +1940,22 @@ shard_log_recover_page_blob_allocations(cache            *cc,
                                         shard_log_config *cfg,
                                         page_handle      *page)
 {
-   for (log_entry *le = first_log_entry(page->data);
-        !terminal_log_entry(cfg, page->data, le);
-        le = log_entry_next(le))
-   {
+   platform_status rc = shard_log_validate_page_records(cc, cfg, page);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   log_entry     *le  = first_log_entry(page->data);
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
       if (log_entry_message_is_blob(le)) {
-         message         msg = log_entry_message(cc, le);
-         platform_status rc  = blob_recover_allocations(cc, message_slice(msg));
+         message msg = log_entry_message(cc, le);
+         rc          = blob_recover_allocations(cc, message_slice(msg));
          if (!SUCCESS(rc)) {
             return rc;
          }
       }
+      le = (log_entry *)((char *)le + sizeof_log_entry(le));
    }
    return STATUS_OK;
 }
@@ -2229,10 +2302,15 @@ shard_log_print(shard_log *log)
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, nonce)) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);
-            for (log_entry *le = first_log_entry(page->data);
-                 !terminal_log_entry(cfg, page->data, le);
-                 le = log_entry_next(le))
-            {
+            if (!SUCCESS(shard_log_validate_page_records(cc, cfg, page))) {
+               platform_error_log("invalid log records on page %lu\n",
+                                  page_addr);
+               cache_unget(cc, page);
+               return;
+            }
+            shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+            log_entry     *le  = first_log_entry(page->data);
+            for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
                platform_default_log(
                   "%s -- %s%s : memtable=%lu leaf=%lu\n",
                   key_string(dcfg, log_entry_key(le)),
@@ -2240,6 +2318,7 @@ shard_log_print(shard_log *log)
                   message_string(dcfg, log_entry_message(cc, le)),
                   le->memtable_generation,
                   le->leaf_generation);
+               le = (log_entry *)((char *)le + sizeof_log_entry(le));
             }
          }
          cache_unget(cc, page);
@@ -2600,15 +2679,24 @@ shard_log_iterator_init(cache              *cc,
             cache_unget(cc, page);
             continue;
          }
+         rc = shard_log_validate_page_records(cc, cfg, page);
+         if (!SUCCESS(rc)) {
+            cache_unget(cc, page);
+            platform_free(hid, itor->entries);
+            platform_free(hid, itor->contents);
+            itor->entries  = NULL;
+            itor->contents = NULL;
+            return rc;
+         }
          pages_taken++;
-         for (log_entry *le = first_log_entry(page->data);
-              !terminal_log_entry(cfg, page->data, le);
-              le = log_entry_next(le))
-         {
+         shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+         log_entry     *le  = first_log_entry(page->data);
+         for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
+            uint64 entry_size = sizeof_log_entry(le);
             if (le->memtable_generation < first_needed_generation) {
+               le = (log_entry *)((char *)le + entry_size);
                continue;
             }
-            uint64 entry_size = sizeof_log_entry(le);
             platform_assert(entry_idx < itor->num_entries);
             platform_assert(entry_size <= contents_size - contents_copied);
             memmove(cursor, le, entry_size);
@@ -2616,6 +2704,7 @@ shard_log_iterator_init(cache              *cc,
             entry_idx++;
             cursor += entry_size;
             contents_copied += entry_size;
+            le = (log_entry *)((char *)le + entry_size);
          }
          next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);

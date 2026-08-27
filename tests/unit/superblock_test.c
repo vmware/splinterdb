@@ -17,6 +17,8 @@
 #include "config.h" // Reqd for definition of master_config{}
 #include "allocator.h"
 #include "superblock.h"
+#include "splinterdb/default_data_config.h"
+#include "splinterdb/splinterdb.h"
 
 CTEST_DATA(superblock)
 {
@@ -383,8 +385,8 @@ CTEST2(superblock, test_both_slots_corrupt_is_not_found)
 }
 
 /*
- * The raw bootstrap geometry read (used before any subsystem is configured)
- * returns the formatted geometry.
+ * The bootstrap geometry read validates complete records, falls back from a
+ * corrupt slot, and rejects the device when neither slot is valid.
  */
 CTEST2(superblock, test_read_geometry)
 {
@@ -402,4 +404,40 @@ CTEST2(superblock, test_read_geometry)
    ASSERT_EQUAL(data->allocator_cfg.capacity, geom.disk_size);
    ASSERT_EQUAL(data->io_cfg.page_size, geom.page_size);
    ASSERT_EQUAL(data->io_cfg.extent_size, geom.extent_size);
+
+   superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
+   rc = superblock_read_geometry(data->io_cfg.filename, &geom);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(data->allocator_cfg.capacity, geom.disk_size);
+
+   superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 1);
+   rc = superblock_read_geometry(data->io_cfg.filename, &geom);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NOT_FOUND));
+}
+
+/* A checksummed geometry still cannot make the cache allocate more lookup
+ * metadata than the caller's trusted cache budget. */
+CTEST2(superblock, test_bootstrap_geometry_metadata_budget)
+{
+   allocator_config oversized;
+   allocator_config_init(&oversized, &data->io_cfg, 128 * GiB);
+
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &oversized, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &oversized);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+
+   data_config dcfg;
+   default_data_config_init(&dcfg);
+   splinterdb_config cfg = {
+      .filename   = data->io_cfg.filename,
+      .cache_size = 64 * MiB,
+      .data_cfg   = &dcfg,
+   };
+   splinterdb *kvs = NULL;
+   ASSERT_NOT_EQUAL(0, splinterdb_open(&cfg, &kvs));
+   ASSERT_TRUE(kvs == NULL);
 }

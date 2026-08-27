@@ -1192,6 +1192,152 @@ btree_node_get(cache              *cc,
    node->hdr  = (btree_hdr *)(node->page->data);
 }
 
+static bool32
+btree_page_addr_is_valid(cache *cc, uint64 addr)
+{
+   allocator_config *allocator_cfg =
+      allocator_get_config(cache_get_allocator(cc));
+   uint64 page_size = cache_page_size(cc);
+   return page_size <= addr && addr % page_size == 0
+          && page_size <= allocator_cfg->capacity
+          && addr <= allocator_cfg->capacity - page_size;
+}
+
+static bool32
+btree_extent_addr_is_valid(cache *cc, uint64 addr)
+{
+   allocator_config *allocator_cfg =
+      allocator_get_config(cache_get_allocator(cc));
+   uint64 extent_size = cache_extent_size(cc);
+   return addr == 0
+          || (extent_size <= addr && addr % extent_size == 0
+              && extent_size <= allocator_cfg->capacity
+              && addr <= allocator_cfg->capacity - extent_size);
+}
+
+static platform_status
+btree_node_validate(cache              *cc,
+                    const btree_config *cfg,
+                    const btree_node   *node,
+                    page_type           type)
+{
+   if (node == NULL || node->page == NULL || node->hdr == NULL) {
+      return STATUS_IO_ERROR;
+   }
+   if (type != PAGE_TYPE_BRANCH) {
+      return STATUS_OK;
+   }
+   if (!btree_page_addr_is_valid(cc, node->addr)
+       || node->page->disk_addr != node->addr)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   const btree_hdr *hdr       = node->hdr;
+   uint64           page_size = btree_page_size(cfg);
+   if (page_size < sizeof(*hdr) || hdr->height >= BTREE_MAX_HEIGHT
+       || (hdr->flags & ~(BTREE_HDR_FIRST_IN_LEVEL | BTREE_HDR_LAST_IN_LEVEL))
+             != 0)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   uint64 max_entries = (page_size - sizeof(*hdr)) / sizeof(hdr->offsets[0]);
+   if (max_entries < hdr->num_entries) {
+      return STATUS_INVALID_STATE;
+   }
+   uint64 table_end =
+      sizeof(*hdr) + (uint64)hdr->num_entries * sizeof(hdr->offsets[0]);
+   if (hdr->next_entry < table_end || page_size < hdr->next_entry
+       || (hdr->height != 0 && hdr->num_entries == 0)
+       || !btree_extent_addr_is_valid(cc, hdr->prev_addr)
+       || !btree_extent_addr_is_valid(cc, hdr->next_addr)
+       || (hdr->meta_page_addr != 0
+           && !btree_page_addr_is_valid(cc, hdr->meta_page_addr)))
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
+      uint64 offset = hdr->offsets[i];
+      if (offset < hdr->next_entry || page_size <= offset) {
+         return STATUS_INVALID_STATE;
+      }
+      uint64 remaining = page_size - offset;
+      if (hdr->height == 0) {
+         if (remaining < sizeof(leaf_entry)) {
+            return STATUS_INVALID_STATE;
+         }
+         const leaf_entry *entry =
+            (const leaf_entry *)((const char *)hdr + offset);
+         message_type message_class = ondisk_tuple_message_class(entry);
+         if (entry->key_flags != ONDISK_KEY_DEFAULT_FLAGS
+             || entry->key_length == ONDISK_KEY_NEGATIVE_INFINITY
+             || entry->key_length == ONDISK_KEY_POSITIVE_INFINITY
+             || (entry->flags
+                 & ~(ONDISK_MESSAGE_TYPE_MASK | ONDISK_MESSAGE_IS_BLOB))
+                   != 0
+             || message_class == MESSAGE_TYPE_INVALID
+             || message_class > MESSAGE_TYPE_MAX_VALID_USER_TYPE)
+         {
+            return STATUS_INVALID_STATE;
+         }
+         uint64 data_size = (uint64)entry->key_length + entry->message_length;
+         if (data_size > remaining - sizeof(*entry)) {
+            return STATUS_INVALID_STATE;
+         }
+         if (ondisk_tuple_message_is_blob(entry)) {
+            parsed_blob pblob;
+            slice       descriptor =
+               slice_create(entry->message_length,
+                            entry->key_and_message + entry->key_length);
+            platform_status rc = blob_parse_descriptor(cc, descriptor, &pblob);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
+         }
+      } else {
+         if (remaining < sizeof(index_entry)) {
+            return STATUS_INVALID_STATE;
+         }
+         const index_entry *entry =
+            (const index_entry *)((const char *)hdr + offset);
+         if (entry->pivot.flags != ONDISK_KEY_DEFAULT_FLAGS
+             || sizeof_ondisk_key_data(&entry->pivot)
+                   > remaining - sizeof(*entry)
+             || !btree_page_addr_is_valid(cc, entry->pivot_data.child_addr))
+         {
+            return STATUS_INVALID_STATE;
+         }
+      }
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+btree_node_get_checked(cache              *cc,
+                       const btree_config *cfg,
+                       btree_node         *node,
+                       page_type           type)
+{
+   if (type == PAGE_TYPE_BRANCH && !btree_page_addr_is_valid(cc, node->addr)) {
+      node->page = NULL;
+      node->hdr  = NULL;
+      return STATUS_INVALID_STATE;
+   }
+   node->page = cache_get(cc, node->addr, TRUE, type);
+   if (node->page == NULL) {
+      node->hdr = NULL;
+      return STATUS_IO_ERROR;
+   }
+   node->hdr          = (btree_hdr *)node->page->data;
+   platform_status rc = btree_node_validate(cc, cfg, node, type);
+   if (!SUCCESS(rc) && node->page != NULL) {
+      btree_node_unget(cc, cfg, node);
+   }
+   return rc;
+}
+
 static inline bool32
 btree_node_claim(cache              *cc,  // IN
                  const btree_config *cfg, // IN
@@ -2245,8 +2391,11 @@ btree_lookup_node(cache              *cc,             // IN
    }
 
    debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
-   node.addr = root_addr;
-   btree_node_get(cc, cfg, &node, type);
+   node.addr          = root_addr;
+   platform_status rc = btree_node_get_checked(cc, cfg, &node, type);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    for (h = btree_height(node.hdr); h > stop_at_height; h--) {
       bool32 found;
@@ -2271,7 +2420,11 @@ btree_lookup_node(cache              *cc,             // IN
          return STATUS_OK;
       }
 
-      btree_node_get(cc, cfg, &child_node, type);
+      rc = btree_node_get_checked(cc, cfg, &child_node, type);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(cc, cfg, &node);
+         return rc;
+      }
       debug_assert(child_node.page->disk_addr == child_node.addr);
       btree_node_unget(cc, cfg, &node);
       node = child_node;
@@ -2317,7 +2470,13 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
 
    debug_assert(state->type == PAGE_TYPE_BRANCH
                 || state->type == PAGE_TYPE_MEMTABLE);
-   state->node.addr = state->root_addr;
+   state->node.addr      = state->root_addr;
+   state->__async_result = STATUS_OK;
+   if (state->type == PAGE_TYPE_BRANCH
+       && !btree_page_addr_is_valid(state->cc, state->node.addr))
+   {
+      async_return(state, STATUS_INVALID_STATE);
+   }
 
    async_await_call(state,
                     cache_get_async,
@@ -2328,7 +2487,16 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
                     state->callback,
                     state->callback_arg);
    state->node.page = cache_get_async_state_result(&state->cache_get_state);
-   state->node.hdr  = (btree_hdr *)state->node.page->data;
+   if (state->node.page == NULL) {
+      async_return(state, STATUS_IO_ERROR);
+   }
+   state->node.hdr = (btree_hdr *)state->node.page->data;
+   platform_status rc =
+      btree_node_validate(state->cc, state->cfg, &state->node, state->type);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(state->cc, state->cfg, &state->node);
+      async_return(state, rc);
+   }
 
    for (state->h = btree_height(state->node.hdr);
         state->h > state->stop_at_height;
@@ -2370,7 +2538,19 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
                        state->callback_arg);
       state->child_node.page =
          cache_get_async_state_result(&state->cache_get_state);
+      if (state->child_node.page == NULL) {
+         btree_node_unget(state->cc, state->cfg, &state->node);
+         async_return(state, STATUS_IO_ERROR);
+      }
       state->child_node.hdr = (btree_hdr *)state->child_node.page->data;
+
+      rc = btree_node_validate(
+         state->cc, state->cfg, &state->child_node, state->type);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(state->cc, state->cfg, &state->child_node);
+         btree_node_unget(state->cc, state->cfg, &state->node);
+         async_return(state, rc);
+      }
 
       debug_assert(state->child_node.page->disk_addr == state->child_node.addr);
       btree_node_unget(state->cc, state->cfg, &state->node);
@@ -2415,6 +2595,9 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
    state->stats          = NULL;
    state->get_node       = TRUE;
    async_await_subroutine(state, btree_lookup_node_async);
+   if (!SUCCESS(state->__async_result)) {
+      async_return(state);
+   }
 
    state->found_key = NULL_KEY;
    bool32 found;
@@ -2495,8 +2678,11 @@ btree_lookup_and_merge(cache              *cc,        // IN
       *local_found = FALSE;
    }
 
-   btree_lookup_with_ref(
+   rc = btree_lookup_with_ref(
       cc, cfg, root_addr, type, target, &node, &found_key, &local_data);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    if (!key_is_null(found_key)) {
       ondisk_ref blob_ref = ONDISK_REF_NULL;
       if (local_found != NULL) {
@@ -2537,6 +2723,10 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state)
    async_begin(state, 0);
 
    async_await_subroutine(state, btree_lookup_with_ref_async);
+
+   if (!SUCCESS(state->__async_result)) {
+      async_return(state, state->__async_result);
+   }
 
    platform_status rc = STATUS_OK;
    if (!key_is_null(state->found_key)) {
@@ -2670,28 +2860,40 @@ btree_iterator_release_curr(btree_iterator *itor)
    }
 }
 
-static inline void
+static inline platform_status
 btree_iterator_get_curr_addr(btree_iterator *itor, uint64 addr)
 {
    itor->curr.addr = addr;
-   btree_node_get(itor->cc, itor->cfg, &itor->curr, itor->page_type);
+   platform_status rc =
+      btree_node_get_checked(itor->cc, itor->cfg, &itor->curr, itor->page_type);
+   if (!SUCCESS(rc)) {
+      itor->validation_status = rc;
+      return rc;
+   }
    btree_iterator_copy_curr_if_needed(itor);
+   return STATUS_OK;
 }
 
-static inline uint64
-btree_iterator_curr_live_prev_addr(btree_iterator *itor)
+static inline platform_status
+btree_iterator_curr_live_prev_addr(btree_iterator *itor, uint64 *prev_addr)
 {
    if (!btree_iterator_curr_is_copy(itor)) {
-      return btree_node_prev_addr(itor->cfg, &itor->curr, itor->page_type);
+      *prev_addr =
+         btree_node_prev_addr(itor->cfg, &itor->curr, itor->page_type);
+      return STATUS_OK;
    }
 
    btree_node live_curr;
    live_curr.addr = itor->curr.addr;
-   btree_node_get(itor->cc, itor->cfg, &live_curr, itor->page_type);
-   uint64 prev_addr =
-      btree_node_prev_addr(itor->cfg, &live_curr, itor->page_type);
+   platform_status rc =
+      btree_node_get_checked(itor->cc, itor->cfg, &live_curr, itor->page_type);
+   if (!SUCCESS(rc)) {
+      itor->validation_status = rc;
+      return rc;
+   }
+   *prev_addr = btree_node_prev_addr(itor->cfg, &live_curr, itor->page_type);
    btree_node_unget(itor->cc, itor->cfg, &live_curr);
-   return prev_addr;
+   return STATUS_OK;
 }
 
 static inline key
@@ -2722,13 +2924,13 @@ btree_iterator_end_key_beyond_curr(btree_iterator *itor)
           && btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type) != 0;
 }
 
-static void
+static platform_status
 btree_iterator_find_end_addr(btree_iterator *itor)
 {
    if (itor->curr.hdr != NULL && itor->curr.addr == itor->root_addr) {
       itor->end_addr      = itor->root_addr;
       itor->end_idx_valid = FALSE;
-      return;
+      return STATUS_OK;
    }
 
    btree_node      end;
@@ -2741,9 +2943,13 @@ btree_iterator_find_end_addr(btree_iterator *itor)
                                           FALSE,
                                           &end,
                                           NULL);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      itor->validation_status = rc;
+      return rc;
+   }
    itor->end_addr      = end.addr;
    itor->end_idx_valid = FALSE;
+   return STATUS_OK;
 }
 
 static inline void
@@ -2751,8 +2957,11 @@ btree_iterator_compute_end_idx(btree_iterator *itor)
 {
    while (itor->curr.addr == itor->end_addr && !itor->end_idx_valid) {
       if (btree_iterator_end_key_beyond_curr(itor)) {
-         uint64 old_end_addr = itor->end_addr;
-         btree_iterator_find_end_addr(itor);
+         uint64          old_end_addr = itor->end_addr;
+         platform_status rc           = btree_iterator_find_end_addr(itor);
+         if (!SUCCESS(rc)) {
+            return;
+         }
          if (itor->curr.addr != itor->end_addr) {
             return;
          }
@@ -2779,8 +2988,11 @@ static bool32
 btree_iterator_can_prev(iterator *base_itor)
 {
    btree_iterator *itor = (btree_iterator *)base_itor;
+   if (!SUCCESS(itor->validation_status)) {
+      return FALSE;
+   }
    btree_iterator_compute_end_idx(itor);
-   return itor->idx >= itor->curr_min_idx
+   return SUCCESS(itor->validation_status) && itor->idx >= itor->curr_min_idx
           && (itor->curr.addr != itor->end_addr
               || itor->curr_min_idx != itor->end_idx);
 }
@@ -2789,9 +3001,14 @@ static bool32
 btree_iterator_can_next(iterator *base_itor)
 {
    btree_iterator *itor = (btree_iterator *)base_itor;
+   if (!SUCCESS(itor->validation_status)) {
+      return FALSE;
+   }
    btree_iterator_compute_end_idx(itor);
-   return itor->curr.addr != itor->end_addr
-          || (itor->idx < itor->end_idx && itor->curr_min_idx != itor->end_idx);
+   return SUCCESS(itor->validation_status)
+          && (itor->curr.addr != itor->end_addr
+              || (itor->idx < itor->end_idx
+                  && itor->curr_min_idx != itor->end_idx));
 }
 
 void
@@ -2859,6 +3076,10 @@ btree_iterator_find_end_addr_async(btree_iterator_async_state *state,
    async_await(state,
                btree_lookup_node_async(&state->lookup_state, 0)
                   == ASYNC_STATUS_DONE);
+   if (!SUCCESS(state->lookup_state.__async_result)) {
+      state->itor->validation_status = state->lookup_state.__async_result;
+      async_return(state, state->lookup_state.__async_result);
+   }
    state->itor->end_addr      = state->lookup_state.node.addr;
    state->itor->end_idx_valid = FALSE;
 
@@ -3102,18 +3323,22 @@ btree_iterator_prefetch_on_advance(btree_iterator *itor,
  * haven't reached the end of the iterator.
  * ----------------------------------------------------------------------------
  */
-static void
+static platform_status
 btree_iterator_next_leaf(btree_iterator *itor)
 {
    uint64 last_addr = itor->curr.addr;
    uint64 next_addr =
       btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type);
    btree_iterator_release_curr(itor);
-   btree_iterator_get_curr_addr(itor, next_addr);
+   platform_status rc = btree_iterator_get_curr_addr(itor, next_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    itor->idx          = 0;
    itor->curr_min_idx = -1;
 
    btree_iterator_prefetch_on_advance(itor, last_addr, TRUE);
+   return STATUS_OK;
 }
 
 static async_status
@@ -3126,6 +3351,12 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
       state->itor->cfg, &state->itor->curr, state->itor->page_type);
    btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->next_addr;
+   if (state->itor->page_type == PAGE_TYPE_BRANCH
+       && !btree_page_addr_is_valid(state->itor->cc, state->itor->curr.addr))
+   {
+      state->itor->validation_status = STATUS_INVALID_STATE;
+      async_return(state, state->itor->validation_status);
+   }
 
    async_await_call(state,
                     cache_get_async,
@@ -3137,7 +3368,20 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
                     state->callback_arg);
    state->itor->curr.page =
       cache_get_async_state_result(&state->cache_get_state);
+   if (state->itor->curr.page == NULL) {
+      state->itor->validation_status = STATUS_IO_ERROR;
+      async_return(state, state->itor->validation_status);
+   }
    state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+   platform_status rc    = btree_node_validate(state->itor->cc,
+                                            state->itor->cfg,
+                                            &state->itor->curr,
+                                            state->itor->page_type);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      state->itor->validation_status = rc;
+      async_return(state, rc);
+   }
    btree_iterator_copy_curr_if_needed(state->itor);
 
    state->itor->idx          = 0;
@@ -3154,7 +3398,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
  * Move to the previous leaf when we've reached the beginning of one leaf.
  * ----------------------------------------------------------------------------
  */
-static void
+static platform_status
 btree_iterator_prev_leaf(btree_iterator *itor)
 {
    const btree_config *cfg = itor->cfg;
@@ -3164,9 +3408,16 @@ btree_iterator_prev_leaf(btree_iterator *itor)
     * Copied nodes can have stale prev_addr values. Read the live current node
     * before moving backward so predecessor splits are not skipped.
     */
-   uint64 prev_addr = btree_iterator_curr_live_prev_addr(itor);
+   uint64          prev_addr;
+   platform_status rc = btree_iterator_curr_live_prev_addr(itor, &prev_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    btree_iterator_release_curr(itor);
-   btree_iterator_get_curr_addr(itor, prev_addr);
+   rc = btree_iterator_get_curr_addr(itor, prev_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    /*
     * The previous leaf may have split in between our release of the
@@ -3177,8 +3428,15 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    {
       uint64 next_addr =
          btree_node_next_addr(cfg, &itor->curr, itor->page_type);
+      if (next_addr == 0 || next_addr == itor->curr.addr) {
+         itor->validation_status = STATUS_INVALID_STATE;
+         return itor->validation_status;
+      }
       btree_iterator_release_curr(itor);
-      btree_iterator_get_curr_addr(itor, next_addr);
+      rc = btree_iterator_get_curr_addr(itor, next_addr);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
 
    itor->idx = btree_num_entries(itor->curr.hdr) - 1;
@@ -3199,6 +3457,7 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    }
 
    btree_iterator_prefetch_on_advance(itor, last_addr, FALSE);
+   return STATUS_OK;
 }
 
 static async_status
@@ -3209,6 +3468,12 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    state->curr_addr = state->itor->curr.addr;
    if (btree_iterator_curr_is_copy(state->itor)) {
       state->live_curr.addr = state->curr_addr;
+      if (state->itor->page_type == PAGE_TYPE_BRANCH
+          && !btree_page_addr_is_valid(state->itor->cc, state->live_curr.addr))
+      {
+         state->itor->validation_status = STATUS_INVALID_STATE;
+         async_return(state, state->itor->validation_status);
+      }
       async_await_call(state,
                        cache_get_async,
                        &state->cache_get_state,
@@ -3219,8 +3484,21 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                        state->callback_arg);
       state->live_curr.page =
          cache_get_async_state_result(&state->cache_get_state);
+      if (state->live_curr.page == NULL) {
+         state->itor->validation_status = STATUS_IO_ERROR;
+         async_return(state, state->itor->validation_status);
+      }
       state->live_curr.hdr = (btree_hdr *)state->live_curr.page->data;
-      state->prev_addr     = btree_node_prev_addr(
+      platform_status rc   = btree_node_validate(state->itor->cc,
+                                               state->itor->cfg,
+                                               &state->live_curr,
+                                               state->itor->page_type);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
+         state->itor->validation_status = rc;
+         async_return(state, rc);
+      }
+      state->prev_addr = btree_node_prev_addr(
          state->itor->cfg, &state->live_curr, state->itor->page_type);
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
    } else {
@@ -3229,6 +3507,12 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    }
    btree_iterator_release_curr(state->itor);
    state->itor->curr.addr = state->prev_addr;
+   if (state->itor->page_type == PAGE_TYPE_BRANCH
+       && !btree_page_addr_is_valid(state->itor->cc, state->itor->curr.addr))
+   {
+      state->itor->validation_status = STATUS_INVALID_STATE;
+      async_return(state, state->itor->validation_status);
+   }
 
    async_await_call(state,
                     cache_get_async,
@@ -3240,7 +3524,20 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                     state->callback_arg);
    state->itor->curr.page =
       cache_get_async_state_result(&state->cache_get_state);
+   if (state->itor->curr.page == NULL) {
+      state->itor->validation_status = STATUS_IO_ERROR;
+      async_return(state, state->itor->validation_status);
+   }
    state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+   platform_status rc    = btree_node_validate(state->itor->cc,
+                                            state->itor->cfg,
+                                            &state->itor->curr,
+                                            state->itor->page_type);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      state->itor->validation_status = rc;
+      async_return(state, rc);
+   }
    btree_iterator_copy_curr_if_needed(state->itor);
 
    /*
@@ -3254,6 +3551,10 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    {
       state->next_addr = btree_node_next_addr(
          state->itor->cfg, &state->itor->curr, state->itor->page_type);
+      if (state->next_addr == 0 || state->next_addr == state->itor->curr.addr) {
+         state->itor->validation_status = STATUS_INVALID_STATE;
+         async_return(state, state->itor->validation_status);
+      }
       btree_iterator_release_curr(state->itor);
       state->itor->curr.addr = state->next_addr;
 
@@ -3267,7 +3568,21 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                        state->callback_arg);
       state->itor->curr.page =
          cache_get_async_state_result(&state->cache_get_state);
+      if (state->itor->curr.page == NULL) {
+         state->itor->validation_status = STATUS_IO_ERROR;
+         async_return(state, state->itor->validation_status);
+      }
       state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page->data;
+      rc                    = btree_node_validate(state->itor->cc,
+                               state->itor->cfg,
+                               &state->itor->curr,
+                               state->itor->page_type);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(
+            state->itor->cc, state->itor->cfg, &state->itor->curr);
+         state->itor->validation_status = rc;
+         async_return(state, rc);
+      }
       btree_iterator_copy_curr_if_needed(state->itor);
    }
 
@@ -3310,6 +3625,9 @@ btree_iterator_next(iterator *base_itor)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
+   if (!SUCCESS(itor->validation_status)) {
+      return itor->validation_status;
+   }
 
    // We should not be calling advance on an empty iterator
    debug_assert(btree_iterator_can_next(base_itor));
@@ -3320,14 +3638,17 @@ btree_iterator_next(iterator *base_itor)
    if (itor->idx == btree_num_entries(itor->curr.hdr)
        && btree_iterator_can_next(base_itor))
    {
-      btree_iterator_next_leaf(itor);
+      platform_status rc = btree_iterator_next_leaf(itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
 
    debug_assert(
       !btree_iterator_can_next(base_itor)
       || (0 <= itor->idx && itor->idx < btree_num_entries(itor->curr.hdr)));
 
-   return STATUS_OK;
+   return itor->validation_status;
 }
 
 platform_status
@@ -3335,6 +3656,9 @@ btree_iterator_prev(iterator *base_itor)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
+   if (!SUCCESS(itor->validation_status)) {
+      return itor->validation_status;
+   }
 
    // We should not be calling prev on an empty iterator
    debug_assert(btree_iterator_can_prev(base_itor));
@@ -3342,14 +3666,17 @@ btree_iterator_prev(iterator *base_itor)
 
    itor->idx--;
    if (itor->curr_min_idx == -1 && itor->idx == -1) {
-      btree_iterator_prev_leaf(itor);
+      platform_status rc = btree_iterator_prev_leaf(itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
 
    debug_assert(
       !btree_iterator_can_prev(base_itor)
       || (0 <= itor->idx && itor->idx < btree_num_entries(itor->curr.hdr)));
 
-   return STATUS_OK;
+   return itor->validation_status;
 }
 
 static inline void
@@ -3367,18 +3694,25 @@ btree_iterator_bound_idx(btree_iterator *itor, comparison position_rule)
    }
 }
 
-static inline void
+static inline platform_status
 btree_iterator_move_leaf_if_needed(btree_iterator *itor)
 {
    if (itor->curr.addr != itor->end_addr
        && itor->idx == btree_num_entries(itor->curr.hdr))
    {
-      btree_iterator_next_leaf(itor);
+      platform_status rc = btree_iterator_next_leaf(itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       itor->curr_min_idx = 0; // we came from an irrelevant leaf
    }
    if (itor->curr_min_idx == -1 && itor->idx == -1) {
-      btree_iterator_prev_leaf(itor);
+      platform_status rc = btree_iterator_prev_leaf(itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
+   return STATUS_OK;
 }
 
 static inline async_status
@@ -3391,17 +3725,23 @@ btree_iterator_move_leaf_if_needed_async(btree_iterator_async_state *state,
        && state->itor->idx == btree_num_entries(state->itor->curr.hdr))
    {
       async_await_subroutine(state, btree_iterator_next_leaf_async);
+      if (!SUCCESS(state->__async_result)) {
+         async_return(state, state->__async_result);
+      }
       state->itor->curr_min_idx = 0; // we came from an irrelevant leaf
    }
    if (state->itor->curr_min_idx == -1 && state->itor->idx == -1) {
       async_await_subroutine(state, btree_iterator_prev_leaf_async);
+      if (!SUCCESS(state->__async_result)) {
+         async_return(state, state->__async_result);
+      }
    }
 
    async_return(state);
 }
 
 // This function violates our locking rules. See comment at top of file.
-static inline void
+static inline platform_status
 find_btree_node_and_get_idx_bounds(btree_iterator *itor,
                                    key             target,
                                    comparison      position_rule)
@@ -3420,7 +3760,10 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
                                           TRUE,
                                           &itor->curr,
                                           NULL);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      itor->validation_status = rc;
+      return rc;
+   }
 
    if (itor->copy_nodes) {
       /*
@@ -3438,11 +3781,20 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
                                 TRUE,
                                 &itor->curr,
                                 NULL);
-         platform_assert_status_ok(rc);
+         if (!SUCCESS(rc)) {
+            itor->validation_status = rc;
+            return rc;
+         }
       }
    }
 
-   btree_iterator_find_end_addr(itor);
+   rc = btree_iterator_find_end_addr(itor);
+   if (!SUCCESS(rc)) {
+      if (itor->copy_nodes) {
+         btree_node_unclaim(itor->cc, itor->cfg, &itor->curr);
+      }
+      return rc;
+   }
 
    if (itor->copy_nodes) {
       /* Once we've found end, we can unclaim curr. */
@@ -3471,8 +3823,12 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
    btree_iterator_bound_idx(itor, position_rule);
 
    // check if we already need to move to the prev/next leaf
-   btree_iterator_move_leaf_if_needed(itor);
+   rc = btree_iterator_move_leaf_if_needed(itor);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    btree_iterator_copy_curr_if_needed(itor);
+   return STATUS_OK;
 }
 
 // This function violates our locking rules. See comment at top of file.
@@ -3498,6 +3854,10 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
    async_await(state,
                btree_lookup_node_async(&state->lookup_state, 0)
                   == ASYNC_STATUS_DONE);
+   if (!SUCCESS(state->lookup_state.__async_result)) {
+      state->itor->validation_status = state->lookup_state.__async_result;
+      async_return(state, state->lookup_state.__async_result);
+   }
    state->itor->curr = state->lookup_state.node;
 
    if (state->itor->copy_nodes) {
@@ -3519,11 +3879,21 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
                                                 TRUE,
                                                 &state->itor->curr,
                                                 NULL);
-         platform_assert_status_ok(rc);
+         if (!SUCCESS(rc)) {
+            state->itor->validation_status = rc;
+            async_return(state, rc);
+         }
       }
    }
 
    async_await_subroutine(state, btree_iterator_find_end_addr_async);
+   if (!SUCCESS(state->__async_result)) {
+      if (state->itor->copy_nodes) {
+         btree_node_unclaim(
+            state->itor->cc, state->itor->cfg, &state->itor->curr);
+      }
+      async_return(state, state->__async_result);
+   }
 
    if (state->itor->copy_nodes) {
       /* Once we've found end, we can unclaim curr. */
@@ -3561,6 +3931,9 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
 
    // check if we already need to move to the prev/next leaf
    async_await_subroutine(state, btree_iterator_move_leaf_if_needed_async);
+   if (!SUCCESS(state->__async_result)) {
+      async_return(state, state->__async_result);
+   }
 
    async_return(state);
 }
@@ -3575,6 +3948,9 @@ btree_iterator_seek(iterator *base_itor, comparison seek_type, key seek_key)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
+   if (!SUCCESS(itor->validation_status)) {
+      return itor->validation_status;
+   }
 
    if (btree_key_compare(itor->cfg, seek_key, itor->min_key) < 0
        || btree_key_compare(itor->cfg, seek_key, itor->max_key) > 0)
@@ -3600,11 +3976,18 @@ btree_iterator_seek(iterator *base_itor, comparison seek_type, key seek_key)
       itor->idx =
          find_key_in_node(itor, itor->curr.hdr, seek_key, seek_type, &found);
       btree_iterator_bound_idx(itor, seek_type);
-      btree_iterator_move_leaf_if_needed(itor);
+      platform_status rc = btree_iterator_move_leaf_if_needed(itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       platform_assert(-1 <= itor->idx);
    } else {
       // seek key is not within our current leaf. So find the correct leaf
-      find_btree_node_and_get_idx_bounds(itor, seek_key, seek_type);
+      platform_status rc =
+         find_btree_node_and_get_idx_bounds(itor, seek_key, seek_type);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
 
    // The iterator may have repositioned; re-anchor the prefetch cursor so a
@@ -3705,6 +4088,7 @@ btree_iterator_init_common(cache              *cc,
    itor->page_type          = page_type;
    itor->super.ops          = &btree_iterator_ops;
    itor->prefetch.lookahead = prefetch_lookahead;
+   itor->validation_status  = STATUS_OK;
    if (copy_nodes) {
       itor->node_copy = TYPED_MANUAL_MALLOC(
          PROCESS_PRIVATE_HEAP_ID, itor->node_copy, btree_page_size(itor->cfg));
@@ -3752,7 +4136,11 @@ btree_iterator_init(cache              *cc,
       return rc;
    }
 
-   find_btree_node_and_get_idx_bounds(itor, start_key, start_type);
+   rc = find_btree_node_and_get_idx_bounds(itor, start_key, start_type);
+   if (!SUCCESS(rc)) {
+      btree_iterator_deinit(itor);
+      return rc;
+   }
 
    btree_prefetch_cursor_start(itor, TRUE);
    // While the deep cursor is priming or disabled, keep the next forward extent
@@ -3797,6 +4185,10 @@ btree_iterator_init_async(btree_iterator_async_state *state)
 
    state->position_rule = state->start_type;
    async_await_subroutine(state, find_btree_node_and_get_idx_bounds_async);
+   if (!SUCCESS(state->__async_result)) {
+      btree_iterator_deinit(state->itor);
+      async_return(state, state->__async_result);
+   }
    btree_iterator_copy_curr_if_needed(state->itor);
 
    btree_prefetch_cursor_start(state->itor, TRUE);

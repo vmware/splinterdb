@@ -262,6 +262,21 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    }
 
    allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
+
+   /*
+    * clockcache keeps one uint32 lookup entry per device page.  Bound that
+    * geometry-derived allocation by the caller's trusted cache budget before
+    * clockcache_init() allocates it.  This also makes a correctly checksummed
+    * but hostile geometry incapable of requesting unbounded metadata memory.
+    */
+   if (kvs->allocator_cfg.page_capacity > cfg.cache_size / sizeof(uint32)) {
+      platform_error_log(
+         "Device geometry needs %lu bytes of cache lookup metadata, which "
+         "exceeds the configured cache budget of %lu bytes.\n",
+         kvs->allocator_cfg.page_capacity * sizeof(uint32),
+         cfg.cache_size);
+      return STATUS_LIMIT_EXCEEDED;
+   }
    if (geometry != NULL) {
       // The auto-read on-disk geometry must agree with the resolved config;
       // core_mount re-validates it against the superblock, but check here for

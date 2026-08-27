@@ -30,58 +30,129 @@ blob_get_descriptor(slice sblob, const blob **blobby)
 bool
 can_round_up(uint64 rounded_size, uint64 length)
 {
+   if (rounded_size == 0) {
+      return FALSE;
+   }
    if (length == 0) {
       return TRUE;
    }
-   uint64 covering_rounded_count = (length + rounded_size - 1) / rounded_size;
-   uint64 covering_space_efficiency =
-      100ULL * length / (covering_rounded_count * rounded_size);
-   return MIN_LIVE_PERCENTAGE <= covering_space_efficiency;
+   uint64 covering_rounded_count =
+      length / rounded_size + (length % rounded_size != 0);
+   __uint128_t allocated = (__uint128_t)covering_rounded_count * rounded_size;
+   return (__uint128_t)MIN_LIVE_PERCENTAGE * allocated
+          <= (__uint128_t)100 * length;
 }
 
-void
-parse_blob(uint64       extent_size,
-           uint64       page_size,
-           const blob  *blobby,
-           parsed_blob *pblobby)
+static bool32
+blob_range_is_valid(uint64 capacity,
+                    uint64 extent_size,
+                    uint64 addr,
+                    uint64 len)
 {
-   debug_assert(blobby->format == BLOB_FORMAT);
+   return extent_size <= addr && addr < capacity && len <= capacity - addr;
+}
+
+platform_status
+blob_parse_descriptor(cache *cc, slice sblob, parsed_blob *pblobby)
+{
+   if (cc == NULL || pblobby == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+
+   const blob     *blobby;
+   platform_status rc = blob_get_descriptor(sblob, &blobby);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   uint64 address_bytes = slice_length(sblob) - sizeof(blob);
+   if (address_bytes % sizeof(uint64) != 0) {
+      return STATUS_INVALID_STATE;
+   }
+   uint64            available_addrs = address_bytes / sizeof(uint64);
+   uint64            extent_size     = cache_extent_size(cc);
+   uint64            page_size       = cache_page_size(cc);
+   allocator_config *allocator_cfg =
+      allocator_get_config(cache_get_allocator(cc));
+   uint64 capacity = allocator_cfg->capacity;
+
+   if (page_size == 0 || extent_size == 0 || extent_size % page_size != 0
+       || capacity < extent_size)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   memset(pblobby, 0, sizeof(*pblobby));
    pblobby->base    = blobby;
    uint64 remainder = blobby->length;
+   uint64 entry     = 0;
 
    if (can_round_up(extent_size, remainder)) {
-      pblobby->num_extents = (remainder + extent_size - 1) / extent_size;
-      pblobby->leftovers[0].length = 0;
-      return;
-   }
-
-   pblobby->num_extents = remainder / extent_size;
-   remainder -= pblobby->num_extents * extent_size;
-
-   memset(pblobby->leftovers, 0, sizeof(pblobby->leftovers));
-   uint64 entry           = pblobby->num_extents;
-   uint64 leftovers_entry = 0;
-   while (page_size <= remainder) {
-      pblobby->leftovers[leftovers_entry].addr = blobby->addrs[entry];
-      uint64 max_length = extent_size - (blobby->addrs[entry] % extent_size);
-      if (max_length <= remainder) {
-         pblobby->leftovers[leftovers_entry].length = max_length;
-      } else if (can_round_up(page_size, blobby->length)) {
-         pblobby->leftovers[leftovers_entry].length = remainder;
-      } else {
-         pblobby->leftovers[leftovers_entry].length =
-            remainder - (remainder % page_size);
+      pblobby->num_extents =
+         remainder / extent_size + (remainder % extent_size != 0);
+      entry = pblobby->num_extents;
+   } else {
+      pblobby->num_extents = remainder / extent_size;
+      remainder -= pblobby->num_extents * extent_size;
+      entry                  = pblobby->num_extents;
+      uint64 leftovers_entry = 0;
+      while (page_size <= remainder) {
+         if (entry >= available_addrs
+             || leftovers_entry >= ARRAY_SIZE(pblobby->leftovers))
+         {
+            return STATUS_INVALID_STATE;
+         }
+         uint64 addr       = blobby->addrs[entry];
+         uint64 max_length = extent_size - (addr % extent_size);
+         uint64 length;
+         if (max_length <= remainder) {
+            length = max_length;
+         } else if (can_round_up(page_size, blobby->length)) {
+            length = remainder;
+         } else {
+            length = remainder - (remainder % page_size);
+         }
+         if (length == 0
+             || !blob_range_is_valid(capacity, extent_size, addr, length))
+         {
+            return STATUS_INVALID_STATE;
+         }
+         pblobby->leftovers[leftovers_entry].addr   = addr;
+         pblobby->leftovers[leftovers_entry].length = length;
+         remainder -= length;
+         entry++;
+         leftovers_entry++;
       }
 
-      remainder -= pblobby->leftovers[leftovers_entry].length;
-      entry++;
-      leftovers_entry++;
+      if (remainder) {
+         if (entry >= available_addrs
+             || leftovers_entry >= ARRAY_SIZE(pblobby->leftovers))
+         {
+            return STATUS_INVALID_STATE;
+         }
+         uint64 addr = blobby->addrs[entry];
+         if (!blob_range_is_valid(capacity, extent_size, addr, remainder)) {
+            return STATUS_INVALID_STATE;
+         }
+         pblobby->leftovers[leftovers_entry].addr   = addr;
+         pblobby->leftovers[leftovers_entry].length = remainder;
+         entry++;
+      }
    }
 
-   if (remainder) {
-      pblobby->leftovers[leftovers_entry].addr   = blobby->addrs[entry];
-      pblobby->leftovers[leftovers_entry].length = remainder;
+   if (entry != available_addrs) {
+      return STATUS_INVALID_STATE;
    }
+
+   for (uint64 i = 0; i < pblobby->num_extents; i++) {
+      uint64 addr = pblobby->base->addrs[i];
+      if (addr % extent_size != 0
+          || !blob_range_is_valid(capacity, extent_size, addr, extent_size))
+      {
+         return STATUS_INVALID_STATE;
+      }
+   }
+   return STATUS_OK;
 }
 
 uint64
@@ -155,12 +226,6 @@ blob_page_iterator_init(cache                  *cc,
                 || mode == BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH
                 || mode == BLOB_PAGE_ITERATOR_MODE_ALLOC);
 
-   const blob     *blobby;
-   platform_status rc = blob_get_descriptor(sblobby, &blobby);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
    iter->cc          = cc;
    iter->mode        = mode;
    iter->extent_size = cache_extent_size(cc);
@@ -168,9 +233,13 @@ blob_page_iterator_init(cache                  *cc,
    iter->offset      = offset;
    iter->page        = NULL;
 
-   parse_blob(iter->extent_size, iter->page_size, blobby, &iter->pblob);
-
-   debug_assert(offset <= iter->pblob.base->length);
+   platform_status rc = blob_parse_descriptor(cc, sblobby, &iter->pblob);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (iter->pblob.base->length < offset) {
+      return STATUS_BAD_PARAM;
+   }
 
    if (offset < iter->pblob.base->length) {
       fragment_for_offset(iter->extent_size,
@@ -448,17 +517,12 @@ blob_recover_extent(cache *cc, uint64 addr)
 platform_status
 blob_recover_allocations(cache *cc, slice sblob)
 {
-   const blob     *blobby;
-   platform_status rc = blob_get_descriptor(sblob, &blobby);
+   platform_status rc;
+   parsed_blob     pblob;
+   rc = blob_parse_descriptor(cc, sblob, &pblob);
    if (!SUCCESS(rc)) {
       return rc;
    }
-
-   uint64      extent_size = cache_extent_size(cc);
-   uint64      page_size   = cache_page_size(cc);
-   parsed_blob pblob;
-
-   parse_blob(extent_size, page_size, blobby, &pblob);
 
    for (uint64 i = 0; i < pblob.num_extents; i++) {
       rc = blob_recover_extent(cc, pblob.base->addrs[i]);
@@ -485,17 +549,13 @@ blob_recover_allocations(cache *cc, slice sblob)
 platform_status
 blob_writeback(cache *cc, slice sblob, writeback_set *set)
 {
-   const blob     *blobby;
-   platform_status rc = blob_get_descriptor(sblob, &blobby);
+   platform_status rc;
+   uint64          page_size = cache_page_size(cc);
+   parsed_blob     pblob;
+   rc = blob_parse_descriptor(cc, sblob, &pblob);
    if (!SUCCESS(rc)) {
       return rc;
    }
-
-   uint64      extent_size = cache_extent_size(cc);
-   uint64      page_size   = cache_page_size(cc);
-   parsed_blob pblob;
-
-   parse_blob(extent_size, page_size, blobby, &pblob);
 
    for (uint64 i = 0; i < pblob.num_extents; i++) {
       if (set != NULL) {

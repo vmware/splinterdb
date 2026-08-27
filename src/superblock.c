@@ -35,25 +35,58 @@ superblock_geometry_matches(disk_geometry geometry, const allocator_config *cfg)
 }
 
 static bool32
-superblock_is_valid(const superblock *sb, const allocator_config *cfg)
+superblock_has_valid_bootstrap(const superblock *sb)
 {
-   // Copy the packed geometry member by value (avoids an unaligned address).
    disk_geometry geometry = sb->geometry;
    return sb->format_magic == SUPERBLOCK_FORMAT_MAGIC
           && sb->format_version == SUPERBLOCK_FORMAT_VERSION
-          && superblock_geometry_matches(geometry, cfg)
+          && geometry.page_size == IO_DEFAULT_PAGE_SIZE
+          && geometry.extent_size == IO_DEFAULT_EXTENT_SIZE
+          && geometry.disk_size >= SUPERBLOCK_NUM_SLOTS * geometry.page_size
+          && geometry.disk_size % geometry.page_size == 0
+          && geometry.disk_size % geometry.extent_size == 0
           && platform_checksum_is_equal(sb->checksum, superblock_checksum(sb));
+}
+
+static bool32
+superblock_is_valid(const superblock *sb, const allocator_config *cfg)
+{
+   /* Copy the packed geometry member by value (avoids an unaligned address). */
+   disk_geometry geometry = sb->geometry;
+   return superblock_has_valid_bootstrap(sb)
+          && superblock_geometry_matches(geometry, cfg);
 }
 
 platform_status
 superblock_read_geometry(const char *filename, disk_geometry *geometry)
 {
-   /*
-    * Geometry is the first field of the superblock at page 0, and it is
-    * write-invariant, so a raw read of it is safe even against a torn write of
-    * the page's mutable fields.
-    */
-   return io_read_bootstrap(filename, geometry, sizeof(*geometry), 0);
+   if (filename == NULL || geometry == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+
+   bool32     have_valid = FALSE;
+   superblock newest     = {0};
+   for (uint64 slot = 0; slot < SUPERBLOCK_NUM_SLOTS; slot++) {
+      superblock      candidate;
+      platform_status rc = io_read_bootstrap(
+         filename, &candidate, sizeof(candidate), slot * IO_DEFAULT_PAGE_SIZE);
+      if (!SUCCESS(rc)) {
+         continue;
+      }
+      if (superblock_has_valid_bootstrap(&candidate)
+          && (!have_valid || newest.generation < candidate.generation))
+      {
+         newest     = candidate;
+         have_valid = TRUE;
+      }
+   }
+   if (!have_valid) {
+      platform_error_log(
+         "superblock_read_geometry: no valid superblock found\n");
+      return STATUS_NOT_FOUND;
+   }
+   *geometry = newest.geometry;
+   return STATUS_OK;
 }
 
 platform_status

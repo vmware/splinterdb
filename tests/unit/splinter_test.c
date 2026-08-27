@@ -809,8 +809,10 @@ blob_checksum_test_build_and_check(const blob_build_config *cfg,
    }
 
    parsed_blob pblob;
-   parse_blob(
-      cache_extent_size(cc), cache_page_size(cc), slice_data(sblob), &pblob);
+   rc = blob_parse_descriptor(cc, sblob, &pblob);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    uint64 num_addrs = pblob.num_extents;
    for (uint64 i = 0; i < ARRAY_SIZE(pblob.leftovers); i++) {
       if (pblob.leftovers[i].length == 0) {
@@ -1003,6 +1005,40 @@ CTEST2(splinter, test_blob_checksums)
        || !STATUS_IS_EQ(materialize_rc, STATUS_INVALID_STATE)
        || !STATUS_IS_EQ(clone_rc, STATUS_INVALID_STATE))
    {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   /* A valid fixed header is not enough: the implied address table is
+    * mandatory and must be bounded by both the descriptor and the device. */
+   slice truncated = slice_create(sizeof(blob), mutable_blob);
+   validate_rc     = blob_validate(cc, truncated);
+   materialize_rc  = blob_materialize_full(cc, truncated, &materialized);
+   clone_rc =
+      blob_clone(&cfg, cc, &checked_clone_mini, truncated, &invalid_clone);
+   if (!STATUS_IS_EQ(validate_rc, STATUS_INVALID_STATE)
+       || !STATUS_IS_EQ(materialize_rc, STATUS_INVALID_STATE)
+       || !STATUS_IS_EQ(clone_rc, STATUS_INVALID_STATE))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   uint64 expected_length = mutable_blob->length;
+   mutable_blob->length   = UINT64_MAX;
+   validate_rc = blob_validate(cc, writable_buffer_to_slice(&descriptor));
+   mutable_blob->length = expected_length;
+   if (!STATUS_IS_EQ(validate_rc, STATUS_INVALID_STATE)) {
+      rc = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   uint64 expected_addr = mutable_blob->addrs[0];
+   mutable_blob->addrs[0] =
+      allocator_get_config(cache_get_allocator(cc))->capacity;
+   validate_rc = blob_validate(cc, writable_buffer_to_slice(&descriptor));
+   mutable_blob->addrs[0] = expected_addr;
+   if (!STATUS_IS_EQ(validate_rc, STATUS_INVALID_STATE)) {
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }

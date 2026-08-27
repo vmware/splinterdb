@@ -237,17 +237,14 @@ blob_clone(const blob_build_config *cfg,
       return STATUS_INVALID_STATE;
    }
 
-   uint64      extent_size = cache_extent_size(cc);
-   uint64      page_size   = cache_page_size(cc);
-   const blob *blobby      = slice_data(sblob);
-   if (blobby->format != BLOB_FORMAT) {
-      return STATUS_INVALID_STATE;
+   uint64          extent_size = cache_extent_size(cc);
+   parsed_blob     pblobby;
+   platform_status rc = blob_parse_descriptor(cc, sblob, &pblobby);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   parsed_blob pblobby;
 
-   parse_blob(extent_size, page_size, blobby, &pblobby);
-
-   platform_status rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
+   rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
    if (!SUCCESS(rc)) {
       return rc;
    }

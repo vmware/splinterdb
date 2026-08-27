@@ -66,11 +66,14 @@ typedef struct blob_page_iterator {
 bool
 can_round_up(uint64 rounded_size, uint64 length);
 
-void
-parse_blob(uint64       extent_size,
-           uint64       page_size,
-           const blob  *blobby,
-           parsed_blob *pblobby);
+/*
+ * Decode and validate the complete on-disk descriptor before any address is
+ * dereferenced.  In particular, the descriptor must contain exactly the
+ * address entries implied by its logical length, and every referenced byte
+ * must be inside the allocator's configured address space.
+ */
+platform_status
+blob_parse_descriptor(cache *cc, slice sblob, parsed_blob *pblobby);
 
 uint64
 blob_length(slice sblob);
