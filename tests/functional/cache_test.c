@@ -467,8 +467,8 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
     * cache_get() calls, or those cache_get()s would trip the cache's debug
     * allocation check.
     */
-   rc = mini_recover_allocations(
-      (cache *)&recovery_cc, meta_head, PAGE_TYPE_MISC);
+   rc =
+      mini_recover_references((cache *)&recovery_cc, meta_head, PAGE_TYPE_MISC);
    if (!SUCCESS(rc)) {
       platform_error_log("cache_test: mini_recover_allocations failed: %s\n",
                          platform_status_to_string(rc));
@@ -481,7 +481,8 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
     * refcount (which may include self-references beyond this) is explicitly
     * the job of a higher-level recovery walker, not this function.
     */
-   if (allocator_get_refcount((allocator *)&recovery, meta_head) != AL_ONE_REF)
+   if (allocator_get_refcount((allocator *)&recovery, meta_head)
+       != AL_ONE_REF + 1)
    {
       platform_error_log(
          "cache_test: mini_recover_allocations did not recover the metadata "
@@ -892,7 +893,8 @@ cache_test_hammer_thread(void *arg)
          memset(page->data, (uint8)i, ctxt->page_size);
          cache_unlock(ctxt->cc, page);
          cache_unclaim(ctxt->cc, page);
-         cache_page_writeback(ctxt->cc, page, FALSE, PAGE_TYPE_MISC);
+         // Other threads race us for these pages, so STATUS_BUSY is expected.
+         cache_writeback_page(ctxt->cc, page, PAGE_TYPE_MISC, NULL);
       }
       cache_unget(ctxt->cc, page);
       i++;

@@ -144,7 +144,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
       // was not in-place.
-      splinterdb_close(&spl_handle);
+      splinterdb_close(&spl_handle, FALSE);
    } else {
       // Child should not attempt to run the rest of the tests
       exit(0);
@@ -241,7 +241,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
       // was not in-place.
-      splinterdb_close(&spl_handle);
+      splinterdb_close(&spl_handle, FALSE);
    } else {
       platform_deregister_thread();
       // child should not attempt to run the rest of the tests
@@ -365,7 +365,7 @@ CTEST2(splinterdb_forked_child,
                         " Resuming parent ...\n",
                         platform_get_os_pid(),
                         platform_get_tid());
-   splinterdb_close(&spl_handle);
+   splinterdb_close(&spl_handle, FALSE);
 }
 
 /*
@@ -489,7 +489,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
                            platform_get_os_pid(),
                            platform_get_tid());
 
-      splinterdb_close(&spl_handle);
+      splinterdb_close(&spl_handle, FALSE);
    }
 }
 

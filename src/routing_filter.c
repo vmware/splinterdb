@@ -1091,6 +1091,22 @@ routing_filter_inc_ref(cache *cc, routing_filter *filter)
 }
 
 /*
+ * Record the reference a holder has on this filter during a crash-recovery
+ * rebuild, enumerating its extents if this is the first one to reach it.  The
+ * recovery counterpart of routing_filter_inc_ref(); see
+ * mini_recover_references().  An empty filter owns nothing, exactly as in
+ * routing_filter_inc_ref().
+ */
+platform_status
+routing_filter_recover_allocations(cache *cc, routing_filter *filter)
+{
+   if (filter->num_fingerprints == 0) {
+      return STATUS_OK;
+   }
+   return mini_recover_references(cc, filter->meta_head, PAGE_TYPE_FILTER);
+}
+
+/*
  *----------------------------------------------------------------------
  * routing_filter_dec_ref
  *

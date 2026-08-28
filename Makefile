@@ -83,6 +83,11 @@ CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 GIT_VERSION_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
 
+# Fix annoying warning about avx-256 vs avx-512
+ifeq "$(findstring clang, $(CC))" "clang"
+   CFLAGS += -Wno-invalid-feature-combination
+endif
+
 cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
   # not supported on ARM64
@@ -427,11 +432,12 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_io.o \
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
-CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
-                 $(OBJDIR)/$(SRCDIR)/allocator.o    \
-                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
-                 $(OBJDIR)/$(SRCDIR)/task.o         \
-                 $(UTIL_SYS)                        \
+CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	    \
+                 $(OBJDIR)/$(SRCDIR)/allocator.o      \
+                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o   \
+                 $(OBJDIR)/$(SRCDIR)/task.o           \
+                 $(OBJDIR)/$(SRCDIR)/writeback_set.o  \
+                 $(UTIL_SYS)                          \
                  $(PLATFORM_IO_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
@@ -467,6 +473,14 @@ $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_co
                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o              \
                                         $(COMMON_UNIT_TESTOBJ)                          \
                                         $(BTREE_SYS)
+
+# Uses btree_test_common only for its init_*_config_from_master_config()
+# helpers, which is why it pulls BTREE_SYS rather than just CLOCKCACHE_SYS.
+$(BINDIR)/$(UNITDIR)/writeback_set_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
+                                         $(OBJDIR)/$(TESTS_DIR)/config.o                \
+                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
+                                         $(COMMON_UNIT_TESTOBJ)                         \
+                                         $(BTREE_SYS)
 
 $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                             \
                                     $(COMMON_UNIT_TESTOBJ)                        \
@@ -548,6 +562,7 @@ unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
 unit/platform_threads_test:        $(BINDIR)/$(UNITDIR)/platform_threads_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
 unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
+unit/writeback_set_test:           $(BINDIR)/$(UNITDIR)/writeback_set_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test

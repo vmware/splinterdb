@@ -71,6 +71,13 @@ test_btree_process_noop(void *arg, uint64 generation)
    // really a no-op
 }
 
+static bool32
+test_memtable_rotation_not_requested(void *arg)
+{
+   (void)arg;
+   return FALSE;
+}
+
 static platform_status
 test_memtable_generation_init(cache             *cc,
                               test_btree_config *cfg,
@@ -108,6 +115,66 @@ test_memtable_generation_init(cache             *cc,
          goto deinit_fresh;
       }
    }
+
+   /*
+    * A forced rotation must obey the same ring-capacity limit as a natural
+    * one.  Leave every finalized generation outstanding (the process callback
+    * is a no-op), fill the ring, and verify that one more attempt reports BUSY
+    * without advancing the active generation or overwriting its output.
+    */
+   for (uint64 generation = 0; generation + 1 < max_memtables; generation++) {
+      uint64 finalized_generation = UINT64_MAX;
+      rc = memtable_force_rotation(&mt_ctxt, &finalized_generation);
+      if (!SUCCESS(rc) || finalized_generation != generation) {
+         platform_error_log("forced memtable rotation for generation %lu "
+                            "failed: %s (finalized %lu)\n",
+                            generation,
+                            platform_status_to_string(rc),
+                            finalized_generation);
+         rc = STATUS_TEST_FAILED;
+         goto deinit_fresh;
+      }
+   }
+   uint64 generation_before_busy = mt_ctxt.generation;
+   uint64 finalized_generation   = UINT64_MAX;
+
+   /*
+    * A stale conditional request must be rejected before ring readiness is
+    * considered.  In particular, a full ring must not turn a no-op request
+    * into STATUS_BUSY or advance the generation.
+    */
+   rc = memtable_force_rotation_if(&mt_ctxt,
+                                   test_memtable_rotation_not_requested,
+                                   NULL,
+                                   &finalized_generation);
+   if (!SUCCESS(rc) || mt_ctxt.generation != generation_before_busy
+       || finalized_generation != UINT64_MAX)
+   {
+      platform_error_log("stale conditional rotation of a full memtable ring "
+                         "returned %s; generation %lu -> %lu, output %lu\n",
+                         platform_status_to_string(rc),
+                         generation_before_busy,
+                         mt_ctxt.generation,
+                         finalized_generation);
+      rc = STATUS_TEST_FAILED;
+      goto deinit_fresh;
+   }
+
+   rc = memtable_force_rotation(&mt_ctxt, &finalized_generation);
+   if (!STATUS_IS_EQ(rc, STATUS_BUSY)
+       || mt_ctxt.generation != generation_before_busy
+       || finalized_generation != UINT64_MAX)
+   {
+      platform_error_log("forced rotation of a full memtable ring returned %s; "
+                         "generation %lu -> %lu, output %lu\n",
+                         platform_status_to_string(rc),
+                         generation_before_busy,
+                         mt_ctxt.generation,
+                         finalized_generation);
+      rc = STATUS_TEST_FAILED;
+      goto deinit_fresh;
+   }
+   rc = STATUS_OK;
 
 deinit_fresh:
    memtable_context_deinit(&mt_ctxt);

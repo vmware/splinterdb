@@ -1189,7 +1189,7 @@ mini_recover_visit_meta_page(cache       *cc,
  *     allocator roots, remains the responsibility of the higher-level
  *     trunk/log recovery walker.
  */
-platform_status
+static platform_status
 mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type)
 {
    if (cc == NULL || meta_type < PAGE_TYPE_FIRST || meta_type >= NUM_PAGE_TYPES)
@@ -1222,6 +1222,28 @@ mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type)
                                   mini_recover_visit_meta_extent,
                                   mini_recover_visit_meta_page,
                                   &state);
+}
+
+platform_status
+mini_recover_references(cache *cc, uint64 meta_head, page_type type)
+{
+   allocator *al   = cache_get_allocator(cc);
+   uint64     base = base_addr(cc, meta_head);
+
+   if (allocator_get_refcount(al, base) == AL_FREE) {
+      platform_status rc = mini_recover_allocations(cc, meta_head, type);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   /*
+    * Every holder adds one, the first one included.  Enumerating the extents
+    * accounts for the mini allocator existing -- it leaves the metadata extent
+    * at MINI_NO_REFS, which is what mini_init_with_types() establishes with its
+    * "meta_page gets an extra ref" -- and says nothing about who refers to it.
+    * External references are the count above that, so each is recorded here.
+    */
+   return allocator_recovery_record_reference(al, base, type);
 }
 
 /*

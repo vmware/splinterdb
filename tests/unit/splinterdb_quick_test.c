@@ -178,7 +178,7 @@ CTEST_SETUP(splinterdb_quick)
 CTEST_TEARDOWN(splinterdb_quick)
 {
    if (data->kvsb) {
-      splinterdb_close(&data->kvsb);
+      splinterdb_close(&data->kvsb, FALSE);
    }
    platform_deregister_thread();
 }
@@ -192,6 +192,32 @@ CTEST_TEARDOWN(splinterdb_quick)
  * The 2nd term is the test-case name, e.g., 'test_basic_flow'.
  * ***********************************************************************
  */
+CTEST2(splinterdb_quick, test_checkpoint_log_grace_default)
+{
+   const core_handle *core = splinterdb_get_trunk_handle(data->kvsb);
+   ASSERT_EQUAL(2 * core->cfg.trunk_node_cfg->incorporation_size_kv_bytes,
+                core->cfg.checkpoint_log_grace_bytes);
+}
+
+CTEST2(splinterdb_quick, test_durable_barrier)
+{
+   // Re-create the instance with logging enabled (SETUP created it without).
+   int rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
+   data->cfg.use_log = TRUE;
+   rc                = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   slice key   = slice_create(strlen("durable-key"), "durable-key");
+   slice value = slice_create(strlen("durable-value"), "durable-value");
+
+   rc = splinterdb_insert(data->kvsb, key, value, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   rc = splinterdb_durable_barrier(data->kvsb);
+   ASSERT_EQUAL(0, rc);
+}
+
 /*
  *
  * Basic test case that exercises and validates the basic flow of the
@@ -373,7 +399,7 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 
    splinterdb_lookup_result_deinit(&result);
 
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1225,7 +1251,8 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    ASSERT_EQUAL(0, rc);
 
    // Close and re-open the database
-   splinterdb_close(&data->kvsb);
+   rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1259,9 +1286,10 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
 CTEST2(splinterdb_quick, test_logged_close_and_reopen)
 {
    // Re-create the instance with logging enabled (SETUP created it without).
-   splinterdb_close(&data->kvsb);
+   int rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
    data->cfg.use_log = TRUE;
-   int rc            = splinterdb_create(&data->cfg, &data->kvsb);
+   rc                = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    slice        user_key = slice_create(strlen("logged-key"), "logged-key");
@@ -1271,7 +1299,8 @@ CTEST2(splinterdb_quick, test_logged_close_and_reopen)
       splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val), NULL);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(&data->kvsb);
+   rc = splinterdb_close(&data->kvsb, FALSE);
+   ASSERT_EQUAL(0, rc);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1313,7 +1342,8 @@ CTEST2(splinterdb_quick, test_repeated_insert_close_reopen)
                                  NULL);
       ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
-      splinterdb_close(&data->kvsb);
+      rc = splinterdb_close(&data->kvsb, FALSE);
+      ASSERT_EQUAL(0, rc);
 
       rc = splinterdb_open(&data->cfg, &data->kvsb);
       ASSERT_EQUAL(0, rc);
@@ -1326,7 +1356,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 {
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    data->cfg.data_cfg = test_data_config;
    int rc             = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -1426,7 +1456,7 @@ CTEST2(splinterdb_quick, test_existence_only_memtable_lookup)
 
 CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
 {
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
    data->cfg.use_stats = 1;
 
@@ -1439,7 +1469,7 @@ CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
    rc = splinterdb_insert(data->kvsb, user_key, value, NULL);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1538,7 +1568,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_existence_only)
 
 CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 {
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    data->cfg.data_cfg = test_data_config;
    int rc             = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -1587,7 +1617,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
 
 CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
 {
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    data->cfg.data_cfg = test_data_config;
    int rc             = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -1599,7 +1629,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
    rc = splinterdb_insert(data->kvsb, user_key, msg_slice, NULL);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1637,7 +1667,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_respects_trunk_delete_shadow)
    int rc = splinterdb_insert(data->kvsb, user_key, value0, NULL);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -1659,7 +1689,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 {
    // We need to reconfigure Splinter with user-specified key comparator fn.
    // Tear down default instance, and create a new one.
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
 
    data->default_data_cfg.super.key_compare = custom_key_comparator;
    data->default_data_cfg.num_comparisons   = 0;
@@ -1708,7 +1738,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
 {
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    data->cfg.data_cfg = test_data_config;
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
@@ -1755,7 +1785,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
  */
 CTEST2(splinterdb_quick, test_splinterdb_create_w_background_threads)
 {
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
 
    default_data_config_init(&data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
@@ -1776,7 +1806,7 @@ CTEST2(splinterdb_quick, test_splinterdb_create_w_background_threads)
  */
 CTEST2(splinterdb_quick, test_splinterdb_create_w_all_background_threads)
 {
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
 
    default_data_config_init(&data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
@@ -1809,9 +1839,16 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 static uint64
 force_flush_current_memtable(splinterdb *kvsb)
 {
-   core_handle    *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
-   uint64          generation = memtable_force_rotation(&core->mt_ctxt);
-   platform_status rc         = task_perform_until_quiescent(core->ts);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+
+   platform_status rc = task_perform_until_quiescent(core->ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 generation;
+   rc = memtable_force_rotation(&core->mt_ctxt, &generation);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = task_perform_until_quiescent(core->ts);
    ASSERT_TRUE(SUCCESS(rc));
    return generation;
 }

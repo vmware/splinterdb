@@ -161,7 +161,7 @@ CTEST_TEARDOWN(large_inserts_stress)
 {
    // Only parent process should tear down Splinter.
    if (data->am_parent) {
-      splinterdb_close(&data->kvsb);
+      splinterdb_close(&data->kvsb, FALSE);
       platform_heap_destroy(&data->hid);
    }
    platform_deregister_thread();

@@ -76,13 +76,19 @@ typedef struct master_config {
    // log
    bool32 use_log;
    /*
-    * Take an automatic checkpoint once the live log has grown by this many
+    * Arm an automatic checkpoint once the live log has grown by this many
     * bytes.  Zero means follow cache_capacity, matching the production default
     * of one cache's worth of log; it is resolved that way at use, so lowering
     * --cache-capacity also lowers this unless it is set explicitly.  Set it
     * very large (UINT64_MAX) to effectively disable automatic checkpoints.
     */
    uint64 checkpoint_log_size;
+   /*
+    * Additional log bytes allowed after the soft checkpoint trigger before a
+    * memtable rotation is forced.  Zero follows the production default of
+    * twice memtable_capacity.
+    */
+   uint64 checkpoint_log_grace_bytes;
 
    // task system
    uint64 num_normal_bg_threads;   // Both bg_threads fields have to be non-zero

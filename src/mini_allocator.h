@@ -114,31 +114,30 @@ void
 mini_prefetch(cache *cc, page_type type, uint64 meta_head);
 
 /*
- * mini_recover_allocations --
+ * mini_recover_references --
  *
- *     Rebuild allocator references for a finalized mini allocator without
- *     trusting allocator refcounts.  This is the discovery primitive crash
- *     recovery uses to reconstruct them: it records one allocator reference
- *     (via allocator_recovery_record_reference()) for every metadata extent
- *     and for every data-extent entry in the on-disk mini metadata stream.
- *     Data entries are deliberately not deduplicated: repeated entries
- *     represent repeated references in the mini allocator and are recorded
- *     exactly as often as they occur.  meta_type is the page type of
- *     meta_head's own chain; each data extent's type is read from its own
- *     metadata entry, so it is not a parameter here.
+ *     Record one logical reference to this mini allocator during a crash-
+ *     recovery rebuild, enumerating its extents first if nothing had reached
+ *     it yet.  The recovery counterpart of mini_inc_ref().
  *
- *     Validates the metadata-page chain, page-header bounds, page types,
- *     batches, and extent addresses before using them.  A malformed on-disk
- *     stream returns STATUS_INVALID_STATE.  This function performs no writes
- *     and does not use allocator refcounts to decide what to traverse.
+ *     The refcount map under construction doubles as the set of mini
+ *     allocators already enumerated, which is what saves callers from keeping
+ *     a visited set of their own: a free metadata extent means this is the
+ *     first reference and the interior is still unknown, so
+ *     mini_recover_allocations() runs; a referenced one means some earlier
+ *     caller already enumerated it and all this adds is multiplicity.
+ *     Sharing is expected -- one branch commonly lives in many trunk nodes.
  *
- *     This is a physical enumeration only.  Recovering logical reference
- *     multiplicity, and deduplicating references shared by distinct mini
- *     allocator roots, remains the responsibility of the higher-level
- *     trunk/log recovery walker.
+ *     The multiplicity it produces matches normal operation, because a logical
+ *     reference is exactly one allocator reference on the extent holding the
+ *     metadata head, as mini_inc_ref() shows.  That reference is recorded for
+ *     every holder, the first one included: enumerating the extents leaves the
+ *     metadata extent at MINI_NO_REFS, which accounts for the mini allocator
+ *     existing rather than for anyone referring to it, so external references
+ *     are counted on top of it.
  */
 platform_status
-mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type);
+mini_recover_references(cache *cc, uint64 meta_head, page_type type);
 
 /*
  * mini_meta_cursor: a non-blocking cursor over the extent entries of a

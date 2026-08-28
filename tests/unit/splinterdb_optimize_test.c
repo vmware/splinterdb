@@ -84,7 +84,7 @@ CTEST_SETUP(splinterdb_optimize)
 CTEST_TEARDOWN(splinterdb_optimize)
 {
    if (data->kvsb != NULL) {
-      splinterdb_close(&data->kvsb);
+      splinterdb_close(&data->kvsb, FALSE);
    }
    platform_deregister_thread();
 }
@@ -127,7 +127,7 @@ CTEST2(splinterdb_optimize, test_blocking_with_no_background_threads)
 {
    const uint32 num_keys = 320;
 
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
    data->cfg.num_memtable_bg_threads = 0;
    data->cfg.num_normal_bg_threads   = 0;
 
@@ -152,7 +152,7 @@ CTEST2(splinterdb_optimize, test_open_reads_disk_geometry)
    const uint32 num_keys = 160;
 
    load_key_batches(data->kvsb, num_keys, 40);
-   splinterdb_close(&data->kvsb);
+   splinterdb_close(&data->kvsb, FALSE);
 
    data->cfg.disk_size   = 0;
    data->cfg.page_size   = 0;
@@ -284,9 +284,14 @@ create_optimize_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 static void
 force_flush_current_memtable(splinterdb *kvsb)
 {
-   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
-   memtable_force_rotation(&core->mt_ctxt);
-   platform_status rc = task_perform_until_quiescent(core->ts);
+   core_handle    *core = (core_handle *)splinterdb_get_trunk_handle(kvsb);
+   platform_status rc   = task_perform_until_quiescent(core->ts);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = memtable_force_rotation(&core->mt_ctxt, NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = task_perform_until_quiescent(core->ts);
    ASSERT_TRUE(SUCCESS(rc));
 }
 

@@ -94,7 +94,13 @@ main()
    printf("\n");
 
    printf("Shutdown and reopen SplinterDB instance ...\n");
-   splinterdb_close(&spl_handle);
+   rc = splinterdb_close(&spl_handle, FALSE);
+   if (rc) {
+      printf("Error shutting down SplinterDB instance, dbname '%s' (rc=%d).\n",
+             DB_FILE_NAME,
+             rc);
+      return rc;
+   }
 
    rc = splinterdb_open(&splinterdb_cfg, &spl_handle);
    if (rc) {
@@ -129,7 +135,7 @@ main()
 
    printf("Found %d key-value pairs\n\n", i);
 
-   splinterdb_close(&spl_handle);
+   splinterdb_close(&spl_handle, FALSE);
    printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
    return rc;

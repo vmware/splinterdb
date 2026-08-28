@@ -3,13 +3,30 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include "platform_hash.h"
 #include "cache.h"
 #include "util.h"
+#include "writeback_set.h"
+
+#define BLOB_FORMAT        UINT16_C(1)
+#define BLOB_CHECKSUM_SEED UINT64_C(0x424C4F424353554D)
 
 typedef struct ONDISK blob {
-   uint64 length;
-   uint64 addrs[];
+   uint64      length;
+   checksum128 checksum;
+   uint16      format;
+   uint64      addrs[];
 } blob;
+
+_Static_assert(offsetof(blob, length) == 0, "blob length layout changed");
+_Static_assert(offsetof(blob, checksum) == 8, "blob checksum layout changed");
+_Static_assert(offsetof(blob, format) == 24, "blob format layout changed");
+_Static_assert(sizeof(((blob *)0)->format) == sizeof(uint16),
+               "blob format must be uint16");
+_Static_assert(offsetof(blob, addrs) == 26, "blob address layout changed");
+_Static_assert(sizeof(blob) == 26, "blob header layout changed");
 
 typedef struct parsed_blob_entry {
    uint64 addr;
@@ -58,6 +75,16 @@ parse_blob(uint64       extent_size,
 uint64
 blob_length(slice sblob);
 
+/*
+ * Read and checksum all logical bytes referenced by sblob.  Every backing page
+ * must be readable from the I/O address space; this is intended for recovery,
+ * after the blob's writeback has completed.  Returns STATUS_INVALID_STATE for
+ * an invalid descriptor format and STATUS_IO_ERROR when a page is absent or the
+ * stored checksum does not match.
+ */
+platform_status
+blob_validate(cache *cc, slice sblob);
+
 platform_status
 blob_page_iterator_init(cache                  *cc,
                         blob_page_iterator     *iter,
@@ -89,11 +116,36 @@ blob_materialize(cache           *cc,
                  uint64           end,
                  writable_buffer *result);
 
-static inline platform_status
-blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
-{
-   return blob_materialize(cc, sblob, 0, blob_length(sblob), result);
-}
-
 platform_status
-blob_sync(cache *cc, slice sblob);
+blob_materialize_full(cache *cc, slice sblob, writable_buffer *result);
+
+/*
+ * Issue writeback of every page of the blob, recording each in `set` so the
+ * caller can later wait for them.  Does not wait and does not make anything
+ * durable; `set` may be NULL to issue and forget.
+ *
+ * A caller that treats a blob as part of some larger durable unit must pass a
+ * set: the blob holds the record's value, so a unit declared durable without
+ * it would replay a record whose value never reached the device.
+ */
+platform_status
+blob_writeback(cache *cc, slice sblob, writeback_set *set);
+
+/*
+ * Record the allocator references this blob's storage holds, for a crash-
+ * recovery rebuild.  Call between allocator_recovery_begin() and
+ * allocator_recovery_finish().
+ *
+ * Reads nothing.  A blob carries the addresses of its own storage inline (see
+ * struct blob), so the extents can be named without touching a page -- which is
+ * what makes this usable during a rebuild, when reading a page whose extent is
+ * not yet marked allocated is exactly what is forbidden.
+ *
+ * Records at most one reference per extent, skipping any that already has one.
+ * That is the correct count and not merely deduplication: an extent gets a
+ * single reference when its mini allocator hands it out, and blobs share
+ * extents -- one holds the tails of many -- so counting per blob would leave
+ * extents referenced several times over and never freed.
+ */
+platform_status
+blob_recover_allocations(cache *cc, slice sblob);

@@ -4,6 +4,13 @@
 #include "blob_build.h"
 #include "poison.h"
 
+static checksum128
+checksum_blob_data(slice data)
+{
+   const void *bytes = slice_length(data) == 0 ? "" : slice_data(data);
+   return platform_checksum128(bytes, slice_length(data), BLOB_CHECKSUM_SEED);
+}
+
 static platform_status
 allocate_leftover_entries(const blob_build_config *cfg,
                           cache                   *cc,
@@ -120,8 +127,10 @@ build_blob_table(const blob_build_config *cfg,
       return rc;
    }
 
-   blob *blobby   = writable_buffer_data(result);
-   blobby->length = data_len;
+   blob *blobby     = writable_buffer_data(result);
+   blobby->length   = data_len;
+   blobby->checksum = (checksum128){0};
+   blobby->format   = BLOB_FORMAT;
 
    for (uint64 i = 0; i < num_extents; i++) {
       uint64 alloced_page = mini_alloc_extent(mini, cfg->extent_batch, NULL);
@@ -175,6 +184,10 @@ blob_build(const blob_build_config *cfg,
 
 out:
    blob_page_iterator_deinit(&iter);
+   if (SUCCESS(rc)) {
+      blob *blobby     = writable_buffer_data(result);
+      blobby->checksum = checksum_blob_data(data);
+   }
    return rc;
 }
 
@@ -191,8 +204,8 @@ clone_blob_table(const blob_build_config *cfg,
       return rc;
    }
 
-   blob *blobby   = writable_buffer_data(result);
-   blobby->length = pblobby->base->length;
+   blob *blobby = writable_buffer_data(result);
+   memcpy(blobby, pblobby->base, sizeof(*blobby));
 
    for (uint64 i = 0; i < pblobby->num_extents; i++) {
       blobby->addrs[i] = pblobby->base->addrs[i];
@@ -220,9 +233,16 @@ blob_clone(const blob_build_config *cfg,
            slice                    sblob,
            writable_buffer         *result)
 {
+   if (slice_length(sblob) < sizeof(blob)) {
+      return STATUS_INVALID_STATE;
+   }
+
    uint64      extent_size = cache_extent_size(cc);
    uint64      page_size   = cache_page_size(cc);
    const blob *blobby      = slice_data(sblob);
+   if (blobby->format != BLOB_FORMAT) {
+      return STATUS_INVALID_STATE;
+   }
    parsed_blob pblobby;
 
    parse_blob(extent_size, page_size, blobby, &pblobby);

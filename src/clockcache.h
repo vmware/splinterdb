@@ -45,6 +45,7 @@ typedef struct clockcache_config {
 
 typedef struct clockcache       clockcache;
 typedef struct clockcache_entry clockcache_entry;
+typedef struct async_io_state   async_io_state;
 
 #ifdef RECORD_ACQUISITION_STACKS
 
@@ -148,6 +149,16 @@ struct clockcache {
    // to take a "cut", then drains every entry stamped with a generation at or
    // below that cut.
    uint64 dirty_generation;
+
+   /*
+    * A reserve of async I/O states, so that a writeback can always be issued
+    * even when the heap is exhausted -- which matters because writing pages
+    * back is how memory pressure gets relieved in the first place. Drawn from
+    * only when a heap allocation fails; see clockcache_io_state_acquire().
+    * io_state_pool_free is a bitvector, one bit per slot, set when free.
+    */
+   async_io_state *io_state_pool;
+   volatile uint64 io_state_pool_free;
 
    volatile struct {
       volatile uint32 free_hand;

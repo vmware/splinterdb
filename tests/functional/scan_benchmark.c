@@ -438,7 +438,7 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
    uint8 *value_buf =
       TYPED_ARRAY_ZALLOC(platform_get_heap_id(), value_buf, value_size);
    if (value_buf == NULL) {
-      splinterdb_close(&kvs);
+      splinterdb_close(&kvs, FALSE);
       return scan_benchmark_status_to_int(STATUS_NO_MEMORY);
    }
 
@@ -489,7 +489,7 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
    }
 
    platform_free(platform_get_heap_id(), value_buf);
-   splinterdb_close(&kvs);
+   splinterdb_close(&kvs, FALSE);
    return rc;
 }
 
@@ -526,7 +526,7 @@ scan_benchmark_run_optimize(const splinterdb_config *cfg)
    io_print_stats((io_handle *)splinterdb_get_io_handle(kvs),
                   Platform_default_log_handle);
 
-   splinterdb_close(&kvs);
+   splinterdb_close(&kvs, FALSE);
    return rc;
 }
 
@@ -550,7 +550,7 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
    rc                              = splinterdb_iterator_init(
       kvs, &iter, scan_benchmark_start_comparison(backwards_scan), NULL_SLICE);
    if (rc != 0) {
-      splinterdb_close(&kvs);
+      splinterdb_close(&kvs, FALSE);
       return rc;
    }
 
@@ -610,7 +610,7 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
                   Platform_default_log_handle);
 
    splinterdb_iterator_deinit(iter);
-   splinterdb_close(&kvs);
+   splinterdb_close(&kvs, FALSE);
    return rc;
 }
 
@@ -639,7 +639,7 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
    if (effective_scan_length == 0) {
       platform_error_log("scan_benchmark: repeated scans require a non-zero "
                          "scan length or --num-inserts\n");
-      splinterdb_close(&kvs);
+      splinterdb_close(&kvs, FALSE);
       return EINVAL;
    }
 
@@ -692,7 +692,7 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
          scan_benchmark_start_comparison(backwards_scan),
          start_key);
       if (rc != 0) {
-         splinterdb_close(&kvs);
+         splinterdb_close(&kvs, FALSE);
          return rc;
       }
 
@@ -731,7 +731,7 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
       rc = splinterdb_iterator_status(iter);
       if (rc != 0) {
          splinterdb_iterator_deinit(iter);
-         splinterdb_close(&kvs);
+         splinterdb_close(&kvs, FALSE);
          return rc;
       }
 
@@ -779,7 +779,7 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
    io_print_stats((io_handle *)splinterdb_get_io_handle(kvs),
                   Platform_default_log_handle);
 
-   splinterdb_close(&kvs);
+   splinterdb_close(&kvs, FALSE);
    return rc;
 }
 

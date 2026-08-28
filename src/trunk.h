@@ -171,7 +171,9 @@ typedef struct trunk_context {
    uint64                 pending_gcs_lock;
    pending_gc            *pending_gcs;
    pending_gc            *pending_gcs_tail;
-   incorporation_tasks    tasks;
+   /* Sticky first error from releasing allocator references during tree GC. */
+   platform_status     allocator_cleanup_status;
+   incorporation_tasks tasks;
 } trunk_context;
 
 /*
@@ -222,7 +224,11 @@ trunk_context_init(trunk_context      *context,
                    task_system        *ts,
                    trunk_snapshot      snapshot);
 
-void
+/*
+ * Release the context and report any incomplete allocator-reference cleanup
+ * observed either here or by earlier deferred tree GC.
+ */
+platform_status
 trunk_context_deinit(trunk_context *context);
 
 /* Capture an owned reference to the current COW root without reading it. */
@@ -241,9 +247,33 @@ trunk_snapshot_create_from_addr(allocator      *al,
                                 uint64          root_addr,
                                 trunk_snapshot *snapshot);
 
-/* Drop an owned snapshot reference that was not published. */
+/*
+ * Drop an owned snapshot reference.  The snapshot is consumed even when
+ * cleanup below the root cannot be completed; such an error means allocator
+ * accounting may conservatively retain references and must be rebuilt before
+ * it is persisted.
+ */
 platform_status
 trunk_snapshot_release(trunk_context *context, trunk_snapshot *snapshot);
+
+/*
+ * Rebuild every allocator reference the tree at root_addr holds, for crash
+ * recovery.  Consults no refcounts: this is what populates them, so it must run
+ * between allocator_recovery_begin() and allocator_recovery_finish(), before
+ * any trunk_context or snapshot exists (creating either would take a reference,
+ * and there is nowhere yet to take it).  Hence the loose parameters rather than
+ * a context.  A null root_addr (0) is not an error and records nothing.
+ *
+ * Records the one reference the durable record itself holds on the root, so a
+ * caller that goes on to take a live reference
+ * (trunk_snapshot_create_from_addr) ends up exactly where a clean mount's
+ * loaded map would have put it.
+ */
+platform_status
+trunk_recover_allocations(const trunk_config *cfg,
+                          cache              *cc,
+                          platform_heap_id    hid,
+                          uint64              root_addr);
 
 /********************************
  * Mutations

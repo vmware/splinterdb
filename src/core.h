@@ -52,10 +52,12 @@ typedef struct core_config {
    bool32          use_log;
    log_config     *log_cfg;
    /*
-    * Automatic-checkpoint policy: take a checkpoint (rotate the log and advance
-    * the durable root) once the live log reaches this many bytes.  0 disables
-    * automatic checkpoints, leaving durability and log reclamation entirely to
-    * explicit core_checkpoint() calls.  Defaults to the cache size.
+    * Automatic-checkpoint policy: arm a checkpoint once the live log reaches
+    * this many bytes.  The next natural memtable rotation cuts the log; if none
+    * arrives within checkpoint_log_grace_bytes, continued log growth forces
+    * one.  0 disables automatic checkpoints, leaving durability and log
+    * reclamation entirely to explicit core_checkpoint() calls.  The public API
+    * resolves its zero default to the cache size before initializing core.
     *
     * Sizing the trigger by log bytes rather than by memtable generations
     * matters because the two are independent: a workload that repeatedly
@@ -64,7 +66,14 @@ typedef struct core_config {
     * to the log.  A generation-based trigger would never fire and the log would
     * grow without bound.
     */
-   uint64        checkpoint_log_size_bytes;
+   uint64 checkpoint_log_size_bytes;
+   /*
+    * Additional live-log bytes allowed after an automatic checkpoint is armed
+    * while waiting for a natural memtable rotation.  At this internal layer, 0
+    * means no grace and UINT64_MAX disables the forced-rotation backstop; the
+    * public API resolves its zero default to twice the memtable capacity.
+    */
+   uint64        checkpoint_log_grace_bytes;
    trunk_config *trunk_node_cfg;
 
    // verbose logging
@@ -123,25 +132,36 @@ typedef struct core_handle core_handle;
  *   IDLE          no checkpoint in progress.
  *   PENDING       the next live log is pre-created; the next memtable rotation
  *                 will swap it in under the insert lock.
- *   SEALING       the rotation swapped the new live log in; the old log still
- *                 needs sealing (which will be performed just after the
- *                 rotation critical section).
- *   INCORPORATING the old log is sealed; waiting for its generations to
- *                 be incorporated into the trunk root.
+ *   SEALING       the rotation swapped the new live log in; the old log must be
+ *                 sealed if needed and the cut still needs publication.
+ *   PUBLISHING    a thread has claimed that work and is sealing the old log and
+ *                 publishing the cut.  Distinct from INCORPORATING because the
+ *                 two differ in exactly the way completion cares about: only
+ *                 once the cut is published may the sealed log's extents be
+ *                 freed, and a concurrent checkpoint advance would otherwise
+ *                 be free to complete mid-publish and release extents the
+ *                 superblock still names as live.  It is also where a failed
+ *                 seal returns from: the phase goes back to SEALING, leaving
+ *                 the checkpoint exactly as the rotation left it, to be
+ *                 retried by a later advance call.
+ *   INCORPORATING the old log is sealed and the cut is published; waiting for
+ *                 its generations to be incorporated into the trunk root.
  *   COMPLETING    the completion publish (advance root, clear sealed slot) is
  *                 in flight.
  *
  * The only transition that touches the shared spl->log pointer (PENDING ->
  * SEALING) runs inside the memtable rotation critical section, where the insert
- * lock is held exclusively; every log writer holds that lock shared across its
- * log_write, so no writer can be mid-write to, or newly enter, the old log once
- * it is swapped out.  All other fields are guarded by checkpoint_state_lock,
- * which is only ever held for brief, I/O-free updates.
+ * lock is held exclusively; every log writer holds that lock shared from its
+ * group reservation through its reserved write, so no writer can still use,
+ * or newly enter, the old log once it is swapped out.  All live transitions
+ * and observations enter through the event-specific checkpoint functions in
+ * core.c.  The state lock is only ever held for brief, I/O-free updates.
  */
 typedef enum core_checkpoint_phase {
    CORE_CHECKPOINT_IDLE = 0,
    CORE_CHECKPOINT_PENDING,
    CORE_CHECKPOINT_SEALING,
+   CORE_CHECKPOINT_PUBLISHING,
    CORE_CHECKPOINT_INCORPORATING,
    CORE_CHECKPOINT_COMPLETING,
 } core_checkpoint_phase;
@@ -149,22 +169,40 @@ typedef enum core_checkpoint_phase {
 typedef struct core_checkpoint_state {
    core_checkpoint_phase phase;
    log_handle           *pending_log; // next live log, pre-created (PENDING)
-   log_handle           *log_to_seal; // old live log awaiting seal (SEALING)
-   log_head              sealed_head; // identity of the sealed log (reclaim)
-   log_head              live_head;   // identity of the new live log
+   /* Monotonic identity of each installed PENDING checkpoint. */
+   uint64 pending_epoch;
+   /*
+    * Automatic PENDING checkpoints force a rotation once the current live log
+    * reaches this size.  UINT64_MAX means the pending checkpoint was requested
+    * explicitly, or automatic forced rotation is disabled.  The value is
+    * recorded when PENDING is installed so every concurrent observer uses the
+    * same grace interval.
+    */
+   uint64 force_at_log_size;
+   // Old live log awaiting seal (SEALING), or being sealed (PUBLISHING).  Kept
+   // across a failed attempt so the retry has something to resume.
+   log_handle *log_to_seal;
+   log_head    sealed_head; // identity of the sealed log (reclaim)
    // First generation the new live log receives, recorded in the superblock as
    // its coverage start.  The retiring log's start needs no tracking: the
    // superblock already holds it and carries it into the sealed slot.
    uint64 live_start_generation;
    uint64 cut_generation; // complete once retired >= this
    /*
+    * Log cuts durably published so far.  A durability barrier that observes
+    * SEALING/PUBLISHING waits for the next value; unlike `completions`, this
+    * advances as soon as the superblock names both sides of the cut and does
+    * not wait for incorporation or log reclamation.
+    */
+   uint64 publications;
+   /*
     * Checkpoints completed so far.  Bumped only after the completion has freed
     * the retired log, so it is the one observable meaning "that checkpoint's
     * space is back" -- every superblock-visible signal is necessarily written
     * before the free, since the superblock must stop naming a log before its
-    * extents are released.  core_checkpoint_begin() hands out `completions + 1`
-    * as a ticket so a caller can wait for its own checkpoint rather than merely
-    * for "none in flight."
+    * extents are released.  A checkpoint REQUEST hands out `completions + 1`
+    * as a ticket so a caller can wait for its own checkpoint rather than
+    * merely for "none in flight."
     */
    uint64 completions;
 } core_checkpoint_state;
@@ -207,6 +245,21 @@ struct core_handle {
    superblock_context superblock;
 
    /*
+    * TRUE while the live allocator map may conservatively overcount extents --
+    * for example, after incomplete reference cleanup or after retaining the
+    * root of an indeterminate superblock publication.  The map remains safe for
+    * ordinary allocation/refcount operations, but publishing it would make the
+    * leak permanent.  A complete recovery walk clears the bit; until then a
+    * clean shutdown leaves allocation_state invalid so the next mount rebuilds
+    * the map.  A newly initialized map or one loaded from trusted durable state
+    * starts clear.
+    *
+    * This is per-core while an instance owns exactly one tree.  It must move
+    * with allocator/superblock ownership if that changes.
+    */
+   bool32 allocator_map_needs_rebuild;
+
+   /*
     * Incorporation-driven checkpoint state.  checkpoint_state_lock guards the
     * fields of `checkpoint` (and is held while `log` is swapped); it is only
     * ever held for brief, I/O-free updates (never across a barrier), so taking
@@ -221,8 +274,8 @@ struct core_handle {
     * core_log_insert() -- which already holds the shared insert lock, the same
     * lock that excludes the log swap, so it can read `log` safely -- and acted
     * on by core_insert() once that lock is released.  Cleared only by
-    * core_rotate_log() when it cuts the log, under the insert lock held
-    * exclusively, so set and clear cannot race.
+    * core_checkpoint_rotated_locked() when it cuts the log, under the insert
+    * lock held exclusively, so set and clear cannot race.
     *
     * Set-only on the insert path so the common case does no store and the cache
     * line stays shared across cores.  Being merely a hint, a stale TRUE costs
@@ -367,8 +420,41 @@ core_mount(core_handle      *spl,
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
 
+/*
+ * Make every update that linearized before this call recoverable after power
+ * loss.  Writers run concurrently with the in-memory log-group cut, page
+ * graduation, writeback, and the device barrier.
+ */
 platform_status
-core_unmount(core_handle *spl);
+core_durable_barrier(core_handle *spl);
+
+/*
+ * Unmount the database without destroying it; it can be re-opened later with
+ * core_mount().
+ *
+ * An unmount is a sync followed by a shutdown, so it returns an error if it
+ * cannot guarantee that everything inserted before the call is recoverable.
+ * Records get there by one of two routes -- folded into the durable trunk root
+ * by a checkpoint, or held in a durable log -- and which routes are open
+ * depends on whether every memtable managed to incorporate:
+ *
+ *   all incorporated:  either route carries everything, so the root alone is
+ *                      enough and the logs can be discarded.
+ *   some unincorporated: the root will not contain those records, so only a
+ *                      durable log can carry them, and it must be preserved for
+ *                      replay rather than discarded.
+ *
+ * When neither route is available and force is FALSE, the unmount is abandoned
+ * before destructive teardown: the instance remains mounted and usable, and
+ * the caller can retry or investigate.  Any non-OK result has that meaning.
+ *
+ * With force, teardown always completes.  STATUS_OK still guarantees that all
+ * acknowledged data is recoverable; a non-OK result means preservation could
+ * not be guaranteed.  Whether the next mount needs log replay or an allocator
+ * rebuild is deliberately not part of this return value.
+ */
+platform_status
+core_unmount(core_handle *spl, bool32 force);
 
 /* Unmount the database and erase it from the disk */
 void
@@ -432,6 +518,7 @@ core_config_init(core_config         *trunk_cfg,
                  uint64               prefetch_budget,
                  bool32               use_log,
                  uint64               checkpoint_log_size_bytes,
+                 uint64               checkpoint_log_grace_bytes,
                  bool32               use_stats,
                  bool32               verbose_logging,
                  platform_log_handle *log_handle);

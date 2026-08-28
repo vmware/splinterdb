@@ -65,6 +65,10 @@ typedef platform_status (*io_write_fn)(io_handle *io,
                                        void      *buf,
                                        uint64     bytes,
                                        uint64     addr);
+typedef platform_status (*io_range_is_readable_fn)(io_handle *io,
+                                                   uint64     addr,
+                                                   uint64     bytes,
+                                                   bool32    *readable);
 
 #define IO_ASYNC_STATE_BUFFER_SIZE (1024)
 typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE];
@@ -93,6 +97,7 @@ typedef void *(*io_get_context_fn)(io_handle *io);
 typedef struct io_ops {
    io_read_fn                read;
    io_write_fn               write;
+   io_range_is_readable_fn   range_is_readable;
    io_async_state_init_fn    async_state_init;
    io_cleanup_fn             cleanup;
    io_wait_all_fn            wait_all;
@@ -137,6 +142,29 @@ static inline platform_status
 io_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 {
    return io->ops->read(io, buf, bytes, addr);
+}
+
+/*
+ * Report whether the complete half-open range [addr, addr + bytes) is
+ * currently readable from the backing object.  This is a logical-size query,
+ * not a promise that the range contains allocated blocks, was ever written, or
+ * is durable: a sparse hole below a regular file's EOF is readable and reports
+ * TRUE.  Callers must still validate the data they subsequently read.
+ * Regular files are bounded by their current logical EOF; block devices are
+ * bounded by the capacity reported by the kernel.
+ *
+ * Query errors are returned separately from absence.  On success, a zero-byte
+ * range is readable exactly when addr is no greater than the logical size.
+ * An overflowing range is invalid and returns STATUS_BAD_PARAM.
+ *
+ * The result is coherent with writes made through this io_handle.  As with the
+ * rest of the IO interface, modifying the backing object independently is not
+ * supported.
+ */
+static inline platform_status
+io_range_is_readable(io_handle *io, uint64 addr, uint64 bytes, bool32 *readable)
+{
+   return io->ops->range_is_readable(io, addr, bytes, readable);
 }
 
 static inline platform_status

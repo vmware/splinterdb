@@ -68,7 +68,7 @@ memtable_process(memtable_context *ctxt, uint64 generation)
    ctxt->process(ctxt->process_ctxt, generation);
 }
 
-static inline void
+void
 memtable_begin_insert(memtable_context *ctxt)
 {
    batch_rwlock_get(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
@@ -116,6 +116,29 @@ memtable_end_insert_rotation(memtable_context *ctxt)
 {
    batch_rwlock_unlock(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
    batch_rwlock_unclaim(&ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+/*
+ * A rotation may advance to the next generation only once its ring slot has
+ * been recycled.  Both natural and forced rotations test this while inserts
+ * are excluded from changing the active generation.
+ */
+static inline platform_status
+memtable_next_generation_status(memtable_context *ctxt,
+                                uint64            current_generation)
+{
+   uint64    next_generation = current_generation + 1;
+   uint64    next_mt_no      = next_generation % ctxt->cfg.max_memtables;
+   memtable *next_mt         = &ctxt->mt[next_mt_no];
+
+   if (next_mt->state == MEMTABLE_STATE_READY) {
+      return STATUS_OK;
+   }
+   if (next_mt->state == MEMTABLE_STATE_INCORPORATION_FAILED) {
+      platform_assert(!SUCCESS(next_mt->incorporation_status));
+      return next_mt->incorporation_status;
+   }
+   return STATUS_BUSY;
 }
 
 void
@@ -167,12 +190,11 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
       if (memtable_is_full(&ctxt->cfg, current_mt)) {
          // If the current memtable is full, try to retire it
 
-         uint64    next_generation = current_generation + 1;
-         uint64    next_mt_no      = next_generation % ctxt->cfg.max_memtables;
-         memtable *next_mt         = &ctxt->mt[next_mt_no];
-         if (next_mt->state != MEMTABLE_STATE_READY) {
+         platform_status rotation_rc =
+            memtable_next_generation_status(ctxt, current_generation);
+         if (!SUCCESS(rotation_rc)) {
             memtable_end_insert(ctxt);
-            return STATUS_BUSY;
+            return rotation_rc;
          }
 
          if (memtable_try_begin_insert_rotation(ctxt)) {
@@ -309,14 +331,35 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status)
                        MEMTABLE_STATE_INCORPORATION_FAILED);
 }
 
-uint64
-memtable_force_rotation(memtable_context *ctxt)
+platform_status
+memtable_force_rotation_if(memtable_context              *ctxt,
+                           memtable_rotation_predicate_fn predicate,
+                           void                          *predicate_arg,
+                           uint64                        *generation_out)
 {
+   platform_assert(predicate != NULL);
+
    memtable_block_inserts(ctxt);
 
-   uint64    generation = ctxt->generation;
-   uint64    mt_no      = generation % ctxt->cfg.max_memtables;
-   memtable *mt         = &ctxt->mt[mt_no];
+   /*
+    * Revalidate before the ring-readiness check so a stale request is a clean
+    * no-op even when the next ring slot is busy.  The predicate is observation-
+    * only: a later readiness failure must leave its higher-level state pending.
+    */
+   if (!predicate(predicate_arg)) {
+      memtable_unblock_inserts(ctxt);
+      return STATUS_OK;
+   }
+
+   uint64          generation = ctxt->generation;
+   platform_status rc = memtable_next_generation_status(ctxt, generation);
+   if (!SUCCESS(rc)) {
+      memtable_unblock_inserts(ctxt);
+      return rc;
+   }
+
+   uint64    mt_no = generation % ctxt->cfg.max_memtables;
+   memtable *mt    = &ctxt->mt[mt_no];
    memtable_transition(mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
    uint64 current_generation = ctxt->generation++;
    platform_assert(ctxt->generation - ctxt->generation_retired
@@ -339,7 +382,24 @@ memtable_force_rotation(memtable_context *ctxt)
    // the natural rotation path does.
    memtable_process(ctxt, current_generation);
 
-   return current_generation;
+   if (generation_out != NULL) {
+      *generation_out = current_generation;
+   }
+   return STATUS_OK;
+}
+
+static bool32
+memtable_rotation_always_requested(void *arg)
+{
+   (void)arg;
+   return TRUE;
+}
+
+platform_status
+memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out)
+{
+   return memtable_force_rotation_if(
+      ctxt, memtable_rotation_always_requested, NULL, generation_out);
 }
 
 void

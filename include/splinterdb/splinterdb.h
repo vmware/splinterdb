@@ -102,9 +102,10 @@ typedef struct splinterdb_config {
    _Bool use_log;
 
    // Automatic checkpoints: once the write-ahead log has grown by this many
-   // bytes, SplinterDB takes a checkpoint, which folds the logged updates into
-   // the durable tree and reclaims that log's space.  This bounds both how much
-   // log a crash has to replay and how much space the log occupies.
+   // bytes, SplinterDB arms a checkpoint.  The next natural memtable rotation
+   // cuts the log, after which the checkpoint folds the logged updates into the
+   // durable tree and reclaims that log's space.  This bounds both how much log
+   // a crash has to replay and how much space the log occupies.
    //
    // The trigger is sized in log bytes rather than in updates because the two
    // are independent: a workload that repeatedly overwrites the same keys grows
@@ -116,6 +117,13 @@ typedef struct splinterdb_config {
    // for them itself, and accepts that the log grows until it does -- set this
    // very large (UINT64_MAX).
    uint64 checkpoint_log_size_bytes;
+
+   // Once an automatic checkpoint is armed, allow the live log to grow by this
+   // many additional bytes while waiting for a natural memtable rotation.  If
+   // the memtable has not rotated by then, SplinterDB forces a rotation.  Zero
+   // selects a default of twice the memtable capacity; UINT64_MAX effectively
+   // disables forced rotation while retaining the soft checkpoint trigger.
+   uint64 checkpoint_log_grace_bytes;
 
    // splinter
    uint64 memtable_capacity;
@@ -205,9 +213,30 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 
 // Close a splinterdb
 //
-// This will flush all data to disk and release all resources
-void
-splinterdb_close(splinterdb **kvs);
+// A completed close makes all acknowledged data recoverable and releases all
+// resources.
+//
+// STATUS_OK means all acknowledged data is recoverable.  Recovery may still
+// need to replay a durable log or rebuild allocator state; that is not a close
+// failure.
+//
+// Without force, any error means shutdown was refused before destructive
+// teardown.  The database remains open and *kvs is unchanged, so the caller can
+// retry or investigate.
+//
+// With force, teardown always completes.  An error means data preservation
+// could not be guaranteed; it does not prove that data was actually lost.
+//
+// force | return code | database closed? | meaning
+// ---------------------------------------------------------------
+// FALSE | STATUS_OK   | YES              | acknowledged data is recoverable
+// FALSE | any error   | NO               | shutdown was refused
+// TRUE  | STATUS_OK   | YES              | acknowledged data is recoverable
+// TRUE  | any error   | YES              | preservation cannot be guaranteed
+//
+// After STATUS_OK or any forced close, *kvs is freed and set to NULL.
+int
+splinterdb_close(splinterdb **kvs, bool32 force);
 
 
 ////////////////////////////////////
@@ -333,6 +362,9 @@ splinterdb_lookup(splinterdb               *kvs,   // IN
 // Updates
 /////////////////////////////////
 
+// A successful update is visible to subsequent operations, but is not
+// necessarily durable. Use splinterdb_durable_barrier() to establish crash
+// durability for a prefix of updates.
 
 // Insert a key and value.  Overwrites any previous value associated with the
 // key.
@@ -371,6 +403,29 @@ splinterdb_optimize(splinterdb              *kvs,
                     slice                    max_key,
                     _Bool                    full_leaf_compactions,
                     splinterdb_notification *notification);
+
+/////////////////////////////////
+// Durability
+/////////////////////////////////
+
+// Establish a durability barrier.
+//
+// On success, every update to kvs that linearized before this call began is
+// recoverable after a crash or power loss. This includes every successful
+// insert, update, or delete that returned before the call began. Updates may
+// proceed concurrently; an update overlapping the call may or may not be
+// covered.
+//
+// This establishes durability only. With the write-ahead log enabled, it does
+// not promise a checkpoint, log reclamation, a clean cache, or recovery without
+// log replay. Without the write-ahead log, SplinterDB obtains the same
+// guarantee by checkpointing the tree, which may be substantially more
+// expensive.
+//
+// Returns 0 on success. A nonzero return means the guarantee was not
+// established; some or all updates may nevertheless already be durable.
+int
+splinterdb_durable_barrier(splinterdb *kvs);
 
 /*
 Iterator API (range query)

@@ -111,7 +111,7 @@ main()
    }
    splinterdb_lookup_result_deinit(&result);
 
-   splinterdb_close(&spl_handle);
+   splinterdb_close(&spl_handle, FALSE);
    printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
    return rc;

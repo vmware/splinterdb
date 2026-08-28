@@ -223,10 +223,19 @@ typedef struct btree_pack_req {
    uint64 message_bytes; // total size of msgs in tuples of the output tree
 } btree_pack_req;
 
+typedef void (*btree_insert_callback_fn)(void *arg);
+
 typedef struct btree_insert_results {
    lookup_result    *old_result_buffer; // optional, not owned
    uint64            leaf_generation;
    merge_accumulator msg_blob;
+   /*
+    * Optional, infallible callback invoked exactly once on a successful insert
+    * while the final target leaf is write-locked, immediately before the
+    * guaranteed logical incorporation.
+    */
+   btree_insert_callback_fn callback;
+   void                    *callback_arg;
 } btree_insert_results;
 
 static inline void
@@ -236,6 +245,17 @@ btree_insert_results_init(btree_insert_results *results,
    results->old_result_buffer = old_result_buffer;
    results->leaf_generation   = 0;
    merge_accumulator_init(&results->msg_blob, PROCESS_PRIVATE_HEAP_ID);
+   results->callback     = NULL;
+   results->callback_arg = NULL;
+}
+
+static inline void
+btree_insert_results_set_callback(btree_insert_results    *results,
+                                  btree_insert_callback_fn callback,
+                                  void                    *callback_arg)
+{
+   results->callback     = callback;
+   results->callback_arg = callback_arg;
 }
 
 static inline void
@@ -244,6 +264,8 @@ btree_insert_results_deinit(btree_insert_results *results)
    merge_accumulator_deinit(&results->msg_blob);
    results->old_result_buffer = NULL;
    results->leaf_generation   = 0;
+   results->callback          = NULL;
+   results->callback_arg      = NULL;
 }
 
 platform_status
@@ -271,6 +293,16 @@ btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
               page_type           type);
+
+/*
+ * Rebuild the allocator references this branch holds after a crash.  The
+ * recovery counterpart of btree_inc_ref(); see mini_recover_references().
+ */
+platform_status
+btree_recover_allocations(cache              *cc,
+                          const btree_config *cfg,
+                          uint64              root_addr,
+                          page_type           type);
 
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);

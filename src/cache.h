@@ -128,15 +128,70 @@ typedef page_handle *(*page_get_fn)(cache    *cc,
                                     bool32    blocking,
                                     page_type type);
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
-typedef void (*page_writeback_fn)(cache       *cc,
-                                  page_handle *page,
-                                  bool32       is_blocking,
-                                  page_type    type);
-typedef void (*extent_writeback_fn)(cache  *cc,
-                                    uint64  addr,
-                                    uint64 *pages_outstanding);
+
+/*
+ * ---- Writeback requests ----
+ *
+ * A writeback request is the receipt for one issued writeback: it names what
+ * was written and identifies the page's dirty interval at the moment the write
+ * was handed to the I/O layer.  Present it to cache_writeback_get_status() to
+ * learn whether that write has completed.
+ *
+ * The interval identity is what makes a request meaningful, so it is produced
+ * by the call that issues the write -- where it can be read atomically with the
+ * CC_WRITEBACK transition -- rather than by a free-standing query.
+ *
+ * A request holds only the address, so it survives eviction of the page it
+ * names and the caller need not hold a reference: a page that is no longer
+ * resident was necessarily written back before it was evicted.
+ *
+ * gen == 0 means "nothing to wait for": the page was already clean when the
+ * writeback was requested.
+ *
+ * A caller that only wants the write issued, and will never ask whether it
+ * completed, may pass NULL instead of a request.
+ */
+typedef struct cache_writeback_request {
+   uint64 addr;      // page addr, or the base addr of an extent
+   uint64 gen;       // dirty interval the write covers; 0 == nothing issued
+   bool32 is_extent; // whether addr names an extent rather than one page
+} cache_writeback_request;
+
+typedef enum cache_writeback_status {
+   /* The write is still outstanding.  Poll cache_cleanup() and re-check. */
+   CACHE_WRITEBACK_PENDING,
+   /* The write completed: the contents as of the request reached the device.
+    * Note this is completion, NOT durability -- see cache_durable_barrier(). */
+   CACHE_WRITEBACK_COMPLETE,
+   /* The write completed, but the page has since been dirtied again.  The
+    * request is satisfied; callers that do not expect concurrent writers to
+    * their pages should treat this as a bug in their own locking. */
+   CACHE_WRITEBACK_REDIRTIED,
+   /*
+    * The write FAILED: these contents did not reach the device, and the request
+    * will never be satisfied without a successful retry.  Polling again does
+    * not help -- the cache retries failed writes on its own schedule, so a
+    * caller that wants to keep waiting must be prepared to wait indefinitely;
+    * one that needs durability now must propagate the failure.
+    *
+    * For an extent request this outranks REDIRTIED but not PENDING, so by the
+    * time it is reported no write on the extent is still in flight.
+    */
+   CACHE_WRITEBACK_FAILED,
+} cache_writeback_status;
+
+typedef platform_status (*page_writeback_fn)(cache                   *cc,
+                                             page_handle             *page,
+                                             page_type                type,
+                                             cache_writeback_request *req);
+typedef platform_status (*extent_writeback_fn)(cache                   *cc,
+                                               uint64                   addr,
+                                               page_type                type,
+                                               cache_writeback_request *req);
+typedef cache_writeback_status (
+   *writeback_get_status_fn)(cache *cc, const cache_writeback_request *req);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
-typedef int (*evict_fn)(cache *cc, bool32 ignore_pinned);
+typedef platform_status (*evict_fn)(cache *cc, bool32 ignore_pinned);
 typedef bool32 (*page_addr_pred_fn)(cache *cc, uint64 addr);
 typedef void (*page_addr_fn)(cache *cc, uint64 addr);
 typedef void (*validate_page_fn)(cache *cc, page_handle *page, uint64 addr);
@@ -145,6 +200,10 @@ typedef uint32 (*count_dirty_fn)(cache *cc);
 typedef uint16 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
 typedef bool32 (*cache_present_fn)(cache *cc, page_handle *page);
 typedef void (*enable_sync_get_fn)(cache *cc, bool32 enabled);
+typedef platform_status (*cache_range_is_readable_fn)(cache  *cc,
+                                                      uint64  addr,
+                                                      uint64  bytes,
+                                                      bool32 *readable);
 typedef allocator *(*get_allocator_fn)(const cache *cc);
 typedef cache_config *(*cache_config_fn)(const cache *cc);
 typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
@@ -163,36 +222,38 @@ typedef struct cache_ops {
    page_get_async_fn              page_get_async;
    page_get_async_state_result_fn page_get_async_result;
 
-   page_generic_fn         page_unget;
-   page_try_claim_fn       page_try_claim;
-   page_generic_fn         page_unclaim;
-   page_generic_fn         page_lock;
-   page_generic_fn         page_unlock;
-   page_prefetch_fn        page_prefetch;
-   page_prefetch_fn        page_prefetch_page;
-   page_generic_fn         page_pin;
-   page_generic_fn         page_unpin;
-   page_writeback_fn       page_writeback;
-   extent_writeback_fn     extent_writeback;
-   cache_generic_void_fn   flush;
-   cache_generic_status_fn writeback_dirty;
-   cache_generic_status_fn durable_barrier;
-   evict_fn                evict;
-   cache_generic_void_fn   cleanup;
-   page_addr_pred_fn       in_use;
-   page_addr_fn            assert_ungot;
-   cache_generic_void_fn   assert_free;
-   validate_page_fn        validate_page;
-   cache_present_fn        cache_present;
-   cache_print_fn          print;
-   cache_print_fn          print_stats;
-   io_stats_fn             io_stats;
-   cache_generic_void_fn   reset_stats;
-   count_dirty_fn          count_dirty;
-   page_get_read_ref_fn    page_get_read_ref;
-   enable_sync_get_fn      enable_sync_get;
-   get_allocator_fn        get_allocator;
-   cache_config_fn         get_config;
+   page_generic_fn            page_unget;
+   page_try_claim_fn          page_try_claim;
+   page_generic_fn            page_unclaim;
+   page_generic_fn            page_lock;
+   page_generic_fn            page_unlock;
+   page_prefetch_fn           page_prefetch;
+   page_prefetch_fn           page_prefetch_page;
+   page_generic_fn            page_pin;
+   page_generic_fn            page_unpin;
+   page_writeback_fn          page_writeback;
+   extent_writeback_fn        extent_writeback;
+   writeback_get_status_fn    writeback_get_status;
+   cache_generic_void_fn      flush;
+   cache_generic_status_fn    writeback_dirty;
+   cache_generic_status_fn    durable_barrier;
+   evict_fn                   evict;
+   cache_generic_void_fn      cleanup;
+   page_addr_pred_fn          in_use;
+   page_addr_fn               assert_ungot;
+   cache_generic_void_fn      assert_free;
+   validate_page_fn           validate_page;
+   cache_present_fn           cache_present;
+   cache_print_fn             print;
+   cache_print_fn             print_stats;
+   io_stats_fn                io_stats;
+   cache_generic_void_fn      reset_stats;
+   count_dirty_fn             count_dirty;
+   page_get_read_ref_fn       page_get_read_ref;
+   enable_sync_get_fn         enable_sync_get;
+   cache_range_is_readable_fn range_is_readable;
+   get_allocator_fn           get_allocator;
+   cache_config_fn            get_config;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -463,54 +524,89 @@ cache_unpin(cache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * cache_page_writeback
+ * cache_writeback_page
  *
- * Issues writeback of the page to disk. This does NOT make the page durable;
- * it only hands the write to the I/O layer (no device-cache flush).
+ * Asynchronously issues writeback of the page and, if req is non-NULL, fills
+ * in *req, the receipt for that write. This does NOT make the page durable; it
+ * only hands the write to the I/O layer (no device-cache flush). Use
+ * cache_writeback_get_status() to learn when it completes and
+ * cache_durable_barrier() to make it durable.
  *
- * With is_blocking == FALSE the writeback is issued asynchronously and this
- * returns without waiting for completion; there is no per-call way to observe
- * when it finishes. With is_blocking == TRUE the page is written synchronously
- * and the write has completed by the time this returns.
+ * req may be NULL if the caller will never ask whether the write completed.
+ * The returned status is still worth checking even then; see below.
+ *
+ * Does not block. If a writeback of this page is already in flight -- issued by
+ * the pressure cleaner, say -- nothing further is issued and *req names that
+ * in-flight interval, so the caller waits on it exactly as it would on its own
+ * write. If the page is already clean, req->gen is 0: nothing to wait for.
+ *
+ * Returns STATUS_BUSY if the page is dirty but not writeback-able (locked or
+ * claimed). Callers must treat that as a failure to make the page durable: no
+ * write was issued and *req cannot report one.
+ *
+ * If an earlier write of this page failed, this claims the retry of it, so the
+ * returned request covers a fresh attempt rather than reporting the old
+ * failure.
  *-----------------------------------------------------------------------------
  */
-static inline void
-cache_page_writeback(cache       *cc,
-                     page_handle *page,
-                     bool32       is_blocking,
-                     page_type    type)
+static inline platform_status
+cache_writeback_page(cache                   *cc,
+                     page_handle             *page,
+                     page_type                type,
+                     cache_writeback_request *req)
 {
-   return cc->ops->page_writeback(cc, page, is_blocking, type);
+   // Absorb the optional request here so that every cache implementation may
+   // assume it was given somewhere to write the receipt.
+   cache_writeback_request scratch;
+   return cc->ops->page_writeback(cc, page, type, req ? req : &scratch);
 }
 
 /*
  *-----------------------------------------------------------------------------
- * cache_extent_writeback
+ * cache_writeback_extent
  *
- * Asynchronously issues writeback of the extent beginning at addr. This does
- * NOT make the extent durable; it only hands the writes to the I/O layer (no
- * device-cache flush) and returns without waiting for completion.
+ * As cache_writeback_page(), but for every page of the extent beginning at
+ * addr, coalesced into as few larger I/Os as the extent's residency allows.
+ * One request covers the whole extent: req->gen is the newest dirty interval
+ * among its pages, which is safe to compare every page against. As above, req
+ * may be NULL.
  *
- * *pages_outstanding is immediately incremented by the number of pages
- * issued for writeback (the non-clean pages of the extent); as writebacks
- * complete, *pages_outstanding is decremented atomically. This counter is the
- * only way to observe when the issued writebacks finish.
+ * Pages of the extent that are clean or not resident need no write and are
+ * skipped. Returns STATUS_BUSY if any page is dirty but not writeback-able; as
+ * with cache_writeback_page(), the caller must treat that as a failure, since
+ * that page's contents will not reach the device.
  *
- * Assumes pages_outstanding is an aligned uint64, so (on x86) the caller
- * can access it and observe its value atomically.
- *
- * TODO: What happens if two callers call cache_extent_writeback on the same
- * extent?
- *
- * All pages in the extent must be clean or cleanable.
- * The page may not be in writeback, loading, or locked, or claimed, otherwise
- * undefined behavior will occur.
+ * Concurrent callers on the same extent are safe: only one can win a page's
+ * writeback, and the other's request names that same in-flight interval, so
+ * both observe its completion.
  *-----------------------------------------------------------------------------
  */
-static inline void
-cache_extent_writeback(cache *cc, uint64 addr, uint64 *pages_outstanding)
+static inline platform_status
+cache_writeback_extent(cache                   *cc,
+                       uint64                   addr,
+                       page_type                type,
+                       cache_writeback_request *req)
 {
-   cc->ops->extent_writeback(cc, addr, pages_outstanding);
+   cache_writeback_request scratch;
+   return cc->ops->extent_writeback(cc, addr, type, req ? req : &scratch);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_writeback_get_status
+ *
+ * Whether the write named by *req has completed. Never blocks; a caller
+ * waiting for completion loops on this and cache_cleanup(), which reaps I/O
+ * completions on the calling thread and is therefore what makes the loop
+ * progress rather than merely spin.
+ *
+ * Completion is not durability: follow with cache_durable_barrier().
+ *-----------------------------------------------------------------------------
+ */
+static inline cache_writeback_status
+cache_writeback_get_status(cache *cc, const cache_writeback_request *req)
+{
+   return cc->ops->writeback_get_status(cc, req);
 }
 
 /*
@@ -561,21 +657,21 @@ cache_durable_barrier(cache *cc)
  *-----------------------------------------------------------------------------
  * cache_evict
  *
- * Evicts all the pages.
- * Asserts that there are no pins (if ignore_pinned_pages is false), read
- * locks, claims or write locks.
- * Always returns 0.
+ * Waits for outstanding cache I/O and evicts every resident page. Dirty pages
+ * are not written: callers that need their contents must write them back first.
+ * The cache must otherwise be quiescent -- no read locks, claims, write locks,
+ * or concurrent cache users.
  *
- * TODO: Does ignore_pinned_pages ignore the pages or the pinnedness of the
- *pages?
+ * If ignore_pinned_pages is false, pinned pages make the call fail with
+ * STATUS_BUSY. If true, pinned pages themselves remain resident; this mode is
+ * useful to tests but is not a complete cache invalidation.
  *
- * Test facility.
- * This method is only used for testing, specifically in cache_test.
- * TODO Should be deleted and replaced with destructing and constructing
- * a fresh cache.
+ * A failure may follow partial progress: pages successfully evicted before the
+ * conflicting entry stay evicted.  A quiescent caller may fix the conflict and
+ * call again.
  *-----------------------------------------------------------------------------
  */
-static inline int
+static inline platform_status
 cache_evict(cache *cc, bool32 ignore_pinned_pages)
 {
    return cc->ops->evict(cc, ignore_pinned_pages);
@@ -695,6 +791,17 @@ static inline void
 cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
 {
    return cc->ops->io_stats(cc, read_bytes, write_bytes);
+}
+
+/*
+ * Does the backing store contain the whole byte range [addr, addr + bytes)?
+ * This says only whether a strict read may be issued; callers must still
+ * validate the page format and contents.
+ */
+static inline platform_status
+cache_range_is_readable(cache *cc, uint64 addr, uint64 bytes, bool32 *readable)
+{
+   return cc->ops->range_is_readable(cc, addr, bytes, readable);
 }
 
 /*

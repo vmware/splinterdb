@@ -157,6 +157,14 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state);
 void
 routing_filter_dec_ref(cache *cc, routing_filter *filter);
 
+/*
+ * Rebuild the allocator references this filter holds after a crash.  The
+ * recovery counterpart of routing_filter_inc_ref(); see
+ * mini_recover_references().
+ */
+platform_status
+routing_filter_recover_allocations(cache *cc, routing_filter *filter);
+
 void
 routing_filter_inc_ref(cache *cc, routing_filter *filter);
 

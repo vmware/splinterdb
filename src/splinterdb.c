@@ -166,11 +166,22 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    }
    if (!cfg->checkpoint_log_size_bytes) {
       /*
-       * Checkpoint once the log has grown by a cache's worth: replaying much
-       * more log than the cache can hold gains little, since those pages cannot
-       * stay resident anyway.
+       * Arm a checkpoint once the log has grown by a cache's worth: replaying
+       * much more log than the cache can hold gains little, since those pages
+       * cannot stay resident anyway.
        */
       cfg->checkpoint_log_size_bytes = cfg->cache_size;
+   }
+   if (!cfg->checkpoint_log_grace_bytes) {
+      /*
+       * Give a newly armed checkpoint one physical memtable budget in which to
+       * catch a natural rotation.  The memtable space budget is twice its
+       * configured logical capacity; saturate so the eventual hard log limit
+       * cannot wrap.
+       */
+      cfg->checkpoint_log_grace_bytes = cfg->memtable_capacity > UINT64_MAX / 2
+                                           ? UINT64_MAX
+                                           : 2 * cfg->memtable_capacity;
    }
 }
 
@@ -320,6 +331,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                          cfg.prefetch_budget,
                          cfg.use_log,
                          cfg.checkpoint_log_size_bytes,
+                         cfg.checkpoint_log_grace_bytes,
                          cfg.use_stats,
                          FALSE,
                          Platform_default_log_handle);
@@ -576,14 +588,17 @@ splinterdb_open(const splinterdb_config *cfg, // IN
  *      Platform heap memory is also destroyed when closing SplinterDB.
  *
  * Results:
- *      None.
+ *      0 when all acknowledged data is recoverable (possibly after replay or
+ *      allocator reconstruction).  Without force, an error closes nothing and
+ *      leaves *kvs_in open and usable.  With force, an error means preservation
+ *      could not be guaranteed, but teardown still completes.
  *
  * Side effects:
- *      None.
+ *      On success or any forced close, *kvs_in is freed and set to NULL.
  *-----------------------------------------------------------------------------
  */
-void
-splinterdb_close(splinterdb **kvs_in) // IN
+int
+splinterdb_close(splinterdb **kvs_in, bool32 force) // IN
 {
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
@@ -598,18 +613,30 @@ splinterdb_close(splinterdb **kvs_in) // IN
     * order when these sub-systems were init'ed when a Splinter device was
     * created or re-opened. Otherwise, asserts will trip.
     */
-   platform_status status = core_unmount(&kvs->spl);
+   platform_status status = core_unmount(&kvs->spl, force);
+   /*
+    * Every non-forced error is a refusal made before destructive teardown.
+    * Keep the wrapper and all of its subsystems intact so the caller can retry
+    * or force.  A forced close always spends the handle, even when its status
+    * says that preservation could not be guaranteed.
+    */
+   if (!SUCCESS(status) && !force) {
+      platform_error_log("SplinterDB remains open because it could not be "
+                         "closed with guaranteed data preservation: %s\n",
+                         platform_status_to_string(status));
+      return platform_status_to_int(status);
+   }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to close SplinterDB instance cleanly: %s\n",
+      platform_error_log("SplinterDB was forcibly closed, but data "
+                         "preservation could not be guaranteed: %s\n",
                          platform_status_to_string(status));
    }
    io_wait_all(kvs->io_handle);
    clockcache_deinit(&kvs->cache_handle);
    /*
-    * core_unmount() already persisted the refcount map and published the
-    * superblock's allocation state (or, on failure, deliberately left it
-    * invalid so the next open rebuilds); the allocator now only tears down its
-    * in-memory structures.
+    * core_unmount() either published a trustworthy refcount map or deliberately
+    * left allocation state invalid for recovery; the allocator now only tears
+    * down its in-memory structures.
     */
    rc_allocator_deinit(&kvs->allocator_handle);
    task_system_deinit(&kvs->task_sys);
@@ -623,6 +650,12 @@ splinterdb_close(splinterdb **kvs_in) // IN
       platform_heap_destroy(&heap_id);
    }
    *kvs_in = (splinterdb *)NULL;
+
+   /*
+    * The instance is gone either way; a non-OK status here reports what the
+    * unmount could not guarantee about the data, not a failure to close.
+    */
+   return platform_status_to_int(status);
 }
 
 void
@@ -817,6 +850,18 @@ splinterdb_optimize(splinterdb              *kvs,
    }
 
    return 0;
+}
+
+int
+splinterdb_durable_barrier(splinterdb *kvs)
+{
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   platform_assert(kvs != NULL);
+   return platform_status_to_int(core_durable_barrier(&kvs->spl));
 }
 
 struct splinterdb_iterator {

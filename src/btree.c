@@ -645,6 +645,14 @@ btree_record_insert_msg_blob(btree_insert_results        *results,
    return success ? STATUS_OK : STATUS_NO_MEMORY;
 }
 
+static inline void
+btree_insert_invoke_callback(btree_insert_results *results)
+{
+   if (results->callback != NULL) {
+      results->callback(results->callback_arg);
+   }
+}
+
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    cache                 *cc,
@@ -972,7 +980,7 @@ btree_split_leaf_build_right_node(const btree_config    *cfg,       // IN
                                   leaf_incorporate_spec *spec,      // IN
                                   leaf_splitting_plan    plan,      // IN
                                   btree_hdr             *right_hdr,
-                                  uint64                *generation) // IN/OUT
+                                  btree_insert_results  *results) // IN/OUT
 {
    /* Build the right node. */
    memmove(right_hdr, left_hdr, sizeof(*right_hdr));
@@ -993,8 +1001,9 @@ btree_split_leaf_build_right_node(const btree_config    *cfg,       // IN
 
    if (!plan.insertion_goes_left) {
       spec->idx -= plan.split_idx;
+      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
-         cfg, right_hdr, spec, generation);
+         cfg, right_hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
    }
 }
@@ -1323,6 +1332,22 @@ btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
    mini_inc_ref(cc, meta_page_addr);
 }
 
+/*
+ * Record the reference a holder has on this branch during a crash-recovery
+ * rebuild, enumerating the branch's extents if this is the first one to reach
+ * it.  The recovery counterpart of btree_inc_ref(); see
+ * mini_recover_references().
+ */
+platform_status
+btree_recover_allocations(cache              *cc,
+                          const btree_config *cfg,
+                          uint64              root_addr,
+                          page_type           type)
+{
+   return mini_recover_references(
+      cc, btree_root_to_meta_addr(cfg, root_addr, 0), type);
+}
+
 bool32
 btree_dec_ref(cache              *cc,
               const btree_config *cfg,
@@ -1510,19 +1535,15 @@ btree_split_child_leaf(cache                 *cc,
    }
    /* p: unlocked, c: write, rc: write, cn: unlocked */
 
-   btree_split_leaf_build_right_node(cfg,
-                                     child->hdr,
-                                     child->addr,
-                                     spec,
-                                     plan,
-                                     right_child.hdr,
-                                     &results->leaf_generation);
+   btree_split_leaf_build_right_node(
+      cfg, child->hdr, child->addr, spec, plan, right_child.hdr, results);
    btree_node_full_unlock(cc, cfg, &right_child);
    /* p: unlocked, c: write, rc: unlocked, cn: unlocked */
 
    btree_split_leaf_cleanup_left_node(
       cfg, scratch, child->hdr, spec, plan, right_child.addr);
    if (plan.insertion_goes_left) {
+      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
@@ -1587,6 +1608,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
          return rc;
       }
       btree_defragment_leaf(cfg, scratch, child->hdr, spec);
+      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
@@ -1907,6 +1929,7 @@ start_over:
             destroy_leaf_incorporate_spec(&spec);
             return rc;
          }
+         btree_insert_invoke_callback(results);
          bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
             cfg, root_node.hdr, &spec, &results->leaf_generation);
          platform_assert(incorporated);
@@ -2127,6 +2150,7 @@ start_over:
          destroy_leaf_incorporate_spec(&spec);
          return rc;
       }
+      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child_node.hdr, &spec, &results->leaf_generation);
       platform_assert(incorporated);

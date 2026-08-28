@@ -145,6 +145,21 @@ rc_allocator_init_refcounts(rc_allocator *al)
    }
 
    memset(al->ref_count, 0, rc_allocator_refcount_buffer_size(al->cfg));
+   /*
+    * Set, not accumulated, for the same reason rc_allocator_load_refcounts()
+    * does it: this establishes a map rather than adding to one, and a rebuild
+    * may run against an allocator whose stats are not freshly zeroed.  The
+    * reserved extents counted just below are then the whole of it.
+    *
+    * The per-type histograms go with it.  A rebuild re-derives the map from
+    * what is on disk, so the allocations it records are the same ones an
+    * earlier round recorded, not new ones; leaving them to accumulate would
+    * make rc_allocator_assert_noleaks() report every rebuilt extent as leaked,
+    * since nothing will ever deallocate it twice.
+    */
+   al->stats.curr_allocated = 0;
+   memset(al->stats.extent_allocs, 0, sizeof(al->stats.extent_allocs));
+   memset(al->stats.extent_deallocs, 0, sizeof(al->stats.extent_deallocs));
 
    /*
     * Extent 0 holds the superblock; the refcount map begins at extent 1.
@@ -234,6 +249,16 @@ rc_allocator_valid_config(allocator_config *cfg)
 platform_status
 rc_allocator_recovery_begin(rc_allocator *al)
 {
+   /*
+    * Cleared before the map is rebuilt, which is what makes a second rebuild
+    * possible on an allocator that already finished one: while it is set,
+    * rc_allocator_recovery_record_reference() refuses and
+    * rc_allocator_recovery_finish() asserts.  Recovery rebuilds twice -- once
+    * including the logs so replay can run without being handed their space, and
+    * again from the root alone once replay is done, which is what releases that
+    * space.
+    */
+   al->map_is_valid = FALSE;
    return rc_allocator_init_refcounts(al);
 }
 
@@ -397,6 +422,7 @@ rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
 refcount
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
+   platform_assert(al->map_is_valid);
    debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
@@ -416,6 +442,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 refcount
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 {
+   platform_assert(al->map_is_valid);
    debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
@@ -509,6 +536,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
                    uint64       *addr, // OUT
                    page_type     type)     // IN
 {
+   platform_assert(al->map_is_valid);
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
    bool32 extent_is_free = FALSE;
