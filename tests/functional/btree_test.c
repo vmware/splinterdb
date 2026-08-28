@@ -10,6 +10,7 @@
 #include "splinterdb/data.h"
 #include "platform_time.h"
 #include "btree.h"
+#include "btree_private.h"
 #include "merge.h"
 #include "test.h"
 #include "platform_io.h"
@@ -1077,6 +1078,7 @@ test_btree_async_lookup(cache                   *cc,
                                  cfg,
                                  root_addr,
                                  type,
+                                 TRUE,
                                  target,
                                  &async_ctxt->result,
                                  btree_test_async_callback,
@@ -1111,6 +1113,311 @@ test_memtable_async_lookup(test_memtable_context   *ctxt,
                                   PAGE_TYPE_MEMTABLE,
                                   expected_found,
                                   correct);
+}
+
+static page_handle *
+test_btree_claim_page(cache *cc, uint64 addr, page_type type)
+{
+   page_handle *page = cache_get(cc, addr, TRUE, type);
+   platform_assert(page != NULL);
+   while (!cache_try_claim(cc, page)) {
+      cache_unget(cc, page);
+      page = cache_get(cc, addr, TRUE, type);
+      platform_assert(page != NULL);
+   }
+   cache_lock(cc, page);
+   return page;
+}
+
+static void
+test_btree_unclaim_page(cache *cc, page_handle *page)
+{
+   cache_unlock(cc, page);
+   cache_unclaim(cc, page);
+   cache_unget(cc, page);
+}
+
+static platform_status
+test_btree_lookup_status(cache        *cc,
+                         btree_config *cfg,
+                         uint64        root_addr,
+                         page_type     type,
+                         key           target)
+{
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   platform_status rc = btree_lookup(cc, cfg, root_addr, type, target, &result);
+   lookup_result_deinit(&result);
+   return rc;
+}
+
+static platform_status
+test_btree_async_lookup_status(cache        *cc,
+                               btree_config *cfg,
+                               uint64        root_addr,
+                               page_type     type,
+                               key           target)
+{
+   btree_test_async_ctxt ctxt = {0};
+   lookup_result_init(
+      &ctxt.result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   btree_lookup_async_state_init(&ctxt.ctxt,
+                                 cc,
+                                 cfg,
+                                 root_addr,
+                                 type,
+                                 TRUE,
+                                 target,
+                                 &ctxt.result,
+                                 btree_test_async_callback,
+                                 &ctxt);
+
+   timestamp    start = platform_get_timestamp();
+   async_status async_rc;
+   do {
+      ctxt.ready = FALSE;
+      async_rc   = btree_lookup_async(&ctxt.ctxt);
+      while (async_rc == ASYNC_STATUS_RUNNING && !ctxt.ready) {
+         cache_cleanup(cc);
+         platform_assert(platform_timestamp_elapsed(start)
+                         < TEST_STUCK_IO_TIMEOUT);
+      }
+   } while (async_rc == ASYNC_STATUS_RUNNING);
+
+   platform_status rc = ctxt.ctxt.__async_result;
+   lookup_result_deinit(&ctxt.result);
+   return rc;
+}
+
+static bool32
+test_btree_query_status_matches(cache        *cc,
+                                btree_config *cfg,
+                                uint64        root_addr,
+                                page_type     type,
+                                key           target,
+                                bool32        expect_success)
+{
+   platform_status sync_rc =
+      test_btree_lookup_status(cc, cfg, root_addr, type, target);
+   platform_status async_rc =
+      test_btree_async_lookup_status(cc, cfg, root_addr, type, target);
+   return SUCCESS(sync_rc) == expect_success
+          && SUCCESS(async_rc) == expect_success;
+}
+
+static platform_status
+test_btree_memtable_validation_bypass(cache        *cc,
+                                      btree_config *cfg,
+                                      uint64        root_addr,
+                                      key           target)
+{
+   page_handle *page = test_btree_claim_page(cc, root_addr, PAGE_TYPE_MEMTABLE);
+   btree_hdr   *hdr  = (btree_hdr *)page->data;
+   uint64       saved_meta_page_addr = hdr->meta_page_addr;
+   hdr->meta_page_addr               = 1;
+   test_btree_unclaim_page(cc, page);
+
+   bool32 lookup_ok = test_btree_query_status_matches(
+      cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, TRUE);
+
+   page = test_btree_claim_page(cc, root_addr, PAGE_TYPE_MEMTABLE);
+   hdr  = (btree_hdr *)page->data;
+   hdr->meta_page_addr = saved_meta_page_addr;
+   test_btree_unclaim_page(cc, page);
+   return lookup_ok ? STATUS_OK : STATUS_TEST_FAILED;
+}
+
+static platform_status
+test_btree_query_validation(cache           *cc,
+                            btree_config    *cfg,
+                            uint64           root_addr,
+                            platform_heap_id hid)
+{
+   key_buffer first_key;
+   key_buffer touched_key;
+   key_buffer_init(&first_key, hid);
+   key_buffer_init(&touched_key, hid);
+
+   btree_iterator  itor;
+   platform_status rc = btree_iterator_init(cc,
+                                            cfg,
+                                            &itor,
+                                            root_addr,
+                                            PAGE_TYPE_BRANCH,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            less_than,
+                                            POSITIVE_INFINITY_KEY,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            FALSE,
+                                            0,
+                                            0);
+   if (!SUCCESS(rc) || !iterator_can_curr(&itor.super)) {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
+   key     curr_key;
+   message curr_data;
+   iterator_curr(&itor.super, &curr_key, &curr_data);
+   rc = key_buffer_copy_key(&first_key, curr_key);
+   if (!SUCCESS(rc)) {
+      btree_iterator_deinit(&itor);
+      goto deinit_keys;
+   }
+   uint64 first_leaf_addr   = itor.curr.addr;
+   uint64 touched_leaf_addr = 0;
+   int64  touched_idx       = -1;
+
+   while (iterator_can_next(&itor.super)) {
+      rc = iterator_next(&itor.super);
+      if (!SUCCESS(rc) || !iterator_can_curr(&itor.super)) {
+         break;
+      }
+      if (itor.curr.addr != first_leaf_addr) {
+         iterator_curr(&itor.super, &curr_key, &curr_data);
+         rc = key_buffer_copy_key(&touched_key, curr_key);
+         if (SUCCESS(rc)) {
+            touched_leaf_addr = itor.curr.addr;
+            touched_idx       = itor.idx;
+         }
+         break;
+      }
+   }
+   btree_iterator_deinit(&itor);
+   if (!SUCCESS(rc) || touched_leaf_addr == 0 || touched_idx < 0) {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
+   page_handle *page =
+      test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   btree_hdr *hdr = (btree_hdr *)page->data;
+   platform_assert(touched_idx < hdr->num_entries);
+   table_entry saved_offset  = hdr->offsets[touched_idx];
+   hdr->offsets[touched_idx] = btree_page_size(cfg);
+   test_btree_unclaim_page(cc, page);
+
+   bool32 untouched_ok = test_btree_query_status_matches(
+      cc, cfg, root_addr, PAGE_TYPE_BRANCH, key_buffer_key(&first_key), TRUE);
+   bool32 touched_rejected =
+      test_btree_query_status_matches(cc,
+                                      cfg,
+                                      root_addr,
+                                      PAGE_TYPE_BRANCH,
+                                      key_buffer_key(&touched_key),
+                                      FALSE);
+
+   page = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   hdr  = (btree_hdr *)page->data;
+   hdr->offsets[touched_idx] = saved_offset;
+   test_btree_unclaim_page(cc, page);
+   if (!untouched_ok || !touched_rejected) {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
+   page = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   hdr  = (btree_hdr *)page->data;
+   leaf_entry           *entry = btree_get_leaf_entry(cfg, hdr, touched_idx);
+   ondisk_message_length saved_message_length = entry->message_length;
+   entry->message_length                      = (ondisk_message_length)-1;
+   test_btree_unclaim_page(cc, page);
+   touched_rejected =
+      test_btree_query_status_matches(cc,
+                                      cfg,
+                                      root_addr,
+                                      PAGE_TYPE_BRANCH,
+                                      key_buffer_key(&touched_key),
+                                      FALSE);
+
+   page  = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   hdr   = (btree_hdr *)page->data;
+   entry = (leaf_entry *)((char *)hdr + saved_offset);
+   entry->message_length = saved_message_length;
+   test_btree_unclaim_page(cc, page);
+   if (!touched_rejected) {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
+   page  = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   hdr   = (btree_hdr *)page->data;
+   entry = btree_get_leaf_entry(cfg, hdr, touched_idx);
+   ondisk_flags saved_flags = entry->flags;
+   saved_message_length     = entry->message_length;
+   entry->flags =
+      (entry->flags & ONDISK_MESSAGE_TYPE_MASK) | ONDISK_MESSAGE_IS_BLOB;
+   entry->message_length = 1;
+   test_btree_unclaim_page(cc, page);
+   touched_rejected =
+      test_btree_query_status_matches(cc,
+                                      cfg,
+                                      root_addr,
+                                      PAGE_TYPE_BRANCH,
+                                      key_buffer_key(&touched_key),
+                                      FALSE);
+
+   page  = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   hdr   = (btree_hdr *)page->data;
+   entry = btree_get_leaf_entry(cfg, hdr, touched_idx);
+   entry->flags          = saved_flags;
+   entry->message_length = saved_message_length;
+   test_btree_unclaim_page(cc, page);
+   if (!touched_rejected) {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
+   page = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
+   hdr  = (btree_hdr *)page->data;
+   if (hdr->height == 0) {
+      test_btree_unclaim_page(cc, page);
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+   bool32 found;
+   int64  child_idx =
+      btree_find_pivot(cfg, hdr, key_buffer_key(&touched_key), &found);
+   if (child_idx < 0) {
+      child_idx = 0;
+   }
+   index_entry *index            = btree_get_index_entry(cfg, hdr, child_idx);
+   uint64       saved_child_addr = index->pivot_data.child_addr;
+   index->pivot_data.child_addr  = 1;
+   test_btree_unclaim_page(cc, page);
+   touched_rejected =
+      test_btree_query_status_matches(cc,
+                                      cfg,
+                                      root_addr,
+                                      PAGE_TYPE_BRANCH,
+                                      key_buffer_key(&touched_key),
+                                      FALSE);
+
+   page  = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
+   hdr   = (btree_hdr *)page->data;
+   index = btree_get_index_entry(cfg, hdr, child_idx);
+   index->pivot_data.child_addr = saved_child_addr;
+   test_btree_unclaim_page(cc, page);
+   if (!touched_rejected
+       || !test_btree_query_status_matches(cc,
+                                           cfg,
+                                           root_addr,
+                                           PAGE_TYPE_BRANCH,
+                                           key_buffer_key(&touched_key),
+                                           TRUE))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
+   rc = STATUS_OK;
+
+deinit_keys:
+   key_buffer_deinit(&touched_key);
+   key_buffer_deinit(&first_key);
+   return rc;
 }
 
 static platform_status
@@ -1229,8 +1536,16 @@ test_btree_basic(cache             *cc,
    cache_assert_free(cc);
    memtable_verify(cc, mt);
 
-   btree_config  *btree_cfg = test_memtable_context_btree_config(ctxt);
-   uint64         root_addr = memtable_root_addr(mt);
+   btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
+   uint64        root_addr = memtable_root_addr(mt);
+   test_btree_tuple(ctxt, &keybuf, &expected_data, 0, 0);
+   rc = test_btree_memtable_validation_bypass(
+      cc, btree_cfg, root_addr, key_buffer_key(&keybuf));
+   if (!SUCCESS(rc)) {
+      goto destroy_btree;
+   }
+   platform_default_log("btree memtable validation bypass test passed\n");
+
    btree_iterator itor;
    start_time = platform_get_timestamp();
    rc         = btree_iterator_init(cc,
@@ -1366,6 +1681,13 @@ test_btree_basic(cache             *cc,
    platform_default_log("btree packed negative lookup time per tuple %luns\n",
                         platform_timestamp_elapsed(start_time) / num_inserts);
    cache_assert_free(cc);
+
+   rc = test_btree_query_validation(cc, btree_cfg, packed_root_addr, hid);
+   if (!SUCCESS(rc)) {
+      btree_dec_ref(cc, btree_cfg, packed_root_addr, PAGE_TYPE_BRANCH);
+      goto destroy_btree;
+   }
+   platform_default_log("btree query validation test passed\n");
 
    btree_print_tree_stats(Platform_default_log_handle,
                           cc,

@@ -1215,11 +1215,13 @@ btree_extent_addr_is_valid(cache *cc, uint64 addr)
               && addr <= allocator_cfg->capacity - extent_size);
 }
 
+/* Point queries validate this fixed-size prefix before using checked entry
+ * accessors. PAGE_TYPE_MEMTABLE remains trusted, mutable in-memory state. */
 static platform_status
-btree_node_validate(cache              *cc,
-                    const btree_config *cfg,
-                    const btree_node   *node,
-                    page_type           type)
+btree_node_validate_header(cache              *cc,
+                           const btree_config *cfg,
+                           const btree_node   *node,
+                           page_type           type)
 {
    if (node == NULL || node->page == NULL || node->hdr == NULL) {
       return STATUS_IO_ERROR;
@@ -1258,6 +1260,179 @@ btree_node_validate(cache              *cc,
       return STATUS_INVALID_STATE;
    }
 
+   return STATUS_OK;
+}
+
+static inline platform_status
+btree_entry_bounds_validate(const btree_config *cfg,
+                            const btree_hdr    *hdr,
+                            table_index         idx,
+                            uint64              min_size,
+                            uint64             *offset_out,
+                            uint64             *remaining_out)
+{
+   if (idx >= hdr->num_entries) {
+      return STATUS_INVALID_STATE;
+   }
+   uint64 offset    = hdr->offsets[idx];
+   uint64 page_size = btree_page_size(cfg);
+   if (offset < hdr->next_entry || page_size <= offset
+       || page_size - offset < min_size)
+   {
+      return STATUS_INVALID_STATE;
+   }
+   *offset_out    = offset;
+   *remaining_out = page_size - offset;
+   return STATUS_OK;
+}
+
+static inline platform_status
+btree_index_key_validate(const btree_config *cfg,
+                         const btree_hdr    *hdr,
+                         table_index         idx,
+                         const index_entry **entry_out)
+{
+   uint64          offset;
+   uint64          remaining;
+   platform_status rc = btree_entry_bounds_validate(
+      cfg, hdr, idx, sizeof(index_entry), &offset, &remaining);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   const index_entry *entry = (const index_entry *)((const char *)hdr + offset);
+   if (entry->pivot.flags != ONDISK_KEY_DEFAULT_FLAGS
+       || sizeof_ondisk_key_data(&entry->pivot) > remaining - sizeof(*entry))
+   {
+      return STATUS_INVALID_STATE;
+   }
+   *entry_out = entry;
+   return STATUS_OK;
+}
+
+static inline platform_status
+btree_index_entry_validate(cache              *cc,
+                           const btree_config *cfg,
+                           const btree_hdr    *hdr,
+                           table_index         idx,
+                           const index_entry **entry_out)
+{
+   platform_status rc = btree_index_key_validate(cfg, hdr, idx, entry_out);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return btree_page_addr_is_valid(cc, (*entry_out)->pivot_data.child_addr)
+             ? STATUS_OK
+             : STATUS_INVALID_STATE;
+}
+
+static inline platform_status
+btree_leaf_key_validate(const btree_config *cfg,
+                        const btree_hdr    *hdr,
+                        table_index         idx,
+                        const leaf_entry  **entry_out)
+{
+   uint64          offset;
+   uint64          remaining;
+   platform_status rc = btree_entry_bounds_validate(
+      cfg, hdr, idx, sizeof(leaf_entry), &offset, &remaining);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   const leaf_entry *entry = (const leaf_entry *)((const char *)hdr + offset);
+   if (entry->key_flags != ONDISK_KEY_DEFAULT_FLAGS
+       || entry->key_length == ONDISK_KEY_NEGATIVE_INFINITY
+       || entry->key_length == ONDISK_KEY_POSITIVE_INFINITY
+       || entry->key_length > remaining - sizeof(*entry))
+   {
+      return STATUS_INVALID_STATE;
+   }
+   *entry_out = entry;
+   return STATUS_OK;
+}
+
+static inline platform_status
+btree_leaf_entry_validate(cache              *cc,
+                          const btree_config *cfg,
+                          const btree_hdr    *hdr,
+                          table_index         idx,
+                          const leaf_entry  **entry_out)
+{
+   platform_status rc = btree_leaf_key_validate(cfg, hdr, idx, entry_out);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   const leaf_entry *entry         = *entry_out;
+   uint64            offset        = (const char *)entry - (const char *)hdr;
+   uint64            remaining     = btree_page_size(cfg) - offset;
+   message_type      message_class = ondisk_tuple_message_class(entry);
+   if ((entry->flags & ~(ONDISK_MESSAGE_TYPE_MASK | ONDISK_MESSAGE_IS_BLOB))
+          != 0
+       || message_class == MESSAGE_TYPE_INVALID
+       || message_class > MESSAGE_TYPE_MAX_VALID_USER_TYPE
+       || (uint64)entry->key_length + entry->message_length
+             > remaining - sizeof(*entry))
+   {
+      return STATUS_INVALID_STATE;
+   }
+   if (ondisk_tuple_message_is_blob(entry)) {
+      parsed_blob pblob;
+      slice       descriptor = slice_create(
+         entry->message_length, entry->key_and_message + entry->key_length);
+      rc = blob_parse_descriptor(cc, descriptor, &pblob);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+btree_node_validate(cache              *cc,
+                    const btree_config *cfg,
+                    const btree_node   *node,
+                    page_type           type)
+{
+   /* Iterators consume most or all entries on a page. Keep their full
+    * validation as one compact linear pass instead of calling the fine-grained
+    * point-query helpers for each entry. */
+   if (node == NULL || node->page == NULL || node->hdr == NULL) {
+      return STATUS_IO_ERROR;
+   }
+   if (type != PAGE_TYPE_BRANCH) {
+      return STATUS_OK;
+   }
+   if (!btree_page_addr_is_valid(cc, node->addr)
+       || node->page->disk_addr != node->addr)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   const btree_hdr *hdr       = node->hdr;
+   uint64           page_size = btree_page_size(cfg);
+   if (page_size < sizeof(*hdr) || hdr->height >= BTREE_MAX_HEIGHT
+       || (hdr->flags & ~(BTREE_HDR_FIRST_IN_LEVEL | BTREE_HDR_LAST_IN_LEVEL))
+             != 0)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   uint64 max_entries = (page_size - sizeof(*hdr)) / sizeof(hdr->offsets[0]);
+   if (max_entries < hdr->num_entries) {
+      return STATUS_INVALID_STATE;
+   }
+   uint64 table_end =
+      sizeof(*hdr) + (uint64)hdr->num_entries * sizeof(hdr->offsets[0]);
+   if (hdr->next_entry < table_end || page_size < hdr->next_entry
+       || (hdr->height != 0 && hdr->num_entries == 0)
+       || !btree_extent_addr_is_valid(cc, hdr->prev_addr)
+       || !btree_extent_addr_is_valid(cc, hdr->next_addr)
+       || (hdr->meta_page_addr != 0
+           && !btree_page_addr_is_valid(cc, hdr->meta_page_addr)))
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   platform_status rc;
    for (uint64 i = 0; i < hdr->num_entries; i++) {
       uint64 offset = hdr->offsets[i];
       if (offset < hdr->next_entry || page_size <= offset) {
@@ -1291,7 +1466,7 @@ btree_node_validate(cache              *cc,
             slice       descriptor =
                slice_create(entry->message_length,
                             entry->key_and_message + entry->key_length);
-            platform_status rc = blob_parse_descriptor(cc, descriptor, &pblob);
+            rc = blob_parse_descriptor(cc, descriptor, &pblob);
             if (!SUCCESS(rc)) {
                return rc;
             }
@@ -1315,10 +1490,76 @@ btree_node_validate(cache              *cc,
 }
 
 static platform_status
-btree_node_get_checked(cache              *cc,
-                       const btree_config *cfg,
-                       btree_node         *node,
-                       page_type           type)
+btree_find_pivot_validate(const btree_config *cfg,
+                          const btree_hdr    *hdr,
+                          key                 target,
+                          bool32             *found,
+                          int64              *idx_out)
+{
+   int64 lo = 0, hi = btree_num_entries(hdr);
+   *found = FALSE;
+   while (lo < hi) {
+      int64              mid = (lo + hi) / 2;
+      const index_entry *entry;
+      platform_status    rc = btree_index_key_validate(cfg, hdr, mid, &entry);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      int cmp = btree_key_compare(cfg, target, index_entry_key(entry));
+      if (cmp == 0) {
+         *found   = TRUE;
+         *idx_out = mid;
+         return STATUS_OK;
+      }
+      if (cmp > 0) {
+         lo = mid + 1;
+      } else {
+         hi = mid;
+      }
+   }
+   *idx_out = lo - 1;
+   return STATUS_OK;
+}
+
+static platform_status
+btree_find_tuple_validate(const btree_config *cfg,
+                          const btree_hdr    *hdr,
+                          key                 target,
+                          bool32             *found,
+                          int64              *idx_out)
+{
+   int64 lo = 0, hi = btree_num_entries(hdr);
+   *found = FALSE;
+   while (lo < hi) {
+      int64             mid = (lo + hi) / 2;
+      const leaf_entry *entry;
+      platform_status   rc = btree_leaf_key_validate(cfg, hdr, mid, &entry);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      int cmp =
+         btree_key_compare(cfg, target, leaf_entry_key((leaf_entry *)entry));
+      if (cmp == 0) {
+         *found   = TRUE;
+         *idx_out = mid;
+         return STATUS_OK;
+      }
+      if (cmp > 0) {
+         lo = mid + 1;
+      } else {
+         hi = mid;
+      }
+   }
+   *idx_out = lo - 1;
+   return STATUS_OK;
+}
+
+static platform_status
+btree_node_get_validated(cache              *cc,
+                         const btree_config *cfg,
+                         btree_node         *node,
+                         page_type           type,
+                         bool32              validate_full_page)
 {
    if (type == PAGE_TYPE_BRANCH && !btree_page_addr_is_valid(cc, node->addr)) {
       node->page = NULL;
@@ -1331,11 +1572,22 @@ btree_node_get_checked(cache              *cc,
       return STATUS_IO_ERROR;
    }
    node->hdr          = (btree_hdr *)node->page->data;
-   platform_status rc = btree_node_validate(cc, cfg, node, type);
+   platform_status rc = validate_full_page
+                           ? btree_node_validate(cc, cfg, node, type)
+                           : btree_node_validate_header(cc, cfg, node, type);
    if (!SUCCESS(rc) && node->page != NULL) {
       btree_node_unget(cc, cfg, node);
    }
    return rc;
+}
+
+static inline platform_status
+btree_node_get_checked(cache              *cc,
+                       const btree_config *cfg,
+                       btree_node         *node,
+                       page_type           type)
+{
+   return btree_node_get_validated(cc, cfg, node, type, TRUE);
 }
 
 static inline bool32
@@ -2371,16 +2623,17 @@ start_over:
  *      btree_lookup_async_with_ref too.
  *-----------------------------------------------------------------------------
  */
-platform_status
-btree_lookup_node(cache              *cc,             // IN
-                  const btree_config *cfg,            // IN
-                  uint64              root_addr,      // IN
-                  key                 target,         // IN
-                  uint16              stop_at_height, // IN
-                  page_type           type,           // IN
-                  bool32              get_node,       // IN
-                  btree_node         *out_node,       // OUT
-                  btree_pivot_stats  *stats)           // OUT
+static platform_status
+btree_lookup_node_internal(cache              *cc,             // IN
+                           const btree_config *cfg,            // IN
+                           uint64              root_addr,      // IN
+                           key                 target,         // IN
+                           uint16              stop_at_height, // IN
+                           page_type           type,           // IN
+                           bool32              get_node,       // IN
+                           btree_node         *out_node,       // OUT
+                           btree_pivot_stats  *stats,          // OUT
+                           bool32              validate_entries_on_demand)
 {
    btree_node node, child_node;
    uint32     h;
@@ -2391,22 +2644,44 @@ btree_lookup_node(cache              *cc,             // IN
    }
 
    debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
-   node.addr          = root_addr;
-   platform_status rc = btree_node_get_checked(cc, cfg, &node, type);
+   debug_assert(!validate_entries_on_demand || stats == NULL);
+   bool32 validate_on_demand =
+      validate_entries_on_demand && type == PAGE_TYPE_BRANCH;
+   node.addr = root_addr;
+   platform_status rc =
+      btree_node_get_validated(cc, cfg, &node, type, !validate_on_demand);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    for (h = btree_height(node.hdr); h > stop_at_height; h--) {
       bool32 found;
-      child_idx = key_is_positive_infinity(target)
-                     ? btree_num_entries(node.hdr) - 1
-                     : btree_find_pivot(cfg, node.hdr, target, &found);
+      if (key_is_positive_infinity(target)) {
+         child_idx = btree_num_entries(node.hdr) - 1;
+      } else if (validate_on_demand) {
+         rc = btree_find_pivot_validate(
+            cfg, node.hdr, target, &found, &child_idx);
+         if (!SUCCESS(rc)) {
+            btree_node_unget(cc, cfg, &node);
+            return rc;
+         }
+      } else {
+         child_idx = btree_find_pivot(cfg, node.hdr, target, &found);
+      }
       if (child_idx < 0) {
          child_idx = 0;
       }
-      index_entry *entry = btree_get_index_entry(cfg, node.hdr, child_idx);
-      child_node.addr    = index_entry_child_addr(entry);
+      const index_entry *entry;
+      if (validate_on_demand) {
+         rc = btree_index_entry_validate(cc, cfg, node.hdr, child_idx, &entry);
+         if (!SUCCESS(rc)) {
+            btree_node_unget(cc, cfg, &node);
+            return rc;
+         }
+      } else {
+         entry = btree_get_index_entry(cfg, node.hdr, child_idx);
+      }
+      child_node.addr = index_entry_child_addr(entry);
 
       if (stats) {
          accumulate_node_ranks(cfg, node.hdr, 0, child_idx, stats);
@@ -2420,7 +2695,8 @@ btree_lookup_node(cache              *cc,             // IN
          return STATUS_OK;
       }
 
-      rc = btree_node_get_checked(cc, cfg, &child_node, type);
+      rc = btree_node_get_validated(
+         cc, cfg, &child_node, type, !validate_on_demand);
       if (!SUCCESS(rc)) {
          btree_node_unget(cc, cfg, &node);
          return rc;
@@ -2439,6 +2715,29 @@ btree_lookup_node(cache              *cc,             // IN
       btree_node_unget(cc, cfg, &node);
    }
    return STATUS_OK;
+}
+
+platform_status
+btree_lookup_node(cache              *cc,             // IN
+                  const btree_config *cfg,            // IN
+                  uint64              root_addr,      // IN
+                  key                 target,         // IN
+                  uint16              stop_at_height, // IN
+                  page_type           type,           // IN
+                  bool32              get_node,       // IN
+                  btree_node         *out_node,       // OUT
+                  btree_pivot_stats  *stats)           // OUT
+{
+   return btree_lookup_node_internal(cc,
+                                     cfg,
+                                     root_addr,
+                                     target,
+                                     stop_at_height,
+                                     type,
+                                     get_node,
+                                     out_node,
+                                     stats,
+                                     FALSE);
 }
 
 /*
@@ -2470,6 +2769,7 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
 
    debug_assert(state->type == PAGE_TYPE_BRANCH
                 || state->type == PAGE_TYPE_MEMTABLE);
+   debug_assert(!state->validate_entries_on_demand || state->stats == NULL);
    state->node.addr      = state->root_addr;
    state->__async_result = STATUS_OK;
    if (state->type == PAGE_TYPE_BRANCH
@@ -2492,7 +2792,11 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
    }
    state->node.hdr = (btree_hdr *)state->node.page->data;
    platform_status rc =
-      btree_node_validate(state->cc, state->cfg, &state->node, state->type);
+      state->validate_entries_on_demand && state->type == PAGE_TYPE_BRANCH
+         ? btree_node_validate_header(
+              state->cc, state->cfg, &state->node, state->type)
+         : btree_node_validate(
+              state->cc, state->cfg, &state->node, state->type);
    if (!SUCCESS(rc)) {
       btree_node_unget(state->cc, state->cfg, &state->node);
       async_return(state, rc);
@@ -2503,16 +2807,37 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
         state->h--)
    {
       bool32 found;
-      int64  child_idx =
-         key_is_positive_infinity(state->target)
-             ? btree_num_entries(state->node.hdr) - 1
-             : btree_find_pivot(
-                 state->cfg, state->node.hdr, state->target, &found);
+      int64  child_idx;
+      if (key_is_positive_infinity(state->target)) {
+         child_idx = btree_num_entries(state->node.hdr) - 1;
+      } else if (state->validate_entries_on_demand
+                 && state->type == PAGE_TYPE_BRANCH)
+      {
+         rc = btree_find_pivot_validate(
+            state->cfg, state->node.hdr, state->target, &found, &child_idx);
+         if (!SUCCESS(rc)) {
+            btree_node_unget(state->cc, state->cfg, &state->node);
+            async_return(state, rc);
+         }
+      } else {
+         child_idx = btree_find_pivot(
+            state->cfg, state->node.hdr, state->target, &found);
+      }
       if (child_idx < 0) {
          child_idx = 0;
       }
-      index_entry *entry =
-         btree_get_index_entry(state->cfg, state->node.hdr, child_idx);
+      const index_entry *entry;
+      if (state->validate_entries_on_demand && state->type == PAGE_TYPE_BRANCH)
+      {
+         rc = btree_index_entry_validate(
+            state->cc, state->cfg, state->node.hdr, child_idx, &entry);
+         if (!SUCCESS(rc)) {
+            btree_node_unget(state->cc, state->cfg, &state->node);
+            async_return(state, rc);
+         }
+      } else {
+         entry = btree_get_index_entry(state->cfg, state->node.hdr, child_idx);
+      }
       state->child_node.addr = index_entry_child_addr(entry);
 
       if (state->stats) {
@@ -2544,8 +2869,11 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
       }
       state->child_node.hdr = (btree_hdr *)state->child_node.page->data;
 
-      rc = btree_node_validate(
-         state->cc, state->cfg, &state->child_node, state->type);
+      rc = state->validate_entries_on_demand && state->type == PAGE_TYPE_BRANCH
+              ? btree_node_validate_header(
+                   state->cc, state->cfg, &state->child_node, state->type)
+              : btree_node_validate(
+                   state->cc, state->cfg, &state->child_node, state->type);
       if (!SUCCESS(rc)) {
          btree_node_unget(state->cc, state->cfg, &state->child_node);
          btree_node_unget(state->cc, state->cfg, &state->node);
@@ -2600,14 +2928,35 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
    }
 
    state->found_key = NULL_KEY;
-   bool32 found;
-   int64  idx =
-      btree_find_tuple(state->cfg, state->node.hdr, state->target, &found);
+   bool32          found;
+   int64           idx;
+   platform_status rc = STATUS_OK;
+   if (state->validate_entries_on_demand && state->type == PAGE_TYPE_BRANCH) {
+      rc = btree_find_tuple_validate(
+         state->cfg, state->node.hdr, state->target, &found, &idx);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(state->cc, state->cfg, &state->node);
+         async_return(state, rc);
+      }
+   } else {
+      idx =
+         btree_find_tuple(state->cfg, state->node.hdr, state->target, &found);
+   }
    if (found) {
-      leaf_entry *entry =
-         btree_get_leaf_entry(state->cfg, state->node.hdr, idx);
-      state->found_key = leaf_entry_key(entry);
-      state->msg       = leaf_entry_message(state->cc, entry);
+      const leaf_entry *entry;
+      if (state->validate_entries_on_demand && state->type == PAGE_TYPE_BRANCH)
+      {
+         rc = btree_leaf_entry_validate(
+            state->cc, state->cfg, state->node.hdr, idx, &entry);
+         if (!SUCCESS(rc)) {
+            btree_node_unget(state->cc, state->cfg, &state->node);
+            async_return(state, rc);
+         }
+      } else {
+         entry = btree_get_leaf_entry(state->cfg, state->node.hdr, idx);
+      }
+      state->found_key = leaf_entry_key((leaf_entry *)entry);
+      state->msg       = leaf_entry_message(state->cc, (leaf_entry *)entry);
    } else {
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
@@ -2628,17 +2977,44 @@ btree_lookup_with_ref(cache              *cc,        // IN
    platform_status rc    = STATUS_OK;
    bool32          found = FALSE;
 
-   *found_key = NULL_KEY;
-   rc =
-      btree_lookup_node(cc, cfg, root_addr, target, 0, type, TRUE, node, NULL);
+   *found_key                = NULL_KEY;
+   bool32 validate_on_demand = type == PAGE_TYPE_BRANCH;
+   rc                        = btree_lookup_node_internal(cc,
+                                   cfg,
+                                   root_addr,
+                                   target,
+                                   0,
+                                   type,
+                                   TRUE,
+                                   node,
+                                   NULL,
+                                   validate_on_demand);
    if (!SUCCESS(rc)) {
       return rc;
    }
-   int64 idx = btree_find_tuple(cfg, node->hdr, target, &found);
+   int64 idx;
+   if (validate_on_demand) {
+      rc = btree_find_tuple_validate(cfg, node->hdr, target, &found, &idx);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(cc, cfg, node);
+         return rc;
+      }
+   } else {
+      idx = btree_find_tuple(cfg, node->hdr, target, &found);
+   }
    if (found) {
-      leaf_entry *entry = btree_get_leaf_entry(cfg, node->hdr, idx);
-      *found_key        = leaf_entry_key(entry);
-      *msg              = leaf_entry_message(cc, entry);
+      const leaf_entry *entry;
+      if (validate_on_demand) {
+         rc = btree_leaf_entry_validate(cc, cfg, node->hdr, idx, &entry);
+         if (!SUCCESS(rc)) {
+            btree_node_unget(cc, cfg, node);
+            return rc;
+         }
+      } else {
+         entry = btree_get_leaf_entry(cfg, node->hdr, idx);
+      }
+      *found_key = leaf_entry_key((leaf_entry *)entry);
+      *msg       = leaf_entry_message(cc, (leaf_entry *)entry);
    } else {
       btree_node_unget(cc, cfg, node);
    }
@@ -3066,6 +3442,7 @@ btree_iterator_find_end_addr_async(btree_iterator_async_state *state,
                                  state->itor->cfg,
                                  state->itor->root_addr,
                                  state->itor->page_type,
+                                 FALSE,
                                  state->itor->max_key,
                                  NULL,
                                  state->callback,
@@ -3844,6 +4221,7 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
                                  state->itor->cfg,
                                  state->itor->root_addr,
                                  state->itor->page_type,
+                                 FALSE,
                                  state->target,
                                  NULL,
                                  state->callback,
