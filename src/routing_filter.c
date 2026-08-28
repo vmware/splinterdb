@@ -569,9 +569,6 @@ routing_filter_add(cache                *cc,
             } else {
                fp = new_src_fp[new_fps_added++];
             }
-            if (last_fp_added >> value_size != fp >> value_size) {
-               filter->num_unique++;
-            }
             uint32 bucket = routing_get_bucket(fp, remainder_and_value_size);
             // if (fp >> value_size == 0x4a11feb) {
             //    if (is_old) {
@@ -587,6 +584,9 @@ routing_filter_add(cache                *cc,
                debug_assert(old_fps_added != 0);
                old_fps_added--;
                break;
+            }
+            if (last_fp_added >> value_size != fp >> value_size) {
+               filter->num_unique++;
             }
             debug_assert(bucket >= last_bucket);
             header_bit += bucket - last_bucket;
@@ -642,6 +642,7 @@ routing_filter_add(cache                *cc,
       }
    }
    debug_assert(fp_no == num_new_unique_fp);
+   platform_assert(filter->num_unique <= filter->num_fingerprints);
    routing_unlock_and_unget_page(cc, filter_page);
 
    for (uint64 i = 0; i < pages_per_extent; i++) {

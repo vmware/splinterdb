@@ -20,6 +20,66 @@
 #include "poison.h"
 
 static platform_status
+test_filter_index_expansion_unique_count(cache           *cc,
+                                         routing_config  *cfg,
+                                         platform_heap_id hid)
+{
+   platform_default_log(
+      "filter_test: routing filter index expansion test started\n");
+
+   platform_assert(cfg->log_index_size + 2 <= cfg->fingerprint_size);
+   platform_assert(cfg->log_index_size < 30);
+
+   /* The old filter has two indices and the combined filter has four.  Offset
+    * the new fingerprints by half a stride so both sets remain unique while
+    * every old index crosses a new subpartition boundary. */
+   uint32  num_fingerprints         = 1U << (cfg->log_index_size + 1);
+   uint32  fingerprint_stride_shift = 32 - (cfg->log_index_size + 1);
+   uint32  midpoint_bit             = 1U << (fingerprint_stride_shift - 1);
+   uint32 *old_fp_arr = TYPED_ARRAY_MALLOC(hid, old_fp_arr, num_fingerprints);
+   uint32 *new_fp_arr = TYPED_ARRAY_MALLOC(hid, new_fp_arr, num_fingerprints);
+   if (old_fp_arr == NULL || new_fp_arr == NULL) {
+      platform_free(hid, old_fp_arr);
+      platform_free(hid, new_fp_arr);
+      return STATUS_NO_MEMORY;
+   }
+
+   for (uint32 i = 0; i < num_fingerprints; i++) {
+      old_fp_arr[i] = i << fingerprint_stride_shift;
+      new_fp_arr[i] = old_fp_arr[i] | midpoint_bit;
+   }
+
+   routing_filter  null_filter     = NULL_ROUTING_FILTER;
+   routing_filter  old_filter      = NULL_ROUTING_FILTER;
+   routing_filter  expanded_filter = NULL_ROUTING_FILTER;
+   platform_status rc              = routing_filter_add(
+      cc, cfg, &null_filter, &old_filter, old_fp_arr, num_fingerprints, 0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   platform_assert(old_filter.num_fingerprints == num_fingerprints);
+   platform_assert(old_filter.num_unique == num_fingerprints);
+
+   rc = routing_filter_add(
+      cc, cfg, &old_filter, &expanded_filter, new_fp_arr, num_fingerprints, 1);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   platform_assert(expanded_filter.num_fingerprints == 2 * num_fingerprints);
+   platform_assert(expanded_filter.num_unique == 2 * num_fingerprints,
+                   "num_unique=%u, expected=%u\n",
+                   expanded_filter.num_unique,
+                   2 * num_fingerprints);
+
+out:
+   routing_filter_dec_ref(cc, &expanded_filter);
+   routing_filter_dec_ref(cc, &old_filter);
+   platform_free(hid, new_fp_arr);
+   platform_free(hid, old_fp_arr);
+   return rc;
+}
+
+static platform_status
 test_filter_basic(cache           *cc,
                   routing_config  *cfg,
                   platform_heap_id hid,
@@ -380,6 +440,9 @@ filter_test(int argc, char *argv[])
                             100);
       platform_assert(SUCCESS(rc));
    } else {
+      rc = test_filter_index_expansion_unique_count(
+         (cache *)cc, &system_cfg.filter_cfg, hid);
+      platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &system_cfg.filter_cfg,
                              hid,
