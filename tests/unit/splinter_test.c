@@ -38,6 +38,72 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
+typedef struct ONDISK test_trunk_node_hdr {
+   uint16 height;
+   uint16 num_pivots;
+   uint16 num_inflight_bundles;
+   uint32 inflight_bundles_offset;
+   uint32 pivot_offsets[];
+} test_trunk_node_hdr;
+
+typedef struct ONDISK test_trunk_pivot_stats {
+   int64 num_kv_bytes;
+   int64 num_tuples;
+} test_trunk_pivot_stats;
+
+typedef struct ONDISK test_trunk_pivot {
+   test_trunk_pivot_stats stats;
+   uint64                 child_addr;
+   uint64                 num_live_inflight_bundles;
+   ondisk_key             key;
+} test_trunk_pivot;
+
+typedef struct ONDISK test_trunk_bundle {
+   routing_filter maplet;
+   uint16         num_branches;
+   branch_ref     branches[];
+} test_trunk_bundle;
+
+static page_handle *
+test_splinter_claim_page(cache *cc, uint64 addr, page_type type)
+{
+   page_handle *page = cache_get(cc, addr, TRUE, type);
+   platform_assert(page != NULL);
+   while (!cache_try_claim(cc, page)) {
+      cache_unget(cc, page);
+      page = cache_get(cc, addr, TRUE, type);
+      platform_assert(page != NULL);
+   }
+   cache_lock(cc, page);
+   return page;
+}
+
+static void
+test_splinter_unclaim_page(cache *cc, page_handle *page)
+{
+   cache_unlock(cc, page);
+   cache_unclaim(cc, page);
+   cache_unget(cc, page);
+}
+
+static test_trunk_bundle *
+test_splinter_pivot_bundle(page_handle *page,
+                           uint64       pivot_offset,
+                           uint64       page_size)
+{
+   uint64 page_offset = pivot_offset % page_size;
+   platform_assert(page_size - page_offset >= sizeof(test_trunk_pivot));
+   test_trunk_pivot *pivot =
+      (test_trunk_pivot *)(page->data + page_offset);
+   uint64 key_size = sizeof_ondisk_key_data(&pivot->key);
+   platform_assert(key_size
+                   <= page_size - page_offset - sizeof(test_trunk_pivot));
+   test_trunk_bundle *bundle =
+      (test_trunk_bundle *)((char *)pivot + sizeof(*pivot) + key_size);
+   platform_assert((char *)bundle + sizeof(*bundle) <= page->data + page_size);
+   return bundle;
+}
+
 typedef struct shadow_entry {
    uint64 key_offset;
    uint64 key_length;
@@ -1155,6 +1221,155 @@ CTEST2(splinter, test_inserts)
                     num_inserts);
 
    core_destroy(&spl);
+}
+
+/* A pivot bundle sits immediately after an on-disk pivot and its variable-size
+ * key. Exercise the point (sync and async) and range consumers with an
+ * oversized branch count, then restore the page so ordinary destruction can
+ * prove that no references were consumed while rejecting it. */
+CTEST2(splinter, test_malformed_trunk_pivot_bundle)
+{
+   allocator *alp = (allocator *)&data->al;
+   cache     *cc  = (cache *)data->clock_cache;
+
+   core_handle spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(insert_key, data->hid);
+   merge_accumulator insert_msg;
+   merge_accumulator_init(&insert_msg, data->hid);
+   test_key(&insert_key,
+            TEST_RANDOM,
+            1,
+            0,
+            0,
+            data->workload_cfg->key_size,
+            0);
+   generate_test_message(&data->gen, 1, &insert_msg);
+   rc = core_insert(&spl,
+                    key_buffer_key(&insert_key),
+                    merge_accumulator_to_message(&insert_msg),
+                    NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = core_checkpoint(&spl, 0);
+   ASSERT_TRUE(SUCCESS(rc));
+   merge_accumulator_deinit(&insert_msg);
+   ASSERT_NOT_NULL(spl.trunk_context.root);
+
+   uint64 root_addr = spl.trunk_context.root->ref.addr;
+   uint64 page_size = cache_page_size(cc);
+   page_handle *root_page =
+      test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
+   ASSERT_TRUE(node->num_pivots >= 2);
+   uint64 num_bundles = node->num_pivots - 1;
+   uint32 *pivot_offsets =
+      TYPED_ARRAY_MALLOC(data->hid, pivot_offsets, num_bundles);
+   uint16 *saved_num_branches =
+      TYPED_ARRAY_MALLOC(data->hid, saved_num_branches, num_bundles);
+   ASSERT_NOT_NULL(pivot_offsets);
+   ASSERT_NOT_NULL(saved_num_branches);
+   memcpy(pivot_offsets,
+          node->pivot_offsets,
+          num_bundles * sizeof(*pivot_offsets));
+   test_splinter_unclaim_page(cc, root_page);
+
+   for (uint64 i = 0; i < num_bundles; i++) {
+      uint64 pivot_page_addr =
+         root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
+      page_handle *pivot_page =
+         test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      test_trunk_bundle *bundle =
+         test_splinter_pivot_bundle(pivot_page, pivot_offsets[i], page_size);
+      saved_num_branches[i] = bundle->num_branches;
+      bundle->num_branches  = MAX_FILTERS + 1;
+      test_splinter_unclaim_page(cc, pivot_page);
+   }
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf,
+            TEST_RANDOM,
+            2,
+            0,
+            0,
+            data->workload_cfg->key_size,
+            0);
+   key target = key_buffer_key(&keybuf);
+
+   trunk_ondisk_node_handle handle;
+   rc = trunk_init_root_handle(&spl.trunk_context, &handle);
+   bool32 handle_ready = SUCCESS(rc);
+   bool32 sync_rejected = FALSE;
+   bool32 async_rejected = FALSE;
+   bool32 range_rejected = FALSE;
+   if (handle_ready) {
+      lookup_result result;
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      rc = trunk_merge_lookup(
+         &spl.trunk_context, &handle, target, &result, NULL);
+      sync_rejected = !SUCCESS(rc);
+      lookup_result_deinit(&result);
+
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      rc = async_call_sync_callback(cache_cleanup(cc),
+                                    trunk_merge_lookup_async,
+                                    &spl.trunk_context,
+                                    &handle,
+                                    target,
+                                    &result,
+                                    NULL);
+      async_rejected = !SUCCESS(rc);
+      lookup_result_deinit(&result);
+
+      trunk_branch_info branches[MAX_FILTERS];
+      uint64             num_branches = 0;
+      key_buffer         min_key;
+      key_buffer         max_key;
+      key_buffer_init(&min_key, data->hid);
+      key_buffer_init(&max_key, data->hid);
+      rc = trunk_collect_branches(&spl.trunk_context,
+                                  &handle,
+                                  target,
+                                  greater_than_or_equal,
+                                  ARRAY_SIZE(branches),
+                                  &num_branches,
+                                  branches,
+                                  &min_key,
+                                  &max_key);
+      range_rejected = !SUCCESS(rc) && num_branches == 0;
+      key_buffer_deinit(&min_key);
+      key_buffer_deinit(&max_key);
+      trunk_ondisk_node_handle_deinit(&handle);
+   }
+
+   for (uint64 i = 0; i < num_bundles; i++) {
+      uint64 pivot_page_addr =
+         root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
+      page_handle *pivot_page =
+         test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      test_trunk_bundle *bundle =
+         test_splinter_pivot_bundle(pivot_page, pivot_offsets[i], page_size);
+      bundle->num_branches = saved_num_branches[i];
+      test_splinter_unclaim_page(cc, pivot_page);
+   }
+   platform_free(data->hid, saved_num_branches);
+   platform_free(data->hid, pivot_offsets);
+
+   core_destroy(&spl);
+   ASSERT_TRUE(handle_ready);
+   ASSERT_TRUE(sync_rejected);
+   ASSERT_TRUE(async_rejected);
+   ASSERT_TRUE(range_rejected);
 }
 
 /*

@@ -937,12 +937,6 @@ trunk_ondisk_bundle_branch_type(const trunk_ondisk_bundle *odb)
  ****************************************************/
 
 static uint64
-sizeof_trunk_ondisk_pivot(trunk_ondisk_pivot *odp)
-{
-   return sizeof(*odp) + sizeof_ondisk_key_data(&odp->key);
-}
-
-static uint64
 trunk_ondisk_pivot_size(key k)
 {
    return sizeof(trunk_ondisk_pivot) + ondisk_key_required_data_capacity(k);
@@ -952,12 +946,6 @@ static key
 trunk_ondisk_pivot_key(trunk_ondisk_pivot *odp)
 {
    return ondisk_key_to_key(&odp->key);
-}
-
-static trunk_ondisk_bundle *
-trunk_ondisk_pivot_bundle(trunk_ondisk_pivot *odp)
-{
-   return (trunk_ondisk_bundle *)((char *)odp + sizeof_trunk_ondisk_pivot(odp));
 }
 
 /********************************************************
@@ -1418,6 +1406,10 @@ trunk_ondisk_bundle_is_valid(cache               *cc,
                              bool32               allow_empty);
 
 static trunk_ondisk_bundle *
+trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
+                                        trunk_ondisk_pivot       *pivot);
+
+static trunk_ondisk_bundle *
 trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
                                    uint64                    pivot_num)
 {
@@ -1431,16 +1423,7 @@ trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return NULL;
    }
-   trunk_ondisk_bundle *bundle =
-      (trunk_ondisk_bundle *)((char *)pivot + sizeof_trunk_ondisk_pivot(pivot));
-   uint64 page_offset = (char *)bundle - handle->pivot_page->data;
-   uint64 page_size   = cache_page_size(handle->cc);
-   if (!trunk_ondisk_bundle_is_valid(
-          handle->cc, bundle, page_size - page_offset, TRUE))
-   {
-      return NULL;
-   }
-   return bundle;
+   return trunk_ondisk_node_validate_pivot_bundle(handle, pivot);
 }
 
 static bool32
@@ -1460,6 +1443,7 @@ trunk_ondisk_bundle_is_valid(cache               *cc,
 {
    if (bytes_available < sizeof(*bundle)
        || (!allow_empty && bundle->num_branches == 0)
+       || bundle->num_branches > MAX_FILTERS
        || (uint64)bundle->num_branches * sizeof(bundle->branches[0])
              > bytes_available - sizeof(*bundle))
    {
@@ -1476,7 +1460,7 @@ trunk_ondisk_bundle_is_valid(cache               *cc,
               || !trunk_ondisk_branch_addr_is_valid(cc, filter->meta_head)
               || filter->num_fingerprints == 0
               || filter->num_fingerprints < filter->num_unique
-              || 32 < filter->value_size)
+              || 5 < filter->value_size)
    {
       return FALSE;
    }
@@ -1486,6 +1470,38 @@ trunk_ondisk_bundle_is_valid(cache               *cc,
       }
    }
    return TRUE;
+}
+
+static trunk_ondisk_bundle *
+trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
+                                        trunk_ondisk_pivot       *pivot)
+{
+   if (handle == NULL || handle->pivot_page == NULL || pivot == NULL) {
+      return NULL;
+   }
+
+   uint64    page_size  = cache_page_size(handle->cc);
+   uintptr_t page_start = (uintptr_t)handle->pivot_page->data;
+   uintptr_t pivot_addr = (uintptr_t)pivot;
+   if (pivot_addr < page_start || pivot_addr - page_start > page_size
+       || page_size - (pivot_addr - page_start) < sizeof(*pivot)
+       || pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS)
+   {
+      return NULL;
+   }
+
+   uint64 page_offset = pivot_addr - page_start;
+   uint64 key_size    = sizeof_ondisk_key_data(&pivot->key);
+   if (key_size > page_size - page_offset - sizeof(*pivot)) {
+      return NULL;
+   }
+   uint64 bundle_offset = page_offset + sizeof(*pivot) + key_size;
+   trunk_ondisk_bundle *bundle =
+      (trunk_ondisk_bundle *)(handle->pivot_page->data + bundle_offset);
+   return trunk_ondisk_bundle_is_valid(
+             handle->cc, bundle, page_size - bundle_offset, TRUE)
+             ? bundle
+             : NULL;
 }
 
 static trunk_ondisk_bundle *
@@ -6421,8 +6437,13 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
       min_pivot = trunk_ondisk_node_get_pivot(handle, min);
    }
 
+   /* Reload the winning pivot even if it was visited during the search. A
+    * later probe may have replaced handle->pivot_page, invalidating a pointer
+    * retained from an earlier page. */
+   min_pivot = trunk_ondisk_node_get_pivot(handle, min);
    if (min_pivot == NULL) {
-      min_pivot = trunk_ondisk_node_get_pivot(handle, min);
+      *pivot = NULL;
+      return STATUS_INVALID_STATE;
    }
 
    *pivot = min_pivot;
@@ -6492,14 +6513,31 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    //    state->min_pivot = ondisk_node_get_pivot(state->handlep, state->min);
    // }
 
-   if (state->min_pivot == NULL) {
-      state->min_pivot =
-         trunk_ondisk_node_get_pivot(state->handlep, state->min);
+   /* As in the synchronous path, reload the winner so state->pivot cannot
+    * outlive the content page that supplied it. */
+   state->pivot_num = state->min;
+   async_await_subroutine(state, trunk_ondisk_node_get_pivot_async);
+   if (!SUCCESS(state->rc)) {
+      state->min_pivot = NULL;
+      async_return(state);
    }
-
-   state->pivot = state->min_pivot;
+   state->min_pivot = state->pivot;
    state->rc    = STATUS_OK;
    async_return(state);
+}
+
+static platform_status
+trunk_ondisk_bundle_validate_found_values(const trunk_ondisk_bundle *bndl,
+                                          uint64                     found_values)
+{
+   if (bndl == NULL || bndl->num_branches > MAX_FILTERS) {
+      return STATUS_INVALID_STATE;
+   }
+   uint64 branch_mask = bndl->num_branches == 0
+                           ? 0
+                           : (1ULL << bndl->num_branches) - 1;
+   return (found_values & ~branch_mask) == 0 ? STATUS_OK
+                                             : STATUS_INVALID_STATE;
 }
 
 static platform_status
@@ -6515,8 +6553,14 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
 
    platform_status rc;
 
+   if (bndl == NULL || bndl->num_branches > MAX_FILTERS) {
+      return STATUS_INVALID_STATE;
+   }
+
    if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
-      platform_assert(bndl->num_branches <= 1);
+      if (bndl->num_branches > 1) {
+         return STATUS_INVALID_STATE;
+      }
       found_values = bndl->num_branches == 1 ? 1 : 0;
    } else {
       rc = routing_filter_lookup(context->cc,
@@ -6543,6 +6587,11 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
       if (context->stats) {
          context->stats[tid].maplet_lookups[height]++;
       }
+   }
+
+   rc = trunk_ondisk_bundle_validate_found_values(bndl, found_values);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
 
@@ -6626,8 +6675,16 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
 
    async_begin(state, depth);
 
+   if (state->bndl == NULL || state->bndl->num_branches > MAX_FILTERS) {
+      state->rc = STATUS_INVALID_STATE;
+      async_return(state);
+   }
+
    if (routing_filters_equal(&state->bndl->maplet, &NULL_ROUTING_FILTER)) {
-      platform_assert(state->bndl->num_branches <= 1);
+      if (state->bndl->num_branches > 1) {
+         state->rc = STATUS_INVALID_STATE;
+         async_return(state);
+      }
       state->found_values = state->bndl->num_branches == 1 ? 1 : 0;
    } else {
       async_await_call(state,
@@ -6658,6 +6715,12 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
       if (state->context->stats) {
          state->context->stats[tid].maplet_lookups[state->height]++;
       }
+   }
+
+   state->rc = trunk_ondisk_bundle_validate_found_values(
+      state->bndl, state->found_values);
+   if (!SUCCESS(state->rc)) {
+      async_return(state);
    }
 
    if (state->log) {
@@ -6814,7 +6877,11 @@ trunk_merge_lookup(trunk_context            *context,
       }
 
       // Search the pivot bundle
-      bndl = trunk_ondisk_pivot_bundle(pivot);
+      bndl = trunk_ondisk_node_validate_pivot_bundle(handlep, pivot);
+      if (bndl == NULL) {
+         rc = STATUS_INVALID_STATE;
+         goto cleanup;
+      }
       rc   = trunk_ondisk_bundle_merge_lookup(
          context, height, bndl, tgt, result, log);
       if (!SUCCESS(rc)) {
@@ -6943,7 +7010,12 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       }
 
       // Search the pivot bundle
-      state->bndl = trunk_ondisk_pivot_bundle(state->pivot);
+      state->bndl = trunk_ondisk_node_validate_pivot_bundle(state->handlep,
+                                                            state->pivot);
+      if (state->bndl == NULL) {
+         state->rc = STATUS_INVALID_STATE;
+         goto cleanup;
+      }
       async_await_subroutine(state, trunk_ondisk_bundle_merge_lookup_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("trunk_merge_lookup_async: "
@@ -6991,11 +7063,20 @@ trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
                               uint64              *num_branches,
                               trunk_branch_info   *branches)
 {
+   if (bndl == NULL || bndl->num_branches > MAX_FILTERS
+       || *num_branches > capacity)
+   {
+      return STATUS_INVALID_STATE;
+   }
+   uint64 bundle_start = *num_branches;
    for (int64 i = bndl->num_branches - 1; 0 <= i; i--) {
-      if (*num_branches == capacity) {
+      if (*num_branches >= capacity) {
          platform_error_log("trunk_collect_bundle_branches: "
                             "capacity exceeded\n");
-         *num_branches -= i;
+         /* No references have been acquired for this bundle yet. Discard its
+          * partially copied entries; cleanup will release only earlier,
+          * completely appended bundles. */
+         *num_branches = bundle_start;
          return STATUS_LIMIT_EXCEEDED;
       }
       branches[*num_branches].addr = branch_ref_addr(bndl->branches[i]);
@@ -7092,7 +7173,11 @@ trunk_collect_branches(const trunk_context            *context,
       }
 
       // Add branches from the pivot bundle
-      bndl = trunk_ondisk_pivot_bundle(pivot);
+      bndl = trunk_ondisk_node_validate_pivot_bundle(&handle, pivot);
+      if (bndl == NULL) {
+         rc = STATUS_INVALID_STATE;
+         goto cleanup;
+      }
       rc =
          trunk_collect_bundle_branches(bndl, capacity, num_branches, branches);
       if (!SUCCESS(rc)) {

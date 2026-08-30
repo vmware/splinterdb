@@ -69,11 +69,9 @@ typedef struct merge_iterator {
    message            curr_data;     // current data
    bool32             forwards;
 
-   // Padding so ordered_iterators[-1] is valid
+   // Sentinel used as the predecessor of ordered_iterators[0].
    ordered_iterator ordered_iterator_stored_pad;
    ordered_iterator ordered_iterator_stored[MAX_MERGE_ARITY];
-   // Padding so ordered_iterator_ptr_arr[-1] is valid
-   // Must be immediately before ordered_iterator_ptr_arr
    ordered_iterator *ordered_iterators_pad;
    ordered_iterator *ordered_iterators[MAX_MERGE_ARITY];
 
@@ -83,14 +81,6 @@ typedef struct merge_iterator {
    // space for merging data together
    merge_accumulator merge_buffer;
 } merge_iterator;
-
-// Statically enforce that the padding variables act as index -1 for both arrays
-_Static_assert(offsetof(merge_iterator, ordered_iterator_stored_pad)
-                  == offsetof(merge_iterator, ordered_iterator_stored[-1]),
-               "");
-_Static_assert(offsetof(merge_iterator, ordered_iterators_pad)
-                  == offsetof(merge_iterator, ordered_iterators[-1]),
-               "");
 
 platform_status
 merge_iterator_create(platform_heap_id   hid,

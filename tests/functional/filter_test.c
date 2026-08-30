@@ -19,6 +19,291 @@
 #include "platform_assert.h"
 #include "poison.h"
 
+typedef struct ONDISK test_routing_hdr {
+   uint16 num_remainders;
+   char   encoding[];
+} test_routing_hdr;
+
+typedef struct ONDISK test_mini_meta_hdr {
+   uint64 next_meta_addr;
+   uint64 prev_meta_addr;
+   uint64 pos;
+   uint32 num_entries;
+   char   entry_buffer[];
+} test_mini_meta_hdr;
+
+typedef struct ONDISK test_mini_meta_entry {
+   uint64 packed;
+} test_mini_meta_entry;
+
+static page_handle *
+test_filter_claim_page(cache *cc, uint64 addr, page_type type)
+{
+   page_handle *page = cache_get(cc, addr, TRUE, type);
+   platform_assert(page != NULL);
+   while (!cache_try_claim(cc, page)) {
+      cache_unget(cc, page);
+      page = cache_get(cc, addr, TRUE, type);
+      platform_assert(page != NULL);
+   }
+   cache_lock(cc, page);
+   return page;
+}
+
+static void
+test_filter_unclaim_page(cache *cc, page_handle *page)
+{
+   cache_unlock(cc, page);
+   cache_unclaim(cc, page);
+   cache_unget(cc, page);
+}
+
+static platform_status
+test_filter_async_lookup_status(cache                *cc,
+                                const routing_config *cfg,
+                                routing_filter       *filter,
+                                key                   target)
+{
+   uint64 found_values;
+   return async_call_sync_callback(cache_cleanup(cc),
+                                   routing_filter_lookup_async,
+                                   cc,
+                                   cfg,
+                                   *filter,
+                                   target,
+                                   &found_values);
+}
+
+static bool32
+test_filter_lookup_rejects(cache                *cc,
+                           const routing_config *cfg,
+                           routing_filter       *filter,
+                           key                   target)
+{
+   uint64 found_values;
+   platform_status sync_rc =
+      routing_filter_lookup(cc, cfg, filter, target, &found_values);
+   platform_status async_rc =
+      test_filter_async_lookup_status(cc, cfg, filter, target);
+   return !SUCCESS(sync_rc) && !SUCCESS(async_rc);
+}
+
+static platform_status
+test_filter_malicious_metadata(cache           *cc,
+                               routing_config  *cfg,
+                               platform_heap_id hid)
+{
+   platform_default_log(
+      "filter_test: malicious routing/mini metadata test started\n");
+
+   auto_writable_buffer keywb = NULL_WRITABLE_BUFFER(hid);
+   platform_status rc = writable_buffer_resize(&keywb, sizeof(uint64));
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 *keybuf = writable_buffer_data(&keywb);
+   *keybuf        = 42;
+   key target     = key_create(TRUE, sizeof(*keybuf), keybuf);
+   uint32 fp      = data_key_hash(cfg->data_cfg, target, cfg->seed);
+
+   routing_filter null_filter = NULL_ROUTING_FILTER;
+   routing_filter filter      = NULL_ROUTING_FILTER;
+   rc = routing_filter_add(cc, cfg, &null_filter, &filter, &fp, 1, 0);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   uint64 found_values;
+   rc = routing_filter_lookup(cc, cfg, &filter, target, &found_values);
+   if (!SUCCESS(rc)
+       || !SUCCESS(test_filter_async_lookup_status(cc, cfg, &filter, target)))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   routing_filter invalid_filter = filter;
+   invalid_filter.value_size     = 6;
+   if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   uint64 page_size = cache_page_size(cc);
+   page_handle *index_page =
+      test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
+   uint64 saved_hdr_raw_addr = ((uint64 *)index_page->data)[0];
+   ((uint64 *)index_page->data)[0] =
+      saved_hdr_raw_addr - saved_hdr_raw_addr % page_size + page_size - 1;
+   test_filter_unclaim_page(cc, index_page);
+   bool32 rejected = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   index_page = test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
+   ((uint64 *)index_page->data)[0] = saved_hdr_raw_addr;
+   test_filter_unclaim_page(cc, index_page);
+   if (!rejected) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   uint64 header_addr =
+      saved_hdr_raw_addr - saved_hdr_raw_addr % page_size;
+   uint64 header_off = saved_hdr_raw_addr - header_addr;
+   page_handle *header_page =
+      test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
+   test_routing_hdr *hdr =
+      (test_routing_hdr *)(header_page->data + header_off);
+   uint16 saved_num_remainders = hdr->num_remainders;
+   hdr->num_remainders         = UINT16_MAX;
+   test_filter_unclaim_page(cc, header_page);
+   rejected = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
+   hdr = (test_routing_hdr *)(header_page->data + header_off);
+   hdr->num_remainders = saved_num_remainders;
+   test_filter_unclaim_page(cc, header_page);
+   if (!rejected) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   uint64 encoding_size =
+      (saved_num_remainders + cfg->index_size - 1) / 8 + 4;
+   char *saved_encoding = TYPED_ARRAY_MALLOC(
+      hid, saved_encoding, encoding_size);
+   if (saved_encoding == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto out;
+   }
+   header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
+   hdr = (test_routing_hdr *)(header_page->data + header_off);
+   memcpy(saved_encoding, hdr->encoding, encoding_size);
+   memset(hdr->encoding, 0, encoding_size);
+   test_filter_unclaim_page(cc, header_page);
+   rejected = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
+   hdr = (test_routing_hdr *)(header_page->data + header_off);
+   memcpy(hdr->encoding, saved_encoding, encoding_size);
+   test_filter_unclaim_page(cc, header_page);
+   platform_free(hid, saved_encoding);
+   if (!rejected) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   routing_filter empty_filters[MAX_FILTERS] = {{0}};
+   uint32 estimated_unique;
+   rc = routing_filter_estimate_unique_fp(
+      cc, cfg, hid, empty_filters, MAX_FILTERS, &estimated_unique);
+   if (!SUCCESS(rc) || estimated_unique != 0
+       || SUCCESS(routing_filter_estimate_unique_fp(
+          cc, cfg, hid, empty_filters, MAX_FILTERS + 1, &estimated_unique)))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   page_handle *meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   test_mini_meta_hdr *meta_hdr = (test_mini_meta_hdr *)meta_page->data;
+   if (meta_hdr->num_entries == 0) {
+      test_filter_unclaim_page(cc, meta_page);
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   test_mini_meta_entry *entry =
+      (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   uint64 target_extent = (entry->packed >> 16) * cache_extent_size(cc);
+   test_filter_unclaim_page(cc, meta_page);
+
+   mini_meta_cursor cursor = {0};
+   mini_meta_cursor_status cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   if (cursor_rc != MINI_META_CURSOR_ENTRY) {
+      mini_meta_cursor_deinit(&cursor);
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   mini_meta_cursor_deinit(&cursor);
+
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr = (test_mini_meta_hdr *)meta_page->data;
+   uint64 saved_pos        = meta_hdr->pos;
+   meta_hdr->pos           = saved_pos + 1;
+   test_filter_unclaim_page(cc, meta_page);
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   mini_meta_cursor_deinit(&cursor);
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->pos = saved_pos;
+   test_filter_unclaim_page(cc, meta_page);
+   if (cursor_rc != MINI_META_CURSOR_INVALID) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   /* The recovery walker uses the same page validator, but runs before the
+    * allocator considers metadata pages allocated. Verify both rejection and
+    * a clean retry from a freshly reset recovery map. */
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->pos = saved_pos + 1;
+   test_filter_unclaim_page(cc, meta_page);
+   allocator *al = cache_get_allocator(cc);
+   rc = allocator_recovery_begin(al);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   rc = mini_recover_references(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   if (SUCCESS(rc)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->pos = saved_pos;
+   test_filter_unclaim_page(cc, meta_page);
+   rc = allocator_recovery_begin(al);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   rc = mini_recover_references(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   allocator_recovery_finish(al);
+
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr = (test_mini_meta_hdr *)meta_page->data;
+   entry    = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   uint64 saved_entry = entry->packed;
+   entry->packed      = (saved_entry & ~UINT64_C(0xff)) | UINT64_C(0xff);
+   test_filter_unclaim_page(cc, meta_page);
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   mini_meta_cursor_deinit(&cursor);
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   entry         = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   entry->packed = saved_entry;
+   test_filter_unclaim_page(cc, meta_page);
+   if (cursor_rc != MINI_META_CURSOR_INVALID) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   rc = STATUS_OK;
+
+out:
+   routing_filter_dec_ref(cc, &filter);
+   return rc;
+}
+
 static platform_status
 test_filter_index_expansion_unique_count(cache           *cc,
                                          routing_config  *cfg,
@@ -441,6 +726,9 @@ filter_test(int argc, char *argv[])
       platform_assert(SUCCESS(rc));
    } else {
       rc = test_filter_index_expansion_unique_count(
+         (cache *)cc, &system_cfg.filter_cfg, hid);
+      platform_assert(SUCCESS(rc));
+      rc = test_filter_malicious_metadata(
          (cache *)cc, &system_cfg.filter_cfg, hid);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,

@@ -167,6 +167,7 @@ typedef enum mini_meta_cursor_status {
    MINI_META_CURSOR_END,         // stream exhausted
    MINI_META_CURSOR_WOULD_BLOCK, // needed meta page not resident (prefetch
                                  // issued)
+   MINI_META_CURSOR_INVALID,     // malformed metadata page or chain
 } mini_meta_cursor_status;
 
 // Initialize cursor on target_extent_addr, which must be listed on meta_addr.

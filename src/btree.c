@@ -3519,6 +3519,12 @@ btree_prefetch_cursor_fill(btree_iterator *itor)
       if (status == MINI_META_CURSOR_WOULD_BLOCK) {
          break;
       }
+      if (status == MINI_META_CURSOR_INVALID) {
+         mini_meta_cursor_deinit(&pf->meta_cursor);
+         pf->state  = BTREE_PREFETCH_DISABLED;
+         pf->at_end = TRUE;
+         break;
+      }
       if (status == MINI_META_CURSOR_END) {
          pf->at_end = TRUE;
          break;
@@ -3564,7 +3570,11 @@ btree_prefetch_cursor_pump(btree_iterator *itor)
    if (status == MINI_META_CURSOR_WOULD_BLOCK) {
       return FALSE;
    }
-   platform_assert(status == MINI_META_CURSOR_ENTRY);
+   if (status != MINI_META_CURSOR_ENTRY) {
+      mini_meta_cursor_deinit(&pf->meta_cursor);
+      pf->state = BTREE_PREFETCH_DISABLED;
+      return FALSE;
+   }
 
    pf->state            = BTREE_PREFETCH_ACTIVE;
    pf->at_end           = FALSE;
