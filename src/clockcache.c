@@ -4060,7 +4060,7 @@ clockcache_init(clockcache        *cc,   // OUT
                 platform_heap_id   hid,  // IN
                 platform_module_id mid)  // IN
 {
-   int      i;
+   uint64   i;
    threadid thr_i;
 
    platform_assert(cc != NULL);
