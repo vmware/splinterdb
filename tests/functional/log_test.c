@@ -1567,6 +1567,80 @@ test_log_malformed_record_bounds(clockcache        *cc,
 }
 
 /*
+ * A checksum-valid extent self-cycle must terminate without a visited bitmap.
+ * Removing the terminator makes replay follow the successor; the repeated
+ * group-local page zero is then a non-increasing sequence and invalidates the
+ * group.
+ */
+static int
+test_log_group_page_cycle(clockcache        *cc,
+                          clockcache_config *cache_cfg,
+                          io_handle         *io,
+                          allocator         *al,
+                          shard_log_config  *cfg,
+                          platform_heap_id   hid)
+{
+   cache      *cacheh = (cache *)cc;
+   log_handle *log;
+   char        key_data[]   = "page-cycle";
+   char        value_data[] = "value";
+   key         skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   message     msg =
+      message_create(MESSAGE_TYPE_INSERT,
+                     NULL,
+                     slice_create(sizeof(value_data) - 1, value_data));
+
+   platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
+   log_head sealed = log_get_head(log);
+   platform_assert(log_write(log, skey, msg, 0, 0) == 0);
+   platform_assert_status_ok(log_seal(log));
+   log_deinit(log);
+   platform_assert_status_ok(cache_writeback_dirty(cacheh));
+   platform_assert_status_ok(cache_durable_barrier(cacheh));
+
+   page_handle *page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   while (!cache_try_claim(cacheh, page)) {
+      cache_unget(cacheh, page);
+      page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   }
+   cache_lock(cacheh, page);
+   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   platform_assert(hdr->group_id == SHARD_LOG_FIRST_GROUP_ID);
+   platform_assert(hdr->page_no == 0);
+   platform_assert(hdr->pages_in_group != 0);
+   hdr->pages_in_group   = 0;
+   hdr->next_extent_addr = sealed.addr;
+   hdr->checksum =
+      platform_checksum128(page->data + sizeof(checksum128),
+                           cache_page_size(cacheh) - sizeof(checksum128),
+                           cfg->seed);
+   cache_unlock(cacheh, page);
+   cache_unclaim(cacheh, page);
+   cache_unget(cacheh, page);
+   platform_assert_status_ok(cache_writeback_dirty(cacheh));
+   platform_assert_status_ok(cache_durable_barrier(cacheh));
+
+   clockcache_deinit(cc);
+   platform_status rc = clockcache_init(cc,
+                                        cache_cfg,
+                                        io,
+                                        al,
+                                        "group-page-cycle",
+                                        hid,
+                                        platform_get_module_id());
+   platform_assert_status_ok(rc);
+
+   log_iterator *itor;
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, sealed, 0, &itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   platform_assert(!log_iterator_can_next(itor));
+   log_iterator_deinit(itor);
+   shard_log_dec_ref((cache *)cc, &sealed);
+   return 0;
+}
+
+/*
  * A checksum failure in one blob invalidates its whole log group, not merely
  * that record. Earlier durable groups remain a replayable prefix, while an
  * iterator whose generation bound excludes the blob need neither validate nor
@@ -2171,6 +2245,14 @@ log_test(int argc, char *argv[])
                                          (allocator *)&al,
                                          &system_cfg.log_cfg,
                                          hid);
+   platform_assert(rc == 0);
+
+   rc = test_log_group_page_cycle(cc,
+                                  &system_cfg.cache_cfg,
+                                  io,
+                                  (allocator *)&al,
+                                  &system_cfg.log_cfg,
+                                  hid);
    platform_assert(rc == 0);
 
    rc = test_log_blob_checksum_prefix(cc,

@@ -295,6 +295,13 @@ btree_dec_ref(cache              *cc,
               uint64              root_addr,
               page_type           type);
 
+platform_status
+btree_get_root_height(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
+                      page_type           type,
+                      uint32             *height);
+
 /*
  * Rebuild the allocator references this branch holds after a crash.  The
  * recovery counterpart of btree_inc_ref(); see mini_recover_references().

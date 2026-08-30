@@ -1875,7 +1875,7 @@ CTEST2(splinter, test_durable_barrier_packs_concurrent_small_tails)
             __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
          inspected_group = closed != NULL && closed != accepting;
          if (inspected_group) {
-            page_count = closed->page_count;
+            page_count = closed->next_page_no;
          }
          platform_mutex_unlock(&log->graduate_lock);
       }
@@ -2134,7 +2134,7 @@ CTEST2(splinter, test_shard_log_first_fit_decreasing_packing)
          __atomic_load_n(&slog->accepting.group, __ATOMIC_SEQ_CST);
       inspected_group = sealed_group != NULL && accepting == NULL;
       if (inspected_group) {
-         page_count = sealed_group->page_count;
+         page_count = sealed_group->next_page_no;
       }
       platform_mutex_unlock(&slog->graduate_lock);
    }
@@ -2307,7 +2307,8 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
                            && final->state == SHARD_LOG_BUFFER_OPEN
                            && final->offset > sizeof(shard_log_hdr)
                            && final->incache_page == NULL
-                           && group->page_count == 0 && writeback_requests == 0;
+                           && group->next_page_no == 0
+                           && writeback_requests == 0;
    }
    platform_mutex_unlock(&slog->graduate_lock);
    ASSERT_TRUE(group_is_retryable,

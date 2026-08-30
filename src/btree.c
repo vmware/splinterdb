@@ -1777,6 +1777,29 @@ btree_dec_ref(cache              *cc,
    return ref == 0;
 }
 
+platform_status
+btree_get_root_height(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
+                      page_type           type,
+                      uint32             *height)
+{
+   if (height == NULL
+       || (type != PAGE_TYPE_BRANCH && type != PAGE_TYPE_MEMTABLE))
+   {
+      return STATUS_BAD_PARAM;
+   }
+
+   btree_node root = {.addr = root_addr};
+   platform_status rc = btree_node_get_checked(cc, cfg, &root, type);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   *height = btree_height(root.hdr);
+   btree_node_unget(cc, cfg, &root);
+   return STATUS_OK;
+}
+
 static void
 btree_blob_ref_inc(const ondisk_ref *ref)
 {

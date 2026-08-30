@@ -27,6 +27,7 @@ typedef struct ONDISK test_routing_hdr {
 typedef struct ONDISK test_mini_meta_hdr {
    uint64 next_meta_addr;
    uint64 prev_meta_addr;
+   uint64 meta_page_no;
    uint64 pos;
    uint32 num_entries;
    char   entry_buffer[];
@@ -212,6 +213,11 @@ test_filter_malicious_metadata(cache           *cc,
    test_mini_meta_entry *entry =
       (test_mini_meta_entry *)meta_hdr->entry_buffer;
    uint64 target_extent = (entry->packed >> 16) * cache_extent_size(cc);
+   if (meta_hdr->meta_page_no != 0) {
+      test_filter_unclaim_page(cc, meta_page);
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
    test_filter_unclaim_page(cc, meta_page);
 
    mini_meta_cursor cursor = {0};
@@ -223,6 +229,129 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
    mini_meta_cursor_deinit(&cursor);
+
+   /* The head is page zero. A non-zero ordinal must be rejected even by a
+    * cursor initialized in the middle of a stream. */
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr               = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->meta_page_no = 1;
+   test_filter_unclaim_page(cc, meta_page);
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   mini_meta_cursor_deinit(&cursor);
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr               = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->meta_page_no = 0;
+   test_filter_unclaim_page(cc, meta_page);
+   if (cursor_rc != MINI_META_CURSOR_INVALID) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   /* Build a temporary second metadata page inside the already-owned metadata
+    * extent. This exercises exact +1/-1 cursor validation without allocating
+    * hundreds of data extents merely to fill the real head page. */
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr = (test_mini_meta_hdr *)meta_page->data;
+   uint64 head_next_meta_addr = meta_hdr->next_meta_addr;
+   uint32 head_num_entries    = meta_hdr->num_entries;
+   test_mini_meta_entry head_entry =
+      *(test_mini_meta_entry *)meta_hdr->entry_buffer;
+   test_filter_unclaim_page(cc, meta_page);
+   uint64 second_meta_addr = filter.meta_head + page_size;
+   if (head_next_meta_addr != 0 || head_num_entries == 0
+       || second_meta_addr / cache_extent_size(cc)
+             != filter.meta_head / cache_extent_size(cc))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   page_handle *second_meta_page =
+      cache_alloc(cc, second_meta_addr, PAGE_TYPE_FILTER);
+   memset(second_meta_page->data, 0, page_size);
+   test_mini_meta_hdr *second_meta_hdr =
+      (test_mini_meta_hdr *)second_meta_page->data;
+   second_meta_hdr->prev_meta_addr = filter.meta_head;
+   second_meta_hdr->meta_page_no   = 1;
+   second_meta_hdr->num_entries    = 1;
+   second_meta_hdr->pos = offsetof(test_mini_meta_hdr, entry_buffer)
+                           + sizeof(test_mini_meta_entry);
+   *(test_mini_meta_entry *)second_meta_hdr->entry_buffer = head_entry;
+   test_filter_unclaim_page(cc, second_meta_page);
+
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr                 = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->next_meta_addr = second_meta_addr;
+   test_filter_unclaim_page(cc, meta_page);
+
+   bool32 sequence_ok = TRUE;
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   for (uint32 i = 0;
+        cursor_rc == MINI_META_CURSOR_ENTRY && i < head_num_entries;
+        i++)
+   {
+      cursor_rc = mini_meta_cursor_next(&cursor);
+   }
+   sequence_ok &= cursor_rc == MINI_META_CURSOR_ENTRY
+                  && cursor.meta_addr == second_meta_addr;
+   mini_meta_cursor_deinit(&cursor);
+
+   second_meta_page =
+      test_filter_claim_page(cc, second_meta_addr, PAGE_TYPE_FILTER);
+   second_meta_hdr               = (test_mini_meta_hdr *)second_meta_page->data;
+   second_meta_hdr->meta_page_no = 2;
+   test_filter_unclaim_page(cc, second_meta_page);
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   for (uint32 i = 0;
+        cursor_rc == MINI_META_CURSOR_ENTRY && i < head_num_entries;
+        i++)
+   {
+      cursor_rc = mini_meta_cursor_next(&cursor);
+   }
+   sequence_ok &= cursor_rc == MINI_META_CURSOR_INVALID;
+   mini_meta_cursor_deinit(&cursor);
+
+   /* Starting in the middle must validate the backward -1 transition too. */
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, second_meta_addr, target_extent);
+   sequence_ok &= cursor_rc == MINI_META_CURSOR_ENTRY;
+   if (cursor_rc == MINI_META_CURSOR_ENTRY) {
+      cursor_rc = mini_meta_cursor_prev(&cursor);
+      sequence_ok &= cursor_rc == MINI_META_CURSOR_INVALID;
+   }
+   mini_meta_cursor_deinit(&cursor);
+
+   second_meta_page =
+      test_filter_claim_page(cc, second_meta_addr, PAGE_TYPE_FILTER);
+   second_meta_hdr               = (test_mini_meta_hdr *)second_meta_page->data;
+   second_meta_hdr->meta_page_no = 1;
+   test_filter_unclaim_page(cc, second_meta_page);
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, second_meta_addr, target_extent);
+   sequence_ok &= cursor_rc == MINI_META_CURSOR_ENTRY;
+   if (cursor_rc == MINI_META_CURSOR_ENTRY) {
+      cursor_rc = mini_meta_cursor_prev(&cursor);
+      sequence_ok &= cursor_rc == MINI_META_CURSOR_ENTRY
+                     && cursor.meta_addr == filter.meta_head;
+   }
+   mini_meta_cursor_deinit(&cursor);
+
+   meta_page =
+      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr                 = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->next_meta_addr = head_next_meta_addr;
+   test_filter_unclaim_page(cc, meta_page);
+   if (!sequence_ok) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
 
    meta_page =
       test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);

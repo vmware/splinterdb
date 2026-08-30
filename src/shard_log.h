@@ -63,8 +63,6 @@ typedef struct shard_log_thread_data {
    char                  *buf;    // page-sized image under construction
    uint64                 offset; // append cursor within buf
    shard_log_buffer_state state;
-   /* Number of permanent log pages allocated from this buffer. */
-   uint64 page_count;
    /* Held from cache_alloc() until writeback-set enrollment succeeds. */
    page_handle *incache_page;
    /* Privately owned while this thread has a reservation for the group. */
@@ -127,8 +125,8 @@ struct shard_log_group {
    uint64                id; // on-disk id and durability ticket once installed
    shard_log_group_state state;
    shard_log_close_mode  close;
-   /* Assigned once by the final-page writer from the per-thread counters. */
-   uint64 page_count;
+   /* Next group-local on-disk page number, serialized by mini batch 0. */
+   uint64 next_page_no;
    /* Atomic, set once by the first reservation in this incarnation. */
    bool32 ever_used;
    bool32 emergency; // Is this group from the pool of emergency groups?
@@ -270,6 +268,8 @@ typedef struct ONDISK shard_log_hdr {
     * establish (splits advance generations without emitting a record).
     */
    uint64 group_id;
+   /* Zero-based allocation order within group_id. */
+   uint32 page_no;
    /*
     * Non-zero only on the group's final page, giving its total page count, with
     * SHARD_LOG_END_OF_STREAM set when this is also the end of a sealed stream.

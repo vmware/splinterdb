@@ -34,6 +34,7 @@
 typedef struct ONDISK mini_meta_hdr {
    uint64 next_meta_addr;
    uint64 prev_meta_addr;
+   uint64 meta_page_no;
    uint64 pos;
    uint32 num_entries;
    char   entry_buffer[];
@@ -138,7 +139,9 @@ static platform_status
 mini_validate_meta_page(cache       *cc,
                         page_handle *meta_page,
                         uint64       expected_prev,
-                        bool32       check_prev);
+                        bool32       check_prev,
+                        uint64       expected_page_no,
+                        bool32       check_page_no);
 
 static platform_status
 mini_metadata_corruption(const char *reason, uint64 addr);
@@ -166,11 +169,14 @@ mini_metadata_valid_extent_addr(const allocator_config *cfg, uint64 addr);
  *-----------------------------------------------------------------------------
  */
 static void
-mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
+mini_init_meta_page(mini_allocator *mini,
+                    page_handle    *meta_page,
+                    uint64          meta_page_no)
 {
    mini_meta_hdr *hdr  = (mini_meta_hdr *)meta_page->data;
    hdr->next_meta_addr = 0;
    hdr->prev_meta_addr = 0;
+   hdr->meta_page_no   = meta_page_no;
    hdr->pos            = offsetof(typeof(*hdr), entry_buffer);
    hdr->num_entries    = 0;
 }
@@ -194,9 +200,9 @@ static page_handle *
 mini_full_lock_meta_tail(mini_allocator *mini)
 {
    /*
-    * This loop follows the standard idiom for obtaining a claim.  Note that
-    * mini is shared, so the value of mini->meta_tail can change before we
-    * obtain the lock, thus we must check after the get.
+    * This loop follows the standard idiom for obtaining a claim. Note that
+    * mini is shared, so meta_tail can change before we obtain the claim; check
+    * it again after the claim succeeds.
     */
    page_handle *meta_page;
    uint64       wait = 1;
@@ -320,7 +326,7 @@ mini_init_with_types(mini_allocator  *mini,
       // new mini allocator
       mini->meta_tail = meta_head;
       meta_page       = cache_alloc(cc, mini->meta_head, meta_type);
-      mini_init_meta_page(mini, meta_page);
+      mini_init_meta_page(mini, meta_page, 0);
 
       // meta_page gets an extra ref
       refcount ref =
@@ -504,10 +510,14 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
 
       page_handle *last_meta_page = meta_page;
       uint64       last_meta_addr = mini->meta_tail;
+      mini_meta_hdr *last_meta_hdr = (mini_meta_hdr *)meta_page->data;
+      platform_assert(last_meta_hdr->meta_page_no != UINT64_MAX,
+                      "mini allocator metadata page number overflow");
+      uint64 new_meta_page_no = last_meta_hdr->meta_page_no + 1;
       meta_page       = cache_alloc(mini->cc, new_meta_tail, mini->meta_type);
       mini->meta_tail = new_meta_tail;
       mini_full_unlock_meta_page(mini, last_meta_page);
-      mini_init_meta_page(mini, meta_page);
+      mini_init_meta_page(mini, meta_page, new_meta_page_no);
       // Doubly-link the meta list so a prefetch cursor can scan it backward.
       mini_set_prev_meta_addr(mini, meta_page, last_meta_addr);
 
@@ -526,51 +536,6 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
    mini->cur_extent_meta_page[batch] = mini->meta_tail;
    mini_full_unlock_meta_page(mini, meta_page);
    return TRUE;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * mini_alloc --
- *
- *      Allocate a next disk address from the mini_allocator.
- *
- *      If next_extent is not NULL, then the successor extent to the allocated
- *      addr will be copied to it.
- *
- * Results:
- *      A newly allocated disk address.
- *
- * Side effects:
- *      Disk allocation, standard cache side effects.
- *-----------------------------------------------------------------------------
- */
-uint64
-mini_alloc(mini_allocator *mini, uint64 batch, uint64 *next_extent)
-{
-   debug_assert(batch < mini->num_batches);
-
-   uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
-
-   if (next_addr % cache_extent_size(mini->cc) == 0) {
-      // need to allocate the next extent
-
-      uint64          extent_addr = mini->next_extent[batch];
-      platform_status rc          = mini_allocator_get_new_extent(
-         mini, mini->types[batch], &mini->next_extent[batch]);
-      platform_assert_status_ok(rc);
-      next_addr = extent_addr;
-
-      bool32 success = mini_append_entry(mini, batch, next_addr);
-      platform_assert(success);
-   }
-
-   if (next_extent) {
-      *next_extent = mini->next_extent[batch];
-   }
-
-   uint64 new_next_addr = next_addr + cache_page_size(mini->cc);
-   mini_unlock_batch_set_next_addr(mini, batch, new_next_addr);
-   return next_addr;
 }
 
 platform_status
@@ -838,18 +803,15 @@ mini_for_each_meta_page(cache                     *cc,
                                       meta_head);
    }
 
-   uint64 meta_addr    = meta_head;
-   uint64 extent_size  = cache_extent_size(cc);
-   uint64 prior_extent = (uint64)-1;
-   uint64 expected_prev = 0;
-   uint64 page_count    = 0;
-   uint64 max_meta_pages = cfg->capacity / cfg->io_cfg->page_size;
+   uint64 meta_addr        = meta_head;
+   uint64 extent_size      = cache_extent_size(cc);
+   uint64 prior_extent     = (uint64)-1;
+   uint64 expected_prev    = 0;
+   uint64 expected_page_no = 0;
 
    while (meta_addr != 0) {
-      if (page_count++ == max_meta_pages
-          || !mini_metadata_valid_page_addr(cfg, meta_addr))
-      {
-         return mini_metadata_corruption("metadata chain exceeds disk pages",
+      if (!mini_metadata_valid_page_addr(cfg, meta_addr)) {
+         return mini_metadata_corruption("metadata chain names an invalid page",
                                          meta_addr);
       }
       if (before != NULL) {
@@ -878,8 +840,12 @@ mini_for_each_meta_page(cache                     *cc,
                                          meta_addr);
       }
 
-      platform_status rc =
-         mini_validate_meta_page(cc, meta_page, expected_prev, TRUE);
+      platform_status rc = mini_validate_meta_page(cc,
+                                                   meta_page,
+                                                   expected_prev,
+                                                   TRUE,
+                                                   expected_page_no,
+                                                   TRUE);
       if (SUCCESS(rc) && func != NULL) {
          rc = func(cc, type, meta_page, arg);
       }
@@ -889,8 +855,15 @@ mini_for_each_meta_page(cache                     *cc,
       if (!SUCCESS(rc)) {
          return rc;
       }
+      if (next_meta_addr != 0) {
+         if (expected_page_no == UINT64_MAX) {
+            return mini_metadata_corruption("metadata page number wraps",
+                                            meta_addr);
+         }
+         expected_page_no++;
+      }
       expected_prev = meta_addr;
-      meta_addr = next_meta_addr;
+      meta_addr     = next_meta_addr;
    }
    return STATUS_OK;
 }
@@ -1089,6 +1062,8 @@ mini_validate_meta_header(const mini_meta_hdr *hdr,
                           uint64               page_size,
                           uint64               expected_prev,
                           bool32               check_prev,
+                          uint64               expected_page_no,
+                          bool32               check_page_no,
                           uint64               meta_addr)
 {
    uint64 first_entry_offset = offsetof(mini_meta_hdr, entry_buffer);
@@ -1096,6 +1071,14 @@ mini_validate_meta_header(const mini_meta_hdr *hdr,
    if (check_prev && hdr->prev_meta_addr != expected_prev) {
       return mini_metadata_corruption("metadata prev link is not reciprocal",
                                       meta_addr);
+   }
+   if (check_page_no && hdr->meta_page_no != expected_page_no) {
+      return mini_metadata_corruption("metadata page number is not contiguous",
+                                      meta_addr);
+   }
+   if ((hdr->meta_page_no == 0) != (hdr->prev_meta_addr == 0)) {
+      return mini_metadata_corruption(
+         "metadata page number disagrees with predecessor link", meta_addr);
    }
 
    if (hdr->num_entries > max_entries) {
@@ -1204,7 +1187,9 @@ static platform_status
 mini_validate_meta_page(cache       *cc,
                         page_handle *meta_page,
                         uint64       expected_prev,
-                        bool32       check_prev)
+                        bool32       check_prev,
+                        uint64       expected_page_no,
+                        bool32       check_page_no)
 {
    allocator_config *cfg =
       allocator_get_config(cache_get_allocator(cc));
@@ -1222,6 +1207,8 @@ mini_validate_meta_page(cache       *cc,
                                                   cfg->io_cfg->page_size,
                                                   expected_prev,
                                                   check_prev,
+                                                  expected_page_no,
+                                                  check_page_no,
                                                   meta_addr);
    if (!SUCCESS(rc)) {
       return rc;
@@ -1404,6 +1391,7 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
    cursor->meta_type   = meta_type;
    cursor->meta_page   = NULL;
    cursor->meta_addr   = meta_addr;
+   cursor->meta_page_no = 0;
    cursor->entry_idx   = 0;
    cursor->num_entries = 0;
 
@@ -1424,15 +1412,17 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
    }
 
    platform_status rc =
-      mini_validate_meta_page(cc, cursor->meta_page, 0, FALSE);
+      mini_validate_meta_page(cc, cursor->meta_page, 0, FALSE, 0, FALSE);
    if (!SUCCESS(rc)) {
       cache_unget(cursor->cc, cursor->meta_page);
       cursor->meta_page = NULL;
       return MINI_META_CURSOR_INVALID;
    }
 
-   cursor->num_entries = mini_num_entries(cursor->meta_page);
-   cursor->entry_idx   = 0;
+   mini_meta_hdr *hdr   = (mini_meta_hdr *)cursor->meta_page->data;
+   cursor->meta_page_no = hdr->meta_page_no;
+   cursor->num_entries  = mini_num_entries(cursor->meta_page);
+   cursor->entry_idx    = 0;
    while (cursor->entry_idx < cursor->num_entries) {
       meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
       if (meta_entry_extent_addr(cursor->cc, entry) == target_extent_addr) {
@@ -1456,6 +1446,7 @@ mini_meta_cursor_deinit(mini_meta_cursor *cursor)
       cursor->meta_page = NULL;
    }
    cursor->meta_addr   = 0;
+   cursor->meta_page_no = 0;
    cursor->entry_idx   = 0;
    cursor->num_entries = 0;
 }
@@ -1497,6 +1488,9 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
    if (next_meta_addr == 0) {
       return MINI_META_CURSOR_END;
    }
+   if (cursor->meta_page_no == UINT64_MAX) {
+      return MINI_META_CURSOR_INVALID;
+   }
 
    page_handle *next_page =
       cache_get(cursor->cc, next_meta_addr, FALSE, cursor->meta_type);
@@ -1505,8 +1499,12 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_WOULD_BLOCK;
    }
 
-   platform_status rc = mini_validate_meta_page(
-      cursor->cc, next_page, cursor->meta_addr, TRUE);
+   platform_status rc = mini_validate_meta_page(cursor->cc,
+                                                next_page,
+                                                cursor->meta_addr,
+                                                TRUE,
+                                                cursor->meta_page_no + 1,
+                                                TRUE);
    uint64 next_num_entries =
       SUCCESS(rc) ? mini_num_entries(next_page) : 0;
    if (!SUCCESS(rc) || next_num_entries == 0) {
@@ -1517,6 +1515,7 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
    cache_unget(cursor->cc, cursor->meta_page);
    cursor->meta_page   = next_page;
    cursor->meta_addr   = next_meta_addr;
+   cursor->meta_page_no++;
    cursor->num_entries = next_num_entries;
    cursor->entry_idx = 0;
    return MINI_META_CURSOR_ENTRY;
@@ -1541,6 +1540,9 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
    if (prev_addr == 0) {
       return MINI_META_CURSOR_END;
    }
+   if (cursor->meta_page_no == 0) {
+      return MINI_META_CURSOR_INVALID;
+   }
 
    page_handle *prev_page =
       cache_get(cursor->cc, prev_addr, FALSE, cursor->meta_type);
@@ -1549,8 +1551,12 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_WOULD_BLOCK;
    }
 
-   platform_status rc =
-      mini_validate_meta_page(cursor->cc, prev_page, 0, FALSE);
+   platform_status rc = mini_validate_meta_page(cursor->cc,
+                                                prev_page,
+                                                0,
+                                                FALSE,
+                                                cursor->meta_page_no - 1,
+                                                TRUE);
    mini_meta_hdr *prev_hdr = (mini_meta_hdr *)prev_page->data;
    uint64 prev_num_entries =
       SUCCESS(rc) ? mini_num_entries(prev_page) : 0;
@@ -1564,6 +1570,7 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
    cache_unget(cursor->cc, cursor->meta_page);
    cursor->meta_page   = prev_page;
    cursor->meta_addr   = prev_addr;
+   cursor->meta_page_no--;
    cursor->num_entries = prev_num_entries;
    cursor->entry_idx = cursor->num_entries - 1;
    return MINI_META_CURSOR_ENTRY;

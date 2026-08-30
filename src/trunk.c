@@ -3024,6 +3024,34 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
       return rc;
    }
 
+   /*
+    * Rough-count scans normally stop at an internal level. A small branch can
+    * have a root below that level, though. Use one common reachable height for
+    * every input so the merge iterator never mixes leaf messages with pivot
+    * data, and so no iterator interprets a leaf using the index-page layout.
+    */
+   if (merger->height > 0) {
+      for (uint64 i = 0; i < num_branches; i++) {
+         trunk_branch_info branch = vector_get(&merger->branches, i);
+         uint32            root_height;
+         rc = btree_get_root_height(cc,
+                                    merger->cfg->btree_cfg,
+                                    branch.addr,
+                                    branch.type,
+                                    &root_height);
+         if (!SUCCESS(rc)) {
+            platform_error_log("%s():%d: btree_get_root_height() failed: %s",
+                               __func__,
+                               __LINE__,
+                               platform_status_to_string(rc));
+            return rc;
+         }
+         if (root_height < merger->height) {
+            merger->height = root_height;
+         }
+      }
+   }
+
    for (uint64 i = 0; i < num_branches; i++) {
       trunk_branch_info branch = vector_get(&merger->branches, i);
       btree_iterator   *itor   = TYPED_MALLOC(merger->hid, itor);
@@ -5299,11 +5327,29 @@ leaf_split_select_pivots(trunk_context     *context,
       key     curr_key;
       message pivot_data_message;
       iterator_curr(&merger.merge_itor->super, &curr_key, &pivot_data_message);
-      const btree_pivot_data *pivot_data = message_data(pivot_data_message);
-      uint64                  new_cumulative_kv_bytes = cumulative_kv_bytes
-                                       + pivot_data->stats.key_bytes
-                                       + pivot_data->stats.message_bytes;
-      uint64 new_tuples = current_tuples + pivot_data->stats.num_kvs;
+      btree_pivot_stats stats;
+      if (merger.height == 0) {
+         stats = (btree_pivot_stats){
+            .num_kvs       = 1,
+            .key_bytes     = key_length(curr_key),
+            .message_bytes = message_materialized_length(pivot_data_message),
+         };
+      } else {
+         if (message_class(pivot_data_message) != MESSAGE_TYPE_PIVOT_DATA
+             || message_length(pivot_data_message) != sizeof(btree_pivot_data))
+         {
+            rc = STATUS_INVALID_STATE;
+            platform_error_log("leaf_split_select_pivots: "
+                               "invalid pivot-data message");
+            goto cleanup;
+         }
+         const btree_pivot_data *pivot_data =
+            message_data(pivot_data_message);
+         stats = pivot_data->stats;
+      }
+      uint64 new_cumulative_kv_bytes = cumulative_kv_bytes + stats.key_bytes
+                                       + stats.message_bytes;
+      uint64 new_tuples = current_tuples + stats.num_kvs;
       uint64 next_boundary =
          leaf_num * trunk_leaf_num_kv_bytes(leaf) / target_num_leaves;
       if ((cumulative_kv_bytes < next_boundary
@@ -5325,7 +5371,7 @@ leaf_split_select_pivots(trunk_context     *context,
       }
 
       cumulative_kv_bytes = new_cumulative_kv_bytes;
-      current_tuples += pivot_data->stats.num_kvs;
+      current_tuples += stats.num_kvs;
       iterator_next(&merger.merge_itor->super);
    }
 

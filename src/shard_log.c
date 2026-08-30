@@ -249,13 +249,43 @@ shard_log_operations_are_after(shard_log *log, log_durable_ticket ticket)
 }
 
 static page_handle *
-shard_log_alloc(shard_log *log, uint64 *next_extent)
+shard_log_alloc(shard_log       *log,
+                shard_log_group *group,
+                uint64          *next_extent,
+                uint32          *page_no)
 {
-   uint64 addr = mini_alloc_page(&log->mini, 0, next_extent);
-   if (addr == 0) {
+   uint64          addrs[2] = {0};
+   platform_status rc = mini_alloc_bytes(&log->mini,
+                                         0,
+                                         shard_log_page_size(log->cfg),
+                                         shard_log_page_size(log->cfg),
+                                         0,
+                                         addrs,
+                                         next_extent);
+   if (!SUCCESS(rc)) {
       return NULL;
    }
-   return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
+
+   /*
+    * mini_alloc_bytes() retains batch 0's allocation lock until finish. Use
+    * that same interval through cache allocation and ordinal assignment, so
+    * concurrent buffer graduation cannot number pages in a different order
+    * from their permanent addresses. Consume the ordinal only after
+    * cache_alloc() succeeds: a failed cache allocation leaves an unwritten
+    * physical hole, and the retry must still receive the next valid page
+    * number. Blob batches remain independently concurrent.
+    */
+   page_handle *page = cache_alloc(log->cc, addrs[0], PAGE_TYPE_LOG);
+   if (page != NULL) {
+      platform_assert(group->next_page_no < SHARD_LOG_PAGES_IN_GROUP_MASK,
+                      "group %lu is too large to terminate",
+                      group->id);
+      *page_no = (uint32)group->next_page_no++;
+   }
+   mini_alloc_bytes_finish(&log->mini, 0);
+
+   platform_assert(addrs[1] == 0);
+   return page;
 }
 
 /*
@@ -322,6 +352,91 @@ log_entry_set_terminal(log_entry *le)
    le->memtable_generation = INVALID_LOG_GENERATION;
 }
 
+typedef struct shard_log_page_sequence {
+   bool32 seen;
+   bool32 terminated;
+   uint64 group_id;
+   uint32 page_no;
+} shard_log_page_sequence;
+
+static platform_status
+shard_log_validate_page_header(shard_log_config *cfg, page_handle *page)
+{
+   uint64 page_size = shard_log_page_size(cfg);
+   if (page_size < sizeof(shard_log_hdr)) {
+      return STATUS_INVALID_STATE;
+   }
+
+   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   if (hdr->group_id < SHARD_LOG_FIRST_GROUP_ID
+       || hdr->group_id > SHARD_LOG_INSTALL_ID_MASK
+       || hdr->page_no >= SHARD_LOG_PAGES_IN_GROUP_MASK)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   if (hdr->pages_in_group != 0) {
+      uint32 page_count =
+         hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK;
+      if (page_count == 0 || page_count != hdr->page_no + 1) {
+         return STATUS_INVALID_STATE;
+      }
+   }
+   return STATUS_OK;
+}
+
+/*
+ * Validate the order of checksum-valid pages without allocating visited state.
+ * Exact mode is used by replay and diagnostics. Recovery mode permits gaps
+ * left by torn or missing writes, but strict lexicographic progress still
+ * makes every cycle terminate when it repeats an earlier (group, page) pair.
+ */
+static platform_status
+shard_log_validate_page_sequence(shard_log_page_sequence *sequence,
+                                 const shard_log_hdr      *hdr,
+                                 uint64                    page_addr,
+                                 bool32                   exact)
+{
+   bool32 valid;
+   if (!sequence->seen) {
+      valid = !exact
+              || (hdr->group_id == SHARD_LOG_FIRST_GROUP_ID
+                  && hdr->page_no == 0);
+   } else if (exact) {
+      uint64 expected_group = sequence->group_id;
+      uint64 expected_page  = (uint64)sequence->page_no + 1;
+      if (sequence->terminated) {
+         expected_group++;
+         expected_page = 0;
+      }
+      valid = hdr->group_id == expected_group
+              && hdr->page_no == expected_page;
+   } else {
+      valid = hdr->group_id > sequence->group_id
+              || (hdr->group_id == sequence->group_id
+                  && !sequence->terminated
+                  && hdr->page_no > sequence->page_no);
+   }
+
+   if (!valid) {
+      platform_error_log("Malformed log page sequence at page %lu: "
+                         "group=%lu page=%u follows group=%lu page=%u%s.\n",
+                         page_addr,
+                         hdr->group_id,
+                         hdr->page_no,
+                         sequence->group_id,
+                         sequence->page_no,
+                         sequence->terminated ? " (terminated)" : "");
+      return STATUS_INVALID_STATE;
+   }
+
+   sequence->seen       = TRUE;
+   sequence->terminated = hdr->pages_in_group != 0;
+   sequence->group_id   = hdr->group_id;
+   sequence->page_no    = hdr->page_no;
+   return STATUS_OK;
+}
+
 /*
  * The page checksum detects accidental damage, but is not a memory-safety
  * boundary: a malformed page can carry a recomputed checksum.  Validate all
@@ -333,11 +448,12 @@ shard_log_validate_page_records(cache            *cc,
                                 shard_log_config *cfg,
                                 page_handle      *page)
 {
-   uint64 page_size = shard_log_page_size(cfg);
-   if (page_size < sizeof(shard_log_hdr)) {
-      return STATUS_INVALID_STATE;
+   platform_status rc = shard_log_validate_page_header(cfg, page);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
+   uint64         page_size   = shard_log_page_size(cfg);
    shard_log_hdr *hdr         = (shard_log_hdr *)page->data;
    uint64         offset      = sizeof(*hdr);
    uint64         max_entries = (page_size - offset) / sizeof(log_entry);
@@ -375,7 +491,7 @@ shard_log_validate_page_records(cache            *cc,
 
       if (ondisk_tuple_message_is_blob(tuple)) {
          parsed_blob     blob_descriptor;
-         platform_status rc = blob_parse_descriptor(
+         rc = blob_parse_descriptor(
             cc,
             message_slice(ondisk_tuple_message(cc, tuple)),
             &blob_descriptor);
@@ -674,12 +790,12 @@ shard_log_pack_open_buffers(shard_log *log, shard_log_group *group)
 static void
 shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
 {
-   group->id         = id;
-   group->state      = SHARD_LOG_GROUP_OPEN;
-   group->close      = SHARD_LOG_CLOSE_NONE;
-   group->page_count = 0;
-   group->next       = NULL;
-   group->pool_next  = NULL;
+   group->id           = id;
+   group->state        = SHARD_LOG_GROUP_OPEN;
+   group->close        = SHARD_LOG_CLOSE_NONE;
+   group->next_page_no = 0;
+   group->next         = NULL;
+   group->pool_next    = NULL;
    __atomic_store_n(&group->ever_used, FALSE, __ATOMIC_RELAXED);
    __atomic_store_n(&group->append_error.r, STATUS_OK.r, __ATOMIC_RELAXED);
 
@@ -688,8 +804,7 @@ shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
       platform_assert(thread_data->incache_page == NULL);
-      thread_data->buf        = group->thread_buffers + thr_i * page_size;
-      thread_data->page_count = 0;
+      thread_data->buf = group->thread_buffers + thr_i * page_size;
       writeback_set_reset(&thread_data->wbset);
       shard_log_reset_buffer(log, thread_data);
    }
@@ -735,25 +850,6 @@ shard_log_group_reset_writebacks(shard_log_group *group)
          shard_log_get_thread_data(group, thr_i);
       writeback_set_reset(&thread_data->wbset);
    }
-}
-
-static uint64
-shard_log_group_page_count(const shard_log_group *group)
-{
-   uint64 pages = 0;
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      const shard_log_thread_data *thread_data = &group->thread_data[thr_i];
-      platform_assert(thread_data->page_count <= SHARD_LOG_PAGES_IN_GROUP_MASK,
-                      "thread %lu allocated too many pages in group %lu",
-                      thr_i,
-                      group->id);
-      platform_assert(thread_data->page_count
-                         <= SHARD_LOG_PAGES_IN_GROUP_MASK - pages,
-                      "group %lu is too large to terminate",
-                      group->id);
-      pages += thread_data->page_count;
-   }
-   return pages;
 }
 
 static void
@@ -948,8 +1044,10 @@ shard_log_graduate_buffer_internal(shard_log             *log,
          return STATUS_OK;
       }
 
-      uint64       next_extent;
-      page_handle *page = shard_log_alloc(log, &next_extent);
+      uint64 next_extent;
+      uint32 page_no;
+      page_handle *page =
+         shard_log_alloc(log, group, &next_extent, &page_no);
       if (page == NULL) {
          platform_error_log("shard_log_graduate_buffer: out of log space\n");
          return STATUS_NO_SPACE;
@@ -964,19 +1062,15 @@ shard_log_graduate_buffer_internal(shard_log             *log,
       shard_log_hdr *staged    = (shard_log_hdr *)thread_data->buf;
       staged->next_extent_addr = next_extent;
       staged->group_id         = group->id;
+      staged->page_no          = page_no;
       /*
-       * Count exactly once, when the image obtains its permanent cache page. If
-       * writeback enrollment fails, INCACHE retains both the page and this
-       * ordinal for a retry.
+       * The final page is allocated after every ordinary page. Its zero-based
+       * ordinal therefore gives the exact group count. If writeback enrollment
+       * fails, INCACHE retains the page and its ordinal for a retry.
        */
-      thread_data->page_count++;
       if (close_group) {
-         uint64 pages = shard_log_group_page_count(group);
-         platform_assert(pages <= SHARD_LOG_PAGES_IN_GROUP_MASK,
-                         "group %lu is too large to terminate: %lu pages",
-                         group->id,
-                         pages);
-         group->page_count = pages;
+         uint64 pages = (uint64)page_no + 1;
+         platform_assert(pages == group->next_page_no);
          staged->pages_in_group =
             (uint32)pages
             | (close == SHARD_LOG_CLOSE_STREAM ? SHARD_LOG_END_OF_STREAM : 0);
@@ -1940,13 +2034,9 @@ shard_log_recover_page_blob_allocations(cache            *cc,
                                         shard_log_config *cfg,
                                         page_handle      *page)
 {
-   platform_status rc = shard_log_validate_page_records(cc, cfg, page);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
    log_entry     *le  = first_log_entry(page->data);
+   platform_status rc = STATUS_OK;
    for (uint64 i = 0; i < hdr->num_entries; i++) {
       if (log_entry_message_is_blob(le)) {
          message msg = log_entry_message(cc, le);
@@ -1981,17 +2071,9 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
       return rc;
    }
 
-   uint64 budget      = allocator_get_capacity(al) / shard_log_extent_size(cfg);
    uint64 extent_addr = head.addr;
+   shard_log_page_sequence sequence = {0};
    while (shard_log_valid_extent_addr(cc, cfg, extent_addr)) {
-      if (budget-- == 0) {
-         platform_error_log("shard_log_recover_allocations: stream from %lu "
-                            "has more extents than the device holds; its "
-                            "next-extent chain is corrupt\n",
-                            head.addr);
-         return STATUS_INVALID_STATE;
-      }
-
       /*
        * Record the current extent before cache_get(): the map being rebuilt
        * does not yet permit reads from it.  This also records a wholly
@@ -2022,10 +2104,18 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
          uint64       page_addr = extent_addr + i * page_size;
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, head.nonce)) {
-            /* The latest valid page has the newest successor link. */
-            next_extent_addr = shard_log_next_extent_addr(cfg, page);
-            /* Include valid pages in a trailing incomplete group. */
-            rc = shard_log_recover_page_blob_allocations(cc, cfg, page);
+            rc = shard_log_validate_page_records(cc, cfg, page);
+            if (SUCCESS(rc)) {
+               shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+               rc = shard_log_validate_page_sequence(
+                  &sequence, hdr, page_addr, FALSE);
+            }
+            if (SUCCESS(rc)) {
+               /* The latest valid page has the newest successor link. */
+               next_extent_addr = shard_log_next_extent_addr(cfg, page);
+               /* Include valid pages in a trailing incomplete group. */
+               rc = shard_log_recover_page_blob_allocations(cc, cfg, page);
+            }
          }
          cache_unget(cc, page);
          if (!SUCCESS(rc)) {
@@ -2293,6 +2383,7 @@ shard_log_print(shard_log *log)
    data_config      *dcfg             = cfg->data_cfg;
    uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
    allocator        *al               = cache_get_allocator(cc);
+   shard_log_page_sequence sequence    = {0};
 
    while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
@@ -2302,13 +2393,19 @@ shard_log_print(shard_log *log)
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, nonce)) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);
-            if (!SUCCESS(shard_log_validate_page_records(cc, cfg, page))) {
+            platform_status rc =
+               shard_log_validate_page_records(cc, cfg, page);
+            shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+            if (SUCCESS(rc)) {
+               rc = shard_log_validate_page_sequence(
+                  &sequence, hdr, page_addr, TRUE);
+            }
+            if (!SUCCESS(rc)) {
                platform_error_log("invalid log records on page %lu\n",
                                   page_addr);
                cache_unget(cc, page);
                return;
             }
-            shard_log_hdr *hdr = (shard_log_hdr *)page->data;
             log_entry     *le  = first_log_entry(page->data);
             for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
                platform_default_log(
@@ -2453,6 +2550,7 @@ shard_log_iterator_init(cache              *cc,
    bool32 group_ends_stream = FALSE;
    bool32 broken            = FALSE; // hit a group we cannot replay
    bool32 finished          = FALSE; // accepted an end-of-stream group
+   shard_log_page_sequence sequence = {0};
 
    /*
     * The refcount gate is what stops the walk, and it is load-bearing rather
@@ -2497,6 +2595,16 @@ shard_log_iterator_init(cache              *cc,
             continue;
          }
          shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+         rc = shard_log_validate_page_header(cfg, page);
+         if (SUCCESS(rc)) {
+            rc = shard_log_validate_page_sequence(
+               &sequence, hdr, page_addr, TRUE);
+         }
+         if (!SUCCESS(rc)) {
+            cache_unget(cc, page);
+            broken = TRUE;
+            break;
+         }
 
          if (in_group && hdr->group_id != group_id) {
             // The run ended; judge it before starting the next.
@@ -2653,6 +2761,7 @@ shard_log_iterator_init(cache              *cc,
    uint64 contents_copied = 0;
    uint64 entry_idx       = 0;
    uint64 pages_taken     = 0;
+   shard_log_page_sequence copy_sequence = {0};
    extent_addr            = addr;
    while (pages_taken < num_valid_pages && extent_addr != 0
           && allocator_get_refcount(al, extent_addr) > 0)
@@ -2680,6 +2789,11 @@ shard_log_iterator_init(cache              *cc,
             continue;
          }
          rc = shard_log_validate_page_records(cc, cfg, page);
+         if (SUCCESS(rc)) {
+            shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+            rc = shard_log_validate_page_sequence(
+               &copy_sequence, hdr, page_addr, TRUE);
+         }
          if (!SUCCESS(rc)) {
             cache_unget(cc, page);
             platform_free(hid, itor->entries);
