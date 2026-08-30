@@ -47,6 +47,14 @@ struct ONDISK btree_hdr {
       // Memtable: generation used to detect stale copied nodes.
       uint64 generation;
    };
+   /*
+    * Branch: zero-based ordinal within this height's sibling chain.  Adjacent
+    * branch pages must have adjacent ordinals, which makes a malicious cycle
+    * detectable without allocating a visited-page bitmap.  Memtables do not
+    * use this field: their sibling links are mutable and protected by the
+    * existing concurrency protocol.
+    */
+   uint64 page_no;
    uint8       height;
    uint8       flags;
    node_offset next_entry;

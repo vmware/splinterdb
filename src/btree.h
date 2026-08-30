@@ -213,6 +213,7 @@ typedef struct btree_pack_req {
    btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    uint32            num_edges[BTREE_MAX_HEIGHT];
    bool32            level_has_nodes[BTREE_MAX_HEIGHT];
+   uint64            next_page_no[BTREE_MAX_HEIGHT];
    merge_accumulator blob_buffer;
 
    mini_allocator mini;
@@ -441,6 +442,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    local, uint64,                       last_addr,
    local, uint64,                       next_addr,
    local, uint64,                       prev_addr,
+   local, uint64,                       expected_page_no,
    local, uint64,                       num_entries,
    local, key,                          first_key,
    local, key,                          last_key)
