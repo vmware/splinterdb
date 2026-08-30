@@ -44,12 +44,13 @@
  */
 /*
  * Is page address 'base_addr' a valid extent address? I.e. it is the address
- * of the 1st page in an extent.
+ * of the 1st page in an extent and lies within this allocator's device.
  */
-debug_only static inline bool32
+static inline bool32
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 {
-   return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
+   return base_addr < al->cfg->capacity
+          && (base_addr % al->cfg->io_cfg->extent_size) == 0;
 }
 
 /*
@@ -63,6 +64,37 @@ static inline uint64
 rc_allocator_extent_number(rc_allocator *al, uint64 addr)
 {
    return (addr / al->cfg->io_cfg->extent_size);
+}
+
+/*
+ * Refcount operations are a security boundary: their addresses can originate
+ * in an untrusted disk image. Keep this validation in production so a corrupt
+ * extent address cannot index outside ref_count[].
+ */
+static inline uint64
+rc_allocator_checked_extent_number(rc_allocator *al, uint64 addr)
+{
+   platform_assert(al != NULL);
+   platform_assert(al->cfg != NULL);
+   platform_assert(al->ref_count != NULL);
+   platform_assert(rc_allocator_valid_extent_addr(al, addr),
+                   "Invalid allocator extent address %lu (capacity %lu, "
+                   "extent size %lu)",
+                   addr,
+                   al->cfg->capacity,
+                   al->cfg->io_cfg->extent_size);
+
+   uint64 extent_no = rc_allocator_extent_number(al, addr);
+   platform_assert(extent_no < al->cfg->extent_capacity);
+   return extent_no;
+}
+
+static inline void
+rc_allocator_assert_valid_page_type(page_type type)
+{
+   platform_assert(type >= PAGE_TYPE_FIRST && type < NUM_PAGE_TYPES,
+                   "Invalid allocator page type %d",
+                   type);
 }
 
 static uint64
@@ -267,6 +299,11 @@ rc_allocator_recovery_record_reference(rc_allocator *al,
                                        uint64        extent_addr,
                                        page_type     type)
 {
+   if (type < PAGE_TYPE_FIRST || type >= NUM_PAGE_TYPES) {
+      platform_error_log("Invalid allocator recovery page type %d.\n", type);
+      return STATUS_BAD_PARAM;
+   }
+
    if (al->map_is_valid) {
       platform_error_log(
          "Cannot acquire allocator extent once the refcount map is valid.\n");
@@ -423,10 +460,7 @@ refcount
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
    platform_assert(al->map_is_valid);
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
-
-   uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
-   debug_assert(extent_no < al->cfg->extent_capacity);
+   uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
 
    refcount ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != 1 && ref_count != 0);
@@ -443,10 +477,8 @@ refcount
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 {
    platform_assert(al->map_is_valid);
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
-
-   uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
-   debug_assert(extent_no < al->cfg->extent_capacity);
+   rc_allocator_assert_valid_page_type(type);
+   uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
 
    refcount ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
 
@@ -461,7 +493,6 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
                    ref_count);
 
    if (ref_count == 0) {
-      platform_assert(type != PAGE_TYPE_INVALID);
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
       __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
    }
@@ -477,11 +508,10 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 refcount
 rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 {
-   uint64 extent_no;
-
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
-   extent_no = rc_allocator_extent_number(al, addr);
-   debug_assert(extent_no < al->cfg->extent_capacity);
+   /* Recovery reads references it has already recorded before the whole map is
+    * declared valid, so get_ref() requires a live buffer but not a finished
+    * rebuild. rc_allocator_checked_extent_number() enforces the former. */
+   uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
    return al->ref_count[extent_no];
 }
 
@@ -537,6 +567,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
                    page_type     type)     // IN
 {
    platform_assert(al->map_is_valid);
+   rc_allocator_assert_valid_page_type(type);
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
    bool32 extent_is_free = FALSE;

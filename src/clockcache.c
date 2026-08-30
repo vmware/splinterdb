@@ -371,10 +371,33 @@ clockcache_divide_by_page_size(const clockcache *cc, uint64 addr)
    return addr >> cc->cfg->log_page_size;
 }
 
+/*
+ * Page addresses are a cache security boundary: many originate in on-disk
+ * structures, and lookup_no indexes cc->lookup directly. Keep these checks in
+ * production and centralize them here so every lookup-table user is covered.
+ */
+static inline uint64
+clockcache_lookup_number(const clockcache *cc, uint64 addr)
+{
+   uint64 page_size = clockcache_config_page_size(cc->cfg);
+   platform_assert(addr % page_size == 0,
+                   "Unaligned cache page address %lu (page size %lu)",
+                   addr,
+                   page_size);
+
+   uint64 lookup_no       = clockcache_divide_by_page_size(cc, addr);
+   uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+   platform_assert(lookup_no < lookup_capacity,
+                   "Cache page address %lu is outside lookup capacity %lu",
+                   addr,
+                   lookup_capacity * page_size);
+   return lookup_no;
+}
+
 static inline uint32
 clockcache_lookup(const clockcache *cc, uint64 addr)
 {
-   uint64 lookup_no    = clockcache_divide_by_page_size(cc, addr);
+   uint64 lookup_no    = clockcache_lookup_number(cc, addr);
    uint32 entry_number = cc->lookup[lookup_no];
 
    debug_assert(((entry_number < cc->cfg->page_capacity)
@@ -385,6 +408,27 @@ clockcache_lookup(const clockcache *cc, uint64 addr)
                 entry_number,
                 cc->cfg->page_capacity);
    return entry_number;
+}
+
+static inline void
+clockcache_assert_page_access_valid(clockcache *cc,
+                                    uint64      addr,
+                                    page_type   type)
+{
+   platform_assert(type >= PAGE_TYPE_FIRST && type < NUM_PAGE_TYPES,
+                   "Invalid page type %d for addr %lu",
+                   type,
+                   addr);
+
+   /*
+    * Keep the allocation check in production too. A page address can be in
+    * range yet name an extent that a malicious refcount map marks free.
+    * allocator_page_valid() checks range and alignment before reading the map.
+    */
+   platform_assert(allocator_page_valid(cc->al, addr),
+                   "Invalid or unallocated page addr %lu (type %d)",
+                   addr,
+                   type);
 }
 
 static inline clockcache_entry *
@@ -1525,7 +1569,7 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
    /* 5. clear lookup, disk addr */
    uint64 addr = entry->page.disk_addr;
    if (addr != CC_UNMAPPED_ADDR) {
-      uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
+      uint64 lookup_no = clockcache_lookup_number(cc, addr);
       bool32 unmapped  = __sync_bool_compare_and_swap(
          &cc->lookup[lookup_no], entry_number, CC_UNMAPPED_ENTRY);
       platform_assert(unmapped,
@@ -1840,6 +1884,8 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
 page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 {
+   clockcache_assert_page_access_valid(cc, addr, type);
+
    uint32            entry_no = clockcache_get_free_page(cc,
                                               CC_ALLOC_STATUS,
                                               type,
@@ -1848,7 +1894,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    clockcache_entry *entry    = &cc->entry[entry_no];
    entry->page.disk_addr      = addr;
    entry->type                = type;
-   uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
+   uint64 lookup_no = clockcache_lookup_number(cc, entry->page.disk_addr);
    bool32 mapped    = __sync_bool_compare_and_swap(
       &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_no);
    platform_assert(mapped,
@@ -1939,7 +1985,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
       clockcache_get_write(cc, entry_number);
 
       /* 5. clear lookup and disk addr; set status to CC_FREE_STATUS */
-      uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
+      uint64 lookup_no = clockcache_lookup_number(cc, addr);
       bool32 unmapped  = __sync_bool_compare_and_swap(
          &cc->lookup[lookup_no], entry_number, CC_UNMAPPED_ENTRY);
       platform_assert(unmapped,
@@ -1976,8 +2022,9 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 void
 clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
 {
-   debug_assert(addr % clockcache_extent_size(cc) == 0);
-   debug_assert(allocator_get_refcount(cc->al, addr) == AL_NO_REFS);
+   platform_assert(type >= PAGE_TYPE_FIRST && type < NUM_PAGE_TYPES);
+   platform_assert(addr % clockcache_extent_size(cc) == 0);
+   platform_assert(allocator_get_refcount(cc->al, addr) == AL_NO_REFS);
 
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
@@ -2084,7 +2131,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
                                   page_type   type) // OUT
 {
    threadid          tid          = platform_get_tid();
-   uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
+   uint64            lookup_no    = clockcache_lookup_number(cc, addr);
    uint32            entry_number = clockcache_get_free_page(cc,
                                                   CC_READ_LOADING_STATUS,
                                                   type,
@@ -2192,38 +2239,14 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
  *      Blocks while the page is loaded into cache if necessary.
  *----------------------------------------------------------------------
  */
-debug_only static bool32
+static bool32
 clockcache_get_internal(clockcache   *cc,       // IN
                         uint64        addr,     // IN
                         bool32        blocking, // IN
                         page_type     type,     // IN
                         page_handle **page)     // OUT
 {
-   debug_only uint64 page_size = clockcache_page_size(cc);
-   debug_assert(
-      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
-
-#if SPLINTER_DEBUG
-   uint64 base_addr =
-      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
-   refcount extent_ref_count = allocator_get_refcount(cc->al, base_addr);
-
-   // Dump allocated extents info for deeper debugging.
-   if (extent_ref_count == AL_FREE) {
-      allocator_print_allocated(cc->al);
-   }
-   debug_assert((extent_ref_count != AL_FREE),
-                "Attempt to get a buffer for page addr=%lu"
-                ", page type=%d ('%s'),"
-                " from extent addr=%lu, (extent number=%lu)"
-                ", which is an unallocated extent, extent_ref_count=%u.",
-                addr,
-                type,
-                page_type_str[type],
-                base_addr,
-                (base_addr / clockcache_extent_size(cc)),
-                extent_ref_count);
-#endif // SPLINTER_DEBUG
+   clockcache_assert_page_access_valid(cc, addr, type);
 
    // We expect entry_number to be valid, but it's still validated below
    // in case some arithmetic goes wrong.
@@ -2284,9 +2307,6 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    local, threadid, tid,
    local, uint64, entry_number,
    local, clockcache_entry *, entry,
-   local, uint64, page_size,
-   local, uint64, base_addr,
-   local, refcount, extent_ref_count,
    local, platform_status, rc,
    local, io_async_state_buffer, iostate,
    local, uint64, io_start_time,
@@ -2468,35 +2488,7 @@ clockcache_get_internal_async(clockcache_get_async_state *state, uint64 depth)
    async_begin(state, depth);
 
    state->tid = platform_get_tid();
-
-   state->page_size = clockcache_page_size(state->cc);
-   debug_assert(((state->addr % state->page_size) == 0),
-                "addr=%lu, page_size=%lu\n",
-                state->addr,
-                state->page_size);
-
-#if SPLINTER_DEBUG
-   state->base_addr = allocator_config_extent_base_addr(
-      allocator_get_config(state->cc->al), state->addr);
-   state->extent_ref_count =
-      allocator_get_refcount(state->cc->al, state->base_addr);
-
-   // Dump allocated extents info for deeper debugging.
-   if (state->extent_ref_count == AL_FREE) {
-      allocator_print_allocated(state->cc->al);
-   }
-   debug_assert((state->extent_ref_count != AL_FREE),
-                "Attempt to get a buffer for page addr=%lu"
-                ", page type=%d ('%s'),"
-                " from extent addr=%lu, (extent number=%lu)"
-                ", which is an unallocated extent, extent_ref_count=%u.",
-                state->addr,
-                state->type,
-                page_type_str[state->type],
-                state->base_addr,
-                (state->base_addr / clockcache_extent_size(state->cc)),
-                state->extent_ref_count);
-#endif // SPLINTER_DEBUG
+   clockcache_assert_page_access_valid(state->cc, state->addr, state->type);
 
    // We expect entry_number to be valid, but it's still validated below
    // in case some arithmetic goes wrong.
@@ -3222,7 +3214,18 @@ clockcache_prefetch_pages(clockcache *cc,
    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
    platform_assert(num_pages > 0);
    platform_assert(num_pages <= cc->cfg->pages_per_extent);
-   platform_assert(first_addr % clockcache_page_size(cc) == 0);
+   clockcache_assert_page_access_valid(cc, first_addr, type);
+
+   uint64 last_page_offset =
+      clockcache_multiply_by_page_size(cc, num_pages - 1);
+   platform_assert(first_addr <= UINT64_MAX - last_page_offset);
+   uint64 last_addr = first_addr + last_page_offset;
+   if (last_addr != first_addr) {
+      /* A legal-sized prefetch can straddle an extent boundary. Validate the
+       * allocation state at both ends before publishing any cache entries. */
+      clockcache_assert_page_access_valid(cc, last_addr, type);
+   }
+   (void)clockcache_lookup_number(cc, last_addr);
 
    for (uint64 page_off = 0; page_off < num_pages; page_off++) {
       uint64 addr = first_addr + clockcache_multiply_by_page_size(cc, page_off);
@@ -3255,7 +3258,7 @@ clockcache_prefetch_pages(clockcache *cc,
             clockcache_entry *entry = &cc->entry[free_entry_no];
             entry->page.disk_addr   = addr;
             entry->type             = type;
-            uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
+            uint64 lookup_no = clockcache_lookup_number(cc, addr);
 
             if (state == NULL) {
                state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
