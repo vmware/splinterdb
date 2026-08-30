@@ -1590,6 +1590,26 @@ btree_node_get_checked(cache              *cc,
    return btree_node_get_validated(cc, cfg, node, type, TRUE);
 }
 
+/*
+ * A branch-page header is untrusted disk data.  Full-page validation uses its
+ * height to choose the index- or leaf-entry layout, so callers must also check
+ * that the height agrees with the position at which the page was reached
+ * before consuming entries using that position's layout.
+ *
+ * Memtable pages are constructed in memory and deliberately remain off this
+ * query-time validation path.
+ */
+static inline platform_status
+btree_node_validate_expected_height(const btree_node *node,
+                                    page_type         type,
+                                    uint32            expected_height)
+{
+   if (type == PAGE_TYPE_BRANCH && btree_height(node->hdr) != expected_height) {
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
 static inline bool32
 btree_node_claim(cache              *cc,  // IN
                  const btree_config *cfg, // IN
@@ -2654,6 +2674,11 @@ btree_lookup_node_internal(cache              *cc,             // IN
       return rc;
    }
 
+   if (type == PAGE_TYPE_BRANCH && btree_height(node.hdr) < stop_at_height) {
+      btree_node_unget(cc, cfg, &node);
+      return STATUS_INVALID_STATE;
+   }
+
    for (h = btree_height(node.hdr); h > stop_at_height; h--) {
       bool32 found;
       if (key_is_positive_infinity(target)) {
@@ -2698,6 +2723,12 @@ btree_lookup_node_internal(cache              *cc,             // IN
       rc = btree_node_get_validated(
          cc, cfg, &child_node, type, !validate_on_demand);
       if (!SUCCESS(rc)) {
+         btree_node_unget(cc, cfg, &node);
+         return rc;
+      }
+      rc = btree_node_validate_expected_height(&child_node, type, h - 1);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(cc, cfg, &child_node);
          btree_node_unget(cc, cfg, &node);
          return rc;
       }
@@ -2801,6 +2832,12 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
       btree_node_unget(state->cc, state->cfg, &state->node);
       async_return(state, rc);
    }
+   if (state->type == PAGE_TYPE_BRANCH
+       && btree_height(state->node.hdr) < state->stop_at_height)
+   {
+      btree_node_unget(state->cc, state->cfg, &state->node);
+      async_return(state, STATUS_INVALID_STATE);
+   }
 
    for (state->h = btree_height(state->node.hdr);
         state->h > state->stop_at_height;
@@ -2874,6 +2911,13 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
                    state->cc, state->cfg, &state->child_node, state->type)
               : btree_node_validate(
                    state->cc, state->cfg, &state->child_node, state->type);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(state->cc, state->cfg, &state->child_node);
+         btree_node_unget(state->cc, state->cfg, &state->node);
+         async_return(state, rc);
+      }
+      rc = btree_node_validate_expected_height(
+         &state->child_node, state->type, state->h - 1);
       if (!SUCCESS(rc)) {
          btree_node_unget(state->cc, state->cfg, &state->child_node);
          btree_node_unget(state->cc, state->cfg, &state->node);
@@ -3246,6 +3290,13 @@ btree_iterator_get_curr_addr(btree_iterator *itor, uint64 addr)
       itor->validation_status = rc;
       return rc;
    }
+   rc = btree_node_validate_expected_height(
+      &itor->curr, itor->page_type, itor->height);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+      itor->validation_status = rc;
+      return rc;
+   }
    btree_iterator_copy_curr_if_needed(itor);
    return STATUS_OK;
 }
@@ -3264,6 +3315,13 @@ btree_iterator_curr_live_prev_addr(btree_iterator *itor, uint64 *prev_addr)
    platform_status rc =
       btree_node_get_checked(itor->cc, itor->cfg, &live_curr, itor->page_type);
    if (!SUCCESS(rc)) {
+      itor->validation_status = rc;
+      return rc;
+   }
+   rc = btree_node_validate_expected_height(
+      &live_curr, itor->page_type, itor->height);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(itor->cc, itor->cfg, &live_curr);
       itor->validation_status = rc;
       return rc;
    }
@@ -3769,6 +3827,13 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
       state->itor->validation_status = rc;
       async_return(state, rc);
    }
+   rc = btree_node_validate_expected_height(
+      &state->itor->curr, state->itor->page_type, state->itor->height);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      state->itor->validation_status = rc;
+      async_return(state, rc);
+   }
    btree_iterator_copy_curr_if_needed(state->itor);
 
    state->itor->idx          = 0;
@@ -3885,6 +3950,13 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
          state->itor->validation_status = rc;
          async_return(state, rc);
       }
+      rc = btree_node_validate_expected_height(
+         &state->live_curr, state->itor->page_type, state->itor->height);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
+         state->itor->validation_status = rc;
+         async_return(state, rc);
+      }
       state->prev_addr = btree_node_prev_addr(
          state->itor->cfg, &state->live_curr, state->itor->page_type);
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->live_curr);
@@ -3920,6 +3992,13 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                                             state->itor->cfg,
                                             &state->itor->curr,
                                             state->itor->page_type);
+   if (!SUCCESS(rc)) {
+      btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
+      state->itor->validation_status = rc;
+      async_return(state, rc);
+   }
+   rc = btree_node_validate_expected_height(
+      &state->itor->curr, state->itor->page_type, state->itor->height);
    if (!SUCCESS(rc)) {
       btree_node_unget(state->itor->cc, state->itor->cfg, &state->itor->curr);
       state->itor->validation_status = rc;
@@ -3964,6 +4043,14 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
                                state->itor->cfg,
                                &state->itor->curr,
                                state->itor->page_type);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(
+            state->itor->cc, state->itor->cfg, &state->itor->curr);
+         state->itor->validation_status = rc;
+         async_return(state, rc);
+      }
+      rc = btree_node_validate_expected_height(
+         &state->itor->curr, state->itor->page_type, state->itor->height);
       if (!SUCCESS(rc)) {
          btree_node_unget(
             state->itor->cc, state->itor->cfg, &state->itor->curr);

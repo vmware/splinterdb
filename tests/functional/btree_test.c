@@ -1412,6 +1412,65 @@ test_btree_query_validation(cache           *cc,
       goto deinit_keys;
    }
 
+   /*
+    * Point an index entry back at the root.  Both the parent and the selected
+    * child are individually well-formed index pages, but the child has not
+    * decreased in height.  Query and iterator descent must reject it before
+    * either path interprets the page as a leaf.
+    */
+   page             = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
+   hdr              = (btree_hdr *)page->data;
+   index            = btree_get_index_entry(cfg, hdr, child_idx);
+   saved_child_addr = index->pivot_data.child_addr;
+   index->pivot_data.child_addr = root_addr;
+   test_btree_unclaim_page(cc, page);
+
+   bool32 height_rejected =
+      test_btree_query_status_matches(cc,
+                                      cfg,
+                                      root_addr,
+                                      PAGE_TYPE_BRANCH,
+                                      key_buffer_key(&touched_key),
+                                      FALSE);
+   btree_iterator  height_itor;
+   platform_status height_itor_rc =
+      btree_iterator_init(cc,
+                          cfg,
+                          &height_itor,
+                          root_addr,
+                          PAGE_TYPE_BRANCH,
+                          greater_than_or_equal,
+                          key_buffer_key(&touched_key),
+                          less_than,
+                          POSITIVE_INFINITY_KEY,
+                          greater_than_or_equal,
+                          key_buffer_key(&touched_key),
+                          FALSE,
+                          0,
+                          0);
+   bool32 iterator_rejected =
+      STATUS_IS_EQ(height_itor_rc, STATUS_INVALID_STATE);
+   if (SUCCESS(height_itor_rc)) {
+      btree_iterator_deinit(&height_itor);
+   }
+
+   page  = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
+   hdr   = (btree_hdr *)page->data;
+   index = btree_get_index_entry(cfg, hdr, child_idx);
+   index->pivot_data.child_addr = saved_child_addr;
+   test_btree_unclaim_page(cc, page);
+   if (!height_rejected || !iterator_rejected
+       || !test_btree_query_status_matches(cc,
+                                           cfg,
+                                           root_addr,
+                                           PAGE_TYPE_BRANCH,
+                                           key_buffer_key(&touched_key),
+                                           TRUE))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto deinit_keys;
+   }
+
    rc = STATUS_OK;
 
 deinit_keys:

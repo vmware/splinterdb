@@ -189,7 +189,10 @@ typedef struct trunk_flush_policy {
 struct pending_gc {
    pending_gc *next;
    uint64      addr;
+   uint64      expected_height;
 };
+
+#define TRUNK_HEIGHT_UNKNOWN UINT64_MAX
 
 /***************************************************
  * branch_ref operations
@@ -763,6 +766,18 @@ trunk_node_height(const trunk_node *node)
    return node->height;
 }
 
+static platform_status
+trunk_node_validate_expected_height(const trunk_node *node,
+                                    uint64            expected_height)
+{
+   if (expected_height != TRUNK_HEIGHT_UNKNOWN
+       && trunk_node_height(node) != expected_height)
+   {
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
 static bool32
 trunk_node_is_leaf(const trunk_node *node)
 {
@@ -1013,6 +1028,27 @@ trunk_ondisk_node_header_validate(trunk_ondisk_node_handle *handle)
    return STATUS_OK;
 }
 
+/*
+ * The root may establish the tree height, but every child reached through an
+ * on-disk pivot must be exactly one level below its parent.  Without this
+ * topology check, a corrupt image can turn otherwise well-formed nodes into a
+ * cycle and make query, recovery, or garbage-collection walks unbounded.
+ */
+static platform_status
+trunk_ondisk_node_validate_expected_height(
+   const trunk_ondisk_node_handle *handle,
+   uint64                          expected_height)
+{
+   const trunk_ondisk_node *header =
+      (const trunk_ondisk_node *)handle->header_page->data;
+   if (expected_height != TRUNK_HEIGHT_UNKNOWN
+       && header->height != expected_height)
+   {
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
 static platform_status
 trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
                               cache                    *cc,
@@ -1080,6 +1116,14 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->rc = trunk_ondisk_node_header_validate(&state->child_handle);
+   if (!SUCCESS(state->rc)) {
+      cache_unget(state->context->cc, state->child_handle.header_page);
+      state->child_handle.header_page = NULL;
+      async_return(state);
+   }
+   state->rc = state->height == 0 ? STATUS_INVALID_STATE
+                                  : trunk_ondisk_node_validate_expected_height(
+                                       &state->child_handle, state->height - 1);
    if (!SUCCESS(state->rc)) {
       cache_unget(state->context->cc, state->child_handle.header_page);
       state->child_handle.header_page = NULL;
@@ -2033,30 +2077,65 @@ bundle_dec_all_refs(trunk_context *context, bundle *bndl)
 static platform_status
 trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr);
 
+static platform_status
+trunk_ondisk_node_dec_ref_at_height(trunk_context *context,
+                                    uint64         addr,
+                                    uint64         expected_height);
+
 /* Prerequisite: addr must be in the AL_NO_REFS state. */
 static platform_status
-trunk_ondisk_node_gc(trunk_context *context, uint64 addr)
+trunk_ondisk_node_gc(trunk_context *context,
+                     uint64         addr,
+                     uint64         expected_height)
 {
    trunk_node      node;
    platform_status rc = trunk_node_deserialize(context, addr, &node);
    if (SUCCESS(rc)) {
-      if (!trunk_node_is_leaf(&node)) {
+      rc = trunk_node_validate_expected_height(&node, expected_height);
+      bool32 topology_valid = SUCCESS(rc);
+
+      /*
+       * Validate every edge before dropping any child reference.  This avoids
+       * partially following a corrupt graph and, in particular, rejects a
+       * self-cycle before decrementing the node that is already being freed.
+       */
+      if (topology_valid && !trunk_node_is_leaf(&node)) {
          for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
-            trunk_pivot    *pvt = vector_get(&node.pivots, i);
-            platform_status child_rc =
-               trunk_ondisk_node_dec_ref(context, pvt->child_addr);
+            trunk_pivot             *pvt = vector_get(&node.pivots, i);
+            trunk_ondisk_node_handle child_handle;
+            rc = trunk_ondisk_node_handle_init(
+               &child_handle, context->cc, pvt->child_addr);
+            if (!SUCCESS(rc)) {
+               break;
+            }
+            rc = trunk_ondisk_node_validate_expected_height(
+               &child_handle, trunk_node_height(&node) - 1);
+            trunk_ondisk_node_handle_deinit(&child_handle);
+            if (!SUCCESS(rc)) {
+               break;
+            }
+         }
+         topology_valid = SUCCESS(rc);
+      }
+      if (topology_valid && !trunk_node_is_leaf(&node)) {
+         for (uint64 i = 0; i < vector_length(&node.pivots) - 1; i++) {
+            trunk_pivot    *pvt      = vector_get(&node.pivots, i);
+            platform_status child_rc = trunk_ondisk_node_dec_ref_at_height(
+               context, pvt->child_addr, trunk_node_height(&node) - 1);
             if (SUCCESS(rc) && !SUCCESS(child_rc)) {
                rc = child_rc;
             }
          }
       }
-      for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
-         bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
-         bundle_dec_all_refs(context, bndl);
-      }
-      for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
-         bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
-         bundle_dec_all_refs(context, bndl);
+      if (topology_valid) {
+         for (uint64 i = 0; i < vector_length(&node.pivot_bundles); i++) {
+            bundle *bndl = vector_get_ptr(&node.pivot_bundles, i);
+            bundle_dec_all_refs(context, bndl);
+         }
+         for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
+            bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
+            bundle_dec_all_refs(context, bndl);
+         }
       }
       trunk_node_deinit(&node, context);
    } else {
@@ -2094,7 +2173,9 @@ trunk_record_allocator_cleanup_error(trunk_context *context, platform_status rc)
 }
 
 static platform_status
-trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
+trunk_ondisk_node_dec_ref_at_height(trunk_context *context,
+                                    uint64         addr,
+                                    uint64         expected_height)
 {
    refcount ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_TRUNK);
    if (ref == AL_NO_REFS) {
@@ -2107,8 +2188,9 @@ trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
                                __LINE__);
             return STATUS_NO_MEMORY;
          }
-         pgc->addr = addr;
-         pgc->next = NULL;
+         pgc->addr            = addr;
+         pgc->expected_height = expected_height;
+         pgc->next            = NULL;
 
          pending_gcs_lock(context);
          if (context->pending_gcs_tail == NULL) {
@@ -2121,10 +2203,17 @@ trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
          pending_gcs_unlock(context);
 
       } else {
-         return trunk_ondisk_node_gc(context, addr);
+         return trunk_ondisk_node_gc(context, addr, expected_height);
       }
    }
    return STATUS_OK;
+}
+
+static platform_status
+trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
+{
+   return trunk_ondisk_node_dec_ref_at_height(
+      context, addr, TRUNK_HEIGHT_UNKNOWN);
 }
 
 static void
@@ -2215,7 +2304,9 @@ trunk_recover_bundle_refs(const trunk_context *context, bundle *bndl)
 }
 
 static platform_status
-trunk_recover_node_refs(const trunk_context *context, uint64 addr);
+trunk_recover_node_refs(const trunk_context *context,
+                        uint64               addr,
+                        uint64               expected_height);
 
 /*
  * The references the subtree rooted at addr holds.  A reference for addr itself
@@ -2223,7 +2314,9 @@ trunk_recover_node_refs(const trunk_context *context, uint64 addr);
  * the caller records it and each level records its children.
  */
 static platform_status
-trunk_recover_node_refs(const trunk_context *context, uint64 addr)
+trunk_recover_node_refs(const trunk_context *context,
+                        uint64               addr,
+                        uint64               expected_height)
 {
    trunk_node      node;
    platform_status rc = trunk_node_deserialize(context, addr, &node);
@@ -2231,6 +2324,11 @@ trunk_recover_node_refs(const trunk_context *context, uint64 addr)
       platform_error_log("trunk_recover_node_refs: cannot read node %lu: %s\n",
                          addr,
                          platform_status_to_string(rc));
+      return rc;
+   }
+   rc = trunk_node_validate_expected_height(&node, expected_height);
+   if (!SUCCESS(rc)) {
+      trunk_node_deinit(&node, context);
       return rc;
    }
 
@@ -2249,9 +2347,20 @@ trunk_recover_node_refs(const trunk_context *context, uint64 addr)
          allocator_get_refcount(context->al, pvt->child_addr) == AL_FREE;
       rc = allocator_recovery_record_reference(
          context->al, pvt->child_addr, PAGE_TYPE_TRUNK);
-      // Legal now, and only now, that the child has a reference.
+      if (SUCCESS(rc)) {
+         /* Legal now, and only now, to read the referenced child. */
+         trunk_ondisk_node_handle child_handle;
+         rc = trunk_ondisk_node_handle_init(
+            &child_handle, context->cc, pvt->child_addr);
+         if (SUCCESS(rc)) {
+            rc = trunk_ondisk_node_validate_expected_height(
+               &child_handle, trunk_node_height(&node) - 1);
+            trunk_ondisk_node_handle_deinit(&child_handle);
+         }
+      }
       if (SUCCESS(rc) && unvisited) {
-         rc = trunk_recover_node_refs(context, pvt->child_addr);
+         rc = trunk_recover_node_refs(
+            context, pvt->child_addr, trunk_node_height(&node) - 1);
       }
    }
 
@@ -2318,7 +2427,7 @@ trunk_recover_allocations(const trunk_config *cfg,
                          platform_status_to_string(rc));
       return rc;
    }
-   return trunk_recover_node_refs(&context, root_addr);
+   return trunk_recover_node_refs(&context, root_addr, TRUNK_HEIGHT_UNKNOWN);
 }
 
 static void
@@ -3107,7 +3216,8 @@ perform_pending_gcs(trunk_context *context)
    pending_gc *pgc = context->pending_gcs;
 
    while (pgc && !cache_in_use(context->cc, pgc->addr)) {
-      platform_status rc = trunk_ondisk_node_gc(context, pgc->addr);
+      platform_status rc =
+         trunk_ondisk_node_gc(context, pgc->addr, pgc->expected_height);
       trunk_record_allocator_cleanup_error(context, rc);
       pending_gc *next = pgc->next;
       platform_free(context->hid, pgc);
@@ -3145,6 +3255,7 @@ trunk_apply_changes_internal(trunk_context          *context,
                              key                     minkey,
                              key                     maxkey,
                              uint64                  height,
+                             uint64                  expected_height,
                              trunk_apply_changes_fn *func,
                              void                   *arg)
 {
@@ -3157,6 +3268,12 @@ trunk_apply_changes_internal(trunk_context          *context,
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
+      return NULL;
+   }
+   rc = trunk_node_validate_expected_height(&node, expected_height);
+   if (!SUCCESS(rc) || trunk_node_height(&node) < height) {
+      platform_error_log("%s():%d: invalid node height", __func__, __LINE__);
+      trunk_node_deinit(&node, context);
       return NULL;
    }
 
@@ -3181,8 +3298,14 @@ trunk_apply_changes_internal(trunk_context          *context,
             {
                uint64 child_addr = trunk_pivot_child_addr(child_pivot);
                trunk_ondisk_node_ref *new_child_ref =
-                  trunk_apply_changes_internal(
-                     context, child_addr, minkey, maxkey, height, func, arg);
+                  trunk_apply_changes_internal(context,
+                                               child_addr,
+                                               minkey,
+                                               maxkey,
+                                               height,
+                                               trunk_node_height(&node) - 1,
+                                               func,
+                                               arg);
                if (new_child_ref == NULL) {
                   platform_error_log("%s():%d: apply_changes_internal() failed",
                                      __func__,
@@ -3220,8 +3343,15 @@ trunk_apply_changes(trunk_context          *context,
                     trunk_apply_changes_fn *func,
                     void                   *arg)
 {
-   trunk_ondisk_node_ref *new_root_ref = trunk_apply_changes_internal(
-      context, context->root->ref.addr, minkey, maxkey, height, func, arg);
+   trunk_ondisk_node_ref *new_root_ref =
+      trunk_apply_changes_internal(context,
+                                   context->root->ref.addr,
+                                   minkey,
+                                   maxkey,
+                                   height,
+                                   TRUNK_HEIGHT_UNKNOWN,
+                                   func,
+                                   arg);
    if (new_root_ref != NULL) {
       trunk_set_root(context, new_root_ref);
    } else {
@@ -5750,6 +5880,14 @@ flush_to_one_child(trunk_context                *context,
                          rc.r);
       return rc;
    }
+   rc = trunk_node_height(index) == 0
+           ? STATUS_INVALID_STATE
+           : trunk_node_validate_expected_height(&child,
+                                                 trunk_node_height(index) - 1);
+   if (!SUCCESS(rc)) {
+      trunk_node_deinit(&child, context);
+      return rc;
+   }
 
    // Perform the flush, getting back the new children
    trunk_ondisk_node_ref_vector new_childrefs;
@@ -6905,6 +7043,13 @@ trunk_merge_lookup(trunk_context            *context,
                                rc.r);
             goto cleanup;
          }
+         rc = height == 0 ? STATUS_INVALID_STATE
+                          : trunk_ondisk_node_validate_expected_height(
+                               &child_handle, height - 1);
+         if (!SUCCESS(rc)) {
+            trunk_ondisk_node_handle_deinit(&child_handle);
+            goto cleanup;
+         }
          if (handlep != inhandle) {
             trunk_ondisk_node_handle_deinit(handlep);
          }
@@ -7127,6 +7272,7 @@ trunk_collect_branches(const trunk_context            *context,
    }
 
    while (handle.header_page) {
+      uint64              height = trunk_ondisk_node_height(&handle);
       trunk_ondisk_pivot *pivot;
       if (start_type != less_than) {
          rc = trunk_ondisk_node_find_pivot(
@@ -7198,6 +7344,13 @@ trunk_collect_branches(const trunk_context            *context,
             platform_error_log("trunk_collect_branches: "
                                "ondisk_node_handle_init failed: %d\n",
                                rc.r);
+            goto cleanup;
+         }
+         rc = height == 0 ? STATUS_INVALID_STATE
+                          : trunk_ondisk_node_validate_expected_height(
+                               &child_handle, height - 1);
+         if (!SUCCESS(rc)) {
+            trunk_ondisk_node_handle_deinit(&child_handle);
             goto cleanup;
          }
          trunk_ondisk_node_handle_deinit(&handle);
@@ -7728,6 +7881,12 @@ visit_nodes_internal(trunk_context *context,
          platform_error_log("visit_nodes_internal: "
                             "trunk_node_deserialize failed: %d\n",
                             rc.r);
+         return rc;
+      }
+      rc = trunk_node_validate_expected_height(&child,
+                                               trunk_node_height(node) - 1);
+      if (!SUCCESS(rc)) {
+         trunk_node_deinit(&child, context);
          return rc;
       }
 
