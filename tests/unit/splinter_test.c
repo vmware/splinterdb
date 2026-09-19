@@ -1379,6 +1379,120 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    ASSERT_TRUE(range_rejected);
 }
 
+/* Persisted pivot statistics are sizing hints, but they still feed arithmetic
+ * during writes.  Reject the impossible zero-tuple/nonzero-byte state before
+ * it can reach leaf splitting (where it used to cause a division by zero). */
+CTEST2(splinter, test_malformed_trunk_pivot_stats)
+{
+   allocator *alp = (allocator *)&data->al;
+   cache     *cc  = (cache *)data->clock_cache;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(insert_key, data->hid);
+   merge_accumulator insert_msg;
+   merge_accumulator_init(&insert_msg, data->hid);
+   test_key(&insert_key, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &insert_msg);
+   rc = core_insert(&spl,
+                    key_buffer_key(&insert_key),
+                    merge_accumulator_to_message(&insert_msg),
+                    NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = core_checkpoint(&spl, 0);
+   ASSERT_TRUE(SUCCESS(rc));
+   merge_accumulator_deinit(&insert_msg);
+   ASSERT_NOT_NULL(spl.trunk_context.root);
+
+   uint64       root_addr = spl.trunk_context.root->ref.addr;
+   uint64       page_size = cache_page_size(cc);
+   page_handle *root_page =
+      test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
+   ASSERT_TRUE(node->num_pivots >= 2);
+   uint16  num_pivots = node->num_pivots;
+   uint32 *pivot_offsets =
+      TYPED_ARRAY_MALLOC(data->hid, pivot_offsets, num_pivots);
+   test_trunk_pivot_stats *saved_stats =
+      TYPED_ARRAY_MALLOC(data->hid, saved_stats, num_pivots);
+   ASSERT_NOT_NULL(pivot_offsets);
+   ASSERT_NOT_NULL(saved_stats);
+   memcpy(
+      pivot_offsets, node->pivot_offsets, num_pivots * sizeof(*pivot_offsets));
+   test_splinter_unclaim_page(cc, root_page);
+
+   for (uint64 i = 0; i < num_pivots; i++) {
+      uint64 pivot_page_addr =
+         root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
+      page_handle *pivot_page =
+         test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      test_trunk_pivot *pivot =
+         test_splinter_pivot(pivot_page, pivot_offsets[i], page_size);
+      saved_stats[i]            = pivot->stats;
+      pivot->stats.num_tuples   = 0;
+      pivot->stats.num_kv_bytes = 1;
+      test_splinter_unclaim_page(cc, pivot_page);
+   }
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
+   key target = key_buffer_key(&keybuf);
+
+   trunk_ondisk_node_handle handle;
+   rc                    = trunk_init_root_handle(&spl.trunk_context, &handle);
+   bool32 handle_ready   = SUCCESS(rc);
+   bool32 sync_rejected  = !handle_ready;
+   bool32 async_rejected = !handle_ready;
+   if (handle_ready) {
+      lookup_result result;
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      rc =
+         trunk_merge_lookup(&spl.trunk_context, &handle, target, &result, NULL);
+      sync_rejected = !SUCCESS(rc);
+      lookup_result_deinit(&result);
+
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      rc             = async_call_sync_callback(cache_cleanup(cc),
+                                    trunk_merge_lookup_async,
+                                    &spl.trunk_context,
+                                    &handle,
+                                    target,
+                                    &result,
+                                    NULL);
+      async_rejected = !SUCCESS(rc);
+      lookup_result_deinit(&result);
+      trunk_ondisk_node_handle_deinit(&handle);
+   }
+
+   for (uint64 i = 0; i < num_pivots; i++) {
+      uint64 pivot_page_addr =
+         root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
+      page_handle *pivot_page =
+         test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      test_trunk_pivot *pivot =
+         test_splinter_pivot(pivot_page, pivot_offsets[i], page_size);
+      pivot->stats = saved_stats[i];
+      test_splinter_unclaim_page(cc, pivot_page);
+   }
+   platform_free(data->hid, saved_stats);
+   platform_free(data->hid, pivot_offsets);
+
+   core_destroy(&spl);
+   ASSERT_TRUE(sync_rejected);
+   ASSERT_TRUE(async_rejected);
+}
+
 /*
  * Turn a valid leaf root into an otherwise valid-looking index that points to
  * itself.  Header and pivot validation alone accept both pages; traversal must

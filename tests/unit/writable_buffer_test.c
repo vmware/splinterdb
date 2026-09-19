@@ -362,6 +362,27 @@ CTEST2(writable_buffer, test_writable_buffer_append)
    writable_buffer_deinit(wb);
 }
 
+CTEST2(writable_buffer, test_writable_buffer_append_empty)
+{
+   writable_buffer wb;
+   writable_buffer_init(&wb, data->hid);
+
+   platform_status rc = writable_buffer_append(&wb, 0, NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(writable_buffer_is_null(&wb));
+
+   rc = writable_buffer_append(&wb, 1, NULL);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_BAD_PARAM));
+   ASSERT_TRUE(writable_buffer_is_null(&wb));
+
+   uint8 byte = 0;
+   rc         = writable_buffer_append(&wb, WRITABLE_BUFFER_NULL_LENGTH, &byte);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
+   ASSERT_TRUE(writable_buffer_is_null(&wb));
+
+   writable_buffer_deinit(&wb);
+}
+
 /*
  * Variation of previous test case: Exercise append() interface to test how
  * wb->length and capacity interact. When we have to resize the buffer to grow

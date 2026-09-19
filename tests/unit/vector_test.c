@@ -101,6 +101,23 @@ CTEST2(vector, copy)
    }
 }
 
+CTEST2(vector, append_empty_subvector)
+{
+   platform_status rc = vector_append_vector(&data->one, &data->empty);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(1, vector_length(&data->one));
+   ASSERT_EQUAL(0, vector_get(&data->one, 0));
+
+   rc = vector_append_subvector(&data->one, &data->ten, 5, 5);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(1, vector_length(&data->one));
+
+   rc = vector_append_subvector(&data->one, &data->ten, 6, 5);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_BAD_PARAM));
+   rc = vector_append_subvector(&data->one, &data->ten, 0, 11);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_BAD_PARAM));
+}
+
 void
 sumvi(uint64_vector *v, uint64 idx, uint64 *acc)
 {

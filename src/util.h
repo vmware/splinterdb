@@ -273,8 +273,22 @@ writable_buffer_to_slice(const writable_buffer *wb)
 static inline platform_status
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
-   uint64          oldsize = writable_buffer_length(wb);
-   platform_status rc      = writable_buffer_resize(wb, oldsize + length);
+   if (length == 0) {
+      return STATUS_OK;
+   }
+   if (newdata == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+
+   uint64 oldsize = writable_buffer_length(wb);
+   if (length >= WRITABLE_BUFFER_NULL_LENGTH
+       || oldsize >= WRITABLE_BUFFER_NULL_LENGTH
+       || length > WRITABLE_BUFFER_NULL_LENGTH - 1 - oldsize)
+   {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   platform_status rc = writable_buffer_resize(wb, oldsize + length);
    if (SUCCESS(rc)) {
       char *data = writable_buffer_data(wb);
       memcpy(data + oldsize, newdata, length);

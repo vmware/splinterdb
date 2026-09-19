@@ -656,29 +656,36 @@ routing_filter_add(cache                *cc,
    if (log_num_buckets < cfg->log_index_size) {
       log_num_buckets = cfg->log_index_size;
    }
+   size_t value_size = value == 0 ? 0 : 32 - __builtin_clz(value);
+   if (log_num_buckets > cfg->fingerprint_size
+       || cfg->fingerprint_size + value_size > 32)
+   {
+      ZERO_CONTENTS(filter);
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
    uint32 log_num_indices = log_num_buckets - cfg->log_index_size;
-   uint32 num_indices     = 1UL << log_num_indices;
+   uint32 num_indices     = 1U << log_num_indices;
    debug_assert(num_indices > 0);
    uint32 remainder_size           = cfg->fingerprint_size - log_num_buckets;
-   size_t value_size               = value == 0 ? 0 : 32 - __builtin_clz(value);
    if (old_value_size > value_size) {
       return STATUS_INVALID_STATE;
    }
    filter->value_size              = value_size;
    size_t remainder_and_value_size = value_size + remainder_size;
-   uint32 remainder_and_value_mask = (1UL << remainder_and_value_size) - 1;
    size_t index_remainder_and_value_size =
       remainder_and_value_size + cfg->log_index_size;
-   uint32 new_indices_per_old_index = num_indices / old_num_indices;
-   if (log_num_buckets > cfg->fingerprint_size
-       || cfg->fingerprint_size + value_size > 32
-       || remainder_and_value_size == 0
-       || index_remainder_and_value_size > 32
-       || num_indices > cache_config_extent_size(cfg->cache_cfg) / sizeof(uint64))
+   if (remainder_and_value_size == 0 || index_remainder_and_value_size > 32
+       || num_indices
+             > cache_config_extent_size(cfg->cache_cfg) / sizeof(uint64))
    {
       ZERO_CONTENTS(filter);
       return STATUS_LIMIT_EXCEEDED;
    }
+   uint32 remainder_and_value_mask  = remainder_and_value_size == 32
+                                         ? UINT32_MAX
+                                         : (1U << remainder_and_value_size) - 1;
+   uint32 new_indices_per_old_index = num_indices / old_num_indices;
 
    // for convenience
    uint64 page_size        = cache_config_page_size(cfg->cache_cfg);
@@ -1457,7 +1464,18 @@ uint32
 routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
                                                uint64                num_unique)
 {
-   double universe_size   = 1UL << cfg->fingerprint_size;
+   uint64 universe_count = 1ULL << cfg->fingerprint_size;
+   if (num_unique == 0) {
+      return 0;
+   }
+   /* Seeing every possible fingerprint makes the inverse estimate diverge.
+    * Corrupt metadata can also claim more unique fingerprints than exist.
+    * In either case, saturate because this estimate is only a sizing hint. */
+   if (num_unique >= universe_count) {
+      return UINT32_MAX;
+   }
+
+   double universe_size   = universe_count;
    double unseen_fp       = universe_size - num_unique;
    double universe_size_2 = universe_size * universe_size;
    double universe_size_4 = universe_size_2 * universe_size_2;
@@ -1471,8 +1489,14 @@ routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
                           + 1 / 2.0 * (1 / universe_size - 1 / unseen_fp)
                           - 1 / 12.0 * (1 / universe_size_2 - 1 / unseen_fp_2)
                           + 1 / 120.0 * (1 / universe_size_4 - 1 / unseen_fp_4);
-   uint32 estimated_input_keys = universe_size * harmonic_diff;
-   return estimated_input_keys;
+   double estimated_input_keys = universe_size * harmonic_diff;
+   if (estimated_input_keys >= UINT32_MAX) {
+      return UINT32_MAX;
+   }
+   if (estimated_input_keys <= 0) {
+      return 0;
+   }
+   return (uint32)estimated_input_keys;
 }
 
 uint32

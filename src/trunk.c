@@ -378,17 +378,43 @@ trunk_pivot_stats_subtract(trunk_pivot_stats a, trunk_pivot_stats b)
                               .num_tuples   = a.num_tuples - b.num_tuples};
 }
 
-static trunk_pivot_stats
-trunk_pivot_stats_add(trunk_pivot_stats a, trunk_pivot_stats b)
-{
-   return (trunk_pivot_stats){.num_kv_bytes = a.num_kv_bytes + b.num_kv_bytes,
-                              .num_tuples   = a.num_tuples + b.num_tuples};
-}
-
 static bool32
 trunk_pivot_stats_are_nonnegative(trunk_pivot_stats stats)
 {
    return stats.num_kv_bytes >= 0 && stats.num_tuples >= 0;
+}
+
+/* A tuple always contributes a key, so nonzero bytes with no tuples is not a
+ * valid persisted state.  Apart from catching corrupt metadata early, this
+ * invariant keeps leaf sizing from dividing by zero. */
+static bool32
+trunk_pivot_stats_are_valid(trunk_pivot_stats stats)
+{
+   return trunk_pivot_stats_are_nonnegative(stats)
+          && (stats.num_tuples != 0 || stats.num_kv_bytes == 0);
+}
+
+/* Pivot statistics are persisted and therefore untrusted.  Check additions
+ * before evaluating them so a corrupt image cannot trigger signed-overflow
+ * undefined behavior while a node is being updated. */
+static platform_status
+trunk_pivot_stats_add(trunk_pivot_stats  a,
+                      trunk_pivot_stats  b,
+                      trunk_pivot_stats *result)
+{
+   if (!trunk_pivot_stats_are_nonnegative(a)
+       || !trunk_pivot_stats_are_nonnegative(b)
+       || b.num_kv_bytes > INT64_MAX - a.num_kv_bytes
+       || b.num_tuples > INT64_MAX - a.num_tuples)
+   {
+      return STATUS_INVALID_STATE;
+   }
+
+   *result = (trunk_pivot_stats){
+      .num_kv_bytes = a.num_kv_bytes + b.num_kv_bytes,
+      .num_tuples   = a.num_tuples + b.num_tuples,
+   };
+   return STATUS_OK;
 }
 
 /******************
@@ -495,23 +521,31 @@ trunk_pivot_num_kv_bytes(const trunk_pivot *pvt)
  * When new bundles get flushed to this pivot's node, you must
  * inform the pivot of the tuple counts of the new bundles.
  */
-static void
+static platform_status
 trunk_pivot_add_tuple_counts(trunk_pivot      *pvt,
                              int               coefficient,
                              trunk_pivot_stats stats)
 {
    if (coefficient == 1) {
-      pvt->stats.num_tuples += stats.num_tuples;
-      pvt->stats.num_kv_bytes += stats.num_kv_bytes;
+      trunk_pivot_stats new_stats;
+      platform_status rc = trunk_pivot_stats_add(pvt->stats, stats, &new_stats);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      pvt->stats = new_stats;
    } else if (coefficient == -1) {
-      platform_assert(stats.num_tuples <= pvt->stats.num_tuples);
-      platform_assert(stats.num_kv_bytes <= pvt->stats.num_kv_bytes);
+      if (!trunk_pivot_stats_are_nonnegative(stats)
+          || stats.num_tuples > pvt->stats.num_tuples
+          || stats.num_kv_bytes > pvt->stats.num_kv_bytes)
+      {
+         return STATUS_INVALID_STATE;
+      }
       pvt->stats.num_tuples -= stats.num_tuples;
       pvt->stats.num_kv_bytes -= stats.num_kv_bytes;
    } else {
-      platform_assert(0);
+      return STATUS_BAD_PARAM;
    }
-   platform_assert(trunk_pivot_stats_are_nonnegative(pvt->stats));
+   return STATUS_OK;
 }
 
 debug_only static void
@@ -1341,7 +1375,7 @@ trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
    if (pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
        || key_size > page_size - page_offset - sizeof(*pivot)
        || header->num_inflight_bundles < pivot->num_live_inflight_bundles
-       || !trunk_pivot_stats_are_nonnegative(pivot->stats))
+       || !trunk_pivot_stats_are_valid(pivot->stats))
    {
       return NULL;
    }
@@ -1412,7 +1446,7 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
        || sizeof_ondisk_key_data(&state->pivot->key)
              > page_size - page_offset - sizeof(*state->pivot)
        || header->num_inflight_bundles < state->pivot->num_live_inflight_bundles
-       || !trunk_pivot_stats_are_nonnegative(state->pivot->stats)
+       || !trunk_pivot_stats_are_valid(state->pivot->stats)
        || (state->pivot_num + 1 < header->num_pivots
            && ((header->height == 0 && state->pivot->child_addr != 0)
                || (header->height != 0
@@ -4318,7 +4352,13 @@ trunk_apply_changes_maplet_compaction(trunk_context *context,
          trunk_pivot_set_inflight_bundle_start(
             pvt,
             trunk_pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
-         trunk_pivot_add_tuple_counts(pvt, -1, args->delta);
+         rc = trunk_pivot_add_tuple_counts(pvt, -1, args->delta);
+         if (!SUCCESS(rc)) {
+            platform_error_log("apply_changes_maplet_compaction: invalid "
+                               "pivot statistics: %d\n",
+                               rc.r);
+            return rc;
+         }
          args->found_match = TRUE;
          break;
       }
@@ -4531,7 +4571,13 @@ maplet_compaction_task(task *arg)
 
       trunk_pivot_stats delta =
          trunk_pivot_stats_subtract(bc->input.stats, bc->output.stats);
-      apply_args.delta = trunk_pivot_stats_add(apply_args.delta, delta);
+      rc = trunk_pivot_stats_add(apply_args.delta, delta, &apply_args.delta);
+      if (!SUCCESS(rc)) {
+         platform_error_log("maplet_compaction_task: invalid pivot statistics: "
+                            "%d\n",
+                            rc.r);
+         goto cleanup;
+      }
       apply_args.num_input_bundles += bc->input.num_bundles;
 
       if (bc == snapshot.last) {
@@ -5082,7 +5128,12 @@ trunk_node_receive_bundles(trunk_context *context,
       trunk_pivot_stats trunk_stats =
          trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
       trunk_pivot *pvt = trunk_node_pivot(node, i);
-      trunk_pivot_add_tuple_counts(pvt, 1, trunk_stats);
+      rc               = trunk_pivot_add_tuple_counts(pvt, 1, trunk_stats);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "node_receive_bundles: invalid pivot statistics: %d\n", rc.r);
+         return rc;
+      }
    }
 
    return rc;
@@ -5220,6 +5271,13 @@ leaf_split_target_num_leaves(trunk_context *context,
       return STATUS_OK;
    }
 
+   uint64 num_tuples = trunk_leaf_num_tuples(leaf);
+   if (num_tuples == 0) {
+      platform_error_log("leaf_split_target_num_leaves: nonzero leaf size "
+                         "with no tuples\n");
+      return STATUS_INVALID_STATE;
+   }
+
    uint64          estimated_unique_keys;
    platform_status rc =
       leaf_estimate_unique_keys(context, leaf, &estimated_unique_keys);
@@ -5230,7 +5288,6 @@ leaf_split_target_num_leaves(trunk_context *context,
       return rc;
    }
 
-   uint64 num_tuples = trunk_leaf_num_tuples(leaf);
    if (estimated_unique_keys > num_tuples * 19 / 20) {
       estimated_unique_keys = num_tuples;
    }

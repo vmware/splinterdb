@@ -169,11 +169,23 @@ __vector_replace(writable_buffer       *dst,
       _Static_assert(vector_elt_size(dst) == vector_elt_size(src),             \
                      "vector_append_subvector must be called with vectors of " \
                      "elements of same size.");                                \
-      uint64 __start                     = (start);                            \
-      vector_elt_ptr_type(src) __srcdata = vector_data(src);                   \
-      writable_buffer_append(&(dst)->wb,                                       \
-                             ((end) - __start) * vector_elt_size(src),         \
-                             __srcdata + __start);                             \
+      typeof(dst)     __dst   = (dst);                                         \
+      typeof(src)     __src   = (src);                                         \
+      uint64          __start = (start);                                       \
+      uint64          __end   = (end);                                         \
+      platform_status __rc;                                                    \
+      if (__start > __end || __end > vector_length(__src)) {                   \
+         __rc = STATUS_BAD_PARAM;                                              \
+      } else if (__start == __end) {                                           \
+         __rc = STATUS_OK;                                                     \
+      } else {                                                                 \
+         vector_elt_ptr_type(src) __srcdata = vector_data(__src);              \
+         __rc =                                                                \
+            writable_buffer_append(&__dst->wb,                                 \
+                                   (__end - __start) * vector_elt_size(src),   \
+                                   __srcdata + __start);                       \
+      }                                                                        \
+      __rc;                                                                    \
    })
 
 #define vector_append_vector(dst, src)                                         \

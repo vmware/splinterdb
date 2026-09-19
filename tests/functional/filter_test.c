@@ -494,6 +494,54 @@ out:
 }
 
 static platform_status
+test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
+{
+   platform_default_log(
+      "filter_test: routing filter arithmetic limits test started\n");
+
+   uint64 universe = 1ULL << cfg->fingerprint_size;
+   if (routing_filter_estimate_unique_keys_from_count(cfg, 0) != 0
+       || routing_filter_estimate_unique_keys_from_count(cfg, universe)
+             != UINT32_MAX
+       || routing_filter_estimate_unique_keys_from_count(cfg, universe + 1)
+             != UINT32_MAX)
+   {
+      return STATUS_TEST_FAILED;
+   }
+
+   routing_config wide_cfg   = *cfg;
+   wide_cfg.fingerprint_size = 32;
+   uint64 wide_universe      = 1ULL << wide_cfg.fingerprint_size;
+   uint32 wide_universe_estimate =
+      routing_filter_estimate_unique_keys_from_count(&wide_cfg,
+                                                     wide_universe - 1);
+   if (wide_universe_estimate != UINT32_MAX) {
+      return STATUS_TEST_FAILED;
+   }
+
+   /* This count requires more bucket bits than the fingerprint contains.  The
+    * implementation must reject it before deriving a remainder or shifting by
+    * the derived size, and therefore must not inspect the nominal input array.
+    */
+   if (cfg->fingerprint_size < 31) {
+      uint32          dummy_fp      = 0;
+      routing_filter  null_filter   = NULL_ROUTING_FILTER;
+      routing_filter  filter        = NULL_ROUTING_FILTER;
+      uint64          invalid_count = 1ULL << (cfg->fingerprint_size + 1);
+      platform_status rc            = routing_filter_add(
+         cc, cfg, &null_filter, &filter, &dummy_fp, invalid_count, 0);
+      if (!STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED)
+          || !routing_filters_equal(&filter, &NULL_ROUTING_FILTER))
+      {
+         routing_filter_dec_ref(cc, &filter);
+         return STATUS_TEST_FAILED;
+      }
+   }
+
+   return STATUS_OK;
+}
+
+static platform_status
 test_filter_basic(cache           *cc,
                   routing_config  *cfg,
                   platform_heap_id hid,
@@ -856,6 +904,8 @@ filter_test(int argc, char *argv[])
    } else {
       rc = test_filter_index_expansion_unique_count(
          (cache *)cc, &system_cfg.filter_cfg, hid);
+      platform_assert(SUCCESS(rc));
+      rc = test_filter_arithmetic_limits((cache *)cc, &system_cfg.filter_cfg);
       platform_assert(SUCCESS(rc));
       rc = test_filter_malicious_metadata(
          (cache *)cc, &system_cfg.filter_cfg, hid);
