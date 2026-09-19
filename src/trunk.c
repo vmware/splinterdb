@@ -1433,6 +1433,12 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
       state->pivot = NULL;
       async_return(state);
    }
+   /* async_await_subroutine() may resume this function on a different stack,
+    * so no automatic local initialized after async_begin() and before the
+    * await remains valid here.  The handle pins the header page; reconstruct
+    * the pointer from that persistent state before the remaining validation. */
+   trunk_ondisk_node *resumed_header =
+      (trunk_ondisk_node *)state->handlep->header_page->data;
    state->pivot =
       (trunk_ondisk_pivot *)(state->handlep->pivot_page->data + state->offset
                              - content_page_offset(state->handlep,
@@ -1445,11 +1451,12 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
        || state->pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
        || sizeof_ondisk_key_data(&state->pivot->key)
              > page_size - page_offset - sizeof(*state->pivot)
-       || header->num_inflight_bundles < state->pivot->num_live_inflight_bundles
+       || resumed_header->num_inflight_bundles
+             < state->pivot->num_live_inflight_bundles
        || !trunk_pivot_stats_are_valid(state->pivot->stats)
-       || (state->pivot_num + 1 < header->num_pivots
-           && ((header->height == 0 && state->pivot->child_addr != 0)
-               || (header->height != 0
+       || (state->pivot_num + 1 < resumed_header->num_pivots
+           && ((resumed_header->height == 0 && state->pivot->child_addr != 0)
+               || (resumed_header->height != 0
                    && !trunk_ondisk_node_addr_is_valid(
                       state->handlep->cc, state->pivot->child_addr)))))
    {

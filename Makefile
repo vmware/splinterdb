@@ -482,6 +482,9 @@ $(BINDIR)/$(UNITDIR)/writeback_set_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_c
                                          $(COMMON_UNIT_TESTOBJ)                         \
                                          $(BTREE_SYS)
 
+$(BINDIR)/$(UNITDIR)/trunk_async_test: $(COMMON_UNIT_TESTOBJ) \
+                                      $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                             \
                                     $(COMMON_UNIT_TESTOBJ)                        \
                                     $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
@@ -563,6 +566,7 @@ unit/platform_threads_test:        $(BINDIR)/$(UNITDIR)/platform_threads_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
 unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/writeback_set_test:           $(BINDIR)/$(UNITDIR)/writeback_set_test
+unit/trunk_async_test:             $(BINDIR)/$(UNITDIR)/trunk_async_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
