@@ -491,6 +491,20 @@ test_readable_ranges(platform_heap_id hid, master_config *master_cfg)
    rc = io_read(io, buf, page_size, partial_page);
    platform_assert(!SUCCESS(rc));
 
+   /* io_event.res is positive for a short read.  The async result API must
+    * nevertheless reject it because the untouched suffix of buf is stale. */
+   io_async_state_buffer short_read_state;
+   rc = io_async_state_init(
+      short_read_state, io, io_async_preadv, partial_page, NULL, NULL);
+   platform_assert_status_ok(rc);
+   rc = io_async_state_append_page(short_read_state, buf);
+   platform_assert_status_ok(rc);
+   io_async_run(short_read_state);
+   io_wait_all(io);
+   rc = io_async_state_get_result(short_read_state);
+   platform_assert(STATUS_IS_EQ(rc, STATUS_IO_ERROR));
+   io_async_state_deinit(short_read_state);
+
    uint64 sync_addr = ROUNDUP(initial_size, page_size);
    rc               = io_range_is_readable(io, sync_addr, page_size, &readable);
    platform_assert_status_ok(rc);

@@ -519,6 +519,33 @@ test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
       return STATUS_TEST_FAILED;
    }
 
+   /* With one index and one fingerprint, both the bucket and index extraction
+    * helpers shift a uint32 by 32.  The routing format defines that result as
+    * zero; do not rely on the C shift operator for this boundary case. */
+   wide_cfg.log_index_size = 0;
+   wide_cfg.index_size     = 1;
+   uint32         wide_fp  = UINT32_C(0x89abcdef);
+   routing_filter null_filter = NULL_ROUTING_FILTER;
+   routing_filter wide_filter = NULL_ROUTING_FILTER;
+   platform_status rc = routing_filter_add(
+      cc, &wide_cfg, &null_filter, &wide_filter, &wide_fp, 1, 0);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 lookup_key = 42;
+   uint64 found_values;
+   rc = routing_filter_lookup(cc,
+                              &wide_cfg,
+                              &wide_filter,
+                              key_create(FALSE,
+                                         sizeof(lookup_key),
+                                         &lookup_key),
+                              &found_values);
+   routing_filter_dec_ref(cc, &wide_filter);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    /* This count requires more bucket bits than the fingerprint contains.  The
     * implementation must reject it before deriving a remainder or shifting by
     * the derived size, and therefore must not inspect the nominal input array.
@@ -528,7 +555,7 @@ test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
       routing_filter  null_filter   = NULL_ROUTING_FILTER;
       routing_filter  filter        = NULL_ROUTING_FILTER;
       uint64          invalid_count = 1ULL << (cfg->fingerprint_size + 1);
-      platform_status rc            = routing_filter_add(
+      rc                            = routing_filter_add(
          cc, cfg, &null_filter, &filter, &dummy_fp, invalid_count, 0);
       if (!STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED)
           || !routing_filters_equal(&filter, &NULL_ROUTING_FILTER))

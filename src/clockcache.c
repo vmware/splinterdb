@@ -528,15 +528,18 @@ clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
 
-   debug_only uint16 refcount = __sync_fetch_and_add(
+   uint16 refcount = __sync_fetch_and_add(
       &cc->refcount[counter_no * cc->cfg->page_capacity + rc_number], 1);
-   debug_assert(refcount != MAX_READ_REFCOUNT);
+   platform_assert(refcount != MAX_READ_REFCOUNT,
+                   "Read refcount overflow for entry %u, counter %lu\n",
+                   entry_number,
+                   counter_no);
 }
 
 static inline void
 clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
 {
-   debug_only threadid input_counter_no = counter_no;
+   threadid input_counter_no = counter_no;
 
    counter_no %= CC_RC_WIDTH;
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
@@ -546,15 +549,15 @@ clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
                 rc_number,
                 cc->cfg->page_capacity);
 
-   debug_only uint16 refcount = __sync_fetch_and_sub(
+   uint16 refcount = __sync_fetch_and_sub(
       &cc->refcount[counter_no * cc->cfg->page_capacity + rc_number], 1);
-   debug_assert((refcount != 0),
-                "Invalid refcount, %u, after decrement."
-                " input counter_no=%lu, rc_number=%lu, counter_no=%lu\n",
-                refcount,
-                input_counter_no,
-                rc_number,
-                counter_no);
+   platform_assert((refcount != 0),
+                   "Invalid refcount, %u, after decrement."
+                   " input counter_no=%lu, rc_number=%lu, counter_no=%lu\n",
+                   refcount,
+                   input_counter_no,
+                   rc_number,
+                   counter_no);
 }
 
 static inline uint8

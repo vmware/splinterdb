@@ -6290,6 +6290,12 @@ build_new_roots(trunk_context                *context,
    platform_status rc;
 
    debug_assert(1 < vector_length(node_refs));
+   if (height >= TRUNK_MAX_HEIGHT - 1) {
+      platform_error_log("build_new_roots: cannot grow root above maximum "
+                         "height %u\n",
+                         TRUNK_MAX_HEIGHT - 1);
+      return STATUS_LIMIT_EXCEEDED;
+   }
 
    // Create the pivots vector for the new root
    trunk_pivot_vector pivots;

@@ -452,7 +452,7 @@ typedef struct laio_async_state {
    platform_status     rc;
    struct iocb         req;
    struct iocb        *reqs[1];
-   int                 status;
+   long                status;
    uint64              iovlen;
    struct iovec        iovs[];
 } laio_async_state;
@@ -653,7 +653,7 @@ laio_async_state_get_result(io_async_state *gios)
    laio_async_state *ios = (laio_async_state *)gios;
    if (ios->status < 0) {
       platform_error_log("laio_async_state_get_result: async %s failed for "
-                         "addr %lu, pages %lu, status %d: %s\n",
+                         "addr %lu, pages %lu, status %ld: %s\n",
                          ios->cmd == io_async_preadv ? "read" : "write",
                          ios->addr,
                          ios->iovlen,
@@ -662,22 +662,25 @@ laio_async_state_get_result(io_async_state *gios)
       return STATUS_IO_ERROR;
    }
 
-   // if (ios->status != ios->iovlen * ios->io->cfg->page_size) {
-   //    // FIXME: the result code of asynchrnous I/Os appears to often not
-   //    refect
-   //    // the actual number of bytes read/written, so we log it and proceed
-   //    // anyway.
-   //    platform_error_log(
-   //       "asynchronous read %p appears to be short. requested %lu "
-   //       "bytes, read %d bytes\n",
-   //       ios,
-   //       ios->iovlen * ios->io->cfg->page_size,
-   //       ios->status);
-   // }
+   /* Linux AIO reports the preadv/pwritev return value in io_event.res, which
+    * laio_async_callback() stores in status.  A nonnegative value can still be
+    * a short completion, so success requires every requested byte. */
+   uint64 expected_bytes = 0;
+   for (uint64 i = 0; i < ios->iovlen; i++) {
+      expected_bytes += ios->iovs[i].iov_len;
+   }
+   if ((uint64)ios->status != expected_bytes) {
+      platform_error_log("laio_async_state_get_result: async %s was short for "
+                         "addr %lu, pages %lu: requested %lu bytes, "
+                         "completed %ld bytes\n",
+                         ios->cmd == io_async_preadv ? "read" : "write",
+                         ios->addr,
+                         ios->iovlen,
+                         expected_bytes,
+                         ios->status);
+      return STATUS_IO_ERROR;
+   }
    return STATUS_OK;
-   // return ios->status == ios->iovlen * ios->io->cfg->page_size
-   //           ? STATUS_OK
-   //           : STATUS_IO_ERROR;
 }
 
 static io_async_state_ops laio_async_state_ops = {

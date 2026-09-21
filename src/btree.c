@@ -4845,7 +4845,9 @@ btree_pack_setup_start(btree_pack_req *req)
 static inline btree_node *
 btree_pack_get_current_node(btree_pack_req *req, uint64 height)
 {
+   platform_assert(height < BTREE_MAX_HEIGHT);
    if (0 < req->num_edges[height]) {
+      platform_assert(req->num_edges[height] <= MAX_PAGES_PER_EXTENT);
       return &req->edge[height][req->num_edges[height] - 1];
    } else {
       return NULL;
@@ -4855,19 +4857,32 @@ btree_pack_get_current_node(btree_pack_req *req, uint64 height)
 static inline btree_pivot_stats *
 btree_pack_get_current_node_stats(btree_pack_req *req, uint64 height)
 {
-   debug_assert(0 < req->num_edges[height]);
+   platform_assert(height < BTREE_MAX_HEIGHT);
+   platform_assert(0 < req->num_edges[height]
+                   && req->num_edges[height] <= MAX_PAGES_PER_EXTENT);
    return &req->edge_stats[height][req->num_edges[height] - 1];
 }
 
-static inline btree_node *
-btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot);
+static inline platform_status
+btree_pack_create_next_node(btree_pack_req *req,
+                            uint64          height,
+                            key             pivot,
+                            btree_node     **node_out);
 
 /*
  * Add the specified node to its parent. Creates a parent if necessary.
  */
-static inline void
+static inline platform_status
 btree_pack_link_node(btree_pack_req *req, uint64 height, uint64 offset)
 {
+   if (height >= BTREE_MAX_HEIGHT - 1) {
+      platform_error_log("btree_pack_link_node: cannot link a node above "
+                         "maximum height %u\n",
+                         BTREE_MAX_HEIGHT - 1);
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   platform_assert(offset < req->num_edges[height]);
+
    btree_node        *edge       = &req->edge[height][offset];
    btree_pivot_stats *edge_stats = &req->edge_stats[height][offset];
    key                pivot = height ? btree_get_pivot(req->cfg, edge->hdr, 0)
@@ -4886,8 +4901,12 @@ btree_pack_link_node(btree_pack_req *req, uint64 height, uint64 offset)
                                  edge->addr,
                                  *edge_stats))
    {
-      btree_pack_create_next_node(req, height + 1, pivot);
-      parent         = btree_pack_get_current_node(req, height + 1);
+      platform_status rc = btree_pack_create_next_node(
+         req, height + 1, pivot, &parent);
+      if (!SUCCESS(rc)) {
+         btree_node_unget(req->cc, req->cfg, edge);
+         return rc;
+      }
       bool32 success = btree_set_index_entry(
          req->cfg, parent->hdr, 0, pivot, edge->addr, *edge_stats);
       platform_assert(success);
@@ -4898,29 +4917,52 @@ btree_pack_link_node(btree_pack_req *req, uint64 height, uint64 offset)
 
    btree_node_unget(req->cc, req->cfg, edge);
    memset(edge_stats, 0, sizeof(*edge_stats));
+   return STATUS_OK;
 }
 
-static inline void
+static inline platform_status
 btree_pack_link_extent(btree_pack_req *req,
                        uint64          height,
                        bool32          last_extent_in_level,
                        uint64          next_extent_addr)
 {
-   debug_assert(0 < req->num_edges[height]);
+   if (height >= BTREE_MAX_HEIGHT - 1) {
+      platform_error_log("btree_pack_link_extent: cannot link an extent above "
+                         "maximum height %u\n",
+                         BTREE_MAX_HEIGHT - 1);
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   platform_assert(0 < req->num_edges[height]
+                   && req->num_edges[height] <= MAX_PAGES_PER_EXTENT);
    if (last_extent_in_level) {
       btree_hdr_set_last_in_level(
          req->edge[height][req->num_edges[height] - 1].hdr);
    }
-   for (int i = 0; i < req->num_edges[height]; i++) {
+   for (uint32 i = 0; i < req->num_edges[height]; i++) {
       req->edge[height][i].hdr->next_addr = next_extent_addr;
-      btree_pack_link_node(req, height, i);
+      platform_status rc = btree_pack_link_node(req, height, i);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
    req->num_edges[height] = 0;
+   return STATUS_OK;
 }
 
-static inline btree_node *
-btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
+static inline platform_status
+btree_pack_create_next_node(btree_pack_req *req,
+                            uint64          height,
+                            key             pivot,
+                            btree_node     **node_out)
 {
+   if (height >= BTREE_MAX_HEIGHT) {
+      platform_error_log("btree_pack_create_next_node: requested height %lu "
+                         "exceeds maximum height %u\n",
+                         height,
+                         BTREE_MAX_HEIGHT - 1);
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
    btree_node new_node;
    uint64     node_next_extent;
    btree_alloc(req->cc,
@@ -4952,7 +4994,12 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
          debug_assert(btree_page_is_first_in_extent(req->cfg, new_node.addr));
          new_node.hdr->prev_addr =
             btree_extent_base_addr(req->cc, old_node->addr);
-         btree_pack_link_extent(req, height, FALSE, new_node.addr);
+         platform_status rc =
+            btree_pack_link_extent(req, height, FALSE, new_node.addr);
+         if (!SUCCESS(rc)) {
+            btree_node_full_unlock(req->cc, req->cfg, &new_node);
+            return rc;
+         }
       }
    }
 
@@ -4964,7 +5011,8 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
    req->num_edges[height]++;
    req->level_has_nodes[height] = TRUE;
    debug_assert(btree_pack_get_current_node_stats(req, height)->num_kvs == 0);
-   return &req->edge[height][req->num_edges[height] - 1];
+   *node_out = &req->edge[height][req->num_edges[height] - 1];
+   return STATUS_OK;
 }
 
 static inline platform_status
@@ -5003,7 +5051,10 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
        || !btree_set_leaf_entry(
           req->cfg, leaf->hdr, btree_num_entries(leaf->hdr), tuple_key, msg))
    {
-      leaf = btree_pack_create_next_node(req, 0, tuple_key);
+      rc = btree_pack_create_next_node(req, 0, tuple_key, &leaf);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       bool32 result =
          btree_set_leaf_entry(req->cfg, leaf->hdr, 0, tuple_key, msg);
       platform_assert(result);
@@ -5029,7 +5080,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 }
 
 
-static inline void
+static inline platform_status
 btree_pack_post_loop(btree_pack_req *req, key last_key)
 {
    cache              *cc  = req->cc;
@@ -5045,12 +5096,15 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
          cc, btree_root_to_meta_addr(cfg, req->root_addr, 0), PAGE_TYPE_BRANCH);
       platform_assert(r == 0);
       req->root_addr = 0;
-      return;
+      return STATUS_OK;
    }
 
-   int h = 0;
+   uint64 h = 0;
    while (h < req->height || 1 < req->num_edges[h]) {
-      btree_pack_link_extent(req, h, TRUE, 0);
+      platform_status rc = btree_pack_link_extent(req, h, TRUE, 0);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       h++;
    }
 
@@ -5072,6 +5126,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    btree_node_full_unlock(cc, cfg, &req->edge[req->height][0]);
 
    mini_release(&req->mini);
+   return STATUS_OK;
 }
 
 static bool32
@@ -5083,13 +5138,17 @@ btree_pack_can_fit_tuple(btree_pack_req *req, key tuple_key, message data)
 static void
 btree_pack_abort(btree_pack_req *req)
 {
+   platform_assert(req->height < BTREE_MAX_HEIGHT);
    for (uint16 i = 0; i <= req->height; i++) {
       for (uint16 j = 0; j < req->num_edges[i]; j++) {
-         btree_node_full_unlock(req->cc, req->cfg, &req->edge[i][j]);
+         if (req->edge[i][j].page != NULL) {
+            btree_node_full_unlock(req->cc, req->cfg, &req->edge[i][j]);
+         }
       }
    }
 
    btree_dec_ref(req->cc, req->cfg, req->root_addr, PAGE_TYPE_BRANCH);
+   req->root_addr = 0;
 }
 
 /*
@@ -5136,7 +5195,12 @@ btree_pack(btree_pack_req *req)
       }
    }
 
-   btree_pack_post_loop(req, tuple_key);
+   platform_status rc = btree_pack_post_loop(req, tuple_key);
+   if (!SUCCESS(rc)) {
+      platform_error_log("%s error status: %d\n", __func__, rc.r);
+      btree_pack_abort(req);
+      return rc;
+   }
    platform_assert(IMPLIES(req->num_tuples == 0, req->root_addr == 0));
    return STATUS_OK;
 }

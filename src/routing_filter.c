@@ -167,13 +167,14 @@ routing_unset_bit(uint8 *data, uint64 bitnum)
 static inline uint32
 routing_get_bucket(uint32 fp, size_t remainder_and_value_size)
 {
-   return fp >> remainder_and_value_size;
+   return remainder_and_value_size >= 32 ? 0
+                                         : fp >> remainder_and_value_size;
 }
 
 static inline uint32
 routing_get_index(uint32 fp, size_t index_remainder_and_value_size)
 {
-   return index_remainder_and_value_size == 32
+   return index_remainder_and_value_size >= 32
              ? 0
              : fp >> index_remainder_and_value_size;
 }
