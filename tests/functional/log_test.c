@@ -1873,6 +1873,86 @@ test_log_recovery_at_eof(clockcache        *cc,
    return 0;
 }
 
+/*
+ * A later missing group truncates replay, but must not erase a complete
+ * durable prefix.  Leave group 3 readable after removing all of group 2 so
+ * recovery exercises the whole-group gap rather than a simple torn tail.
+ */
+static int
+test_log_missing_group_preserves_prefix(clockcache             *cc,
+                                        clockcache_config      *cache_cfg,
+                                        io_handle              *io,
+                                        allocator              *al,
+                                        shard_log_config       *cfg,
+                                        platform_heap_id        hid,
+                                        test_message_generator *gen,
+                                        uint64                  key_size)
+{
+   cache      *cacheh = (cache *)cc;
+   log_handle *log;
+
+   platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
+   log_head segment = log_get_head(log);
+
+   for (uint64 group = 0; group < 3; group++) {
+      test_log_write_range(log, gen, hid, key_size, group, 1);
+      platform_assert_status_ok(log_make_durable(log));
+   }
+   platform_assert_status_ok(log_seal(log));
+   log_deinit(log);
+
+   platform_assert_status_ok(cache_writeback_dirty(cacheh));
+   platform_assert_status_ok(cache_durable_barrier(cacheh));
+
+   uint64         missing_addr = segment.addr + cache_page_size(cacheh);
+   page_handle   *page = cache_get(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
+   shard_log_hdr *hdr  = (shard_log_hdr *)page->data;
+   platform_assert(hdr->group_id == SHARD_LOG_FIRST_GROUP_ID + 1);
+   platform_assert(hdr->page_no == 0);
+   platform_assert((hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK) == 1);
+
+   while (!cache_try_claim(cacheh, page)) {
+      cache_unget(cacheh, page);
+      page = cache_get(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
+   }
+   cache_lock(cacheh, page);
+   memset(page->data, 0, cache_page_size(cacheh));
+   cache_unlock(cacheh, page);
+   cache_unclaim(cacheh, page);
+   cache_unget(cacheh, page);
+
+   platform_assert_status_ok(cache_writeback_dirty(cacheh));
+   platform_assert_status_ok(cache_durable_barrier(cacheh));
+
+   /* Consult only the durable image, including the zeroed group-2 page. */
+   clockcache_deinit(cc);
+   platform_assert_status_ok(clockcache_init(cc,
+                                             cache_cfg,
+                                             io,
+                                             al,
+                                             "missing-log-group",
+                                             hid,
+                                             platform_get_module_id()));
+
+   log_iterator *itor;
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)cc, cfg, hid, segment, 0, &itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   platform_assert(log_iterator_can_next(itor));
+
+   uint64 memtable_generation;
+   uint64 leaf_generation;
+   log_iterator_curr_generations(itor, &memtable_generation, &leaf_generation);
+   platform_assert(memtable_generation == 0);
+   platform_assert(leaf_generation == 0);
+   platform_assert_status_ok(log_iterator_next(itor));
+   platform_assert(!log_iterator_can_next(itor));
+
+   log_iterator_deinit(itor);
+   shard_log_dec_ref((cache *)cc, &segment);
+   return 0;
+}
+
 typedef struct test_log_thread_params {
    log_handle             *logh;
    platform_thread         thread;
@@ -2234,6 +2314,16 @@ log_test(int argc, char *argv[])
                                  &system_cfg.log_cfg,
                                  hid,
                                  system_cfg.io_cfg.filename);
+   platform_assert(rc == 0);
+
+   rc = test_log_missing_group_preserves_prefix(cc,
+                                                &system_cfg.cache_cfg,
+                                                io,
+                                                (allocator *)&al,
+                                                &system_cfg.log_cfg,
+                                                hid,
+                                                &gen,
+                                                workload_cfg.key_size);
    platform_assert(rc == 0);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);

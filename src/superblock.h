@@ -168,7 +168,8 @@ superblock_context_deinit(superblock_context *ctx);
 /*
  * Read both physical copies, validate each (magic, version, checksum, and
  * geometry against cfg), and load the newest valid one into the in-memory
- * image.  Returns STATUS_NOT_FOUND if neither copy is a valid superblock.
+ * image.  Returns STATUS_NOT_FOUND if every readable copy is invalid, or the
+ * first read error if no valid copy can be read.
  *
  * Must call superblock_init() first.
  */

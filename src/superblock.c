@@ -134,11 +134,15 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
    }
    superblock *slot = platform_buffer_getaddr(&slot_buffer);
 
-   bool32 have_valid = FALSE;
+   bool32          have_valid       = FALSE;
+   platform_status first_read_error = STATUS_OK;
    for (uint64 s = 0; s < SUPERBLOCK_NUM_SLOTS; s++) {
       rc = io_read(ctx->io, slot, ctx->page_size, superblock_slot_addr(ctx, s));
       if (!SUCCESS(rc)) {
-         goto out;
+         if (SUCCESS(first_read_error)) {
+            first_read_error = rc;
+         }
+         continue;
       }
       if (!superblock_is_valid(slot, cfg)) {
          continue;
@@ -151,8 +155,15 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
    }
 
    if (!have_valid) {
-      platform_error_log("superblock_mount: no valid superblock found\n");
-      rc = STATUS_NOT_FOUND;
+      if (!SUCCESS(first_read_error)) {
+         platform_error_log("superblock_mount: no readable valid superblock "
+                            "found: %s\n",
+                            platform_status_to_string(first_read_error));
+         rc = first_read_error;
+      } else {
+         platform_error_log("superblock_mount: no valid superblock found\n");
+         rc = STATUS_NOT_FOUND;
+      }
       goto out;
    }
    rc = STATUS_OK;

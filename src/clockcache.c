@@ -3256,6 +3256,33 @@ clockcache_prefetch_pages(clockcache *cc,
             break;
          case GET_RC_EVICTED:
          {
+            /*
+             * An allocated extent may extend past a regular file's current
+             * EOF. Prefetch is only a hint, so leave an absent page unmapped;
+             * a later write can extend the file and a later get can load it.
+             * Flush an accumulated run before a hole because one async preadv
+             * request represents a contiguous range.
+             */
+            bool32          readable;
+            platform_status readable_rc = io_range_is_readable(
+               cc->io, addr, clockcache_page_size(cc), &readable);
+            if (!SUCCESS(readable_rc)) {
+               platform_error_log("clockcache_prefetch_pages: could not query "
+                                  "readability of addr %lu: %s\n",
+                                  addr,
+                                  platform_status_to_string(readable_rc));
+               if (state != NULL) {
+                  clockcache_prefetch_issue(cc, &state, &state_num_pages, type);
+               }
+               return;
+            }
+            if (!readable) {
+               if (state != NULL) {
+                  clockcache_prefetch_issue(cc, &state, &state_num_pages, type);
+               }
+               break;
+            }
+
             uint32 free_entry_no = clockcache_get_free_page(
                cc, CC_READ_LOADING_STATUS, type, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];

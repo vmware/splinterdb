@@ -81,6 +81,59 @@ superblock_test_corrupt_slot(io_handle *io, uint64 page_size, uint64 slot)
    platform_buffer_deinit(&buffer);
 }
 
+typedef struct superblock_read_fault {
+   io_handle    *io;
+   const io_ops *saved_ops;
+   io_ops        fault_ops;
+   uint64        page_size;
+   uint64        fail_slot_mask;
+} superblock_read_fault;
+
+static superblock_read_fault *active_superblock_read_fault;
+
+static platform_status
+superblock_fault_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
+{
+   superblock_read_fault *fault = active_superblock_read_fault;
+   platform_assert(fault != NULL && fault->io == io);
+
+   if (bytes == fault->page_size && addr % fault->page_size == 0) {
+      uint64 slot = addr / fault->page_size;
+      if (slot < SUPERBLOCK_NUM_SLOTS
+          && (fault->fail_slot_mask & (1UL << slot)) != 0)
+      {
+         return STATUS_IO_ERROR;
+      }
+   }
+   return fault->saved_ops->read(io, buf, bytes, addr);
+}
+
+static void
+superblock_read_fault_install(superblock_read_fault *fault,
+                              io_handle             *io,
+                              uint64                 page_size,
+                              uint64                 fail_slot_mask)
+{
+   platform_assert(active_superblock_read_fault == NULL);
+
+   fault->io                    = io;
+   fault->saved_ops             = io->ops;
+   fault->fault_ops             = *io->ops;
+   fault->fault_ops.read        = superblock_fault_read;
+   fault->page_size             = page_size;
+   fault->fail_slot_mask        = fail_slot_mask;
+   active_superblock_read_fault = fault;
+   io->ops                      = &fault->fault_ops;
+}
+
+static void
+superblock_read_fault_uninstall(superblock_read_fault *fault)
+{
+   platform_assert(active_superblock_read_fault == fault);
+   fault->io->ops               = fault->saved_ops;
+   active_superblock_read_fault = NULL;
+}
+
 /*
  * A freshly formatted superblock has an empty tree table and invalid (rebuild)
  * allocation state, and a subsequent mount reads that back.
@@ -381,6 +434,60 @@ CTEST2(superblock, test_both_slots_corrupt_is_not_found)
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_FALSE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+}
+
+/* A read failure in either A/B slot must not hide the valid peer slot. */
+CTEST2(superblock, test_slot_read_error_falls_back_to_peer)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+
+   for (uint64 failed_slot = 0; failed_slot < SUPERBLOCK_NUM_SLOTS;
+        failed_slot++)
+   {
+      rc = superblock_context_init(
+         &ctx, data->ioh, &data->allocator_cfg, data->hid);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      superblock_read_fault fault = {0};
+      superblock_read_fault_install(
+         &fault, data->ioh, data->io_cfg.page_size, 1UL << failed_slot);
+      rc = superblock_mount(&ctx, &data->allocator_cfg);
+      superblock_read_fault_uninstall(&fault);
+
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_EQUAL(failed_slot == 0 ? 2 : 1, ctx.image->generation);
+      superblock_context_deinit(&ctx);
+   }
+}
+
+/* If neither slot can be read, preserve and return the I/O failure. */
+CTEST2(superblock, test_both_slot_read_errors_are_reported)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_read_fault fault = {0};
+   superblock_read_fault_install(
+      &fault, data->ioh, data->io_cfg.page_size, (1UL << 2) - 1);
+   rc = superblock_mount(&ctx, &data->allocator_cfg);
+   superblock_read_fault_uninstall(&fault);
+
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR));
    superblock_context_deinit(&ctx);
 }
 

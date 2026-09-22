@@ -2607,31 +2607,10 @@ shard_log_iterator_init(cache              *cc,
          }
 
          if (in_group && hdr->group_id != group_id) {
-            // The run ended; judge it before starting the next.
-            if (group_declared != 0 && group_pages == group_declared) {
-               rc = shard_log_iterator_accept_group(itor,
-                                                    group_pages,
-                                                    group_entries,
-                                                    group_contents_size,
-                                                    &num_valid_pages,
-                                                    &contents_size);
-               if (!SUCCESS(rc)) {
-                  cache_unget(cc, page);
-                  return rc;
-               }
-               expect_group          = group_id + 1;
-               itor->stream_complete = group_ends_stream;
-               if (group_ends_stream) {
-                  /* EOS is authoritative: later pages are not in this stream.
-                   */
-                  cache_unget(cc, page);
-                  finished = TRUE;
-                  break;
-               }
-            } else {
-               broken = TRUE;
-            }
-            in_group = FALSE;
+            /* A terminated group is accepted as soon as its terminator is
+             * validated below. Reaching another group while one is still open
+             * therefore means the open group lost its terminator. */
+            broken = TRUE;
          }
          if (broken) {
             cache_unget(cc, page);
@@ -2698,39 +2677,45 @@ shard_log_iterator_init(cache              *cc,
          group_entries += page_entries;
          group_contents_size += page_contents_size;
          if (hdr->pages_in_group != 0) {
-            if (group_declared != 0) {
-               platform_error_log("shard_log_iterator_init: group %lu has two "
-                                  "terminators; discarding it and the rest\n",
-                                  group_id);
-               cache_unget(cc, page);
-               broken = TRUE;
-               break;
-            }
             group_declared =
                hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK;
             group_ends_stream =
                (hdr->pages_in_group & SHARD_LOG_END_OF_STREAM) != 0;
+
+            /*
+             * The terminator is the group's commit record. Header and exact
+             * sequence validation prove that pages 0..page_no are present,
+             * and record validation above proves their contents. Accept the
+             * group now, before looking at any later page: a missing or corrupt
+             * suffix must not erase this already-complete prefix.
+             */
+            platform_assert(group_pages == group_declared);
+            rc = shard_log_iterator_accept_group(itor,
+                                                 group_pages,
+                                                 group_entries,
+                                                 group_contents_size,
+                                                 &num_valid_pages,
+                                                 &contents_size);
+            if (!SUCCESS(rc)) {
+               cache_unget(cc, page);
+               return rc;
+            }
+            expect_group          = group_id + 1;
+            itor->stream_complete = group_ends_stream;
+            in_group              = FALSE;
+            if (group_ends_stream) {
+               finished = TRUE;
+            }
          }
          next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);
+         if (finished) {
+            break;
+         }
       }
       extent_addr = next_extent_addr;
    }
-   if (!broken && !finished && in_group) {
-      if (group_declared != 0 && group_pages == group_declared) {
-         rc = shard_log_iterator_accept_group(itor,
-                                              group_pages,
-                                              group_entries,
-                                              group_contents_size,
-                                              &num_valid_pages,
-                                              &contents_size);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
-         itor->stream_complete = group_ends_stream;
-      }
-      // Otherwise the stream ends in an unclosed group: discard it.
-   }
+   /* Any group still open here has no validated terminator and is discarded. */
 
    if (contents_size != 0) {
       itor->contents = TYPED_ARRAY_MALLOC(hid, itor->contents, contents_size);
