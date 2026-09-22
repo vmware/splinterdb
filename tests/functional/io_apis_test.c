@@ -417,10 +417,73 @@ heap_destroy:
    return (SUCCESS(rc) ? 0 : -1);
 }
 
+typedef struct readable_range_race {
+   io_handle *io;
+   uint64     page_size;
+   uint64     completed_end;
+   uint64     readers_ready;
+   bool32     done;
+} readable_range_race;
+
+static void
+readable_range_reader(void *arg)
+{
+   readable_range_race *race = arg;
+   __atomic_fetch_add(&race->readers_ready, 1, __ATOMIC_RELEASE);
+   do {
+      uint64 end = __atomic_load_n(&race->completed_end, __ATOMIC_ACQUIRE);
+      bool32 readable;
+      platform_assert_status_ok(io_range_is_readable(
+         race->io, end - race->page_size, race->page_size, &readable));
+      platform_assert(readable, "Completed write at %lu is unreadable", end);
+
+      /* Query beyond the known end too, while other queries and writes may
+       * refresh the cached size. Either answer is valid for this range. */
+      platform_assert_status_ok(
+         io_range_is_readable(race->io, end, race->page_size, &readable));
+   } while (!__atomic_load_n(&race->done, __ATOMIC_ACQUIRE));
+
+   uint64 end = __atomic_load_n(&race->completed_end, __ATOMIC_ACQUIRE);
+   bool32 readable;
+   platform_assert_status_ok(io_range_is_readable(
+      race->io, end - race->page_size, race->page_size, &readable));
+   platform_assert(readable);
+}
+
+static void
+test_concurrent_readable_ranges(io_handle       *io,
+                                platform_heap_id hid,
+                                char            *buf,
+                                uint64           page_size,
+                                uint64           end)
+{
+   readable_range_race race = {
+      .io = io, .page_size = page_size, .completed_end = end};
+   platform_thread readers[NUM_THREADS];
+   for (uint64 i = 0; i < NUM_THREADS; i++) {
+      platform_assert_status_ok(platform_thread_create(
+         &readers[i], FALSE, readable_range_reader, &race, hid));
+   }
+   while (__atomic_load_n(&race.readers_ready, __ATOMIC_ACQUIRE) != NUM_THREADS)
+   {
+      platform_sleep_ns(100);
+   }
+
+   for (uint64 i = 0; i < 2048; i++) {
+      platform_assert_status_ok(io_write(io, buf, page_size, end));
+      end += page_size;
+      __atomic_store_n(&race.completed_end, end, __ATOMIC_RELEASE);
+   }
+   __atomic_store_n(&race.done, TRUE, __ATOMIC_RELEASE);
+   for (uint64 i = 0; i < NUM_THREADS; i++) {
+      platform_thread_join(&readers[i]);
+   }
+}
+
 /*
  * Exercise the logical-size cache on an isolated, deliberately partial-page
- * regular file.  In particular, both write paths must invalidate a size that
- * was cached before they extended the file.
+ * regular file. Both write paths must invalidate a size cached before they
+ * extended the file, including while concurrent readers refresh that size.
  */
 static void
 test_readable_ranges(platform_heap_id hid, master_config *master_cfg)
@@ -539,6 +602,9 @@ test_readable_ranges(platform_heap_id hid, master_config *master_cfg)
    rc = io_range_is_readable(io, async_addr, page_size, &readable);
    platform_assert_status_ok(rc);
    platform_assert(readable);
+
+   test_concurrent_readable_ranges(
+      io, hid, buf, page_size, async_addr + page_size);
 
    platform_free(hid, buf);
    io_handle_destroy(io);

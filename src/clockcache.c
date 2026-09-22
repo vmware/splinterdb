@@ -1050,14 +1050,10 @@ clockcache_ok_to_writeback(clockcache *cc,
  *      dirty interval (see cache_writeback_page()). Clearing CC_WRITEBACK
  *      without writing would make that thread's next status poll read the page
  *      as REDIRTIED, which is indistinguishable from a completed write followed
- *      by a legitimate re-dirty -- a silent durability violation. So every
- *      failure between here and io_async_run() is fatal.
- *
- *      Handling such a failure without crashing needs a state a waiter can
- *      observe and react to -- an error flag that some thread later claims a
- *      retry on, plus a status the waiter can fail on rather than hang. That is
- *      a bigger change, and it belongs with handling write-completion errors
- *      (clockcache_write_callback() asserts on those today), not ahead of it.
+ *      by a legitimate re-dirty -- a silent durability violation. Submission
+ *      and completion failures therefore retain CC_WRITEBACK and set
+ *      CC_WRITEBACK_ERROR, so waiters report failure and a later caller can
+ *      claim a retry of the same dirty interval.
  *----------------------------------------------------------------------
  */
 static inline bool32
@@ -1375,18 +1371,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             cc->stats[tid].writes_issued++;
          }
 
-         // The IO layer must run writeback asynchronously and complete it via
-         // clockcache_write_callback (which does the dirty->clean bookkeeping).
-         // A synchronous completion would skip that callback and strand the
-         // pages in CC_WRITEBACK, so a broken contract is a fatal correctness
-         // error.
-         async_status arc = io_async_run(state->iostate);
-         platform_assert(
-            arc == ASYNC_STATUS_RUNNING,
-            "clockcache_batch_start_writeback: async writeback for addr %lu "
-            "completed synchronously; the IO layer must complete it via the "
-            "write callback",
-            first_addr);
+         /* Drive submission through the completion handler too: a rejected
+          * submission finishes synchronously without scheduling a callback. */
+         clockcache_write_callback(state);
       }
    }
 
@@ -2852,7 +2839,7 @@ clockcache_writeback_page(clockcache              *cc,
                          platform_status_to_string(status));
    }
    platform_assert_status_ok(status);
-   io_async_run(state->iostate);
+   clockcache_write_callback(state);
    return STATUS_OK;
 }
 
@@ -2957,13 +2944,13 @@ clockcache_writeback_extent(clockcache              *cc,
          /* We are not writing this page, so contiguity breaks here: close out
           * whatever run of pages we had accumulated. */
          if (state != NULL) {
-            io_async_run(state->iostate);
+            clockcache_write_callback(state);
             state = NULL;
          }
       }
    }
    if (state != NULL) {
-      io_async_run(state->iostate);
+      clockcache_write_callback(state);
    }
 
    /*
@@ -3187,7 +3174,9 @@ clockcache_prefetch_issue(clockcache      *cc,
       cc->stats[tid].prefetches_issued[type]++;
    }
 
-   io_async_run((*state)->iostate);
+   /* A synchronous submission failure needs the same handling as a failed
+    * completion; otherwise these entries stay CC_LOADING forever. */
+   clockcache_prefetch_callback(*state);
    *state           = NULL;
    *state_num_pages = 0;
 }

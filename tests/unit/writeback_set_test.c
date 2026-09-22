@@ -135,6 +135,141 @@ alloc_and_dirty_extent(clockcache *cc, rc_allocator *al)
    return base_addr;
 }
 
+/* Reject submissions synchronously, as io_submit() does on a hard error.
+ * Preserve the real backend's iovec bookkeeping and state cleanup. */
+static const io_ops      *submission_saved_ops;
+static io_ops             submission_io_ops;
+static io_async_state_ops submission_state_ops;
+static uint64             submission_rejections;
+
+static async_status
+reject_submission(io_async_state *state)
+{
+   submission_rejections++;
+   return ASYNC_STATUS_DONE;
+}
+
+static platform_status
+rejected_submission_result(io_async_state *state)
+{
+   return STATUS_IO_ERROR;
+}
+
+static platform_status
+reject_write_init(io_async_state   *state,
+                  io_handle        *io,
+                  io_async_cmd      cmd,
+                  uint64            addr,
+                  async_callback_fn callback,
+                  void             *callback_arg)
+{
+   platform_status rc = submission_saved_ops->async_state_init(
+      state, io, cmd, addr, callback, callback_arg);
+   if (SUCCESS(rc) && cmd == io_async_pwritev) {
+      submission_state_ops            = *state->ops;
+      submission_state_ops.run        = reject_submission;
+      submission_state_ops.get_result = rejected_submission_result;
+      state->ops                      = &submission_state_ops;
+   }
+   return rc;
+}
+
+static void
+reject_write_submissions(io_handle *io)
+{
+   io_wait_all(io);
+   submission_saved_ops               = io->ops;
+   submission_io_ops                  = *io->ops;
+   submission_io_ops.async_state_init = reject_write_init;
+   submission_rejections              = 0;
+   io->ops                            = &submission_io_ops;
+}
+
+static void
+assert_failed_request(writeback_set *set)
+{
+   ASSERT_EQUAL(1, writeback_set_num_requests(set));
+   writeback_set_entry *entry = vector_get_ptr(&set->entries, 0);
+   /* Check before waiting so a regression fails instead of hanging. */
+   ASSERT_EQUAL(CACHE_WRITEBACK_FAILED,
+                cache_writeback_get_status(set->cc, &entry->request));
+   ASSERT_TRUE(STATUS_IS_EQ(writeback_set_wait(set), STATUS_IO_ERROR));
+}
+
+CTEST2(writeback_set, test_rejected_page_submission)
+{
+   cache *ccp       = (cache *)&data->cc;
+   uint64 num_pages = cache_config_pages_per_extent(cache_get_config(ccp));
+   uint64 base_addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   writeback_set set;
+   writeback_set_init(&set, ccp, data->hid);
+   page_handle *page = cache_get(ccp, base_addr, TRUE, PAGE_TYPE_MISC);
+
+   reject_write_submissions(data->io);
+   ASSERT_TRUE(SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_MISC)));
+   data->io->ops = submission_saved_ops;
+   cache_unget(ccp, page);
+   ASSERT_EQUAL(1, submission_rejections);
+   assert_failed_request(&set);
+   ASSERT_EQUAL(num_pages, cache_count_dirty(ccp));
+
+   ASSERT_TRUE(SUCCESS(writeback_set_retry_incomplete(&set)));
+   ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
+   ASSERT_EQUAL(num_pages - 1, cache_count_dirty(ccp));
+   ASSERT_TRUE(SUCCESS(writeback_set_make_durable(&set)));
+   writeback_set_deinit(&set);
+}
+
+CTEST2(writeback_set, test_rejected_extent_submissions)
+{
+   cache *ccp       = (cache *)&data->cc;
+   uint64 page_size = cache_config_page_size(cache_get_config(ccp));
+   uint64 num_pages = cache_config_pages_per_extent(cache_get_config(ccp));
+   uint64 base_addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   writeback_set set;
+   writeback_set_init(&set, ccp, data->hid);
+
+   /* A clean middle page splits the extent into two separate submissions. */
+   page_handle *page = cache_get(
+      ccp, base_addr + (num_pages / 2) * page_size, TRUE, PAGE_TYPE_MISC);
+   ASSERT_TRUE(SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_MISC)));
+   cache_unget(ccp, page);
+   ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
+   writeback_set_reset(&set);
+
+   reject_write_submissions(data->io);
+   ASSERT_TRUE(
+      SUCCESS(writeback_set_add_extent(&set, base_addr, PAGE_TYPE_MISC)));
+   data->io->ops = submission_saved_ops;
+   ASSERT_EQUAL(2, submission_rejections);
+   assert_failed_request(&set);
+   ASSERT_EQUAL(num_pages - 1, cache_count_dirty(ccp));
+
+   ASSERT_TRUE(SUCCESS(writeback_set_retry_incomplete(&set)));
+   ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
+   ASSERT_EQUAL(0, cache_count_dirty(ccp));
+   ASSERT_TRUE(SUCCESS(writeback_set_make_durable(&set)));
+   writeback_set_deinit(&set);
+}
+
+CTEST2(writeback_set, test_rejected_cleaner_submission)
+{
+   cache *ccp       = (cache *)&data->cc;
+   uint64 num_pages = cache_config_pages_per_extent(cache_get_config(ccp));
+   alloc_and_dirty_extent(&data->cc, &data->al);
+
+   reject_write_submissions(data->io);
+   platform_status rc = cache_writeback_dirty(ccp);
+   data->io->ops      = submission_saved_ops;
+   ASSERT_NOT_EQUAL(0, submission_rejections);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR));
+   ASSERT_EQUAL(num_pages, cache_count_dirty(ccp));
+
+   ASSERT_TRUE(SUCCESS(cache_writeback_dirty(ccp)));
+   ASSERT_EQUAL(0, cache_count_dirty(ccp));
+   ASSERT_TRUE(SUCCESS(cache_durable_barrier(ccp)));
+}
+
 /*
  * A set of individually added pages is issued, waited for, and made durable,
  * and the pages really are clean afterwards.

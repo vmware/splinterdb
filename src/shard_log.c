@@ -2077,8 +2077,9 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
       /*
        * Record the current extent before cache_get(): the map being rebuilt
        * does not yet permit reads from it.  This also records a wholly
-       * unreadable successor named by the final valid page, protecting the
-       * mini allocator's unused reserve until replay completes.
+       * unreadable successor of an unsealed stream, protecting its unused
+       * reserve until replay completes. A sealed stream's end marker stops
+       * the walk before its released reserve, which may have been reused.
        */
       rc = allocator_recovery_record_reference(al, extent_addr, PAGE_TYPE_LOG);
       if (!SUCCESS(rc)) {
@@ -2103,6 +2104,7 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
 
          uint64       page_addr = extent_addr + i * page_size;
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         bool32       ends_stream = FALSE;
          if (shard_log_valid(cfg, page, head.nonce)) {
             rc = shard_log_validate_page_records(cc, cfg, page);
             if (SUCCESS(rc)) {
@@ -2115,11 +2117,17 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
                next_extent_addr = shard_log_next_extent_addr(cfg, page);
                /* Include valid pages in a trailing incomplete group. */
                rc = shard_log_recover_page_blob_allocations(cc, cfg, page);
+               ends_stream = (((shard_log_hdr *)page->data)->pages_in_group
+                              & SHARD_LOG_END_OF_STREAM)
+                             != 0;
             }
          }
          cache_unget(cc, page);
          if (!SUCCESS(rc)) {
             return rc;
+         }
+         if (ends_stream) {
+            return STATUS_OK;
          }
       }
       extent_addr = next_extent_addr;

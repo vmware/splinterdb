@@ -1953,6 +1953,109 @@ test_log_missing_group_preserves_prefix(clockcache             *cc,
    return 0;
 }
 
+/*
+ * Checkpoint rotation seals one log while the replacement remains live. The
+ * sealed log's unused successor is freed and may become a replacement-log
+ * blob. Rebuilding allocations must stop at EOS before caching that blob as
+ * PAGE_TYPE_LOG, and the live blob must remain replayable from a cold cache.
+ */
+static void
+test_log_recovery_reused_successor(clockcache        *cc,
+                                   clockcache_config *cache_cfg,
+                                   io_handle         *io,
+                                   rc_allocator      *al,
+                                   shard_log_config  *cfg,
+                                   platform_heap_id   hid)
+{
+   cache      *cacheh = (cache *)cc;
+   log_handle *old;
+   log_handle *live;
+   platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &old));
+   log_head old_head = log_get_head(old);
+   platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &live));
+   log_head live_head = log_get_head(live);
+   platform_assert_status_ok(log_seal(old));
+   uint64 successor = ((shard_log *)old)->mini.next_extent[0];
+   log_deinit(old);
+   platform_assert(allocator_get_refcount((allocator *)al, successor)
+                   == AL_FREE);
+
+   /* Select the same free extent a wrapping allocator hand could encounter. */
+   al->hand = successor / cache_extent_size(cacheh);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, hid);
+   platform_assert(
+      merge_accumulator_resize(&msg, 2 * cache_extent_size(cacheh)));
+   merge_accumulator_set_class(&msg, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&msg), 'B', merge_accumulator_length(&msg));
+   char key_data[] = "reused-log-successor";
+   key  skey       = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   platform_assert(
+      log_write(live, skey, merge_accumulator_to_message(&msg), 1, 0) == 0);
+   platform_assert_status_ok(log_make_durable(live));
+   log_deinit(live);
+   platform_assert_status_ok(cache_writeback_dirty(cacheh));
+   platform_assert_status_ok(cache_durable_barrier(cacheh));
+
+   page_handle *page = cache_get(cacheh, successor, TRUE, PAGE_TYPE_BLOB);
+   platform_assert(page->data[0] == 'B');
+   cache_unget(cacheh, page);
+
+   /* Retain the original allocator for normal metadata-based test cleanup. */
+   clockcache_deinit(cc);
+   rc_allocator recovery;
+   platform_assert_status_ok(rc_allocator_mount(
+      &recovery, al->cfg, io, hid, platform_get_module_id()));
+   platform_assert_status_ok(allocator_recovery_begin((allocator *)&recovery));
+   platform_assert_status_ok(clockcache_init(cc,
+                                             cache_cfg,
+                                             io,
+                                             (allocator *)&recovery,
+                                             "reused-log-successor",
+                                             hid,
+                                             platform_get_module_id()));
+   platform_assert_status_ok(
+      shard_log_recover_allocations(cacheh, cfg, old_head));
+   platform_assert(allocator_get_refcount((allocator *)&recovery, successor)
+                   == AL_FREE);
+   platform_assert_status_ok(
+      shard_log_recover_allocations(cacheh, cfg, live_head));
+   allocator_recovery_finish((allocator *)&recovery);
+
+   log_iterator *itor;
+   platform_assert_status_ok(
+      shard_log_iterator_create(cacheh, cfg, hid, old_head, 0, &itor));
+   platform_assert(log_iterator_stream_complete(itor));
+   platform_assert(!log_iterator_can_next(itor));
+   log_iterator_deinit(itor);
+   platform_assert_status_ok(
+      shard_log_iterator_create(cacheh, cfg, hid, live_head, 0, &itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   platform_assert(log_iterator_can_next(itor));
+   key     returned_key;
+   message returned_msg;
+   log_iterator_curr(itor, &returned_key, &returned_msg);
+   platform_assert(data_key_compare(cfg->data_cfg, skey, returned_key) == 0);
+   platform_assert(
+      message_lex_cmp(merge_accumulator_to_message(&msg), returned_msg) == 0);
+   platform_assert_status_ok(log_iterator_next(itor));
+   platform_assert(!log_iterator_can_next(itor));
+   log_iterator_deinit(itor);
+
+   clockcache_deinit(cc);
+   rc_allocator_deinit(&recovery);
+   platform_assert_status_ok(clockcache_init(cc,
+                                             cache_cfg,
+                                             io,
+                                             (allocator *)al,
+                                             "after-reused-log-successor",
+                                             hid,
+                                             platform_get_module_id()));
+   shard_log_dec_ref(cacheh, &old_head);
+   shard_log_dec_ref(cacheh, &live_head);
+   merge_accumulator_deinit(&msg);
+}
+
 typedef struct test_log_thread_params {
    log_handle             *logh;
    platform_thread         thread;
@@ -2325,6 +2428,9 @@ log_test(int argc, char *argv[])
                                                 &gen,
                                                 workload_cfg.key_size);
    platform_assert(rc == 0);
+
+   test_log_recovery_reused_successor(
+      cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
    platform_assert(rc == 0);

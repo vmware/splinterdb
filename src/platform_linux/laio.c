@@ -24,6 +24,7 @@
 #include "platform_typed_alloc.h"
 #include "async.h"
 #include "platform_log.h"
+#include "platform_sleep.h"
 #include <linux/fs.h>
 #include <sys/prctl.h>
 #include <sys/ioctl.h>
@@ -239,8 +240,31 @@ laio_range_is_readable(io_handle *ioh,
       if (size_generation == write_generation) {
          logical_size = __atomic_load_n(&io->logical_size, __ATOMIC_RELAXED);
       } else {
+         /* Only one query may publish the size/generation pair. Recheck the
+          * generation after acquiring the lock: another refresh or write may
+          * have completed while we were waiting. */
+         uint64 expected = 0;
+         if (!__atomic_compare_exchange_n(&io->logical_size_refresh_lock,
+                                          &expected,
+                                          1,
+                                          FALSE,
+                                          __ATOMIC_ACQUIRE,
+                                          __ATOMIC_RELAXED))
+         {
+            platform_sleep_ns(100);
+            continue;
+         }
+         if (__atomic_load_n(&io->write_generation, __ATOMIC_ACQUIRE)
+             != write_generation)
+         {
+            __atomic_store_n(
+               &io->logical_size_refresh_lock, 0, __ATOMIC_RELEASE);
+            continue;
+         }
          platform_status rc = laio_get_logical_size(io, &logical_size);
          if (!SUCCESS(rc)) {
+            __atomic_store_n(
+               &io->logical_size_refresh_lock, 0, __ATOMIC_RELEASE);
             return rc;
          }
 
@@ -248,12 +272,15 @@ laio_range_is_readable(io_handle *ioh,
          if (__atomic_load_n(&io->write_generation, __ATOMIC_ACQUIRE)
              != write_generation)
          {
+            __atomic_store_n(
+               &io->logical_size_refresh_lock, 0, __ATOMIC_RELEASE);
             continue;
          }
 
          __atomic_store_n(&io->logical_size, logical_size, __ATOMIC_RELAXED);
          __atomic_store_n(
             &io->logical_size_generation, write_generation, __ATOMIC_RELEASE);
+         __atomic_store_n(&io->logical_size_refresh_lock, 0, __ATOMIC_RELEASE);
       }
 
       /*

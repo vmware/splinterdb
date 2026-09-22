@@ -57,12 +57,14 @@ typedef struct laio_handle {
     * Cached logical backing size.  A completed write advances
     * write_generation; range queries may reuse logical_size only when its
     * generation matches.  The fields are accessed with __atomic builtins --
-    * keeping writes to one atomic increment and avoiding a mutex on the IO hot
-    * path.
+    * keeping writes to one atomic increment. A refresh lock serializes cache
+    * publishers so an older query cannot overwrite a newer size while another
+    * query stamps that size with the new generation. Cache hits are lock-free.
     */
    uint64 logical_size;
    uint64 logical_size_generation;
    uint64 write_generation;
+   uint64 logical_size_refresh_lock;
 
    process_event_callback_list_node pecnode;
 } laio_handle;
