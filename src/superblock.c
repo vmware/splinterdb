@@ -58,9 +58,9 @@ superblock_is_valid(const superblock *sb, const allocator_config *cfg)
 }
 
 platform_status
-superblock_read_geometry(const char *filename, disk_geometry *geometry)
+superblock_read_bootstrap(const char *filename, superblock *image)
 {
-   if (filename == NULL || geometry == NULL) {
+   if (filename == NULL || image == NULL) {
       return STATUS_BAD_PARAM;
    }
 
@@ -82,11 +82,25 @@ superblock_read_geometry(const char *filename, disk_geometry *geometry)
    }
    if (!have_valid) {
       platform_error_log(
-         "superblock_read_geometry: no valid superblock found\n");
+         "superblock_read_bootstrap: no valid superblock found\n");
       return STATUS_NOT_FOUND;
    }
-   *geometry = newest.geometry;
+   *image = newest;
    return STATUS_OK;
+}
+
+platform_status
+superblock_read_geometry(const char *filename, disk_geometry *geometry)
+{
+   if (geometry == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+   superblock      image;
+   platform_status rc = superblock_read_bootstrap(filename, &image);
+   if (SUCCESS(rc)) {
+      *geometry = image.geometry;
+   }
+   return rc;
 }
 
 platform_status

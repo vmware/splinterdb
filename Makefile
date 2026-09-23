@@ -8,7 +8,7 @@ PLATFORM_DIR = platform_$(PLATFORM)
 
 help::
 	@echo 'Usage: make [<target>]'
-	@echo 'Supported targets: clean all libs all-tests run-tests test-results run-examples install'
+	@echo 'Supported targets: clean all libs tools all-tests run-tests test-results run-examples install'
 
 #*************************************************************#
 # SOURCE DIRECTORIES AND FILES
@@ -20,6 +20,7 @@ FUNCTIONAL_TESTSDIR  = $(TESTS_DIR)/functional
 UNITDIR              = unit
 UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
 EXAMPLES_DIR         = examples
+TOOLS_DIR            = tools
 
 # Define a recursive wildcard function to 'find' all files under a sub-dir
 # See https://stackoverflow.com/questions/2483182/recursive-wildcards-in-gnu-make/18258352#18258352
@@ -63,6 +64,7 @@ FAST_UNIT_TESTSRC := $(sort $(filter-out $(SLOW_UNIT_TESTSRC_FILTER), $(ALL_UNIT
 # $(info $$FAST_UNIT_TESTSRC is [${FAST_UNIT_TESTSRC}])
 
 EXAMPLES_SRC := $(call rwildcard, $(EXAMPLES_DIR), *.c)
+TOOLS_SRC := $(call rwildcard, $(TOOLS_DIR), *.c)
 
 #*************************************************************#
 # CFLAGS, LDFLAGS, ETC
@@ -292,8 +294,10 @@ EXAMPLES_BINS=$(EXAMPLES_BIN_SRC:$(EXAMPLES_DIR)/%_example.c=$(BINDIR)/$(EXAMPLE
 ####################################################################
 # The main targets
 #
-all: libs all-tests all-examples $(EXTRA_TARGETS)
+all: libs tools all-tests all-examples $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
+.PHONY: tools
+tools: $(BINDIR)/splinter_inspect
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 all-examples: $(EXAMPLES_BINS)
 
@@ -381,7 +385,11 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 #
 
 # Automatically generated .o dependencies on .c and .h files
--include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
+-include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d) $(TOOLS_SRC:%.c=$(OBJDIR)/%.d)
+
+# Link inspection tools statically against SplinterDB so they run directly
+# from the build directory without a shared-library search path.
+$(BINDIR)/splinter_inspect: $(OBJDIR)/$(TOOLS_DIR)/splinter_inspect.o $(LIBDIR)/libsplinterdb.a
 
 # Dependencies for the main executables
 $(BINDIR)/driver_test: $(FUNCTIONAL_TESTOBJ) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so

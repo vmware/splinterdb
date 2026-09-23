@@ -522,6 +522,39 @@ CTEST2(superblock, test_read_geometry)
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NOT_FOUND));
 }
 
+/* Inspection must use the allocation state from the newest valid record. */
+CTEST2(superblock, test_read_bootstrap_allocation_state)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_snapshot_allocator(&ctx, data->io_cfg.extent_size);
+   rc = superblock_make_durable(&ctx); // slot 0, generation 3
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+
+   superblock image;
+   rc = superblock_read_bootstrap(data->io_cfg.filename, &image);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(3, image.generation);
+   ASSERT_EQUAL(data->io_cfg.extent_size, image.allocation_state_addr);
+   ASSERT_EQUAL(data->allocator_cfg.capacity, image.geometry.disk_size);
+
+   superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 0);
+   rc = superblock_read_bootstrap(data->io_cfg.filename, &image);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(2, image.generation);
+   ASSERT_EQUAL(0, image.allocation_state_addr);
+
+   superblock_test_corrupt_slot(data->ioh, data->io_cfg.page_size, 1);
+   rc = superblock_read_bootstrap(data->io_cfg.filename, &image);
+   ASSERT_FALSE(SUCCESS(rc));
+}
+
 /* A checksummed geometry still cannot make the cache allocate more lookup
  * metadata than the caller's trusted cache budget. */
 CTEST2(superblock, test_bootstrap_geometry_metadata_budget)

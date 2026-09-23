@@ -19,3 +19,19 @@ SplinterDB is *provided as-is* and is not recommended for use in production unti
 See [Build](docs/build.md) for instructions on building SplinterDB from source.
 
 See [Documentation](docs/README.md) for preliminary documentation.
+
+## Inspecting an image
+
+Build the inspection utility with `make tools` (also included in `make`), then run:
+
+```sh
+build/release/bin/splinter_inspect space database.db
+```
+
+The command opens the image read-only and reports its geometry, allocated/free
+extents and bytes, and reserved metadata space. Stop the database before
+inspection. Allocation totals require a cleanly closed image; when its allocation
+map needs recovery, geometry is still reported and the command exits with status
+1. Counts include unused pages within allocated extents, and describe SplinterDB
+allocation rather than filesystem block usage. Page-type statistics are not
+stored in the image. Use `--help` for usage and exit statuses.

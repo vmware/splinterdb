@@ -146,9 +146,16 @@ typedef struct superblock_context {
 
 /*
  * Read both complete superblock records before any subsystem is configured,
- * validate their checksums and fixed format geometry, and return the geometry
- * from the newest valid slot.  The full mount later rechecks it against the
- * resolved allocator configuration.
+ * validate their checksums and fixed format geometry, and return the newest
+ * valid record.  Opens the image read-only and does not mount or recover it.
+ * The image must not change during inspection.
+ */
+platform_status
+superblock_read_bootstrap(const char *filename, superblock *image);
+
+/*
+ * Read the geometry from the newest valid bootstrap record.  The full mount
+ * later rechecks it against the resolved allocator configuration.
  */
 platform_status
 superblock_read_geometry(const char *filename, disk_geometry *geometry);
