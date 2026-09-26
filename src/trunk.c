@@ -20,6 +20,7 @@
 #include "task.h"
 #include "notification.h"
 #include "prefetch.h"
+#include "platform_trace.h"
 #include "poison.h"
 
 typedef VECTOR(routing_filter) routing_filter_vector;
@@ -5342,6 +5343,8 @@ leaf_split_select_pivots(trunk_context     *context,
                          uint64             target_num_leaves,
                          key_buffer_vector *pivots)
 {
+   timestamp       trace_start  = platform_trace_begin();
+   uint64          trace_height = UINT64_MAX, trace_entries = 0;
    platform_status rc;
    trunk_pivot    *first   = vector_get(&leaf->pivots, 0);
    trunk_pivot    *last    = vector_get(&leaf->pivots, 1);
@@ -5401,11 +5404,13 @@ leaf_split_select_pivots(trunk_context     *context,
    uint64 leaf_num            = 1;
    uint64 cumulative_kv_bytes = 0;
    uint64 current_tuples      = 0;
+   trace_height               = merger.height;
    while (iterator_can_next(&merger.merge_itor->super)
           && leaf_num < target_num_leaves)
    {
       key     curr_key;
       message pivot_data_message;
+      trace_entries++;
       iterator_curr(&merger.merge_itor->super, &curr_key, &pivot_data_message);
       btree_pivot_stats stats;
       if (merger.height == 0) {
@@ -5466,6 +5471,7 @@ leaf_split_select_pivots(trunk_context     *context,
 
    platform_status deinit_rc;
 cleanup:
+   platform_trace_end("leaf_pivots", trace_start, trace_height, trace_entries);
    deinit_rc = trunk_branch_merger_deinit(&merger);
    if (!SUCCESS(rc)) {
       for (uint64 i = 0; i < vector_length(pivots); i++) {

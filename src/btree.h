@@ -190,6 +190,8 @@ typedef struct btree_iterator {
    char           *node_copy;
    int64           idx;
    int64           curr_min_idx;
+   // Copies: end_addr is zero until this copy terminates the range, then it is
+   // curr.addr with a valid local end_idx. Non-copies use a lazy end index.
    uint64          end_addr;
    int64           end_idx;
    bool32          end_idx_valid;

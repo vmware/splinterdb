@@ -35,3 +35,10 @@ map needs recovery, geometry is still reported and the command exits with status
 1. Counts include unused pages within allocated extents, and describe SplinterDB
 allocation rather than filesystem block usage. Page-type statistics are not
 stored in the image. Use `--help` for usage and exit statuses.
+
+## Insertion throughput benchmark
+
+`make benchmarks` builds a concurrent random-insert and random-point-query
+benchmark with independently sampled throughput, per-thread rates, and optional
+internal task traces. See [the benchmark instructions](benchmarks/README.md)
+for the 8-inserter/8-reader workload, time-series plots, and configuration options.

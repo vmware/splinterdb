@@ -8,7 +8,7 @@ PLATFORM_DIR = platform_$(PLATFORM)
 
 help::
 	@echo 'Usage: make [<target>]'
-	@echo 'Supported targets: clean all libs tools all-tests run-tests test-results run-examples install'
+	@echo 'Supported targets: clean all libs tools benchmarks all-tests run-tests test-results run-examples install'
 
 #*************************************************************#
 # SOURCE DIRECTORIES AND FILES
@@ -298,6 +298,8 @@ all: libs tools all-tests all-examples $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 .PHONY: tools
 tools: $(BINDIR)/splinter_inspect
+.PHONY: benchmarks
+benchmarks: $(BINDIR)/insert_benchmark
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 all-examples: $(EXAMPLES_BINS)
 
@@ -386,6 +388,9 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 
 # Automatically generated .o dependencies on .c and .h files
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d) $(TOOLS_SRC:%.c=$(OBJDIR)/%.d)
+-include $(OBJDIR)/benchmarks/insert_benchmark.d
+
+$(BINDIR)/insert_benchmark: $(OBJDIR)/benchmarks/insert_benchmark.o $(LIBDIR)/libsplinterdb.a
 
 # Link inspection tools statically against SplinterDB so they run directly
 # from the build directory without a shared-library search path.

@@ -15,6 +15,7 @@
 #include "platform_time.h"
 #include "platform_util.h"
 #include "prefetch.h"
+#include "platform_trace.h"
 #include "poison.h"
 
 #define LATENCYHISTO_SIZE 15
@@ -1272,12 +1273,17 @@ core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
 {
    platform_status rc =
       memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, generation);
+   timestamp trace_start =
+      STATUS_IS_EQ(rc, STATUS_BUSY) ? platform_trace_begin() : 0;
+   uint64 retries = 0;
    while (STATUS_IS_EQ(rc, STATUS_BUSY)) {
       // Memtable isn't ready, do a task if available; may be required to
       // incorporate memtable that we're waiting on
       task_perform_one_if_needed(spl->ts, 0);
       rc = memtable_maybe_rotate_and_begin_insert(&spl->mt_ctxt, generation);
+      retries++;
    }
+   platform_trace_end("memtable_wait", trace_start, retries, 0);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1537,8 +1543,10 @@ core_memtable_incorporate(core_handle   *spl,
     */
    bool32 has_branch = (cmt->branch.root_addr != 0);
    if (has_branch) {
+      timestamp trace_start = platform_trace_begin();
       rc =
          trunk_incorporate_prepare(&spl->trunk_context, cmt->branch.root_addr);
+      platform_trace_end("trunk_prepare", trace_start, generation, 0);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_incorporate_prepare failed: %s\n",
                             platform_status_to_string(rc));

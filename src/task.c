@@ -6,6 +6,7 @@
 #include "platform_time.h"
 #include "platform_typed_alloc.h"
 #include "platform_sleep.h"
+#include "platform_trace.h"
 #include "poison.h"
 
 const char *task_type_name[] = {"TASK_TYPE_INVALID",
@@ -152,7 +153,7 @@ task_group_get_next_task(task_group *group)
  * hold lock on group for performance reasons.)
  */
 static platform_status
-task_group_run_task(task_group *group, task *assigned_task)
+task_group_run_task(task_group *group, task *assigned_task, bool32 foreground)
 {
    const threadid tid = platform_get_tid();
    timestamp      current;
@@ -168,7 +169,12 @@ task_group_run_task(task_group *group, task *assigned_task)
 
    task_fn func        = assigned_task->func;
    assigned_task->func = (task_fn)(void *)0xdeadbeef;
+   timestamp trace_start = platform_trace_begin();
    func(assigned_task);
+   platform_trace_end(foreground ? "task_fg" : "task_bg",
+                      trace_start,
+                      group - group->ts->group,
+                      (uint64)(uintptr_t)func);
 
    if (group->use_stats) {
       current = platform_timestamp_elapsed(current);
@@ -206,7 +212,7 @@ task_worker_thread(void *arg)
          task_group_unlock(group);
          const threadid tid = platform_get_tid();
          group->stats[tid].total_bg_task_executions++;
-         task_group_run_task(group, task_to_run);
+         task_group_run_task(group, task_to_run, FALSE);
          rc = task_group_lock(group);
          platform_assert(SUCCESS(rc));
          __sync_fetch_and_sub(&group->current_executing_tasks, 1);
@@ -387,7 +393,7 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
    if (assigned_task) {
       const threadid tid = platform_get_tid();
       group->stats[tid].total_fg_task_executions++;
-      task_group_run_task(group, assigned_task);
+      task_group_run_task(group, assigned_task, TRUE);
       __sync_fetch_and_sub(&group->current_executing_tasks, 1);
    } else {
       rc = STATUS_TIMEDOUT;

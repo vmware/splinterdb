@@ -829,3 +829,520 @@ pack_tests(cache           *cc,
 
    return packed_root_addr;
 }
+
+/* Ordered keys and deliberately large values make leaf splits predictable. */
+static key
+bounds_key(uint64 n, uint64 *buf)
+{
+   *buf = htobe64(n);
+   return key_create(FALSE, sizeof(*buf), buf);
+}
+
+static uint64
+bounds_key_number(key k)
+{
+   uint64 n;
+   memcpy(&n, key_data(k), sizeof(n));
+   return be64toh(n);
+}
+
+static void
+bounds_insert(cache           *cc,
+              btree_config    *cfg,
+              platform_heap_id hid,
+              btree_scratch   *scratch,
+              mini_allocator  *mini,
+              uint64           root,
+              uint64           n)
+{
+   uint64               keybuf;
+   uint8                msgbuf[129] = {1};
+   btree_insert_results result;
+   btree_insert_results_init(&result, NULL);
+   platform_status rc = btree_insert(
+      cc,
+      cfg,
+      hid,
+      scratch,
+      root,
+      mini,
+      bounds_key(n, &keybuf),
+      message_create(
+         MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(msgbuf), msgbuf)),
+      &result);
+   btree_insert_results_deinit(&result);
+   platform_assert_status_ok(rc);
+}
+
+static void
+bounds_ready(void *arg)
+{
+   __atomic_store_n((bool32 *)arg, TRUE, __ATOMIC_RELEASE);
+}
+
+static platform_status
+bounds_init(cache          *cc,
+            btree_config   *cfg,
+            btree_iterator *itor,
+            uint64          root,
+            key             lo,
+            comparison      lo_cmp,
+            key             hi,
+            comparison      hi_cmp,
+            bool32          reverse,
+            bool32          async,
+            page_type       type,
+            uint32          prefetch_lookahead)
+{
+   comparison start_cmp = reverse ? hi_cmp : lo_cmp;
+   key        start     = reverse ? hi : lo;
+   if (!async) {
+      return btree_iterator_init(cc,
+                                 cfg,
+                                 itor,
+                                 root,
+                                 type,
+                                 lo_cmp,
+                                 lo,
+                                 hi_cmp,
+                                 hi,
+                                 start_cmp,
+                                 start,
+                                 TRUE,
+                                 0,
+                                 prefetch_lookahead);
+   }
+   btree_iterator_async_state state;
+   bool32                     ready = FALSE;
+   btree_iterator_async_state_init(&state,
+                                   cc,
+                                   cfg,
+                                   itor,
+                                   root,
+                                   type,
+                                   lo_cmp,
+                                   lo,
+                                   hi_cmp,
+                                   hi,
+                                   start_cmp,
+                                   start,
+                                   TRUE,
+                                   0,
+                                   prefetch_lookahead,
+                                   bounds_ready,
+                                   &ready);
+   // A reused coroutine must not inherit the previous operation's result.
+   state.__async_result = STATUS_INVALID_STATE;
+   while (btree_iterator_init_async(&state) != ASYNC_STATUS_DONE) {
+      while (!__atomic_exchange_n(&ready, FALSE, __ATOMIC_ACQUIRE)) {
+         cache_cleanup(cc);
+      }
+   }
+   return btree_iterator_init_async_result(&state);
+}
+
+CTEST2(btree_stress, copied_iterator_bounds)
+{
+   cache         *cc  = (cache *)&data->cc;
+   btree_config  *cfg = &data->dbtree_cfg;
+   mini_allocator mini;
+   uint64         root = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   for (unsigned async = 0; async < 2; async++) {
+      btree_iterator  empty;
+      platform_status rc = bounds_init(cc,
+                                       cfg,
+                                       &empty,
+                                       root,
+                                       NEGATIVE_INFINITY_KEY,
+                                       greater_than_or_equal,
+                                       POSITIVE_INFINITY_KEY,
+                                       less_than,
+                                       FALSE,
+                                       async,
+                                       PAGE_TYPE_MEMTABLE,
+                                       0);
+      ASSERT_TRUE(SUCCESS(rc), "empty async=%u rc=%d", async, rc.r);
+      ASSERT_FALSE(iterator_can_curr(&empty.super));
+      btree_iterator_deinit(&empty);
+   }
+   for (uint64 n = 0; n < 2048; n += 2) {
+      bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);
+   }
+   const uint64 bounds[][2] = {{0, 0},
+                               {1, 1},
+                               {0, 1},
+                               {0, 2},
+                               {1, 2},
+                               {20, 40},
+                               {21, 41},
+                               {100, 1999},
+                               {2045, 2047},
+                               {2048, 4096},
+                               {0, 4096},
+                               {100, 20}};
+   for (uint64 c = 0; c < ARRAY_SIZE(bounds); c++) {
+      for (unsigned flags = 0; flags < 16; flags++) {
+         bool32          reverse      = flags & 1;
+         bool32          async        = flags & 2;
+         bool32          lo_exclusive = flags & 4;
+         bool32          hi_exclusive = flags & 8;
+         uint64          lo_buf, hi_buf;
+         uint64          lo = bounds[c][0], hi = bounds[c][1];
+         btree_iterator  itor;
+         platform_status rc =
+            bounds_init(cc,
+                        cfg,
+                        &itor,
+                        root,
+                        bounds_key(lo, &lo_buf),
+                        lo_exclusive ? greater_than : greater_than_or_equal,
+                        bounds_key(hi, &hi_buf),
+                        hi_exclusive ? less_than : less_than_or_equal,
+                        reverse,
+                        async,
+                        PAGE_TYPE_MEMTABLE,
+                        0);
+         ASSERT_TRUE(
+            SUCCESS(rc), "bounds c=%lu flags=%u rc=%d", c, flags, rc.r);
+         int64 first = (lo + !!lo_exclusive + 1) / 2 * 2;
+         int64 last  = MIN((int64)hi - !!hi_exclusive, 2046);
+         if (last >= 0)
+            last = last / 2 * 2;
+         int64 expected_count = first <= last ? (last - first) / 2 + 1 : 0;
+         for (unsigned direction = 0; direction < 2; direction++) {
+            int64 expected = reverse ? last : first;
+            int64 count    = 0;
+            while (iterator_can_curr(&itor.super)) {
+               key     k;
+               message msg;
+               iterator_curr(&itor.super, &k, &msg);
+               ASSERT_EQUAL(expected, bounds_key_number(k));
+               expected += reverse ? -2 : 2;
+               count++;
+               ASSERT_TRUE(count <= expected_count);
+               rc = reverse ? iterator_prev(&itor.super)
+                            : iterator_next(&itor.super);
+               ASSERT_TRUE(SUCCESS(rc));
+            }
+            ASSERT_EQUAL(expected_count, count);
+            if (count) {
+               rc = reverse ? iterator_next(&itor.super)
+                            : iterator_prev(&itor.super);
+               ASSERT_TRUE(SUCCESS(rc));
+            }
+            reverse = !reverse;
+         }
+         if (expected_count) {
+            uint64 seek_buf;
+            rc = iterator_seek(&itor.super,
+                               greater_than_or_equal,
+                               bounds_key(first, &seek_buf));
+            ASSERT_TRUE(SUCCESS(rc));
+            ASSERT_TRUE(iterator_can_curr(&itor.super));
+            key     k;
+            message msg;
+            iterator_curr(&itor.super, &k, &msg);
+            ASSERT_EQUAL(first, bounds_key_number(k));
+         }
+         btree_iterator_deinit(&itor);
+      }
+   }
+   for (unsigned async = 0; async < 2; async++) {
+      btree_iterator  itor;
+      platform_status rc = bounds_init(cc,
+                                       cfg,
+                                       &itor,
+                                       root,
+                                       NEGATIVE_INFINITY_KEY,
+                                       greater_than_or_equal,
+                                       POSITIVE_INFINITY_KEY,
+                                       less_than,
+                                       FALSE,
+                                       async,
+                                       PAGE_TYPE_MEMTABLE,
+                                       0);
+      ASSERT_TRUE(SUCCESS(rc));
+      for (int64 n = 0; n < 2048; n += 2) {
+         ASSERT_TRUE(iterator_can_curr(&itor.super));
+         key     k;
+         message msg;
+         iterator_curr(&itor.super, &k, &msg);
+         ASSERT_EQUAL(n, bounds_key_number(k));
+         ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));
+      }
+      ASSERT_FALSE(iterator_can_curr(&itor.super));
+      ASSERT_TRUE(SUCCESS(iterator_prev(&itor.super)));
+      for (int64 n = 2046; n >= 0; n -= 2) {
+         ASSERT_TRUE(iterator_can_curr(&itor.super));
+         key     k;
+         message msg;
+         iterator_curr(&itor.super, &k, &msg);
+         ASSERT_EQUAL(n, bounds_key_number(k));
+         ASSERT_TRUE(SUCCESS(iterator_prev(&itor.super)));
+      }
+      ASSERT_FALSE(iterator_can_curr(&itor.super));
+      btree_iterator_deinit(&itor);
+   }
+}
+
+/* Observe the real cache interface, and split the copied leaf exactly when its
+ * read reference is released. Also detect the old leaf-to-root lock inversion.
+ * These wrappers are installed only for this single-threaded test. */
+typedef struct bounds_cache_observer {
+   const cache_ops *original;
+   cache_ops        ops;
+   btree_config    *cfg;
+   platform_heap_id hid;
+   btree_scratch   *scratch;
+   mini_allocator  *mini;
+   uint64           root, leaf, old_next;
+   uint64           leaf_refs;
+   bool32           inversion, injected, split;
+} bounds_cache_observer;
+
+static bounds_cache_observer *bounds_observer;
+
+static void
+bounds_observe_get(uint64 addr)
+{
+   if (addr == bounds_observer->root && bounds_observer->leaf_refs != 0) {
+      bounds_observer->inversion = TRUE;
+   }
+}
+
+static page_handle *
+bounds_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+{
+   bounds_observe_get(addr);
+   page_handle *p =
+      bounds_observer->original->page_get(cc, addr, blocking, type);
+   if (p && p->disk_addr == bounds_observer->leaf)
+      bounds_observer->leaf_refs++;
+   return p;
+}
+
+static void
+bounds_async_init(void             *payload,
+                  cache            *cc,
+                  uint64            addr,
+                  page_type         type,
+                  async_callback_fn callback,
+                  void             *arg)
+{
+   bounds_observe_get(addr);
+   bounds_observer->original->page_get_async_state_init(
+      payload, cc, addr, type, callback, arg);
+}
+
+static page_handle *
+bounds_async_result(void *payload)
+{
+   page_handle *p = bounds_observer->original->page_get_async_result(payload);
+   if (p && p->disk_addr == bounds_observer->leaf)
+      bounds_observer->leaf_refs++;
+   return p;
+}
+
+static void
+bounds_unget(cache *cc, page_handle *p)
+{
+   bounds_cache_observer *o       = bounds_observer;
+   bool32                 is_leaf = p->disk_addr == o->leaf;
+   o->original->page_unget(cc, p);
+   if (!is_leaf)
+      return;
+   platform_assert(o->leaf_refs != 0);
+   o->leaf_refs--;
+   if (o->injected)
+      return;
+   o->injected = TRUE;
+   cc->ops     = o->original;
+   for (uint64 n = 1; n < 2048; n += 2) {
+      bounds_insert(cc, o->cfg, o->hid, o->scratch, o->mini, o->root, n);
+   }
+   p        = cache_get(cc, o->leaf, TRUE, PAGE_TYPE_MEMTABLE);
+   o->split = ((btree_hdr *)p->data)->next_addr != o->old_next;
+   cache_unget(cc, p);
+   cc->ops = &o->ops;
+}
+
+CTEST2(btree_stress, copied_iterator_split_on_release)
+{
+   cache        *cc  = (cache *)&data->cc;
+   btree_config *cfg = &data->dbtree_cfg;
+   for (unsigned async = 0; async < 2; async++) {
+      mini_allocator mini;
+      uint64         root = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+      for (uint64 n = 0; n < 2048; n += 2) {
+         bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);
+      }
+      btree_iterator  probe;
+      platform_status rc = btree_iterator_init(cc,
+                                               cfg,
+                                               &probe,
+                                               root,
+                                               PAGE_TYPE_MEMTABLE,
+                                               greater_than_or_equal,
+                                               NEGATIVE_INFINITY_KEY,
+                                               less_than,
+                                               POSITIVE_INFINITY_KEY,
+                                               greater_than_or_equal,
+                                               NEGATIVE_INFINITY_KEY,
+                                               FALSE,
+                                               0,
+                                               0);
+      ASSERT_TRUE(SUCCESS(rc));
+      btree_node leaf = probe.curr;
+      ASSERT_TRUE(leaf.addr != root);
+      uint64 last = bounds_key_number(
+         btree_get_tuple_key(cfg, leaf.hdr, leaf.hdr->num_entries - 1));
+      bounds_cache_observer observer = {.original = cc->ops,
+                                        .ops      = *cc->ops,
+                                        .cfg      = cfg,
+                                        .hid      = data->hid,
+                                        .scratch  = data->test_scratch,
+                                        .mini     = &mini,
+                                        .root     = root,
+                                        .leaf     = leaf.addr,
+                                        .old_next = leaf.hdr->next_addr};
+      btree_iterator_deinit(&probe);
+      observer.ops.page_get                  = bounds_get;
+      observer.ops.page_get_async_state_init = bounds_async_init;
+      observer.ops.page_get_async_result     = bounds_async_result;
+      observer.ops.page_unget                = bounds_unget;
+      bounds_observer                        = &observer;
+      cc->ops                                = &observer.ops;
+      uint64         hi_buf;
+      btree_iterator itor;
+      rc              = bounds_init(cc,
+                       cfg,
+                       &itor,
+                       root,
+                       NEGATIVE_INFINITY_KEY,
+                       greater_than_or_equal,
+                       bounds_key(last - 2, &hi_buf),
+                       less_than_or_equal,
+                       FALSE,
+                       async,
+                       PAGE_TYPE_MEMTABLE,
+                       0);
+      cc->ops         = observer.original;
+      bounds_observer = NULL;
+      ASSERT_TRUE(SUCCESS(rc));
+      bool32 copy_released = itor.curr.page == NULL;
+      uint64 seen          = 0;
+      while (iterator_can_curr(&itor.super)) {
+         key     k;
+         message msg;
+         iterator_curr(&itor.super, &k, &msg);
+         ASSERT_EQUAL(2 * seen, bounds_key_number(k));
+         seen++;
+         ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));
+      }
+      btree_iterator_deinit(&itor);
+      ASSERT_EQUAL(last / 2, seen);
+      ASSERT_TRUE(copy_released);
+      ASSERT_TRUE(observer.injected);
+      ASSERT_TRUE(observer.split);
+      ASSERT_FALSE(observer.inversion,
+                   "Iterator traversed root while retaining a leaf reference");
+   }
+}
+
+static page_prefetch_fn bounds_original_prefetch;
+static uint64           bounds_prefetch_count;
+
+static void
+bounds_count_prefetch(cache *cc, uint64 addr, page_type type)
+{
+   bounds_prefetch_count++;
+   bounds_original_prefetch(cc, addr, type);
+}
+
+CTEST2(btree_stress, copied_iterator_prefetch)
+{
+   cache         *cc  = (cache *)&data->cc;
+   btree_config  *cfg = &data->dbtree_cfg;
+   mini_allocator mini;
+   uint64         root  = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   const uint64   count = 8192;
+   for (uint64 n = 0; n < count; n++) {
+      bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);
+   }
+
+   btree_iterator  source;
+   platform_status rc = bounds_init(cc,
+                                    cfg,
+                                    &source,
+                                    root,
+                                    NEGATIVE_INFINITY_KEY,
+                                    greater_than_or_equal,
+                                    POSITIVE_INFINITY_KEY,
+                                    less_than,
+                                    FALSE,
+                                    FALSE,
+                                    PAGE_TYPE_MEMTABLE,
+                                    0);
+   ASSERT_TRUE(SUCCESS(rc));
+   btree_pack_req req;
+   rc = btree_pack_req_init(
+      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc                 = btree_pack(&req);
+   uint64 packed_root = req.root_addr;
+   btree_pack_req_deinit(&req, data->hid);
+   btree_iterator_deinit(&source);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // Memtables have no extent-prefetch links. Exercise copied packed leaves
+   // to verify both the initialization and leaf-advance prefetch guards.
+   const cache_ops *original = cc->ops;
+   cache_ops        observed = *original;
+   bounds_original_prefetch  = original->page_prefetch;
+   observed.page_prefetch    = bounds_count_prefetch;
+   for (unsigned async = 0; async < 2; async++) {
+      for (unsigned prefetch = 0; prefetch < 2; prefetch++) {
+         for (unsigned long_range = 0; long_range < 2; long_range++) {
+            uint64         limit = long_range ? count : 1;
+            uint64         hi_buf;
+            btree_iterator itor;
+            bounds_prefetch_count = 0;
+            cc->ops               = &observed;
+            rc                    = bounds_init(cc,
+                             cfg,
+                             &itor,
+                             packed_root,
+                             NEGATIVE_INFINITY_KEY,
+                             greater_than_or_equal,
+                             bounds_key(limit, &hi_buf),
+                             less_than,
+                             FALSE,
+                             async,
+                             PAGE_TYPE_BRANCH,
+                             prefetch);
+            cc->ops               = original;
+            ASSERT_TRUE(SUCCESS(rc));
+            uint64 init_prefetches = bounds_prefetch_count;
+            ASSERT_EQUAL(prefetch && long_range ? 1 : 0, init_prefetches);
+            for (uint64 n = 0; n < limit; n++) {
+               ASSERT_TRUE(iterator_can_curr(&itor.super));
+               key     k;
+               message msg;
+               iterator_curr(&itor.super, &k, &msg);
+               ASSERT_EQUAL(n, bounds_key_number(k));
+               cc->ops = &observed;
+               rc      = iterator_next(&itor.super);
+               cc->ops = original;
+               ASSERT_TRUE(SUCCESS(rc));
+            }
+            ASSERT_FALSE(iterator_can_curr(&itor.super));
+            btree_iterator_deinit(&itor);
+            if (prefetch && long_range) {
+               ASSERT_TRUE(bounds_prefetch_count > init_prefetches);
+            } else {
+               ASSERT_EQUAL(0, bounds_prefetch_count);
+            }
+         }
+      }
+   }
+}
