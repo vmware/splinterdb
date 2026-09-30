@@ -2348,13 +2348,23 @@ clockcache_get_in_cache_async(clockcache_get_async_state *state, uint64 depth)
                    state->entry->type,
                    state->type);
 
-   async_wait_on_queue_until(
-      !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING),
-      state,
-      &state->entry->waiters,
-      &state->wait_node,
-      state->callback,
-      state->callback_arg);
+   if (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
+      async_wait_on_queue_until(
+         !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING),
+         state,
+         &state->entry->waiters,
+         &state->wait_node,
+         state->callback,
+         state->callback_arg);
+
+      // A prior prefetch can clear CC_LOADING, lose this entry to eviction,
+      // and then wake waiters for its replacement. A wakeup does not imply
+      // that our load finished. Drop the reference and retry the full lookup
+      // to recheck both the address and CC_LOADING.
+      clockcache_dec_ref(state->cc, state->entry_number, state->tid);
+      state->succeeded = FALSE;
+      async_return(state);
+   }
 
    if (state->cc->cfg->use_stats) {
       state->cc->stats[state->tid].cache_hits[state->type]++;

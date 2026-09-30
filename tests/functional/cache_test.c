@@ -1846,6 +1846,165 @@ test_cache_async(cache             *cc,
    return rc;
 }
 
+// Hold one prefetch in the I/O backend so we can notify its waiters before
+// the read completes, without relying on thread timing.
+static struct {
+   const io_ops      *saved_ops;
+   io_async_state_ops state_ops;
+   io_async_state    *pending;
+   async_callback_fn  callback;
+   void              *callback_arg;
+   bool32             completed;
+} delayed_prefetch;
+
+static async_status
+delayed_prefetch_run(io_async_state *state)
+{
+   platform_assert(state == delayed_prefetch.pending);
+   return delayed_prefetch.completed ? ASYNC_STATUS_DONE : ASYNC_STATUS_RUNNING;
+}
+
+static platform_status
+delayed_prefetch_result(io_async_state *state)
+{
+   platform_assert(delayed_prefetch.completed);
+   return STATUS_OK;
+}
+
+static platform_status
+delayed_prefetch_init(io_async_state   *state,
+                      io_handle        *io,
+                      io_async_cmd      cmd,
+                      uint64            addr,
+                      async_callback_fn callback,
+                      void             *callback_arg)
+{
+   platform_assert(cmd == io_async_preadv);
+   platform_assert(delayed_prefetch.pending == NULL);
+   platform_status rc = delayed_prefetch.saved_ops->async_state_init(
+      state, io, cmd, addr, callback, callback_arg);
+   if (SUCCESS(rc)) {
+      delayed_prefetch.state_ops            = *state->ops;
+      delayed_prefetch.state_ops.run        = delayed_prefetch_run;
+      delayed_prefetch.state_ops.get_result = delayed_prefetch_result;
+      state->ops                            = &delayed_prefetch.state_ops;
+      delayed_prefetch.pending              = state;
+      delayed_prefetch.callback             = callback;
+      delayed_prefetch.callback_arg         = callback_arg;
+   }
+   return rc;
+}
+
+typedef struct {
+   page_get_async_state_buffer buffer;
+   async_status                status;
+   uint32                      callbacks;
+} prefetch_waiter;
+
+static void
+prefetch_waiter_callback(void *arg)
+{
+   prefetch_waiter *waiter = arg;
+   waiter->callbacks++;
+   waiter->status = cache_get_async(&waiter->buffer);
+}
+
+static void
+test_cache_prefetch_early_wakeup(clockcache *clock)
+{
+   cache     *cc = (cache *)clock;
+   allocator *al = cache_get_allocator(cc);
+   uint64     addr;
+   uint64     page_size = cache_page_size(cc);
+   platform_assert_status_ok(allocator_alloc(al, &addr, PAGE_TYPE_MISC));
+   buffer_handle buffer;
+   platform_assert_status_ok(platform_buffer_init(&buffer, page_size));
+   memset(platform_buffer_getaddr(&buffer), 'B', page_size);
+   platform_assert_status_ok(
+      io_write(clock->io, platform_buffer_getaddr(&buffer), page_size, addr));
+
+   io_wait_all(clock->io);
+   ZERO_CONTENTS(&delayed_prefetch);
+   delayed_prefetch.saved_ops = clock->io->ops;
+   io_ops held_ops            = *clock->io->ops;
+   held_ops.async_state_init  = delayed_prefetch_init;
+   clock->io->ops             = &held_ops;
+   cache_prefetch_page(cc, addr, PAGE_TYPE_MISC);
+   platform_assert(delayed_prefetch.pending != NULL);
+   uint32 entry_number = clock->lookup[addr / page_size];
+   platform_assert(entry_number < clock->cfg->page_capacity);
+   clockcache_entry *entry = &clock->entry[entry_number];
+   // Simulate stale bytes left by the prior occupant of this cache entry.
+   memset(entry->page.data, 'A', page_size);
+
+   prefetch_waiter waiters[2] = {0};
+   for (uint32 i = 0; i < ARRAY_SIZE(waiters); i++) {
+      cache_get_async_state_init(&waiters[i].buffer,
+                                 cc,
+                                 addr,
+                                 PAGE_TYPE_MISC,
+                                 prefetch_waiter_callback,
+                                 &waiters[i]);
+      waiters[i].status = cache_get_async(&waiters[i].buffer);
+      platform_assert(waiters[i].status == ASYNC_STATUS_RUNNING);
+   }
+   platform_assert(cache_get_read_ref(cc, &entry->page) == ARRAY_SIZE(waiters));
+
+   // A prior prefetch can clear LOADING, get evicted, and only then release
+   // this entry's wait queue. Model that late release while B is still loading.
+   // Resume inside each callback to exercise requeueing during release_all.
+   for (uint32 wakeup = 1; wakeup <= 2; wakeup++) {
+      async_wait_queue_release_all(&entry->waiters);
+      for (uint32 i = 0; i < ARRAY_SIZE(waiters); i++) {
+         platform_assert(waiters[i].callbacks == wakeup);
+         platform_assert(waiters[i].status == ASYNC_STATUS_RUNNING);
+      }
+      platform_assert(cache_get_read_ref(cc, &entry->page)
+                      == ARRAY_SIZE(waiters));
+   }
+
+   uint64              iov_count;
+   const struct iovec *iov = delayed_prefetch.pending->ops->get_iovec(
+      delayed_prefetch.pending, &iov_count);
+   platform_assert(iov_count == 1 && iov[0].iov_len == page_size);
+   platform_assert_status_ok(
+      io_read(clock->io, iov[0].iov_base, page_size, addr));
+   delayed_prefetch.completed = TRUE;
+   delayed_prefetch.callback(delayed_prefetch.callback_arg);
+   delayed_prefetch.pending = NULL;
+   clock->io->ops           = delayed_prefetch.saved_ops;
+
+   for (uint32 i = 0; i < ARRAY_SIZE(waiters); i++) {
+      platform_assert(waiters[i].callbacks == 3);
+      platform_assert(waiters[i].status == ASYNC_STATUS_DONE);
+      page_handle *page = cache_get_async_state_result(&waiters[i].buffer);
+      platform_assert(page->disk_addr == addr);
+      platform_assert(
+         memcmp(page->data, platform_buffer_getaddr(&buffer), page_size) == 0);
+      cache_unget(cc, page);
+   }
+   platform_assert(cache_get_read_ref(cc, &entry->page) == 0);
+
+   // A ready cache hit should still return immediately, without a callback.
+   waiters[0].callbacks = 0;
+   cache_get_async_state_init(&waiters[0].buffer,
+                              cc,
+                              addr,
+                              PAGE_TYPE_MISC,
+                              prefetch_waiter_callback,
+                              &waiters[0]);
+   platform_assert(cache_get_async(&waiters[0].buffer) == ASYNC_STATUS_DONE);
+   platform_assert(waiters[0].callbacks == 0);
+   cache_unget(cc, cache_get_async_state_result(&waiters[0].buffer));
+   platform_assert(cache_get_read_ref(cc, &entry->page) == 0);
+
+   platform_assert(allocator_dec_ref(al, addr, PAGE_TYPE_MISC) == AL_NO_REFS);
+   cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
+   platform_assert(allocator_dec_ref(al, addr, PAGE_TYPE_MISC) == AL_FREE);
+   platform_assert_status_ok(platform_buffer_deinit(&buffer));
+   platform_default_log("cache_test: prefetch early wakeup test passed\n");
+}
+
 static void
 usage(const char *argv0)
 {
@@ -2028,6 +2187,7 @@ cache_test(int argc, char *argv[])
                             0,   // num writers
                             96); // per-thread working set
       platform_assert(SUCCESS(rc));
+      test_cache_prefetch_early_wakeup(cc);
    } else {
       rc = test_cache_basic(ccp, &system_cfg.cache_cfg, hid);
    }
