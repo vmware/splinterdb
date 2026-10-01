@@ -1624,52 +1624,54 @@ clockcache_evict_batch(clockcache *cc, uint32 batch)
    }
 }
 
-/*
- *----------------------------------------------------------------------
- * clockcache_move_hand --
- *
- *      Moves the clock hand forward cleaning and evicting a batch. Cleans
- *      "accessed" pages if is_urgent is set, for example when get_free_page
- *      has cycled through the cache already.
- *----------------------------------------------------------------------
- */
-void
-clockcache_move_hand(clockcache *cc, bool32 is_urgent)
+static inline bool32
+clockcache_try_lock_batch(clockcache *cc, uint32 batch)
 {
-   const threadid   tid = platform_get_tid();
-   volatile bool32 *evict_batch_busy;
-   volatile bool32 *clean_batch_busy;
-   uint64           cleaner_hand;
+   bool32 *busy     = &cc->batches[batch].busy;
+   bool32  expected = FALSE;
+   return !__atomic_load_n(busy, __ATOMIC_RELAXED)
+          && __atomic_compare_exchange_n(
+             busy, &expected, TRUE, FALSE, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+}
 
-   /* move the hand a batch forward */
-   uint64            evict_hand = cc->per_thread[tid].free_hand;
-   debug_only bool32 was_busy   = TRUE;
-   if (evict_hand != CC_UNMAPPED_ENTRY) {
-      evict_batch_busy = &cc->batch_busy[evict_hand];
-      was_busy = __sync_bool_compare_and_swap(evict_batch_busy, TRUE, FALSE);
-      debug_assert(was_busy);
-   }
+static inline void
+clockcache_unlock_batch(clockcache *cc, uint32 batch)
+{
+   debug_assert(__atomic_load_n(&cc->batches[batch].busy, __ATOMIC_RELAXED));
+   __atomic_store_n(&cc->batches[batch].busy, FALSE, __ATOMIC_RELEASE);
+}
+
+/*
+ * Move the clock hand forward, cleaning and evicting a batch. Clean accessed
+ * pages too when is_urgent is set (after a pass through the cache).
+ * Returns a locked batch; the caller releases it before returning or waiting
+ * for I/O. Ownership stays local to the call, even if I/O callbacks reenter
+ * the allocator and update this thread's preferred batch.
+ */
+static uint32
+clockcache_acquire_batch(clockcache *cc, bool32 is_urgent)
+{
+   uint32 evict_hand;
    do {
       evict_hand =
          __sync_add_and_fetch(&cc->evict_hand, 1) % cc->cfg->batch_capacity;
-      evict_batch_busy = &cc->batch_busy[evict_hand];
       // clean the batch ahead
-      cleaner_hand = (evict_hand + cc->cleaner_gap) % cc->cfg->batch_capacity;
-      clean_batch_busy = &cc->batch_busy[cleaner_hand];
-      if (__sync_bool_compare_and_swap(clean_batch_busy, FALSE, TRUE)) {
+      uint32 cleaner_hand =
+         (evict_hand + cc->cleaner_gap) % cc->cfg->batch_capacity;
+      if (clockcache_try_lock_batch(cc, cleaner_hand)) {
          platform_status rc =
             clockcache_batch_start_writeback(cc, cleaner_hand, is_urgent);
          if (!SUCCESS(rc)) {
-            platform_error_log("clockcache_move_hand: writeback failed: %s\n",
-                               platform_status_to_string(rc));
+            platform_error_log(
+               "clockcache_acquire_batch: writeback failed: %s\n",
+               platform_status_to_string(rc));
          }
-         was_busy = __sync_bool_compare_and_swap(clean_batch_busy, TRUE, FALSE);
-         debug_assert(was_busy);
+         clockcache_unlock_batch(cc, cleaner_hand);
       }
-   } while (!__sync_bool_compare_and_swap(evict_batch_busy, FALSE, TRUE));
+   } while (!clockcache_try_lock_batch(cc, evict_hand));
 
-   clockcache_evict_batch(cc, evict_hand % cc->cfg->batch_capacity);
-   cc->per_thread[tid].free_hand = evict_hand % cc->cfg->batch_capacity;
+   clockcache_evict_batch(cc, evict_hand);
+   return evict_hand;
 }
 
 
@@ -1695,9 +1697,9 @@ clockcache_get_free_page(clockcache *cc,
    timestamp         wait_start;
 
    debug_assert((tid < MAX_THREADS), "Invalid tid=%lu\n", tid);
-   if (cc->per_thread[tid].free_hand == CC_UNMAPPED_ENTRY) {
-      clockcache_move_hand(cc, FALSE);
-   }
+   uint32 batch = cc->per_thread[tid].free_hand;
+   bool32 batch_locked =
+      batch != CC_UNMAPPED_ENTRY && clockcache_try_lock_batch(cc, batch);
 
    /*
     * Debug builds can run on very high latency storage eg. Nimbus. Do
@@ -1705,8 +1707,12 @@ clockcache_get_free_page(clockcache *cc,
     * max latency of an IO and keep making passes.
     */
    while (num_passes < 3 || blocking) {
-      uint64 start_entry = cc->per_thread[tid].free_hand * CC_ENTRIES_PER_BATCH;
-      uint64 end_entry   = start_entry + CC_ENTRIES_PER_BATCH;
+      if (!batch_locked) {
+         batch = clockcache_acquire_batch(cc, num_passes != 0);
+      }
+      cc->per_thread[tid].free_hand = batch;
+      uint64 start_entry            = batch * CC_ENTRIES_PER_BATCH;
+      uint64 end_entry              = start_entry + CC_ENTRIES_PER_BATCH;
       for (entry_no = start_entry; entry_no < end_entry; entry_no++) {
          entry = &cc->entry[entry_no];
          if (entry->status == CC_FREE_STATUS
@@ -1731,12 +1737,17 @@ clockcache_get_free_page(clockcache *cc,
             platform_assert(entry->waiters.head == NULL);
             debug_assert(entry->page.disk_addr == CC_UNMAPPED_ADDR);
             clockcache_record_backtrace(cc, entry_no);
+            // The entry's loading/write-lock state protects it after the
+            // batch is released. The remaining free entries are available
+            // to other threads even if this thread now goes idle or exits.
+            clockcache_unlock_batch(cc, batch);
             return entry_no;
          }
       }
 
-      clockcache_move_hand(cc, num_passes != 0);
-      if (cc->per_thread[tid].free_hand < max_hand) {
+      clockcache_unlock_batch(cc, batch);
+      batch_locked = FALSE;
+      if (batch < max_hand) {
          num_passes++;
          /*
           * The first pass doesn't really have a fair chance at having
@@ -1752,7 +1763,7 @@ clockcache_get_free_page(clockcache *cc,
          }
          clockcache_wait(cc);
       }
-      max_hand = cc->per_thread[tid].free_hand;
+      max_hand = batch;
    }
    if (blocking) {
       platform_default_log("cache locked (num_passes=%lu time=%lu nsecs)\n",
@@ -4230,16 +4241,16 @@ clockcache_init(clockcache        *cc,   // OUT
 
    rc = platform_buffer_init(&cc->batch_bh,
                              cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH
-                                * sizeof(cc->batch_busy[0]));
+                                * sizeof(cc->batches[0]));
    if (!SUCCESS(rc)) {
       platform_error_log("clockcache_init: failed to allocate batch state "
                          "(%lu bytes): %s\n",
                          cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH
-                            * sizeof(cc->batch_busy[0]),
+                            * sizeof(cc->batches[0]),
                          platform_status_to_string(rc));
       goto alloc_error;
    }
-   cc->batch_busy = platform_buffer_getaddr(&cc->batch_bh);
+   cc->batches = platform_buffer_getaddr(&cc->batch_bh);
 
    return STATUS_OK;
 
@@ -4322,13 +4333,13 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       }
       cc->pincount = NULL;
    }
-   if (cc->batch_busy) {
+   if (cc->batches) {
       rc = platform_buffer_deinit(&cc->batch_bh);
       if (!SUCCESS(rc)) {
          platform_error_log("platform_buffer_deinit(&cc->batch_bh) failed: %s",
                             platform_status_to_string(rc));
       }
-      cc->batch_busy = NULL;
+      cc->batches = NULL;
    }
    if (cc->io_state_pool) {
       platform_free(PROCESS_PRIVATE_HEAP_ID, cc->io_state_pool);

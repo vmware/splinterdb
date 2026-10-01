@@ -86,6 +86,15 @@ struct clockcache_entry {
 #endif
 };
 
+// Allocators acquire and release this flag for every slot allocation. Keep
+// flags for independent batches on separate cache lines.
+typedef struct {
+   bool32 busy;
+} PLATFORM_CACHELINE_ALIGNED clockcache_batch;
+
+_Static_assert(sizeof(clockcache_batch) == PLATFORM_CACHELINE_SIZE,
+               "clockcache_batch must occupy one cache line");
+
 /*
  *----------------------------------------------------------------------
  * clockcache -- A multi-threaded cache using a clock algorithm for eviction
@@ -108,13 +117,15 @@ struct clockcache_entry {
  *         count before checking the write lock bit, so the ref count should
  *         generally be treated as a lower bound.
  *
- *      Each thread has a batch of pages indicated by cc->thread_free_hand[tid]
- *      from which it draws free pages. When a thread doesn't find a free page
- *      in its batch, it obtains a pair of new batches: one to evict
- *      (from cc->free_hand) and one to clean. The batch to clean is
+ *      Each thread remembers a preferred batch in per_thread[tid].free_hand.
+ *      This is a hint, not ownership: batches are locked only while allocating,
+ *      evicting, or cleaning, so idle threads cannot reserve unused capacity.
+ *      When a thread doesn't find a free page in its batch, it obtains a pair
+ *      of new batches: one to evict (from cc->evict_hand) and one to clean.
+ *      The batch to clean is
  *      cc->cleaner_gap batches ahead of the current evictor head, so that
  *      cleaned pages have time to flush before eviction. Both cleaning and
- *      eviction use cc->batch_busy to avoid conflicts and contention.
+ *      eviction use cc->batches[].busy to avoid conflicts and contention.
  *----------------------------------------------------------------------
  */
 struct clockcache {
@@ -142,7 +153,7 @@ struct clockcache {
    volatile uint32  evict_hand;
    volatile uint32  free_hand;
    buffer_handle    batch_bh;
-   volatile bool32 *batch_busy; // Convenience pointer for batch_bh
+   clockcache_batch *batches; // Convenience pointer for batch_bh
    uint64           cleaner_gap;
 
    // Monotonic generation counter. A writeback_dirty() atomically increments it

@@ -16,6 +16,7 @@
 #include "task.h"
 #include "random.h"
 #include "test_common.h"
+#include "platform_condvar.h"
 #include "poison.h"
 
 platform_status
@@ -2005,11 +2006,214 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
    platform_default_log("cache_test: prefetch early wakeup test passed\n");
 }
 
+typedef struct {
+   cache           *cc;
+   uint64           idle_addr;
+   uint64          *addrs;
+   page_handle    **pages;
+   uint32           page_capacity;
+   platform_condvar cv;
+   bool32           park;
+   bool32           ready;
+   bool32           start;
+   bool32           filled;
+   bool32           resume;
+} cache_batch_test;
+
+static void
+cache_batch_test_discard(cache *cc, uint64 addr)
+{
+   allocator *al = cache_get_allocator(cc);
+   platform_assert(allocator_dec_ref(al, addr, PAGE_TYPE_MISC) == AL_NO_REFS);
+   cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
+   // Keep the extent reserved for the next iteration of this test.
+   allocator_inc_ref(al, addr);
+}
+
+static void
+cache_batch_test_alloc_discard(cache_batch_test *test)
+{
+   page_handle *page = cache_alloc(test->cc, test->idle_addr, PAGE_TYPE_MISC);
+   memset(page->data, 0xa5, cache_page_size(test->cc));
+   cache_unlock(test->cc, page);
+   cache_unclaim(test->cc, page);
+   cache_unget(test->cc, page);
+   cache_batch_test_discard(test->cc, test->idle_addr);
+}
+
+static void
+cache_batch_idle_thread(void *arg)
+{
+   cache_batch_test *test = arg;
+   cache_batch_test_alloc_discard(test);
+   platform_assert_status_ok(platform_condvar_lock(&test->cv));
+   test->ready = TRUE;
+   platform_assert_status_ok(platform_condvar_signal(&test->cv));
+   while (test->park && !test->resume) {
+      platform_assert_status_ok(platform_condvar_wait(&test->cv));
+   }
+   platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+   if (test->park) {
+      // Another allocator has used our former batch. Reusing the hint must
+      // reacquire ownership and inspect its current contents.
+      cache_batch_test_alloc_discard(test);
+   }
+}
+
+static void
+cache_batch_fill_thread(void *arg)
+{
+   cache_batch_test *test      = arg;
+   uint64            page_size = cache_page_size(test->cc);
+   uint64            pages_per_extent =
+      cache_config_pages_per_extent(cache_get_config(test->cc));
+   platform_assert_status_ok(platform_condvar_lock(&test->cv));
+   while (!test->start) {
+      platform_assert_status_ok(platform_condvar_wait(&test->cv));
+   }
+   platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+   for (uint32 i = 0; i < test->page_capacity; i++) {
+      test->pages[i] = cache_alloc(test->cc, test->addrs[i], PAGE_TYPE_MISC);
+      memset(test->pages[i]->data, (uint8)i, page_size);
+   }
+   // Recycle the first extent twice while keeping every other slot locked.
+   // Both refills must recover the freed slots. No eviction can supply
+   // replacement slots elsewhere.
+   for (uint32 round = 0; round < 2; round++) {
+      for (uint32 i = 0; i < pages_per_extent; i++) {
+         cache_unlock(test->cc, test->pages[i]);
+         cache_unclaim(test->cc, test->pages[i]);
+         cache_unget(test->cc, test->pages[i]);
+      }
+      cache_batch_test_discard(test->cc, test->addrs[0]);
+      for (uint32 i = 0; i < pages_per_extent; i++) {
+         test->pages[i] = cache_alloc(test->cc, test->addrs[i], PAGE_TYPE_MISC);
+         memset(test->pages[i]->data, (uint8)i, page_size);
+      }
+   }
+   // All slots are held simultaneously. Even one abandoned batch would
+   // prevent this thread from reaching here.
+   for (uint32 i = 0; i < test->page_capacity; i++) {
+      platform_assert(test->pages[i]->disk_addr == test->addrs[i]);
+      for (uint64 j = 0; j < page_size; j++) {
+         platform_assert((uint8)test->pages[i]->data[j] == (uint8)i);
+      }
+      cache_unlock(test->cc, test->pages[i]);
+      cache_unclaim(test->cc, test->pages[i]);
+      cache_unget(test->cc, test->pages[i]);
+   }
+   for (uint32 i = 0; i < test->page_capacity; i += pages_per_extent) {
+      cache_batch_test_discard(test->cc, test->addrs[i]);
+   }
+   platform_assert_status_ok(platform_condvar_lock(&test->cv));
+   test->filled = TRUE;
+   platform_assert_status_ok(platform_condvar_signal(&test->cv));
+   platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+}
+
+static void
+cache_batch_test_wait(cache_batch_test *test, bool32 *condition)
+{
+   timestamp start = platform_get_timestamp();
+   while (TRUE) {
+      platform_assert_status_ok(platform_condvar_lock(&test->cv));
+      bool32 complete = *condition;
+      platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+      if (complete) {
+         return;
+      }
+      platform_assert(platform_timestamp_elapsed(start) < SEC_TO_NSEC(10),
+                      "cache allocation did not make progress");
+      platform_sleep_ns(SEC_TO_NSEC(1) / 1000);
+   }
+}
+
+static void
+test_cache_idle_batches(clockcache *main_cc, platform_heap_id hid)
+{
+   // Use a separate, small cache so this test does not depend on the stress
+   // test's size, clock position, or worker scheduling.
+   clockcache_config cfg = *main_cc->cfg;
+   cfg.page_capacity     = MAX(256, main_cc->cfg->pages_per_extent);
+   cfg.capacity = cfg.page_capacity * cache_page_size((cache *)main_cc);
+   clockcache cc;
+   platform_assert_status_ok(clockcache_init(&cc,
+                                             &cfg,
+                                             main_cc->io,
+                                             main_cc->al,
+                                             "idle batches",
+                                             hid,
+                                             platform_get_module_id()));
+   uint64       *addrs = TYPED_ARRAY_MALLOC(hid, addrs, cfg.page_capacity);
+   page_handle **pages = TYPED_ARRAY_MALLOC(hid, pages, cfg.page_capacity);
+   platform_assert(addrs != NULL && pages != NULL);
+   cache_batch_test test = {.cc            = (cache *)&cc,
+                            .addrs         = addrs,
+                            .pages         = pages,
+                            .page_capacity = cfg.page_capacity};
+   platform_assert_status_ok(platform_condvar_init(&test.cv, FALSE));
+   platform_assert_status_ok(
+      allocator_alloc(cc.al, &test.idle_addr, PAGE_TYPE_MISC));
+   uint64 page_size        = cache_page_size(test.cc);
+   uint64 pages_per_extent = cache_config_pages_per_extent(&cfg.super);
+   for (uint32 i = 0; i < test.page_capacity; i += pages_per_extent) {
+      uint64 base;
+      platform_assert_status_ok(allocator_alloc(cc.al, &base, PAGE_TYPE_MISC));
+      for (uint32 j = 0; j < pages_per_extent; j++) {
+         addrs[i + j] = base + j * page_size;
+      }
+   }
+   for (uint32 parked = 0; parked < 2; parked++) {
+      test.park  = parked;
+      test.ready = test.start = test.filled = test.resume = FALSE;
+      platform_thread idle, filler;
+      // Reserve a distinct thread ID before the idle thread can exit, so
+      // ID reuse cannot accidentally recover an abandoned reservation.
+      platform_assert_status_ok(platform_thread_create(
+         &filler, FALSE, cache_batch_fill_thread, &test, hid));
+      platform_assert_status_ok(platform_thread_create(
+         &idle, FALSE, cache_batch_idle_thread, &test, hid));
+      cache_batch_test_wait(&test, &test.ready);
+      if (!test.park) {
+         platform_assert_status_ok(platform_thread_join(&idle));
+      }
+      platform_assert_status_ok(platform_condvar_lock(&test.cv));
+      test.start = TRUE;
+      platform_assert_status_ok(platform_condvar_broadcast(&test.cv));
+      platform_assert_status_ok(platform_condvar_unlock(&test.cv));
+      cache_batch_test_wait(&test, &test.filled);
+      platform_assert_status_ok(platform_thread_join(&filler));
+      if (test.park) {
+         platform_assert_status_ok(platform_condvar_lock(&test.cv));
+         test.resume = TRUE;
+         platform_assert_status_ok(platform_condvar_signal(&test.cv));
+         platform_assert_status_ok(platform_condvar_unlock(&test.cv));
+         platform_assert_status_ok(platform_thread_join(&idle));
+      }
+   }
+   for (uint32 i = 0; i < test.page_capacity; i += pages_per_extent) {
+      platform_assert(allocator_dec_ref(cc.al, addrs[i], PAGE_TYPE_MISC)
+                      == AL_NO_REFS);
+      platform_assert(allocator_dec_ref(cc.al, addrs[i], PAGE_TYPE_MISC)
+                      == AL_FREE);
+   }
+   platform_assert(allocator_dec_ref(cc.al, test.idle_addr, PAGE_TYPE_MISC)
+                   == AL_NO_REFS);
+   platform_assert(allocator_dec_ref(cc.al, test.idle_addr, PAGE_TYPE_MISC)
+                   == AL_FREE);
+   platform_condvar_destroy(&test.cv);
+   platform_free(hid, pages);
+   platform_free(hid, addrs);
+   clockcache_deinit(&cc);
+   platform_default_log(
+      "cache_test: idle and exited batch owners test passed\n");
+}
+
 static void
 usage(const char *argv0)
 {
    platform_error_log("Usage:\n"
-                      "\t%s\n",
+                      "\t%s [--async | --batch | --perf]\n",
                       argv0);
    config_usage();
 }
@@ -2022,7 +2226,7 @@ cache_test(int argc, char *argv[])
    char                 **config_argv = argv + 1;
    platform_status        rc;
    task_system            ts;
-   bool32                 benchmark = FALSE, async = FALSE;
+   bool32                 benchmark = FALSE, async = FALSE, batch = FALSE;
    uint64                 seed;
    test_message_generator gen;
 
@@ -2037,14 +2241,19 @@ cache_test(int argc, char *argv[])
          async = TRUE;
          config_argc--;
          config_argv++;
+      } else if (strcmp(argv[1], "--batch") == 0) {
+         batch = TRUE;
+         config_argc--;
+         config_argv++;
       }
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
    platform_default_log("\nStarted cache_test %s%s\n",
-                        ((argc == 1) ? "basic"
+                        (batch       ? "batch ownership"
                          : benchmark ? "performance benchmarking."
-                                     : "async performance."),
+                         : async     ? "async performance."
+                                     : "basic"),
                         (use_shmem ? " using shared memory" : ""));
 
    // Create a heap for io, allocator, cache and splinter
@@ -2128,7 +2337,9 @@ cache_test(int argc, char *argv[])
 
    cache *ccp = (cache *)cc;
 
-   if (benchmark) {
+   if (batch) {
+      test_cache_idle_batches(cc, hid);
+   } else if (benchmark) {
       rc = test_cache_flush(ccp,
                             &system_cfg.cache_cfg,
                             hid,
@@ -2188,6 +2399,7 @@ cache_test(int argc, char *argv[])
                             96); // per-thread working set
       platform_assert(SUCCESS(rc));
       test_cache_prefetch_early_wakeup(cc);
+      test_cache_idle_batches(cc, hid);
    } else {
       rc = test_cache_basic(ccp, &system_cfg.cache_cfg, hid);
    }
