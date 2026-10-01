@@ -3924,7 +3924,7 @@ bundle_compaction_create(trunk_context     *context,
    vector_init(&result->input.branches, context->hid);
    uint64 first_new_bundle =
       trunk_pivot_inflight_bundle_start(pvt) + create_info.num_old_bundles;
-   platform_assert(first_new_bundle == node->num_old_bundles);
+   platform_assert(first_new_bundle <= node->num_old_bundles);
 
    for (int64 i = first_new_bundle; i < vector_length(&node->inflight_bundles);
         i++)
@@ -4691,19 +4691,25 @@ enqueue_maplet_compaction(trunk_pivot_state *args, task_tracker_list *completed)
  ************************/
 
 static platform_status
-compute_tuple_bound(trunk_context            *context,
+compute_input_stats(trunk_context            *context,
                     trunk_branch_info_vector *branches,
                     key                       lb,
                     key                       ub,
-                    uint64                   *tuple_bound)
+                    trunk_pivot_stats        *input_stats)
 {
-   *tuple_bound = 0;
+   *input_stats = TRUNK_STATS_ZERO;
    for (uint64 i = 0; i < vector_length(branches); i++) {
       trunk_branch_info bi = vector_get(branches, i);
-      btree_pivot_stats stats;
+      btree_pivot_stats btree_stats;
       btree_count_in_range(
-         context->cc, context->cfg->btree_cfg, bi.addr, lb, ub, &stats);
-      *tuple_bound += stats.num_kvs;
+         context->cc, context->cfg->btree_cfg, bi.addr, lb, ub, &btree_stats);
+      trunk_pivot_stats stats =
+         trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
+      platform_status rc =
+         trunk_pivot_stats_add(*input_stats, stats, input_stats);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
    return STATUS_OK;
 }
@@ -4760,15 +4766,14 @@ bundle_compaction_task(task *arg)
       goto cleanup_branch_merger;
    }
 
-   uint64 tuple_bound;
-   rc = compute_tuple_bound(context,
+   rc = compute_input_stats(context,
                             &bc->input.branches,
                             key_buffer_key(&state->key),
                             key_buffer_key(&state->ubkey),
-                            &tuple_bound);
+                            &bc->input.stats);
    if (!SUCCESS(rc)) {
       platform_error_log(
-         "compute_tuple_bound failed for state: %p bc: %p: %s\n",
+         "compute_input_stats failed for state: %p bc: %p: %s\n",
          state,
          bc,
          platform_status_to_string(rc));
@@ -4791,7 +4796,7 @@ bundle_compaction_task(task *arg)
                             context->cc,
                             context->cfg->btree_cfg,
                             &merger.merge_itor->super,
-                            tuple_bound,
+                            bc->input.stats.num_tuples,
                             context->cfg->filter_cfg->seed,
                             TRUE,
                             context->hid);
