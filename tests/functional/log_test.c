@@ -1494,6 +1494,68 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 }
 
 /*
+ * A blob descriptor can be valid and still be too large to fit in one log
+ * record.  The append must reject it before copying into the page-sized thread
+ * staging buffer.
+ */
+static int
+test_log_rejects_oversized_blob_descriptor(cache            *cc,
+                                           shard_log_config *cfg,
+                                           platform_heap_id  hid)
+{
+   char key_data[] = "oversized-log-descriptor";
+   key  skey       = key_create(FALSE, sizeof(key_data) - 1, key_data);
+
+   uint64 fixed_entry_size =
+      2 * sizeof(uint64) + sizeof(ondisk_tuple) + key_length(skey);
+   uint64 max_descriptor_size =
+      cache_page_size(cc) - sizeof(shard_log_hdr) - fixed_entry_size;
+   platform_assert(max_descriptor_size >= sizeof(blob));
+   uint64 num_extents =
+      (max_descriptor_size - sizeof(blob)) / sizeof(uint64) + 1;
+   uint64 descriptor_size = sizeof(blob) + num_extents * sizeof(uint64);
+   platform_assert(max_descriptor_size < descriptor_size);
+
+   writable_buffer descriptor;
+   writable_buffer_init(&descriptor, hid);
+   platform_assert_status_ok(
+      writable_buffer_resize(&descriptor, descriptor_size));
+   blob *blobby     = writable_buffer_data(&descriptor);
+   blobby->length   = num_extents * cache_extent_size(cc);
+   blobby->checksum = (checksum128){0};
+   blobby->format   = BLOB_FORMAT;
+
+   allocator *al = cache_get_allocator(cc);
+   for (uint64 i = 0; i < num_extents; i++) {
+      uint64 addr;
+      platform_assert_status_ok(allocator_alloc(al, &addr, PAGE_TYPE_BLOB));
+      blobby->addrs[i] = addr;
+   }
+
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &log));
+   log_head head = log_get_head(log);
+   message  msg  = message_create(
+      MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
+   int append_rc = log_write(log, skey, msg, 0, 0);
+   platform_assert(append_rc == STATUS_LIMIT_EXCEEDED.r);
+
+   platform_status rc = log_seal(log);
+   platform_assert(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
+   log_deinit(log);
+   shard_log_dec_ref(cc, &head);
+
+   for (uint64 i = 0; i < num_extents; i++) {
+      platform_assert(allocator_dec_ref(al, blobby->addrs[i], PAGE_TYPE_BLOB)
+                      == AL_NO_REFS);
+      platform_assert(allocator_dec_ref(al, blobby->addrs[i], PAGE_TYPE_BLOB)
+                      == AL_FREE);
+   }
+   writable_buffer_deinit(&descriptor);
+   return 0;
+}
+
+/*
  * A record with a valid page checksum still cannot use its persisted lengths
  * to walk beyond the page. The malformed group is discarded as a whole.
  */
@@ -2433,6 +2495,10 @@ log_test(int argc, char *argv[])
       cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
+   platform_assert(rc == 0);
+
+   rc = test_log_rejects_oversized_blob_descriptor(
+      (cache *)cc, &system_cfg.log_cfg, hid);
    platform_assert(rc == 0);
 
    rc = test_log_malformed_record_bounds(cc,

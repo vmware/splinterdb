@@ -19,6 +19,27 @@
 #include "platform_condvar.h"
 #include "poison.h"
 
+/*
+ * One allocation claims one starting position from the shared hand and scans
+ * the ring locally.  Advancing the shared hand for every examined extent lets
+ * concurrent full-disk scans receive disjoint positions forever.
+ */
+static void
+test_rc_allocator_bounded_scan(rc_allocator *al)
+{
+   allocator *allocator = (struct allocator *)al;
+   __atomic_store_n(&al->hand, 0, __ATOMIC_RELAXED);
+
+   uint64 addr;
+   platform_assert_status_ok(allocator_alloc(allocator, &addr, PAGE_TYPE_MISC));
+   platform_assert(__atomic_load_n(&al->hand, __ATOMIC_RELAXED) == 1);
+
+   platform_assert(allocator_dec_ref(allocator, addr, PAGE_TYPE_MISC)
+                   == AL_NO_REFS);
+   platform_assert(allocator_dec_ref(allocator, addr, PAGE_TYPE_MISC)
+                   == AL_FREE);
+}
+
 platform_status
 test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
 {
@@ -2324,6 +2345,7 @@ cache_test(int argc, char *argv[])
    rc_allocator al;
    rc_allocator_init(
       &al, &system_cfg.allocator_cfg, io, hid, platform_get_module_id());
+   test_rc_allocator_bounded_scan(&al);
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,

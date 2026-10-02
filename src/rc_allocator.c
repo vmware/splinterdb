@@ -568,18 +568,21 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 {
    platform_assert(al->map_is_valid);
    rc_allocator_assert_valid_page_type(type);
-   uint64 first_hand = al->hand % al->cfg->extent_capacity;
-   uint64 hand;
+   uint64 first_hand = __atomic_fetch_add(&al->hand, 1, __ATOMIC_RELAXED)
+                       % al->cfg->extent_capacity;
+   uint64 hand           = first_hand;
    bool32 extent_is_free = FALSE;
 
-   do {
-      hand = __sync_fetch_and_add(&al->hand, 1) % al->cfg->extent_capacity;
-      if (al->ref_count[hand] == 0) {
-         extent_is_free =
-            __sync_bool_compare_and_swap(&al->ref_count[hand], 0, 2);
+   for (uint64 offset = 0; offset < al->cfg->extent_capacity; offset++) {
+      hand = (first_hand + offset) % al->cfg->extent_capacity;
+      if (__atomic_load_n(&al->ref_count[hand], __ATOMIC_RELAXED) == AL_FREE) {
+         extent_is_free = __sync_bool_compare_and_swap(
+            &al->ref_count[hand], AL_FREE, AL_ONE_REF);
+         if (extent_is_free) {
+            break;
+         }
       }
-   } while (!extent_is_free
-            && (hand + 1) % al->cfg->extent_capacity != first_hand);
+   }
 
    // Error out if no extent is free; allocation fails.
    if (!extent_is_free) {

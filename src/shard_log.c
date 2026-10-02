@@ -1232,6 +1232,11 @@ shard_log_write_reserved(log_write_token *token,
       new_entry_size  = log_entry_required_capacity(tuple_key, msg);
    }
 
+   if (max_entry_size < new_entry_size) {
+      rc = STATUS_LIMIT_EXCEEDED;
+      goto out;
+   }
+
    if (log_blob_inited) {
       /*
        * Enroll the value before publishing the record into a staging buffer.
@@ -1244,7 +1249,7 @@ shard_log_write_reserved(log_write_token *token,
       }
    }
 
-   debug_assert(new_entry_size <= page_size - sizeof(shard_log_hdr));
+   debug_assert(new_entry_size <= max_entry_size);
 
    // Full, or retrying an earlier hand-over: finish that frozen image first.
    if (thread_data->state != SHARD_LOG_BUFFER_OPEN
