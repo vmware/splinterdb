@@ -53,13 +53,21 @@ memtable_is_full(const memtable_config *cfg, memtable *mt)
 bool32
 memtable_is_empty(memtable_context *ctxt)
 {
-   return ctxt->is_empty;
+   return __atomic_load_n(&ctxt->is_empty, __ATOMIC_RELAXED);
 }
 
 static inline void
 memtable_mark_empty(memtable_context *ctxt)
 {
-   ctxt->is_empty = TRUE;
+   __atomic_store_n(&ctxt->is_empty, TRUE, __ATOMIC_RELAXED);
+}
+
+static inline void
+memtable_mark_nonempty(memtable_context *ctxt)
+{
+   if (UNLIKELY(__atomic_load_n(&ctxt->is_empty, __ATOMIC_RELAXED))) {
+      __atomic_store_n(&ctxt->is_empty, FALSE, __ATOMIC_RELAXED);
+   }
 }
 
 static inline void
@@ -248,7 +256,7 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
 static inline void
 memtable_add_tuple(memtable_context *ctxt)
 {
-   ctxt->is_empty = FALSE;
+   memtable_mark_nonempty(ctxt);
 }
 
 static btree_scratch *
@@ -513,7 +521,7 @@ memtable_context_init_at_generation(memtable_context *ctxt,
    ctxt->generation_retired =
       first_generation == 0 ? (uint64)-1 : first_generation - 1;
 
-   ctxt->is_empty = TRUE;
+   memtable_mark_empty(ctxt);
 
    ctxt->rotate       = rotate;
    ctxt->process      = process;

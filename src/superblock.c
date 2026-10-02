@@ -57,6 +57,19 @@ superblock_is_valid(const superblock *sb, const allocator_config *cfg)
           && superblock_geometry_matches(geometry, cfg);
 }
 
+/*
+ * Compare wrapping 64-bit serial numbers. Published A/B generations are
+ * adjacent, and therefore always less than half the serial-number space apart.
+ * A separation of exactly 2^63 would be ambiguous and is outside that
+ * invariant.
+ */
+static bool32
+superblock_generation_is_newer(uint64 candidate, uint64 current)
+{
+   uint64 distance = candidate - current;
+   return distance != 0 && distance < (UINT64_C(1) << 63);
+}
+
 platform_status
 superblock_read_bootstrap(const char *filename, superblock *image)
 {
@@ -74,7 +87,9 @@ superblock_read_bootstrap(const char *filename, superblock *image)
          continue;
       }
       if (superblock_has_valid_bootstrap(&candidate)
-          && (!have_valid || newest.generation < candidate.generation))
+          && (!have_valid
+              || superblock_generation_is_newer(candidate.generation,
+                                                newest.generation)))
       {
          newest     = candidate;
          have_valid = TRUE;
@@ -161,7 +176,10 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
       if (!superblock_is_valid(slot, cfg)) {
          continue;
       }
-      if (!have_valid || slot->generation > ctx->image->generation) {
+      if (!have_valid
+          || superblock_generation_is_newer(slot->generation,
+                                            ctx->image->generation))
+      {
          memcpy(ctx->image, slot, ctx->page_size);
          ctx->current_slot = s;
          have_valid        = TRUE;
@@ -211,7 +229,6 @@ superblock_make_durable(superblock_context *ctx)
 
    uint64 target = ctx->current_slot ^ 1;
    ctx->image->generation += 1;
-   platform_assert(ctx->image->generation != 0); // generation wraparound
 
    platform_status rc = superblock_write_slot(ctx, target);
    if (!SUCCESS(rc)) {

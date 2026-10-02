@@ -12,10 +12,12 @@
  *     invalidates the persisted allocation state in a single atomic write.
  *
  *     Two physical copies live at pages 0 and 1 of the device.  Writes
- *     alternate between them and carry a monotonic generation number, so a
- *     torn write always leaves the previous generation intact in the other
- *     page.  Mount picks the newest copy that passes magic/version/checksum/
- *     geometry validation.
+ *     alternate between them and carry a wrapping 64-bit generation number,
+ *     so a torn write always leaves the previous generation intact in the
+ *     other page.  Mount compares generations as serial numbers (the two
+ *     copies are always less than half the serial-number space apart) and
+ *     picks the newest copy that passes magic/version/checksum/geometry
+ *     validation.
  *
  *     The disk geometry is the first field (offset 0), but bootstrap does not
  *     trust those bytes in isolation.  It reads both slots at the format's
@@ -113,7 +115,7 @@ typedef struct ONDISK superblock {
    disk_geometry geometry; // MUST be first; see the bootstrap-read note above.
    uint64        format_magic;
    uint64        format_version;
-   uint64        generation; // monotonic; newest valid copy wins at mount
+   uint64        generation; // wrapping serial; newest valid copy wins
    /*
     * Base address of the persisted allocator refcount map when it is
     * trustworthy, or 0 to force a rebuild-by-walking on the next mount.  A

@@ -30,6 +30,7 @@ typedef enum laio_backing_type {
 #define LAIO_QD_HIST_BUCKETS (IO_DEFAULT_KERNEL_QUEUE_SIZE + 2)
 
 typedef struct io_process_context {
+   // state and io_count are shared with the cleaner and accessed atomically.
    process_context_state state;
    uint64                lock;
    uint64                io_count; // inflight ios

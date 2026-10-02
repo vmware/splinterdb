@@ -72,12 +72,14 @@ typedef uint32 entry_status; // Saved in clockcache_entry->status
  */
 struct clockcache_entry {
    page_handle           page;
+   // Accessed atomically; see clockcache_get_status() and the flag helpers.
    volatile entry_status status;
    // Generation in which this page's current dirty interval began; 0 when the
    // page is clean or free. A writeback_dirty() drains every entry whose
    // generation is at or below the cut it took (see
    // clockcache_writeback_dirty).
-   volatile uint64  dirty_generation;
+   // Accessed with __atomic builtins and ordered by status transitions.
+   volatile uint64 dirty_generation;
    page_type        type;
    async_wait_queue waiters;
 #ifdef RECORD_ACQUISITION_STACKS

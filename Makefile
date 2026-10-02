@@ -439,6 +439,7 @@ PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_assert.o \
                $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_log.o \
                $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_mutex.o \
                $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_threads.o \
+               $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_trace.o \
                $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/shmalloc.o
 PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform_io.o \
                   $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o

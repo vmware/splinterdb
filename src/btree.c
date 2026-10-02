@@ -4508,19 +4508,22 @@ btree_iterator_seek(iterator *base_itor, comparison seek_type, key seek_key)
       return STATUS_BAD_PARAM;
    }
 
-   // check if seek_key is within our current node
-   key    first_key   = itor->height
-                           ? btree_get_pivot(itor->cfg, itor->curr.hdr, 0)
-                           : btree_get_tuple_key(itor->cfg, itor->curr.hdr, 0);
-   uint64 num_entries = btree_num_entries(itor->curr.hdr);
-   key    last_key =
-      itor->height
+   uint64 num_entries       = btree_num_entries(itor->curr.hdr);
+   bool32 seek_current_node = FALSE;
+   if (num_entries != 0) {
+      key first_key = itor->height
+                         ? btree_get_pivot(itor->cfg, itor->curr.hdr, 0)
+                         : btree_get_tuple_key(itor->cfg, itor->curr.hdr, 0);
+      key last_key =
+         itor->height
             ? btree_get_pivot(itor->cfg, itor->curr.hdr, num_entries - 1)
             : btree_get_tuple_key(itor->cfg, itor->curr.hdr, num_entries - 1);
+      seek_current_node =
+         btree_key_compare(itor->cfg, seek_key, first_key) >= 0
+         && btree_key_compare(itor->cfg, seek_key, last_key) <= 0;
+   }
 
-   if (btree_key_compare(itor->cfg, seek_key, first_key) >= 0
-       && btree_key_compare(itor->cfg, seek_key, last_key) <= 0)
-   {
+   if (seek_current_node) {
       // seek_key is within our current leaf. So just directly search for it
       bool32 found;
       itor->idx =

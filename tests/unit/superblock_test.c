@@ -415,6 +415,55 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
    superblock_context_deinit(&ctx);
 }
 
+/* Generation zero is newer than UINT64_MAX after the serial number wraps. */
+CTEST2(superblock, test_generation_wrap_selects_newest_slot)
+{
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   /* Arrange two final, adjacent generations: UINT64_MAX in slot 0 and zero
+    * in slot 1. The intermediate generation assignment is test setup only. */
+   ctx.image->generation = UINT64_MAX - 1;
+   superblock_snapshot_tree(&ctx, 0x4000, 0);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(UINT64_MAX, ctx.image->generation);
+
+   superblock_snapshot_tree(&ctx, 0x8000, 0);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(0, ctx.image->generation);
+   superblock_context_deinit(&ctx);
+
+   /* Bootstrap readers and mounted readers must make the same choice. */
+   superblock image;
+   rc = superblock_read_bootstrap(data->io_cfg.filename, &image);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(0, image.generation);
+   ASSERT_EQUAL(0x8000, image.tree.root_addr);
+
+   rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_mount(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(0, ctx.image->generation);
+   superblock_tree_record got;
+   superblock_get_tree_record(&ctx, &got);
+   ASSERT_EQUAL(0x8000, got.root_addr);
+
+   /* Publishing continues normally on the other side of the wrap. */
+   superblock_snapshot_tree(&ctx, 0xc000, 0);
+   rc = superblock_make_durable(&ctx);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(1, ctx.image->generation);
+   superblock_context_deinit(&ctx);
+}
+
 /* Both slots corrupt => no valid superblock. */
 CTEST2(superblock, test_both_slots_corrupt_is_not_found)
 {

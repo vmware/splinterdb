@@ -217,7 +217,16 @@ clockcache_get_entry(clockcache *cc, uint32 entry_number)
 static inline entry_status
 clockcache_get_status(clockcache *cc, uint32 entry_number)
 {
-   return clockcache_get_entry(cc, entry_number)->status;
+   return __atomic_load_n(&clockcache_get_entry(cc, entry_number)->status,
+                          __ATOMIC_SEQ_CST);
+}
+
+static inline void
+clockcache_set_status(clockcache *cc, uint32 entry_number, entry_status status)
+{
+   __atomic_store_n(&clockcache_get_entry(cc, entry_number)->status,
+                    status,
+                    __ATOMIC_RELEASE);
 }
 static inline entry_status
 clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
@@ -258,11 +267,15 @@ clockcache_dirty_begin(clockcache *cc, uint32 entry_number)
 {
    if (clockcache_test_flag(cc, entry_number, CC_CLEAN)) {
       clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
-      debug_assert(entry->dirty_generation == 0);
+      debug_assert(__atomic_load_n(&entry->dirty_generation,
+                                   __ATOMIC_RELAXED)
+                   == 0);
       // Stamp before clearing CC_CLEAN so a fence that observes the page dirty
       // always sees a valid generation. clear_flag is a full barrier.
-      entry->dirty_generation =
-         __atomic_load_n(&cc->dirty_generation, __ATOMIC_RELAXED);
+      __atomic_store_n(
+         &entry->dirty_generation,
+         __atomic_load_n(&cc->dirty_generation, __ATOMIC_RELAXED),
+         __ATOMIC_RELAXED);
       clockcache_clear_flag(cc, entry_number, CC_CLEAN);
    }
 }
@@ -304,7 +317,9 @@ clockcache_dirty_fail_writeback(clockcache *cc, uint32 entry_number)
 static void
 clockcache_dirty_complete_writeback(clockcache *cc, uint32 entry_number)
 {
-   clockcache_get_entry(cc, entry_number)->dirty_generation = 0;
+   __atomic_store_n(&clockcache_get_entry(cc, entry_number)->dirty_generation,
+                    0,
+                    __ATOMIC_RELAXED);
    debug_only uint32 was_clean =
       clockcache_set_flag(cc, entry_number, CC_CLEAN);
    debug_assert(!was_clean);
@@ -327,11 +342,14 @@ clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
    // entry_number is now known to be valid; offset into slot directly.
    clockcache_entry *myEntry = &cc->entry[entry_number];
 
-   myEntry->history[myhistindex].status   = myEntry->status;
+   myEntry->history[myhistindex].status =
+      __atomic_load_n(&myEntry->status, __ATOMIC_SEQ_CST);
    myEntry->history[myhistindex].refcount = 0;
    for (threadid i = 0; i < MAX_THREADS; i++) {
       myEntry->history[myhistindex].refcount +=
-         cc->refcount[i * cc->cfg->page_capacity + entry_number];
+         __atomic_load_n(
+            &cc->refcount[i * cc->cfg->page_capacity + entry_number],
+            __ATOMIC_SEQ_CST);
    }
    backtrace(myEntry->history[myhistindex].backtrace, NUM_HISTORY_RECORDS);
 }
@@ -513,19 +531,31 @@ clockcache_get_ref_internal(clockcache *cc, uint32 entry_number)
 }
 
 static inline uint16
-clockcache_get_ref(clockcache *cc, uint32 entry_number, uint64 counter_no)
+clockcache_get_ref_by_number(clockcache *cc,
+                             uint64      rc_number,
+                             uint64      counter_no)
 {
    counter_no %= CC_RC_WIDTH;
-   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
-   return cc->refcount[counter_no * cc->cfg->page_capacity + rc_number];
+   return __atomic_load_n(
+      &cc->refcount[counter_no * cc->cfg->page_capacity + rc_number],
+      __ATOMIC_SEQ_CST);
+}
+
+static inline uint16
+clockcache_get_ref(clockcache *cc, uint32 entry_number, uint64 counter_no)
+{
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
+   return clockcache_get_ref_by_number(cc, rc_number, counter_no);
 }
 
 static inline void
-clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
+clockcache_inc_ref_by_number(clockcache *cc,
+                             uint32      entry_number,
+                             uint64      rc_number,
+                             threadid    counter_no)
 {
    counter_no %= CC_RC_WIDTH;
-   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
 
    uint16 refcount = __sync_fetch_and_add(
@@ -537,12 +567,21 @@ clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
 }
 
 static inline void
-clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
+clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
+{
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
+   clockcache_inc_ref_by_number(cc, entry_number, rc_number, counter_no);
+}
+
+static inline void
+clockcache_dec_ref_by_number(clockcache *cc,
+                             uint32      entry_number,
+                             uint64      rc_number,
+                             threadid    counter_no)
 {
    threadid input_counter_no = counter_no;
 
    counter_no %= CC_RC_WIDTH;
-   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert((rc_number < cc->cfg->page_capacity),
                 "Entry number, %lu, is out of allocator "
                 "page capacity range, %u.\n",
@@ -560,12 +599,25 @@ clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
                    counter_no);
 }
 
+static inline void
+clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
+{
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
+   clockcache_dec_ref_by_number(cc, entry_number, rc_number, counter_no);
+}
+
+static inline uint8
+clockcache_get_pin_by_number(clockcache *cc, uint64 rc_number)
+{
+   debug_assert(rc_number < cc->cfg->page_capacity);
+   return __atomic_load_n(&cc->pincount[rc_number], __ATOMIC_SEQ_CST);
+}
+
 static inline uint8
 clockcache_get_pin(clockcache *cc, uint32 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
-   debug_assert(rc_number < cc->cfg->page_capacity);
-   return cc->pincount[rc_number];
+   return clockcache_get_pin_by_number(cc, rc_number);
 }
 
 static inline void
@@ -593,7 +645,7 @@ clockcache_reset_pin(clockcache *cc, uint32 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
-   if (cc->pincount[rc_number] != 0) {
+   if (__atomic_load_n(&cc->pincount[rc_number], __ATOMIC_SEQ_CST) != 0) {
       __sync_lock_test_and_set(&cc->pincount[rc_number], 0);
    }
 }
@@ -676,25 +728,30 @@ typedef enum {
  *----------------------------------------------------------------------
  */
 static get_rc
-clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool32 set_access)
+clockcache_try_get_read_by_number(clockcache *cc,
+                                  uint32      entry_number,
+                                  uint64      rc_number,
+                                  bool32      set_access)
 {
-   const threadid tid = platform_get_tid();
+   const threadid    tid   = platform_get_tid();
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
 
    // first check if write lock is held
-   uint32 cc_writing = clockcache_test_flag(cc, entry_number, CC_WRITELOCKED);
-   if (UNLIKELY(cc_writing)) {
+   entry_status status =
+      __atomic_load_n(&entry->status, __ATOMIC_SEQ_CST);
+   if (UNLIKELY(status & CC_WRITELOCKED)) {
       return GET_RC_CONFLICT;
    }
 
    // then obtain the read lock
-   clockcache_inc_ref(cc, entry_number, tid);
+   clockcache_inc_ref_by_number(cc, entry_number, rc_number, tid);
 
-   // clockcache_test_flag returns 32 bits, not 1 (cannot use bool)
-   uint32 cc_free = clockcache_test_flag(cc, entry_number, CC_FREE);
-   cc_writing     = clockcache_test_flag(cc, entry_number, CC_WRITELOCKED);
+   status = __atomic_load_n(&entry->status, __ATOMIC_SEQ_CST);
+   uint32 cc_free    = status & CC_FREE;
+   uint32 cc_writing = status & CC_WRITELOCKED;
    if (LIKELY(!cc_free && !cc_writing)) {
       // test and test and set to reduce contention
-      if (set_access && !clockcache_test_flag(cc, entry_number, CC_ACCESSED)) {
+      if (set_access && !(status & CC_ACCESSED)) {
          clockcache_set_flag(cc, entry_number, CC_ACCESSED);
       }
       clockcache_record_backtrace(cc, entry_number);
@@ -703,7 +760,7 @@ clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool32 set_access)
 
    // cannot hold the read lock (either write lock is held or entry has been
    // evicted), dec ref and return
-   clockcache_dec_ref(cc, entry_number, tid);
+   clockcache_dec_ref_by_number(cc, entry_number, rc_number, tid);
 
    if (cc_free) {
       return GET_RC_EVICTED;
@@ -711,6 +768,39 @@ clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool32 set_access)
 
    // must be cc_writing
    debug_assert(cc_writing);
+   return GET_RC_CONFLICT;
+}
+
+static get_rc
+clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool32 set_access)
+{
+   const threadid    tid   = platform_get_tid();
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+
+   entry_status status =
+      __atomic_load_n(&entry->status, __ATOMIC_SEQ_CST);
+   if (UNLIKELY(status & CC_WRITELOCKED)) {
+      return GET_RC_CONFLICT;
+   }
+
+   clockcache_inc_ref(cc, entry_number, tid);
+
+   status = __atomic_load_n(&entry->status, __ATOMIC_SEQ_CST);
+   uint32 cc_free    = status & CC_FREE;
+   uint32 cc_writing = status & CC_WRITELOCKED;
+   if (LIKELY(!cc_free && !cc_writing)) {
+      if (set_access && !(status & CC_ACCESSED)) {
+         clockcache_set_flag(cc, entry_number, CC_ACCESSED);
+      }
+      clockcache_record_backtrace(cc, entry_number);
+      return GET_RC_SUCCESS;
+   }
+
+   clockcache_dec_ref(cc, entry_number, tid);
+
+   if (cc_free) {
+      return GET_RC_EVICTED;
+   }
    return GET_RC_CONFLICT;
 }
 
@@ -864,7 +954,8 @@ clockcache_writeback_page_sync(clockcache *cc, uint32 entry_number)
 static void
 clockcache_get_write(clockcache *cc, uint32 entry_number)
 {
-   const threadid tid = platform_get_tid();
+   const threadid tid       = platform_get_tid();
+   const uint64   rc_number = clockcache_get_ref_internal(cc, entry_number);
 
    debug_assert(clockcache_test_flag(cc, entry_number, CC_CLAIMED));
    debug_only uint32 was_writing =
@@ -883,7 +974,7 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
     * compaction+incorporation (that needs write locking) to
     * background threads.
     */
-   debug_assert(clockcache_get_ref(cc, entry_number, tid) >= 1);
+   debug_assert(clockcache_get_ref_by_number(cc, rc_number, tid) >= 1);
    /*
     * Wait for flushing to finish.
     *
@@ -919,12 +1010,12 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
    // Wait for readers to finish
    for (threadid thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
       if (tid % CC_RC_WIDTH != thr_i) {
-         while (clockcache_get_ref(cc, entry_number, thr_i)) {
+         while (clockcache_get_ref_by_number(cc, rc_number, thr_i)) {
             platform_sleep_ns(1);
          }
       } else {
          // we have a single ref, so wait for others to drop
-         while (clockcache_get_ref(cc, entry_number, thr_i) > 1) {
+         while (clockcache_get_ref_by_number(cc, rc_number, thr_i) > 1) {
             platform_sleep_ns(1);
          }
       }
@@ -951,11 +1042,13 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  */
 static get_rc
-clockcache_try_get_write(clockcache *cc, uint32 entry_number)
+clockcache_try_get_write(clockcache *cc,
+                         uint32      entry_number,
+                         uint64      rc_number)
 {
-   threadid thr_i;
-   threadid tid = platform_get_tid();
-   get_rc   rc;
+   threadid     thr_i;
+   threadid     tid       = platform_get_tid();
+   get_rc       rc;
 
    debug_assert(clockcache_test_flag(cc, entry_number, CC_CLAIMED));
    debug_only uint32 was_writing =
@@ -975,16 +1068,17 @@ clockcache_try_get_write(clockcache *cc, uint32 entry_number)
    }
 
    // check for readers
+#pragma GCC unroll 4
    for (thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
       if (tid % CC_RC_WIDTH != thr_i) {
-         if (clockcache_get_ref(cc, entry_number, thr_i)) {
+         if (clockcache_get_ref_by_number(cc, rc_number, thr_i)) {
             // there is a reader, so bail
             rc = GET_RC_CONFLICT;
             goto failed;
          }
       } else {
          // we have a single ref, so if > 1 bail
-         if (clockcache_get_ref(cc, entry_number, thr_i) > 1) {
+         if (clockcache_get_ref_by_number(cc, rc_number, thr_i) > 1) {
             // there is a reader, so bail
             rc = GET_RC_CONFLICT;
             goto failed;
@@ -1069,7 +1163,7 @@ clockcache_try_set_writeback(clockcache *cc,
 
    volatile uint32 *status = &cc->entry[entry_number].status;
    while (TRUE) {
-      uint32 cur = *status;
+      uint32 cur = __atomic_load_n(status, __ATOMIC_SEQ_CST);
       if (cur == CC_CLEANABLE1_STATUS) {
          if (__sync_bool_compare_and_swap(
                 status, CC_CLEANABLE1_STATUS, CC_WRITEBACK1_STATUS))
@@ -1490,11 +1584,12 @@ clockcache_writeback_dirty(clockcache *cc)
 static void
 clockcache_try_evict(clockcache *cc, uint32 entry_number)
 {
-   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
-   const threadid    tid   = platform_get_tid();
+   clockcache_entry *entry     = clockcache_get_entry(cc, entry_number);
+   const threadid    tid       = platform_get_tid();
+   const uint64      rc_number = clockcache_get_ref_internal(cc, entry_number);
 
    /* store status for testing, then clear CC_ACCESSED */
-   uint32 status = entry->status;
+   uint32 status = __atomic_load_n(&entry->status, __ATOMIC_SEQ_CST);
    /* T&T&S */
    if (clockcache_test_flag(cc, entry_number, CC_ACCESSED)) {
       clockcache_clear_flag(cc, entry_number, CC_ACCESSED);
@@ -1508,8 +1603,8 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
     * lock itself.
     */
    if (status != CC_EVICTABLE_STATUS
-       || clockcache_get_ref(cc, entry_number, tid)
-       || clockcache_get_pin(cc, entry_number))
+       || clockcache_get_ref_by_number(cc, rc_number, tid)
+       || clockcache_get_pin_by_number(cc, rc_number))
    {
       goto out;
    }
@@ -1524,7 +1619,10 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
     * 7. release read lock */
 
    /* 1. try to read lock */
-   if (clockcache_try_get_read(cc, entry_number, FALSE) != GET_RC_SUCCESS) {
+   if (clockcache_try_get_read_by_number(
+          cc, entry_number, rc_number, FALSE)
+       != GET_RC_SUCCESS)
+   {
       goto out;
    }
 
@@ -1538,7 +1636,8 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
     *      -- first check if loading
     */
    if (clockcache_test_flag(cc, entry_number, CC_LOADING)
-       || clockcache_try_get_write(cc, entry_number) != GET_RC_SUCCESS)
+       || clockcache_try_get_write(cc, entry_number, rc_number)
+             != GET_RC_SUCCESS)
    {
       goto release_claim;
    }
@@ -1549,9 +1648,9 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
     * note: do not re-check the ref count for the active thread, because
     * it acquired a read lock in order to lock the entry.
     */
-   status = entry->status;
+   status = __atomic_load_n(&entry->status, __ATOMIC_SEQ_CST);
    if (status != CC_LOCKED_EVICTABLE_STATUS
-       || clockcache_get_pin(cc, entry_number))
+       || clockcache_get_pin_by_number(cc, rc_number))
    {
       goto release_write;
    }
@@ -1575,9 +1674,9 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
 
    /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
    platform_assert(entry->waiters.head == NULL);
-   entry->type             = PAGE_TYPE_INVALID;
-   entry->dirty_generation = 0;
-   entry->status           = CC_FREE_STATUS;
+   entry->type = PAGE_TYPE_INVALID;
+   __atomic_store_n(&entry->dirty_generation, 0, __ATOMIC_RELAXED);
+   clockcache_set_status(cc, entry_number, CC_FREE_STATUS);
    clockcache_log(
       addr, entry_number, "evict: entry %u addr %lu\n", entry_number, addr);
 
@@ -1591,7 +1690,7 @@ release_claim:
    debug_status = clockcache_clear_flag(cc, entry_number, CC_CLAIMED);
    debug_assert(debug_status);
 release_ref:
-   clockcache_dec_ref(cc, entry_number, tid);
+   clockcache_dec_ref_by_number(cc, entry_number, rc_number, tid);
 out:
    return;
 }
@@ -1715,7 +1814,7 @@ clockcache_get_free_page(clockcache *cc,
       uint64 end_entry              = start_entry + CC_ENTRIES_PER_BATCH;
       for (entry_no = start_entry; entry_no < end_entry; entry_no++) {
          entry = &cc->entry[entry_no];
-         if (entry->status == CC_FREE_STATUS
+         if (clockcache_get_status(cc, entry_no) == CC_FREE_STATUS
              && __sync_bool_compare_and_swap(
                 &entry->status, CC_FREE_STATUS, CC_ALLOC_STATUS))
          {
@@ -1724,12 +1823,16 @@ clockcache_get_free_page(clockcache *cc,
             // generation, just like a clean->dirty transition. The entry is
             // write-locked here, so a concurrent fence skips it regardless.
             if (!(status & CC_CLEAN)) {
-               debug_assert(entry->dirty_generation == 0);
-               entry->dirty_generation =
-                  __atomic_load_n(&cc->dirty_generation, __ATOMIC_RELAXED);
+               debug_assert(__atomic_load_n(&entry->dirty_generation,
+                                            __ATOMIC_RELAXED)
+                            == 0);
+               __atomic_store_n(
+                  &entry->dirty_generation,
+                  __atomic_load_n(&cc->dirty_generation, __ATOMIC_RELAXED),
+                  __ATOMIC_RELAXED);
             }
-            entry->status = status;
-            entry->type   = type;
+            entry->type = type;
+            clockcache_set_status(cc, entry_no, status);
 
             if (refcount) {
                clockcache_inc_ref(cc, entry_no, tid);
@@ -1836,7 +1939,8 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
    }
 
    for (uint32 entry_no = 0; entry_no < cc->cfg->page_capacity; entry_no++) {
-      if (cc->entry[entry_no].status == CC_FREE_STATUS) {
+      entry_status status = clockcache_get_status(cc, entry_no);
+      if (status == CC_FREE_STATUS) {
          if (cc->entry[entry_no].page.disk_addr != CC_UNMAPPED_ADDR) {
             platform_error_log("clockcache_evict_all: free entry %u still "
                                "names addr %lu\n",
@@ -1853,7 +1957,7 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
                          "resident with status 0x%x\n",
                          entry_no,
                          cc->entry[entry_no].page.disk_addr,
-                         cc->entry[entry_no].status);
+                         status);
       return STATUS_BUSY;
    }
 
@@ -1999,9 +2103,9 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       platform_assert(entry->waiters.head == NULL);
-      entry->type             = PAGE_TYPE_INVALID;
-      entry->dirty_generation = 0;
-      entry->status           = CC_FREE_STATUS;
+      entry->type = PAGE_TYPE_INVALID;
+      __atomic_store_n(&entry->dirty_generation, 0, __ATOMIC_RELAXED);
+      clockcache_set_status(cc, entry_number, CC_FREE_STATUS);
 
       /* 7. reset pincount */
       clockcache_reset_pin(cc, entry_number);
@@ -2117,13 +2221,14 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
 }
 
 static void
-clockcache_release_unpublished_entry(clockcache_entry *entry)
+clockcache_release_unpublished_entry(clockcache *cc, uint32 entry_number)
 {
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    entry->page.disk_addr   = CC_UNMAPPED_ADDR;
    entry->type             = PAGE_TYPE_INVALID;
-   entry->dirty_generation = 0;
+   __atomic_store_n(&entry->dirty_generation, 0, __ATOMIC_RELAXED);
    platform_assert(entry->waiters.head == NULL);
-   entry->status = CC_FREE_STATUS;
+   clockcache_set_status(cc, entry_number, CC_FREE_STATUS);
 }
 
 static uint64
@@ -2147,7 +2252,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
           &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
    {
       clockcache_dec_ref(cc, entry_number, tid);
-      clockcache_release_unpublished_entry(entry);
+      clockcache_release_unpublished_entry(cc, entry_number);
       clockcache_log(addr,
                      entry_number,
                      "get abort: entry: %u addr: %lu\n",
@@ -3311,7 +3416,7 @@ clockcache_prefetch_pages(clockcache *cc,
                                      addr,
                                      num_pages,
                                      type);
-                  clockcache_release_unpublished_entry(entry);
+                  clockcache_release_unpublished_entry(cc, free_entry_no);
                   return;
                }
                state->cc = cc;
@@ -3332,7 +3437,7 @@ clockcache_prefetch_pages(clockcache *cc,
                                      num_pages,
                                      type,
                                      platform_status_to_string(rc));
-                  clockcache_release_unpublished_entry(entry);
+                  clockcache_release_unpublished_entry(cc, free_entry_no);
                   platform_free(PROCESS_PRIVATE_HEAP_ID, state);
                   state = NULL;
                   return;
@@ -3364,7 +3469,7 @@ clockcache_prefetch_pages(clockcache *cc,
                               free_entry_no,
                               addr);
             } else {
-               clockcache_release_unpublished_entry(entry);
+               clockcache_release_unpublished_entry(cc, free_entry_no);
                if (state_num_pages > 0) {
                   clockcache_prefetch_issue(cc, &state, &state_num_pages, type);
                } else {
@@ -3441,7 +3546,7 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc)
                       i,
                       i + 63);
       }
-      status   = cc->entry[i].status;
+      status   = clockcache_get_status(cc, i);
       refcount = 0;
       for (thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
          refcount += clockcache_get_ref(cc, i, thr_i);
@@ -3653,8 +3758,9 @@ clockcache_in_use(clockcache *cc, uint64 addr)
    if (entry_no == CC_UNMAPPED_ENTRY) {
       return FALSE;
    }
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_no);
    for (threadid thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
-      if (clockcache_get_ref(cc, entry_no, thr_i) > 0) {
+      if (clockcache_get_ref_by_number(cc, rc_number, thr_i) > 0) {
          return TRUE;
       }
    }
@@ -3666,9 +3772,10 @@ clockcache_get_read_ref(clockcache *cc, page_handle *page)
 {
    uint32 entry_no = clockcache_page_to_entry_number(cc, page);
    platform_assert(entry_no != CC_UNMAPPED_ENTRY);
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_no);
    uint16 ref_count = 0;
    for (threadid thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
-      ref_count += clockcache_get_ref(cc, entry_no, thr_i);
+      ref_count += clockcache_get_ref_by_number(cc, rc_number, thr_i);
    }
    return ref_count;
 }
@@ -4139,7 +4246,7 @@ clockcache_init(clockcache        *cc,   // OUT
 
    // Generation 0 is the sentinel for "clean/free", so dirty stamping starts
    // at 1.
-   cc->dirty_generation = 1;
+   __atomic_store_n(&cc->dirty_generation, 1, __ATOMIC_RELAXED);
 
    /*
     * Allocated from the process-private heap, matching the per-I/O states it
@@ -4199,8 +4306,9 @@ clockcache_init(clockcache        *cc,   // OUT
       cc->entry[i].page.data =
          cc->data + clockcache_multiply_by_page_size(cc, i);
       cc->entry[i].page.disk_addr   = CC_UNMAPPED_ADDR;
-      cc->entry[i].status           = CC_FREE_STATUS;
-      cc->entry[i].dirty_generation = 0;
+      clockcache_set_status(cc, i, CC_FREE_STATUS);
+      __atomic_store_n(
+         &cc->entry[i].dirty_generation, 0, __ATOMIC_RELAXED);
       cc->entry[i].type             = PAGE_TYPE_INVALID;
       async_wait_queue_init(&cc->entry[i].waiters);
    }

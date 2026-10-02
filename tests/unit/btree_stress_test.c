@@ -963,6 +963,12 @@ CTEST2(btree_stress, copied_iterator_bounds)
                                        0);
       ASSERT_TRUE(SUCCESS(rc), "empty async=%u rc=%d", async, rc.r);
       ASSERT_FALSE(iterator_can_curr(&empty.super));
+
+      uint64 seek_buf;
+      rc = iterator_seek(
+         &empty.super, greater_than_or_equal, bounds_key(0, &seek_buf));
+      ASSERT_TRUE(SUCCESS(rc), "empty seek async=%u rc=%d", async, rc.r);
+      ASSERT_FALSE(iterator_can_curr(&empty.super));
       btree_iterator_deinit(&empty);
    }
    for (uint64 n = 0; n < 2048; n += 2) {

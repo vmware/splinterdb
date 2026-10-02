@@ -164,6 +164,7 @@ typedef struct memtable_context {
    // read lock to read and write lock to modify.
    volatile uint64 generation_retired;
 
+   // Advisory snapshot; concurrent readers and writers use atomic accesses.
    bool32 is_empty;
 
    // Effectively thread local, no locking at all:
