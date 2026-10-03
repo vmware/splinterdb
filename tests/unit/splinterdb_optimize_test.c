@@ -147,6 +147,84 @@ CTEST2(splinterdb_optimize, test_blocking_with_no_background_threads)
    verify_full_scan(data->kvsb, num_keys);
 }
 
+// Each update replaces the value with the requested number of 'x' bytes.
+// A one-byte update can therefore grow or shrink the materialized value.
+static int
+resize_merge_final(const data_config *cfg,
+                   slice              key,
+                   merge_accumulator *message)
+{
+   uint8 length = *(const uint8 *)merge_accumulator_data(message);
+   if (!merge_accumulator_resize(message, length)) {
+      return ENOMEM;
+   }
+   memset(merge_accumulator_data(message), 'x', length);
+   merge_accumulator_set_class(message, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static int
+resize_merge(const data_config *cfg,
+             slice              key,
+             message            old_message,
+             merge_accumulator *new_message)
+{
+   return resize_merge_final(cfg, key, new_message);
+}
+
+static void
+verify_resized_value(splinterdb *kvsb, slice key, uint8 length)
+{
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_EQUAL(0, splinterdb_lookup(kvsb, key, &result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
+   slice value;
+   ASSERT_EQUAL(0, splinterdb_lookup_result_value(&result, &value));
+   ASSERT_EQUAL(length, slice_length(value));
+   char expected[UINT8_MAX];
+   memset(expected, 'x', length);
+   ASSERT_EQUAL(0, memcmp(expected, slice_data(value), length));
+   splinterdb_lookup_result_deinit(&result);
+}
+
+CTEST2(splinterdb_optimize, test_merge_can_grow_and_shrink_values)
+{
+   splinterdb_close(&data->kvsb, FALSE);
+   data->data_cfg.merge_tuples       = resize_merge;
+   data->data_cfg.merge_tuples_final = resize_merge_final;
+   data->cfg.num_memtable_bg_threads = 0;
+   data->cfg.num_normal_bg_threads   = 0;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   slice       keys[]       = {slice_create(1, "a"), slice_create(1, "b")};
+   const uint8 lengths[][2] = {{100, 100}, {200, 20}, {1, 2}};
+   for (uint64 round = 0; round < ARRAY_SIZE(lengths); round++) {
+      for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+         ASSERT_EQUAL(
+            0,
+            splinterdb_update(
+               data->kvsb, keys[i], slice_create(1, &lengths[round][i]), NULL));
+      }
+      force_flush_current_memtable(data->kvsb);
+      splinterdb_notification notification;
+      splinterdb_notification_init_blocking(&notification);
+      ASSERT_EQUAL(0,
+                   splinterdb_optimize(
+                      data->kvsb, NULL_SLICE, NULL_SLICE, TRUE, &notification));
+      splinterdb_notification_deinit(&notification);
+      for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+         verify_resized_value(data->kvsb, keys[i], lengths[round][i]);
+      }
+      splinterdb_close(&data->kvsb, FALSE);
+      ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+      for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+         verify_resized_value(data->kvsb, keys[i], lengths[round][i]);
+      }
+   }
+}
+
 CTEST2(splinterdb_optimize, test_open_reads_disk_geometry)
 {
    const uint32 num_keys = 160;

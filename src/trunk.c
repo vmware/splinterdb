@@ -3305,25 +3305,26 @@ trunk_set_root(trunk_context *context, trunk_ondisk_node_ref *new_root_ref)
 static void
 perform_pending_gcs(trunk_context *context)
 {
-   pending_gcs_lock(context);
+   while (TRUE) {
+      pending_gcs_lock(context);
+      pending_gc *pgc = context->pending_gcs;
+      if (pgc == NULL || cache_in_use(context->cc, pgc->addr)) {
+         pending_gcs_unlock(context);
+         return;
+      }
+      context->pending_gcs = pgc->next;
+      if (context->pending_gcs == NULL) {
+         context->pending_gcs_tail = NULL;
+      }
+      pending_gcs_unlock(context);
 
-   pending_gc *pgc = context->pending_gcs;
-
-   while (pgc && !cache_in_use(context->cc, pgc->addr)) {
+      // Reclaim outside the list lock: dropping a child's last reference can
+      // enqueue another deferred GC, including while cache eviction pins it.
       platform_status rc =
          trunk_ondisk_node_gc(context, pgc->addr, pgc->expected_height);
       trunk_record_allocator_cleanup_error(context, rc);
-      pending_gc *next = pgc->next;
       platform_free(context->hid, pgc);
-      pgc = next;
    }
-
-   context->pending_gcs = pgc;
-   if (pgc == NULL) {
-      context->pending_gcs_tail = NULL;
-   }
-
-   pending_gcs_unlock(context);
 }
 
 void
@@ -4314,7 +4315,10 @@ typedef struct maplet_compaction_apply_args {
    routing_filter     new_maplet;
    trunk_branch_info  oldest_input_branch;
    branch_ref_vector  branches;
-   trunk_pivot_stats  delta;
+   // Merge callbacks may enlarge messages. Keep both nonnegative totals so
+   // applying a compaction can increase bytes without relaxing stats checks.
+   trunk_pivot_stats input_stats;
+   trunk_pivot_stats output_stats;
    // Outputs
    bool32 found_match;
 } maplet_compaction_apply_args;
@@ -4384,7 +4388,10 @@ trunk_apply_changes_maplet_compaction(trunk_context *context,
          trunk_pivot_set_inflight_bundle_start(
             pvt,
             trunk_pivot_inflight_bundle_start(pvt) + args->num_input_bundles);
-         rc = trunk_pivot_add_tuple_counts(pvt, -1, args->delta);
+         rc = trunk_pivot_add_tuple_counts(pvt, -1, args->input_stats);
+         if (SUCCESS(rc)) {
+            rc = trunk_pivot_add_tuple_counts(pvt, 1, args->output_stats);
+         }
          if (!SUCCESS(rc)) {
             platform_error_log("apply_changes_maplet_compaction: invalid "
                                "pivot statistics: %d\n",
@@ -4601,9 +4608,13 @@ maplet_compaction_task(task *arg)
          }
       }
 
-      trunk_pivot_stats delta =
-         trunk_pivot_stats_subtract(bc->input.stats, bc->output.stats);
-      rc = trunk_pivot_stats_add(apply_args.delta, delta, &apply_args.delta);
+      rc = trunk_pivot_stats_add(
+         apply_args.input_stats, bc->input.stats, &apply_args.input_stats);
+      if (SUCCESS(rc)) {
+         rc = trunk_pivot_stats_add(apply_args.output_stats,
+                                    bc->output.stats,
+                                    &apply_args.output_stats);
+      }
       if (!SUCCESS(rc)) {
          platform_error_log("maplet_compaction_task: invalid pivot statistics: "
                             "%d\n",
@@ -5364,6 +5375,14 @@ leaf_split_select_pivots(trunk_context     *context,
    key             min_key = ondisk_key_to_key(&first->key);
    key             max_key = ondisk_key_to_key(&last->key);
 
+   trunk_branch_merger merger;
+   trunk_branch_merger_init(&merger,
+                            PROCESS_PRIVATE_HEAP_ID,
+                            context->cfg,
+                            min_key,
+                            max_key,
+                            context->cfg->branch_rough_count_height);
+
    rc = VECTOR_EMPLACE_APPEND(
       pivots, key_buffer_init_from_key, PROCESS_PRIVATE_HEAP_ID, min_key);
    if (!SUCCESS(rc)) {
@@ -5372,14 +5391,6 @@ leaf_split_select_pivots(trunk_context     *context,
                          rc.r);
       goto cleanup;
    }
-
-   trunk_branch_merger merger;
-   trunk_branch_merger_init(&merger,
-                            PROCESS_PRIVATE_HEAP_ID,
-                            context->cfg,
-                            min_key,
-                            max_key,
-                            context->cfg->branch_rough_count_height);
 
    rc = trunk_branch_merger_add_bundle(&merger,
                                        vector_get_ptr(&leaf->pivot_bundles, 0));
@@ -5517,11 +5528,15 @@ leaf_split_init(trunk_node    *new_leaf,
    debug_assert(
       trunk_node_is_well_formed_leaf(context->cfg->data_cfg, new_leaf));
 
-   return trunk_node_receive_bundles(context,
-                                     new_leaf,
-                                     trunk_node_pivot_bundle(leaf, 0),
-                                     &leaf->inflight_bundles,
-                                     trunk_pivot_inflight_bundle_start(pvt));
+   rc = trunk_node_receive_bundles(context,
+                                   new_leaf,
+                                   trunk_node_pivot_bundle(leaf, 0),
+                                   &leaf->inflight_bundles,
+                                   trunk_pivot_inflight_bundle_start(pvt));
+   if (!SUCCESS(rc)) {
+      trunk_node_deinit(new_leaf, context);
+   }
+   return rc;
 }
 
 static uint64
