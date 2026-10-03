@@ -152,7 +152,11 @@ shard_log_publish_reservation(shard_log *log, threadid tid, uint64 *ticket_out)
 {
    uint64 lower = __atomic_load_n(&log->accepting.id, __ATOMIC_SEQ_CST);
    platform_assert(lower != 0);
+   debug_code(shard_log_run_test_hook(
+      log, SHARD_LOG_TEST_RESERVATION_ID_LOADED, lower));
    shard_log_reservation_slot_publish(log, tid, lower);
+   debug_code(shard_log_run_test_hook(
+      log, SHARD_LOG_TEST_RESERVATION_LOWER_PUBLISHED, lower));
 
    shard_log_group *group =
       __atomic_load_n(&log->accepting.group, __ATOMIC_SEQ_CST);
@@ -1397,7 +1401,6 @@ static platform_status
 shard_log_graduate_group(shard_log *log, shard_log_group *group)
 {
    platform_assert(group->close != SHARD_LOG_CLOSE_NONE);
-   platform_assert(shard_log_operations_are_after(log, group->id));
    platform_status append_error = {
       .r = __atomic_load_n(&group->append_error.r, __ATOMIC_SEQ_CST),
    };
@@ -1509,6 +1512,15 @@ shard_log_graduate_through(shard_log *log, log_durable_ticket target)
          continue;
       }
 
+      /*
+       * The successful scan above is a grace period, not a stable predicate.
+       * A new reservation can still publish next_ticket as its conservative
+       * lower bound after its slot was scanned, but the completed cut means
+       * that reservation must select a later group and refine the slot. Do not
+       * rescan in shard_log_graduate_group().
+       */
+      debug_code(shard_log_run_test_hook(
+         log, SHARD_LOG_TEST_GROUP_DRAINED, next_ticket));
       rc = shard_log_graduate_group(log, group);
       if (!SUCCESS(rc)) {
          break;

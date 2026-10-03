@@ -816,6 +816,190 @@ test_log_begin_loses_install_claim(clockcache             *cc,
 }
 
 #if SPLINTER_DEBUG
+typedef struct test_log_late_reservation_hook {
+   uint64          group_id;
+   threadid        writer_tid;
+   volatile bool32 lower_loaded;
+   volatile bool32 release_lower_publish;
+   volatile bool32 lower_published;
+   volatile bool32 release_lower_refine;
+   volatile bool32 group_drained;
+   volatile bool32 release_graduation;
+} test_log_late_reservation_hook;
+
+typedef struct test_log_late_reservation_writer {
+   log_handle                     *log;
+   test_message_generator         *gen;
+   platform_heap_id                hid;
+   uint64                          key_size;
+   uint64                          entry;
+   test_log_late_reservation_hook *hook;
+   platform_thread                 thread;
+   volatile bool32                 ready;
+   int                             rc;
+} test_log_late_reservation_writer;
+
+static void
+test_log_late_reservation_hook_run(void                     *arg,
+                                   shard_log_test_hook_event event,
+                                   uint64                    group_id)
+{
+   test_log_late_reservation_hook *hook = arg;
+   if (group_id != hook->group_id) {
+      return;
+   }
+
+   threadid tid        = platform_get_tid();
+   threadid writer_tid = __atomic_load_n(&hook->writer_tid, __ATOMIC_ACQUIRE);
+   if (event == SHARD_LOG_TEST_RESERVATION_ID_LOADED && tid == writer_tid) {
+      __atomic_store_n(&hook->lower_loaded, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&hook->release_lower_publish, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(USEC_TO_NSEC(50));
+      }
+   } else if (event == SHARD_LOG_TEST_RESERVATION_LOWER_PUBLISHED
+              && tid == writer_tid)
+   {
+      __atomic_store_n(&hook->lower_published, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&hook->release_lower_refine, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(USEC_TO_NSEC(50));
+      }
+   } else if (event == SHARD_LOG_TEST_GROUP_DRAINED) {
+      __atomic_store_n(&hook->group_drained, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&hook->release_graduation, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(USEC_TO_NSEC(50));
+      }
+   }
+}
+
+static void
+test_log_late_reservation_writer_run(void *arg)
+{
+   test_log_late_reservation_writer *writer = arg;
+   merge_accumulator                 msg;
+   DECLARE_AUTO_KEY_BUFFER(keybuffer, writer->hid);
+
+   merge_accumulator_init(&msg, writer->hid);
+   key skey = test_key(&keybuffer,
+                       TEST_RANDOM,
+                       writer->entry,
+                       0,
+                       0,
+                       1 + (writer->entry % writer->key_size),
+                       0);
+   generate_test_message(writer->gen, writer->entry, &msg);
+
+   __atomic_store_n(
+      &writer->hook->writer_tid, platform_get_tid(), __ATOMIC_RELEASE);
+   __atomic_store_n(&writer->ready, TRUE, __ATOMIC_RELEASE);
+   writer->rc = log_write(
+      writer->log, skey, merge_accumulator_to_message(&msg), writer->entry, 0);
+   merge_accumulator_deinit(&msg);
+}
+
+/*
+ * A reservation publishes the accepting id as a conservative lower bound
+ * before loading the accepting pointer. It can load that id before a cut, then
+ * publish it after graduation's slot scan. The completed cut guarantees that
+ * its later pointer load selects the successor, so the late lower bound must
+ * not make graduation recheck and reject an already-drained group.
+ */
+static int
+test_log_late_conservative_reservation(clockcache             *cc,
+                                       clockcache_config      *cache_cfg,
+                                       io_handle              *io,
+                                       allocator              *al,
+                                       shard_log_config       *cfg,
+                                       platform_heap_id        hid,
+                                       test_message_generator *gen,
+                                       uint64                  key_size)
+{
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
+   log_head segment = log_get_head(log);
+   test_log_write_range(log, gen, hid, key_size, 0, 1);
+
+   shard_log       *slog = (shard_log *)log;
+   shard_log_group *initial =
+      __atomic_load_n(&slog->accepting.group, __ATOMIC_ACQUIRE);
+   platform_assert(initial != NULL);
+   uint64 initial_id = initial->id;
+
+   test_log_late_reservation_hook hook = {
+      .group_id   = initial_id,
+      .writer_tid = INVALID_TID,
+   };
+   slog->test_hook     = test_log_late_reservation_hook_run;
+   slog->test_hook_arg = &hook;
+
+   test_log_late_reservation_writer writer = {
+      .log      = log,
+      .gen      = gen,
+      .hid      = hid,
+      .key_size = key_size,
+      .entry    = 1,
+      .hook     = &hook,
+      .rc       = -1,
+   };
+   platform_assert_status_ok(
+      platform_thread_create(&writer.thread,
+                             FALSE,
+                             test_log_late_reservation_writer_run,
+                             &writer,
+                             hid));
+   platform_assert(test_log_wait_for_flag(&writer.ready));
+   platform_assert(test_log_wait_for_flag(&hook.lower_loaded),
+                   "writer did not pause before publishing its lower bound");
+
+   test_log_begin_actor barrier = {
+      .log      = log,
+      .begin_rc = STATUS_INVALID_STATE,
+      .wait_rc  = STATUS_INVALID_STATE,
+   };
+   platform_assert_status_ok(platform_thread_create(
+      &barrier.thread, FALSE, test_log_begin_actor_run, &barrier, hid));
+   platform_assert(test_log_wait_for_flag(&hook.group_drained),
+                   "barrier did not drain the initial group");
+   platform_assert(__atomic_load_n(&barrier.began, __ATOMIC_ACQUIRE));
+   platform_assert(barrier.ticket == initial_id);
+   platform_assert(__atomic_load_n(&slog->accepting.id, __ATOMIC_ACQUIRE)
+                   == initial_id + 1);
+
+   __atomic_store_n(&hook.release_lower_publish, TRUE, __ATOMIC_RELEASE);
+   platform_assert(test_log_wait_for_flag(&hook.lower_published),
+                   "writer did not publish its stale lower bound");
+   threadid writer_tid = __atomic_load_n(&hook.writer_tid, __ATOMIC_ACQUIRE);
+   platform_assert(
+      __atomic_load_n(&slog->reservation_slots[writer_tid].ticket,
+                      __ATOMIC_SEQ_CST)
+         == initial_id,
+      "writer did not expose the drained group's id as its lower bound");
+
+   __atomic_store_n(&hook.release_graduation, TRUE, __ATOMIC_RELEASE);
+   platform_thread_join(&barrier.thread);
+   test_log_assert_begin_actor(&barrier);
+
+   __atomic_store_n(&hook.release_lower_refine, TRUE, __ATOMIC_RELEASE);
+   platform_thread_join(&writer.thread);
+   platform_assert(writer.rc == 0);
+   slog->test_hook     = NULL;
+   slog->test_hook_arg = NULL;
+
+   test_log_finish_claim_race(cc,
+                              cache_cfg,
+                              io,
+                              al,
+                              cfg,
+                              hid,
+                              gen,
+                              key_size,
+                              log,
+                              &segment,
+                              "late-conservative-reservation",
+                              0,
+                              2);
+   return 0;
+}
+
 typedef struct test_log_publication_hook {
    uint64          group_id;
    volatile bool32 successor_published;
@@ -838,8 +1022,7 @@ test_log_publication_hook_run(void                     *arg,
       while (!__atomic_load_n(&hook->release_successor, __ATOMIC_ACQUIRE)) {
          platform_sleep_ns(USEC_TO_NSEC(50));
       }
-   } else {
-      platform_assert(event == SHARD_LOG_TEST_ACCEPTING_HANDOFF_WAIT);
+   } else if (event == SHARD_LOG_TEST_ACCEPTING_HANDOFF_WAIT) {
       __atomic_store_n(&hook->handoff_waited, TRUE, __ATOMIC_RELEASE);
    }
 }
@@ -2566,6 +2749,16 @@ log_test(int argc, char *argv[])
    platform_assert(rc == 0);
 
 #if SPLINTER_DEBUG
+   rc = test_log_late_conservative_reservation(cc,
+                                               &system_cfg.cache_cfg,
+                                               io,
+                                               (allocator *)&al,
+                                               &system_cfg.log_cfg,
+                                               hid,
+                                               &gen,
+                                               workload_cfg.key_size);
+   platform_assert(rc == 0);
+
    rc = test_log_nested_cutter_publication_handoff(cc,
                                                    &system_cfg.cache_cfg,
                                                    io,
