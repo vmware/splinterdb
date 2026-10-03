@@ -519,17 +519,6 @@ setup_ordered_iterators(merge_iterator *merge_itor)
    }
 
    if (!SUCCESS(rc)) {
-      // destroy the iterator
-      platform_status merge_iterator_rc =
-         merge_iterator_destroy(platform_get_heap_id(), &merge_itor);
-      if (!SUCCESS(merge_iterator_rc)) {
-         platform_error_log(
-            "setup_ordered_iterators: exception while releasing\n");
-         if (SUCCESS(rc)) {
-            platform_error_log("setup_ordered_iterators: clobbering rc\n");
-            rc = merge_iterator_rc;
-         }
-      }
       platform_error_log("setup_ordered_iterators: exception: %s\n",
                          platform_status_to_string(rc));
       return rc;
@@ -626,6 +615,9 @@ merge_iterator_create(platform_heap_id   hid,
 
    rc = setup_ordered_iterators(merge_itor);
    if (!SUCCESS(rc)) {
+      // Only creation owns the allocation. A failed direction change must
+      // leave the iterator available for its caller to destroy.
+      merge_iterator_destroy(hid, &merge_itor);
       return rc;
    }
 
@@ -674,12 +666,18 @@ merge_iterator_set_direction(merge_iterator *merge_itor, bool32 forwards)
    for (int i = 0; i < merge_itor->num_trees; i++) {
       if (forwards && iterator_can_next(merge_itor->ordered_iterators[i]->itor))
       {
-         iterator_next(merge_itor->ordered_iterators[i]->itor);
+         rc = iterator_next(merge_itor->ordered_iterators[i]->itor);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
       if (!forwards
           && iterator_can_prev(merge_itor->ordered_iterators[i]->itor))
       {
-         iterator_prev(merge_itor->ordered_iterators[i]->itor);
+         rc = iterator_prev(merge_itor->ordered_iterators[i]->itor);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
    }
 

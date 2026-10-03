@@ -5461,9 +5461,13 @@ leaf_split_select_pivots(trunk_context     *context,
       uint64 new_tuples = current_tuples + stats.num_kvs;
       uint64 next_boundary =
          leaf_num * trunk_leaf_num_kv_bytes(leaf) / target_num_leaves;
-      if ((cumulative_kv_bytes < next_boundary
-           && next_boundary <= new_cumulative_kv_bytes)
-          || rflimit < new_tuples)
+      key last_pivot =
+         key_buffer_key(vector_get_ptr(pivots, vector_length(pivots) - 1));
+      // MERGE_RAW may return the same key from several branches. Keep a
+      // crossed threshold pending until a strictly larger pivot is available.
+      if ((next_boundary <= new_cumulative_kv_bytes || rflimit < new_tuples)
+          && data_key_compare(context->cfg->data_cfg, last_pivot, curr_key) < 0
+          && data_key_compare(context->cfg->data_cfg, curr_key, max_key) < 0)
       {
          rc = VECTOR_EMPLACE_APPEND(pivots,
                                     key_buffer_init_from_key,
@@ -5481,7 +5485,13 @@ leaf_split_select_pivots(trunk_context     *context,
 
       cumulative_kv_bytes = new_cumulative_kv_bytes;
       current_tuples += stats.num_kvs;
-      iterator_next(&merger.merge_itor->super);
+      rc = iterator_next(&merger.merge_itor->super);
+      if (!SUCCESS(rc)) {
+         platform_error_log("leaf_split_select_pivots: iterator_next failed: "
+                            "%d\n",
+                            rc.r);
+         goto cleanup;
+      }
    }
 
    rc = VECTOR_EMPLACE_APPEND(
@@ -6447,6 +6457,7 @@ cleanup_new_ondisk_node_refs:
                         context,
                         context->hid);
    vector_deinit(&new_ondisk_node_refs);
+   return rc;
 cleanup_pivots:
    VECTOR_APPLY_TO_ELTS(&pivots, trunk_pivot_destroy, PROCESS_PRIVATE_HEAP_ID);
    vector_deinit(&pivots);
