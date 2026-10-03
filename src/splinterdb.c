@@ -30,6 +30,7 @@
 #include "platform_units.h"
 #include "platform_threads.h"
 #include "poison.h"
+#include "batch_rwlock.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
 
@@ -64,8 +65,40 @@ typedef struct splinterdb {
    platform_heap_id   heap_id;
    data_config       *data_cfg;
    bool               we_created_heap;
+   batch_rwlock       stats_lock;
 } splinterdb;
 
+#define SPLINTERDB_STATS_LOCK_IDX 0
+
+static inline void
+splinterdb_stats_read_lock(splinterdb *kvs)
+{
+   if (kvs->effective_cfg.use_stats) {
+      batch_rwlock_get(&kvs->stats_lock, SPLINTERDB_STATS_LOCK_IDX);
+   }
+}
+
+static inline void
+splinterdb_stats_read_unlock(splinterdb *kvs)
+{
+   if (kvs->effective_cfg.use_stats) {
+      batch_rwlock_unget(&kvs->stats_lock, SPLINTERDB_STATS_LOCK_IDX);
+   }
+}
+
+static inline void
+splinterdb_stats_write_lock(splinterdb *kvs)
+{
+   batch_rwlock_get(&kvs->stats_lock, SPLINTERDB_STATS_LOCK_IDX);
+   batch_rwlock_claim_loop(&kvs->stats_lock, SPLINTERDB_STATS_LOCK_IDX);
+   batch_rwlock_lock(&kvs->stats_lock, SPLINTERDB_STATS_LOCK_IDX);
+}
+
+static inline void
+splinterdb_stats_write_unlock(splinterdb *kvs)
+{
+   batch_rwlock_full_unlock(&kvs->stats_lock, SPLINTERDB_STATS_LOCK_IDX);
+}
 
 /*
  * Extract errno.h -style status int from a platform_status
@@ -103,6 +136,7 @@ splinterdb_notification_wait(splinterdb              *kvs,
 
    platform_assert(kvs != NULL);
    platform_assert(notification != NULL);
+   splinterdb_stats_read_lock(kvs);
 
    int    status  = 0;
    uint64 backoff = 1;
@@ -115,10 +149,12 @@ splinterdb_notification_wait(splinterdb              *kvs,
          platform_sleep_ns(backoff);
          backoff = MIN(2 * backoff, 1 << 16);
       } else {
-         return platform_status_to_int(task_rc);
+         status = platform_status_to_int(task_rc);
+         break;
       }
    }
 
+   splinterdb_stats_read_unlock(kvs);
    return status;
 }
 
@@ -460,6 +496,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       status = STATUS_NO_MEMORY;
       goto deinit_kvhandle;
    }
+   batch_rwlock_init(&kvs->stats_lock);
    // Remember, so at close() we only destroy heap if we created it here.
    kvs->we_created_heap = we_created_heap;
 
@@ -627,17 +664,20 @@ splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
    }
 
    ZERO_CONTENTS(stats);
+   splinterdb_stats_read_lock(kvs);
 
    stats->target_fanout = kvs->spl.trunk_context.cfg->target_fanout;
 
    platform_status status =
       trunk_get_height(&kvs->spl.trunk_context, &stats->trunk_height);
    if (!SUCCESS(status)) {
+      splinterdb_stats_read_unlock(kvs);
       return platform_status_to_int(status);
    }
 
    memtable_context *mt_ctxt = &kvs->spl.mt_ctxt;
    if (mt_ctxt->cfg.max_memtables > SPLINTERDB_COST_STATS_MAX_MEMTABLES) {
+      splinterdb_stats_read_unlock(kvs);
       return platform_status_to_int(STATUS_LIMIT_EXCEEDED);
    }
 
@@ -653,11 +693,13 @@ splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
                                      &height);
       if (!SUCCESS(status)) {
          memtable_end_lookup(mt_ctxt);
+         splinterdb_stats_read_unlock(kvs);
          return platform_status_to_int(status);
       }
       stats->memtable_heights[mt_no] = height;
    }
    memtable_end_lookup(mt_ctxt);
+   splinterdb_stats_read_unlock(kvs);
 
    return 0;
 }
@@ -723,6 +765,7 @@ splinterdb_close(splinterdb **kvs_in, bool32 force) // IN
    rc_allocator_deinit(&kvs->allocator_handle);
    task_system_deinit(&kvs->task_sys);
    io_handle_destroy(kvs->io_handle);
+   batch_rwlock_deinit(&kvs->stats_lock);
 
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_id heap_id         = kvs->heap_id;
@@ -751,13 +794,17 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
    lookup_result *_result = lookup_result_from_splinterdb(result);
    lookup_result_init(
       _result, kvs->spl.cfg.data_cfg, flags, buffer_len, buffer);
+   lookup_result_set_owner(_result, kvs);
 }
 
 void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
 {
    lookup_result *_result = lookup_result_from_splinterdb(result);
+   splinterdb    *owner   = (splinterdb *)_result->owner;
+   splinterdb_stats_read_lock(owner);
    lookup_result_deinit(_result);
+   splinterdb_stats_read_unlock(owner);
 }
 
 _Bool
@@ -772,6 +819,7 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
                                slice                          *value)
 {
    const lookup_result *_result = lookup_result_from_const_splinterdb(result);
+   splinterdb          *owner   = (splinterdb *)_result->owner;
 
    if (lookup_result_is_existence(_result)) {
       return EINVAL;
@@ -783,7 +831,9 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
 
    lookup_result *mutable_result =
       lookup_result_from_splinterdb((splinterdb_lookup_result *)result);
+   splinterdb_stats_read_lock(owner);
    platform_status status = lookup_result_ensure_materialized(mutable_result);
+   splinterdb_stats_read_unlock(owner);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
    }
@@ -828,7 +878,11 @@ splinterdb_lookup(splinterdb               *kvs, // IN
       return platform_status_to_int(status);
    }
 
+   splinterdb_stats_read_lock(kvs);
+   lookup_result_set_data_config(_result, kvs->spl.cfg.data_cfg);
    status = core_lookup(&kvs->spl, target, _result);
+   lookup_result_set_owner(_result, kvs);
+   splinterdb_stats_read_unlock(kvs);
    return platform_status_to_int(status);
 }
 
@@ -860,7 +914,15 @@ splinterdb_insert_message(splinterdb    *kvs,       // IN
 
    key tuple_key = key_create_from_slice(FALSE, user_key);
    platform_assert(kvs != NULL);
+   splinterdb_stats_read_lock(kvs);
+   if (old_result != NULL) {
+      lookup_result_set_data_config(old_result, kvs->spl.cfg.data_cfg);
+   }
    platform_status status = core_insert(&kvs->spl, tuple_key, msg, old_result);
+   if (old_result != NULL) {
+      lookup_result_set_owner(old_result, kvs);
+   }
+   splinterdb_stats_read_unlock(kvs);
    return platform_status_to_int(status);
 }
 
@@ -921,8 +983,10 @@ splinterdb_optimize(splinterdb              *kvs,
                     ? POSITIVE_INFINITY_KEY
                     : key_create_from_slice(TRUE, user_max_key);
 
+   splinterdb_stats_read_lock(kvs);
    platform_status status = core_optimize(
       &kvs->spl, min_key, max_key, full_leaf_compactions, notification);
+   splinterdb_stats_read_unlock(kvs);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
    }
@@ -943,7 +1007,10 @@ splinterdb_durable_barrier(splinterdb *kvs)
    }
 
    platform_assert(kvs != NULL);
-   return platform_status_to_int(core_durable_barrier(&kvs->spl));
+   splinterdb_stats_read_lock(kvs);
+   platform_status status = core_durable_barrier(&kvs->spl);
+   splinterdb_stats_read_unlock(kvs);
+   return platform_status_to_int(status);
 }
 
 struct splinterdb_iterator {
@@ -1003,10 +1070,12 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
    if (auto_register_rc != 0) {
       return auto_register_rc;
    }
+   splinterdb_stats_read_lock(kvs);
 
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl.heap_id, it);
    if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
+      splinterdb_stats_read_unlock(kvs);
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
    it->last_rc = STATUS_OK;
@@ -1045,11 +1114,13 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
    if (!SUCCESS(rc)) {
       merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);
+      splinterdb_stats_read_unlock(kvs);
       return platform_status_to_int(rc);
    }
    it->parent = kvs;
 
    *iter = it;
+   splinterdb_stats_read_unlock(kvs);
    return EXIT_SUCCESS;
 }
 
@@ -1057,12 +1128,15 @@ void
 splinterdb_iterator_deinit(splinterdb_iterator *iter)
 {
    splinterdb_assert_thread_registered();
+   splinterdb *parent = (splinterdb *)iter->parent;
+   splinterdb_stats_read_lock(parent);
 
    core_range_iterator *range_itor = &(iter->sri);
    core_range_iterator_deinit(range_itor);
    merge_accumulator_deinit(&iter->materialized_message);
 
    core_handle *spl = range_itor->spl;
+   splinterdb_stats_read_unlock(parent);
    platform_free(spl->heap_id, range_itor);
 }
 
@@ -1104,8 +1178,11 @@ splinterdb_iterator_next(splinterdb_iterator *kvi)
       return;
    }
 
+   splinterdb *parent = (splinterdb *)kvi->parent;
+   splinterdb_stats_read_lock(parent);
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_next(itor);
+   splinterdb_stats_read_unlock(parent);
 }
 
 void
@@ -1116,8 +1193,11 @@ splinterdb_iterator_prev(splinterdb_iterator *kvi)
       return;
    }
 
+   splinterdb *parent = (splinterdb *)kvi->parent;
+   splinterdb_stats_read_lock(parent);
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_prev(itor);
+   splinterdb_stats_read_unlock(parent);
 }
 
 int
@@ -1133,6 +1213,8 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
 )
 {
    splinterdb_assert_thread_registered();
+   splinterdb *parent = (splinterdb *)iter->parent;
+   splinterdb_stats_read_lock(parent);
 
    key       result_key;
    message   msg;
@@ -1148,27 +1230,48 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
    } else {
       *value = message_slice(msg);
    }
+   splinterdb_stats_read_unlock(parent);
 }
 
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs)
 {
    splinterdb_assert_thread_registered();
+   splinterdb_stats_read_lock((splinterdb *)kvs);
    core_print_insertion_stats(Platform_default_log_handle, &kvs->spl);
+   splinterdb_stats_read_unlock((splinterdb *)kvs);
 }
 
 void
 splinterdb_stats_print_lookup(splinterdb *kvs)
 {
    splinterdb_assert_thread_registered();
+   splinterdb_stats_read_lock(kvs);
    core_print_lookup_stats(Platform_default_log_handle, &kvs->spl);
+   splinterdb_stats_read_unlock(kvs);
 }
 
 void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    splinterdb_assert_thread_registered();
+   if (!kvs->effective_cfg.use_stats) {
+      return;
+   }
+   splinterdb_stats_write_lock(kvs);
+   platform_status rc = task_perform_until_quiescent(&kvs->task_sys);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "splinterdb_stats_reset: failed to quiesce tasks: %s\n",
+         platform_status_to_string(rc));
+      splinterdb_stats_write_unlock(kvs);
+      return;
+   }
    core_reset_stats(&kvs->spl);
+   trunk_reset_stats(&kvs->spl.trunk_context);
+   cache_reset_stats(kvs->spl.cc);
+   task_reset_stats(&kvs->task_sys);
+   splinterdb_stats_write_unlock(kvs);
 }
 
 static void
@@ -1188,7 +1291,9 @@ void
 splinterdb_cache_flush(splinterdb *kvs)
 {
    splinterdb_assert_thread_registered();
+   splinterdb_stats_read_lock(kvs);
    cache_flush(kvs->spl.cc);
+   splinterdb_stats_read_unlock(kvs);
 }
 
 platform_heap_id

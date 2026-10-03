@@ -124,11 +124,13 @@ static void
 rc_allocator_record_allocated_extent(rc_allocator *al)
 {
    int64 curr_allocated = __sync_add_and_fetch(&al->stats.curr_allocated, 1);
-   int64 max_allocated  = al->stats.max_allocated;
+   int64 max_allocated =
+      __atomic_load_n(&al->stats.max_allocated, __ATOMIC_RELAXED);
    while (curr_allocated > max_allocated) {
       __sync_bool_compare_and_swap(
          &al->stats.max_allocated, max_allocated, curr_allocated);
-      max_allocated = al->stats.max_allocated;
+      max_allocated =
+         __atomic_load_n(&al->stats.max_allocated, __ATOMIC_RELAXED);
    }
 }
 
@@ -512,7 +514,7 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
     * declared valid, so get_ref() requires a live buffer but not a finished
     * rebuild. rc_allocator_checked_extent_number() enforces the former. */
    uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
-   return al->ref_count[extent_no];
+   return __atomic_load_n(&al->ref_count[extent_no], __ATOMIC_RELAXED);
 }
 
 
@@ -591,16 +593,18 @@ rc_allocator_alloc(rc_allocator *al,   // IN
          " allocated %lu out of %lu extents.\n",
          type,
          page_type_str[type],
-         al->stats.curr_allocated,
+         __atomic_load_n(&al->stats.curr_allocated, __ATOMIC_RELAXED),
          al->cfg->extent_capacity);
       return STATUS_NO_SPACE;
    }
    int64 curr_allocated = __sync_add_and_fetch(&al->stats.curr_allocated, 1);
-   int64 max_allocated  = al->stats.max_allocated;
+   int64 max_allocated =
+      __atomic_load_n(&al->stats.max_allocated, __ATOMIC_RELAXED);
    while (curr_allocated > max_allocated) {
       __sync_bool_compare_and_swap(
          &al->stats.max_allocated, max_allocated, curr_allocated);
-      max_allocated = al->stats.max_allocated;
+      max_allocated =
+         __atomic_load_n(&al->stats.max_allocated, __ATOMIC_RELAXED);
    }
    __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
    *addr = hand * al->cfg->io_cfg->extent_size;
@@ -622,7 +626,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 uint64
 rc_allocator_in_use(rc_allocator *al)
 {
-   return al->stats.curr_allocated;
+   return __atomic_load_n(&al->stats.curr_allocated, __ATOMIC_RELAXED);
 }
 
 /*
@@ -645,15 +649,19 @@ rc_allocator_print_stats(rc_allocator *al)
    // clang-format on
 
    uint64 extent_size = al->cfg->io_cfg->extent_size; // bytes
+   int64  curr_allocated =
+      __atomic_load_n(&al->stats.curr_allocated, __ATOMIC_RELAXED);
+   int64 max_allocated =
+      __atomic_load_n(&al->stats.max_allocated, __ATOMIC_RELAXED);
    platform_default_log(
       "| Currently Allocated: %12lu extents %-14s          |\n",
-      al->stats.curr_allocated,
-      size_fmtstr("(%s)", (al->stats.curr_allocated * extent_size)));
+      curr_allocated,
+      size_fmtstr("(%s)", (curr_allocated * extent_size)));
 
    platform_default_log(
       "| Max Allocated:       %12lu extents %-14s          |\n",
-      al->stats.max_allocated,
-      size_fmtstr("(%s)", (al->stats.max_allocated * extent_size)));
+      max_allocated,
+      size_fmtstr("(%s)", (max_allocated * extent_size)));
 
    // clang-format off
    platform_default_log("|%s|\n", dashes);
@@ -664,10 +672,12 @@ rc_allocator_print_stats(rc_allocator *al)
 
    int64 exp_allocated_count = 0;
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
-      const char *str       = page_type_str[type];
-      int64       allocs    = al->stats.extent_allocs[type];
-      int64       deallocs  = al->stats.extent_deallocs[type];
-      int64       footprint = allocs - deallocs;
+      const char *str = page_type_str[type];
+      int64       allocs =
+         __atomic_load_n(&al->stats.extent_allocs[type], __ATOMIC_RELAXED);
+      int64 deallocs =
+         __atomic_load_n(&al->stats.extent_deallocs[type], __ATOMIC_RELAXED);
+      int64 footprint = allocs - deallocs;
 
       exp_allocated_count += footprint;
 
@@ -698,7 +708,8 @@ rc_allocator_print_allocated(rc_allocator *al)
 {
    uint64   i;
    refcount ref;
-   uint64   nallocated = al->stats.curr_allocated;
+   uint64   nallocated =
+      __atomic_load_n(&al->stats.curr_allocated, __ATOMIC_RELAXED);
 
    // For more than a few allocated extents, print enclosing { } tags.
    bool32 print_curly = (nallocated > 20);
@@ -712,7 +723,7 @@ rc_allocator_print_allocated(rc_allocator *al)
    uint64 extent_size    = al->cfg->io_cfg->extent_size;
 
    for (i = 0; i < al->cfg->extent_capacity; i++) {
-      ref = al->ref_count[i];
+      ref = __atomic_load_n(&al->ref_count[i], __ATOMIC_RELAXED);
       if (ref != 0) {
          nextents_found++;
          uint64 ext_addr = (i * extent_size);

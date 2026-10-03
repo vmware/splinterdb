@@ -632,12 +632,19 @@ btree_record_insert_msg_blob(btree_insert_results        *results,
    return success ? STATUS_OK : STATUS_NO_MEMORY;
 }
 
-static inline void
+static inline platform_status
 btree_insert_invoke_callback(btree_insert_results *results)
 {
+   /*
+    * Callers have acquired every lock needed by the final incorporation and
+    * have passed every operation that can make the insert restart.  After a
+    * successful callback they must reach incorporation without returning an
+    * error or dropping the target leaf.
+    */
    if (results->callback != NULL) {
-      results->callback(results->callback_arg);
+      return results->callback(results->callback_arg);
    }
+   return STATUS_OK;
 }
 
 platform_status
@@ -988,7 +995,6 @@ btree_split_leaf_build_right_node(const btree_config    *cfg,       // IN
 
    if (!plan.insertion_goes_left) {
       spec->idx -= plan.split_idx;
-      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, right_hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
@@ -1938,6 +1944,16 @@ btree_split_child_leaf(cache                 *cc,
       btree_node_full_unlock(cc, cfg, child);
       return rc;
    }
+   rc = btree_insert_invoke_callback(results);
+   if (!SUCCESS(rc)) {
+      if (child_next.addr != 0) {
+         btree_node_full_unlock(cc, cfg, &child_next);
+      }
+      btree_node_full_unlock(cc, cfg, &right_child);
+      btree_node_full_unlock(cc, cfg, parent);
+      btree_node_full_unlock(cc, cfg, child);
+      return rc;
+   }
 
    {
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
@@ -1970,7 +1986,6 @@ btree_split_child_leaf(cache                 *cc,
    btree_split_leaf_cleanup_left_node(
       cfg, scratch, child->hdr, spec, plan, right_child.addr);
    if (plan.insertion_goes_left) {
-      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
@@ -2034,8 +2049,12 @@ btree_defragment_or_split_child_leaf(cache              *cc,
          btree_node_full_unlock(cc, cfg, child);
          return rc;
       }
+      rc = btree_insert_invoke_callback(results);
+      if (!SUCCESS(rc)) {
+         btree_node_full_unlock(cc, cfg, child);
+         return rc;
+      }
       btree_defragment_leaf(cfg, scratch, child->hdr, spec);
-      btree_insert_invoke_callback(results);
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child->hdr, spec, &results->leaf_generation);
       platform_assert(incorporated);
@@ -2356,7 +2375,12 @@ start_over:
             destroy_leaf_incorporate_spec(&spec);
             return rc;
          }
-         btree_insert_invoke_callback(results);
+         rc = btree_insert_invoke_callback(results);
+         if (!SUCCESS(rc)) {
+            btree_node_full_unlock(cc, cfg, &root_node);
+            destroy_leaf_incorporate_spec(&spec);
+            return rc;
+         }
          bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
             cfg, root_node.hdr, &spec, &results->leaf_generation);
          platform_assert(incorporated);
@@ -2577,7 +2601,12 @@ start_over:
          destroy_leaf_incorporate_spec(&spec);
          return rc;
       }
-      btree_insert_invoke_callback(results);
+      rc = btree_insert_invoke_callback(results);
+      if (!SUCCESS(rc)) {
+         btree_node_full_unlock(cc, cfg, &child_node);
+         destroy_leaf_incorporate_spec(&spec);
+         return rc;
+      }
       bool32 incorporated = btree_try_perform_leaf_incorporate_spec(
          cfg, child_node.hdr, &spec, &results->leaf_generation);
       platform_assert(incorporated);

@@ -263,7 +263,8 @@ test_log_reserved_writer(void *arg)
    generate_test_message(params->gen, params->entry, &msg);
 
    log_write_token reserved;
-   log_write_reserve(params->log, &reserved);
+   platform_assert_status_ok(log_write_reserve(
+      params->log, skey, merge_accumulator_to_message(&msg), &reserved));
    __atomic_store_n(&params->reserved, TRUE, __ATOMIC_RELEASE);
    while (!__atomic_load_n(&params->release, __ATOMIC_ACQUIRE)) {
       platform_sleep_ns(USEC_TO_NSEC(50));
@@ -1678,8 +1679,8 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
 
 /*
  * A blob descriptor can be valid and still be too large to fit in one log
- * record.  The append must reject it before copying into the page-sized thread
- * staging buffer.
+ * record.  Reservation must reject it before publishing a group ticket, so the
+ * failed request does not poison later durability operations.
  */
 static int
 test_log_rejects_oversized_blob_descriptor(cache            *cc,
@@ -1722,9 +1723,10 @@ test_log_rejects_oversized_blob_descriptor(cache            *cc,
       MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
    int append_rc = log_write(log, skey, msg, 0, 0);
    platform_assert(append_rc == STATUS_LIMIT_EXCEEDED.r);
+   platform_assert(log_is_empty(log));
 
    platform_status rc = log_seal(log);
-   platform_assert(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
+   platform_assert_status_ok(rc);
    log_deinit(log);
    shard_log_dec_ref(cc, &head);
 

@@ -236,6 +236,162 @@ CTEST2(btree_stress, iterator_basics)
    }
 }
 
+typedef struct failing_insert_callback_context {
+   uint64 calls;
+} failing_insert_callback_context;
+
+static platform_status
+failing_insert_callback(void *arg)
+{
+   failing_insert_callback_context *ctxt = arg;
+   ctxt->calls++;
+   return STATUS_LIMIT_EXCEEDED;
+}
+
+CTEST2(btree_stress, insert_callback_failure_abandons_insert)
+{
+   uint8          keybuf[1024];
+   uint8          msgbuf[1024];
+   uint8          replacement_buf[1024];
+   mini_allocator mini;
+   uint64         root_addr = btree_create(
+      (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+   key     tuple_key = gen_key(&data->dbtree_cfg, 1, keybuf, sizeof(keybuf));
+   message original  = gen_msg(&data->dbtree_cfg, 1, msgbuf, sizeof(msgbuf));
+   message replacement =
+      gen_msg(&data->dbtree_cfg, 2, replacement_buf, sizeof(replacement_buf));
+
+   btree_insert_results results;
+   btree_insert_results_init(&results, NULL);
+   platform_status rc = btree_insert((cache *)&data->cc,
+                                     &data->dbtree_cfg,
+                                     data->hid,
+                                     data->test_scratch,
+                                     root_addr,
+                                     &mini,
+                                     tuple_key,
+                                     original,
+                                     &results);
+   btree_insert_results_deinit(&results);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   failing_insert_callback_context callback_ctxt = {0};
+   btree_insert_results_init(&results, NULL);
+   btree_insert_results_set_callback(
+      &results, failing_insert_callback, &callback_ctxt);
+   rc = btree_insert((cache *)&data->cc,
+                     &data->dbtree_cfg,
+                     data->hid,
+                     data->test_scratch,
+                     root_addr,
+                     &mini,
+                     tuple_key,
+                     replacement,
+                     &results);
+   btree_insert_results_deinit(&results);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
+   ASSERT_EQUAL_U(1, callback_ctxt.calls);
+
+   lookup_result lookup;
+   lookup_result_init(
+      &lookup, data->dbtree_cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = btree_lookup((cache *)&data->cc,
+                     &data->dbtree_cfg,
+                     root_addr,
+                     PAGE_TYPE_MEMTABLE,
+                     tuple_key,
+                     &lookup);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(lookup_result_found(&lookup));
+   ASSERT_EQUAL(0,
+                message_lex_cmp(merge_accumulator_to_message(
+                                   lookup_result_accumulator(&lookup)),
+                                original));
+   lookup_result_deinit(&lookup);
+}
+
+CTEST2(btree_stress, insert_callback_failure_after_root_growth)
+{
+   mini_allocator mini;
+   uint64         root_addr = btree_create(
+      (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint8 value[100] = {1};
+
+   for (uint64 i = 0; i < 25; i++) {
+      uint64               key_data = htobe64(i);
+      btree_insert_results results;
+      btree_insert_results_init(&results, NULL);
+      platform_status rc = btree_insert(
+         (cache *)&data->cc,
+         &data->dbtree_cfg,
+         data->hid,
+         data->test_scratch,
+         root_addr,
+         &mini,
+         key_create(FALSE, sizeof(key_data), &key_data),
+         message_create(
+            MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(value), value)),
+         &results);
+      btree_insert_results_deinit(&results);
+      ASSERT_TRUE(SUCCESS(rc));
+   }
+
+   uint32 height;
+   ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
+                                             &data->dbtree_cfg,
+                                             root_addr,
+                                             PAGE_TYPE_MEMTABLE,
+                                             &height)));
+   ASSERT_EQUAL_U(0, height);
+
+   uint8  large_value[1400] = {2};
+   uint64 rejected_key_data = htobe64(UINT64_MAX);
+   key    rejected_key =
+      key_create(FALSE, sizeof(rejected_key_data), &rejected_key_data);
+   failing_insert_callback_context callback_ctxt = {0};
+   btree_insert_results            results;
+   btree_insert_results_init(&results, NULL);
+   btree_insert_results_set_callback(
+      &results, failing_insert_callback, &callback_ctxt);
+   platform_status rc = btree_insert(
+      (cache *)&data->cc,
+      &data->dbtree_cfg,
+      data->hid,
+      data->test_scratch,
+      root_addr,
+      &mini,
+      rejected_key,
+      message_create(MESSAGE_TYPE_INSERT,
+                     NULL,
+                     slice_create(sizeof(large_value), large_value)),
+      &results);
+   btree_insert_results_deinit(&results);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
+   ASSERT_EQUAL_U(1, callback_ctxt.calls);
+
+   ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
+                                             &data->dbtree_cfg,
+                                             root_addr,
+                                             PAGE_TYPE_MEMTABLE,
+                                             &height)));
+   ASSERT_TRUE(height > 0);
+   ASSERT_TRUE(btree_verify_tree(
+      (cache *)&data->cc, &data->dbtree_cfg, root_addr, PAGE_TYPE_MEMTABLE));
+
+   lookup_result lookup;
+   lookup_result_init(
+      &lookup, data->dbtree_cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = btree_lookup((cache *)&data->cc,
+                     &data->dbtree_cfg,
+                     root_addr,
+                     PAGE_TYPE_MEMTABLE,
+                     rejected_key,
+                     &lookup);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_FALSE(lookup_result_found(&lookup));
+   lookup_result_deinit(&lookup);
+}
+
 /*
  * -------------------------------------------------------------------------
  * Test case to exercise random inserts of large volumes of data, across

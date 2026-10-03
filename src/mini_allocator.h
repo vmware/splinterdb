@@ -211,7 +211,7 @@ mini_print(cache *cc, uint64 meta_head, page_type type);
 static inline uint64
 mini_meta_tail(mini_allocator *mini)
 {
-   return mini->meta_tail;
+   return __atomic_load_n(&mini->meta_tail, __ATOMIC_ACQUIRE);
 }
 
 /*
@@ -233,5 +233,5 @@ mini_current_extent_meta_page(mini_allocator *mini, uint64 batch)
 static inline uint64
 mini_num_extents(mini_allocator *mini)
 {
-   return mini->num_extents;
+   return __atomic_load_n(&mini->num_extents, __ATOMIC_RELAXED);
 }

@@ -227,16 +227,16 @@ typedef struct btree_pack_req {
    uint64 message_bytes; // total size of msgs in tuples of the output tree
 } btree_pack_req;
 
-typedef void (*btree_insert_callback_fn)(void *arg);
+typedef platform_status (*btree_insert_callback_fn)(void *arg);
 
 typedef struct btree_insert_results {
    lookup_result    *old_result_buffer; // optional, not owned
    uint64            leaf_generation;
    merge_accumulator msg_blob;
    /*
-    * Optional, infallible callback invoked exactly once on a successful insert
-    * while the final target leaf is write-locked, immediately before the
-    * guaranteed logical incorporation.
+    * Optional callback invoked exactly once while the final target leaf is
+    * write-locked, immediately before the guaranteed logical incorporation.
+    * An error abandons the insertion before its logical effect is visible.
     */
    btree_insert_callback_fn callback;
    void                    *callback_arg;

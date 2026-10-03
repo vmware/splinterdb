@@ -260,3 +260,7 @@ task_perform_until_quiescent(task_system *ts);
 
 void
 task_print_stats(task_system *ts);
+
+/* Caller must ensure that no task is executing or being enqueued. */
+void
+task_reset_stats(task_system *ts);

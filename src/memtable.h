@@ -110,6 +110,12 @@ memtable_transition(memtable      *mt,
    platform_assert(success);
 }
 
+static inline memtable_state
+memtable_get_state(const memtable *mt)
+{
+   return __atomic_load_n(&mt->state, __ATOMIC_ACQUIRE);
+}
+
 typedef void (*process_fn)(void *arg, uint64 generation);
 
 /*
@@ -386,15 +392,17 @@ memtable_zap(cache *cc, memtable *mt)
 static inline bool32
 memtable_ok_to_lookup(memtable *mt)
 {
-   return mt->state != MEMTABLE_STATE_INCORPORATING
-          && mt->state != MEMTABLE_STATE_INCORPORATED;
+   memtable_state state = memtable_get_state(mt);
+   return state != MEMTABLE_STATE_INCORPORATING
+          && state != MEMTABLE_STATE_INCORPORATED;
 }
 
 static inline bool32
 memtable_ok_to_lookup_compacted(memtable *mt)
 {
-   return mt->state == MEMTABLE_STATE_COMPACTED
-          || mt->state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
+   memtable_state state = memtable_get_state(mt);
+   return state == MEMTABLE_STATE_COMPACTED
+          || state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
 }
 
 bool32

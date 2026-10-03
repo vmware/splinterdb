@@ -9,7 +9,16 @@
 #include "platform_assert.h"
 
 typedef struct lookup_result {
-   const data_config      *data_cfg;
+   /*
+    * Internal operations need the data configuration.  Between public API
+    * calls the wrapper stores the owning database here instead, allowing
+    * value materialization and deinit to join its stats-reset read section
+    * without increasing the public opaque result size.
+    */
+   union {
+      const data_config *data_cfg;
+      const splinterdb  *owner;
+   };
    splinterdb_lookup_flags flags;
    merge_accumulator       value;
    ondisk_ref              blob_ref;
@@ -26,6 +35,12 @@ static inline lookup_result *
 lookup_result_from_splinterdb(splinterdb_lookup_result *result)
 {
    return (lookup_result *)result;
+}
+
+static inline void
+lookup_result_set_owner(lookup_result *result, const splinterdb *owner)
+{
+   result->owner = owner;
 }
 
 static inline const lookup_result *

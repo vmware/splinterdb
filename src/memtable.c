@@ -135,14 +135,15 @@ static inline platform_status
 memtable_next_generation_status(memtable_context *ctxt,
                                 uint64            current_generation)
 {
-   uint64    next_generation = current_generation + 1;
-   uint64    next_mt_no      = next_generation % ctxt->cfg.max_memtables;
-   memtable *next_mt         = &ctxt->mt[next_mt_no];
+   uint64         next_generation = current_generation + 1;
+   uint64         next_mt_no      = next_generation % ctxt->cfg.max_memtables;
+   memtable      *next_mt         = &ctxt->mt[next_mt_no];
+   memtable_state next_state      = memtable_get_state(next_mt);
 
-   if (next_mt->state == MEMTABLE_STATE_READY) {
+   if (next_state == MEMTABLE_STATE_READY) {
       return STATUS_OK;
    }
-   if (next_mt->state == MEMTABLE_STATE_INCORPORATION_FAILED) {
+   if (next_state == MEMTABLE_STATE_INCORPORATION_FAILED) {
       platform_assert(!SUCCESS(next_mt->incorporation_status));
       return next_mt->incorporation_status;
    }
@@ -186,7 +187,7 @@ memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
       uint64    current_generation = ctxt->generation;
       uint64    current_mt_no = current_generation % ctxt->cfg.max_memtables;
       memtable *current_mt    = &ctxt->mt[current_mt_no];
-      if (current_mt->state != MEMTABLE_STATE_READY) {
+      if (memtable_get_state(current_mt) != MEMTABLE_STATE_READY) {
          // The next memtable is not ready yet, back off and wait.
          memtable_end_insert(ctxt);
          platform_sleep_ns(wait);
@@ -313,7 +314,7 @@ memtable_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;
 
-   platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
+   platform_assert(memtable_get_state(mt) == MEMTABLE_STATE_INCORPORATED);
    /*
     * Reuse the slot independently of the old tree's lifetime. The old root's
     * mini allocator is protected by its own refcount and may be GCed by this
@@ -425,7 +426,7 @@ memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 static bool32
 memtable_mini_needs_release(memtable *mt)
 {
-   switch (mt->state) {
+   switch (memtable_get_state(mt)) {
       case MEMTABLE_STATE_READY:
       case MEMTABLE_STATE_FINALIZED:
          return TRUE;

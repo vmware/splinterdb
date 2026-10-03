@@ -31,8 +31,11 @@ typedef struct log_config   log_config;
  * write, which may require performing I/O, memory allocation, etc, can occur
  * later, outside of any critical section.
  *
- * There is no way to cancel a reservation, so make the reservation only once
- * you know that you want to perform the write.
+ * There is no way to cancel a successful reservation, so make the reservation
+ * only once you know that you want to perform the write.  Reservation may
+ * reject an entry that cannot be represented by the log; in that case it
+ * returns an error without publishing a reservation and leaves the token
+ * invalid.
  *
  * If the write fails, then the log will not satisfy subsequent make_durable
  * calls.
@@ -49,7 +52,10 @@ typedef struct log_write_token {
    uint64   internal_ticket;
 } log_write_token;
 
-typedef void (*log_write_reserve_fn)(log_handle *log, log_write_token *token);
+typedef platform_status (*log_write_reserve_fn)(log_handle      *log,
+                                                key              tuple_key,
+                                                message          data,
+                                                log_write_token *token);
 
 /* Append through, and always consume, a prior reservation. */
 typedef int (*log_write_reserved_fn)(log_write_token *token,
@@ -153,12 +159,16 @@ struct log_handle {
    const log_ops *ops;
 };
 
-static inline void
-log_write_reserve(log_handle *log, log_write_token *token)
+static inline platform_status
+log_write_reserve(log_handle      *log,
+                  key              tuple_key,
+                  message          data,
+                  log_write_token *token)
 {
    platform_assert(log != NULL);
    platform_assert(token != NULL);
-   log->ops->write_reserve(log, token);
+   ZERO_CONTENTS(token);
+   return log->ops->write_reserve(log, tuple_key, data, token);
 }
 
 /* Append a reserved record and consume token on every return path. */
@@ -185,7 +195,10 @@ log_write(log_handle *log,
           uint64      leaf_generation)
 {
    log_write_token token;
-   log_write_reserve(log, &token);
+   platform_status rc = log_write_reserve(log, tuple_key, data, &token);
+   if (!SUCCESS(rc)) {
+      return rc.r;
+   }
    return log_write_reserved(
       &token, tuple_key, data, memtable_generation, leaf_generation);
 }

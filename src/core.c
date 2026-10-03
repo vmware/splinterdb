@@ -1160,7 +1160,7 @@ core_get_compacted_memtable(core_handle *spl, uint64 generation)
 
    // this call asserts the generation is correct
    memtable *mt = core_get_memtable(spl, generation);
-   platform_assert(mt->state != MEMTABLE_STATE_READY);
+   platform_assert(memtable_get_state(mt) != MEMTABLE_STATE_READY);
 
    return &spl->compacted_memtable[memtable_idx];
 }
@@ -1177,7 +1177,7 @@ static uint64
 core_memtable_compacted_branch_root(core_handle *spl, uint64 generation)
 {
    memtable *mt = core_get_memtable(spl, generation);
-   if (!core_memtable_state_has_compacted_branch(mt->state)) {
+   if (!core_memtable_state_has_compacted_branch(memtable_get_state(mt))) {
       return 0;
    }
 
@@ -1205,10 +1205,11 @@ core_memtable_mark_incorporation_failed(core_handle    *spl,
 {
    memtable_block_lookups(&spl->mt_ctxt);
    memtable *mt = core_get_memtable(spl, generation);
+   memtable_state state = memtable_get_state(mt);
    platform_error_log("Memtable incorporation failed: generation=%lu "
                       "state=%s status=%s memtable_root=%lu\n",
                       generation,
-                      memtable_state_string(mt->state),
+                      memtable_state_string(state),
                       platform_status_to_string(status),
                       mt->root_addr);
    memtable_mark_incorporation_failed(mt, status);
@@ -1294,33 +1295,46 @@ core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
 }
 
 typedef struct core_log_write_context {
-   log_handle     *log;
-   log_write_token token;
-   bool32          reserved;
+   log_handle                 *log;
+   key                         tuple_key;
+   message                     msg;
+   const btree_insert_results *insert_results;
+   log_write_token             token;
+   bool32                      reserved;
 } core_log_write_context;
+
+static inline message
+core_log_message(const core_log_write_context *ctxt)
+{
+   return merge_accumulator_is_null(&ctxt->insert_results->msg_blob)
+             ? ctxt->msg
+             : merge_accumulator_to_message(&ctxt->insert_results->msg_blob);
+}
 
 /*
  * This is the update's logical linearization point.  The btree invokes it
  * exactly once with the final leaf write-locked, immediately before the
  * guaranteed incorporation.  Reserving is allocation- and I/O-free.
  */
-static void
+static platform_status
 core_log_write_reserve(void *arg)
 {
    core_log_write_context *ctxt = arg;
    platform_assert(ctxt->log != NULL);
    platform_assert(!ctxt->reserved);
-   log_write_reserve(ctxt->log, &ctxt->token);
+   platform_status rc = log_write_reserve(
+      ctxt->log, ctxt->tuple_key, core_log_message(ctxt), &ctxt->token);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    ctxt->reserved = TRUE;
+   return STATUS_OK;
 }
 
 static platform_status
-core_log_insert(core_handle                *spl,
-                uint64                      memtable_generation,
-                key                         tuple_key,
-                message                     msg,
-                const btree_insert_results *insert_results,
-                core_log_write_context     *write_ctxt)
+core_log_insert(core_handle            *spl,
+                uint64                  memtable_generation,
+                core_log_write_context *write_ctxt)
 {
    /*
     * spl->log is NULL while crash recovery replays: the replayed records are
@@ -1336,15 +1350,13 @@ core_log_insert(core_handle                *spl,
    platform_assert(write_ctxt->reserved);
    platform_assert(write_ctxt->log == spl->log);
 
-   message log_msg =
-      merge_accumulator_is_null(&insert_results->msg_blob)
-         ? msg
-         : merge_accumulator_to_message(&insert_results->msg_blob);
-   int log_rc           = log_write_reserved(&write_ctxt->token,
-                                   tuple_key,
+   message log_msg = core_log_message(write_ctxt);
+
+   int log_rc = log_write_reserved(&write_ctxt->token,
+                                   write_ctxt->tuple_key,
                                    log_msg,
                                    memtable_generation,
-                                   insert_results->leaf_generation);
+                                   write_ctxt->insert_results->leaf_generation);
    write_ctxt->reserved = FALSE;
 
    /*
@@ -1691,7 +1703,7 @@ core_memtable_root_addr_for_lookup(core_handle *spl,
    memtable *mt = core_get_memtable(spl, generation);
    platform_assert(memtable_ok_to_lookup(mt));
    if (is_active != NULL) {
-      *is_active = mt->state == MEMTABLE_STATE_READY;
+      *is_active = memtable_get_state(mt) == MEMTABLE_STATE_READY;
    }
 
    if (memtable_ok_to_lookup_compacted(mt)) {
@@ -1756,7 +1768,9 @@ core_lookup_memtables_locked(core_handle   *spl,
 
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc = core_memtable_lookup(spl, mt_gen, target, result);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       if (!lookup_result_should_continue(result)) {
          *found_final = TRUE;
          return STATUS_OK;
@@ -1781,6 +1795,10 @@ core_lookup_from_memtable_generation_locked(core_handle   *spl,
    if (mt_gen_start != (uint64)-1) {
       rc = core_lookup_memtables_locked(
          spl, mt_gen_start, target, result, &found_final);
+      if (!SUCCESS(rc)) {
+         memtable_end_lookup(&spl->mt_ctxt);
+         return rc;
+      }
       if (found_final) {
          memtable_end_lookup(&spl->mt_ctxt);
          lookup_result_finalize(result, target);
@@ -2516,7 +2534,10 @@ core_insert(core_handle   *spl,
    btree_insert_results insert_results;
    btree_insert_results_init(&insert_results, old_result);
    core_log_write_context write_ctxt = {
-      .log = spl->cfg.use_log ? spl->log : NULL,
+      .log            = spl->cfg.use_log ? spl->log : NULL,
+      .tuple_key      = tuple_key,
+      .msg            = data,
+      .insert_results = &insert_results,
    };
    if (write_ctxt.log != NULL) {
       btree_insert_results_set_callback(
@@ -2534,8 +2555,7 @@ core_insert(core_handle   *spl,
       goto end_insert;
    }
 
-   rc = core_log_insert(
-      spl, generation, tuple_key, data, &insert_results, &write_ctxt);
+   rc = core_log_insert(spl, generation, &write_ctxt);
    if (!SUCCESS(rc)) {
       goto end_insert;
    }
@@ -2672,7 +2692,10 @@ core_lookup_async(core_lookup_async_state *state)
    bool32          found_final;
    platform_status rc = core_lookup_memtables_locked(
       state->spl, mt_gen_start, state->target, state->result, &found_final);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      memtable_end_lookup(&state->spl->mt_ctxt);
+      async_return(state, rc);
+   }
    if (found_final) {
       memtable_end_lookup(&state->spl->mt_ctxt);
       goto found_final_answer;
@@ -3498,7 +3521,7 @@ core_have_unincorporated_memtables(core_handle *spl)
         generation++)
    {
       memtable *mt = core_try_get_memtable(spl, generation);
-      if (mt != NULL && mt->state != MEMTABLE_STATE_READY) {
+      if (mt != NULL && memtable_get_state(mt) != MEMTABLE_STATE_READY) {
          return TRUE;
       }
    }
@@ -3523,20 +3546,21 @@ core_report_unincorporated_memtables(core_handle *spl)
         generation++)
    {
       memtable *mt = core_try_get_memtable(spl, generation);
-      if (mt == NULL || mt->state == MEMTABLE_STATE_READY) {
+      if (mt == NULL || memtable_get_state(mt) == MEMTABLE_STATE_READY) {
          continue;
       }
 
       found_unincorporated = TRUE;
       uint64 compacted_root =
          core_memtable_compacted_branch_root(spl, generation);
-      if (mt->state == MEMTABLE_STATE_INCORPORATION_FAILED) {
+      memtable_state state = memtable_get_state(mt);
+      if (state == MEMTABLE_STATE_INCORPORATION_FAILED) {
          platform_error_log("Shutdown found memtable from failed "
                             "incorporation: generation=%lu state=%s "
                             "status=%s memtable_root=%lu "
                             "compacted_root=%lu\n",
                             generation,
-                            memtable_state_string(mt->state),
+                            memtable_state_string(state),
                             platform_status_to_string(mt->incorporation_status),
                             mt->root_addr,
                             compacted_root);
@@ -3545,7 +3569,7 @@ core_report_unincorporated_memtables(core_handle *spl)
                             "generation=%lu state=%s memtable_root=%lu "
                             "compacted_root=%lu\n",
                             generation,
-                            memtable_state_string(mt->state),
+                            memtable_state_string(state),
                             mt->root_addr,
                             compacted_root);
       }

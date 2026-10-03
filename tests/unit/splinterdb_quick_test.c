@@ -30,6 +30,7 @@
 #include <pthread.h>
 
 #include "platform_threads.h"
+#include "platform_sleep.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/data.h"
 #include "splinterdb/default_data_config.h"
@@ -126,6 +127,9 @@ assert_lookup_result_matches_slice(const splinterdb_lookup_result *result,
 static void *
 auto_registered_lookup_thread(void *arg);
 
+static void *
+stats_reset_worker(void *arg);
+
 typedef struct {
    data_config super;
    uint64      num_comparisons;
@@ -137,6 +141,15 @@ typedef struct {
    threadid    tid_before;
    threadid    tid_after;
 } auto_registration_thread_args;
+
+typedef struct {
+   splinterdb      *kvsb;
+   uint64           worker_no;
+   volatile uint64 *started;
+   volatile bool32 *stop;
+   volatile uint64  operations;
+   int              rc;
+} stats_reset_worker_args;
 
 /*
  * Global data declaration macro:
@@ -262,6 +275,46 @@ CTEST2(splinterdb_quick, test_durable_barrier)
    ASSERT_EQUAL(0, rc);
 }
 
+CTEST2(splinterdb_quick,
+       test_logged_oversized_value_failure_preserves_old_value)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.use_log   = TRUE;
+   data->cfg.disk_size = 384 * Mega;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   slice user_key =
+      slice_create(strlen("oversized-log-value"), "oversized-log-value");
+   slice old_value = slice_create(strlen("old-value"), "old-value");
+   ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, user_key, old_value, NULL));
+
+   /*
+    * Five hundred extent addresses make the blob descriptor too large for a
+    * log page.  The log reservation must reject the replacement before the
+    * btree removes the old tuple during defragmentation or splitting.
+    */
+   const uint64 value_len = 500 * IO_DEFAULT_EXTENT_SIZE;
+   char        *value_data =
+      TYPED_ARRAY_MALLOC(data->cfg.heap_id, value_data, value_len);
+   ASSERT_NOT_NULL(value_data);
+   memset(value_data, 'v', value_len);
+
+   int rc = splinterdb_insert(
+      data->kvsb, user_key, slice_create(value_len, value_data), NULL);
+   ASSERT_EQUAL(ENOSPC, rc);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, user_key, &result));
+   assert_lookup_result_matches_slice(&result, old_value);
+   splinterdb_lookup_result_deinit(&result);
+
+   /* A rejected reservation must not poison the log's durability suffix. */
+   ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb));
+   platform_free(data->cfg.heap_id, value_data);
+}
+
 /*
  *
  * Basic test case that exercises and validates the basic flow of the
@@ -334,6 +387,54 @@ CTEST2(splinterdb_quick, test_pthread_auto_registration)
    ASSERT_EQUAL(0, args.rc);
    ASSERT_EQUAL(INVALID_TID, args.tid_before);
    ASSERT_TRUE(args.tid_after < MAX_THREADS);
+}
+
+CTEST2(splinterdb_quick, stats_reset_excludes_active_operations)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   create_default_cfg(&data->cfg, &data->default_data_cfg.super);
+   data->cfg.use_stats = TRUE;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   enum { NUM_WORKERS = 4 };
+   pthread_t               threads[NUM_WORKERS];
+   stats_reset_worker_args args[NUM_WORKERS];
+   volatile uint64         started = 0;
+   volatile bool32         stop    = FALSE;
+
+   for (uint64 i = 0; i < NUM_WORKERS; i++) {
+      args[i] = (stats_reset_worker_args){.kvsb      = data->kvsb,
+                                          .worker_no = i,
+                                          .started   = &started,
+                                          .stop      = &stop};
+      ASSERT_EQUAL(
+         0, pthread_create(&threads[i], NULL, stats_reset_worker, &args[i]));
+   }
+
+   while (__atomic_load_n(&started, __ATOMIC_ACQUIRE) != NUM_WORKERS) {
+      platform_sleep_ns(1000);
+   }
+   uint64 operations;
+   do {
+      operations = 0;
+      for (uint64 i = 0; i < NUM_WORKERS; i++) {
+         operations += __atomic_load_n(&args[i].operations, __ATOMIC_RELAXED);
+      }
+      if (operations < 100) {
+         platform_sleep_ns(1000);
+      }
+   } while (operations < 100);
+
+   for (uint64 i = 0; i < 256; i++) {
+      splinterdb_stats_reset(data->kvsb);
+   }
+
+   __atomic_store_n(&stop, TRUE, __ATOMIC_RELEASE);
+   for (uint64 i = 0; i < NUM_WORKERS; i++) {
+      ASSERT_EQUAL(0, pthread_join(threads[i], NULL));
+      ASSERT_EQUAL(0, args[i].rc);
+      ASSERT_TRUE(args[i].operations != 0);
+   }
 }
 
 /*
@@ -1945,6 +2046,45 @@ auto_registered_lookup_thread(void *arg)
    args->tid_after  = platform_get_tid();
 
    splinterdb_lookup_result_deinit(&result);
+   return NULL;
+}
+
+static void *
+stats_reset_worker(void *arg)
+{
+   stats_reset_worker_args *params = arg;
+   char                     key_data[32];
+   char                     value_data[32];
+   int                      key_len = snprintf(
+      key_data, sizeof(key_data), "stats-reset-key-%lu", params->worker_no);
+   int value_len = snprintf(value_data,
+                            sizeof(value_data),
+                            "stats-reset-value-%lu",
+                            params->worker_no);
+   platform_assert(0 < key_len && key_len < sizeof(key_data));
+   platform_assert(0 < value_len && value_len < sizeof(value_data));
+   slice tuple_key = slice_create(key_len, key_data);
+   slice value     = slice_create(value_len, value_data);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      params->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   __atomic_fetch_add(params->started, 1, __ATOMIC_RELEASE);
+
+   while (!__atomic_load_n(params->stop, __ATOMIC_ACQUIRE)) {
+      params->rc = splinterdb_insert(params->kvsb, tuple_key, value, NULL);
+      if (params->rc != 0) {
+         break;
+      }
+      params->rc = splinterdb_lookup(params->kvsb, tuple_key, &result);
+      if (params->rc != 0) {
+         break;
+      }
+      __atomic_fetch_add(&params->operations, 1, __ATOMIC_RELAXED);
+   }
+
+   splinterdb_lookup_result_deinit(&result);
+   platform_deregister_thread();
    return NULL;
 }
 

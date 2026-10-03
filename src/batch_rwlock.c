@@ -45,7 +45,8 @@ batch_rwlock_deinit(batch_rwlock *lock)
 void
 batch_rwlock_lock(batch_rwlock *lock, uint64 lock_idx)
 {
-   platform_assert(lock->write_lock[lock_idx].claim);
+   platform_assert(
+      __atomic_load_n(&lock->write_lock[lock_idx].claim, __ATOMIC_SEQ_CST));
    debug_only uint8 was_locked =
       __sync_lock_test_and_set(&lock->write_lock[lock_idx].lock, 1);
    debug_assert(!was_locked,
@@ -53,7 +54,9 @@ batch_rwlock_lock(batch_rwlock *lock, uint64 lock_idx)
 
    uint64 wait = 1;
    for (uint64 i = 0; i < MAX_THREADS; i++) {
-      while (lock->read_counter[i][lock_idx] != 0) {
+      while (__atomic_load_n(&lock->read_counter[i][lock_idx], __ATOMIC_SEQ_CST)
+             != 0)
+      {
          platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
       }
@@ -91,7 +94,8 @@ bool32
 batch_rwlock_try_claim(batch_rwlock *lock, uint64 lock_idx)
 {
    threadid tid = platform_get_tid();
-   debug_assert(lock->read_counter[tid][lock_idx]);
+   debug_assert(
+      __atomic_load_n(&lock->read_counter[tid][lock_idx], __ATOMIC_SEQ_CST));
    if (__sync_lock_test_and_set(&lock->write_lock[lock_idx].claim, 1)) {
       return FALSE;
    }
@@ -135,14 +139,17 @@ batch_rwlock_get(batch_rwlock *lock, uint64 lock_idx)
    threadid tid = platform_get_tid();
    while (1) {
       uint64 wait = 1;
-      while (lock->write_lock[lock_idx].lock) {
+      while (
+         __atomic_load_n(&lock->write_lock[lock_idx].lock, __ATOMIC_SEQ_CST))
+      {
          platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
       }
       debug_only uint8 old_counter =
          __sync_fetch_and_add(&lock->read_counter[tid][lock_idx], 1);
       debug_assert(old_counter == 0);
-      if (!lock->write_lock[lock_idx].lock) {
+      if (!__atomic_load_n(&lock->write_lock[lock_idx].lock, __ATOMIC_SEQ_CST))
+      {
          return;
       }
       old_counter = __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);

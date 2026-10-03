@@ -657,3 +657,11 @@ task_print_stats(task_system *ts)
       task_group_print_stats(&ts->group[type], type);
    }
 }
+
+void
+task_reset_stats(task_system *ts)
+{
+   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
+      memset(ts->group[type].stats, 0, sizeof(ts->group[type].stats));
+   }
+}

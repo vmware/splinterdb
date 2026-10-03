@@ -199,6 +199,7 @@ mini_init_meta_page(mini_allocator *mini,
 static page_handle *
 mini_full_lock_meta_tail(mini_allocator *mini)
 {
+   platform_assert(mini != NULL);
    /*
     * This loop follows the standard idiom for obtaining a claim. Note that
     * mini is shared, so meta_tail can change before we obtain the claim; check
@@ -207,13 +208,18 @@ mini_full_lock_meta_tail(mini_allocator *mini)
    page_handle *meta_page;
    uint64       wait = 1;
    while (1) {
-      uint64 meta_tail = mini->meta_tail;
+      uint64 meta_tail = __atomic_load_n(&mini->meta_tail, __ATOMIC_ACQUIRE);
       meta_page        = cache_get(mini->cc, meta_tail, TRUE, mini->meta_type);
-      if (meta_tail == mini->meta_tail && cache_try_claim(mini->cc, meta_page))
+      if (!cache_try_claim(mini->cc, meta_page)) {
+         cache_unget(mini->cc, meta_page);
+      } else if (meta_tail
+                 == __atomic_load_n(&mini->meta_tail, __ATOMIC_ACQUIRE))
       {
          break;
+      } else {
+         cache_unclaim(mini->cc, meta_page);
+         cache_unget(mini->cc, meta_page);
       }
-      cache_unget(mini->cc, meta_page);
       platform_sleep_ns(wait);
       wait = wait > 1024 ? wait : 2 * wait;
    }
@@ -425,7 +431,8 @@ mini_append_entry_to_page(mini_allocator *mini,
 static uint64
 mini_lock_batch_get_next_addr(mini_allocator *mini, uint64 batch)
 {
-   uint64 next_addr = mini->next_addr[batch];
+   uint64 next_addr =
+      __atomic_load_n(&mini->next_addr[batch], __ATOMIC_ACQUIRE);
    uint64 wait      = 1;
    while (next_addr == MINI_WAIT
           || !__sync_bool_compare_and_swap(
@@ -433,7 +440,7 @@ mini_lock_batch_get_next_addr(mini_allocator *mini, uint64 batch)
    {
       platform_sleep_ns(wait);
       wait      = wait > 1024 ? wait : 2 * wait;
-      next_addr = mini->next_addr[batch];
+      next_addr = __atomic_load_n(&mini->next_addr[batch], __ATOMIC_ACQUIRE);
    }
    return next_addr;
 }
@@ -444,9 +451,10 @@ mini_unlock_batch_set_next_addr(mini_allocator *mini,
                                 uint64          next_addr)
 {
    debug_assert(batch < mini->num_batches);
-   debug_assert(mini->next_addr[batch] == MINI_WAIT);
+   debug_assert(__atomic_load_n(&mini->next_addr[batch], __ATOMIC_RELAXED)
+                == MINI_WAIT);
 
-   mini->next_addr[batch] = next_addr;
+   __atomic_store_n(&mini->next_addr[batch], next_addr, __ATOMIC_RELEASE);
 }
 
 /*
@@ -498,7 +506,9 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
       mini, meta_page, next_addr, mini->types[batch], batch);
    if (!success) {
       // need to allocate a new meta page
-      uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
+      uint64 old_meta_tail =
+         __atomic_load_n(&mini->meta_tail, __ATOMIC_RELAXED);
+      uint64 new_meta_tail = old_meta_tail + cache_page_size(mini->cc);
       if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
          // need to allocate the next meta extent
          platform_status rc = mini_allocator_get_new_extent(
@@ -508,14 +518,14 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
 
       mini_set_next_meta_addr(mini, meta_page, new_meta_tail);
 
-      page_handle *last_meta_page = meta_page;
-      uint64       last_meta_addr = mini->meta_tail;
-      mini_meta_hdr *last_meta_hdr = (mini_meta_hdr *)meta_page->data;
+      page_handle   *last_meta_page = meta_page;
+      uint64         last_meta_addr = old_meta_tail;
+      mini_meta_hdr *last_meta_hdr  = (mini_meta_hdr *)meta_page->data;
       platform_assert(last_meta_hdr->meta_page_no != UINT64_MAX,
                       "mini allocator metadata page number overflow");
       uint64 new_meta_page_no = last_meta_hdr->meta_page_no + 1;
-      meta_page       = cache_alloc(mini->cc, new_meta_tail, mini->meta_type);
-      mini->meta_tail = new_meta_tail;
+      meta_page = cache_alloc(mini->cc, new_meta_tail, mini->meta_type);
+      __atomic_store_n(&mini->meta_tail, new_meta_tail, __ATOMIC_RELEASE);
       mini_full_unlock_meta_page(mini, last_meta_page);
       mini_init_meta_page(mini, meta_page, new_meta_page_no);
       // Doubly-link the meta list so a prefetch cursor can scan it backward.
@@ -533,7 +543,8 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
    // allocated from this extent can point straight at it (see
    // mini_current_extent_meta_page). Safe: the caller holds the batch lock, so
    // mini->meta_tail cannot advance under us until we unlock the page below.
-   mini->cur_extent_meta_page[batch] = mini->meta_tail;
+   mini->cur_extent_meta_page[batch] =
+      __atomic_load_n(&mini->meta_tail, __ATOMIC_RELAXED);
    mini_full_unlock_meta_page(mini, meta_page);
    return TRUE;
 }
@@ -663,8 +674,10 @@ uint64
 mini_next_addr(mini_allocator *mini, uint64 batch)
 {
    debug_assert(batch < mini->num_batches);
-   if ((mini->next_addr[batch] % cache_extent_size(mini->cc)) != 0) {
-      return mini->next_addr[batch];
+   uint64 next_addr =
+      __atomic_load_n(&mini->next_addr[batch], __ATOMIC_RELAXED);
+   if ((next_addr % cache_extent_size(mini->cc)) != 0) {
+      return next_addr;
    } else {
       return mini->next_extent[batch];
    }

@@ -1121,11 +1121,72 @@ shard_log_graduate_final_buffer(shard_log *log, shard_log_group *group)
       log, group, shard_log_get_thread_data(group, 0), TRUE);
 }
 
-static void
-shard_log_write_reserve(log_handle *logh, log_write_token *token)
+static platform_status
+shard_log_validate_reservation_entry(shard_log *log, key tuple_key, message msg)
+{
+   uint64 key_size     = key_length(tuple_key);
+   uint64 message_size = message_length(msg);
+   uint64 max_entry_size =
+      shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
+
+   if (key_size > UINT16_MAX || key_size > max_entry_size - sizeof(log_entry)) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   uint64 entry_size = log_entry_required_capacity(tuple_key, msg);
+   if (message_size <= UINT16_MAX && entry_size <= max_entry_size) {
+      return STATUS_OK;
+   }
+
+   if (message_is_blob(msg)) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   /*
+    * The append converts an oversized inline value to a blob.  A descriptor
+    * has one address per whole extent and at most three addresses for the
+    * page/sub-page tail.  Use that upper bound here so reservation remains
+    * allocation- and I/O-free.
+    */
+   uint64 extent_size = cache_extent_size(log->cc);
+   uint64 num_addresses;
+   if (can_round_up(extent_size, message_size)) {
+      num_addresses =
+         message_size / extent_size + (message_size % extent_size != 0);
+   } else {
+      num_addresses = message_size / extent_size;
+      if (num_addresses > UINT64_MAX - 3) {
+         return STATUS_LIMIT_EXCEEDED;
+      }
+      num_addresses += 3;
+   }
+   if (num_addresses > (UINT64_MAX - sizeof(blob)) / sizeof(uint64)) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   uint64 descriptor_size = sizeof(blob) + num_addresses * sizeof(uint64);
+   if (descriptor_size > UINT16_MAX
+       || descriptor_size > max_entry_size - sizeof(log_entry) - key_size)
+   {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   return STATUS_OK;
+}
+
+static platform_status
+shard_log_write_reserve(log_handle      *logh,
+                        key              tuple_key,
+                        message          msg,
+                        log_write_token *token)
 {
    shard_log *log = (shard_log *)logh;
    threadid   tid = platform_get_tid();
+
+   platform_status rc =
+      shard_log_validate_reservation_entry(log, tuple_key, msg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    uint64           ticket;
    shard_log_group *group = shard_log_publish_reservation(log, tid, &ticket);
@@ -1137,6 +1198,7 @@ shard_log_write_reserve(log_handle *logh, log_write_token *token)
    token->internal        = group;
    token->owner_tid       = tid;
    token->internal_ticket = ticket;
+   return STATUS_OK;
 }
 
 static platform_status
