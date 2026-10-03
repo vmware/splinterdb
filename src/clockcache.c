@@ -3716,16 +3716,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
 void
 clockcache_reset_stats(clockcache *cc)
 {
-   uint64 i;
-
-   for (i = 0; i < MAX_THREADS; i++) {
-      cache_stats *stats = &cc->stats[i];
-
-      memset(stats->cache_hits, 0, sizeof(stats->cache_hits));
-      memset(stats->cache_misses, 0, sizeof(stats->cache_misses));
-      memset(stats->cache_miss_time_ns, 0, sizeof(stats->cache_miss_time_ns));
-      memset(stats->page_writes, 0, sizeof(stats->page_writes));
-   }
+   ZERO_ARRAY(cc->stats);
 }
 
 /*

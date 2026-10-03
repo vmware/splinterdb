@@ -392,6 +392,165 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    lookup_result_deinit(&lookup);
 }
 
+typedef struct {
+   cache_ops        super;
+   const cache_ops *original;
+   uint64           leaf_addr;
+   uint64           rejections;
+} retry_leaf_claim_ops;
+
+static bool32
+retry_leaf_claim_once(cache *cc, page_handle *page)
+{
+   retry_leaf_claim_ops *ops = (retry_leaf_claim_ops *)cc->ops;
+   if (page->disk_addr == ops->leaf_addr && ops->rejections == 0) {
+      ops->rejections++;
+      return FALSE;
+   }
+   return ops->original->page_try_claim(cc, page);
+}
+
+typedef struct {
+   data_config super;
+   uint64      calls;
+} rebuild_failure_data_config;
+
+static int
+fail_rebuilt_merge(const data_config *cfg,
+                   slice              key,
+                   message            older,
+                   merge_accumulator *newer)
+{
+   rebuild_failure_data_config *test_cfg = (rebuild_failure_data_config *)cfg;
+   merge_accumulator_set_class(newer, MESSAGE_TYPE_INSERT);
+   return ++test_cfg->calls == 2 ? -1 : 0;
+}
+
+CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
+{
+   cache         *cc  = (cache *)&data->cc;
+   btree_config  *cfg = &data->dbtree_cfg;
+   mini_allocator mini;
+   uint64         root_addr  = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint8          value[100] = {1};
+   btree_insert_results results;
+   for (uint64 i = 0; i < 25; i++) {
+      uint64 key_data = htobe64(i);
+      btree_insert_results_init(&results, NULL);
+      platform_status rc = btree_insert(
+         cc,
+         cfg,
+         data->hid,
+         data->test_scratch,
+         root_addr,
+         &mini,
+         key_create(FALSE, sizeof(key_data), &key_data),
+         message_create(
+            MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(value), value)),
+         &results);
+      btree_insert_results_deinit(&results);
+      ASSERT_TRUE(SUCCESS(rc));
+   }
+
+   // Grow the root, then reject the pending split, leaving a full child.
+   uint64  key_data          = htobe64(UINT64_MAX);
+   uint8   large_value[1400] = {2};
+   message replacement =
+      message_create(MESSAGE_TYPE_INSERT,
+                     NULL,
+                     slice_create(sizeof(large_value), large_value));
+   failing_insert_callback_context callback_ctxt = {0};
+   btree_insert_results_init(&results, NULL);
+   btree_insert_results_set_callback(
+      &results, failing_insert_callback, &callback_ctxt);
+   platform_status rc =
+      btree_insert(cc,
+                   cfg,
+                   data->hid,
+                   data->test_scratch,
+                   root_addr,
+                   &mini,
+                   key_create(FALSE, sizeof(key_data), &key_data),
+                   replacement,
+                   &results);
+   btree_insert_results_deinit(&results);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
+
+   page_handle *root = cache_get(cc, root_addr, TRUE, PAGE_TYPE_MEMTABLE);
+   btree_hdr   *hdr  = (btree_hdr *)root->data;
+   ASSERT_EQUAL_U(1, hdr->height);
+   ASSERT_EQUAL_U(1, hdr->num_entries);
+   uint64 leaf_addr = btree_get_child_addr(cfg, hdr, 0);
+   cache_unget(cc, root);
+
+   // Model a lost child claim without timing dependence. Rebuilding the
+   // update after that retry must release BOTH claims when the merge fails.
+   retry_leaf_claim_ops ops = {
+      .super = *cc->ops, .original = cc->ops, .leaf_addr = leaf_addr};
+   ops.super.page_try_claim              = retry_leaf_claim_once;
+   rebuild_failure_data_config merge_cfg = {.super = *cfg->data_cfg};
+   merge_cfg.super.merge_tuples          = fail_rebuilt_merge;
+   data_config *original_data_cfg        = cfg->data_cfg;
+   cfg->data_cfg                         = &merge_cfg.super;
+   cc->ops                               = &ops.super;
+   key_data                              = htobe64(0);
+   key target = key_create(FALSE, sizeof(key_data), &key_data);
+   btree_insert_results_init(&results, NULL);
+   rc = btree_insert(
+      cc,
+      cfg,
+      data->hid,
+      data->test_scratch,
+      root_addr,
+      &mini,
+      target,
+      message_create(MESSAGE_TYPE_UPDATE, NULL, message_slice(replacement)),
+      &results);
+   btree_insert_results_deinit(&results);
+   cc->ops       = ops.original;
+   cfg->data_cfg = original_data_cfg;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_MEMORY));
+   ASSERT_EQUAL_U(1, ops.rejections);
+   ASSERT_EQUAL_U(2, merge_cfg.calls);
+
+   // Verify immediate ownership release instead of waiting for another
+   // insert to hang if a claim was leaked.
+   uint64 addrs[] = {root_addr, leaf_addr};
+   for (uint64 i = 0; i < ARRAY_SIZE(addrs); i++) {
+      page_handle *page    = cache_get(cc, addrs[i], TRUE, PAGE_TYPE_MEMTABLE);
+      bool32       claimed = cache_try_claim(cc, page);
+      if (claimed) {
+         cache_unclaim(cc, page);
+      }
+      cache_unget(cc, page);
+      ASSERT_TRUE(claimed);
+   }
+
+   lookup_result lookup;
+   lookup_result_init(&lookup, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_TRUE(SUCCESS(
+      btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, &lookup)));
+   ASSERT_EQUAL(0,
+                slice_lex_cmp(merge_accumulator_to_value(
+                                 lookup_result_accumulator(&lookup)),
+                              slice_create(sizeof(value), value)));
+   lookup_result_deinit(&lookup);
+
+   btree_insert_results_init(&results, NULL);
+   rc = btree_insert(cc,
+                     cfg,
+                     data->hid,
+                     data->test_scratch,
+                     root_addr,
+                     &mini,
+                     target,
+                     replacement,
+                     &results);
+   btree_insert_results_deinit(&results);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(btree_verify_tree(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE));
+}
+
 /*
  * -------------------------------------------------------------------------
  * Test case to exercise random inserts of large volumes of data, across

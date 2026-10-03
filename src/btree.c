@@ -2638,6 +2638,7 @@ start_over:
       rc = btree_create_leaf_incorporate_spec(
          cfg, cc, mini, heap_id, child_node.hdr, tuple_key, msg, &spec);
       if (!SUCCESS(rc)) {
+         btree_node_unclaim(cc, cfg, &parent_node);
          btree_node_unget(cc, cfg, &parent_node);
          btree_node_unclaim(cc, cfg, &child_node);
          btree_node_unget(cc, cfg, &child_node);

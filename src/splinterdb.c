@@ -800,6 +800,7 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
 void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
 {
+   splinterdb_assert_thread_registered();
    lookup_result *_result = lookup_result_from_splinterdb(result);
    splinterdb    *owner   = (splinterdb *)_result->owner;
    splinterdb_stats_read_lock(owner);
@@ -827,6 +828,11 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
 
    if (!splinterdb_lookup_found(result)) {
       return EINVAL;
+   }
+
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
    }
 
    lookup_result *mutable_result =

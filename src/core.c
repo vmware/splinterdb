@@ -1801,8 +1801,7 @@ core_lookup_from_memtable_generation_locked(core_handle   *spl,
       }
       if (found_final) {
          memtable_end_lookup(&spl->mt_ctxt);
-         lookup_result_finalize(result, target);
-         return STATUS_OK;
+         return lookup_result_finalize(result, target);
       }
    }
 
@@ -1819,8 +1818,7 @@ core_lookup_from_memtable_generation_locked(core_handle   *spl,
       return rc;
    }
 
-   lookup_result_finalize(result, target);
-   return STATUS_OK;
+   return lookup_result_finalize(result, target);
 }
 
 typedef struct core_btree_iterator_init_async_context {
@@ -2578,7 +2576,7 @@ core_insert(core_handle   *spl,
          }
       } else {
          memtable_end_insert(&spl->mt_ctxt);
-         lookup_result_finalize(old_result, tuple_key);
+         rc = lookup_result_finalize(old_result, tuple_key);
       }
    } else {
       memtable_end_insert(&spl->mt_ctxt);
@@ -2726,7 +2724,10 @@ core_lookup_async(core_lookup_async_state *state)
 
 found_final_answer:
 
-   lookup_result_finalize(state->result, state->target);
+   rc = lookup_result_finalize(state->result, state->target);
+   if (!SUCCESS(rc)) {
+      async_return(state, rc);
+   }
 
    if (state->spl->cfg.use_stats) {
       threadid tid = platform_get_tid();

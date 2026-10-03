@@ -183,7 +183,7 @@ lookup_result_note_filter_hit(lookup_result *result)
    return lookup_result_should_continue(result);
 }
 
-static inline void
+static inline platform_status
 lookup_result_finalize(lookup_result *result, key query_key)
 {
    if (!lookup_result_is_existence(result)
@@ -191,9 +191,13 @@ lookup_result_finalize(lookup_result *result, key query_key)
        && !merge_accumulator_is_definitive(&result->value))
    {
       platform_assert(result->data_cfg != NULL);
-      data_merge_tuples_final(result->data_cfg, query_key, &result->value);
+      int rc =
+         data_merge_tuples_final(result->data_cfg, query_key, &result->value);
       if (!merge_accumulator_is_blob(&result->value)) {
          ondisk_ref_deinit(&result->blob_ref);
+      }
+      if (rc != 0) {
+         return STATUS_NO_MEMORY;
       }
    }
 
@@ -205,4 +209,5 @@ lookup_result_finalize(lookup_result *result, key query_key)
       ondisk_ref_deinit(&result->blob_ref);
       merge_accumulator_set_to_null(&result->value);
    }
+   return STATUS_OK;
 }

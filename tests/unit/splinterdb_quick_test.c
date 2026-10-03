@@ -41,6 +41,7 @@
 #include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
 #include "config.h"
 #include "splinterdb_tests_private.h"
+#include "clockcache.h"
 
 #define TEST_LARGE_KEY_SIZE 23
 
@@ -136,6 +137,12 @@ typedef struct {
 } comparison_counting_data_config;
 
 typedef struct {
+   data_config super;
+   bool32      fail;
+   uint64      calls;
+} final_merge_data_config;
+
+typedef struct {
    splinterdb *kvsb;
    int         rc;
    threadid    tid_before;
@@ -170,6 +177,7 @@ CTEST_DATA(splinterdb_quick)
    splinterdb_config cfg;
 
    comparison_counting_data_config default_data_cfg;
+   final_merge_data_config         final_merge_cfg;
 };
 
 
@@ -387,6 +395,177 @@ CTEST2(splinterdb_quick, test_pthread_auto_registration)
    ASSERT_EQUAL(0, args.rc);
    ASSERT_EQUAL(INVALID_TID, args.tid_before);
    ASSERT_TRUE(args.tid_after < MAX_THREADS);
+}
+
+static void *
+auto_registered_result_thread(void *arg)
+{
+   auto_registration_thread_args *args = arg;
+   args->tid_before                    = platform_get_tid();
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      args->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_deinit(&result);
+   args->tid_after = platform_get_tid();
+   if (args->tid_after >= MAX_THREADS) {
+      args->rc = EINVAL;
+      return NULL;
+   }
+
+   slice key = slice_create(3, "key");
+   splinterdb_lookup_result_init(
+      args->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   args->rc = splinterdb_lookup(args->kvsb, key, &result);
+   if (args->rc == 0) {
+      // Value materialization also needs to register before taking the lock.
+      platform_deregister_thread();
+      slice value;
+      args->rc = splinterdb_lookup_result_value(&result, &value);
+      if (args->rc == 0
+          && (platform_get_tid() >= MAX_THREADS
+              || slice_lex_cmp(value, slice_create(5, "value")) != 0))
+      {
+         args->rc = EINVAL;
+      }
+   }
+   splinterdb_lookup_result_deinit(&result);
+   return NULL;
+}
+
+CTEST2(splinterdb_quick, test_result_auto_registration_with_stats)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.use_stats = TRUE;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   ASSERT_EQUAL(
+      0,
+      splinterdb_insert(
+         data->kvsb, slice_create(3, "key"), slice_create(5, "value"), NULL));
+
+   pthread_t                     thread;
+   auto_registration_thread_args args = {.kvsb = data->kvsb};
+   ASSERT_EQUAL(
+      0, pthread_create(&thread, NULL, auto_registered_result_thread, &args));
+   ASSERT_EQUAL(0, pthread_join(thread, NULL));
+   ASSERT_EQUAL(0, args.rc);
+   ASSERT_EQUAL(INVALID_TID, args.tid_before);
+   ASSERT_TRUE(args.tid_after < MAX_THREADS);
+}
+
+CTEST2(splinterdb_quick, test_stats_reset_clears_cache_io)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.use_stats       = TRUE;
+   data->cfg.cache_use_stats = TRUE;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   slice key   = slice_create(3, "key");
+   slice value = slice_create(5, "value");
+   ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, value, NULL));
+   force_flush_current_memtable(data->kvsb);
+   splinterdb_cache_flush(data->kvsb);
+   cache *cc = (cache *)splinterdb_get_cache_handle(data->kvsb);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, TRUE)));
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &result));
+   assert_lookup_result_matches_slice(&result, value);
+   splinterdb_lookup_result_deinit(&result);
+
+   uint64 reads, writes;
+   cache_io_stats(cc, &reads, &writes);
+   ASSERT_TRUE(reads > 0);
+   ASSERT_TRUE(writes > 0);
+   splinterdb_stats_reset(data->kvsb);
+   cache_io_stats(cc, &reads, &writes);
+   ASSERT_EQUAL_U(0, reads);
+   ASSERT_EQUAL_U(0, writes);
+   const clockcache *clock = (const clockcache *)cc;
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      ASSERT_EQUAL_U(0, clock->stats[i].writes_issued);
+      ASSERT_EQUAL_U(0, clock->stats[i].syncs_issued);
+      for (page_type type = 0; type < NUM_PAGE_TYPES; type++) {
+         ASSERT_EQUAL_U(0, clock->stats[i].prefetches_issued[type]);
+      }
+   }
+}
+
+static int
+final_merge_test_merge(const data_config *cfg,
+                       slice              key,
+                       message            older,
+                       merge_accumulator *newer)
+{
+   merge_accumulator_set_class(newer, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static int
+final_merge_test_finalize(const data_config *cfg,
+                          slice              key,
+                          merge_accumulator *value)
+{
+   final_merge_data_config *test_cfg = (final_merge_data_config *)cfg;
+   test_cfg->calls++;
+   merge_accumulator_set_class(value, MESSAGE_TYPE_INSERT);
+   return test_cfg->fail ? ENOMEM : 0;
+}
+
+CTEST2(splinterdb_quick, test_final_merge_error_propagation)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   final_merge_data_config *cfg = &data->final_merge_cfg;
+   default_data_config_init(&cfg->super);
+   cfg->super.merge_tuples       = final_merge_test_merge;
+   cfg->super.merge_tuples_final = final_merge_test_finalize;
+   cfg->calls                    = 0;
+   data->cfg.data_cfg            = &cfg->super;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+
+   // Cover both inline updates and materialization of a blob update.
+   char payload[8192] = {1};
+   for (uint64 i = 0; i < 2; i++) {
+      slice key = i == 0 ? slice_create(6, "inline") : slice_create(4, "blob");
+      slice value = slice_create(i == 0 ? 7 : sizeof(payload), payload);
+      ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, value, NULL));
+
+      splinterdb_lookup_result result;
+      splinterdb_lookup_result_init(
+         data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      cfg->fail = TRUE;
+      ASSERT_EQUAL(ENOMEM, splinterdb_lookup(data->kvsb, key, &result));
+
+      lookup_result internal_result;
+      lookup_result_init(
+         &internal_result, &cfg->super, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      platform_status rc =
+         async_call_sync_callback(cache_cleanup(core->cc),
+                                  core_lookup_async,
+                                  core,
+                                  key_create_from_slice(TRUE, key),
+                                  &internal_result);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_MEMORY));
+      lookup_result_deinit(&internal_result);
+
+      cfg->fail = FALSE;
+      ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &result));
+      assert_lookup_result_matches_slice(&result, value);
+
+      cfg->fail         = TRUE;
+      slice replacement = slice_create(11, "replacement");
+      ASSERT_EQUAL(ENOMEM,
+                   splinterdb_insert(data->kvsb, key, replacement, &result));
+      // Fetch-and-update has already inserted; only resolving the old value
+      // failed. Ensure the error path released its resources and locks.
+      cfg->fail = FALSE;
+      ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &result));
+      assert_lookup_result_matches_slice(&result, replacement);
+      splinterdb_lookup_result_deinit(&result);
+   }
+   ASSERT_EQUAL_U(8, cfg->calls);
 }
 
 CTEST2(splinterdb_quick, stats_reset_excludes_active_operations)
