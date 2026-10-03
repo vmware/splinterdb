@@ -568,6 +568,58 @@ CTEST2(splinterdb_quick, test_final_merge_error_propagation)
    ASSERT_EQUAL_U(8, cfg->calls);
 }
 
+static void
+count_range_tuple(key tuple_key, message msg, void *arg)
+{
+   (*(uint64 *)arg)++;
+}
+
+CTEST2(splinterdb_quick, test_range_init_error_cleanup_preserves_branches)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   final_merge_data_config *cfg = &data->final_merge_cfg;
+   default_data_config_init(&cfg->super);
+   cfg->super.merge_tuples       = final_merge_test_merge;
+   cfg->super.merge_tuples_final = final_merge_test_finalize;
+   cfg->fail                     = FALSE;
+   cfg->calls                    = 0;
+   data->cfg.data_cfg            = &cfg->super;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   // Keep a compacted branch and a mutable memtable in the failed iterator.
+   slice old_key = slice_create(3, "zzz");
+   slice new_key = slice_create(3, "aaa");
+   slice value   = slice_create(5, "value");
+   ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, old_key, value, NULL));
+   force_flush_current_memtable(data->kvsb);
+   ASSERT_EQUAL(0, splinterdb_update(data->kvsb, new_key, value, NULL));
+
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       visited = 0;
+   cfg->fail            = TRUE;
+   platform_status rc   = core_apply_to_range(
+      core, NEGATIVE_INFINITY_KEY, 10, count_range_tuple, &visited);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_MEMORY));
+   ASSERT_EQUAL_U(0, visited);
+   ASSERT_TRUE(cfg->calls > 0);
+
+   // Both init and its caller cleaned up. The database must still own its
+   // branches, so point lookups and a new range scan must remain usable.
+   cfg->fail = FALSE;
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, old_key, &result));
+   assert_lookup_result_matches_slice(&result, value);
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, new_key, &result));
+   assert_lookup_result_matches_slice(&result, value);
+   splinterdb_lookup_result_deinit(&result);
+   rc = core_apply_to_range(
+      core, NEGATIVE_INFINITY_KEY, 10, count_range_tuple, &visited);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL_U(2, visited);
+}
+
 CTEST2(splinterdb_quick, stats_reset_excludes_active_operations)
 {
    ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));

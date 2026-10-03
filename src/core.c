@@ -2484,6 +2484,10 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
          core_memtable_dec_ref(spl, range_itor->branch[i].addr);
       }
    }
+   // Failed initialization also calls deinit; its caller may clean up again.
+   range_itor->num_branches = 0;
+   range_itor->can_prev     = FALSE;
+   range_itor->can_next     = FALSE;
    key_buffer_deinit(&range_itor->min_key);
    key_buffer_deinit(&range_itor->max_key);
    key_buffer_deinit(&range_itor->local_min_key);

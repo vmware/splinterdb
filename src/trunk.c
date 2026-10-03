@@ -2604,17 +2604,17 @@ trunk_node_serialize_maybe_setup_next_page(cache        *cc,
    }
 
    if (page_size < *page_offset + required_space) {
-      memset((*current_page)->data + *page_offset, 0, page_size - *page_offset);
-      if (*current_page != header_page) {
-         cache_unlock(cc, *current_page);
-         cache_unclaim(cc, *current_page);
-         cache_unget(cc, *current_page);
-      }
       uint64 addr = (*current_page)->disk_addr + page_size;
       if (extent_size <= addr - header_page->disk_addr) {
          platform_error_log(
             "%s():%d: extent_size too small", __func__, __LINE__);
          return STATUS_LIMIT_EXCEEDED;
+      }
+      memset((*current_page)->data + *page_offset, 0, page_size - *page_offset);
+      if (*current_page != header_page) {
+         cache_unlock(cc, *current_page);
+         cache_unclaim(cc, *current_page);
+         cache_unget(cc, *current_page);
       }
       *current_page = cache_alloc(cc, addr, PAGE_TYPE_TRUNK);
       if (*current_page == NULL) {
@@ -2834,8 +2834,6 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       page_offset += bundle_size;
    }
 
-   trunk_node_inc_all_refs(context, node);
-
    result = trunk_ondisk_node_ref_create(
       context, trunk_node_pivot_key(node, 0), header_addr, TRUE);
    if (result == NULL) {
@@ -2843,6 +2841,10 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
          "%s():%d: ondisk_node_ref_create() failed", __func__, __LINE__);
       goto cleanup;
    }
+
+   // No fallible work remains. Until this point, rollback owns only the new
+   // extent, even if its serialized contents refer to children or branches.
+   trunk_node_inc_all_refs(context, node);
 
    if (context->stats) {
       uint64 num_pages = 1
@@ -2877,10 +2879,16 @@ cleanup:
       cache_unlock(context->cc, header_page);
       cache_unclaim(context->cc, header_page);
       cache_unget(context->cc, header_page);
-      cache_extent_discard(context->cc, header_addr, PAGE_TYPE_TRUNK);
    }
-   if (result != NULL) {
-      trunk_ondisk_node_ref_destroy(result, context, context->hid);
+   if (header_addr != 0) {
+      // The unpublished extent may be only partially serialized. Discard it
+      // directly, without traversing references we have not acquired.
+      refcount ref =
+         allocator_dec_ref(context->al, header_addr, PAGE_TYPE_TRUNK);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(context->cc, header_addr, PAGE_TYPE_TRUNK);
+      ref = allocator_dec_ref(context->al, header_addr, PAGE_TYPE_TRUNK);
+      platform_assert(ref == AL_FREE);
    }
    return NULL;
 }
@@ -6141,8 +6149,16 @@ flush_to_one_child(trunk_context                *context,
 cleanup_new_pivot_bundles:
    vector_deinit(&new_pivot_bundles);
 cleanup_new_pivots:
+   if (!SUCCESS(rc)) {
+      VECTOR_APPLY_TO_ELTS(
+         &new_pivots, trunk_pivot_destroy, PROCESS_PRIVATE_HEAP_ID);
+   }
    vector_deinit(&new_pivots);
 cleanup_new_childrefs:
+   if (!SUCCESS(rc)) {
+      VECTOR_APPLY_TO_ELTS(
+         &new_childrefs, trunk_ondisk_node_ref_destroy, context, context->hid);
+   }
    vector_deinit(&new_childrefs);
    return rc;
 }
@@ -6523,7 +6539,7 @@ trunk_flush_prepare(trunk_context            *context,
    if (context->stats) {
       threadid tid       = platform_get_tid();
       uint64   footprint = vector_length(&context->tasks.node_compactions);
-      if (TRUNK_MAX_DISTRIBUTION_VALUE < footprint) {
+      if (TRUNK_MAX_DISTRIBUTION_VALUE <= footprint) {
          footprint = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
       }
       context->stats[tid].incorporation_footprint_distribution[footprint]++;
