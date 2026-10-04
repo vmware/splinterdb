@@ -191,7 +191,9 @@ typedef struct btree_iterator {
    int64           idx;
    int64           curr_min_idx;
    // Copies: end_addr is zero until this copy terminates the range, then it is
-   // curr.addr with a valid local end_idx. Non-copies use a lazy end index.
+   // curr.addr with a valid local end_idx. For non-copies, every successful
+   // positioning operation prepares end_idx before returning whenever the
+   // current page is end_addr.
    uint64          end_addr;
    int64           end_idx;
    bool32          end_idx_valid;
@@ -415,7 +417,7 @@ btree_iterator_init(cache              *cc,
                     uint32              prefetch_lookahead);
 
 // clang-format off
-DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
+DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
    param, cache *,                      cc,
    param, const btree_config *,         cfg,
    param, btree_iterator *,             itor,
@@ -442,6 +444,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 5,
    local, int64,                        tmp,
    local, uint64,                       curr_addr,
    local, uint64,                       last_addr,
+   local, uint64,                       old_end_addr,
    local, uint64,                       next_addr,
    local, uint64,                       prev_addr,
    local, uint64,                       expected_page_no,

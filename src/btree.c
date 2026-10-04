@@ -3480,7 +3480,32 @@ btree_iterator_find_end_addr(btree_iterator *itor)
 }
 
 static inline void
-btree_iterator_compute_end_idx(btree_iterator *itor)
+btree_iterator_set_end_idx(btree_iterator *itor)
+{
+   debug_assert(itor->curr.addr == itor->end_addr);
+   debug_assert(!itor->end_idx_valid);
+
+   if (key_is_positive_infinity(itor->max_key)) {
+      itor->end_idx = btree_num_entries(itor->curr.hdr);
+   } else {
+      itor->end_idx =
+         find_key_in_node(itor,
+                          itor->curr.hdr,
+                          itor->max_key,
+                          comparison_invert(itor->max_key_comparison),
+                          NULL);
+   }
+   itor->end_idx_valid = TRUE;
+}
+
+/*
+ * Complete all fallible upper-bound preparation for the current position.
+ * can_next(), can_prev(), and curr() are observation-only, so every operation
+ * that can change the current page or range position calls this before
+ * returning success.
+ */
+static platform_status
+btree_iterator_prepare_end_idx(btree_iterator *itor)
 {
    while (itor->curr.addr == itor->end_addr && !itor->end_idx_valid) {
       debug_assert(!itor->copy_nodes);
@@ -3488,28 +3513,19 @@ btree_iterator_compute_end_idx(btree_iterator *itor)
          uint64          old_end_addr = itor->end_addr;
          platform_status rc           = btree_iterator_find_end_addr(itor);
          if (!SUCCESS(rc)) {
-            return;
+            return rc;
          }
          if (itor->curr.addr != itor->end_addr) {
-            return;
+            return STATUS_OK;
          }
          if (old_end_addr != itor->end_addr) {
             continue;
          }
       }
 
-      if (key_is_positive_infinity(itor->max_key)) {
-         itor->end_idx = btree_num_entries(itor->curr.hdr);
-      } else {
-         itor->end_idx =
-            find_key_in_node(itor,
-                             itor->curr.hdr,
-                             itor->max_key,
-                             comparison_invert(itor->max_key_comparison),
-                             NULL);
-      }
-      itor->end_idx_valid = TRUE;
+      btree_iterator_set_end_idx(itor);
    }
+   return STATUS_OK;
 }
 
 static bool32
@@ -3519,8 +3535,8 @@ btree_iterator_can_prev(iterator *base_itor)
    if (!SUCCESS(itor->validation_status)) {
       return FALSE;
    }
-   btree_iterator_compute_end_idx(itor);
-   return SUCCESS(itor->validation_status) && itor->idx >= itor->curr_min_idx
+   debug_assert(itor->curr.addr != itor->end_addr || itor->end_idx_valid);
+   return itor->idx >= itor->curr_min_idx
           && (itor->curr.addr != itor->end_addr
               || itor->curr_min_idx != itor->end_idx);
 }
@@ -3532,11 +3548,9 @@ btree_iterator_can_next(iterator *base_itor)
    if (!SUCCESS(itor->validation_status)) {
       return FALSE;
    }
-   btree_iterator_compute_end_idx(itor);
-   return SUCCESS(itor->validation_status)
-          && (itor->curr.addr != itor->end_addr
-              || (itor->idx < itor->end_idx
-                  && itor->curr_min_idx != itor->end_idx));
+   debug_assert(itor->curr.addr != itor->end_addr || itor->end_idx_valid);
+   return itor->curr.addr != itor->end_addr
+          || (itor->idx < itor->end_idx && itor->curr_min_idx != itor->end_idx);
 }
 
 void
@@ -3613,6 +3627,36 @@ btree_iterator_find_end_addr_async(btree_iterator_async_state *state,
    state->itor->end_idx_valid = FALSE;
 
    async_return(state);
+}
+
+static async_status
+btree_iterator_prepare_end_idx_async(btree_iterator_async_state *state,
+                                     uint64                      depth)
+{
+   async_begin(state, depth);
+
+   while (state->itor->curr.addr == state->itor->end_addr
+          && !state->itor->end_idx_valid)
+   {
+      debug_assert(!state->itor->copy_nodes);
+      if (btree_iterator_end_key_beyond_curr(state->itor)) {
+         state->old_end_addr = state->itor->end_addr;
+         async_await_subroutine(state, btree_iterator_find_end_addr_async);
+         if (!SUCCESS(state->__async_result)) {
+            async_return(state, state->__async_result);
+         }
+         if (state->itor->curr.addr != state->itor->end_addr) {
+            async_return(state, STATUS_OK);
+         }
+         if (state->old_end_addr != state->itor->end_addr) {
+            continue;
+         }
+      }
+
+      btree_iterator_set_end_idx(state->itor);
+   }
+
+   async_return(state, STATUS_OK);
 }
 
 /*
@@ -3888,6 +3932,10 @@ btree_iterator_next_leaf(btree_iterator *itor)
    itor->idx          = 0;
    itor->curr_min_idx = -1;
 
+   rc = btree_iterator_prepare_end_idx(itor);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    btree_iterator_prefetch_on_advance(itor, last_addr, TRUE);
    return STATUS_OK;
 }
@@ -3958,6 +4006,11 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
 
    state->itor->idx          = 0;
    state->itor->curr_min_idx = -1;
+
+   async_await_subroutine(state, btree_iterator_prepare_end_idx_async);
+   if (!SUCCESS(state->__async_result)) {
+      async_return(state, state->__async_result);
+   }
 
    // Prefetching is all non-blocking, so it needs no awaits here.
    btree_iterator_prefetch_on_advance(state->itor, state->last_addr, TRUE);
@@ -4049,6 +4102,10 @@ btree_iterator_prev_leaf(btree_iterator *itor)
       itor->curr_min_idx = 0;
    }
 
+   rc = btree_iterator_prepare_end_idx(itor);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    btree_iterator_prefetch_on_advance(itor, last_addr, FALSE);
    return STATUS_OK;
 }
@@ -4253,6 +4310,11 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       state->itor->curr_min_idx = 0;
    }
 
+   async_await_subroutine(state, btree_iterator_prepare_end_idx_async);
+   if (!SUCCESS(state->__async_result)) {
+      async_return(state, state->__async_result);
+   }
+
    // Prefetching is non-blocking, so no awaits needed here.
    btree_iterator_prefetch_on_advance(state->itor, state->curr_addr, FALSE);
 
@@ -4321,13 +4383,13 @@ btree_iterator_prev(iterator *base_itor)
 static inline void
 btree_iterator_bound_idx(btree_iterator *itor, comparison position_rule)
 {
+   debug_assert(itor->curr.addr != itor->end_addr || itor->end_idx_valid);
    bool32 forward = comparison_is_forward(position_rule);
 
    if (itor->idx < itor->curr_min_idx) {
       itor->idx = forward ? itor->curr_min_idx : itor->curr_min_idx - 1;
    }
 
-   btree_iterator_compute_end_idx(itor);
    if (itor->curr.addr == itor->end_addr && itor->idx >= itor->end_idx) {
       itor->idx = forward ? itor->end_idx : itor->end_idx - 1;
    }
@@ -4432,6 +4494,10 @@ find_btree_node_and_get_idx_bounds(btree_iterator *itor,
          return rc;
       }
    }
+   rc = btree_iterator_prepare_end_idx(itor);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    btree_iterator_bound_idx(itor, position_rule);
 
    // check if we already need to move to the prev/next leaf
@@ -4507,6 +4573,10 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
          async_return(state, state->__async_result);
       }
    }
+   async_await_subroutine(state, btree_iterator_prepare_end_idx_async);
+   if (!SUCCESS(state->__async_result)) {
+      async_return(state, state->__async_result);
+   }
    btree_iterator_bound_idx(state->itor, state->position_rule);
 
    // check if we already need to move to the prev/next leaf
@@ -4558,8 +4628,12 @@ btree_iterator_seek(iterator *base_itor, comparison seek_type, key seek_key)
       bool32 found;
       itor->idx =
          find_key_in_node(itor, itor->curr.hdr, seek_key, seek_type, &found);
+      platform_status rc = btree_iterator_prepare_end_idx(itor);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       btree_iterator_bound_idx(itor, seek_type);
-      platform_status rc = btree_iterator_move_leaf_if_needed(itor);
+      rc = btree_iterator_move_leaf_if_needed(itor);
       if (!SUCCESS(rc)) {
          return rc;
       }

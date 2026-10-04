@@ -1256,6 +1256,221 @@ bounds_init(cache          *cc,
    return btree_iterator_init_async_result(&state);
 }
 
+/* Fail one selected root-page read while an immutable iterator prepares its
+ * upper bound. The sync and async wrappers share a counter so the same test
+ * identifies the endpoint refresh in both implementations. */
+typedef struct iterator_endpoint_fault {
+   cache           *cc;
+   const cache_ops *original;
+   cache_ops        ops;
+   uint64           root;
+   uint64           root_gets;
+   uint64           fail_at;
+   uint64           failures;
+} iterator_endpoint_fault;
+
+static iterator_endpoint_fault *active_iterator_endpoint_fault;
+
+static bool32
+iterator_endpoint_fault_should_fail(uint64 addr)
+{
+   iterator_endpoint_fault *fault = active_iterator_endpoint_fault;
+   if (addr != fault->root) {
+      return FALSE;
+   }
+   fault->root_gets++;
+   if (fault->root_gets == fault->fail_at) {
+      fault->failures++;
+      return TRUE;
+   }
+   return FALSE;
+}
+
+static page_handle *
+iterator_endpoint_fault_get(cache    *cc,
+                            uint64    addr,
+                            bool32    blocking,
+                            page_type type)
+{
+   iterator_endpoint_fault *fault = active_iterator_endpoint_fault;
+   platform_assert(fault != NULL && fault->cc == cc);
+   if (iterator_endpoint_fault_should_fail(addr)) {
+      return NULL;
+   }
+   return fault->original->page_get(cc, addr, blocking, type);
+}
+
+static page_handle *
+iterator_endpoint_fault_async_result(void *payload)
+{
+   iterator_endpoint_fault *fault = active_iterator_endpoint_fault;
+   platform_assert(fault != NULL);
+   page_handle *page = fault->original->page_get_async_result(payload);
+   if (page != NULL && iterator_endpoint_fault_should_fail(page->disk_addr)) {
+      fault->original->page_unget(fault->cc, page);
+      return NULL;
+   }
+   return page;
+}
+
+static platform_status
+iterator_endpoint_fault_init(cache          *cc,
+                             btree_config   *cfg,
+                             btree_iterator *itor,
+                             uint64          root,
+                             key             upper,
+                             bool32          async)
+{
+   if (!async) {
+      return btree_iterator_init(cc,
+                                 cfg,
+                                 itor,
+                                 root,
+                                 PAGE_TYPE_BRANCH,
+                                 greater_than_or_equal,
+                                 NEGATIVE_INFINITY_KEY,
+                                 less_than,
+                                 upper,
+                                 greater_than_or_equal,
+                                 NEGATIVE_INFINITY_KEY,
+                                 FALSE,
+                                 0,
+                                 0);
+   }
+
+   btree_iterator_async_state state;
+   bool32                     ready = FALSE;
+   btree_iterator_async_state_init(&state,
+                                   cc,
+                                   cfg,
+                                   itor,
+                                   root,
+                                   PAGE_TYPE_BRANCH,
+                                   greater_than_or_equal,
+                                   NEGATIVE_INFINITY_KEY,
+                                   less_than,
+                                   upper,
+                                   greater_than_or_equal,
+                                   NEGATIVE_INFINITY_KEY,
+                                   FALSE,
+                                   0,
+                                   0,
+                                   bounds_ready,
+                                   &ready);
+   while (btree_iterator_init_async(&state) != ASYNC_STATUS_DONE) {
+      while (!__atomic_exchange_n(&ready, FALSE, __ATOMIC_ACQUIRE)) {
+         cache_cleanup(cc);
+      }
+   }
+   return btree_iterator_init_async_result(&state);
+}
+
+CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
+{
+   cache         *cc  = (cache *)&data->cc;
+   btree_config  *cfg = &data->dbtree_cfg;
+   mini_allocator mini;
+   const uint64   count = 80;
+   uint64 source_root   = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   for (uint64 n = 0; n < count; n++) {
+      bounds_insert(
+         cc, cfg, data->hid, data->test_scratch, &mini, source_root, 2 * n);
+   }
+
+   btree_iterator  source;
+   platform_status rc = btree_iterator_init(cc,
+                                            cfg,
+                                            &source,
+                                            source_root,
+                                            PAGE_TYPE_MEMTABLE,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            less_than,
+                                            POSITIVE_INFINITY_KEY,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            FALSE,
+                                            0,
+                                            0);
+   ASSERT_TRUE(SUCCESS(rc));
+   btree_pack_req req;
+   rc = btree_pack_req_init(
+      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc                 = btree_pack(&req);
+   uint64 packed_root = req.root_addr;
+   btree_pack_req_deinit(&req, data->hid);
+   btree_iterator_deinit(&source);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   btree_iterator probe;
+   rc = btree_iterator_init(cc,
+                            cfg,
+                            &probe,
+                            packed_root,
+                            PAGE_TYPE_BRANCH,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            less_than,
+                            POSITIVE_INFINITY_KEY,
+                            greater_than_or_equal,
+                            NEGATIVE_INFINITY_KEY,
+                            FALSE,
+                            0,
+                            0);
+   ASSERT_TRUE(SUCCESS(rc));
+   uint64 first_leaf = probe.curr.addr;
+   uint64 upper_num  = 0;
+   while (iterator_can_curr(&probe.super) && probe.curr.addr == first_leaf) {
+      key     tuple_key;
+      message msg;
+      iterator_curr(&probe.super, &tuple_key, &msg);
+      upper_num = bounds_key_number(tuple_key) + 1;
+      ASSERT_TRUE(SUCCESS(iterator_next(&probe.super)));
+   }
+   ASSERT_TRUE(iterator_can_curr(&probe.super));
+   ASSERT_NOT_EQUAL(first_leaf, probe.curr.addr);
+   btree_iterator_deinit(&probe);
+
+   uint64 upper_buf;
+   key    upper = bounds_key(upper_num, &upper_buf);
+   for (bool32 async = FALSE; async <= TRUE; async++) {
+      iterator_endpoint_fault fault = {
+         .cc       = cc,
+         .original = cc->ops,
+         .ops      = *cc->ops,
+         .root     = packed_root,
+         .fail_at  = 3,
+      };
+      fault.ops.page_get              = iterator_endpoint_fault_get;
+      fault.ops.page_get_async_result = iterator_endpoint_fault_async_result;
+      active_iterator_endpoint_fault  = &fault;
+      cc->ops                         = &fault.ops;
+
+      rc = iterator_endpoint_fault_init(
+         cc, cfg, &probe, packed_root, upper, async);
+      uint64 gets_before_observation = fault.root_gets;
+      bool32 can_curr                = iterator_can_curr(&probe.super);
+      uint64 gets_after_observation  = fault.root_gets;
+
+      cc->ops                        = fault.original;
+      active_iterator_endpoint_fault = NULL;
+
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR),
+                  "async=%u returned %s",
+                  async,
+                  platform_status_to_string(rc));
+      ASSERT_EQUAL(1, fault.failures);
+      ASSERT_EQUAL(3, fault.root_gets);
+      ASSERT_FALSE(can_curr);
+      ASSERT_EQUAL(gets_before_observation, gets_after_observation);
+   }
+
+   btree_dec_ref(cc, cfg, packed_root, PAGE_TYPE_BRANCH);
+   mini_release(&mini);
+   btree_dec_ref(cc, cfg, source_root, PAGE_TYPE_MEMTABLE);
+}
+
 CTEST2(btree_stress, copied_iterator_bounds)
 {
    cache         *cc  = (cache *)&data->cc;

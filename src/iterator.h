@@ -17,6 +17,12 @@ typedef platform_status (*iterator_seek_fn)(iterator  *itor,
                                             key        seek_key);
 typedef void (*iterator_print_fn)(iterator *itor);
 
+/*
+ * Initialization and the positioning operations (next, prev, and seek) must
+ * perform all work that can fail before returning success. In particular,
+ * curr, can_prev, and can_next are observation-only: implementations must not
+ * perform I/O, allocate memory, or discover a deferred error in those calls.
+ */
 typedef struct iterator_ops {
    /* Callers should not modify data pointed to by *key or *data */
    iterator_curr_fn  curr;
