@@ -5153,6 +5153,13 @@ btree_pack_abort(btree_pack_req *req)
       }
    }
 
+   /*
+    * btree_create() reserves the mini allocator's next extents before the
+    * pack starts.  The root reference below owns only the root and extents
+    * that the pack actually linked into the tree; release the still-reserved
+    * extents explicitly on every abort path.
+    */
+   mini_release(&req->mini);
    btree_dec_ref(req->cc, req->cfg, req->root_addr, PAGE_TYPE_BRANCH);
    req->root_addr = 0;
 }

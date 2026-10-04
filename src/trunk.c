@@ -4630,11 +4630,6 @@ maplet_compaction_task(task *arg)
 
    platform_assert(0 < apply_args.num_input_bundles);
 
-   if (context->stats) {
-      context->stats[tid].maplet_build_time_ns[state->height] +=
-         total_build_time_ns;
-   }
-
    apply_args.new_maplet = new_maplet;
 
    trunk_modification_begin(context);

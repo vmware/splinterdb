@@ -1461,7 +1461,7 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    if (spl->cfg.use_stats) {
       uint64 comp_time = platform_timestamp_elapsed(comp_start);
       spl->stats[tid].root_compaction_time_ns += comp_time;
-      if (comp_start > spl->stats[tid].root_compaction_time_max_ns) {
+      if (comp_time > spl->stats[tid].root_compaction_time_max_ns) {
          spl->stats[tid].root_compaction_time_max_ns = comp_time;
       }
       cmt->wait_start = platform_get_timestamp();
@@ -3692,6 +3692,46 @@ core_checkpoint_rotation_still_needed(void *arg)
    return pending;
 }
 
+/*
+ * Observe whether the barrier's target has retired, or whether any generation
+ * needed to reach it has entered the terminal incorporation-failure state.
+ * The lookup lock keeps the retired frontier stable while it is inspected;
+ * every slot at or above that frontier is still unretired and therefore
+ * cannot be recycled.
+ */
+static platform_status
+core_checkpoint_target_status(core_handle *spl,
+                              uint64       target,
+                              bool32      *incorporated)
+{
+   platform_status rc = STATUS_OK;
+
+   memtable_begin_lookup(&spl->mt_ctxt);
+   uint64 first_unincorporated =
+      memtable_generation_retired(&spl->mt_ctxt) + 1;
+   *incorporated = first_unincorporated > target;
+
+   if (!*incorporated) {
+      for (uint64 generation = first_unincorporated;; generation++) {
+         memtable *mt = core_try_get_memtable(spl, generation);
+         if (mt != NULL
+             && memtable_get_state(mt)
+                   == MEMTABLE_STATE_INCORPORATION_FAILED)
+         {
+            platform_assert(!SUCCESS(mt->incorporation_status));
+            rc = mt->incorporation_status;
+            break;
+         }
+         if (generation == target) {
+            break;
+         }
+      }
+   }
+   memtable_end_lookup(&spl->mt_ctxt);
+
+   return rc;
+}
+
 platform_status
 core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
@@ -3708,11 +3748,16 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
    uint64    wait     = 100;
    timestamp deadline = platform_get_timestamp();
    while (TRUE) {
-      bool32 incorporated =
-         memtable_generation_retired(&spl->mt_ctxt) + 1 > target;
+      bool32 incorporated;
+      rc = core_checkpoint_target_status(spl, target, &incorporated);
       core_checkpoint_result state;
-      rc = core_checkpoint_observe(spl, ticket, &state);
+      platform_status observe_rc = core_checkpoint_observe(spl, ticket, &state);
+      if (!SUCCESS(observe_rc)) {
+         return observe_rc;
+      }
       if (!SUCCESS(rc)) {
+         (void)core_checkpoint_cancel_pending(
+            spl, ticket, state.pending_epoch, NULL);
          return rc;
       }
 

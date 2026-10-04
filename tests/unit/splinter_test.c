@@ -850,6 +850,41 @@ blob_checksum_test_writeback(cache *cc, slice descriptor)
    return rc;
 }
 
+typedef struct pack_abort_test_iterator {
+   iterator super;
+   key      tuple_key;
+   message  msg;
+} pack_abort_test_iterator;
+
+static void
+pack_abort_test_curr(iterator *base, key *tuple_key, message *msg)
+{
+   pack_abort_test_iterator *itor = (pack_abort_test_iterator *)base;
+   *tuple_key                     = itor->tuple_key;
+   *msg                           = itor->msg;
+}
+
+static bool32
+pack_abort_test_can_step(iterator *base)
+{
+   (void)base;
+   return TRUE;
+}
+
+static platform_status
+pack_abort_test_next(iterator *base)
+{
+   (void)base;
+   return STATUS_IO_ERROR;
+}
+
+static const iterator_ops pack_abort_test_ops = {
+   .curr     = pack_abort_test_curr,
+   .can_prev = pack_abort_test_can_step,
+   .can_next = pack_abort_test_can_step,
+   .next     = pack_abort_test_next,
+};
+
 static platform_status
 blob_checksum_test_build_and_check(const blob_build_config *cfg,
                                    cache                   *cc,
@@ -1228,6 +1263,59 @@ CTEST2(splinter, test_inserts)
                     num_inserts);
 
    core_destroy(&spl);
+}
+
+/* A failed input step aborts a partially built pack. The pack's root owns the
+ * extents already linked into the tree, while mini_release() must separately
+ * return its unused preallocation batch. */
+CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
+{
+   allocator *alp = (allocator *)&data->al;
+   cache     *cc  = (cache *)data->clock_cache;
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf,
+            TEST_RANDOM,
+            1,
+            0,
+            0,
+            data->workload_cfg->key_size,
+            0);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   generate_test_message(&data->gen, 1, &msg);
+
+   pack_abort_test_iterator itor = {
+      .super     = {.ops = &pack_abort_test_ops},
+      .tuple_key = key_buffer_key(&keybuf),
+      .msg       = merge_accumulator_to_message(&msg),
+   };
+   btree_pack_req req;
+   platform_status rc = btree_pack_req_init(&req,
+                                             cc,
+                                             &data->system_cfg->btree_cfg,
+                                             &itor.super,
+                                             1,
+                                             42,
+                                             FALSE,
+                                             data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 before = allocator_in_use(alp);
+   rc            = btree_pack(&req);
+   uint64 after  = allocator_in_use(alp);
+
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR),
+               "faulted pack returned %s\n",
+               platform_status_to_string(rc));
+   ASSERT_EQUAL(0, req.root_addr);
+   ASSERT_EQUAL(before,
+                after,
+                "failed pack leaked %lu extents\n",
+                after - before);
+
+   btree_pack_req_deinit(&req, data->hid);
+   merge_accumulator_deinit(&msg);
 }
 
 /* A pivot bundle sits immediately after an on-disk pivot and its variable-size
@@ -2372,6 +2460,64 @@ shard_log_page_alloc_fault_uninstall(shard_log_page_alloc_fault *fault)
    fault->saved_ops = NULL;
 }
 
+typedef struct checkpoint_trunk_alloc_fault {
+   cache           *cc;
+   const cache_ops *saved_ops;
+   cache_ops        fault_ops;
+   bool32           fail_next_trunk_page;
+   uint64           failures;
+} checkpoint_trunk_alloc_fault;
+
+static checkpoint_trunk_alloc_fault *active_checkpoint_trunk_alloc_fault;
+
+static page_handle *
+checkpoint_test_trunk_page_alloc(cache *cc, uint64 addr, page_type type)
+{
+   checkpoint_trunk_alloc_fault *fault = __atomic_load_n(
+      &active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE);
+   platform_assert(fault != NULL && fault->cc == cc);
+
+   if (type == PAGE_TYPE_TRUNK
+       && __atomic_exchange_n(
+          &fault->fail_next_trunk_page, FALSE, __ATOMIC_ACQ_REL))
+   {
+      __atomic_fetch_add(&fault->failures, 1, __ATOMIC_RELAXED);
+      return NULL;
+   }
+   return fault->saved_ops->page_alloc(cc, addr, type);
+}
+
+static void
+checkpoint_trunk_alloc_fault_install(checkpoint_trunk_alloc_fault *fault,
+                                     cache                        *cc)
+{
+   platform_assert(__atomic_load_n(&active_checkpoint_trunk_alloc_fault,
+                                   __ATOMIC_ACQUIRE)
+                   == NULL);
+   ZERO_CONTENTS(fault);
+   fault->cc                   = cc;
+   fault->saved_ops            = cc->ops;
+   fault->fault_ops            = *cc->ops;
+   fault->fault_ops.page_alloc = checkpoint_test_trunk_page_alloc;
+   fault->fail_next_trunk_page = TRUE;
+   __atomic_store_n(
+      &active_checkpoint_trunk_alloc_fault, fault, __ATOMIC_RELEASE);
+   cc->ops = &fault->fault_ops;
+}
+
+static void
+checkpoint_trunk_alloc_fault_uninstall(checkpoint_trunk_alloc_fault *fault)
+{
+   platform_assert(__atomic_load_n(&active_checkpoint_trunk_alloc_fault,
+                                   __ATOMIC_ACQUIRE)
+                   == fault);
+   fault->cc->ops = fault->saved_ops;
+   __atomic_store_n(
+      &active_checkpoint_trunk_alloc_fault, NULL, __ATOMIC_RELEASE);
+   fault->cc        = NULL;
+   fault->saved_ops = NULL;
+}
+
 /*
  * Page-slot allocation happens before an OPEN staging image is frozen. A
  * transient failure must therefore leave the image mutable and intact; a
@@ -2515,6 +2661,73 @@ CTEST2(splinter, test_durable_barrier_without_log_publishes_root)
    ASSERT_TRUE(SUPERBLOCK_NO_LOG(record.live_log));
 
    superblock_context_deinit(&disk_superblock);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
+/* A terminal incorporation failure makes the checkpoint target unreachable.
+ * The synchronous barrier must return that error instead of polling the
+ * retired-generation frontier forever. */
+CTEST2(splinter, test_checkpoint_reports_terminal_incorporation_failure)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   cache     *cc                          = (cache *)data->clock_cache;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 target = memtable_generation(&spl.mt_ctxt);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   checkpoint_trunk_alloc_fault fault;
+   checkpoint_trunk_alloc_fault_install(&fault, cc);
+   platform_status rotation_rc = memtable_force_rotation(&spl.mt_ctxt, NULL);
+   platform_status failure_quiesce_rc =
+      task_perform_until_quiescent(spl.ts);
+   checkpoint_trunk_alloc_fault_uninstall(&fault);
+
+   ASSERT_TRUE(SUCCESS(rotation_rc));
+   ASSERT_TRUE(SUCCESS(failure_quiesce_rc));
+   ASSERT_EQUAL(1, __atomic_load_n(&fault.failures, __ATOMIC_RELAXED));
+
+   memtable *failed =
+      &spl.mt_ctxt.mt[target % spl.mt_ctxt.cfg.max_memtables];
+   ASSERT_EQUAL(target, failed->generation);
+   ASSERT_EQUAL(MEMTABLE_STATE_INCORPORATION_FAILED,
+                memtable_get_state(failed));
+
+   uint64          before        = allocator_in_use(alp);
+   platform_status checkpoint_rc = core_checkpoint(&spl, 0);
+   uint64          after         = allocator_in_use(alp);
+
+   ASSERT_TRUE(STATUS_IS_EQ(checkpoint_rc, STATUS_NO_MEMORY),
+               "checkpoint returned %s\n",
+               platform_status_to_string(checkpoint_rc));
+   ASSERT_TRUE(STATUS_IS_EQ(failed->incorporation_status, checkpoint_rc));
+   ASSERT_EQUAL(CORE_CHECKPOINT_IDLE, spl.checkpoint.phase);
+   ASSERT_NULL(spl.checkpoint.pending_log);
+   ASSERT_EQUAL(before,
+                after,
+                "cancelled pending checkpoint leaked %lu extents\n",
+                after - before);
+
    merge_accumulator_deinit(&msg);
    core_destroy(&spl);
 }
