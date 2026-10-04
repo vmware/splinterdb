@@ -95,6 +95,9 @@ typedef struct splinterdb_config {
    uint64 btree_rough_count_height;
 
    // filter
+   // Zero selects the default. Explicit hash widths must be at most 32 bits;
+   // log-index widths must be less than 32 and no larger than the effective
+   // hash width.
    uint64 filter_hash_size;
    uint64 filter_log_index_size;
 

@@ -284,6 +284,9 @@ test_config_init(system_config *system_cfg, // OUT
                             master_cfg->filter_log_index_size,
                             system_cfg->data_cfg->key_hash,
                             42);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    btree_config_init(&system_cfg->btree_cfg,
                      &system_cfg->cache_cfg.super,

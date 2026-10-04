@@ -360,6 +360,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                             cfg.filter_log_index_size,
                             kvs->data_cfg->key_hash,
                             42);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Invalid routing-filter configuration: "
+                         "fingerprint_size=%lu log_index_size=%lu.\n",
+                         cfg.filter_hash_size,
+                         cfg.filter_log_index_size);
+      return rc;
+   }
 
    btree_config_init(&kvs->btree_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
 

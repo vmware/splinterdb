@@ -221,6 +221,46 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
 }
 
 /*
+ * Filter widths are public uint64 values, while the routing-filter format uses
+ * uint32 fields. Reject invalid values before narrowing them or using the
+ * index width as a shift count.
+ */
+CTEST2(limitations, test_splinterdb_create_invalid_filter_config)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(&default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+
+   cfg.filter_hash_size = 33;
+   int rc               = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.filter_log_index_size = 32;
+   rc                        = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.filter_hash_size      = 8;
+   cfg.filter_log_index_size = 9;
+   rc                        = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.filter_hash_size = (UINT64_C(1) << 32) + 26;
+   rc                   = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.filter_log_index_size = (UINT64_C(1) << 32) + 9;
+   rc                        = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+/*
  * Test splinterdb_*() interfaces with invalid page- / extent-size
  * configurations, and verify that they fail correctly.
  */

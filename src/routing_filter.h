@@ -43,16 +43,24 @@ static inline platform_status
 routing_config_init(routing_config *cfg,
                     cache_config   *cache_cfg,
                     data_config    *data_cfg,
-                    uint32          fingerprint_size,
-                    uint32          log_index_size,
+                    uint64          fingerprint_size,
+                    uint64          log_index_size,
                     key_hash_fn     hash,
                     unsigned int    seed)
 {
+   /* Validate the public-width values before narrowing them or using the
+    * index width as a shift count. */
+   if (fingerprint_size == 0 || fingerprint_size > 32 || log_index_size >= 32
+       || log_index_size > fingerprint_size)
+   {
+      return STATUS_BAD_PARAM;
+   }
+
    cfg->cache_cfg        = cache_cfg;
    cfg->data_cfg         = data_cfg;
-   cfg->fingerprint_size = fingerprint_size;
-   cfg->index_size       = 1UL << log_index_size;
-   cfg->log_index_size   = log_index_size;
+   cfg->fingerprint_size = (uint32)fingerprint_size;
+   cfg->index_size       = 1U << log_index_size;
+   cfg->log_index_size   = (uint32)log_index_size;
    cfg->seed             = seed;
    return STATUS_OK;
 }
