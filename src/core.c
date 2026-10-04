@@ -4262,7 +4262,7 @@ core_print_super_block(platform_log_handle *log_handle, core_handle *spl)
 
 // clang-format off
 void
-core_print_insertion_stats(platform_log_handle *log_handle, const core_handle *spl)
+core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl)
 {
    if (!spl->cfg.use_stats) {
       platform_log(log_handle, "Statistics are not enabled\n");
@@ -4456,8 +4456,6 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
    lookup_result_init(
       &lookup, spl->cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
-   platform_stream_handle stream;
-   platform_open_log_stream(&stream);
    uint64 mt_gen_start = memtable_generation(&spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(&spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -4483,8 +4481,8 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
             merge_accumulator_to_message(lookup_result_accumulator(&lookup));
          core_key_to_string(spl, target, key_str);
          core_message_to_string(spl, msg, message_str);
-         platform_log_stream(
-            &stream,
+         platform_log(
+            log_handle,
             "Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
             key_str,
             root_addr,

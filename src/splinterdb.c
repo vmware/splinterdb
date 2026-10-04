@@ -1244,7 +1244,8 @@ splinterdb_stats_print_insertion(const splinterdb *kvs)
 {
    splinterdb_assert_thread_registered();
    splinterdb_stats_read_lock((splinterdb *)kvs);
-   core_print_insertion_stats(Platform_default_log_handle, &kvs->spl);
+   core_print_insertion_stats(Platform_default_log_handle,
+                              &((splinterdb *)kvs)->spl);
    splinterdb_stats_read_unlock((splinterdb *)kvs);
 }
 

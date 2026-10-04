@@ -370,8 +370,8 @@ rc_allocator_recovery_finish(rc_allocator *al)
  *----------------------------------------------------------------------
  * rc_allocator_load_refcounts --
  *
- *      Populate an attached allocator's refcount map by loading the trusted
- *      persisted map from its fixed reserved location (the clean-mount path;
+ *      Populate an attached allocator's refcount map by loading the persisted
+ *      map from its fixed reserved location (the clean-mount path;
  *      see allocator_load_refcounts()).  Allocates the refcount buffer that
  *      attach (rc_allocator_mount) deliberately left NULL.  The caller has
  *      already confirmed via the superblock that the persisted map is valid;
@@ -388,7 +388,7 @@ rc_allocator_load_refcounts(rc_allocator *al)
       return status;
    }
 
-   // Load the trusted refcount map from its fixed reserved location.
+   // Load the persisted refcount map from its fixed reserved location.
    uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
    status =
       io_read(al->io,
@@ -397,6 +397,26 @@ rc_allocator_load_refcounts(rc_allocator *al)
               RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size);
    if (!SUCCESS(status)) {
       return status;
+   }
+
+   /*
+    * The persisted map is on-disk metadata and must not be trusted merely
+    * because the superblock says that a clean unmount published it.  In
+    * particular, marking one of the map's own extents free would let the
+    * regular allocation scan hand that extent out for user data, aliasing the
+    * allocator metadata.  These extents have exactly one permanent allocator
+    * reference and are never referenced by a tree.
+    */
+   uint64 reserved_extent_count = rc_allocator_reserved_extent_count(al->cfg);
+   for (uint64 i = 0; i < reserved_extent_count; i++) {
+      if (al->ref_count[i] != AL_ONE_REF) {
+         platform_error_log("Invalid persisted allocator map: reserved "
+                            "extent %lu has refcount %u (expected %u)\n",
+                            i,
+                            al->ref_count[i],
+                            AL_ONE_REF);
+         return STATUS_INVALID_STATE;
+      }
    }
 
    // Compute curr_allocated authoritatively from the loaded map (set, not

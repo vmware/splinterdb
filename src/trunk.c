@@ -5261,9 +5261,24 @@ leaf_estimate_unique_keys(trunk_context *context,
       }
    }
 
-   bundle pivot_bundle = vector_get(&leaf->pivot_bundles, 0);
-   rc                  = vector_append(&maplets, bundle_maplet(&pivot_bundle));
-   platform_assert_status_ok(rc);
+   bundle         pivot_bundle = vector_get(&leaf->pivot_bundles, 0);
+   routing_filter pivot_maplet = bundle_maplet(&pivot_bundle);
+   if (routing_filters_equal(&pivot_maplet, &NULL_ROUTING_FILTER)) {
+      platform_assert(bundle_num_branches(&pivot_bundle) <= 1);
+      if (bundle_num_branches(&pivot_bundle) == 1) {
+         btree_pivot_stats stats;
+         btree_count_in_range(context->cc,
+                              context->cfg->btree_cfg,
+                              bundle_branch(&pivot_bundle, 0).addr,
+                              trunk_node_pivot_min_key(leaf),
+                              trunk_node_pivot_max_key(leaf),
+                              &stats);
+         unfiltered_tuples += stats.num_kvs;
+      }
+   } else {
+      rc = vector_append(&maplets, pivot_maplet);
+      platform_assert_status_ok(rc);
+   }
 
    *estimate = unfiltered_tuples;
 
@@ -5292,7 +5307,19 @@ leaf_estimate_unique_keys(trunk_context *context,
       uint64 est_leaf_unique =
          num_globally_unique_fp - est_num_non_leaf_sb_unique;
       *estimate += est_leaf_unique;
+   } else if (!routing_filters_equal(&pivot_maplet, &NULL_ROUTING_FILTER)) {
+      /*
+       * With only fresh, unfiltered inflight bundles, num_fp is zero even
+       * though the existing pivot bundle may contain most of the leaf.  There
+       * is no filtered inflight population from which to estimate overlap, so
+       * use the pivot maplet's own unique-key estimate and retain the existing
+       * conservative assumption that every unfiltered tuple is unique.
+       */
+      *estimate += routing_filter_estimate_unique_keys(
+         &pivot_maplet, context->cfg->filter_cfg);
    }
+
+   *estimate = MIN(*estimate, trunk_leaf_num_tuples(leaf));
 
 cleanup:
    vector_deinit(&maplets);
@@ -7775,7 +7802,7 @@ distribution_sum_avg(uint64       rows,
 
 void
 trunk_print_insertion_stats(platform_log_handle *log_handle,
-                            const trunk_context *context)
+                            trunk_context       *context)
 {
    const uint64 height_array[TRUNK_MAX_HEIGHT] = {
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
@@ -7785,23 +7812,22 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
       return;
    }
 
-   if (context->root == NULL) {
-      platform_log(log_handle, "No root node\n");
-      return;
-   }
-
-   // Get the height of the tree
-   trunk_node      root;
-   platform_status rc =
-      trunk_node_deserialize(context, context->root->ref.addr, &root);
+   trunk_ondisk_node_handle root_handle;
+   platform_status          rc = trunk_init_root_handle(context, &root_handle);
    if (!SUCCESS(rc)) {
-      platform_error_log("trunk_node_print_insertion_stats: "
-                         "node_deserialize failed: %d\n",
+      platform_error_log("trunk_print_insertion_stats: "
+                         "trunk_init_root_handle failed: %d\n",
                          rc.r);
       return;
    }
-   uint64 height = trunk_node_height(&root);
-   trunk_node_deinit(&root, context);
+   if (root_handle.header_page == NULL) {
+      platform_log(log_handle, "No root node\n");
+      trunk_ondisk_node_handle_deinit(&root_handle);
+      return;
+   }
+
+   uint64 height = trunk_ondisk_node_height(&root_handle);
+   trunk_ondisk_node_handle_deinit(&root_handle);
 
    // Merge all the stats
    trunk_stats global_stats;
@@ -8085,7 +8111,10 @@ visit_nodes_internal(trunk_context *context,
 }
 
 static platform_status
-visit_nodes(trunk_context *context, node_visitor visitor, void *arg)
+visit_nodes(trunk_context *context,
+            node_visitor   visitor,
+            void          *arg,
+            bool32        *found_root)
 {
    trunk_ondisk_node_handle root_handle;
    platform_status          rc;
@@ -8096,6 +8125,12 @@ visit_nodes(trunk_context *context, node_visitor visitor, void *arg)
                          rc.r);
       return rc;
    }
+   if (root_handle.header_page == NULL) {
+      *found_root = FALSE;
+      trunk_ondisk_node_handle_deinit(&root_handle);
+      return STATUS_OK;
+   }
+   *found_root = TRUE;
 
    trunk_node node;
    rc = trunk_node_deserialize(
@@ -8185,16 +8220,17 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_context *context)
    memset(&space_usage, 0, sizeof(space_usage));
    platform_status rc;
 
-   if (context->root == NULL) {
-      platform_log(log_handle, "Trunk space usage: none\n");
-      return;
-   }
-
-   rc = visit_nodes(context, accumulate_space_use_node, &space_usage);
+   bool32 found_root;
+   rc = visit_nodes(
+      context, accumulate_space_use_node, &space_usage, &found_root);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_print_space_use: "
                          "visit_nodes failed: %d\n",
                          rc.r);
+      return;
+   }
+   if (!found_root) {
+      platform_log(log_handle, "Trunk space usage: none\n");
       return;
    }
 

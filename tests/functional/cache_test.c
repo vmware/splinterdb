@@ -179,6 +179,88 @@ cache_test_verify_disk_page(cache *cc,
  * decision -- the superblock's -- not the allocator's).
  */
 static platform_status
+test_rc_allocator_rejects_corrupt_reserved_extent(allocator_config *cfg,
+                                                  io_handle        *io,
+                                                  platform_heap_id  hid)
+{
+   platform_status result = STATUS_OK;
+   buffer_handle   buffer;
+   bool32          buffer_live = FALSE;
+   bool32          map_changed = FALSE;
+   rc_allocator    al;
+   bool32          al_live = FALSE;
+
+   ZERO_CONTENTS(&al);
+   platform_status rc = platform_buffer_init(&buffer, cfg->io_cfg->page_size);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   buffer_live = TRUE;
+
+   uint64 map_addr = cfg->io_cfg->extent_size;
+   rc              = io_read(
+      io, platform_buffer_getaddr(&buffer), cfg->io_cfg->page_size, map_addr);
+   if (!SUCCESS(rc)) {
+      result = rc;
+      goto cleanup;
+   }
+
+   refcount *refs           = platform_buffer_getaddr(&buffer);
+   refcount  saved_refcount = refs[1];
+   if (saved_refcount != AL_ONE_REF) {
+      result = STATUS_TEST_FAILED;
+      goto cleanup;
+   }
+
+   refs[1]     = AL_FREE;
+   map_changed = TRUE;
+   rc          = io_write(io, refs, cfg->io_cfg->page_size, map_addr);
+   if (SUCCESS(rc)) {
+      rc = io_durable_barrier(io);
+   }
+   if (!SUCCESS(rc)) {
+      result = rc;
+      goto cleanup;
+   }
+
+   rc = rc_allocator_mount(&al, cfg, io, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      result = rc;
+      goto cleanup;
+   }
+   al_live = TRUE;
+   rc      = allocator_load_refcounts((allocator *)&al);
+   if (!STATUS_IS_EQ(rc, STATUS_INVALID_STATE)) {
+      platform_error_log("cache_test: allocator accepted a persisted map "
+                         "with a free reserved extent: %s\n",
+                         platform_status_to_string(rc));
+      result = STATUS_TEST_FAILED;
+   }
+
+cleanup:
+   if (al_live) {
+      rc_allocator_deinit(&al);
+   }
+   if (map_changed) {
+      refs[1] = saved_refcount;
+      rc      = io_write(io, refs, cfg->io_cfg->page_size, map_addr);
+      if (SUCCESS(rc)) {
+         rc = io_durable_barrier(io);
+      }
+      if (SUCCESS(result) && !SUCCESS(rc)) {
+         result = rc;
+      }
+   }
+   if (buffer_live) {
+      rc = platform_buffer_deinit(&buffer);
+      if (SUCCESS(result) && !SUCCESS(rc)) {
+         result = rc;
+      }
+   }
+   return result;
+}
+
+static platform_status
 test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
                                      io_handle        *io,
                                      platform_heap_id  hid)
@@ -236,6 +318,11 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
    }
    rc_allocator_deinit(&al);
    al_live = FALSE;
+
+   rc = test_rc_allocator_rejects_corrupt_reserved_extent(cfg, io, hid);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
 
    // 3) Rebuild open: attach + load_refcounts(rebuild=TRUE) ignores the
    //    persisted map, reserving only the fixed extents.

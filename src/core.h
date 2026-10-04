@@ -464,8 +464,7 @@ void
 core_perform_tasks(core_handle *spl);
 
 void
-core_print_insertion_stats(platform_log_handle *log_handle,
-                           const core_handle   *spl);
+core_print_insertion_stats(platform_log_handle *log_handle, core_handle *spl);
 
 void
 core_print_lookup_stats(platform_log_handle *log_handle, core_handle *spl);

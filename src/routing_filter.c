@@ -1501,7 +1501,8 @@ routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
 }
 
 uint32
-routing_filter_estimate_unique_keys(routing_filter *filter, routing_config *cfg)
+routing_filter_estimate_unique_keys(const routing_filter *filter,
+                                    const routing_config *cfg)
 {
    // platform_default_log("unique fp %u\n", filter->num_unique);
    return routing_filter_estimate_unique_keys_from_count(cfg,

@@ -550,7 +550,16 @@ task_system_init(task_system              *ts,
                                            cfg->use_stats,
                                            cfg->num_background_threads[type]);
       if (!SUCCESS(rc)) {
-         task_system_deinit(ts);
+         /*
+          * task_group_init() cleans up the group that failed.  Only preceding
+          * groups reached a fully initialized state; later groups are still
+          * zeroed.  Deinitializing either kind would operate on a destroyed or
+          * uninitialized pthread mutex/condition variable.
+          */
+         while (type != TASK_TYPE_FIRST) {
+            type--;
+            task_group_deinit(&ts->group[type]);
+         }
          return rc;
       }
       uint64 nbg_threads = cfg->num_background_threads[type];
