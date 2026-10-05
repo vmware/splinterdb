@@ -154,10 +154,18 @@ btree_defragment_leaf(const btree_config    *cfg, // IN
                       btree_hdr             *hdr,
                       leaf_incorporate_spec *spec); // IN
 
+uint64
+btree_defragmented_leaf_bytes(const btree_config          *cfg,
+                              const btree_hdr             *hdr,
+                              const leaf_incorporate_spec *spec);
+
 void
 btree_defragment_index(const btree_config *cfg, // IN
                        btree_scratch      *scratch,
                        btree_hdr          *hdr); // IN
+
+uint64
+btree_defragmented_index_bytes(const btree_config *cfg, const btree_hdr *hdr);
 
 int64
 btree_find_pivot(const btree_config *cfg,

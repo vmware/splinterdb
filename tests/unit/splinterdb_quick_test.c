@@ -70,6 +70,12 @@ insert_keys(splinterdb *kvsb, const int minkey, int numkeys, const int incr);
 static int
 check_current_tuple(splinterdb_iterator *it, const int expected_i);
 
+static void
+insert_string_kv(splinterdb *kvsb, const char *k, const char *v);
+
+static void
+check_current_string_kv(splinterdb_iterator *it, const char *k, const char *v);
+
 static int
 test_two_step_iterator(splinterdb *kvsb,
                        slice       start_key,
@@ -1612,6 +1618,127 @@ CTEST2(splinterdb_quick, test_iterator_prev_and_next)
 }
 
 /*
+ * Reversing direction on a key stored in more than one branch must move to the
+ * neighboring key, rather than returning the same key again merged from only
+ * some of its branches (which can expose an overwritten value).
+ */
+CTEST2(splinterdb_quick, test_iterator_reversal_on_key_in_two_branches)
+{
+   insert_string_kv(data->kvsb, "a", "a0");
+   insert_string_kv(data->kvsb, "b", "b0");
+   force_flush_current_memtable(data->kvsb);
+   insert_string_kv(data->kvsb, "b", "b1");
+   insert_string_kv(data->kvsb, "c", "c1");
+
+   splinterdb_iterator *it = NULL;
+   int                  rc = splinterdb_iterator_init(
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+
+   check_current_string_kv(it, "a", "a0");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "b", "b1");
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "a", "a0");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "b", "b1");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "c", "c1");
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "b", "b1");
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "a", "a0");
+   splinterdb_iterator_prev(it);
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "a", "a0");
+
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+}
+
+/*
+ * After a direction change, the branch that sorts last must not keep a stale
+ * duplicate-key flag: once the other branches are exhausted it would be merged
+ * with a branch that has no current key.
+ */
+CTEST2(splinterdb_quick, test_iterator_reversal_with_three_branches)
+{
+   insert_string_kv(data->kvsb, "c", "c0");
+   force_flush_current_memtable(data->kvsb);
+   insert_string_kv(data->kvsb, "b", "b1");
+   insert_string_kv(data->kvsb, "d", "d1");
+   force_flush_current_memtable(data->kvsb);
+   insert_string_kv(data->kvsb, "a", "a2");
+   insert_string_kv(data->kvsb, "d", "d2");
+
+   splinterdb_iterator *it = NULL;
+   int                  rc = splinterdb_iterator_init(
+      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   ASSERT_EQUAL(0, rc);
+
+   check_current_string_kv(it, "a", "a2");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "b", "b1");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "c", "c0");
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "b", "b1");
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "a", "a2");
+   splinterdb_iterator_prev(it);
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+}
+
+/*
+ * Rewriting existing keys must not keep growing the trunk. Leaf splits size the
+ * new leaves by the leaf's estimated number of unique keys, and that estimate
+ * used to report every tuple as unique once a leaf with compacted data received
+ * filtered bundles, so each pass over the keys split leaves of duplicates.
+ */
+CTEST2(splinterdb_quick, test_rewriting_keys_does_not_grow_trunk)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.memtable_capacity = 1 * Mega;
+   data->cfg.fanout            = 2;
+   data->cfg.disk_size         = 384 * Mega;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+
+   const uint64 num_keys     = 100000;
+   uint64       first_height = 0;
+   uint64       height       = 0;
+   char         key[24];
+   char         value[100];
+   for (uint64 pass = 0; pass < 4; pass++) {
+      memset(value, 'a' + pass, sizeof(value));
+      for (uint64 i = 0; i < num_keys; i++) {
+         // Visit the keys in a different order on each pass.
+         uint64 k = (i * 2654435761ULL + pass * 40503) % num_keys;
+         snprintf(key, sizeof(key), "%020lu", k);
+         ASSERT_EQUAL(0,
+                      splinterdb_insert(data->kvsb,
+                                        slice_create(20, key),
+                                        slice_create(sizeof(value), value),
+                                        NULL));
+      }
+      ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(core->ts)));
+      ASSERT_TRUE(SUCCESS(trunk_get_height(&core->trunk_context, &height)));
+      if (pass == 0) {
+         first_height = height;
+      }
+   }
+   // Pending duplicates may still justify one more level.
+   ASSERT_TRUE(height <= first_height + 1,
+               "trunk grew from height %lu to %lu",
+               first_height,
+               height);
+}
+
+/*
  * Test case to verify the interfaces to close() and reopen() a KVS work
  * as expected. After reopening the KVS, we should be able to retrieve data
  * that was inserted in the previous open.
@@ -2227,6 +2354,26 @@ force_flush_current_memtable(splinterdb *kvsb)
    rc = task_perform_until_quiescent(core->ts);
    ASSERT_TRUE(SUCCESS(rc));
    return generation;
+}
+
+static void
+insert_string_kv(splinterdb *kvsb, const char *k, const char *v)
+{
+   int rc = splinterdb_insert(
+      kvsb, slice_create(strlen(k), k), slice_create(strlen(v), v), NULL);
+   ASSERT_EQUAL(0, rc);
+}
+
+static void
+check_current_string_kv(splinterdb_iterator *it, const char *k, const char *v)
+{
+   ASSERT_TRUE(splinterdb_iterator_valid(it));
+   slice key, value;
+   splinterdb_iterator_get_current(it, &key, &value);
+   ASSERT_EQUAL(strlen(k), slice_length(key));
+   ASSERT_STREQN(k, slice_data(key), slice_length(key));
+   ASSERT_EQUAL(strlen(v), slice_length(value));
+   ASSERT_STREQN(v, slice_data(value), slice_length(value));
 }
 
 static uint64

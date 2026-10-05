@@ -42,6 +42,16 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid);
 
+static int
+defragmented_leaf_bytes_tests(btree_config    *cfg,
+                              btree_scratch   *scratch,
+                              platform_heap_id hid);
+
+static int
+defragmented_index_bytes_tests(btree_config    *cfg,
+                               btree_scratch   *scratch,
+                               platform_heap_id hid);
+
 static bool32
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
@@ -165,6 +175,24 @@ CTEST2(btree, test_leaf_split)
          &data->dbtree_cfg, data->test_scratch, nkvs, data->hid);
       ASSERT_EQUAL(0, rc);
    }
+}
+
+/*
+ * Defragment-or-split decisions predict the bytes a node will use once it is
+ * defragmented. Check those predictions against the bytes actually used.
+ */
+CTEST2(btree, test_defragmented_leaf_bytes)
+{
+   int rc = defragmented_leaf_bytes_tests(
+      &data->dbtree_cfg, data->test_scratch, data->hid);
+   ASSERT_EQUAL(0, rc);
+}
+
+CTEST2(btree, test_defragmented_index_bytes)
+{
+   int rc = defragmented_index_bytes_tests(
+      &data->dbtree_cfg, data->test_scratch, data->hid);
+   ASSERT_EQUAL(0, rc);
 }
 
 /*
@@ -482,5 +510,124 @@ leaf_split_tests(btree_config    *cfg,
 
    platform_free(hid, leaf_buffer);
    platform_free(hid, msg_buffer);
+   return 0;
+}
+
+// Bytes used by a node's entries, including garbage, and its offset table.
+static uint64
+node_used_bytes(const btree_config *cfg, const btree_hdr *hdr)
+{
+   return btree_page_size(cfg) - hdr->next_entry
+          + hdr->num_entries * sizeof(table_entry);
+}
+
+static int
+defragmented_leaf_bytes_tests(btree_config    *cfg,
+                              btree_scratch   *scratch,
+                              platform_heap_id hid)
+{
+   uint64 page_size   = btree_page_size(cfg);
+   char  *leaf_buffer = TYPED_MANUAL_MALLOC(hid, leaf_buffer, page_size);
+   char  *copy_buffer = TYPED_MANUAL_MALLOC(hid, copy_buffer, page_size);
+   uint8  msgbuf[32];
+   memset(msgbuf, 'm', sizeof(msgbuf));
+
+   // The leaf's keys are the odd numbers 1, 3, 5, ...
+   const uint8 nkvs = 60;
+   btree_hdr  *hdr  = (btree_hdr *)leaf_buffer;
+   btree_init_hdr(cfg, hdr);
+   for (uint8 i = 0; i < nkvs; i++) {
+      uint8   keybuf = 2 * i + 1;
+      message msg    = message_create(
+         MESSAGE_TYPE_INSERT, NULL, slice_create(i % 7 + 1, msgbuf));
+      ASSERT_TRUE(
+         btree_set_leaf_entry(cfg, hdr, i, key_create(FALSE, 1, &keybuf), msg));
+   }
+   // Growing every third message leaves its old copy behind as garbage.
+   for (uint8 i = 0; i < nkvs; i += 3) {
+      uint8   keybuf = 2 * i + 1;
+      message msg    = message_create(
+         MESSAGE_TYPE_INSERT, NULL, slice_create(i % 7 + 11, msgbuf));
+      ASSERT_TRUE(
+         btree_set_leaf_entry(cfg, hdr, i, key_create(FALSE, 1, &keybuf), msg));
+   }
+   uint64 live_entry_bytes = 0;
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
+      live_entry_bytes += sizeof_leaf_entry(btree_get_leaf_entry(cfg, hdr, i));
+   }
+   ASSERT_TRUE(live_entry_bytes < page_size - hdr->next_entry);
+
+   // Incorporate a new key, then a replacement for an existing key.
+   uint8 new_keys[] = {2, 5};
+   for (uint64 k = 0; k < ARRAY_SIZE(new_keys); k++) {
+      memcpy(copy_buffer, leaf_buffer, page_size);
+      btree_hdr            *copy = (btree_hdr *)copy_buffer;
+      leaf_incorporate_spec spec;
+      message               msg =
+         message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(9, msgbuf));
+      platform_status rc =
+         btree_create_leaf_incorporate_spec(cfg,
+                                            NULL,
+                                            NULL,
+                                            hid,
+                                            copy,
+                                            key_create(FALSE, 1, &new_keys[k]),
+                                            msg,
+                                            &spec);
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_EQUAL(k == 0 ? ENTRY_DID_NOT_EXIST : ENTRY_STILL_EXISTS,
+                   spec.old_entry_state);
+
+      uint64 predicted = btree_defragmented_leaf_bytes(cfg, copy, &spec);
+      btree_defragment_leaf(cfg, scratch, copy, &spec);
+      uint64 generation;
+      ASSERT_TRUE(btree_try_perform_leaf_incorporate_spec(
+         cfg, copy, &spec, &generation));
+      ASSERT_EQUAL(node_used_bytes(cfg, copy), predicted);
+      destroy_leaf_incorporate_spec(&spec);
+   }
+
+   platform_free(hid, leaf_buffer);
+   platform_free(hid, copy_buffer);
+   return 0;
+}
+
+static int
+defragmented_index_bytes_tests(btree_config    *cfg,
+                               btree_scratch   *scratch,
+                               platform_heap_id hid)
+{
+   uint64 page_size    = btree_page_size(cfg);
+   char  *index_buffer = TYPED_MANUAL_MALLOC(hid, index_buffer, page_size);
+   uint8  keybuf[16];
+   memset(keybuf, 'k', sizeof(keybuf));
+   btree_pivot_stats stats;
+   memset(&stats, 0, sizeof(stats));
+
+   const uint32 nkvs = 60;
+   btree_hdr   *hdr  = (btree_hdr *)index_buffer;
+   btree_init_hdr(cfg, hdr);
+   hdr->height = 1;
+   for (uint32 i = 0; i < nkvs; i++) {
+      ASSERT_TRUE(btree_set_index_entry(
+         cfg, hdr, i, key_create(FALSE, i % 5 + 1, keybuf), i, stats));
+   }
+   // Lengthening every third pivot leaves its old copy behind as garbage.
+   for (uint32 i = 0; i < nkvs; i += 3) {
+      ASSERT_TRUE(btree_set_index_entry(
+         cfg, hdr, i, key_create(FALSE, i % 5 + 8, keybuf), i, stats));
+   }
+   uint64 live_entry_bytes = 0;
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
+      live_entry_bytes +=
+         sizeof_index_entry(btree_get_index_entry(cfg, hdr, i));
+   }
+   ASSERT_TRUE(live_entry_bytes < page_size - hdr->next_entry);
+
+   uint64 predicted = btree_defragmented_index_bytes(cfg, hdr);
+   btree_defragment_index(cfg, scratch, hdr);
+   ASSERT_EQUAL(node_used_bytes(cfg, hdr), predicted);
+
+   platform_free(hid, index_buffer);
    return 0;
 }

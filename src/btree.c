@@ -807,6 +807,31 @@ btree_defragment_leaf(const btree_config    *cfg, // IN
    }
 }
 
+/*
+ * Bytes that a leaf's entries and offset table will occupy once the leaf has
+ * been defragmented and spec has been incorporated.  Excludes the header.
+ */
+uint64
+btree_defragmented_leaf_bytes(const btree_config          *cfg,
+                              const btree_hdr             *hdr,
+                              const leaf_incorporate_spec *spec)
+{
+   uint64 nentries   = btree_num_entries(hdr);
+   uint64 live_bytes = 0;
+   for (uint64 i = 0; i < nentries; i++) {
+      if (spec->old_entry_state != ENTRY_STILL_EXISTS || i != spec->idx) {
+         leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, i);
+         live_bytes += sizeof_leaf_entry(entry);
+      }
+   }
+   // The incorporated entry replaces the old entry if it still exists.
+   uint64 final_nentries =
+      nentries + (spec->old_entry_state == ENTRY_STILL_EXISTS ? 0 : 1);
+   return live_bytes
+          + leaf_entry_required_capacity(spec->tuple_key, spec_message(spec))
+          + final_nentries * sizeof(table_entry);
+}
+
 static inline void
 btree_truncate_leaf(const btree_config *cfg, // IN
                     btree_hdr          *hdr, // IN
@@ -1114,6 +1139,22 @@ btree_defragment_index(const btree_config *cfg, // IN
                                                entry->pivot_data.stats);
       platform_assert(succeeded);
    }
+}
+
+/*
+ * Bytes that an index node's entries and offset table will occupy once the
+ * node has been defragmented.  Excludes the header.
+ */
+uint64
+btree_defragmented_index_bytes(const btree_config *cfg, const btree_hdr *hdr)
+{
+   uint64 nentries   = btree_num_entries(hdr);
+   uint64 live_bytes = 0;
+   for (uint64 i = 0; i < nentries; i++) {
+      index_entry *entry = btree_get_index_entry(cfg, hdr, i);
+      live_bytes += sizeof_index_entry(entry);
+   }
+   return live_bytes + nentries * sizeof(table_entry);
 }
 
 static inline void
@@ -2017,22 +2058,10 @@ btree_defragment_or_split_child_leaf(cache              *cc,
                                      leaf_incorporate_spec *spec,
                                      btree_insert_results  *results) // OUT
 {
-   uint64 nentries   = btree_num_entries(child->hdr);
-   uint64 live_bytes = 0;
-
    log_trace_leaf(cfg, child->hdr, "btree_defragment_or_split_child_leaf");
 
-   for (uint64 i = 0; i < nentries; i++) {
-      if (spec->old_entry_state != ENTRY_STILL_EXISTS || i != spec->idx) {
-         leaf_entry *entry = btree_get_leaf_entry(cfg, child->hdr, i);
-         live_bytes += sizeof_leaf_entry(entry);
-      }
-   }
    uint64 total_space_required =
-      live_bytes
-      + leaf_entry_required_capacity(spec->tuple_key, spec_message(spec))
-      + (nentries + spec->old_entry_state == ENTRY_STILL_EXISTS ? 0 : 1)
-           * sizeof(index_entry);
+      btree_defragmented_leaf_bytes(cfg, child->hdr, spec);
 
    if (total_space_required < BTREE_SPLIT_THRESHOLD(btree_page_size(cfg))) {
       btree_node_unclaim(cc, cfg, parent);
@@ -2190,13 +2219,8 @@ btree_defragment_or_split_child_index(cache              *cc,
                                       btree_node *new_child, // OUT
                                       int64      *next_child_idx) // IN/OUT
 {
-   uint64 nentries   = btree_num_entries(child->hdr);
-   uint64 live_bytes = 0;
-   for (uint64 i = 0; i < nentries; i++) {
-      index_entry *entry = btree_get_index_entry(cfg, child->hdr, i);
-      live_bytes += sizeof_index_entry(entry);
-   }
-   uint64 total_space_required = live_bytes + nentries * sizeof(index_entry);
+   uint64 total_space_required =
+      btree_defragmented_index_bytes(cfg, child->hdr);
 
    if (total_space_required < BTREE_SPLIT_THRESHOLD(btree_page_size(cfg))) {
       btree_node_full_unlock(cc, cfg, parent);

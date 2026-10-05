@@ -458,6 +458,10 @@ setup_ordered_iterators(merge_iterator *merge_itor)
    ordered_iterator *temp;
    merge_itor->can_prev = FALSE;
    merge_itor->can_next = FALSE;
+   // The iterators may have moved, so the old current key may no longer be
+   // valid. It stays null if every iterator is exhausted.
+   merge_itor->curr_key  = NULL_KEY;
+   merge_itor->curr_data = NULL_MESSAGE;
 
    // Move all the dead iterators to the end and count how many are still alive.
    merge_itor->num_remaining = merge_itor->num_trees;
@@ -493,18 +497,24 @@ setup_ordered_iterators(merge_iterator *merge_itor)
                       merge_comp,
                       &merge_args,
                       &temp);
-   // Generate initial value for next_key_equal bits
-   for (int i = 0; i + 1 < merge_itor->num_remaining; ++i) {
-      int cmp =
-         data_key_compare(merge_itor->cfg,
-                          merge_itor->ordered_iterators[i]->curr_key,
-                          merge_itor->ordered_iterators[i + 1]->curr_key);
-      if (merge_itor->forwards) {
-         debug_assert(cmp <= 0);
-      } else {
-         debug_assert(cmp >= 0);
+   // Generate initial value for next_key_equal bits. Set every iterator's bit,
+   // not just those with a live successor: after a direction change, the last
+   // live iterator may still carry a bit from its old position.
+   for (int i = 0; i < merge_itor->num_trees; ++i) {
+      bool32 next_key_equal = FALSE;
+      if (i + 1 < merge_itor->num_remaining) {
+         int cmp =
+            data_key_compare(merge_itor->cfg,
+                             merge_itor->ordered_iterators[i]->curr_key,
+                             merge_itor->ordered_iterators[i + 1]->curr_key);
+         if (merge_itor->forwards) {
+            debug_assert(cmp <= 0);
+         } else {
+            debug_assert(cmp >= 0);
+         }
+         next_key_equal = (cmp == 0);
       }
-      merge_itor->ordered_iterators[i]->next_key_equal = (cmp == 0);
+      merge_itor->ordered_iterators[i]->next_key_equal = next_key_equal;
    }
 
    bool32 retry;
@@ -643,6 +653,18 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
    return STATUS_OK;
 }
 
+static platform_status
+merge_step_in_direction(iterator *itor, bool32 forwards)
+{
+   if (forwards && iterator_can_next(itor)) {
+      return iterator_next(itor);
+   }
+   if (!forwards && iterator_can_prev(itor)) {
+      return iterator_prev(itor);
+   }
+   return STATUS_OK;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * merge_iterator_set_direction --
@@ -659,24 +681,46 @@ static platform_status
 merge_iterator_set_direction(merge_iterator *merge_itor, bool32 forwards)
 {
    debug_assert(merge_itor->forwards != forwards);
-   platform_status rc;
+   platform_status rc = STATUS_OK;
+
+   /*
+    * Merging the current key stepped every iterator holding a newer copy of it
+    * past the key. Stepping those iterators once in the new direction lands
+    * them back on it, so the key would be returned again, merged from only
+    * those copies; step them once more. (Without merging, each copy was
+    * returned on its own, so landing on the newer copies is correct.)
+    * curr_key may point into an iterator that is about to move, so compare
+    * against a copy.
+    */
+   bool32 skip_curr_key =
+      merge_itor->merge_messages && !key_is_null(merge_itor->curr_key);
+   DECLARE_AUTO_KEY_BUFFER(curr_key_buffer, PROCESS_PRIVATE_HEAP_ID);
+   if (skip_curr_key) {
+      rc = key_buffer_copy_key(&curr_key_buffer, merge_itor->curr_key);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   key curr_key = key_buffer_key(&curr_key_buffer);
+
    merge_itor->forwards = forwards;
 
    // Step every iterator, both alive and dead, in the appropriate direction.
    for (int i = 0; i < merge_itor->num_trees; i++) {
-      if (forwards && iterator_can_next(merge_itor->ordered_iterators[i]->itor))
-      {
-         rc = iterator_next(merge_itor->ordered_iterators[i]->itor);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
+      iterator *itor = merge_itor->ordered_iterators[i]->itor;
+      rc             = merge_step_in_direction(itor, forwards);
+      if (!SUCCESS(rc)) {
+         return rc;
       }
-      if (!forwards
-          && iterator_can_prev(merge_itor->ordered_iterators[i]->itor))
-      {
-         rc = iterator_prev(merge_itor->ordered_iterators[i]->itor);
-         if (!SUCCESS(rc)) {
-            return rc;
+      if (skip_curr_key && iterator_can_curr(itor)) {
+         key     itor_key;
+         message itor_msg;
+         iterator_curr(itor, &itor_key, &itor_msg);
+         if (data_key_compare(merge_itor->cfg, itor_key, curr_key) == 0) {
+            rc = merge_step_in_direction(itor, forwards);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
          }
       }
    }

@@ -5197,7 +5197,7 @@ leaf_might_need_to_split(const trunk_config *cfg,
                          trunk_node         *leaf)
 {
    return routing_filter_tuple_limit < trunk_leaf_num_tuples(leaf)
-          || cfg->incorporation_size_kv_bytes * cfg->target_fanout
+          || (__uint128_t)cfg->incorporation_size_kv_bytes * cfg->target_fanout
                 < trunk_leaf_num_kv_bytes(leaf);
 }
 
@@ -5311,13 +5311,32 @@ leaf_estimate_unique_keys(trunk_context *context,
       num_globally_unique_fp = routing_filter_estimate_unique_keys_from_count(
          context->cfg->filter_cfg, num_globally_unique_fp);
 
-      uint64 num_tuples                 = trunk_leaf_num_tuples(leaf);
-      uint64 est_num_leaf_sb_unique     = num_unique_fp * num_tuples / num_fp;
-      uint64 est_num_non_leaf_sb_unique = num_fp - est_num_leaf_sb_unique;
+      /*
+       * The inflight maplets cover their bundles' whole key ranges, which can
+       * extend beyond this leaf (e.g. after a leaf split), so the global count
+       * includes keys of other leaves. Remove those by scaling the maplets'
+       * unique fingerprints by the fraction of their fingerprints outside
+       * this leaf. The leaf's tuples in these bundles are its total less the
+       * unfiltered tuples counted above and the pivot bundle's tuples (maplet
+       * compaction adds one fingerprint per pivot bundle tuple).
+       */
+      uint64 num_other_tuples = unfiltered_tuples;
+      if (!routing_filters_equal(&pivot_maplet, &NULL_ROUTING_FILTER)) {
+         num_other_tuples += pivot_maplet.num_fingerprints;
+      }
+      uint64 num_tuples     = trunk_leaf_num_tuples(leaf);
+      uint64 num_leaf_sb_fp = 0;
+      if (num_other_tuples < num_tuples) {
+         num_leaf_sb_fp = MIN(num_tuples - num_other_tuples, num_fp);
+      }
+      uint64 est_num_leaf_sb_unique =
+         (__uint128_t)num_unique_fp * num_leaf_sb_fp / num_fp;
+      uint64 est_num_non_leaf_sb_unique =
+         num_unique_fp - est_num_leaf_sb_unique;
 
-      uint64 est_leaf_unique =
-         num_globally_unique_fp - est_num_non_leaf_sb_unique;
-      *estimate += est_leaf_unique;
+      if (est_num_non_leaf_sb_unique < num_globally_unique_fp) {
+         *estimate += num_globally_unique_fp - est_num_non_leaf_sb_unique;
+      }
    } else if (!routing_filters_equal(&pivot_maplet, &NULL_ROUTING_FILTER)) {
       /*
        * With only fresh, unfiltered inflight bundles, num_fp is zero even
@@ -5369,18 +5388,20 @@ leaf_split_target_num_leaves(trunk_context *context,
       return rc;
    }
 
-   if (estimated_unique_keys > num_tuples * 19 / 20) {
+   if (estimated_unique_keys > (__uint128_t)num_tuples * 19 / 20) {
       estimated_unique_keys = num_tuples;
    }
+   // estimated_unique_keys <= num_tuples, so this is at most kv_bytes.
    uint64 kv_bytes = trunk_leaf_num_kv_bytes(leaf);
    uint64 estimated_unique_kv_bytes =
-      estimated_unique_keys * kv_bytes / num_tuples;
-   uint64 target_num_leaves = (estimated_unique_kv_bytes
+      (__uint128_t)estimated_unique_keys * kv_bytes / num_tuples;
+   uint64 target_num_leaves = ((__uint128_t)estimated_unique_kv_bytes
                                + context->cfg->incorporation_size_kv_bytes / 2)
                               / context->cfg->incorporation_size_kv_bytes;
 
-   if (target_num_leaves < (num_tuples + rflimit - 1) / rflimit) {
-      target_num_leaves = (num_tuples + rflimit - 1) / rflimit;
+   uint64 min_num_leaves = num_tuples / rflimit + (num_tuples % rflimit != 0);
+   if (target_num_leaves < min_num_leaves) {
+      target_num_leaves = min_num_leaves;
    }
 
    if (target_num_leaves < 1) {
@@ -5492,8 +5513,9 @@ leaf_split_select_pivots(trunk_context     *context,
       uint64 new_cumulative_kv_bytes = cumulative_kv_bytes + stats.key_bytes
                                        + stats.message_bytes;
       uint64 new_tuples = current_tuples + stats.num_kvs;
-      uint64 next_boundary =
-         leaf_num * trunk_leaf_num_kv_bytes(leaf) / target_num_leaves;
+      uint64 next_boundary = (__uint128_t)leaf_num
+                             * trunk_leaf_num_kv_bytes(leaf)
+                             / target_num_leaves;
       key last_pivot =
          key_buffer_key(vector_get_ptr(pivots, vector_length(pivots) - 1));
       // MERGE_RAW may return the same key from several branches. Keep a
