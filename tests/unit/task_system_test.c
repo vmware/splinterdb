@@ -154,6 +154,27 @@ CTEST2(task_system, test_basic_create_destroy)
    ASSERT_EQUAL(main_thread_idx, 0);
 }
 
+CTEST2(task_system, test_rejects_oversized_thread_counts)
+{
+   task_system_config cfg;
+   uint64 counts[NUM_TASK_TYPES] = {0};
+
+   counts[TASK_TYPE_NORMAL] = UINT64_MAX;
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r,
+                task_system_config_init(&cfg, FALSE, counts).r);
+
+   ZERO_ARRAY(counts);
+   counts[TASK_TYPE_MEMTABLE] = UINT64_MAX;
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r,
+                task_system_config_init(&cfg, FALSE, counts).r);
+
+   ZERO_ARRAY(counts);
+   counts[TASK_TYPE_NORMAL]   = MAX_THREADS - 1;
+   counts[TASK_TYPE_MEMTABLE] = 1;
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r,
+                task_system_config_init(&cfg, FALSE, counts).r);
+}
+
 /*
  * ------------------------------------------------------------------------
  * Test creation of one new thread which will do the stuff required

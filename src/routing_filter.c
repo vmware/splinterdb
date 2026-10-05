@@ -731,31 +731,61 @@ routing_filter_add(cache                *cc,
    memset(encoding_buffer, 0xff, encoding_buffer_size);
 
    // we use a mini_allocator to obtain pages
-   allocator      *al = cache_get_allocator(cc);
-   uint64          meta_head;
+   allocator      *al               = cache_get_allocator(cc);
+   uint64          meta_head        = 0;
+   bool32           mini_initialized = FALSE;
+   mini_allocator   mini;
+   page_handle     *index_page[MAX_PAGES_PER_EXTENT] = {0};
+   uint64           num_index_pages                  = 0;
+   page_handle     *filter_page                      = NULL;
    rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
-   mini_allocator mini;
-   mini_init(&mini, cc, filter->meta_head, 0, 1, PAGE_TYPE_FILTER);
+   rc = mini_init(
+      &mini, cc, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, NULL);
+   if (!SUCCESS(rc)) {
+      refcount ref = allocator_dec_ref(al, meta_head, PAGE_TYPE_FILTER);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(cc, meta_head, PAGE_TYPE_FILTER);
+      ref = allocator_dec_ref(al, meta_head, PAGE_TYPE_FILTER);
+      platform_assert(ref == AL_FREE);
+      meta_head = 0;
+      goto cleanup;
+   }
+   mini_initialized = TRUE;
 
    // set up the index pages
    uint64       addrs_per_page = page_size / sizeof(uint64);
-   page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64       index_addr = mini_alloc_page(&mini, 0, NULL);
+   uint64       index_addr;
+   rc = mini_alloc_page(&mini, 0, &index_addr, NULL);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
+   num_index_pages++;
    for (uint64 i = 1; i < pages_per_extent; i++) {
-      uint64 next_index_addr = mini_alloc_page(&mini, 0, NULL);
+      uint64 next_index_addr;
+      rc = mini_alloc_page(&mini, 0, &next_index_addr, NULL);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
       platform_assert(next_index_addr == index_addr + i * page_size);
       index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
+      num_index_pages++;
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64       addr          = mini_alloc_page(&mini, 0, NULL);
-   page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
+   uint64 addr;
+   rc = mini_alloc_page(&mini, 0, &addr, NULL);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   filter_page               = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char        *filter_cursor = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;
 
@@ -920,7 +950,14 @@ routing_filter_add(cache                *cc,
          uint32 header_size = routing_header_size(cfg, fps_added);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-            addr        = mini_alloc_page(&mini, 0, NULL);
+            filter_page = NULL;
+            rc = mini_alloc_page(&mini, 0, &addr, NULL);
+            if (!SUCCESS(rc)) {
+               if (old_filter->addr != 0) {
+                  routing_unget_header(cc, old_filter_node);
+               }
+               goto cleanup;
+            }
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
@@ -976,6 +1013,21 @@ routing_filter_add(cache                *cc,
    platform_free(PROCESS_PRIVATE_HEAP_ID, temp);
 
    return STATUS_OK;
+
+cleanup:
+   if (filter_page != NULL) {
+      routing_unlock_and_unget_page(cc, filter_page);
+   }
+   for (uint64 i = 0; i < num_index_pages; i++) {
+      routing_unlock_and_unget_page(cc, index_page[i]);
+   }
+   if (mini_initialized) {
+      mini_release(&mini);
+      (void)mini_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
+   }
+   platform_free(PROCESS_PRIVATE_HEAP_ID, temp);
+   ZERO_CONTENTS(filter);
+   return rc;
 }
 
 void

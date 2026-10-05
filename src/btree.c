@@ -1187,7 +1187,7 @@ btree_truncate_index(const btree_config *cfg, // IN
  *      more nodes available for the given height.
  *-----------------------------------------------------------------------------
  */
-bool32
+static platform_status
 btree_alloc(cache          *cc,
             mini_allocator *mini,
             uint64          height,
@@ -1195,8 +1195,13 @@ btree_alloc(cache          *cc,
             page_type       type,
             btree_node     *node)
 {
-   node->addr = mini_alloc_page(mini, NUM_BLOB_BATCHES + height, next_extent);
-   debug_assert(node->addr != 0);
+   platform_status rc = mini_alloc_page(
+      mini, NUM_BLOB_BATCHES + height, &node->addr, next_extent);
+   if (!SUCCESS(rc)) {
+      node->page = NULL;
+      node->hdr  = NULL;
+      return rc;
+   }
    node->page = cache_alloc(cc, node->addr, type);
 
    // If this btree is for a memtable then pin all pages belonging to it
@@ -1204,7 +1209,7 @@ btree_alloc(cache          *cc,
       cache_pin(cc, node->page);
    }
    node->hdr = (btree_hdr *)(node->page->data);
-   return TRUE;
+   return STATUS_OK;
 }
 
 /*
@@ -1729,19 +1734,23 @@ static const page_type branch_page_type_table[BTREE_NUM_MINI_BATCHES] = {
    [NUM_BLOB_BATCHES... BTREE_NUM_MINI_BATCHES - 1] = PAGE_TYPE_BRANCH,
 };
 
-uint64
+platform_status
 btree_create(cache              *cc,
              const btree_config *cfg,
              mini_allocator     *mini,
-             page_type           type)
+             page_type           type,
+             uint64             *root_addr)
 {
+   *root_addr = 0;
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
    // maintain constant height
    allocator      *al = cache_get_allocator(cc);
    uint64          base_addr;
    platform_status rc = allocator_alloc(al, &base_addr, type);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    page_handle *root_page = cache_alloc(cc, base_addr, type);
    bool32       pinned    = (type == PAGE_TYPE_MEMTABLE);
 
@@ -1753,27 +1762,36 @@ btree_create(cache              *cc,
 
    btree_init_hdr(cfg, root.hdr);
 
-   // If this btree is for a memtable then pin all pages belonging to it
-   if (pinned) {
+   // set up the mini allocator
+   rc = mini_init_with_types(
+      mini,
+      cc,
+      root.addr + btree_page_size(cfg),
+      0,
+      BTREE_NUM_MINI_BATCHES,
+      type,
+      type == PAGE_TYPE_BRANCH ? branch_page_type_table
+                               : memtable_page_type_table,
+      NULL);
+   if (SUCCESS(rc) && pinned) {
       cache_pin(cc, root.page);
    }
 
-   // release root
    cache_unlock(cc, root_page);
    cache_unclaim(cc, root_page);
    cache_unget(cc, root_page);
 
-   // set up the mini allocator
-   mini_init_with_types(mini,
-                        cc,
-                        root.addr + btree_page_size(cfg),
-                        0,
-                        BTREE_NUM_MINI_BATCHES,
-                        type,
-                        type == PAGE_TYPE_BRANCH ? branch_page_type_table
-                                                 : memtable_page_type_table);
+   if (!SUCCESS(rc)) {
+      refcount ref = allocator_dec_ref(al, base_addr, type);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(cc, base_addr, type);
+      ref = allocator_dec_ref(al, base_addr, type);
+      platform_assert(ref == AL_FREE);
+      return rc;
+   }
 
-   return root.addr;
+   *root_addr = root.addr;
+   return STATUS_OK;
 }
 
 void
@@ -1925,12 +1943,19 @@ btree_split_child_leaf(cache                 *cc,
    leaf_splitting_plan plan =
       btree_build_leaf_splitting_plan(cfg, child->hdr, spec);
 
-   btree_alloc(cc,
-               mini,
-               btree_height(child->hdr),
-               NULL,
-               PAGE_TYPE_MEMTABLE,
-               &right_child);
+   platform_status rc = btree_alloc(cc,
+                                    mini,
+                                    btree_height(child->hdr),
+                                    NULL,
+                                    PAGE_TYPE_MEMTABLE,
+                                    &right_child);
+   if (!SUCCESS(rc)) {
+      btree_node_unclaim(cc, cfg, parent);
+      btree_node_unget(cc, cfg, parent);
+      btree_node_unclaim(cc, cfg, child);
+      btree_node_unget(cc, cfg, child);
+      return rc;
+   }
    /* p: claim, c: claim, rc: write, cn: - */
 
    btree_node_lock(cc, cfg, parent);
@@ -1964,8 +1989,8 @@ btree_split_child_leaf(cache                 *cc,
    btree_node_lock(cc, cfg, child);
    /* p: write, c: write, rc: write, cn: write if exists */
 
-   platform_status rc =
-      btree_record_old_result(cfg, cc, root_addr, child->hdr, spec, results);
+   rc = btree_record_old_result(
+      cfg, cc, root_addr, child->hdr, spec, results);
    if (!SUCCESS(rc)) {
       if (child_next.addr != 0) {
          btree_node_full_unlock(cc, cfg, &child_next);
@@ -2119,7 +2144,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
  * - all other nodes unlocked
  * ----------------------------------------------------------------------------
  */
-static inline int
+static inline platform_status
 btree_split_child_index(cache              *cc,
                         const btree_config *cfg,
                         mini_allocator     *mini,
@@ -2139,12 +2164,17 @@ btree_split_child_index(cache              *cc,
 
    /* p: lock, c: lock, rc: - */
 
-   btree_alloc(cc,
-               mini,
-               btree_height(child->hdr),
-               NULL,
-               PAGE_TYPE_MEMTABLE,
-               &right_child);
+   platform_status rc = btree_alloc(cc,
+                                    mini,
+                                    btree_height(child->hdr),
+                                    NULL,
+                                    PAGE_TYPE_MEMTABLE,
+                                    &right_child);
+   if (!SUCCESS(rc)) {
+      btree_node_full_unlock(cc, cfg, parent);
+      btree_node_full_unlock(cc, cfg, child);
+      return rc;
+   }
 
    /* p: lock, c: lock, rc: lock */
 
@@ -2193,7 +2223,7 @@ btree_split_child_index(cache              *cc,
     * c:  if nc == c  then locked else fully unlocked
     * rc: if nc == rc then locked else fully unlocked
     */
-   return 0;
+   return STATUS_OK;
 }
 
 /*
@@ -2207,7 +2237,7 @@ btree_split_child_index(cache              *cc,
  * - all other nodes unlocked
  * ----------------------------------------------------------------------------
  */
-static inline int
+static inline platform_status
 btree_defragment_or_split_child_index(cache              *cc,
                                       const btree_config *cfg,
                                       mini_allocator     *mini,
@@ -2227,19 +2257,19 @@ btree_defragment_or_split_child_index(cache              *cc,
       btree_defragment_index(cfg, scratch, child->hdr);
       *new_child = *child;
    } else {
-      btree_split_child_index(cc,
-                              cfg,
-                              mini,
-                              scratch,
-                              parent,
-                              index_of_child_in_parent,
-                              child,
-                              key_to_be_inserted,
-                              new_child,
-                              next_child_idx);
+      return btree_split_child_index(cc,
+                                     cfg,
+                                     mini,
+                                     scratch,
+                                     parent,
+                                     index_of_child_in_parent,
+                                     child,
+                                     key_to_be_inserted,
+                                     new_child,
+                                     next_child_idx);
    }
 
-   return 0;
+   return STATUS_OK;
 }
 
 
@@ -2298,7 +2328,7 @@ accumulate_node_ranks(const btree_config *cfg,
  * - root is locked
  *-----------------------------------------------------------------------------
  */
-static inline int
+static inline platform_status
 btree_grow_root(cache              *cc,   // IN
                 const btree_config *cfg,  // IN
                 mini_allocator     *mini, // IN/OUT
@@ -2306,8 +2336,16 @@ btree_grow_root(cache              *cc,   // IN
 {
    // allocate a new left node
    btree_node child;
-   btree_alloc(
-      cc, mini, btree_height(root_node->hdr), NULL, PAGE_TYPE_MEMTABLE, &child);
+   platform_status rc =
+      btree_alloc(cc,
+                  mini,
+                  btree_height(root_node->hdr),
+                  NULL,
+                  PAGE_TYPE_MEMTABLE,
+                  &child);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    // copy root to child
    memmove(child.hdr, root_node->hdr, btree_page_size(cfg));
@@ -2327,7 +2365,7 @@ btree_grow_root(cache              *cc,   // IN
    platform_assert(succeeded);
 
    btree_node_unget(cc, cfg, &child);
-   return 0;
+   return STATUS_OK;
 }
 
 /*
@@ -2413,7 +2451,11 @@ start_over:
          return STATUS_OK;
       }
       destroy_leaf_incorporate_spec(&spec);
-      btree_grow_root(cc, cfg, mini, &root_node);
+      rc = btree_grow_root(cc, cfg, mini, &root_node);
+      if (!SUCCESS(rc)) {
+         btree_node_full_unlock(cc, cfg, &root_node);
+         return rc;
+      }
       btree_node_unlock(cc, cfg, &root_node);
       btree_node_unclaim(cc, cfg, &root_node);
    }
@@ -2443,7 +2485,11 @@ start_over:
                                    parent_entry->pivot_data.stats);
       }
       if (btree_index_is_full(cfg, root_node.hdr)) {
-         btree_grow_root(cc, cfg, mini, &root_node);
+         rc = btree_grow_root(cc, cfg, mini, &root_node);
+         if (!SUCCESS(rc)) {
+            btree_node_full_unlock(cc, cfg, &root_node);
+            return rc;
+         }
          child_idx = 0;
       }
       if (need_to_set_min_key) {
@@ -2533,16 +2579,19 @@ start_over:
 
          if (btree_index_is_full(cfg, child_node.hdr)) {
             btree_node new_child;
-            btree_defragment_or_split_child_index(cc,
-                                                  cfg,
-                                                  mini,
-                                                  scratch,
-                                                  &parent_node,
-                                                  child_idx,
-                                                  &child_node,
-                                                  tuple_key,
-                                                  &new_child,
-                                                  &next_child_idx);
+            rc = btree_defragment_or_split_child_index(cc,
+                                                       cfg,
+                                                       mini,
+                                                       scratch,
+                                                       &parent_node,
+                                                       child_idx,
+                                                       &child_node,
+                                                       tuple_key,
+                                                       &new_child,
+                                                       &next_child_idx);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
             parent_node = new_child;
          } else {
             btree_node_full_unlock(cc, cfg, &parent_node);
@@ -4925,7 +4974,7 @@ btree_pack_node_init_hdr(const btree_config *cfg, btree_hdr *hdr, uint8 height)
    hdr->height = height;
 }
 
-static inline void
+static inline platform_status
 btree_pack_setup_start(btree_pack_req *req)
 {
    req->height = 0;
@@ -4937,12 +4986,16 @@ btree_pack_setup_start(btree_pack_req *req)
 
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
-   req->root_addr =
-      btree_create(req->cc, req->cfg, &req->mini, PAGE_TYPE_BRANCH);
+   platform_status rc = btree_create(
+      req->cc, req->cfg, &req->mini, PAGE_TYPE_BRANCH, &req->root_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    req->num_tuples    = 0;
    req->key_bytes     = 0;
    req->message_bytes = 0;
+   return STATUS_OK;
 }
 
 
@@ -5069,12 +5122,15 @@ btree_pack_create_next_node(btree_pack_req *req,
 
    btree_node new_node;
    uint64     node_next_extent;
-   btree_alloc(req->cc,
-               &req->mini,
-               height,
-               &node_next_extent,
-               PAGE_TYPE_BRANCH,
-               &new_node);
+   platform_status rc = btree_alloc(req->cc,
+                                    &req->mini,
+                                    height,
+                                    &node_next_extent,
+                                    PAGE_TYPE_BRANCH,
+                                    &new_node);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    btree_pack_node_init_hdr(req->cfg, new_node.hdr, height);
    platform_assert(req->next_page_no[height] != UINT64_MAX,
                    "branch level %lu has too many pages\n",
@@ -5276,7 +5332,10 @@ btree_pack_abort(btree_pack_req *req)
 platform_status
 btree_pack(btree_pack_req *req)
 {
-   btree_pack_setup_start(req);
+   platform_status rc = btree_pack_setup_start(req);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    key     tuple_key = NEGATIVE_INFINITY_KEY;
    message data;
@@ -5292,7 +5351,7 @@ btree_pack(btree_pack_req *req)
          btree_pack_abort(req);
          return STATUS_LIMIT_EXCEEDED;
       }
-      platform_status rc = btree_pack_loop(req, tuple_key, data);
+      rc = btree_pack_loop(req, tuple_key, data);
       if (!SUCCESS(rc)) {
          platform_error_log("%s error status: %d\n", __func__, rc.r);
          btree_pack_abort(req);
@@ -5306,7 +5365,7 @@ btree_pack(btree_pack_req *req)
       }
    }
 
-   platform_status rc = btree_pack_post_loop(req, tuple_key);
+   rc = btree_pack_post_loop(req, tuple_key);
    if (!SUCCESS(rc)) {
       platform_error_log("%s error status: %d\n", __func__, rc.r);
       btree_pack_abort(req);

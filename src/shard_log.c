@@ -2250,6 +2250,24 @@ static log_ops shard_log_ops = {
    .size               = shard_log_get_size,
 };
 
+static void
+shard_log_cleanup_failed_init(shard_log *log)
+{
+   if (log->groups_head != NULL) {
+      shard_log_group_free(log, log->groups_head);
+      log->groups_head = NULL;
+   }
+   while (log->emergency_pool != NULL) {
+      shard_log_group *emergency = log->emergency_pool;
+      log->emergency_pool        = emergency->pool_next;
+      emergency->pool_next       = NULL;
+      shard_log_group_free(log, emergency);
+   }
+   platform_mutex_destroy(&log->durability_lock);
+   platform_mutex_destroy(&log->graduate_lock);
+   platform_mutex_destroy(&log->group_pool_lock);
+}
+
 static platform_status
 shard_log_init(shard_log        *log,
                cache            *cc,
@@ -2301,16 +2319,7 @@ shard_log_init(shard_log        *log,
    for (uint64 i = 0; i < SHARD_LOG_NUM_EMERGENCY_GROUPS; i++) {
       shard_log_group *emergency = shard_log_group_malloc(log, TRUE);
       if (emergency == NULL) {
-         shard_log_group_free(log, current);
-         while (log->emergency_pool != NULL) {
-            emergency            = log->emergency_pool;
-            log->emergency_pool  = emergency->pool_next;
-            emergency->pool_next = NULL;
-            shard_log_group_free(log, emergency);
-         }
-         platform_mutex_destroy(&log->durability_lock);
-         platform_mutex_destroy(&log->graduate_lock);
-         platform_mutex_destroy(&log->group_pool_lock);
+         shard_log_cleanup_failed_init(log);
          return STATUS_NO_MEMORY;
       }
       emergency->pool_next = log->emergency_pool;
@@ -2319,15 +2328,29 @@ shard_log_init(shard_log        *log,
 
    allocator *al = cache_get_allocator(cc);
    rc            = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      shard_log_cleanup_failed_init(log);
+      return rc;
+   }
 
-   log->addr = mini_init_with_types(&log->mini,
-                                    cc,
-                                    log->meta_head,
-                                    0,
-                                    NUM_BLOB_BATCHES + 1,
-                                    PAGE_TYPE_LOG,
-                                    shard_log_page_type_table);
+   rc = mini_init_with_types(&log->mini,
+                             cc,
+                             log->meta_head,
+                             0,
+                             NUM_BLOB_BATCHES + 1,
+                             PAGE_TYPE_LOG,
+                             shard_log_page_type_table,
+                             &log->addr);
+   if (!SUCCESS(rc)) {
+      refcount ref = allocator_dec_ref(al, log->meta_head, PAGE_TYPE_LOG);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(cc, log->meta_head, PAGE_TYPE_LOG);
+      ref = allocator_dec_ref(al, log->meta_head, PAGE_TYPE_LOG);
+      platform_assert(ref == AL_FREE);
+      log->meta_head = 0;
+      shard_log_cleanup_failed_init(log);
+      return rc;
+   }
    /*
     * mini_init's initial external reference belongs to the log_head owner.
     * Keep a second reference for the live handle, so handle_refs can extend

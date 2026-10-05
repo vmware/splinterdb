@@ -12,6 +12,8 @@
  * -----------------------------------------------------------------------------
  */
 #include "clockcache.h"
+#include "data_internal.h"
+#include "memtable.h"
 #include "rc_allocator.h"
 #include "task.h"
 #include "functional/test.h"
@@ -26,6 +28,19 @@ static void
 create_default_cfg(splinterdb_config *out_cfg,
                    data_config       *default_data_cfg,
                    bool               use_shmem);
+
+static int
+limitations_merge_tuples(const data_config *cfg,
+                         slice              key,
+                         message            old_message,
+                         merge_accumulator *new_message)
+{
+   (void)cfg;
+   (void)key;
+   (void)old_message;
+   (void)new_message;
+   return 0;
+}
 
 /*
  * Global data declaration macro:
@@ -205,7 +220,7 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
  */
 CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
 {
-   splinterdb       *kvsb;
+   splinterdb       *kvsb = NULL;
    splinterdb_config cfg;
    data_config       default_data_cfg;
 
@@ -218,6 +233,229 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
 
    int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.num_normal_bg_threads = UINT64_MAX;
+   rc                        = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.num_memtable_bg_threads = UINT64_MAX;
+   rc                          = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+CTEST2(limitations, test_splinterdb_create_invalid_cache_size)
+{
+   splinterdb       *kvsb = NULL;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(&default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+
+   cfg.cache_size++;
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.cache_size = 65 * cfg.page_size;
+   rc             = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.cache_size = (UINT64_C(1) << 32) * cfg.page_size;
+   rc             = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+CTEST2(limitations, test_splinterdb_create_invalid_fanout)
+{
+   splinterdb       *kvsb = NULL;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(&default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+
+   cfg.fanout = 1;
+   int rc     = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.fanout = (UINT64_C(1) << 32) + 1;
+   rc         = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.fanout = trunk_max_fanout(cfg.page_size) + 1;
+   rc         = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   /* The format-derived bound itself remains valid. */
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.fanout = trunk_max_fanout(cfg.page_size);
+   rc         = splinterdb_create(&cfg, &kvsb);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(0, splinterdb_close(&kvsb, FALSE));
+}
+
+CTEST2(limitations, test_splinterdb_create_invalid_memtable_capacity)
+{
+   splinterdb       *kvsb = NULL;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(&default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.memtable_capacity = UINT64_MAX / MEMTABLE_SPACE_OVERHEAD_FACTOR + 1;
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+CTEST2(limitations, test_memtable_capacity_rounds_up_to_one_extent)
+{
+   io_config io_cfg;
+   ZERO_CONTENTS(&io_cfg);
+   io_cfg.page_size   = 4 * KiB;
+   io_cfg.extent_size = 128 * KiB;
+
+   clockcache_config cache_cfg;
+   clockcache_config_init(
+      &cache_cfg, &io_cfg, 64 * io_cfg.page_size, "", FALSE);
+
+   data_config data_cfg;
+   default_data_config_init(&data_cfg);
+   btree_config btree_cfg;
+   btree_config_init(&btree_cfg, &cache_cfg.super, &data_cfg);
+
+   memtable_config mt_cfg;
+   platform_status rc = memtable_config_init(&mt_cfg, &btree_cfg, 1, 1);
+   ASSERT_EQUAL(STATUS_OK.r, rc.r);
+   ASSERT_EQUAL(1, mt_cfg.max_extents_per_memtable);
+}
+
+CTEST2(limitations, test_splinterdb_create_invalid_data_callbacks)
+{
+   splinterdb       *kvsb = NULL;
+   splinterdb_config cfg;
+   data_config       valid;
+   data_config       invalid;
+
+   default_data_config_init(&valid);
+
+   invalid             = valid;
+   invalid.key_compare = NULL;
+   create_default_cfg(&cfg, &invalid, data->use_shmem);
+   ASSERT_NOT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+
+   invalid          = valid;
+   invalid.key_hash = NULL;
+   create_default_cfg(&cfg, &invalid, data->use_shmem);
+   ASSERT_NOT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+
+   invalid               = valid;
+   invalid.key_to_string = NULL;
+   create_default_cfg(&cfg, &invalid, data->use_shmem);
+   ASSERT_NOT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+
+   invalid                   = valid;
+   invalid.message_to_string = NULL;
+   create_default_cfg(&cfg, &invalid, data->use_shmem);
+   ASSERT_NOT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+
+   invalid              = valid;
+   invalid.merge_tuples = limitations_merge_tuples;
+   create_default_cfg(&cfg, &invalid, data->use_shmem);
+   ASSERT_NOT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+
+   invalid                    = valid;
+   invalid.merge_tuples       = NULL;
+   invalid.merge_tuples_final = NULL;
+
+   merge_accumulator accumulator;
+   message update = message_create(
+      MESSAGE_TYPE_UPDATE, NULL, slice_create(1, "u"));
+   ASSERT_TRUE(merge_accumulator_init_from_message(
+      &accumulator, PROCESS_PRIVATE_HEAP_ID, update));
+   key tuple_key =
+      key_create_from_slice(FALSE, slice_create(1, "k"));
+   message old_message = message_create(
+      MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+   ASSERT_NOT_EQUAL(
+      0, data_merge_tuples(&invalid, tuple_key, old_message, &accumulator));
+   ASSERT_NOT_EQUAL(
+      0, data_merge_tuples_final(&invalid, tuple_key, &accumulator));
+   merge_accumulator_deinit(&accumulator);
+
+   create_default_cfg(&cfg, &invalid, data->use_shmem);
+   ASSERT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r,
+                splinterdb_update(kvsb,
+                                  slice_create(1, "k"),
+                                  slice_create(1, "v"),
+                                  NULL));
+   ASSERT_EQUAL(0, splinterdb_close(&kvsb, FALSE));
+}
+
+CTEST2(limitations, test_allocation_exhaustion_returns_error)
+{
+   splinterdb       *kvsb = NULL;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(&default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.disk_size = 4 * MiB;
+
+   /* This fills part of the memtable ring before a later mini-allocator
+    * reservation fails.  Repeating it also exercises the complete unwind. */
+   for (uint64 attempt = 0; attempt < 2; attempt++) {
+      int rc = splinterdb_create(&cfg, &kvsb);
+      ASSERT_EQUAL(STATUS_NO_SPACE.r, rc);
+      ASSERT_NULL(kvsb);
+   }
+}
+
+CTEST2(limitations, test_runtime_allocation_exhaustion_returns_error)
+{
+   splinterdb       *kvsb = NULL;
+   data_config       default_data_cfg;
+
+   default_data_config_init(&default_data_cfg);
+   const uint64 disk_sizes[] = {
+      8 * MiB,  /* branch packing runs out of extents */
+      15 * MiB, /* recycling an incorporated memtable runs out */
+   };
+
+   for (uint64 size_no = 0; size_no < ARRAY_SIZE(disk_sizes); size_no++) {
+      splinterdb_config cfg;
+      create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+      cfg.disk_size         = disk_sizes[size_no];
+      cfg.memtable_capacity = 1 * MiB;
+      ASSERT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
+
+      char key[32];
+      char value[1024];
+      memset(value, 'v', sizeof(value));
+      int rc = 0;
+      for (uint64 i = 0; i < 10000 && rc == 0; i++) {
+         int key_len = snprintf(key, sizeof(key), "%020lu", i);
+         ASSERT_TRUE(0 < key_len && (uint64)key_len < sizeof(key));
+         rc = splinterdb_insert(kvsb,
+                                slice_create((uint64)key_len, key),
+                                slice_create(sizeof(value), value),
+                                NULL);
+      }
+      ASSERT_EQUAL(STATUS_NO_SPACE.r, rc);
+
+      /* The forced close may report that an unlogged in-memory memtable was
+       * not preserved, but it must release the handle without an assertion or
+       * stall. */
+      (void)splinterdb_close(&kvsb, TRUE);
+      ASSERT_NULL(kvsb);
+   }
 }
 
 /*

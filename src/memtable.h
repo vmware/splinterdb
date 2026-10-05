@@ -54,7 +54,8 @@ memtable_try_transition(memtable      *mt,
          debug_assert(new_state == MEMTABLE_STATE_COMPACTING);
          break;
       case MEMTABLE_STATE_COMPACTING:
-         debug_assert(new_state == MEMTABLE_STATE_COMPACTED);
+         debug_assert(new_state == MEMTABLE_STATE_COMPACTED
+                      || new_state == MEMTABLE_STATE_INCORPORATION_FAILED);
          break;
       case MEMTABLE_STATE_COMPACTED:
          // A compacted memtable can transition to ASSIGNED when it goes
@@ -77,7 +78,8 @@ memtable_try_transition(memtable      *mt,
          debug_assert(new_state == MEMTABLE_STATE_INCORPORATED);
          break;
       case MEMTABLE_STATE_INCORPORATED:
-         debug_assert(new_state == MEMTABLE_STATE_READY);
+         debug_assert(new_state == MEMTABLE_STATE_READY
+                      || new_state == MEMTABLE_STATE_INCORPORATION_FAILED);
          break;
       default:
          debug_assert(0);
@@ -222,7 +224,7 @@ memtable_insert(memtable_context     *ctxt,
                 message               msg,
                 btree_insert_results *results);
 
-void
+platform_status
 memtable_recycle(memtable_context *ctxt, memtable *mt);
 
 void
@@ -280,7 +282,7 @@ memtable_force_rotation_if(memtable_context              *ctxt,
 platform_status
 memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out);
 
-void
+platform_status
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation);
 
 void
@@ -317,7 +319,7 @@ memtable_context_init_at_generation(memtable_context *ctxt,
 void
 memtable_context_deinit(memtable_context *ctxt);
 
-void
+platform_status
 memtable_config_init(memtable_config *cfg,
                      btree_config    *btree_cfg,
                      uint64           max_memtables,

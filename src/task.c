@@ -14,6 +14,8 @@ const char *task_type_name[] = {"TASK_TYPE_INVALID",
                                 "TASK_TYPE_NORMAL"};
 _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
                "Array task_type_name[] is incorrectly sized.");
+_Static_assert(MAX_THREADS < (UINT64_C(1) << 63),
+               "MAX_THREADS must be less than 2^63");
 
 /****************************************
  * Task trackers
@@ -239,7 +241,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
                    "Attempt to shut down task group with %lu waiting tasks",
                    group->current_waiting_tasks);
 
-   uint8 num_threads = group->bg.num_threads;
+   uint64 num_threads = group->bg.num_threads;
 
    // Inform the background thread that it's time to exit now.
    group->bg.stop = TRUE;
@@ -247,7 +249,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
    task_group_unlock(group);
 
    // Allow all background threads to wrap up their work.
-   for (uint8 i = 0; i < num_threads; i++) {
+   for (uint64 i = 0; i < num_threads; i++) {
       platform_thread_join(&group->bg.threads[i]);
       group->bg.num_threads--;
    }
@@ -264,7 +266,7 @@ static platform_status
 task_group_init(task_group  *group,
                 task_system *ts,
                 bool32       use_stats,
-                uint8        num_bg_threads)
+                uint64       num_bg_threads)
 {
    ZERO_CONTENTS(group);
    group->ts            = ts;
@@ -277,7 +279,7 @@ task_group_init(task_group  *group,
       return rc;
    }
 
-   for (uint8 i = 0; i < num_bg_threads; i++) {
+   for (uint64 i = 0; i < num_bg_threads; i++) {
       rc = platform_thread_create(&group->bg.threads[i],
                                   FALSE,
                                   task_worker_thread,
@@ -492,7 +494,9 @@ task_config_valid(const uint64 num_background_threads[NUM_TASK_TYPES])
    uint64 normal_bg_threads   = num_background_threads[TASK_TYPE_NORMAL];
    uint64 memtable_bg_threads = num_background_threads[TASK_TYPE_MEMTABLE];
 
-   if ((normal_bg_threads + memtable_bg_threads) >= MAX_THREADS) {
+   if (normal_bg_threads > MAX_THREADS || memtable_bg_threads > MAX_THREADS
+       || normal_bg_threads + memtable_bg_threads >= MAX_THREADS)
+   {
       platform_error_log("Total number of background threads configured"
                          ", normal_bg_threads=%lu, memtable_bg_threads=%lu, "
                          "must be <= %d.\n",

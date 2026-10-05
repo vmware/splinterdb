@@ -285,11 +285,12 @@ btree_insert(cache                *cc,        // IN
              message               data,      // IN
              btree_insert_results *results);  // IN/OUT
 
-uint64
+platform_status
 btree_create(cache              *cc,
              const btree_config *cfg,
              mini_allocator     *mini,
-             page_type           type);
+             page_type           type,
+             uint64             *root_addr);
 
 void
 btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);

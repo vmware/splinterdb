@@ -225,10 +225,16 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
 static platform_status
 splinterdb_validate_app_data_config(const data_config *cfg)
 {
-   platform_assert(cfg->key_compare != NULL);
-   platform_assert(cfg->key_hash != NULL);
-   platform_assert(cfg->key_to_string != NULL);
-   platform_assert(cfg->message_to_string != NULL);
+   if (cfg == NULL || cfg->key_compare == NULL || cfg->key_hash == NULL
+       || cfg->key_to_string == NULL || cfg->message_to_string == NULL
+       || ((cfg->merge_tuples == NULL)
+           != (cfg->merge_tuples_final == NULL)))
+   {
+      platform_error_log("Invalid data configuration: key, hash, and string "
+                         "callbacks are required, and merge callbacks must "
+                         "either both be set or both be NULL.\n");
+      return STATUS_BAD_PARAM;
+   }
 
    return STATUS_OK;
 }
@@ -296,6 +302,33 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    rc = io_config_valid(&kvs->io_cfg);
    if (!SUCCESS(rc)) {
       return rc;
+   }
+
+   uint64 cache_pages = cfg.cache_size / cfg.page_size;
+   if (cfg.cache_size % cfg.page_size != 0 || cache_pages > UINT32_MAX
+       || cache_pages % PLATFORM_CACHELINE_SIZE != 0)
+   {
+      platform_error_log(
+         "Cache size must be an exact multiple of the page size and contain "
+         "a multiple of %u pages, with at most %u pages.\n",
+         PLATFORM_CACHELINE_SIZE,
+         UINT32_MAX);
+      return STATUS_BAD_PARAM;
+   }
+
+   uint64 max_fanout = trunk_max_fanout(cfg.page_size);
+   if (cfg.fanout < 2 || cfg.fanout > (UINT64_C(1) << 32)
+       || cfg.fanout > max_fanout)
+   {
+      platform_error_log(
+         "Fanout must be between 2 and %lu for this page size.\n",
+         max_fanout);
+      return STATUS_BAD_PARAM;
+   }
+
+   if (cfg.memtable_capacity > UINT64_MAX / MEMTABLE_SPACE_OVERHEAD_FACTOR) {
+      platform_error_log("Memtable capacity is too large.\n");
+      return STATUS_BAD_PARAM;
    }
 
    allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
@@ -968,10 +1001,15 @@ splinterdb_update(splinterdb               *kvsb,
                   slice                     update,
                   splinterdb_lookup_result *old_result)
 {
+   if (kvsb == NULL || kvsb->data_cfg == NULL
+       || kvsb->data_cfg->merge_tuples == NULL
+       || kvsb->data_cfg->merge_tuples_final == NULL)
+   {
+      return platform_status_to_int(STATUS_BAD_PARAM);
+   }
    message        msg = message_create(MESSAGE_TYPE_UPDATE, NULL, update);
    lookup_result *_old_result =
       old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
-   platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
 }
 

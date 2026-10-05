@@ -212,6 +212,46 @@ CTEST(merge, failed_creation_cleans_up)
    platform_deregister_thread();
 }
 
+CTEST(merge, maximum_arity_is_accepted)
+{
+   platform_register_thread();
+   data_config cfg;
+   default_data_config_init(&cfg);
+   merge_test_iterator empty = {
+      .super = {.ops = &merge_test_ops},
+      .keys  = "",
+      .pos   = 0,
+   };
+   iterator *inputs[MAX_MERGE_ARITY];
+   for (uint64 i = 0; i < ARRAY_SIZE(inputs); i++) {
+      inputs[i] = &empty.super;
+   }
+
+   merge_iterator *merge = NULL;
+   platform_status rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                              &cfg,
+                                              MAX_MERGE_ARITY,
+                                              inputs,
+                                              MERGE_RAW,
+                                              TRUE,
+                                              &merge);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_NOT_NULL(merge);
+   ASSERT_TRUE(
+      SUCCESS(merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &merge)));
+
+   rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                              &cfg,
+                              MAX_MERGE_ARITY + 1,
+                              inputs,
+                              MERGE_RAW,
+                              TRUE,
+                              &merge);
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r, rc.r);
+   ASSERT_NULL(merge);
+   platform_deregister_thread();
+}
+
 /*
  * Merge updates by concatenating their values, oldest first, so a merged
  * message shows exactly which children contributed to it.

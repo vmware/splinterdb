@@ -26,6 +26,18 @@
 #include "btree_private.h"
 #include "btree_test_common.h"
 
+static uint64
+test_btree_create(cache              *cc,
+                  const btree_config *cfg,
+                  mini_allocator     *mini,
+                  page_type           type)
+{
+   uint64          root_addr;
+   platform_status rc = btree_create(cc, cfg, mini, type, &root_addr);
+   platform_assert_status_ok(rc);
+   return root_addr;
+}
+
 typedef struct insert_thread_params {
    cache           *cc;
    btree_config    *cfg;
@@ -198,7 +210,7 @@ CTEST2(btree_stress, iterator_basics)
    uint8          msgbuf[1024];
    mini_allocator mini;
 
-   uint64 root_addr = btree_create(
+   uint64 root_addr = test_btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
    for (int i = 0; i < 1000; i++) {
@@ -254,7 +266,7 @@ CTEST2(btree_stress, insert_callback_failure_abandons_insert)
    uint8          msgbuf[1024];
    uint8          replacement_buf[1024];
    mini_allocator mini;
-   uint64         root_addr = btree_create(
+   uint64         root_addr = test_btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
    key     tuple_key = gen_key(&data->dbtree_cfg, 1, keybuf, sizeof(keybuf));
    message original  = gen_msg(&data->dbtree_cfg, 1, msgbuf, sizeof(msgbuf));
@@ -313,7 +325,7 @@ CTEST2(btree_stress, insert_callback_failure_abandons_insert)
 CTEST2(btree_stress, insert_callback_failure_after_root_growth)
 {
    mini_allocator mini;
-   uint64         root_addr = btree_create(
+   uint64         root_addr = test_btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
    uint8 value[100] = {1};
 
@@ -431,7 +443,7 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    cache         *cc  = (cache *)&data->cc;
    btree_config  *cfg = &data->dbtree_cfg;
    mini_allocator mini;
-   uint64         root_addr  = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint64         root_addr  = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
    uint8          value[100] = {1};
    btree_insert_results results;
    for (uint64 i = 0; i < 25; i++) {
@@ -565,7 +577,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
 
    mini_allocator mini;
 
-   uint64 root_addr = btree_create(
+   uint64 root_addr = test_btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
    platform_heap_id      hid     = data->hid;
@@ -681,7 +693,7 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
    ASSERT_NOT_NULL(scratch);
 
    mini_allocator mini;
-   uint64         root_addr = btree_create(
+   uint64         root_addr = test_btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
    uint64 bt_page_size = btree_page_size(&data->dbtree_cfg);
@@ -1371,7 +1383,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
    btree_config  *cfg = &data->dbtree_cfg;
    mini_allocator mini;
    const uint64   count = 80;
-   uint64 source_root   = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint64 source_root   = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
    for (uint64 n = 0; n < count; n++) {
       bounds_insert(
          cc, cfg, data->hid, data->test_scratch, &mini, source_root, 2 * n);
@@ -1477,7 +1489,7 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
    btree_config  *cfg = &data->dbtree_cfg;
    mini_allocator mini;
    const uint64   count = 80;
-   uint64 source_root   = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint64 source_root   = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
    for (uint64 n = 0; n < count; n++) {
       bounds_insert(
          cc, cfg, data->hid, data->test_scratch, &mini, source_root, 2 * n);
@@ -1551,7 +1563,7 @@ CTEST2(btree_stress, copied_iterator_bounds)
    cache         *cc  = (cache *)&data->cc;
    btree_config  *cfg = &data->dbtree_cfg;
    mini_allocator mini;
-   uint64         root = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint64         root = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
    for (unsigned async = 0; async < 2; async++) {
       btree_iterator  empty;
       platform_status rc = bounds_init(cc,
@@ -1783,7 +1795,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
    btree_config *cfg = &data->dbtree_cfg;
    for (unsigned async = 0; async < 2; async++) {
       mini_allocator mini;
-      uint64         root = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+      uint64         root = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
       for (uint64 n = 0; n < 2048; n += 2) {
          bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);
       }
@@ -1875,7 +1887,7 @@ CTEST2(btree_stress, copied_iterator_prefetch)
    cache         *cc  = (cache *)&data->cc;
    btree_config  *cfg = &data->dbtree_cfg;
    mini_allocator mini;
-   uint64         root  = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint64         root  = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
    const uint64   count = 8192;
    for (uint64 n = 0; n < count; n++) {
       bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);

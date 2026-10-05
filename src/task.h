@@ -122,7 +122,7 @@ typedef struct task_queue {
 
 typedef struct task_bg_thread_group {
    bool32          stop;
-   uint8           num_threads;
+   uint64          num_threads;
    platform_thread threads[MAX_THREADS];
 } task_bg_thread_group;
 

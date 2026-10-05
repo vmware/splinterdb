@@ -953,9 +953,22 @@ blob_checksum_test_mini_init(cache *cc, mini_allocator *mini, uint64 *meta_head)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   mini_init_with_types(
-      mini, cc, *meta_head, 0, NUM_BLOB_BATCHES, PAGE_TYPE_MISC, types);
-   return STATUS_OK;
+   rc = mini_init_with_types(mini,
+                             cc,
+                             *meta_head,
+                             0,
+                             NUM_BLOB_BATCHES,
+                             PAGE_TYPE_MISC,
+                             types,
+                             NULL);
+   if (!SUCCESS(rc)) {
+      refcount ref = allocator_dec_ref(al, *meta_head, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(cc, *meta_head, PAGE_TYPE_MISC);
+      ref = allocator_dec_ref(al, *meta_head, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_FREE);
+   }
+   return rc;
 }
 
 static platform_status

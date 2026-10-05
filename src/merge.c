@@ -568,7 +568,7 @@ merge_iterator_create(platform_heap_id   hid,
    merge_iterator *merge_itor;
 
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
-       || num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored))
+       || num_trees > ARRAY_SIZE(merge_itor->ordered_iterator_stored))
    {
       platform_error_log("merge_iterator_create: bad parameter merge_itor %p"
                          " num_trees %d itor_arr %p cfg %p\n",

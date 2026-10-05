@@ -64,6 +64,19 @@ typedef struct ONDISK trunk_ondisk_node {
    uint32 pivot_offsets[];
 } trunk_ondisk_node;
 
+uint64
+trunk_max_fanout(uint64 page_size)
+{
+   if (page_size < sizeof(trunk_ondisk_node)
+                      + 2 * sizeof(((trunk_ondisk_node *)0)->pivot_offsets[0]))
+   {
+      return 0;
+   }
+   return (page_size - sizeof(trunk_ondisk_node))
+             / sizeof(((trunk_ondisk_node *)0)->pivot_offsets[0])
+          - 1;
+}
+
 typedef enum bundle_compaction_phase {
    BUNDLE_COMPACTION_IN_PROGRESS = 0,
    // Terminal but not consumable by maplet compaction. See output.rc.
@@ -2698,6 +2711,16 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
    page_handle           *current_page = NULL;
    trunk_ondisk_node_ref *result       = NULL;
    threadid               tid          = platform_get_tid();
+
+   if (trunk_node_num_children(node)
+       > trunk_max_fanout(cache_page_size(context->cc)))
+   {
+      platform_error_log("%s():%d: node fanout exceeds on-disk header "
+                         "capacity",
+                         __func__,
+                         __LINE__);
+      return NULL;
+   }
 
    // if (node_height(node) == 0) {
    //    node_print(node, Platform_error_log_handle, context->cfg->data_cfg, 4);
@@ -5848,11 +5871,14 @@ index_split(trunk_context     *context,
             trunk_node_vector *new_indexes)
 {
    debug_assert(trunk_node_is_well_formed_index(context->cfg->data_cfg, index));
-   platform_status rc;
+   platform_status rc = STATUS_OK;
 
    uint64 num_children = trunk_node_num_children(index);
-   uint64 num_nodes    = (num_children + context->cfg->target_fanout - 1)
-                      / context->cfg->target_fanout;
+   uint64 num_nodes = num_children / context->cfg->target_fanout
+                      + (num_children % context->cfg->target_fanout != 0);
+   if (num_nodes == 0) {
+      return STATUS_INVALID_STATE;
+   }
 
    if (context->stats && 1 < num_nodes) {
       threadid tid = platform_get_tid();

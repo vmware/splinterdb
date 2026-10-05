@@ -1384,9 +1384,10 @@ core_log_insert(core_handle            *spl,
 
 /*
  * Compacts the memtable with generation generation and builds its filter.
- * Returns a pointer to the memtable.
+ * On failure, leaves the original memtable available for reads and publishes
+ * the error through the terminal incorporation-failure state.
  */
-static memtable *
+static platform_status
 core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
 {
    timestamp comp_start = platform_get_timestamp();
@@ -1413,28 +1414,33 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
                                                     POSITIVE_INFINITY_KEY,
                                                     greater_than_or_equal,
                                                     NEGATIVE_INFINITY_KEY);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      goto failed;
+   }
    const routing_config *rfcfg = spl->cfg.trunk_node_cfg->filter_cfg;
    uint64 rflimit = routing_filter_max_fingerprints(spl->cfg.cache_cfg, rfcfg);
    btree_pack_req req;
-   btree_pack_req_init(&req,
-                       spl->cc,
-                       spl->cfg.btree_cfg,
-                       itor,
-                       rflimit,
-                       rfcfg->seed,
-                       FALSE,
-                       spl->heap_id);
+   rc = btree_pack_req_init(&req,
+                            spl->cc,
+                            spl->cfg.btree_cfg,
+                            itor,
+                            rflimit,
+                            rfcfg->seed,
+                            FALSE,
+                            spl->heap_id);
+   if (!SUCCESS(rc)) {
+      goto deinit_iterator;
+   }
    uint64 pack_start;
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_compactions++;
       pack_start = platform_get_timestamp();
    }
 
-   platform_status pack_status = btree_pack(&req);
-   platform_assert(SUCCESS(pack_status),
-                   "platform_status of btree_pack: %d\n",
-                   pack_status.r);
+   rc = btree_pack(&req);
+   if (!SUCCESS(rc)) {
+      goto deinit_pack_req;
+   }
 
    platform_assert(req.num_tuples <= rflimit);
    if (spl->cfg.use_stats) {
@@ -1445,8 +1451,6 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
          spl->stats[tid].root_compaction_max_tuples = req.num_tuples;
       }
    }
-   core_memtable_iterator_deinit(&btree_itor);
-
    /*
     * A forced rotation (see memtable_force_rotation(), used by
     * core_checkpoint() when nothing rotates on its own) can finalize a memtable
@@ -1458,6 +1462,7 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    new_branch->root_addr = req.root_addr;
 
    btree_pack_req_deinit(&req, spl->heap_id);
+   core_memtable_iterator_deinit(&btree_itor);
    if (spl->cfg.use_stats) {
       uint64 comp_time = platform_timestamp_elapsed(comp_start);
       spl->stats[tid].root_compaction_time_ns += comp_time;
@@ -1468,7 +1473,15 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    }
 
    memtable_transition(mt, MEMTABLE_STATE_COMPACTING, MEMTABLE_STATE_COMPACTED);
-   return mt;
+   return STATUS_OK;
+
+deinit_pack_req:
+   btree_pack_req_deinit(&req, spl->heap_id);
+deinit_iterator:
+   core_memtable_iterator_deinit(&btree_itor);
+failed:
+   core_memtable_mark_incorporation_failed(spl, generation, rc);
+   return rc;
 }
 
 /*
@@ -1597,6 +1610,10 @@ core_memtable_incorporate(core_handle   *spl,
    memtable_increment_to_generation_retired(&spl->mt_ctxt, generation);
    if (has_branch) {
       trunk_incorporate_commit(&spl->trunk_context);
+      /* The trunk owns the prepared branch reference now.  Clear the stale
+       * address while lookups are excluded so a later recycle failure can use
+       * the ordinary terminal-failure cleanup without dropping it twice. */
+      cmt->branch.root_addr = 0;
    }
    memtable_unblock_lookups(&spl->mt_ctxt);
 
@@ -1606,7 +1623,15 @@ core_memtable_incorporate(core_handle   *spl,
 
    core_close_log_stream_if_enabled(spl, &stream);
 
-   memtable_recycle(&spl->mt_ctxt, mt);
+   rc = memtable_recycle(&spl->mt_ctxt, mt);
+   if (!SUCCESS(rc)) {
+      /* Incorporation itself is durable in the current COW root, but this ring
+       * slot cannot be reused.  Publish the allocation error instead of
+       * leaving the slot INCORPORATED, which would make future rotations wait
+       * forever for a state transition that can no longer occur. */
+      core_memtable_mark_incorporation_failed(spl, generation, rc);
+      return rc;
+   }
 
    if (spl->cfg.use_stats) {
       const threadid tid = platform_get_tid();
@@ -1633,14 +1658,17 @@ core_memtable_flush_internal(core_handle *spl, uint64 generation)
 {
    const threadid tid = platform_get_tid();
    // pack and build filter.
-   core_memtable_compact(spl, generation, tid);
+   platform_status rc = core_memtable_compact(spl, generation, tid);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    // If we are assigned to do so, incorporate the memtable onto the root node.
    if (!core_try_start_incorporate(spl, generation)) {
       goto out;
    }
    do {
-      platform_status rc = core_memtable_incorporate(spl, generation, tid);
+      rc = core_memtable_incorporate(spl, generation, tid);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -4583,10 +4611,14 @@ core_config_init(core_config         *core_cfg,
    core_cfg->verbose_logging_enabled    = verbose_logging;
    core_cfg->log_handle                 = log_handle;
 
-   memtable_config_init(&core_cfg->mt_cfg,
-                        core_cfg->btree_cfg,
-                        CORE_NUM_MEMTABLES,
-                        trunk_node_cfg->incorporation_size_kv_bytes);
+   platform_status rc =
+      memtable_config_init(&core_cfg->mt_cfg,
+                           core_cfg->btree_cfg,
+                           CORE_NUM_MEMTABLES,
+                           trunk_node_cfg->incorporation_size_kv_bytes);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    // When everything succeeds, return success.
    return STATUS_OK;

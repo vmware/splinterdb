@@ -309,7 +309,7 @@ memtable_insert(memtable_context     *ctxt,
    return rc;
 }
 
-void
+platform_status
 memtable_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;
@@ -320,14 +320,23 @@ memtable_recycle(memtable_context *ctxt, memtable *mt)
     * mini allocator is protected by its own refcount and may be GCed by this
     * dec-ref or by a later lookup result / iterator release.
     */
+   mini_allocator new_mini;
+   uint64         new_root_addr;
+   platform_status rc = btree_create(
+      cc, mt->cfg, &new_mini, PAGE_TYPE_MEMTABLE, &new_root_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    uint64 old_root_addr = mt->root_addr;
-   mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+   mt->root_addr        = new_root_addr;
+   mt->mini             = new_mini;
    memtable_lock_incorporation_lock(ctxt);
    mt->generation += ctxt->cfg.max_memtables;
    memtable_unlock_incorporation_lock(ctxt);
    mt->incorporation_status = STATUS_OK;
    memtable_transition(mt, MEMTABLE_STATE_INCORPORATED, MEMTABLE_STATE_READY);
    memtable_root_dec_ref(ctxt, old_root_addr);
+   return STATUS_OK;
 }
 
 void
@@ -335,9 +344,11 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status)
 {
    platform_assert(!SUCCESS(status));
    mt->incorporation_status = status;
-   memtable_transition(mt,
-                       MEMTABLE_STATE_INCORPORATION_ASSIGNED,
-                       MEMTABLE_STATE_INCORPORATION_FAILED);
+   memtable_state state = memtable_get_state(mt);
+   platform_assert(state == MEMTABLE_STATE_COMPACTING
+                   || state == MEMTABLE_STATE_INCORPORATION_ASSIGNED
+                   || state == MEMTABLE_STATE_INCORPORATED);
+   memtable_transition(mt, state, MEMTABLE_STATE_INCORPORATION_FAILED);
 }
 
 platform_status
@@ -411,16 +422,21 @@ memtable_force_rotation(memtable_context *ctxt, uint64 *generation_out)
       ctxt, memtable_rotation_always_requested, NULL, generation_out);
 }
 
-void
+platform_status
 memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 {
    ZERO_CONTENTS(mt);
-   mt->cfg       = cfg->btree_cfg;
-   mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+   mt->cfg = cfg->btree_cfg;
+   platform_status rc = btree_create(
+      cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE, &mt->root_addr);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    mt->state     = MEMTABLE_STATE_READY;
    mt->incorporation_status = STATUS_OK;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
+   return STATUS_OK;
 }
 
 static bool32
@@ -503,12 +519,29 @@ memtable_context_init_at_generation(memtable_context *ctxt,
 
    batch_rwlock_init(&ctxt->rwlock);
 
-   for (uint64 generation_offset = 0; generation_offset < cfg->max_memtables;
-        generation_offset++)
+   uint64 generation_offset = 0;
+   for (; generation_offset < cfg->max_memtables; generation_offset++)
    {
       uint64 generation = first_generation + generation_offset;
       uint64 mt_no      = generation % cfg->max_memtables;
-      memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
+      rc = memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
+      if (!SUCCESS(rc)) {
+         for (uint64 initialized_offset = 0;
+              initialized_offset < generation_offset;
+              initialized_offset++)
+         {
+            uint64 initialized_generation =
+               first_generation + initialized_offset;
+            uint64 initialized_mt_no =
+               initialized_generation % cfg->max_memtables;
+            memtable_deinit(cc, &ctxt->mt[initialized_mt_no]);
+         }
+         batch_rwlock_deinit(&ctxt->rwlock);
+         platform_free(hid, ctxt->btree_scratches);
+         ctxt->btree_scratches = NULL;
+         platform_mutex_destroy(&ctxt->incorporation_mutex);
+         return rc;
+      }
    }
 
    ctxt->generation                = first_generation;
@@ -558,7 +591,7 @@ memtable_context_deinit(memtable_context *ctxt)
    platform_free(ctxt->hid, ctxt->btree_scratches);
 }
 
-void
+platform_status
 memtable_config_init(memtable_config *cfg,
                      btree_config    *btree_cfg,
                      uint64           max_memtables,
@@ -566,9 +599,18 @@ memtable_config_init(memtable_config *cfg,
 {
    ZERO_CONTENTS(cfg);
    platform_assert(max_memtables <= MAX_MEMTABLES);
+   if (memtable_capacity == 0
+       || memtable_capacity > UINT64_MAX / MEMTABLE_SPACE_OVERHEAD_FACTOR)
+   {
+      return STATUS_BAD_PARAM;
+   }
    cfg->btree_cfg     = btree_cfg;
    cfg->max_memtables = max_memtables;
+   uint64 physical_capacity =
+      MEMTABLE_SPACE_OVERHEAD_FACTOR * memtable_capacity;
+   uint64 extent_size = cache_config_extent_size(btree_cfg->cache_cfg);
    cfg->max_extents_per_memtable =
-      MEMTABLE_SPACE_OVERHEAD_FACTOR * memtable_capacity
-      / cache_config_extent_size(btree_cfg->cache_cfg);
+      physical_capacity / extent_size
+      + (physical_capacity % extent_size != 0);
+   return STATUS_OK;
 }

@@ -280,36 +280,39 @@ base_addr(cache *cc, uint64 addr)
  *      Initialize a new mini allocator.
  *
  * Results:
- *      The 0th batch next address to be allocated.
+ *      STATUS_OK on success. If next_addr is non-NULL, stores the 0th batch's
+ *      next address there.
  *
  * Side effects:
  *      None.
  *-----------------------------------------------------------------------------
  */
-uint64
+platform_status
 mini_init(mini_allocator *mini,
           cache          *cc,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
-          page_type       type)
+          page_type       type,
+          uint64         *next_addr)
 {
    page_type types[MINI_MAX_BATCHES];
    for (uint64 batch = 0; batch < num_batches; batch++) {
       types[batch] = type;
    }
    return mini_init_with_types(
-      mini, cc, meta_head, meta_tail, num_batches, type, types);
+      mini, cc, meta_head, meta_tail, num_batches, type, types, next_addr);
 }
 
-uint64
+platform_status
 mini_init_with_types(mini_allocator  *mini,
                      cache           *cc,
                      uint64           meta_head,
                      uint64           meta_tail,
                      uint64           num_batches,
                      page_type        meta_type,
-                     const page_type *types)
+                     const page_type *types,
+                     uint64          *next_addr)
 {
    platform_assert(num_batches <= MINI_MAX_BATCHES);
    platform_assert(num_batches != 0);
@@ -327,7 +330,7 @@ mini_init_with_types(mini_allocator  *mini,
    mini->pinned      = (meta_type == PAGE_TYPE_MEMTABLE);
    memcpy(mini->types, types, num_batches * sizeof(*types));
 
-   page_handle *meta_page;
+   page_handle *meta_page = NULL;
    if (meta_tail == 0) {
       // new mini allocator
       mini->meta_tail = meta_head;
@@ -339,24 +342,50 @@ mini_init_with_types(mini_allocator  *mini,
          allocator_inc_ref(mini->al, base_addr(cc, mini->meta_head));
       platform_assert(ref == MINI_NO_REFS + 1);
 
-      if (mini->pinned) {
-         cache_pin(cc, meta_page);
-      }
-      mini_full_unlock_meta_page(mini, meta_page);
    } else {
       // load mini allocator
       mini->meta_tail = meta_tail;
    }
 
-   for (uint64 batch = 0; batch < num_batches; batch++) {
+   uint64 batch = 0;
+   for (; batch < num_batches; batch++) {
       // because we recover ref counts from the mini allocators on recovery, we
       // don't need to store these in the mini allocator until we consume them.
       platform_status rc = mini_allocator_get_new_extent(
          mini, mini->types[batch], &mini->next_extent[batch]);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         for (uint64 initialized_batch = 0; initialized_batch < batch;
+              initialized_batch++)
+         {
+            refcount ref = allocator_dec_ref(mini->al,
+                                             mini->next_extent[initialized_batch],
+                                             mini->types[initialized_batch]);
+            platform_assert(ref == AL_NO_REFS);
+            ref = allocator_dec_ref(mini->al,
+                                    mini->next_extent[initialized_batch],
+                                    mini->types[initialized_batch]);
+            platform_assert(ref == AL_FREE);
+         }
+         if (meta_page != NULL) {
+            mini_full_unlock_meta_page(mini, meta_page);
+            refcount ref = allocator_dec_ref(
+               mini->al, base_addr(cc, mini->meta_head), mini->meta_type);
+            platform_assert(ref == AL_ONE_REF);
+         }
+         return rc;
+      }
    }
 
-   return mini_next_addr(mini, 0);
+   if (meta_page != NULL) {
+      if (mini->pinned) {
+         cache_pin(cc, meta_page);
+      }
+      mini_full_unlock_meta_page(mini, meta_page);
+   }
+   if (next_addr != NULL) {
+      *next_addr = mini_next_addr(mini, 0);
+   }
+   return STATUS_OK;
 }
 
 /*
@@ -497,7 +526,7 @@ mini_set_prev_meta_addr(mini_allocator *mini,
    hdr->prev_meta_addr = prev_meta_addr;
 }
 
-static bool32
+static platform_status
 mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
 {
    page_handle *meta_page = mini_full_lock_meta_tail(mini);
@@ -513,7 +542,10 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
          // need to allocate the next meta extent
          platform_status rc = mini_allocator_get_new_extent(
             mini, mini->meta_type, &new_meta_tail);
-         platform_assert_status_ok(rc);
+         if (!SUCCESS(rc)) {
+            mini_full_unlock_meta_page(mini, meta_page);
+            return rc;
+         }
       }
 
       mini_set_next_meta_addr(mini, meta_page, new_meta_tail);
@@ -546,7 +578,7 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
    mini->cur_extent_meta_page[batch] =
       __atomic_load_n(&mini->meta_tail, __ATOMIC_RELAXED);
    mini_full_unlock_meta_page(mini, meta_page);
-   return TRUE;
+   return STATUS_OK;
 }
 
 platform_status
@@ -587,16 +619,28 @@ mini_alloc_bytes(mini_allocator *mini,
    while (remainder) {
       if (next_addr % extent_size == 0) {
          uint64          extent_addr = mini->next_extent[batch];
-         platform_status rc          = mini_allocator_get_new_extent(
-            mini, mini->types[batch], &mini->next_extent[batch]);
+         uint64          new_next_extent;
+         platform_status rc = mini_allocator_get_new_extent(
+            mini, mini->types[batch], &new_next_extent);
          if (!SUCCESS(rc)) {
             mini_unlock_batch_set_next_addr(mini, batch, next_addr);
             return rc;
          }
          next_addr = extent_addr;
 
-         bool32 success = mini_append_entry(mini, batch, next_addr);
-         platform_assert(success);
+         rc = mini_append_entry(mini, batch, next_addr);
+         if (!SUCCESS(rc)) {
+            refcount ref = allocator_dec_ref(
+               mini->al, new_next_extent, mini->types[batch]);
+            platform_assert(ref == AL_NO_REFS);
+            ref = allocator_dec_ref(
+               mini->al, new_next_extent, mini->types[batch]);
+            platform_assert(ref == AL_FREE);
+            __sync_fetch_and_sub(&mini->num_extents, 1);
+            mini_unlock_batch_set_next_addr(mini, batch, next_addr);
+            return rc;
+         }
+         mini->next_extent[batch] = new_next_extent;
       }
 
       uint64 this_alloc_size =
@@ -626,34 +670,42 @@ mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch)
    mini_unlock_batch_set_next_addr(mini, batch, saved_next_addr);
 }
 
-uint64
-mini_alloc_page(mini_allocator *mini, uint64 batch, uint64 *next_extent)
+platform_status
+mini_alloc_page(mini_allocator *mini,
+                uint64          batch,
+                uint64         *addr,
+                uint64         *next_extent)
 {
    uint64          addrs[2]  = {0, 0};
    uint64          page_size = cache_page_size(mini->cc);
    platform_status rc        = mini_alloc_bytes(
       mini, batch, page_size, page_size, 0, addrs, next_extent);
    if (!SUCCESS(rc)) {
-      return 0;
+      return rc;
    }
    debug_assert(addrs[1] == 0);
    mini_alloc_bytes_finish(mini, batch);
-   return addrs[0];
+   *addr = addrs[0];
+   return STATUS_OK;
 }
 
-uint64
-mini_alloc_extent(mini_allocator *mini, uint64 batch, uint64 *next_extent)
+platform_status
+mini_alloc_extent(mini_allocator *mini,
+                  uint64          batch,
+                  uint64         *addr,
+                  uint64         *next_extent)
 {
    uint64          addrs[2]    = {0, 0};
    uint64          extent_size = cache_extent_size(mini->cc);
    platform_status rc          = mini_alloc_bytes(
       mini, batch, extent_size, extent_size, 0, addrs, next_extent);
    if (!SUCCESS(rc)) {
-      return 0;
+      return rc;
    }
    debug_assert(addrs[1] == 0);
    mini_alloc_bytes_finish(mini, batch);
-   return addrs[0];
+   *addr = addrs[0];
+   return STATUS_OK;
 }
 
 platform_status
@@ -664,8 +716,12 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr)
 
    uint64 old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
    allocator_inc_ref(mini->al, addr);
-   bool32 success = mini_append_entry(mini, batch, addr);
-   platform_assert(success);
+   platform_status rc = mini_append_entry(mini, batch, addr);
+   if (!SUCCESS(rc)) {
+      (void)allocator_dec_ref(mini->al, addr, mini->types[batch]);
+      mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
+      return rc;
+   }
    mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
    return STATUS_OK;
 }

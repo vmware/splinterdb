@@ -53,22 +53,24 @@ typedef struct mini_allocator {
    uint64 cur_extent_meta_page[MINI_MAX_BATCHES];
 } mini_allocator;
 
-uint64
+platform_status
 mini_init(mini_allocator *mini,
           cache          *cc,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
-          page_type       type);
+          page_type       type,
+          uint64         *next_addr);
 
-uint64
+platform_status
 mini_init_with_types(mini_allocator  *mini,
                      cache           *cc,
                      uint64           meta_head,
                      uint64           meta_tail,
                      uint64           num_batches,
                      page_type        meta_type,
-                     const page_type *types);
+                     const page_type *types,
+                     uint64          *next_addr);
 void
 mini_release(mini_allocator *mini);
 
@@ -84,11 +86,17 @@ mini_alloc_bytes(mini_allocator *mini,
 void
 mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch);
 
-uint64
-mini_alloc_page(mini_allocator *mini, uint64 batch, uint64 *next_extent);
+platform_status
+mini_alloc_page(mini_allocator *mini,
+                uint64          batch,
+                uint64         *addr,
+                uint64         *next_extent);
 
-uint64
-mini_alloc_extent(mini_allocator *mini, uint64 batch, uint64 *next_extent);
+platform_status
+mini_alloc_extent(mini_allocator *mini,
+                  uint64          batch,
+                  uint64         *addr,
+                  uint64         *next_extent);
 
 platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr);

@@ -133,9 +133,12 @@ build_blob_table(const blob_build_config *cfg,
    blobby->format   = BLOB_FORMAT;
 
    for (uint64 i = 0; i < num_extents; i++) {
-      uint64 alloced_page = mini_alloc_extent(mini, cfg->extent_batch, NULL);
-      debug_assert(alloced_page != 0);
-      debug_assert(alloced_page != 1);
+      uint64 alloced_page;
+      rc = mini_alloc_extent(
+         mini, cfg->extent_batch, &alloced_page, NULL);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       blobby->addrs[i] = alloced_page;
    }
 

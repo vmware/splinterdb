@@ -515,13 +515,16 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   mini_init(&mini, original_ccp, meta_head, 0, 1, PAGE_TYPE_MISC);
+   rc = mini_init(
+      &mini, original_ccp, meta_head, 0, 1, PAGE_TYPE_MISC, NULL);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
    mini_live = TRUE;
 
    for (uint64 i = 0; i < TEST_MINI_RECOVER_NUM_DATA_EXTENTS; i++) {
-      data_extents[i] = mini_alloc_extent(&mini, 0, NULL);
-      if (data_extents[i] == 0) {
-         rc = STATUS_NO_SPACE;
+      rc = mini_alloc_extent(&mini, 0, &data_extents[i], NULL);
+      if (!SUCCESS(rc)) {
          goto cleanup;
       }
    }

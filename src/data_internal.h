@@ -712,6 +712,10 @@ data_merge_tuples(const data_config *cfg,
       return data_merge_tuples_final(cfg, tuple_key, new_message);
    }
 
+   if (cfg == NULL || cfg->merge_tuples == NULL) {
+      return -1;
+   }
+
    // new class is UPDATE and old class is INSERT or UPDATE
    platform_status rc = merge_accumulator_ensure_materialized(new_message);
    if (!SUCCESS(rc)) {
@@ -750,6 +754,10 @@ data_merge_tuples_final(const data_config *cfg,
 
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
+   }
+
+   if (cfg == NULL || cfg->merge_tuples_final == NULL) {
+      return -1;
    }
 
    platform_status rc = merge_accumulator_ensure_materialized(oldest_message);

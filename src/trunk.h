@@ -196,6 +196,9 @@ typedef struct trunk_ondisk_node_handle {
  * Lifecycle
  ********************************/
 
+uint64
+trunk_max_fanout(uint64 page_size);
+
 void
 trunk_config_init(trunk_config         *config,
                   const data_config    *data_cfg,
