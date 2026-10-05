@@ -4473,7 +4473,11 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
                         PAGE_TYPE_MEMTABLE,
                         target,
                         &lookup);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         platform_error_log("core_print_lookup: memtable lookup failed: %s\n",
+                            platform_status_to_string(rc));
+         goto cleanup_lookup;
+      }
       if (lookup_result_found(&lookup)) {
          char    key_str[128];
          char    message_str[128];
@@ -4495,10 +4499,21 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
    }
 
    trunk_ondisk_node_handle handle;
-   trunk_init_root_handle(&spl->trunk_context, &handle);
-   trunk_merge_lookup(
+   platform_status rc = trunk_init_root_handle(&spl->trunk_context, &handle);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_print_lookup: root lookup failed: %s\n",
+                         platform_status_to_string(rc));
+      goto cleanup_lookup;
+   }
+   rc = trunk_merge_lookup(
       &spl->trunk_context, &handle, target, &lookup, log_handle);
    trunk_ondisk_node_handle_deinit(&handle);
+   if (!SUCCESS(rc)) {
+      platform_error_log("core_print_lookup: trunk lookup failed: %s\n",
+                         platform_status_to_string(rc));
+   }
+
+cleanup_lookup:
    lookup_result_deinit(&lookup);
 }
 

@@ -1471,6 +1471,81 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
    btree_dec_ref(cc, cfg, source_root, PAGE_TYPE_MEMTABLE);
 }
 
+CTEST2(btree_stress, count_in_range_returns_lookup_error)
+{
+   cache         *cc  = (cache *)&data->cc;
+   btree_config  *cfg = &data->dbtree_cfg;
+   mini_allocator mini;
+   const uint64   count = 80;
+   uint64 source_root   = btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   for (uint64 n = 0; n < count; n++) {
+      bounds_insert(
+         cc, cfg, data->hid, data->test_scratch, &mini, source_root, 2 * n);
+   }
+
+   btree_iterator  source;
+   platform_status rc = btree_iterator_init(cc,
+                                            cfg,
+                                            &source,
+                                            source_root,
+                                            PAGE_TYPE_MEMTABLE,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            less_than,
+                                            POSITIVE_INFINITY_KEY,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
+                                            FALSE,
+                                            0,
+                                            0);
+   ASSERT_TRUE(SUCCESS(rc));
+   btree_pack_req req;
+   rc = btree_pack_req_init(
+      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc                 = btree_pack(&req);
+   uint64 packed_root = req.root_addr;
+   btree_pack_req_deinit(&req, data->hid);
+   btree_iterator_deinit(&source);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 min_buf, max_buf;
+   key    min_key = bounds_key(10, &min_buf);
+   key    max_key = bounds_key(20, &max_buf);
+   for (uint64 fail_at = 1; fail_at <= 2; fail_at++) {
+      iterator_endpoint_fault fault = {
+         .cc       = cc,
+         .original = cc->ops,
+         .ops      = *cc->ops,
+         .root     = packed_root,
+         .fail_at  = fail_at,
+      };
+      fault.ops.page_get             = iterator_endpoint_fault_get;
+      active_iterator_endpoint_fault = &fault;
+      cc->ops                        = &fault.ops;
+
+      btree_pivot_stats stats = {
+         .num_kvs = 1, .key_bytes = 1, .message_bytes = 1};
+      rc = btree_count_in_range(cc, cfg, packed_root, min_key, max_key, &stats);
+
+      cc->ops                        = fault.original;
+      active_iterator_endpoint_fault = NULL;
+
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR),
+                  "fail_at=%lu returned %s",
+                  fail_at,
+                  platform_status_to_string(rc));
+      ASSERT_EQUAL(1, fault.failures);
+      ASSERT_EQUAL(0, stats.num_kvs);
+      ASSERT_EQUAL(0, stats.key_bytes);
+      ASSERT_EQUAL(0, stats.message_bytes);
+   }
+
+   btree_dec_ref(cc, cfg, packed_root, PAGE_TYPE_BRANCH);
+   mini_release(&mini);
+   btree_dec_ref(cc, cfg, source_root, PAGE_TYPE_MEMTABLE);
+}
+
 CTEST2(btree_stress, copied_iterator_bounds)
 {
    cache         *cc  = (cache *)&data->cc;

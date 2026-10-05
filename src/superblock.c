@@ -34,6 +34,62 @@ superblock_geometry_matches(disk_geometry geometry, const allocator_config *cfg)
           && geometry.extent_size == cfg->io_cfg->extent_size;
 }
 
+/*
+ * Tree roots and log heads name allocator extents.  Validate these addresses
+ * before any mount path passes them to the allocator or cache.  Zero is
+ * reserved as the absent-root/log sentinel and is handled by the callers.
+ */
+static bool32
+superblock_extent_addr_is_valid(uint64 addr, disk_geometry geometry)
+{
+   return geometry.extent_size <= geometry.disk_size && addr != 0
+          && addr % geometry.extent_size == 0
+          && addr <= geometry.disk_size - geometry.extent_size;
+}
+
+static bool32
+superblock_log_head_is_valid(superblock_log_head log, disk_geometry geometry)
+{
+   if (SUPERBLOCK_NO_LOG(log)) {
+      return log.head.addr == 0 && log.head.nonce.high == 0
+             && log.head.nonce.low == 0 && log.start_generation == 0;
+   }
+
+   return superblock_extent_addr_is_valid(log.head.addr, geometry)
+          && superblock_extent_addr_is_valid(log.head.meta_addr, geometry);
+}
+
+static bool32
+superblock_metadata_is_valid(const superblock *sb)
+{
+   /* Copy packed members by value before inspecting them. */
+   disk_geometry          geometry = sb->geometry;
+   superblock_tree_record tree     = sb->tree;
+
+   if ((tree.root_addr != 0
+        && !superblock_extent_addr_is_valid(tree.root_addr, geometry))
+       || !superblock_log_head_is_valid(tree.live_log, geometry)
+       || !superblock_log_head_is_valid(tree.sealed_log, geometry)
+       || (!SUPERBLOCK_NO_LOG(tree.sealed_log)
+           && SUPERBLOCK_NO_LOG(tree.live_log)))
+   {
+      return FALSE;
+   }
+
+   if (sb->allocation_state_addr == 0) {
+      return TRUE;
+   }
+
+   /*
+    * The refcount map is a fixed-format structure beginning at extent 1.
+    * A valid map describes a clean shutdown, whose durable tree record no
+    * longer needs either recovery log.
+    */
+   return sb->allocation_state_addr == geometry.extent_size
+          && SUPERBLOCK_NO_LOG(tree.live_log)
+          && SUPERBLOCK_NO_LOG(tree.sealed_log);
+}
+
 static bool32
 superblock_has_valid_bootstrap(const superblock *sb)
 {
@@ -54,7 +110,8 @@ superblock_is_valid(const superblock *sb, const allocator_config *cfg)
    /* Copy the packed geometry member by value (avoids an unaligned address). */
    disk_geometry geometry = sb->geometry;
    return superblock_has_valid_bootstrap(sb)
-          && superblock_geometry_matches(geometry, cfg);
+          && superblock_geometry_matches(geometry, cfg)
+          && superblock_metadata_is_valid(sb);
 }
 
 /*

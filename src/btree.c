@@ -5296,7 +5296,7 @@ btree_pack(btree_pack_req *req)
  * Returns the number of kv pairs (k,v ) w/ k < key.  Also returns
  * the total size of all such keys and messages.
  */
-static inline void
+static inline platform_status
 btree_get_rank(cache              *cc,
                const btree_config *cfg,
                uint64              root_addr,
@@ -5307,7 +5307,9 @@ btree_get_rank(cache              *cc,
 
    platform_status rc = btree_lookup_node(
       cc, cfg, root_addr, target, 0, PAGE_TYPE_BRANCH, TRUE, &leaf, stats);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    bool32 found;
    int64  tuple_rank_in_leaf = btree_find_tuple(cfg, leaf.hdr, target, &found);
    if (!found) {
@@ -5315,13 +5317,14 @@ btree_get_rank(cache              *cc,
    }
    accumulate_node_ranks(cfg, leaf.hdr, 0, tuple_rank_in_leaf, stats);
    btree_node_unget(cc, cfg, &leaf);
+   return STATUS_OK;
 }
 
 /*
  * count_in_range returns the exact number of tuples in the given
  * btree between min_key (inc) and max_key (excl).
  */
-void
+platform_status
 btree_count_in_range(cache              *cc,
                      const btree_config *cfg,
                      uint64              root_addr,
@@ -5332,9 +5335,17 @@ btree_count_in_range(cache              *cc,
    btree_pivot_stats min_stats;
 
    debug_assert(!key_is_null(min_key) && !key_is_null(max_key));
+   memset(stats, 0, sizeof(*stats));
 
-   btree_get_rank(cc, cfg, root_addr, min_key, &min_stats);
-   btree_get_rank(cc, cfg, root_addr, max_key, stats);
+   platform_status rc = btree_get_rank(cc, cfg, root_addr, min_key, &min_stats);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   rc = btree_get_rank(cc, cfg, root_addr, max_key, stats);
+   if (!SUCCESS(rc)) {
+      memset(stats, 0, sizeof(*stats));
+      return rc;
+   }
    if (min_stats.num_kvs < stats->num_kvs) {
       stats->num_kvs -= min_stats.num_kvs;
       stats->key_bytes -= min_stats.key_bytes;
@@ -5342,6 +5353,7 @@ btree_count_in_range(cache              *cc,
    } else {
       memset(stats, 0, sizeof(*stats));
    }
+   return STATUS_OK;
 }
 
 /*

@@ -506,7 +506,7 @@ btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 platform_status
 btree_pack(btree_pack_req *req);
 
-void
+platform_status
 btree_count_in_range(cache              *cc,
                      const btree_config *cfg,
                      uint64              root_addr,

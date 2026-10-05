@@ -63,6 +63,9 @@ CTEST_TEARDOWN(superblock)
    platform_deregister_thread();
 }
 
+#define TEST_EXTENT_ADDR(extent_no)                                            \
+   ((uint64)(extent_no) * IO_DEFAULT_EXTENT_SIZE)
+
 /* Zero one raw superblock slot (page) and make the corruption durable. */
 static void
 superblock_test_corrupt_slot(io_handle *io, uint64 page_size, uint64 slot)
@@ -180,16 +183,19 @@ CTEST2(superblock, test_snapshot_persists_state)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   superblock_log_head live = {
-      .head = {.addr = 0x6000, .meta_addr = 0x8000, .nonce = {.low = 0x11}}};
+   superblock_log_head live = {.head = {.addr      = TEST_EXTENT_ADDR(6),
+                                        .meta_addr = TEST_EXTENT_ADDR(8),
+                                        .nonce     = {.low = 0x11}}};
    superblock_log_cut(&ctx, live);
-   superblock_snapshot_tree(&ctx, 0x4000, 0);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_FALSE(
       superblock_allocation_state_valid(&ctx)); // snapshot invalidated
 
-   superblock_snapshot_allocator(&ctx, 0x8000);
+   /* Clean unmount publishes a root with no recovery logs before the map. */
+   superblock_discard_logs(&ctx);
+   superblock_snapshot_allocator(&ctx, TEST_EXTENT_ADDR(1));
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
@@ -200,15 +206,13 @@ CTEST2(superblock, test_snapshot_persists_state)
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_TRUE(superblock_allocation_state_valid(&ctx));
-   ASSERT_EQUAL(0x8000, superblock_allocation_state_addr(&ctx));
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(1), superblock_allocation_state_addr(&ctx));
 
    superblock_tree_record got;
    superblock_get_tree_record(&ctx, &got);
-   ASSERT_EQUAL(0x4000, got.root_addr);
-   ASSERT_EQUAL(0x6000, got.live_log.head.addr);
-   ASSERT_EQUAL(0x8000, got.live_log.head.meta_addr);
-   ASSERT_EQUAL(0x11, got.live_log.head.nonce.low);
-   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log)); // no checkpoint in progress
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(4), got.root_addr);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.live_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
    superblock_context_deinit(&ctx);
 }
 
@@ -217,10 +221,14 @@ CTEST2(superblock, test_snapshot_persists_state)
  * covers generations 0..5 and is cut at 5, so L2 takes over at 6.
  */
 static const superblock_log_head TEST_LOG_L1 = {
-   .head = {.addr = 0x6000, .meta_addr = 0x8000, .nonce = {.low = 0x11}},
+   .head             = {.addr      = TEST_EXTENT_ADDR(6),
+                        .meta_addr = TEST_EXTENT_ADDR(8),
+                        .nonce     = {.low = 0x11}},
    .start_generation = 0};
 static const superblock_log_head TEST_LOG_L2 = {
-   .head = {.addr = 0x10000, .meta_addr = 0x12000, .nonce = {.low = 0x22}},
+   .head             = {.addr      = TEST_EXTENT_ADDR(10),
+                        .meta_addr = TEST_EXTENT_ADDR(12),
+                        .nonce     = {.low = 0x22}},
    .start_generation = 6};
 
 /*
@@ -240,7 +248,7 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
 
    // Steady: root R0, live L1, no sealed log.
    superblock_log_cut(&ctx, TEST_LOG_L1);
-   superblock_snapshot_tree(&ctx, 0x4000, 5);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 5);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -256,7 +264,7 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
 
    // Complete: advance the root past L1's coverage (first unincorporated 9 >=
    // L2's start 6), so the sealed log is dropped and L2 carries forward.
-   superblock_snapshot_tree(&ctx, 0x4400, 9);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(5), 9);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
@@ -268,7 +276,7 @@ CTEST2(superblock, test_two_log_checkpoint_transitions)
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_get_tree_record(&ctx, &got);
-   ASSERT_EQUAL(0x4400, got.root_addr);
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(5), got.root_addr);
    ASSERT_EQUAL(9, got.first_unincorporated_generation);
    ASSERT_EQUAL(TEST_LOG_L2.head.meta_addr, got.live_log.head.meta_addr);
    ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
@@ -307,19 +315,19 @@ CTEST2(superblock, test_snapshot_preserves_unincorporated_sealed_log)
    ASSERT_EQUAL(TEST_LOG_L2.head.meta_addr, mid.live_log.head.meta_addr);
 
    // Commit a root that stops short of L1's last generation: L1 must be kept.
-   superblock_snapshot_tree(&ctx, 0x4000, 5);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 5);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
 
    superblock_tree_record got;
    superblock_get_tree_record(&ctx, &got);
-   ASSERT_EQUAL(0x4000, got.root_addr);
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(4), got.root_addr);
    ASSERT_EQUAL(TEST_LOG_L2.head.meta_addr, got.live_log.head.meta_addr);
    ASSERT_EQUAL(TEST_LOG_L1.head.meta_addr, got.sealed_log.head.meta_addr);
    ASSERT_EQUAL(TEST_LOG_L1.start_generation, got.sealed_log.start_generation);
 
    // Now a root that covers all of L1's generations: it is dropped.
-   superblock_snapshot_tree(&ctx, 0x4400, 6);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(5), 6);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_get_tree_record(&ctx, &got);
@@ -346,7 +354,7 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    // so the fallback below is unambiguously the steady state, not the empty
    // format one.
    superblock_log_cut(&ctx, TEST_LOG_L1);
-   superblock_snapshot_tree(&ctx, 0x4000, 5);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 5);
    rc = superblock_make_durable(&ctx); // gen3 -> slot0
    ASSERT_TRUE(SUCCESS(rc));
    rc = superblock_make_durable(&ctx); // gen4 -> slot1
@@ -369,7 +377,7 @@ CTEST2(superblock, test_two_log_checkpoint_torn_begin)
    ASSERT_TRUE(SUCCESS(rc));
    superblock_tree_record got;
    superblock_get_tree_record(&ctx, &got);
-   ASSERT_EQUAL(0x4000, got.root_addr);
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(4), got.root_addr);
    ASSERT_EQUAL(TEST_LOG_L1.head.meta_addr, got.live_log.head.meta_addr);
    ASSERT_TRUE(SUPERBLOCK_NO_LOG(got.sealed_log));
    superblock_context_deinit(&ctx);
@@ -392,7 +400,7 @@ CTEST2(superblock, test_torn_write_falls_back_to_older_generation)
 
    // After format the image is gen 2 in slot 1, so this make_durable targets
    // slot 0.  Snapshot a nonempty root with no live log.
-   superblock_snapshot_tree(&ctx, 0x4000, 0);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
@@ -428,12 +436,12 @@ CTEST2(superblock, test_generation_wrap_selects_newest_slot)
    /* Arrange two final, adjacent generations: UINT64_MAX in slot 0 and zero
     * in slot 1. The intermediate generation assignment is test setup only. */
    ctx.image->generation = UINT64_MAX - 1;
-   superblock_snapshot_tree(&ctx, 0x4000, 0);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_EQUAL(UINT64_MAX, ctx.image->generation);
 
-   superblock_snapshot_tree(&ctx, 0x8000, 0);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(8), 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_EQUAL(0, ctx.image->generation);
@@ -444,7 +452,7 @@ CTEST2(superblock, test_generation_wrap_selects_newest_slot)
    rc = superblock_read_bootstrap(data->io_cfg.filename, &image);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_EQUAL(0, image.generation);
-   ASSERT_EQUAL(0x8000, image.tree.root_addr);
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(8), image.tree.root_addr);
 
    rc =
       superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
@@ -454,10 +462,10 @@ CTEST2(superblock, test_generation_wrap_selects_newest_slot)
    ASSERT_EQUAL(0, ctx.image->generation);
    superblock_tree_record got;
    superblock_get_tree_record(&ctx, &got);
-   ASSERT_EQUAL(0x8000, got.root_addr);
+   ASSERT_EQUAL(TEST_EXTENT_ADDR(8), got.root_addr);
 
    /* Publishing continues normally on the other side of the wrap. */
-   superblock_snapshot_tree(&ctx, 0xc000, 0);
+   superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(12), 0);
    rc = superblock_make_durable(&ctx);
    ASSERT_TRUE(SUCCESS(rc));
    ASSERT_EQUAL(1, ctx.image->generation);
@@ -484,6 +492,74 @@ CTEST2(superblock, test_both_slots_corrupt_is_not_found)
    rc = superblock_mount(&ctx, &data->allocator_cfg);
    ASSERT_FALSE(SUCCESS(rc));
    superblock_context_deinit(&ctx);
+}
+
+/*
+ * Checksums authenticate bytes, not their meaning.  Full mount must reject
+ * checksummed metadata that cannot have been produced by the allocator and
+ * two-log checkpoint protocol.
+ */
+CTEST2(superblock, test_mount_rejects_invalid_metadata)
+{
+   enum {
+      INVALID_MAP_ADDRESS,
+      CLEAN_STATE_WITH_LOG,
+      MISALIGNED_ROOT,
+      INCOMPLETE_LOG_HEAD,
+      SEALED_LOG_WITHOUT_LIVE_LOG,
+      NUM_INVALID_CASES,
+   };
+
+   for (uint64 test_case = 0; test_case < NUM_INVALID_CASES; test_case++) {
+      superblock_context ctx;
+      platform_status    rc = superblock_context_init(
+         &ctx, data->ioh, &data->allocator_cfg, data->hid);
+      ASSERT_TRUE(SUCCESS(rc));
+      rc = superblock_format(&ctx, &data->allocator_cfg);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      superblock_log_head valid_log = {
+         .head = {.addr      = TEST_EXTENT_ADDR(6),
+                  .meta_addr = TEST_EXTENT_ADDR(8),
+                  .nonce     = {.low = 1}}};
+      switch (test_case) {
+         case INVALID_MAP_ADDRESS:
+            ctx.image->allocation_state_addr = TEST_EXTENT_ADDR(2);
+            break;
+         case CLEAN_STATE_WITH_LOG:
+            ctx.image->tree.live_log         = valid_log;
+            ctx.image->allocation_state_addr = TEST_EXTENT_ADDR(1);
+            break;
+         case MISALIGNED_ROOT:
+            ctx.image->tree.root_addr = data->io_cfg.page_size;
+            break;
+         case INCOMPLETE_LOG_HEAD:
+            ctx.image->tree.live_log.head.addr = TEST_EXTENT_ADDR(6);
+            break;
+         case SEALED_LOG_WITHOUT_LIVE_LOG:
+            ctx.image->tree.sealed_log = valid_log;
+            break;
+         default:
+            platform_assert(FALSE);
+      }
+
+      /* Replace both physical slots with independently checksummed copies. */
+      rc = superblock_make_durable(&ctx);
+      ASSERT_TRUE(SUCCESS(rc));
+      rc = superblock_make_durable(&ctx);
+      ASSERT_TRUE(SUCCESS(rc));
+      superblock_context_deinit(&ctx);
+
+      rc = superblock_context_init(
+         &ctx, data->ioh, &data->allocator_cfg, data->hid);
+      ASSERT_TRUE(SUCCESS(rc));
+      rc = superblock_mount(&ctx, &data->allocator_cfg);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NOT_FOUND),
+                  "invalid metadata case %lu mounted: %s",
+                  test_case,
+                  platform_status_to_string(rc));
+      superblock_context_deinit(&ctx);
+   }
 }
 
 /* A read failure in either A/B slot must not hide the valid peer slot. */

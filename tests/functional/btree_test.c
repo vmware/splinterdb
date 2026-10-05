@@ -2528,7 +2528,11 @@ test_btree_count_in_range(cache             *cc,
       btree_pivot_stats stats;
       key               min_key = key_buffer_key(&bound_key[0]);
       key               max_key = key_buffer_key(&bound_key[1]);
-      btree_count_in_range(cc, btree_cfg, root_addr, min_key, max_key, &stats);
+      rc                        = btree_count_in_range(
+         cc, btree_cfg, root_addr, min_key, max_key, &stats);
+      if (!SUCCESS(rc)) {
+         goto destroy_btree;
+      }
       if (btree_key_compare(btree_cfg, min_key, max_key) > 0) {
          if (stats.num_kvs != 0) {
             platform_default_log("btree_count_in_range did not return 0 for "

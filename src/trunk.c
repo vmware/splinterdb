@@ -4715,12 +4715,14 @@ compute_input_stats(trunk_context            *context,
    for (uint64 i = 0; i < vector_length(branches); i++) {
       trunk_branch_info bi = vector_get(branches, i);
       btree_pivot_stats btree_stats;
-      btree_count_in_range(
+      platform_status   rc = btree_count_in_range(
          context->cc, context->cfg->btree_cfg, bi.addr, lb, ub, &btree_stats);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       trunk_pivot_stats stats =
          trunk_pivot_stats_from_btree_pivot_stats(btree_stats);
-      platform_status rc =
-         trunk_pivot_stats_add(*input_stats, stats, input_stats);
+      rc = trunk_pivot_stats_add(*input_stats, stats, input_stats);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -5045,12 +5047,15 @@ accumulate_branch_tuple_counts_in_range(branch_ref         bref,
                                         btree_pivot_stats *acc)
 {
    btree_pivot_stats stats;
-   btree_count_in_range(context->cc,
-                        context->cfg->btree_cfg,
-                        branch_ref_addr(bref),
-                        minkey,
-                        maxkey,
-                        &stats);
+   platform_status   rc = btree_count_in_range(context->cc,
+                                             context->cfg->btree_cfg,
+                                             branch_ref_addr(bref),
+                                             minkey,
+                                             maxkey,
+                                             &stats);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    acc->num_kvs += stats.num_kvs;
    acc->key_bytes += stats.key_bytes;
    acc->message_bytes += stats.message_bytes;
@@ -5246,12 +5251,15 @@ leaf_estimate_unique_keys(trunk_context *context,
       if (routing_filters_equal(&maplet, &NULL_ROUTING_FILTER)) {
          btree_pivot_stats stats;
          platform_assert(bundle_num_branches(bndl) <= 1);
-         btree_count_in_range(context->cc,
-                              context->cfg->btree_cfg,
-                              bundle_branch(bndl, 0).addr,
-                              trunk_node_pivot_min_key(leaf),
-                              trunk_node_pivot_max_key(leaf),
-                              &stats);
+         rc = btree_count_in_range(context->cc,
+                                   context->cfg->btree_cfg,
+                                   bundle_branch(bndl, 0).addr,
+                                   trunk_node_pivot_min_key(leaf),
+                                   trunk_node_pivot_max_key(leaf),
+                                   &stats);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
          unfiltered_tuples += stats.num_kvs;
       } else {
          rc = vector_append(&maplets, maplet);
@@ -5267,12 +5275,15 @@ leaf_estimate_unique_keys(trunk_context *context,
       platform_assert(bundle_num_branches(&pivot_bundle) <= 1);
       if (bundle_num_branches(&pivot_bundle) == 1) {
          btree_pivot_stats stats;
-         btree_count_in_range(context->cc,
-                              context->cfg->btree_cfg,
-                              bundle_branch(&pivot_bundle, 0).addr,
-                              trunk_node_pivot_min_key(leaf),
-                              trunk_node_pivot_max_key(leaf),
-                              &stats);
+         rc = btree_count_in_range(context->cc,
+                                   context->cfg->btree_cfg,
+                                   bundle_branch(&pivot_bundle, 0).addr,
+                                   trunk_node_pivot_min_key(leaf),
+                                   trunk_node_pivot_max_key(leaf),
+                                   &stats);
+         if (!SUCCESS(rc)) {
+            goto cleanup;
+         }
          unfiltered_tuples += stats.num_kvs;
       }
    } else {
@@ -6992,6 +7003,13 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
                                      tgt,
                                      &temp_result,
                                      &branch_found);
+         if (!SUCCESS(rc)) {
+            lookup_result_deinit(&temp_result);
+            platform_error_log("ondisk_bundle_merge_lookup: diagnostic "
+                               "btree_lookup_and_merge failed: %d\n",
+                               rc.r);
+            return rc;
+         }
          platform_log(log,
                       "branch: %lu found: %u\n",
                       branch_ref_addr(bndl->branches[idx]),
@@ -7126,8 +7144,15 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
             state->tgt,
             &temp_result,
             NULL);
+         if (!SUCCESS(rc)) {
+            lookup_result_deinit(&temp_result);
+            state->rc = rc;
+            platform_error_log("ondisk_bundle_merge_lookup_async: diagnostic "
+                               "btree_lookup_and_merge failed: %d\n",
+                               rc.r);
+            async_return(state);
+         }
          bool32 found = lookup_result_found(&temp_result);
-         platform_assert_status_ok(rc);
          platform_log(state->log,
                       "branch: %lu found: %u\n",
                       branch_ref_addr(state->bndl->branches[state->idx]),
