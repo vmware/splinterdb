@@ -1303,6 +1303,11 @@ typedef struct core_log_write_context {
    bool32                      reserved;
 } core_log_write_context;
 
+typedef struct core_insert_callback_context {
+   core_log_write_context *log_write;
+   lookup_result          *preactive_result;
+} core_insert_callback_context;
+
 static inline message
 core_log_message(const core_log_write_context *ctxt)
 {
@@ -1329,6 +1334,64 @@ core_log_write_reserve(void *arg)
    }
    ctxt->reserved = TRUE;
    return STATUS_OK;
+}
+
+/*
+ * Add a fully evaluated older lookup result after the newer messages already
+ * accumulated in result.  Lookup accumulation is ordered newest to oldest,
+ * so this is the only valid direction in which to combine independently
+ * computed portions of a lookup.
+ */
+static platform_status
+core_lookup_result_add_older(lookup_result       *result,
+                             key                  tuple_key,
+                             const lookup_result *older)
+{
+   if (!lookup_result_should_continue(result)
+       || merge_accumulator_is_null(&older->value))
+   {
+      return STATUS_OK;
+   }
+
+   return lookup_result_update(result,
+                               tuple_key,
+                               merge_accumulator_to_message(&older->value),
+                               &older->blob_ref);
+}
+
+/*
+ * Complete all fallible old-value work at the B-tree's insertion
+ * linearization point, before reserving the log record.  The B-tree has
+ * already accumulated the active memtable's previous message into old_result;
+ * preactive_result contains every older message.
+ */
+static platform_status
+core_insert_prepare(void *arg)
+{
+   core_insert_callback_context *ctxt      = arg;
+   core_log_write_context       *log_write = ctxt->log_write;
+
+   if (ctxt->preactive_result != NULL) {
+      lookup_result *old_result = log_write->insert_results->old_result_buffer;
+      platform_assert(old_result != NULL);
+
+      platform_status rc = core_lookup_result_add_older(
+         old_result, log_write->tuple_key, ctxt->preactive_result);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      rc = lookup_result_finalize(old_result, log_write->tuple_key);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      rc = lookup_result_ensure_materialized(old_result);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   return log_write->log == NULL ? STATUS_OK
+                                 : core_log_write_reserve(log_write);
 }
 
 static platform_status
@@ -2523,6 +2586,152 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
 }
 
 /*
+ * Compute the portion of a fetch-and-update lookup below the current active
+ * memtable.  Freezing the insert generation while acquiring the lookup lock
+ * gives the lookup a consistent boundary; the active memtable may rotate as
+ * soon as the insert lock is released, but every generation below it remains
+ * protected by the lookup lock until its root or the trunk root has been
+ * incref'd.
+ */
+static platform_status
+core_fetch_and_update_first_pass(core_handle   *spl,
+                                 key            tuple_key,
+                                 lookup_result *base_result,
+                                 uint64        *skipped_generation)
+{
+   memtable_begin_insert(&spl->mt_ctxt);
+   *skipped_generation = memtable_generation(&spl->mt_ctxt);
+   memtable_begin_lookup(&spl->mt_ctxt);
+   memtable_end_insert(&spl->mt_ctxt);
+
+   platform_status rc = core_lookup_from_memtable_generation_locked(
+      spl, *skipped_generation - 1, tuple_key, base_result);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   return lookup_result_ensure_materialized(base_result);
+}
+
+typedef struct core_catch_up_ref {
+   uint64    root_addr;
+   page_type type;
+} core_catch_up_ref;
+
+static void
+core_catch_up_dec_ref(core_handle *spl, const core_catch_up_ref *ref)
+{
+   if (ref->type == PAGE_TYPE_BRANCH) {
+      btree_dec_ref(
+         spl->cc, spl->cfg.btree_cfg, ref->root_addr, PAGE_TYPE_BRANCH);
+   } else {
+      platform_assert(ref->type == PAGE_TYPE_MEMTABLE);
+      core_memtable_dec_ref(spl, ref->root_addr);
+   }
+}
+
+/*
+ * With the insert lock freezing active_generation, inc_ref every memtable from
+ * active_generation - 1 through catch_up_boundary.  Once those references are
+ * held, neither the insert nor lookup lock is needed while the point lookups
+ * and merges run.
+ *
+ * If catch_up_boundary itself has already been incorporated, older_result was
+ * computed from an earlier trunk root but the missing boundary generation may
+ * no longer be available as a memtable.  That cut cannot be completed without
+ * restarting the first pass, so fail before modifying the active memtable.
+ *
+ * Precondition: the caller holds the insert lock.
+ * Postcondition: this function has released the insert lock on every return.
+ */
+static platform_status
+core_fetch_and_update_catch_up(core_handle         *spl,
+                               key                  tuple_key,
+                               uint64               catch_up_boundary,
+                               uint64               active_generation,
+                               const lookup_result *older_result,
+                               lookup_result       *catch_up_result)
+{
+   platform_assert(catch_up_boundary < active_generation);
+
+   core_catch_up_ref refs[CORE_NUM_MEMTABLES];
+   uint64            num_refs = 0;
+
+   memtable_begin_lookup(&spl->mt_ctxt);
+   uint64 retired_generation = memtable_generation_retired(&spl->mt_ctxt);
+   if (retired_generation != UINT64_MAX
+       && retired_generation >= catch_up_boundary)
+   {
+      memtable_end_lookup(&spl->mt_ctxt);
+      memtable_end_insert(&spl->mt_ctxt);
+      return STATUS_BUSY;
+   }
+   platform_assert(active_generation - catch_up_boundary <= ARRAY_SIZE(refs));
+
+   for (uint64 generation = active_generation - 1;; generation--) {
+      bool32 compacted;
+      bool32 active;
+      uint64 root_addr = core_memtable_root_addr_for_lookup(
+         spl, generation, &compacted, &active);
+      platform_assert(!active);
+
+      if (!compacted) {
+         core_memtable_inc_ref(spl, root_addr);
+         refs[num_refs++] = (core_catch_up_ref){
+            .root_addr = root_addr,
+            .type      = PAGE_TYPE_MEMTABLE,
+         };
+      } else if (root_addr != 0) {
+         btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
+         refs[num_refs++] = (core_catch_up_ref){
+            .root_addr = root_addr,
+            .type      = PAGE_TYPE_BRANCH,
+         };
+      }
+
+      if (generation == catch_up_boundary) {
+         break;
+      }
+   }
+   memtable_end_lookup(&spl->mt_ctxt);
+   memtable_end_insert(&spl->mt_ctxt);
+
+   platform_status rc = STATUS_OK;
+   for (uint64 i = 0;
+        i < num_refs && lookup_result_should_continue(catch_up_result);
+        i++)
+   {
+      rc = btree_lookup_and_merge(spl->cc,
+                                  spl->cfg.btree_cfg,
+                                  refs[i].root_addr,
+                                  refs[i].type,
+                                  tuple_key,
+                                  catch_up_result,
+                                  NULL);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+   }
+
+   for (uint64 i = 0; i < num_refs; i++) {
+      core_catch_up_dec_ref(spl, &refs[i]);
+   }
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   rc = core_lookup_result_add_older(catch_up_result, tuple_key, older_result);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   rc = lookup_result_finalize(catch_up_result, tuple_key);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return lookup_result_ensure_materialized(catch_up_result);
+}
+
+/*
  *-----------------------------------------------------------------------------
  * Main Splinter API functions
  *
@@ -2541,6 +2750,12 @@ core_insert(core_handle   *spl,
    timestamp       ts;
    const threadid  tid = platform_get_tid();
    platform_status rc;
+   lookup_result   base_result;
+   lookup_result   preactive_result;
+   lookup_result  *prepared_result    = NULL;
+   lookup_result  *next_result        = NULL;
+   uint64          skipped_generation = 0;
+   const bool32    fetch_and_update   = old_result != NULL;
 
    if (spl->cfg.use_stats) {
       ts = platform_get_timestamp();
@@ -2550,26 +2765,87 @@ core_insert(core_handle   *spl,
       data = DELETE_MESSAGE;
    }
 
-   if (old_result != NULL) {
+   if (fetch_and_update) {
       lookup_result_reset(old_result);
+      lookup_result_init(
+         &base_result, spl->cfg.data_cfg, old_result->flags, 0, NULL);
+      lookup_result_init(
+         &preactive_result, spl->cfg.data_cfg, old_result->flags, 0, NULL);
+      prepared_result = &base_result;
+      next_result     = &preactive_result;
+
+      rc = core_fetch_and_update_first_pass(
+         spl, tuple_key, &base_result, &skipped_generation);
+      if (!SUCCESS(rc)) {
+         goto deinit_fetch_results;
+      }
    }
 
    uint64    generation;
    memtable *mt = NULL;
    rc           = core_begin_memtable_insert(spl, &generation, &mt);
    if (!SUCCESS(rc)) {
-      goto out;
+      goto deinit_fetch_results;
+   }
+
+   if (fetch_and_update) {
+      uint64 catch_up_boundary = skipped_generation;
+      uint64 catch_up_rounds   = 0;
+
+      while (catch_up_boundary != generation) {
+         /*
+          * Rotation can continue while a round does I/O or invokes user merge
+          * callbacks.  Bound the chase by the memtable-ring size so sustained
+          * rotation produces a retryable failure instead of starvation.
+          */
+         if (catch_up_rounds == spl->mt_ctxt.cfg.max_memtables) {
+            memtable_end_insert(&spl->mt_ctxt);
+            rc = STATUS_BUSY;
+            goto deinit_fetch_results;
+         }
+
+         lookup_result_reset(next_result);
+         rc = core_fetch_and_update_catch_up(spl,
+                                             tuple_key,
+                                             catch_up_boundary,
+                                             generation,
+                                             prepared_result,
+                                             next_result);
+         if (!SUCCESS(rc)) {
+            goto deinit_fetch_results;
+         }
+
+         lookup_result *tmp = prepared_result;
+         prepared_result    = next_result;
+         next_result        = tmp;
+         catch_up_boundary  = generation;
+         catch_up_rounds++;
+
+         rc = core_begin_memtable_insert(spl, &generation, &mt);
+         if (!SUCCESS(rc)) {
+            goto deinit_fetch_results;
+         }
+      }
    }
 
    btree_insert_results insert_results;
    btree_insert_results_init(&insert_results, old_result);
+
    core_log_write_context write_ctxt = {
       .log            = spl->cfg.use_log ? spl->log : NULL,
       .tuple_key      = tuple_key,
       .msg            = data,
       .insert_results = &insert_results,
    };
-   if (write_ctxt.log != NULL) {
+   core_insert_callback_context callback_ctxt;
+   if (fetch_and_update) {
+      callback_ctxt = (core_insert_callback_context){
+         .log_write        = &write_ctxt,
+         .preactive_result = prepared_result,
+      };
+      btree_insert_results_set_callback(
+         &insert_results, core_insert_prepare, &callback_ctxt);
+   } else if (write_ctxt.log != NULL) {
       btree_insert_results_set_callback(
          &insert_results, core_log_write_reserve, &write_ctxt);
    }
@@ -2590,32 +2866,13 @@ core_insert(core_handle   *spl,
       goto end_insert;
    }
 
-   /* TODO: FIXME: One way we could get stuck in a fetch-and-update is if the
-    * insert succeeds but the lookup fails (e.g. due to an I/O error while
-    * traversing the trunk).  I think the promise we should make in that case is
-    * that we will preserve enough information in the log to enable the user
-    * to recover the old value. One way to do this might be to insert a
-    * reference to the trunk into the log. */
-   if (old_result != NULL) {
-      if (lookup_result_should_continue(old_result)) {
-         memtable_begin_lookup(&spl->mt_ctxt);
-         memtable_end_insert(&spl->mt_ctxt);
-         // Passing generation - 1 is allowed here
-         rc = core_lookup_from_memtable_generation_locked(
-            spl, generation - 1, tuple_key, old_result);
-         if (!SUCCESS(rc)) {
-            goto deinit_insert_results;
-         }
-      } else {
-         memtable_end_insert(&spl->mt_ctxt);
-         rc = lookup_result_finalize(old_result, tuple_key);
-      }
-   } else {
-      memtable_end_insert(&spl->mt_ctxt);
-   }
+   memtable_end_insert(&spl->mt_ctxt);
 
-deinit_insert_results:
    btree_insert_results_deinit(&insert_results);
+   if (fetch_and_update) {
+      lookup_result_deinit(&preactive_result);
+      lookup_result_deinit(&base_result);
+   }
 
    task_perform_one_if_needed(spl->ts, spl->cfg.queue_scale_percent);
    // The insert lock is released by here, so this may force a rotation.
@@ -2643,12 +2900,16 @@ deinit_insert_results:
       }
    }
 
-out:
    return rc;
 
 end_insert:
    btree_insert_results_deinit(&insert_results);
    memtable_end_insert(&spl->mt_ctxt);
+deinit_fetch_results:
+   if (fetch_and_update) {
+      lookup_result_deinit(&preactive_result);
+      lookup_result_deinit(&base_result);
+   }
    return rc;
 }
 

@@ -395,6 +395,11 @@ splinterdb_lookup(splinterdb               *kvs,   // IN
 // A successful update is visible to subsequent operations, but is not
 // necessarily durable. Use splinterdb_durable_barrier() to establish crash
 // durability for a prefix of updates.
+//
+// Operations requested with old_result may return EAGAIN if memtable rotations
+// outrun the bounded old-value catch-up, or if a skipped memtable is
+// incorporated before catch-up can increment its reference count. In that
+// case the update has not been applied.
 
 // Insert a key and value.  Overwrites any previous value associated with the
 // key.

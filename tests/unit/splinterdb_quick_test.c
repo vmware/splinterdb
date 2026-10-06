@@ -135,6 +135,9 @@ static void *
 auto_registered_lookup_thread(void *arg);
 
 static void *
+fetch_and_update_thread(void *arg);
+
+static void *
 stats_reset_worker(void *arg);
 
 typedef struct {
@@ -143,10 +146,24 @@ typedef struct {
 } comparison_counting_data_config;
 
 typedef struct {
-   data_config super;
-   bool32      fail;
-   uint64      calls;
+   data_config     super;
+   bool32          fail;
+   uint64          calls;
+   volatile bool32 finalize_block_once;
+   volatile bool32 finalize_blocked;
+   volatile bool32 finalize_release;
+   volatile bool32 merge_block_once;
+   volatile bool32 merge_blocked;
+   volatile bool32 merge_release;
 } final_merge_data_config;
+
+typedef struct {
+   splinterdb               *kvsb;
+   slice                     key;
+   slice                     value;
+   splinterdb_lookup_result *old_result;
+   int                       rc;
+} fetch_and_update_thread_args;
 
 typedef struct {
    splinterdb *kvsb;
@@ -504,6 +521,13 @@ final_merge_test_merge(const data_config *cfg,
                        message            older,
                        merge_accumulator *newer)
 {
+   final_merge_data_config *test_cfg = (final_merge_data_config *)cfg;
+   if (__sync_bool_compare_and_swap(&test_cfg->merge_block_once, TRUE, FALSE)) {
+      __atomic_store_n(&test_cfg->merge_blocked, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&test_cfg->merge_release, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(1000);
+      }
+   }
    merge_accumulator_set_class(newer, MESSAGE_TYPE_INSERT);
    return 0;
 }
@@ -514,7 +538,15 @@ final_merge_test_finalize(const data_config *cfg,
                           merge_accumulator *value)
 {
    final_merge_data_config *test_cfg = (final_merge_data_config *)cfg;
-   test_cfg->calls++;
+   if (__sync_bool_compare_and_swap(
+          &test_cfg->finalize_block_once, TRUE, FALSE))
+   {
+      __atomic_store_n(&test_cfg->finalize_blocked, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&test_cfg->finalize_release, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(1000);
+      }
+   }
+   __sync_fetch_and_add(&test_cfg->calls, 1);
    merge_accumulator_set_class(value, MESSAGE_TYPE_INSERT);
    return test_cfg->fail ? ENOMEM : 0;
 }
@@ -527,6 +559,12 @@ CTEST2(splinterdb_quick, test_final_merge_error_propagation)
    cfg->super.merge_tuples       = final_merge_test_merge;
    cfg->super.merge_tuples_final = final_merge_test_finalize;
    cfg->calls                    = 0;
+   cfg->finalize_block_once      = FALSE;
+   cfg->finalize_blocked         = FALSE;
+   cfg->finalize_release         = FALSE;
+   cfg->merge_block_once         = FALSE;
+   cfg->merge_blocked            = FALSE;
+   cfg->merge_release            = FALSE;
    data->cfg.data_cfg            = &cfg->super;
    ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
    core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
@@ -564,14 +602,142 @@ CTEST2(splinterdb_quick, test_final_merge_error_propagation)
       slice replacement = slice_create(11, "replacement");
       ASSERT_EQUAL(ENOMEM,
                    splinterdb_insert(data->kvsb, key, replacement, &result));
-      // Fetch-and-update has already inserted; only resolving the old value
-      // failed. Ensure the error path released its resources and locks.
+      // Resolving the old value failed before the replacement was inserted.
+      // Ensure the error path released its resources and locks and left the
+      // logical value unchanged.
       cfg->fail = FALSE;
       ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &result));
-      assert_lookup_result_matches_slice(&result, replacement);
+      assert_lookup_result_matches_slice(&result, value);
       splinterdb_lookup_result_deinit(&result);
    }
-   ASSERT_EQUAL_U(8, cfg->calls);
+   ASSERT_EQUAL_U(10, cfg->calls);
+}
+
+CTEST2(splinterdb_quick, test_fetch_and_update_catches_up_after_rotation)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   final_merge_data_config *cfg = &data->final_merge_cfg;
+   default_data_config_init(&cfg->super);
+   cfg->super.merge_tuples       = final_merge_test_merge;
+   cfg->super.merge_tuples_final = final_merge_test_finalize;
+   cfg->fail                     = FALSE;
+   cfg->calls                    = 0;
+   cfg->finalize_block_once      = FALSE;
+   cfg->finalize_blocked         = FALSE;
+   cfg->finalize_release         = FALSE;
+   cfg->merge_block_once         = FALSE;
+   cfg->merge_blocked            = FALSE;
+   cfg->merge_release            = FALSE;
+   data->cfg.data_cfg            = &cfg->super;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   slice key         = slice_create(12, "rotation-key");
+   slice lower       = slice_create(5, "lower");
+   slice skipped     = slice_create(7, "skipped");
+   slice replacement = slice_create(11, "replacement");
+
+   ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, lower, NULL));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+   ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, skipped, NULL));
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   fetch_and_update_thread_args args = {
+      .kvsb       = data->kvsb,
+      .key        = key,
+      .value      = replacement,
+      .old_result = &old_result,
+   };
+
+   cfg->finalize_block_once = TRUE;
+   cfg->merge_block_once    = TRUE;
+   pthread_t thread;
+   ASSERT_EQUAL(0,
+                pthread_create(&thread, NULL, fetch_and_update_thread, &args));
+   while (!__atomic_load_n(&cfg->finalize_blocked, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(1000);
+   }
+
+   // Rotate the generation skipped by the blocked first pass, but leave it
+   // unincorporated so the second pass can catch up from its memtable.
+   ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+   __atomic_store_n(&cfg->finalize_release, TRUE, __ATOMIC_RELEASE);
+
+   // The catch-up merge can be arbitrarily expensive.  Rotate once more while
+   // it is blocked to prove that catch-up does not retain the insert lock.  The
+   // fetch-and-update must then catch up through the newly retired generation.
+   while (!__atomic_load_n(&cfg->merge_blocked, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(1000);
+   }
+   ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+   __atomic_store_n(&cfg->merge_release, TRUE, __ATOMIC_RELEASE);
+   ASSERT_EQUAL(0, pthread_join(thread, NULL));
+
+   ASSERT_EQUAL(0, args.rc);
+   assert_lookup_result_matches_slice(&old_result, skipped);
+   splinterdb_lookup_result_deinit(&old_result);
+}
+
+CTEST2(splinterdb_quick, test_fetch_and_update_rejects_incorporated_boundary)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   final_merge_data_config *cfg = &data->final_merge_cfg;
+   default_data_config_init(&cfg->super);
+   cfg->super.merge_tuples       = final_merge_test_merge;
+   cfg->super.merge_tuples_final = final_merge_test_finalize;
+   cfg->fail                     = FALSE;
+   cfg->calls                    = 0;
+   cfg->finalize_block_once      = FALSE;
+   cfg->finalize_blocked         = FALSE;
+   cfg->finalize_release         = FALSE;
+   cfg->merge_block_once         = FALSE;
+   cfg->merge_blocked            = FALSE;
+   cfg->merge_release            = FALSE;
+   data->cfg.data_cfg            = &cfg->super;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   slice key         = slice_create(12, "boundary-key");
+   slice lower       = slice_create(5, "lower");
+   slice skipped     = slice_create(7, "skipped");
+   slice replacement = slice_create(11, "replacement");
+
+   ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, lower, NULL));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+   ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, skipped, NULL));
+
+   splinterdb_lookup_result old_result;
+   splinterdb_lookup_result_init(
+      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   fetch_and_update_thread_args args = {
+      .kvsb       = data->kvsb,
+      .key        = key,
+      .value      = replacement,
+      .old_result = &old_result,
+   };
+
+   cfg->finalize_block_once = TRUE;
+   pthread_t thread;
+   ASSERT_EQUAL(0,
+                pthread_create(&thread, NULL, fetch_and_update_thread, &args));
+   while (!__atomic_load_n(&cfg->finalize_blocked, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(1000);
+   }
+
+   ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(core->ts)));
+   __atomic_store_n(&cfg->finalize_release, TRUE, __ATOMIC_RELEASE);
+   ASSERT_EQUAL(0, pthread_join(thread, NULL));
+
+   ASSERT_EQUAL(EAGAIN, args.rc);
+   ASSERT_FALSE(splinterdb_lookup_found(&old_result));
+
+   // The failed fetch-and-update did not publish its replacement.
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &old_result));
+   assert_lookup_result_matches_slice(&old_result, skipped);
+   splinterdb_lookup_result_deinit(&old_result);
 }
 
 static void
@@ -2424,6 +2590,15 @@ auto_registered_lookup_thread(void *arg)
    args->tid_after  = platform_get_tid();
 
    splinterdb_lookup_result_deinit(&result);
+   return NULL;
+}
+
+static void *
+fetch_and_update_thread(void *arg)
+{
+   fetch_and_update_thread_args *args = arg;
+   args->rc =
+      splinterdb_insert(args->kvsb, args->key, args->value, args->old_result);
    return NULL;
 }
 
