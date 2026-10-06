@@ -267,11 +267,11 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
       //}
       merge_itor->ordered_iterators[index] = old_min_itor;
    }
-   ordered_iterator *prev = index == 0
-                               ? merge_itor->ordered_iterators_pad
-                               : merge_itor->ordered_iterators[index - 1];
-   prev->next_key_equal = prev_equal;
-   merge_itor->ordered_iterators[index]->next_key_equal     = next_equal;
+   ordered_iterator *prev                               = index == 0
+                                                             ? merge_itor->ordered_iterators_pad
+                                                             : merge_itor->ordered_iterators[index - 1];
+   prev->next_key_equal                                 = prev_equal;
+   merge_itor->ordered_iterators[index]->next_key_equal = next_equal;
 
    debug_verify_sorted(merge_itor, index - 1);
    debug_verify_sorted(merge_itor, index);
@@ -609,8 +609,7 @@ merge_iterator_create(platform_heap_id   hid,
       .curr_data      = NULL_MESSAGE,
       .next_key_equal = FALSE,
    };
-   merge_itor->ordered_iterators_pad =
-      &merge_itor->ordered_iterator_stored_pad;
+   merge_itor->ordered_iterators_pad = &merge_itor->ordered_iterator_stored_pad;
    for (i = 0; i < num_trees; i++) {
       merge_itor->ordered_iterator_stored[i] = (ordered_iterator){
          .seq            = i,

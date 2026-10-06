@@ -185,11 +185,11 @@ typedef struct btree_iterator {
    comparison max_key_comparison;
    key        max_key;
 
-   uint64          root_addr;
-   btree_node      curr;
-   char           *node_copy;
-   int64           idx;
-   int64           curr_min_idx;
+   uint64     root_addr;
+   btree_node curr;
+   char      *node_copy;
+   int64      idx;
+   int64      curr_min_idx;
    // Copies: end_addr is zero until this copy terminates the range, then it is
    // curr.addr with a valid local end_idx. For non-copies, every successful
    // positioning operation prepares end_idx before returning whenever the
@@ -249,8 +249,8 @@ btree_insert_results_init(btree_insert_results *results,
 {
    results->old_result_buffer = old_result_buffer;
    results->leaf_generation   = 0;
-   results->callback     = NULL;
-   results->callback_arg = NULL;
+   results->callback          = NULL;
+   results->callback_arg      = NULL;
 }
 
 static inline void

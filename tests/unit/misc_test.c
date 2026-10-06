@@ -85,7 +85,7 @@ CTEST_TEARDOWN(misc)
 CTEST2(misc, test_histogram_bucket_boundaries)
 {
    const int64 limits[] = {10, 20, 30};
-   histogram *histo =
+   histogram  *histo =
       histogram_create(PROCESS_PRIVATE_HEAP_ID, ARRAY_SIZE(limits) + 1, limits);
    ASSERT_NOT_NULL(histo);
 

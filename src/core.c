@@ -1204,7 +1204,7 @@ core_memtable_mark_incorporation_failed(core_handle    *spl,
                                         platform_status status)
 {
    memtable_block_lookups(&spl->mt_ctxt);
-   memtable *mt = core_get_memtable(spl, generation);
+   memtable      *mt    = core_get_memtable(spl, generation);
    memtable_state state = memtable_get_state(mt);
    platform_error_log("Memtable incorporation failed: generation=%lu "
                       "state=%s status=%s memtable_root=%lu\n",
@@ -3071,8 +3071,7 @@ core_apply_to_range(core_handle   *spl,
       goto destroy_range_itor;
    }
 
-   for (uint64 i = 0;
-        i < num_tuples && iterator_can_next(&range_itor->super);
+   for (uint64 i = 0; i < num_tuples && iterator_can_next(&range_itor->super);
         i++)
    {
       key     curr_key;
@@ -4003,16 +4002,14 @@ core_checkpoint_target_status(core_handle *spl,
    platform_status rc = STATUS_OK;
 
    memtable_begin_lookup(&spl->mt_ctxt);
-   uint64 first_unincorporated =
-      memtable_generation_retired(&spl->mt_ctxt) + 1;
-   *incorporated = first_unincorporated > target;
+   uint64 first_unincorporated = memtable_generation_retired(&spl->mt_ctxt) + 1;
+   *incorporated               = first_unincorporated > target;
 
    if (!*incorporated) {
       for (uint64 generation = first_unincorporated;; generation++) {
          memtable *mt = core_try_get_memtable(spl, generation);
          if (mt != NULL
-             && memtable_get_state(mt)
-                   == MEMTABLE_STATE_INCORPORATION_FAILED)
+             && memtable_get_state(mt) == MEMTABLE_STATE_INCORPORATION_FAILED)
          {
             platform_assert(!SUCCESS(mt->incorporation_status));
             rc = mt->incorporation_status;

@@ -320,10 +320,10 @@ memtable_recycle(memtable_context *ctxt, memtable *mt)
     * mini allocator is protected by its own refcount and may be GCed by this
     * dec-ref or by a later lookup result / iterator release.
     */
-   mini_allocator new_mini;
-   uint64         new_root_addr;
-   platform_status rc = btree_create(
-      cc, mt->cfg, &new_mini, PAGE_TYPE_MEMTABLE, &new_root_addr);
+   mini_allocator  new_mini;
+   uint64          new_root_addr;
+   platform_status rc =
+      btree_create(cc, mt->cfg, &new_mini, PAGE_TYPE_MEMTABLE, &new_root_addr);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -344,7 +344,7 @@ memtable_mark_incorporation_failed(memtable *mt, platform_status status)
 {
    platform_assert(!SUCCESS(status));
    mt->incorporation_status = status;
-   memtable_state state = memtable_get_state(mt);
+   memtable_state state     = memtable_get_state(mt);
    platform_assert(state == MEMTABLE_STATE_COMPACTING
                    || state == MEMTABLE_STATE_INCORPORATION_ASSIGNED
                    || state == MEMTABLE_STATE_INCORPORATED);
@@ -427,12 +427,12 @@ memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 {
    ZERO_CONTENTS(mt);
    mt->cfg = cfg->btree_cfg;
-   platform_status rc = btree_create(
-      cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE, &mt->root_addr);
+   platform_status rc =
+      btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE, &mt->root_addr);
    if (!SUCCESS(rc)) {
       return rc;
    }
-   mt->state     = MEMTABLE_STATE_READY;
+   mt->state                = MEMTABLE_STATE_READY;
    mt->incorporation_status = STATUS_OK;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
@@ -520,11 +520,10 @@ memtable_context_init_at_generation(memtable_context *ctxt,
    batch_rwlock_init(&ctxt->rwlock);
 
    uint64 generation_offset = 0;
-   for (; generation_offset < cfg->max_memtables; generation_offset++)
-   {
+   for (; generation_offset < cfg->max_memtables; generation_offset++) {
       uint64 generation = first_generation + generation_offset;
       uint64 mt_no      = generation % cfg->max_memtables;
-      rc = memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
+      rc                = memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
       if (!SUCCESS(rc)) {
          for (uint64 initialized_offset = 0;
               initialized_offset < generation_offset;
@@ -610,7 +609,6 @@ memtable_config_init(memtable_config *cfg,
       MEMTABLE_SPACE_OVERHEAD_FACTOR * memtable_capacity;
    uint64 extent_size = cache_config_extent_size(btree_cfg->cache_cfg);
    cfg->max_extents_per_memtable =
-      physical_capacity / extent_size
-      + (physical_capacity % extent_size != 0);
+      physical_capacity / extent_size + (physical_capacity % extent_size != 0);
    return STATUS_OK;
 }

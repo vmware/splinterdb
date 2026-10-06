@@ -227,8 +227,7 @@ splinterdb_validate_app_data_config(const data_config *cfg)
 {
    if (cfg == NULL || cfg->key_compare == NULL || cfg->key_hash == NULL
        || cfg->key_to_string == NULL || cfg->message_to_string == NULL
-       || ((cfg->merge_tuples == NULL)
-           != (cfg->merge_tuples_final == NULL)))
+       || ((cfg->merge_tuples == NULL) != (cfg->merge_tuples_final == NULL)))
    {
       platform_error_log("Invalid data configuration: key, hash, and string "
                          "callbacks are required, and merge callbacks must "
@@ -253,9 +252,8 @@ splinterdb_validate_path_config(const splinterdb_config *cfg)
    if (cfg->cache_logfile != NULL
        && memchr(cfg->cache_logfile, '\0', MAX_STRING_LENGTH) == NULL)
    {
-      platform_error_log(
-         "Cache logfile must be shorter than %u bytes.\n",
-         MAX_STRING_LENGTH);
+      platform_error_log("Cache logfile must be shorter than %u bytes.\n",
+                         MAX_STRING_LENGTH);
       return STATUS_BAD_PARAM;
    }
    return STATUS_OK;
@@ -343,8 +341,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
        || cfg.fanout > max_fanout)
    {
       platform_error_log(
-         "Fanout must be between 2 and %lu for this page size.\n",
-         max_fanout);
+         "Fanout must be between 2 and %lu for this page size.\n", max_fanout);
       return STATUS_BAD_PARAM;
    }
 

@@ -238,8 +238,8 @@ writable_buffer_memset(writable_buffer *wb, int c)
 static inline platform_status
 writable_buffer_copy_slice(writable_buffer *wb, slice src)
 {
-   size_t length = slice_length(src);
-   platform_status rc = writable_buffer_resize(wb, length);
+   size_t          length = slice_length(src);
+   platform_status rc     = writable_buffer_resize(wb, length);
    if (!SUCCESS(rc)) {
       return rc;
    }

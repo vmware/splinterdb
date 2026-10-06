@@ -1594,7 +1594,7 @@ trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
    if (key_size > page_size - page_offset - sizeof(*pivot)) {
       return NULL;
    }
-   uint64 bundle_offset = page_offset + sizeof(*pivot) + key_size;
+   uint64               bundle_offset = page_offset + sizeof(*pivot) + key_size;
    trunk_ondisk_bundle *bundle =
       (trunk_ondisk_bundle *)(handle->pivot_page->data + bundle_offset);
    return trunk_ondisk_bundle_is_valid(
@@ -3107,11 +3107,8 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
       for (uint64 i = 0; i < num_branches; i++) {
          trunk_branch_info branch = vector_get(&merger->branches, i);
          uint32            root_height;
-         rc = btree_get_root_height(cc,
-                                    merger->cfg->btree_cfg,
-                                    branch.addr,
-                                    branch.type,
-                                    &root_height);
+         rc = btree_get_root_height(
+            cc, merger->cfg->btree_cfg, branch.addr, branch.type, &root_height);
          if (!SUCCESS(rc)) {
             platform_error_log("%s():%d: btree_get_root_height() failed: %s",
                                __func__,
@@ -5529,13 +5526,12 @@ leaf_split_select_pivots(trunk_context     *context,
                                "invalid pivot-data message");
             goto cleanup;
          }
-         const btree_pivot_data *pivot_data =
-            message_data(pivot_data_message);
-         stats = pivot_data->stats;
+         const btree_pivot_data *pivot_data = message_data(pivot_data_message);
+         stats                              = pivot_data->stats;
       }
-      uint64 new_cumulative_kv_bytes = cumulative_kv_bytes + stats.key_bytes
-                                       + stats.message_bytes;
-      uint64 new_tuples = current_tuples + stats.num_kvs;
+      uint64 new_cumulative_kv_bytes =
+         cumulative_kv_bytes + stats.key_bytes + stats.message_bytes;
+      uint64 new_tuples    = current_tuples + stats.num_kvs;
       uint64 next_boundary = (__uint128_t)leaf_num
                              * trunk_leaf_num_kv_bytes(leaf)
                              / target_num_leaves;
@@ -5874,7 +5870,7 @@ index_split(trunk_context     *context,
    platform_status rc = STATUS_OK;
 
    uint64 num_children = trunk_node_num_children(index);
-   uint64 num_nodes = num_children / context->cfg->target_fanout
+   uint64 num_nodes    = num_children / context->cfg->target_fanout
                       + (num_children % context->cfg->target_fanout != 0);
    if (num_nodes == 0) {
       return STATUS_INVALID_STATE;
@@ -6926,22 +6922,20 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->min_pivot = state->pivot;
-   state->rc    = STATUS_OK;
+   state->rc        = STATUS_OK;
    async_return(state);
 }
 
 static platform_status
 trunk_ondisk_bundle_validate_found_values(const trunk_ondisk_bundle *bndl,
-                                          uint64                     found_values)
+                                          uint64 found_values)
 {
    if (bndl == NULL || bndl->num_branches > MAX_FILTERS) {
       return STATUS_INVALID_STATE;
    }
-   uint64 branch_mask = bndl->num_branches == 0
-                           ? 0
-                           : (1ULL << bndl->num_branches) - 1;
-   return (found_values & ~branch_mask) == 0 ? STATUS_OK
-                                             : STATUS_INVALID_STATE;
+   uint64 branch_mask =
+      bndl->num_branches == 0 ? 0 : (1ULL << bndl->num_branches) - 1;
+   return (found_values & ~branch_mask) == 0 ? STATUS_OK : STATUS_INVALID_STATE;
 }
 
 static platform_status
@@ -7128,8 +7122,8 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
       }
    }
 
-   state->rc = trunk_ondisk_bundle_validate_found_values(
-      state->bndl, state->found_values);
+   state->rc = trunk_ondisk_bundle_validate_found_values(state->bndl,
+                                                         state->found_values);
    if (!SUCCESS(state->rc)) {
       async_return(state);
    }
@@ -7300,7 +7294,7 @@ trunk_merge_lookup(trunk_context            *context,
          rc = STATUS_INVALID_STATE;
          goto cleanup;
       }
-      rc   = trunk_ondisk_bundle_merge_lookup(
+      rc = trunk_ondisk_bundle_merge_lookup(
          context, height, bndl, tgt, result, log);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_merge_lookup: "
@@ -7435,8 +7429,8 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       }
 
       // Search the pivot bundle
-      state->bndl = trunk_ondisk_node_validate_pivot_bundle(state->handlep,
-                                                            state->pivot);
+      state->bndl =
+         trunk_ondisk_node_validate_pivot_bundle(state->handlep, state->pivot);
       if (state->bndl == NULL) {
          state->rc = STATUS_INVALID_STATE;
          goto cleanup;

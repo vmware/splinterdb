@@ -1348,8 +1348,8 @@ test_log_prepare_failure_does_not_poison(clockcache             *cc,
                                          test_message_generator *gen,
                                          uint64                  key_size)
 {
-   cache        *cacheh = (cache *)cc;
-   log_handle   *log;
+   cache      *cacheh = (cache *)cc;
+   log_handle *log;
 
    platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
    log_head segment = log_get_head(log);
@@ -1806,7 +1806,7 @@ test_log_group_page_cycle(clockcache        *cc,
    log_handle *log;
    char        key_data[]   = "page-cycle";
    char        value_data[] = "value";
-   key         skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   key         skey         = key_create(FALSE, sizeof(key_data) - 1, key_data);
    message     msg =
       message_create(MESSAGE_TYPE_INSERT,
                      NULL,
@@ -1843,13 +1843,8 @@ test_log_group_page_cycle(clockcache        *cc,
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
    clockcache_deinit(cc);
-   platform_status rc = clockcache_init(cc,
-                                        cache_cfg,
-                                        io,
-                                        al,
-                                        "group-page-cycle",
-                                        hid,
-                                        platform_get_module_id());
+   platform_status rc = clockcache_init(
+      cc, cache_cfg, io, al, "group-page-cycle", hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
    log_iterator *itor;

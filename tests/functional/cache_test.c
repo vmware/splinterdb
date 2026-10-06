@@ -515,8 +515,7 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   rc = mini_init(
-      &mini, original_ccp, meta_head, 0, 1, PAGE_TYPE_MISC, NULL);
+   rc = mini_init(&mini, original_ccp, meta_head, 0, 1, PAGE_TYPE_MISC, NULL);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }

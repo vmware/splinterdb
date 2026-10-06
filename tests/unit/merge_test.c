@@ -228,7 +228,7 @@ CTEST(merge, maximum_arity_is_accepted)
    }
 
    merge_iterator *merge = NULL;
-   platform_status rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+   platform_status rc    = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
                                               &cfg,
                                               MAX_MERGE_ARITY,
                                               inputs,

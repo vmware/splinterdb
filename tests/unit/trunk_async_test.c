@@ -80,7 +80,8 @@ trunk_async_test_get_config(const cache *cc)
 
 static void
 trunk_async_test_unget(cache *cc, page_handle *page)
-{}
+{
+}
 
 static void
 trunk_async_test_get_init(void             *payload,
@@ -94,8 +95,8 @@ trunk_async_test_get_init(void             *payload,
    platform_assert(addr == test_cc->pivot_page->disk_addr);
    platform_assert(type == PAGE_TYPE_TRUNK);
    trunk_async_test_get_state *state = payload;
-   state->cc    = test_cc;
-   state->calls = 0;
+   state->cc                         = test_cc;
+   state->calls                      = 0;
 }
 
 static async_status
@@ -143,7 +144,7 @@ CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
    platform_register_thread();
 
    uint64 header_words[TRUNK_ASYNC_TEST_PAGE_SIZE / sizeof(uint64)] = {0};
-   uint64 pivot_words[TRUNK_ASYNC_TEST_PAGE_SIZE / sizeof(uint64)] = {0};
+   uint64 pivot_words[TRUNK_ASYNC_TEST_PAGE_SIZE / sizeof(uint64)]  = {0};
 
    page_handle header_page = {
       .data      = (char *)header_words,
@@ -159,15 +160,14 @@ CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
    };
 
    trunk_async_test_node *header = (trunk_async_test_node *)header_page.data;
-   header->height                 = 0;
-   header->num_pivots             = 2;
-   header->pivot_offsets[0]       = TRUNK_ASYNC_TEST_PAGE_SIZE;
-   header->pivot_offsets[1]       = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
+   header->height                = 0;
+   header->num_pivots            = 2;
+   header->pivot_offsets[0]      = TRUNK_ASYNC_TEST_PAGE_SIZE;
+   header->pivot_offsets[1]      = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
 
-   trunk_async_test_pivot *pivot =
-      (trunk_async_test_pivot *)pivot_page.data;
-   pivot->key.flags  = ONDISK_KEY_DEFAULT_FLAGS;
-   pivot->key.length = 0;
+   trunk_async_test_pivot *pivot = (trunk_async_test_pivot *)pivot_page.data;
+   pivot->key.flags              = ONDISK_KEY_DEFAULT_FLAGS;
+   pivot->key.length             = 0;
 
    trunk_ondisk_node_handle handle = {
       .cc          = &test_cc.super,
@@ -196,9 +196,12 @@ CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
       .status = ASYNC_STATUS_RUNNING,
    };
    platform_thread thread;
-   platform_status rc = platform_thread_create(
-      &thread, FALSE, trunk_async_test_resume_on_fresh_stack, &resume,
-      platform_get_heap_id());
+   platform_status rc =
+      platform_thread_create(&thread,
+                             FALSE,
+                             trunk_async_test_resume_on_fresh_stack,
+                             &resume,
+                             platform_get_heap_id());
    ASSERT_TRUE(SUCCESS(rc));
    rc = platform_thread_join(&thread);
    ASSERT_TRUE(SUCCESS(rc));

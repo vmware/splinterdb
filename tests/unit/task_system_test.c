@@ -157,7 +157,7 @@ CTEST2(task_system, test_basic_create_destroy)
 CTEST2(task_system, test_rejects_oversized_thread_counts)
 {
    task_system_config cfg;
-   uint64 counts[NUM_TASK_TYPES] = {0};
+   uint64             counts[NUM_TASK_TYPES] = {0};
 
    counts[TASK_TYPE_NORMAL] = UINT64_MAX;
    ASSERT_EQUAL(STATUS_BAD_PARAM.r,

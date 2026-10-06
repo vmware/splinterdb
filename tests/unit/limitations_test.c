@@ -375,27 +375,24 @@ CTEST2(limitations, test_splinterdb_create_invalid_data_callbacks)
    invalid.merge_tuples_final = NULL;
 
    merge_accumulator accumulator;
-   message update = message_create(
-      MESSAGE_TYPE_UPDATE, NULL, slice_create(1, "u"));
+   message           update =
+      message_create(MESSAGE_TYPE_UPDATE, NULL, slice_create(1, "u"));
    ASSERT_TRUE(merge_accumulator_init_from_message(
       &accumulator, PROCESS_PRIVATE_HEAP_ID, update));
-   key tuple_key =
-      key_create_from_slice(FALSE, slice_create(1, "k"));
-   message old_message = message_create(
-      MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+   key     tuple_key = key_create_from_slice(FALSE, slice_create(1, "k"));
+   message old_message =
+      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
    ASSERT_NOT_EQUAL(
       0, data_merge_tuples(&invalid, tuple_key, old_message, &accumulator));
-   ASSERT_NOT_EQUAL(
-      0, data_merge_tuples_final(&invalid, tuple_key, &accumulator));
+   ASSERT_NOT_EQUAL(0,
+                    data_merge_tuples_final(&invalid, tuple_key, &accumulator));
    merge_accumulator_deinit(&accumulator);
 
    create_default_cfg(&cfg, &invalid, data->use_shmem);
    ASSERT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
    ASSERT_EQUAL(STATUS_BAD_PARAM.r,
-                splinterdb_update(kvsb,
-                                  slice_create(1, "k"),
-                                  slice_create(1, "v"),
-                                  NULL));
+                splinterdb_update(
+                   kvsb, slice_create(1, "k"), slice_create(1, "v"), NULL));
    ASSERT_EQUAL(0, splinterdb_close(&kvsb, FALSE));
 }
 
@@ -420,8 +417,8 @@ CTEST2(limitations, test_allocation_exhaustion_returns_error)
 
 CTEST2(limitations, test_runtime_allocation_exhaustion_returns_error)
 {
-   splinterdb       *kvsb = NULL;
-   data_config       default_data_cfg;
+   splinterdb *kvsb = NULL;
+   data_config default_data_cfg;
 
    default_data_config_init(&default_data_cfg);
    const uint64 disk_sizes[] = {

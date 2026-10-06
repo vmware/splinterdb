@@ -21,12 +21,12 @@ fi
 
 if [ "${1:-""}" = "fixall" ]; then
    # shellcheck disable=SC2046
-   "$TOOL" -i $(find . -name "*.[ch]")
+   "$TOOL" -i $(find . -path ./.cache -prune -o -name "*.[ch] -print")
    exit 0
 fi
 
 # shellcheck disable=SC2046
-if "$TOOL"  --Werror --dry-run $(find . -name "*.[ch]"); then
+if "$TOOL"  --Werror --dry-run $(find . -path ./.cache -prune -o -name "*.[ch]" -print); then
    echo Format OK
    exit 0
 else

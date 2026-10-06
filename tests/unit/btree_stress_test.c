@@ -443,8 +443,8 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    cache         *cc  = (cache *)&data->cc;
    btree_config  *cfg = &data->dbtree_cfg;
    mini_allocator mini;
-   uint64         root_addr  = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
-   uint8          value[100] = {1};
+   uint64 root_addr  = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint8  value[100] = {1};
    btree_insert_results results;
    for (uint64 i = 0; i < 25; i++) {
       uint64 key_data = htobe64(i);
@@ -1795,7 +1795,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
    btree_config *cfg = &data->dbtree_cfg;
    for (unsigned async = 0; async < 2; async++) {
       mini_allocator mini;
-      uint64         root = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+      uint64 root = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
       for (uint64 n = 0; n < 2048; n += 2) {
          bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);
       }

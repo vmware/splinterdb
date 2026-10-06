@@ -81,7 +81,7 @@ test_filter_lookup_rejects(cache                *cc,
                            routing_filter       *filter,
                            key                   target)
 {
-   uint64 found_values;
+   uint64          found_values;
    platform_status sync_rc =
       routing_filter_lookup(cc, cfg, filter, target, &found_values);
    platform_status async_rc =
@@ -98,13 +98,13 @@ test_filter_malicious_metadata(cache           *cc,
       "filter_test: malicious routing/mini metadata test started\n");
 
    auto_writable_buffer keywb = NULL_WRITABLE_BUFFER(hid);
-   platform_status rc = writable_buffer_resize(&keywb, sizeof(uint64));
+   platform_status      rc    = writable_buffer_resize(&keywb, sizeof(uint64));
    if (!SUCCESS(rc)) {
       return rc;
    }
    uint64 *keybuf = writable_buffer_data(&keywb);
    *keybuf        = 42;
-   key target     = key_create(TRUE, sizeof(*keybuf), keybuf);
+   key    target  = key_create(TRUE, sizeof(*keybuf), keybuf);
    uint32 fp      = data_key_hash(cfg->data_cfg, target, cfg->seed);
 
    routing_filter null_filter = NULL_ROUTING_FILTER;
@@ -130,7 +130,7 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
-   uint64 page_size = cache_page_size(cc);
+   uint64       page_size = cache_page_size(cc);
    page_handle *index_page =
       test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
    uint64 saved_hdr_raw_addr = ((uint64 *)index_page->data)[0];
@@ -138,7 +138,7 @@ test_filter_malicious_metadata(cache           *cc,
       saved_hdr_raw_addr - saved_hdr_raw_addr % page_size + page_size - 1;
    test_filter_unclaim_page(cc, index_page);
    bool32 rejected = test_filter_lookup_rejects(cc, cfg, &filter, target);
-   index_page = test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
+   index_page      = test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
    ((uint64 *)index_page->data)[0] = saved_hdr_raw_addr;
    test_filter_unclaim_page(cc, index_page);
    if (!rejected) {
@@ -146,19 +146,17 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
-   uint64 header_addr =
-      saved_hdr_raw_addr - saved_hdr_raw_addr % page_size;
-   uint64 header_off = saved_hdr_raw_addr - header_addr;
+   uint64 header_addr = saved_hdr_raw_addr - saved_hdr_raw_addr % page_size;
+   uint64 header_off  = saved_hdr_raw_addr - header_addr;
    page_handle *header_page =
       test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
-   test_routing_hdr *hdr =
-      (test_routing_hdr *)(header_page->data + header_off);
-   uint16 saved_num_remainders = hdr->num_remainders;
-   hdr->num_remainders         = UINT16_MAX;
+   test_routing_hdr *hdr = (test_routing_hdr *)(header_page->data + header_off);
+   uint16            saved_num_remainders = hdr->num_remainders;
+   hdr->num_remainders                    = UINT16_MAX;
    test_filter_unclaim_page(cc, header_page);
-   rejected = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   rejected    = test_filter_lookup_rejects(cc, cfg, &filter, target);
    header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
-   hdr = (test_routing_hdr *)(header_page->data + header_off);
+   hdr         = (test_routing_hdr *)(header_page->data + header_off);
    hdr->num_remainders = saved_num_remainders;
    test_filter_unclaim_page(cc, header_page);
    if (!rejected) {
@@ -166,22 +164,21 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
-   uint64 encoding_size =
-      (saved_num_remainders + cfg->index_size - 1) / 8 + 4;
-   char *saved_encoding = TYPED_ARRAY_MALLOC(
-      hid, saved_encoding, encoding_size);
+   uint64 encoding_size = (saved_num_remainders + cfg->index_size - 1) / 8 + 4;
+   char  *saved_encoding =
+      TYPED_ARRAY_MALLOC(hid, saved_encoding, encoding_size);
    if (saved_encoding == NULL) {
       rc = STATUS_NO_MEMORY;
       goto out;
    }
    header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
-   hdr = (test_routing_hdr *)(header_page->data + header_off);
+   hdr         = (test_routing_hdr *)(header_page->data + header_off);
    memcpy(saved_encoding, hdr->encoding, encoding_size);
    memset(hdr->encoding, 0, encoding_size);
    test_filter_unclaim_page(cc, header_page);
-   rejected = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   rejected    = test_filter_lookup_rejects(cc, cfg, &filter, target);
    header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
-   hdr = (test_routing_hdr *)(header_page->data + header_off);
+   hdr         = (test_routing_hdr *)(header_page->data + header_off);
    memcpy(hdr->encoding, saved_encoding, encoding_size);
    test_filter_unclaim_page(cc, header_page);
    platform_free(hid, saved_encoding);
@@ -191,7 +188,7 @@ test_filter_malicious_metadata(cache           *cc,
    }
 
    routing_filter empty_filters[MAX_FILTERS] = {{0}};
-   uint32 estimated_unique;
+   uint32         estimated_unique;
    rc = routing_filter_estimate_unique_fp(
       cc, cfg, hid, empty_filters, MAX_FILTERS, &estimated_unique);
    if (!SUCCESS(rc) || estimated_unique != 0
@@ -210,9 +207,8 @@ test_filter_malicious_metadata(cache           *cc,
       rc = STATUS_TEST_FAILED;
       goto out;
    }
-   test_mini_meta_entry *entry =
-      (test_mini_meta_entry *)meta_hdr->entry_buffer;
-   uint64 target_extent = (entry->packed >> 16) * cache_extent_size(cc);
+   test_mini_meta_entry *entry = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   uint64 target_extent        = (entry->packed >> 16) * cache_extent_size(cc);
    if (meta_hdr->meta_page_no != 0) {
       test_filter_unclaim_page(cc, meta_page);
       rc = STATUS_TEST_FAILED;
@@ -220,7 +216,7 @@ test_filter_malicious_metadata(cache           *cc,
    }
    test_filter_unclaim_page(cc, meta_page);
 
-   mini_meta_cursor cursor = {0};
+   mini_meta_cursor        cursor    = {0};
    mini_meta_cursor_status cursor_rc = mini_meta_cursor_init(
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    if (cursor_rc != MINI_META_CURSOR_ENTRY) {
@@ -232,17 +228,15 @@ test_filter_malicious_metadata(cache           *cc,
 
    /* The head is page zero. A non-zero ordinal must be rejected even by a
     * cursor initialized in the middle of a stream. */
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr               = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->meta_page_no = 1;
    test_filter_unclaim_page(cc, meta_page);
    cursor_rc = mini_meta_cursor_init(
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    mini_meta_cursor_deinit(&cursor);
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr               = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->meta_page_no = 0;
    test_filter_unclaim_page(cc, meta_page);
    if (cursor_rc != MINI_META_CURSOR_INVALID) {
@@ -253,11 +247,10 @@ test_filter_malicious_metadata(cache           *cc,
    /* Build a temporary second metadata page inside the already-owned metadata
     * extent. This exercises exact +1/-1 cursor validation without allocating
     * hundreds of data extents merely to fill the real head page. */
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr = (test_mini_meta_hdr *)meta_page->data;
-   uint64 head_next_meta_addr = meta_hdr->next_meta_addr;
-   uint32 head_num_entries    = meta_hdr->num_entries;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
+   uint64               head_next_meta_addr = meta_hdr->next_meta_addr;
+   uint32               head_num_entries    = meta_hdr->num_entries;
    test_mini_meta_entry head_entry =
       *(test_mini_meta_entry *)meta_hdr->entry_buffer;
    test_filter_unclaim_page(cc, meta_page);
@@ -278,19 +271,18 @@ test_filter_malicious_metadata(cache           *cc,
    second_meta_hdr->prev_meta_addr = filter.meta_head;
    second_meta_hdr->meta_page_no   = 1;
    second_meta_hdr->num_entries    = 1;
-   second_meta_hdr->pos = offsetof(test_mini_meta_hdr, entry_buffer)
-                           + sizeof(test_mini_meta_entry);
+   second_meta_hdr->pos =
+      offsetof(test_mini_meta_hdr, entry_buffer) + sizeof(test_mini_meta_entry);
    *(test_mini_meta_entry *)second_meta_hdr->entry_buffer = head_entry;
    test_filter_unclaim_page(cc, second_meta_page);
 
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr                 = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->next_meta_addr = second_meta_addr;
    test_filter_unclaim_page(cc, meta_page);
 
    bool32 sequence_ok = TRUE;
-   cursor_rc = mini_meta_cursor_init(
+   cursor_rc          = mini_meta_cursor_init(
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    for (uint32 i = 0;
         cursor_rc == MINI_META_CURSOR_ENTRY && i < head_num_entries;
@@ -343,9 +335,8 @@ test_filter_malicious_metadata(cache           *cc,
    }
    mini_meta_cursor_deinit(&cursor);
 
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr                 = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->next_meta_addr = head_next_meta_addr;
    test_filter_unclaim_page(cc, meta_page);
    if (!sequence_ok) {
@@ -353,18 +344,16 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr = (test_mini_meta_hdr *)meta_page->data;
-   uint64 saved_pos        = meta_hdr->pos;
-   meta_hdr->pos           = saved_pos + 1;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
+   uint64 saved_pos = meta_hdr->pos;
+   meta_hdr->pos    = saved_pos + 1;
    test_filter_unclaim_page(cc, meta_page);
    cursor_rc = mini_meta_cursor_init(
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    mini_meta_cursor_deinit(&cursor);
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->pos = saved_pos;
    test_filter_unclaim_page(cc, meta_page);
    if (cursor_rc != MINI_META_CURSOR_INVALID) {
@@ -375,13 +364,12 @@ test_filter_malicious_metadata(cache           *cc,
    /* The recovery walker uses the same page validator, but runs before the
     * allocator considers metadata pages allocated. Verify both rejection and
     * a clean retry from a freshly reset recovery map. */
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->pos = saved_pos + 1;
    test_filter_unclaim_page(cc, meta_page);
    allocator *al = cache_get_allocator(cc);
-   rc = allocator_recovery_begin(al);
+   rc            = allocator_recovery_begin(al);
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -390,9 +378,8 @@ test_filter_malicious_metadata(cache           *cc,
       rc = STATUS_TEST_FAILED;
       goto out;
    }
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
    meta_hdr->pos = saved_pos;
    test_filter_unclaim_page(cc, meta_page);
    rc = allocator_recovery_begin(al);
@@ -405,20 +392,18 @@ test_filter_malicious_metadata(cache           *cc,
    }
    allocator_recovery_finish(al);
 
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr = (test_mini_meta_hdr *)meta_page->data;
-   entry    = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
+   entry     = (test_mini_meta_entry *)meta_hdr->entry_buffer;
    uint64 saved_entry = entry->packed;
    entry->packed      = (saved_entry & ~UINT64_C(0xff)) | UINT64_C(0xff);
    test_filter_unclaim_page(cc, meta_page);
    cursor_rc = mini_meta_cursor_init(
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    mini_meta_cursor_deinit(&cursor);
-   meta_page =
-      test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)meta_page->data;
-   entry         = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
+   entry     = (test_mini_meta_entry *)meta_hdr->entry_buffer;
    entry->packed = saved_entry;
    test_filter_unclaim_page(cc, meta_page);
    if (cursor_rc != MINI_META_CURSOR_INVALID) {
@@ -522,25 +507,24 @@ test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
    /* With one index and one fingerprint, both the bucket and index extraction
     * helpers shift a uint32 by 32.  The routing format defines that result as
     * zero; do not rely on the C shift operator for this boundary case. */
-   wide_cfg.log_index_size = 0;
-   wide_cfg.index_size     = 1;
-   uint32         wide_fp  = UINT32_C(0x89abcdef);
-   routing_filter null_filter = NULL_ROUTING_FILTER;
-   routing_filter wide_filter = NULL_ROUTING_FILTER;
-   platform_status rc = routing_filter_add(
+   wide_cfg.log_index_size     = 0;
+   wide_cfg.index_size         = 1;
+   uint32          wide_fp     = UINT32_C(0x89abcdef);
+   routing_filter  null_filter = NULL_ROUTING_FILTER;
+   routing_filter  wide_filter = NULL_ROUTING_FILTER;
+   platform_status rc          = routing_filter_add(
       cc, &wide_cfg, &null_filter, &wide_filter, &wide_fp, 1, 0);
    if (!SUCCESS(rc)) {
       return rc;
    }
    uint64 lookup_key = 42;
    uint64 found_values;
-   rc = routing_filter_lookup(cc,
-                              &wide_cfg,
-                              &wide_filter,
-                              key_create(FALSE,
-                                         sizeof(lookup_key),
-                                         &lookup_key),
-                              &found_values);
+   rc =
+      routing_filter_lookup(cc,
+                            &wide_cfg,
+                            &wide_filter,
+                            key_create(FALSE, sizeof(lookup_key), &lookup_key),
+                            &found_values);
    routing_filter_dec_ref(cc, &wide_filter);
    if (!SUCCESS(rc)) {
       return rc;
@@ -551,11 +535,11 @@ test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
     * the derived size, and therefore must not inspect the nominal input array.
     */
    if (cfg->fingerprint_size < 31) {
-      uint32          dummy_fp      = 0;
-      routing_filter  null_filter   = NULL_ROUTING_FILTER;
-      routing_filter  filter        = NULL_ROUTING_FILTER;
-      uint64          invalid_count = 1ULL << (cfg->fingerprint_size + 1);
-      rc                            = routing_filter_add(
+      uint32         dummy_fp      = 0;
+      routing_filter null_filter   = NULL_ROUTING_FILTER;
+      routing_filter filter        = NULL_ROUTING_FILTER;
+      uint64         invalid_count = 1ULL << (cfg->fingerprint_size + 1);
+      rc                           = routing_filter_add(
          cc, cfg, &null_filter, &filter, &dummy_fp, invalid_count, 0);
       if (!STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED)
           || !routing_filters_equal(&filter, &NULL_ROUTING_FILTER))

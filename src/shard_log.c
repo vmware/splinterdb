@@ -259,7 +259,7 @@ shard_log_alloc(shard_log       *log,
                 uint32          *page_no)
 {
    uint64          addrs[2] = {0};
-   platform_status rc = mini_alloc_bytes(&log->mini,
+   platform_status rc       = mini_alloc_bytes(&log->mini,
                                          0,
                                          shard_log_page_size(log->cfg),
                                          shard_log_page_size(log->cfg),
@@ -380,8 +380,7 @@ shard_log_validate_page_header(shard_log_config *cfg, page_handle *page)
    }
 
    if (hdr->pages_in_group != 0) {
-      uint32 page_count =
-         hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK;
+      uint32 page_count = hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK;
       if (page_count == 0 || page_count != hdr->page_no + 1) {
          return STATUS_INVALID_STATE;
       }
@@ -397,15 +396,15 @@ shard_log_validate_page_header(shard_log_config *cfg, page_handle *page)
  */
 static platform_status
 shard_log_validate_page_sequence(shard_log_page_sequence *sequence,
-                                 const shard_log_hdr      *hdr,
-                                 uint64                    page_addr,
+                                 const shard_log_hdr     *hdr,
+                                 uint64                   page_addr,
                                  bool32                   exact)
 {
    bool32 valid;
    if (!sequence->seen) {
-      valid = !exact
-              || (hdr->group_id == SHARD_LOG_FIRST_GROUP_ID
-                  && hdr->page_no == 0);
+      valid =
+         !exact
+         || (hdr->group_id == SHARD_LOG_FIRST_GROUP_ID && hdr->page_no == 0);
    } else if (exact) {
       uint64 expected_group = sequence->group_id;
       uint64 expected_page  = (uint64)sequence->page_no + 1;
@@ -413,12 +412,10 @@ shard_log_validate_page_sequence(shard_log_page_sequence *sequence,
          expected_group++;
          expected_page = 0;
       }
-      valid = hdr->group_id == expected_group
-              && hdr->page_no == expected_page;
+      valid = hdr->group_id == expected_group && hdr->page_no == expected_page;
    } else {
       valid = hdr->group_id > sequence->group_id
-              || (hdr->group_id == sequence->group_id
-                  && !sequence->terminated
+              || (hdr->group_id == sequence->group_id && !sequence->terminated
                   && hdr->page_no > sequence->page_no);
    }
 
@@ -494,7 +491,7 @@ shard_log_validate_page_records(cache            *cc,
       }
 
       if (ondisk_tuple_message_is_blob(tuple)) {
-         parsed_blob     blob_descriptor;
+         parsed_blob blob_descriptor;
          rc = blob_parse_descriptor(
             cc,
             message_slice(ondisk_tuple_message(cc, tuple)),
@@ -1046,10 +1043,9 @@ shard_log_graduate_buffer_internal(shard_log             *log,
          return STATUS_OK;
       }
 
-      uint64 next_extent;
-      uint32 page_no;
-      page_handle *page =
-         shard_log_alloc(log, group, &next_extent, &page_no);
+      uint64       next_extent;
+      uint32       page_no;
+      page_handle *page = shard_log_alloc(log, group, &next_extent, &page_no);
       if (page == NULL) {
          platform_error_log("shard_log_graduate_buffer: out of log space\n");
          return STATUS_NO_SPACE;
@@ -1380,14 +1376,14 @@ shard_log_write_finish(log_write_token *token,
    platform_assert(token->log != NULL);
    platform_assert(token->internal != NULL);
 
-   shard_log       *log    = (shard_log *)token->log;
-   shard_log_group *group  = token->internal;
+   shard_log          *log      = (shard_log *)token->log;
+   shard_log_group    *group    = token->internal;
    log_write_prepared *prepared = token->prepared;
    platform_assert(prepared != NULL);
    platform_assert(prepared->log == token->log);
    shard_log_prepared_write *state  = shard_log_prepared_state(prepared);
-   threadid         tid    = platform_get_tid();
-   uint64           ticket = token->internal_ticket;
+   threadid                  tid    = platform_get_tid();
+   uint64                    ticket = token->internal_ticket;
 
    platform_assert(token->owner_tid == tid,
                    "log reservations must be consumed by their owner thread");
@@ -2166,9 +2162,9 @@ shard_log_recover_page_blob_allocations(cache            *cc,
                                         shard_log_config *cfg,
                                         page_handle      *page)
 {
-   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-   log_entry     *le  = first_log_entry(page->data);
-   platform_status rc = STATUS_OK;
+   shard_log_hdr  *hdr = (shard_log_hdr *)page->data;
+   log_entry      *le  = first_log_entry(page->data);
+   platform_status rc  = STATUS_OK;
    for (uint64 i = 0; i < hdr->num_entries; i++) {
       if (log_entry_message_is_blob(le)) {
          message msg = log_entry_message(cc, le);
@@ -2203,8 +2199,8 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
       return rc;
    }
 
-   uint64 extent_addr = head.addr;
-   shard_log_page_sequence sequence = {0};
+   uint64                  extent_addr = head.addr;
+   shard_log_page_sequence sequence    = {0};
    while (shard_log_valid_extent_addr(cc, cfg, extent_addr)) {
       /*
        * Record the current extent before cache_get(): the map being rebuilt
@@ -2241,7 +2237,7 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
             rc = shard_log_validate_page_records(cc, cfg, page);
             if (SUCCESS(rc)) {
                shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-               rc = shard_log_validate_page_sequence(
+               rc                 = shard_log_validate_page_sequence(
                   &sequence, hdr, page_addr, FALSE);
             }
             if (SUCCESS(rc)) {
@@ -2542,14 +2538,14 @@ shard_log_config_init(shard_log_config *log_cfg,
 void
 shard_log_print(shard_log *log)
 {
-   cache            *cc               = log->cc;
-   uint64            extent_addr      = log->addr;
-   shard_log_config *cfg              = log->cfg;
-   log_nonce         nonce            = log->nonce;
-   data_config      *dcfg             = cfg->data_cfg;
-   uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
-   allocator        *al               = cache_get_allocator(cc);
-   shard_log_page_sequence sequence    = {0};
+   cache                  *cc               = log->cc;
+   uint64                  extent_addr      = log->addr;
+   shard_log_config       *cfg              = log->cfg;
+   log_nonce               nonce            = log->nonce;
+   data_config            *dcfg             = cfg->data_cfg;
+   uint64                  pages_per_extent = shard_log_pages_per_extent(cfg);
+   allocator              *al               = cache_get_allocator(cc);
+   shard_log_page_sequence sequence         = {0};
 
    while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
@@ -2558,10 +2554,9 @@ shard_log_print(shard_log *log)
          uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, nonce)) {
-            next_extent_addr = shard_log_next_extent_addr(cfg, page);
-            platform_status rc =
-               shard_log_validate_page_records(cc, cfg, page);
-            shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+            next_extent_addr   = shard_log_next_extent_addr(cfg, page);
+            platform_status rc = shard_log_validate_page_records(cc, cfg, page);
+            shard_log_hdr  *hdr = (shard_log_hdr *)page->data;
             if (SUCCESS(rc)) {
                rc = shard_log_validate_page_sequence(
                   &sequence, hdr, page_addr, TRUE);
@@ -2572,7 +2567,7 @@ shard_log_print(shard_log *log)
                cache_unget(cc, page);
                return;
             }
-            log_entry     *le  = first_log_entry(page->data);
+            log_entry *le = first_log_entry(page->data);
             for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
                platform_default_log(
                   "%s -- %s%s : memtable=%lu leaf=%lu\n",
@@ -2713,9 +2708,9 @@ shard_log_iterator_init(cache              *cc,
    uint64 group_contents_size = 0;
    uint64 group_declared      = 0; // pages its terminator claims, 0 if unseen
    // whether its terminator also says the stream ends here
-   bool32 group_ends_stream = FALSE;
-   bool32 broken            = FALSE; // hit a group we cannot replay
-   bool32 finished          = FALSE; // accepted an end-of-stream group
+   bool32                  group_ends_stream = FALSE;
+   bool32                  broken   = FALSE; // hit a group we cannot replay
+   bool32                  finished = FALSE; // accepted an end-of-stream group
    shard_log_page_sequence sequence = {0};
 
    /*
@@ -2761,7 +2756,7 @@ shard_log_iterator_init(cache              *cc,
             continue;
          }
          shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-         rc = shard_log_validate_page_header(cfg, page);
+         rc                 = shard_log_validate_page_header(cfg, page);
          if (SUCCESS(rc)) {
             rc = shard_log_validate_page_sequence(
                &sequence, hdr, page_addr, TRUE);
@@ -2908,12 +2903,12 @@ shard_log_iterator_init(cache              *cc,
     * Those are the first num_valid_pages valid pages of the traversal, since
     * the replayable portion is a prefix.
     */
-   char  *cursor          = itor->contents;
-   uint64 contents_copied = 0;
-   uint64 entry_idx       = 0;
-   uint64 pages_taken     = 0;
-   shard_log_page_sequence copy_sequence = {0};
-   extent_addr            = addr;
+   char                   *cursor          = itor->contents;
+   uint64                  contents_copied = 0;
+   uint64                  entry_idx       = 0;
+   uint64                  pages_taken     = 0;
+   shard_log_page_sequence copy_sequence   = {0};
+   extent_addr                             = addr;
    while (pages_taken < num_valid_pages && extent_addr != 0
           && allocator_get_refcount(al, extent_addr) > 0)
    {
@@ -2942,7 +2937,7 @@ shard_log_iterator_init(cache              *cc,
          rc = shard_log_validate_page_records(cc, cfg, page);
          if (SUCCESS(rc)) {
             shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-            rc = shard_log_validate_page_sequence(
+            rc                 = shard_log_validate_page_sequence(
                &copy_sequence, hdr, page_addr, TRUE);
          }
          if (!SUCCESS(rc)) {

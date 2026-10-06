@@ -70,8 +70,8 @@ typedef struct merge_iterator {
    bool32             forwards;
 
    // Sentinel used as the predecessor of ordered_iterators[0].
-   ordered_iterator ordered_iterator_stored_pad;
-   ordered_iterator ordered_iterator_stored[MAX_MERGE_ARITY];
+   ordered_iterator  ordered_iterator_stored_pad;
+   ordered_iterator  ordered_iterator_stored[MAX_MERGE_ARITY];
    ordered_iterator *ordered_iterators_pad;
    ordered_iterator *ordered_iterators[MAX_MERGE_ARITY];
 

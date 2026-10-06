@@ -169,8 +169,8 @@ task_group_run_task(task_group *group, task *assigned_task, bool32 foreground)
       }
    }
 
-   task_fn func        = assigned_task->func;
-   assigned_task->func = (task_fn)(void *)0xdeadbeef;
+   task_fn func          = assigned_task->func;
+   assigned_task->func   = (task_fn)(void *)0xdeadbeef;
    timestamp trace_start = platform_trace_begin();
    func(assigned_task);
    platform_trace_end(foreground ? "task_fg" : "task_bg",

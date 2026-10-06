@@ -477,8 +477,8 @@ laio_get_thread_context(laio_handle *io)
          return NULL;
       }
       async_wait_queue_init(&pctx->submit_waiters);
-      int pthread_status = pthread_create(
-         &pctx->io_cleaner, NULL, laio_cleaner, pctx);
+      int pthread_status =
+         pthread_create(&pctx->io_cleaner, NULL, laio_cleaner, pctx);
       if (pthread_status != 0) {
          platform_error_log("pthread_create() failed for laio cleaner "
                             "PID=%lu: %s\n",
@@ -1033,9 +1033,7 @@ laio_handle_destroy(io_handle *ioh)
    laio_process_termination_callback(pid, ioh);
 
    for (int i = 0; i < MAX_THREADS; i++) {
-      if (laio_state_load(&io->ctx[i])
-          != PROCESS_CONTEXT_STATE_UNINITIALIZED)
-      {
+      if (laio_state_load(&io->ctx[i]) != PROCESS_CONTEXT_STATE_UNINITIALIZED) {
          platform_error_log("ERROR: io_handle_destroy(): IO context for PID=%d"
                             " is still active.\n",
                             i);

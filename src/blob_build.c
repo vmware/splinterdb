@@ -134,8 +134,7 @@ build_blob_table(const blob_build_config *cfg,
 
    for (uint64 i = 0; i < num_extents; i++) {
       uint64 alloced_page;
-      rc = mini_alloc_extent(
-         mini, cfg->extent_batch, &alloced_page, NULL);
+      rc = mini_alloc_extent(mini, cfg->extent_batch, &alloced_page, NULL);
       if (!SUCCESS(rc)) {
          return rc;
       }

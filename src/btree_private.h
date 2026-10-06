@@ -54,7 +54,7 @@ struct ONDISK btree_hdr {
     * use this field: their sibling links are mutable and protected by the
     * existing concurrency protocol.
     */
-   uint64 page_no;
+   uint64      page_no;
    uint8       height;
    uint8       flags;
    node_offset next_entry;

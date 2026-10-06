@@ -167,8 +167,7 @@ routing_unset_bit(uint8 *data, uint64 bitnum)
 static inline uint32
 routing_get_bucket(uint32 fp, size_t remainder_and_value_size)
 {
-   return remainder_and_value_size >= 32 ? 0
-                                         : fp >> remainder_and_value_size;
+   return remainder_and_value_size >= 32 ? 0 : fp >> remainder_and_value_size;
 }
 
 static inline uint32
@@ -194,9 +193,9 @@ routing_filter_get_params(const routing_config  *cfg,
                           const routing_filter  *filter,
                           routing_filter_params *params)
 {
-   if (cfg == NULL || cfg->cache_cfg == NULL || filter == NULL
-       || params == NULL || cfg->fingerprint_size == 0
-       || cfg->fingerprint_size > 32 || cfg->log_index_size >= 32
+   if (cfg == NULL || cfg->cache_cfg == NULL || filter == NULL || params == NULL
+       || cfg->fingerprint_size == 0 || cfg->fingerprint_size > 32
+       || cfg->log_index_size >= 32
        || cfg->log_index_size > cfg->fingerprint_size
        || cfg->index_size != (1U << cfg->log_index_size))
    {
@@ -206,7 +205,7 @@ routing_filter_get_params(const routing_config  *cfg,
    ZERO_CONTENTS(params);
    if (filter->addr == 0) {
       return filter->num_fingerprints == 0 && filter->num_unique == 0
-                && filter->value_size == 0
+                   && filter->value_size == 0
                 ? STATUS_OK
                 : STATUS_INVALID_STATE;
    }
@@ -218,8 +217,7 @@ routing_filter_get_params(const routing_config  *cfg,
       return STATUS_INVALID_STATE;
    }
 
-   params->log_num_buckets =
-      31 - __builtin_clz(filter->num_fingerprints);
+   params->log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
    if (params->log_num_buckets < cfg->log_index_size) {
       params->log_num_buckets = cfg->log_index_size;
    }
@@ -227,12 +225,10 @@ routing_filter_get_params(const routing_config  *cfg,
       return STATUS_INVALID_STATE;
    }
 
-   params->log_num_indices =
-      params->log_num_buckets - cfg->log_index_size;
-   params->num_indices = 1U << params->log_num_indices;
-   params->remainder_size =
-      cfg->fingerprint_size - params->log_num_buckets;
-   params->value_size = filter->value_size;
+   params->log_num_indices = params->log_num_buckets - cfg->log_index_size;
+   params->num_indices     = 1U << params->log_num_indices;
+   params->remainder_size  = cfg->fingerprint_size - params->log_num_buckets;
+   params->value_size      = filter->value_size;
    params->remainder_and_value_size =
       params->remainder_size + params->value_size;
    params->index_remainder_and_value_size =
@@ -250,8 +246,7 @@ routing_filter_get_params(const routing_config  *cfg,
 }
 
 platform_status
-routing_filter_validate(const routing_config *cfg,
-                        const routing_filter *filter)
+routing_filter_validate(const routing_config *cfg, const routing_filter *filter)
 {
    routing_filter_params params;
    return routing_filter_get_params(cfg, filter, &params);
@@ -282,7 +277,7 @@ routing_get_header(cache                *cc,
    }
 
    uint64 header_addr = *hdr_raw_addr - (*hdr_raw_addr % page_size);
-   *filter_page = cache_get(cc, header_addr, TRUE, PAGE_TYPE_FILTER);
+   *filter_page       = cache_get(cc, header_addr, TRUE, PAGE_TYPE_FILTER);
    return *filter_page == NULL ? STATUS_IO_ERROR : STATUS_OK;
 }
 
@@ -295,46 +290,43 @@ routing_unget_header(cache *cc, page_handle *header_page)
 static inline uint64
 routing_header_size(const routing_config *cfg, uint64 num_remainders)
 {
-   uint64 encoding_size =
-      (num_remainders + cfg->index_size - 1) / 8 + 4;
+   uint64 encoding_size = (num_remainders + cfg->index_size - 1) / 8 + 4;
    return ROUNDUP(sizeof(routing_hdr) + encoding_size, sizeof(uint32));
 }
 
 static inline uint64
 routing_remainder_block_size(uint64 num_remainders, uint32 bits_per_item)
 {
-   uint64 bytes = num_remainders == 0
-                     ? 3
-                     : (num_remainders * bits_per_item - 1) / 8 + 4;
+   uint64 bytes =
+      num_remainders == 0 ? 3 : (num_remainders * bits_per_item - 1) / 8 + 4;
    return ROUNDUP(bytes, sizeof(uint32));
 }
 
 static platform_status
-routing_header_view_init(const routing_config       *cfg,
-                         page_handle                *filter_page,
-                         uint64                      hdr_raw_addr,
-                         uint32                      bits_per_item,
-                         routing_header_view        *view)
+routing_header_view_init(const routing_config *cfg,
+                         page_handle          *filter_page,
+                         uint64                hdr_raw_addr,
+                         uint32                bits_per_item,
+                         routing_header_view  *view)
 {
    uint64 page_size   = cache_config_page_size(cfg->cache_cfg);
    uint64 header_addr = hdr_raw_addr - (hdr_raw_addr % page_size);
    uint64 header_off  = hdr_raw_addr - header_addr;
    if (filter_page == NULL || filter_page->disk_addr != header_addr
        || header_off > page_size || page_size - header_off < sizeof(routing_hdr)
-       || hdr_raw_addr % sizeof(uint32) != 0
-       || bits_per_item == 0 || bits_per_item > 32)
+       || hdr_raw_addr % sizeof(uint32) != 0 || bits_per_item == 0
+       || bits_per_item > 32)
    {
       return STATUS_INVALID_STATE;
    }
 
    routing_hdr *hdr = (routing_hdr *)(filter_page->data + header_off);
-   uint64 num_remainders = hdr->num_remainders;
+   uint64       num_remainders = hdr->num_remainders;
    if (num_remainders > ROUTING_FPS_PER_PAGE) {
       return STATUS_INVALID_STATE;
    }
 
-   uint64 encoding_size =
-      (num_remainders + cfg->index_size - 1) / 8 + 4;
+   uint64 encoding_size = (num_remainders + cfg->index_size - 1) / 8 + 4;
    uint64 header_length = routing_header_size(cfg, num_remainders);
    uint64 remainder_bytes =
       routing_remainder_block_size(num_remainders, bits_per_item);
@@ -377,7 +369,7 @@ routing_find_separator(const routing_header_view *view,
 {
    uint64 seen = 0;
    for (uint64 byte_no = 0; byte_no < view->encoding_size; byte_no += 8) {
-      uint64 word = 0;
+      uint64 word  = 0;
       uint64 bytes = view->encoding_size - byte_no;
       if (bytes > sizeof(word)) {
          bytes = sizeof(word);
@@ -411,7 +403,7 @@ routing_get_bucket_bounds(const routing_config      *cfg,
    if (bucket_offset >= cfg->index_size) {
       return STATUS_INVALID_STATE;
    }
-   uint64 end_separator;
+   uint64          end_separator;
    platform_status rc =
       routing_find_separator(view, bucket_offset, &end_separator);
    if (!SUCCESS(rc)) {
@@ -472,8 +464,7 @@ routing_get_bucket_counts(const routing_config      *cfg,
    for (uint32 i = 0; i < cfg->index_size; i++) {
       total += count[i];
    }
-   return total == view->hdr->num_remainders ? STATUS_OK
-                                              : STATUS_INVALID_STATE;
+   return total == view->hdr->num_remainders ? STATUS_OK : STATUS_INVALID_STATE;
 }
 
 static platform_status
@@ -486,14 +477,10 @@ routing_filter_validate_pages(cache                       *cc,
       return STATUS_OK;
    }
    for (uint32 index = 0; index < params->num_indices; index++) {
-      page_handle *filter_page = NULL;
-      uint64       hdr_raw_addr;
-      platform_status rc = routing_get_header(cc,
-                                              cfg,
-                                              filter->addr,
-                                              index,
-                                              &filter_page,
-                                              &hdr_raw_addr);
+      page_handle    *filter_page = NULL;
+      uint64          hdr_raw_addr;
+      platform_status rc = routing_get_header(
+         cc, cfg, filter->addr, index, &filter_page, &hdr_raw_addr);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -506,8 +493,7 @@ routing_filter_validate_pages(cache                       *cc,
       if (SUCCESS(rc)) {
          for (uint32 bucket = 0; bucket < cfg->index_size; bucket++) {
             uint64 start, end;
-            rc = routing_get_bucket_bounds(
-               cfg, &view, bucket, &start, &end);
+            rc = routing_get_bucket_bounds(cfg, &view, bucket, &start, &end);
             if (!SUCCESS(rc)) {
                break;
             }
@@ -531,36 +517,31 @@ routing_filter_lookup_view(const routing_config        *cfg,
    uint32 encoded_fp = fp << params->value_size;
    uint32 bucket =
       routing_get_bucket(encoded_fp, params->remainder_and_value_size);
-   uint32 bucket_off = bucket % cfg->index_size;
-   uint64 start, end;
+   uint32          bucket_off = bucket % cfg->index_size;
+   uint64          start, end;
    platform_status rc =
       routing_get_bucket_bounds(cfg, view, bucket_off, &start, &end);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   uint32 remainder_mask =
-      params->remainder_size == 32
-         ? UINT32_MAX
-         : params->remainder_size == 0
-              ? 0
-              : (1U << params->remainder_size) - 1;
-   uint32 remainder = fp & remainder_mask;
-   uint32 value_mask = params->value_size == 0
-                          ? 0
-                          : (1U << params->value_size) - 1;
+   uint32 remainder_mask = params->remainder_size == 32 ? UINT32_MAX
+                           : params->remainder_size == 0
+                              ? 0
+                              : (1U << params->remainder_size) - 1;
+   uint32 remainder      = fp & remainder_mask;
+   uint32 value_mask =
+      params->value_size == 0 ? 0 : (1U << params->value_size) - 1;
    uint64 found = 0;
    for (uint64 pos = end; pos > start;) {
       pos--;
       uint32 found_remainder_and_value;
-      routing_filter_get_remainder_and_value(
-         cfg,
-         (uint32 *)view->remainders,
-         pos,
-         &found_remainder_and_value,
-         params->remainder_and_value_size);
-      uint32 found_remainder =
-         found_remainder_and_value >> params->value_size;
+      routing_filter_get_remainder_and_value(cfg,
+                                             (uint32 *)view->remainders,
+                                             pos,
+                                             &found_remainder_and_value,
+                                             params->remainder_and_value_size);
+      uint32 found_remainder = found_remainder_and_value >> params->value_size;
       if (found_remainder == remainder) {
          uint32 found_value = found_remainder_and_value & value_mask;
          if (found_value >= MAX_FILTERS) {
@@ -621,8 +602,7 @@ routing_filter_add(cache                *cc,
    }
 
    routing_filter_params old_params;
-   platform_status rc =
-      routing_filter_get_params(cfg, old_filter, &old_params);
+   platform_status rc = routing_filter_get_params(cfg, old_filter, &old_params);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -638,11 +618,10 @@ routing_filter_add(cache                *cc,
    size_t old_remainder_and_value_size = 0;
    if (old_filter->addr != 0) {
       mini_prefetch(cc, PAGE_TYPE_FILTER, old_filter->meta_head);
-      old_num_indices     = old_params.num_indices;
-      old_value_size      = old_params.value_size;
-      old_value_mask = old_value_size == 0 ? 0 : (1U << old_value_size) - 1;
-      old_remainder_and_value_size =
-         old_params.remainder_and_value_size;
+      old_num_indices = old_params.num_indices;
+      old_value_size  = old_params.value_size;
+      old_value_mask  = old_value_size == 0 ? 0 : (1U << old_value_size) - 1;
+      old_remainder_and_value_size = old_params.remainder_and_value_size;
    }
 
    // compute parameters
@@ -668,7 +647,7 @@ routing_filter_add(cache                *cc,
    uint32 log_num_indices = log_num_buckets - cfg->log_index_size;
    uint32 num_indices     = 1U << log_num_indices;
    debug_assert(num_indices > 0);
-   uint32 remainder_size           = cfg->fingerprint_size - log_num_buckets;
+   uint32 remainder_size = cfg->fingerprint_size - log_num_buckets;
    if (old_value_size > value_size) {
       return STATUS_INVALID_STATE;
    }
@@ -703,12 +682,12 @@ routing_filter_add(cache                *cc,
    uint32 *matrix;
    uint32 *fp_buffer;
    uint32 *old_fp_buffer;
-   uint8 *encoding_buffer;
-   uint64 encoding_buffer_size =
+   uint8  *encoding_buffer;
+   uint64  encoding_buffer_size =
       (ROUTING_FPS_PER_PAGE + cfg->index_size - 1) / 8 + 4;
    uint64 encoding_buffer_words =
       (encoding_buffer_size + sizeof(uint32) - 1) / sizeof(uint32);
-   size_t  temp_buffer_count = num_new_fp +               // temp
+   size_t temp_buffer_count = num_new_fp +                // temp
                               num_indices +               // index_count
                               index_size +                // old_count
                               MATRIX_ROWS * MATRIX_COLS + // matrix
@@ -731,21 +710,20 @@ routing_filter_add(cache                *cc,
    memset(encoding_buffer, 0xff, encoding_buffer_size);
 
    // we use a mini_allocator to obtain pages
-   allocator      *al               = cache_get_allocator(cc);
-   uint64          meta_head        = 0;
-   bool32           mini_initialized = FALSE;
-   mini_allocator   mini;
-   page_handle     *index_page[MAX_PAGES_PER_EXTENT] = {0};
-   uint64           num_index_pages                  = 0;
-   page_handle     *filter_page                      = NULL;
+   allocator     *al               = cache_get_allocator(cc);
+   uint64         meta_head        = 0;
+   bool32         mini_initialized = FALSE;
+   mini_allocator mini;
+   page_handle   *index_page[MAX_PAGES_PER_EXTENT] = {0};
+   uint64         num_index_pages                  = 0;
+   page_handle   *filter_page                      = NULL;
    rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
-   rc = mini_init(
-      &mini, cc, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, NULL);
+   rc = mini_init(&mini, cc, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, NULL);
    if (!SUCCESS(rc)) {
       refcount ref = allocator_dec_ref(al, meta_head, PAGE_TYPE_FILTER);
       platform_assert(ref == AL_NO_REFS);
@@ -758,8 +736,8 @@ routing_filter_add(cache                *cc,
    mini_initialized = TRUE;
 
    // set up the index pages
-   uint64       addrs_per_page = page_size / sizeof(uint64);
-   uint64       index_addr;
+   uint64 addrs_per_page = page_size / sizeof(uint64);
+   uint64 index_addr;
    rc = mini_alloc_page(&mini, 0, &index_addr, NULL);
    if (!SUCCESS(rc)) {
       goto cleanup;
@@ -785,9 +763,9 @@ routing_filter_add(cache                *cc,
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   filter_page               = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
-   char        *filter_cursor = filter_page->data;
-   uint64       bytes_remaining_on_page = page_size;
+   filter_page                    = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
+   char  *filter_cursor           = filter_page->data;
+   uint64 bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
       new_fp_arr[new_fp_no] >>= 32 - cfg->fingerprint_size;
@@ -852,7 +830,7 @@ routing_filter_add(cache                *cc,
          platform_assert_status_ok(rc);
          old_block_start = old_view.remainders;
          old_index_count = old_view.hdr->num_remainders;
-         rc = routing_get_bucket_counts(cfg, &old_view, old_count);
+         rc              = routing_get_bucket_counts(cfg, &old_view, old_count);
          platform_assert_status_ok(rc);
          // routing_filter_print_encoding(cfg, old_hdr);
       }
@@ -944,14 +922,14 @@ routing_filter_add(cache                *cc,
             dst_fp[fps_added++] = fp & remainder_and_value_mask;
          }
 
-         uint32 remainder_block_size = routing_remainder_block_size(
-            fps_added, remainder_and_value_size);
+         uint32 remainder_block_size =
+            routing_remainder_block_size(fps_added, remainder_and_value_size);
          uint64 encoding_size = (fps_added + index_size - 1) / 8 + 4;
-         uint32 header_size = routing_header_size(cfg, fps_added);
+         uint32 header_size   = routing_header_size(cfg, fps_added);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
             filter_page = NULL;
-            rc = mini_alloc_page(&mini, 0, &addr, NULL);
+            rc          = mini_alloc_page(&mini, 0, &addr, NULL);
             if (!SUCCESS(rc)) {
                if (old_filter->addr != 0) {
                   routing_unget_header(cc, old_filter_node);
@@ -1113,9 +1091,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
    {
       return STATUS_LIMIT_EXCEEDED;
    }
-   uint32 buffer_size = buffer_size64;
-   uint32 alloc_size  = buffer_size + cfg->index_size;
-   uint32 *local      = TYPED_ARRAY_ZALLOC(hid, local, alloc_size);
+   uint32  buffer_size = buffer_size64;
+   uint32  alloc_size  = buffer_size + cfg->index_size;
+   uint32 *local       = TYPED_ARRAY_ZALLOC(hid, local, alloc_size);
    if (local == NULL) {
       platform_error_log("routing_filter_estimate_unique_fp: failed to "
                          "allocate fingerprint work buffer of %u uint32s\n",
@@ -1125,9 +1103,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
    uint32 *fp_arr = local;
    uint32 *count  = local + buffer_size;
 
-   uint32 src_fp_no             = 0;
-   uint32 dst_fp_no             = 0;
-   platform_status rc           = STATUS_OK;
+   uint32          src_fp_no = 0;
+   uint32          dst_fp_no = 0;
+   platform_status rc        = STATUS_OK;
    /* fp_start has one sentinel after the entry for each filter. */
    uint32 fp_start[MAX_FILTERS + 1] = {0};
    for (uint64 i = 0; i != num_filters; i++) {
@@ -1141,7 +1119,7 @@ routing_filter_estimate_unique_fp(cache                *cc,
          goto out;
       }
       uint32 num_indices = params.num_indices;
-      uint32 index_size = cfg->index_size;
+      uint32 index_size  = cfg->index_size;
 
       if (num_indices >= 16) {
          // the filter is too small forget it
@@ -1155,13 +1133,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
             char        *block_start;
             uint16       index_count = 0;
             page_handle *filter_node;
-            uint64 hdr_raw_addr;
-            rc = routing_get_header(cc,
-                                    cfg,
-                                    filter[i].addr,
-                                    index_no,
-                                    &filter_node,
-                                    &hdr_raw_addr);
+            uint64       hdr_raw_addr;
+            rc = routing_get_header(
+               cc, cfg, filter[i].addr, index_no, &filter_node, &hdr_raw_addr);
             if (!SUCCESS(rc)) {
                goto out;
             }
@@ -1177,7 +1151,7 @@ routing_filter_estimate_unique_fp(cache                *cc,
             }
             block_start = view.remainders;
             index_count = view.hdr->num_remainders;
-            rc = routing_get_bucket_counts(cfg, &view, count);
+            rc          = routing_get_bucket_counts(cfg, &view, count);
             if (!SUCCESS(rc)) {
                routing_unget_header(cc, filter_node);
                goto out;
@@ -1206,8 +1180,8 @@ routing_filter_estimate_unique_fp(cache                *cc,
                {
                   uint32 bucket = index_bucket_start + bucket_off;
                   for (uint32 i = 0; i < count[bucket_off]; i++) {
-                     fp_arr[src_fp_no] |=
-                        bucket << params.remainder_and_value_size;
+                     fp_arr[src_fp_no] |= bucket
+                                          << params.remainder_and_value_size;
                      fp_arr[src_fp_no] >>= params.value_size;
                      if (fp_arr[src_fp_no] == last_fp) {
                         src_fp_no++;
@@ -1334,12 +1308,11 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
 
    if (state->filter.addr == 0) {
       *state->found_values = 0;
-      async_return(
-         state, routing_filter_validate(state->cfg, &state->filter));
+      async_return(state, routing_filter_validate(state->cfg, &state->filter));
    }
 
    routing_filter_params params;
-   platform_status rc =
+   platform_status       rc =
       routing_filter_get_params(state->cfg, &state->filter, &params);
    if (!SUCCESS(rc)) {
       async_return(state, rc);
@@ -1419,7 +1392,7 @@ routing_filter_lookup(cache                *cc,
    }
 
    routing_filter_params params;
-   platform_status rc = routing_filter_get_params(cfg, filter, &params);
+   platform_status       rc = routing_filter_get_params(cfg, filter, &params);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1440,11 +1413,8 @@ routing_filter_lookup(cache                *cc,
       return rc;
    }
    routing_header_view view;
-   rc = routing_header_view_init(cfg,
-                                 filter_node,
-                                 hdr_raw_addr,
-                                 params.remainder_and_value_size,
-                                 &view);
+   rc = routing_header_view_init(
+      cfg, filter_node, hdr_raw_addr, params.remainder_and_value_size, &view);
    if (SUCCESS(rc)) {
       rc = routing_filter_lookup_view(cfg, &params, fp, &view, found_values);
    }
@@ -1641,10 +1611,10 @@ routing_filter_print_index(cache          *cc,
 }
 
 static void
-routing_filter_print_remainders(routing_config           *cfg,
+routing_filter_print_remainders(routing_config            *cfg,
                                 const routing_header_view *view,
-                                size_t                    remainder_size,
-                                size_t                    value_size)
+                                size_t                     remainder_size,
+                                size_t                     value_size)
 {
    uint64 i, j, start, end;
    platform_default_log("--- Remainders\n");
@@ -1659,12 +1629,11 @@ routing_filter_print_remainders(routing_config           *cfg,
       platform_default_log("0x%lx remainders:", i);
       for (j = start; j < end; j++) {
          uint32 remainder, value, remainder_and_value;
-         routing_filter_get_remainder_and_value(
-            cfg,
-            (uint32 *)view->remainders,
-            j,
-            &remainder_and_value,
-            remainder_and_value_size);
+         routing_filter_get_remainder_and_value(cfg,
+                                                (uint32 *)view->remainders,
+                                                j,
+                                                &remainder_and_value,
+                                                remainder_and_value_size);
          remainder         = remainder_and_value >> value_size;
          uint32 value_mask = (1UL << value_size) - 1;
          value             = remainder_and_value & value_mask;
@@ -1678,7 +1647,7 @@ void
 routing_filter_print(cache *cc, routing_config *cfg, routing_filter *filter)
 {
    routing_filter_params params;
-   platform_status rc = routing_filter_get_params(cfg, filter, &params);
+   platform_status       rc = routing_filter_get_params(cfg, filter, &params);
    if (!SUCCESS(rc)) {
       platform_default_log("invalid routing filter descriptor\n");
       return;
@@ -1690,7 +1659,7 @@ routing_filter_print(cache *cc, routing_config *cfg, routing_filter *filter)
       platform_default_log("----------------------------------------\n");
       platform_default_log("--- Index 0x%lx\n", i);
       page_handle *filter_page;
-      uint64 hdr_raw_addr;
+      uint64       hdr_raw_addr;
       rc = routing_get_header(
          cc, cfg, filter->addr, i, &filter_page, &hdr_raw_addr);
       if (!SUCCESS(rc)) {

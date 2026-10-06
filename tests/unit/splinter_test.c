@@ -314,14 +314,14 @@ core_log_write_block_install(core_log_write_block *block, log_handle *log)
    platform_assert(active_core_log_write_block == NULL);
    platform_assert(!block->installed);
 
-   block->log                        = log;
-   block->saved_ops                  = log->ops;
-   block->blocked_ops                = *log->ops;
-   block->blocked_ops.write_finish   = core_log_write_finish_blocked;
-   block->calls                      = 0;
-   block->entered                    = FALSE;
-   block->released                   = FALSE;
-   block->installed                  = TRUE;
+   block->log                      = log;
+   block->saved_ops                = log->ops;
+   block->blocked_ops              = *log->ops;
+   block->blocked_ops.write_finish = core_log_write_finish_blocked;
+   block->calls                    = 0;
+   block->entered                  = FALSE;
+   block->released                 = FALSE;
+   block->installed                = TRUE;
    __atomic_store_n(&active_core_log_write_block, block, __ATOMIC_RELEASE);
    log->ops = &block->blocked_ops;
 }
@@ -392,12 +392,12 @@ core_log_prepare_fault_install(core_log_prepare_fault *fault, log_handle *log)
    platform_assert(active_core_log_prepare_fault == NULL);
    platform_assert(!fault->installed);
 
-   fault->log                      = log;
-   fault->saved_ops                = log->ops;
-   fault->fault_ops                = *log->ops;
-   fault->fault_ops.write_prepare  = core_log_write_prepare_invalid_blob;
-   fault->calls                    = 0;
-   fault->installed                = TRUE;
+   fault->log                     = log;
+   fault->saved_ops               = log->ops;
+   fault->fault_ops               = *log->ops;
+   fault->fault_ops.write_prepare = core_log_write_prepare_invalid_blob;
+   fault->calls                   = 0;
+   fault->installed               = TRUE;
    __atomic_store_n(&active_core_log_prepare_fault, fault, __ATOMIC_RELEASE);
    log->ops = &fault->fault_ops;
 }
@@ -953,14 +953,8 @@ blob_checksum_test_mini_init(cache *cc, mini_allocator *mini, uint64 *meta_head)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   rc = mini_init_with_types(mini,
-                             cc,
-                             *meta_head,
-                             0,
-                             NUM_BLOB_BATCHES,
-                             PAGE_TYPE_MISC,
-                             types,
-                             NULL);
+   rc = mini_init_with_types(
+      mini, cc, *meta_head, 0, NUM_BLOB_BATCHES, PAGE_TYPE_MISC, types, NULL);
    if (!SUCCESS(rc)) {
       refcount ref = allocator_dec_ref(al, *meta_head, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
@@ -1287,13 +1281,7 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
    cache     *cc  = (cache *)data->clock_cache;
 
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
-   test_key(&keybuf,
-            TEST_RANDOM,
-            1,
-            0,
-            0,
-            data->workload_cfg->key_size,
-            0);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
    merge_accumulator msg;
    merge_accumulator_init(&msg, data->hid);
    generate_test_message(&data->gen, 1, &msg);
@@ -1303,15 +1291,15 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
       .tuple_key = key_buffer_key(&keybuf),
       .msg       = merge_accumulator_to_message(&msg),
    };
-   btree_pack_req req;
+   btree_pack_req  req;
    platform_status rc = btree_pack_req_init(&req,
-                                             cc,
-                                             &data->system_cfg->btree_cfg,
-                                             &itor.super,
-                                             1,
-                                             42,
-                                             FALSE,
-                                             data->hid);
+                                            cc,
+                                            &data->system_cfg->btree_cfg,
+                                            &itor.super,
+                                            1,
+                                            42,
+                                            FALSE,
+                                            data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 before = allocator_in_use(alp);
@@ -1322,10 +1310,8 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
                "faulted pack returned %s\n",
                platform_status_to_string(rc));
    ASSERT_EQUAL(0, req.root_addr);
-   ASSERT_EQUAL(before,
-                after,
-                "failed pack leaked %lu extents\n",
-                after - before);
+   ASSERT_EQUAL(
+      before, after, "failed pack leaked %lu extents\n", after - before);
 
    btree_pack_req_deinit(&req, data->hid);
    merge_accumulator_deinit(&msg);
@@ -1336,8 +1322,8 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
  * copying the tuple or publishing any part of the output tree. */
 CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
 {
-   allocator *alp = (allocator *)&data->al;
-   cache     *cc  = (cache *)data->clock_cache;
+   allocator *alp        = (allocator *)&data->al;
+   cache     *cc         = (cache *)data->clock_cache;
    char       key_byte   = 0;
    char       value_byte = 0;
 
@@ -1347,15 +1333,15 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
       .msg       = message_create(
          MESSAGE_TYPE_INSERT, NULL, slice_create(1, &value_byte)),
    };
-   btree_pack_req req;
+   btree_pack_req  req;
    platform_status rc = btree_pack_req_init(&req,
-                                             cc,
-                                             &data->system_cfg->btree_cfg,
-                                             &itor.super,
-                                             1,
-                                             42,
-                                             FALSE,
-                                             data->hid);
+                                            cc,
+                                            &data->system_cfg->btree_cfg,
+                                            &itor.super,
+                                            1,
+                                            42,
+                                            FALSE,
+                                            data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 before = allocator_in_use(alp);
@@ -1366,10 +1352,8 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
                "oversized pack returned %s\n",
                platform_status_to_string(rc));
    ASSERT_EQUAL(0, req.root_addr);
-   ASSERT_EQUAL(before,
-                after,
-                "rejected pack leaked %lu extents\n",
-                after - before);
+   ASSERT_EQUAL(
+      before, after, "rejected pack leaked %lu extents\n", after - before);
 
    btree_pack_req_deinit(&req, data->hid);
 }
@@ -1383,7 +1367,7 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    allocator *alp = (allocator *)&data->al;
    cache     *cc  = (cache *)data->clock_cache;
 
-   core_handle spl;
+   core_handle     spl;
    platform_status rc = core_mkfs(&spl,
                                   &data->system_cfg->splinter_cfg,
                                   alp,
@@ -1397,13 +1381,7 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    DECLARE_AUTO_KEY_BUFFER(insert_key, data->hid);
    merge_accumulator insert_msg;
    merge_accumulator_init(&insert_msg, data->hid);
-   test_key(&insert_key,
-            TEST_RANDOM,
-            1,
-            0,
-            0,
-            data->workload_cfg->key_size,
-            0);
+   test_key(&insert_key, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
    generate_test_message(&data->gen, 1, &insert_msg);
    rc = core_insert(&spl,
                     key_buffer_key(&insert_key),
@@ -1415,22 +1393,21 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64 root_addr = spl.trunk_context.root->ref.addr;
-   uint64 page_size = cache_page_size(cc);
+   uint64       root_addr = spl.trunk_context.root->ref.addr;
+   uint64       page_size = cache_page_size(cc);
    page_handle *root_page =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
    test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
    ASSERT_TRUE(node->num_pivots >= 2);
-   uint64 num_bundles = node->num_pivots - 1;
+   uint64  num_bundles = node->num_pivots - 1;
    uint32 *pivot_offsets =
       TYPED_ARRAY_MALLOC(data->hid, pivot_offsets, num_bundles);
    uint16 *saved_num_branches =
       TYPED_ARRAY_MALLOC(data->hid, saved_num_branches, num_bundles);
    ASSERT_NOT_NULL(pivot_offsets);
    ASSERT_NOT_NULL(saved_num_branches);
-   memcpy(pivot_offsets,
-          node->pivot_offsets,
-          num_bundles * sizeof(*pivot_offsets));
+   memcpy(
+      pivot_offsets, node->pivot_offsets, num_bundles * sizeof(*pivot_offsets));
    test_splinter_unclaim_page(cc, root_page);
 
    for (uint64 i = 0; i < num_bundles; i++) {
@@ -1446,33 +1423,27 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    }
 
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
-   test_key(&keybuf,
-            TEST_RANDOM,
-            2,
-            0,
-            0,
-            data->workload_cfg->key_size,
-            0);
+   test_key(&keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
    key target = key_buffer_key(&keybuf);
 
    trunk_ondisk_node_handle handle;
-   rc = trunk_init_root_handle(&spl.trunk_context, &handle);
-   bool32 handle_ready = SUCCESS(rc);
-   bool32 sync_rejected = FALSE;
+   rc                    = trunk_init_root_handle(&spl.trunk_context, &handle);
+   bool32 handle_ready   = SUCCESS(rc);
+   bool32 sync_rejected  = FALSE;
    bool32 async_rejected = FALSE;
    bool32 range_rejected = FALSE;
    if (handle_ready) {
       lookup_result result;
       lookup_result_init(
          &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-      rc = trunk_merge_lookup(
-         &spl.trunk_context, &handle, target, &result, NULL);
+      rc =
+         trunk_merge_lookup(&spl.trunk_context, &handle, target, &result, NULL);
       sync_rejected = !SUCCESS(rc);
       lookup_result_deinit(&result);
 
       lookup_result_init(
          &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-      rc = async_call_sync_callback(cache_cleanup(cc),
+      rc             = async_call_sync_callback(cache_cleanup(cc),
                                     trunk_merge_lookup_async,
                                     &spl.trunk_context,
                                     &handle,
@@ -1483,12 +1454,12 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
       lookup_result_deinit(&result);
 
       trunk_branch_info branches[MAX_FILTERS];
-      uint64             num_branches = 0;
-      key_buffer         min_key;
-      key_buffer         max_key;
+      uint64            num_branches = 0;
+      key_buffer        min_key;
+      key_buffer        max_key;
       key_buffer_init(&min_key, data->hid);
       key_buffer_init(&max_key, data->hid);
-      rc = trunk_collect_branches(&spl.trunk_context,
+      rc             = trunk_collect_branches(&spl.trunk_context,
                                   &handle,
                                   target,
                                   greater_than_or_equal,
@@ -2631,8 +2602,8 @@ static checkpoint_trunk_alloc_fault *active_checkpoint_trunk_alloc_fault;
 static page_handle *
 checkpoint_test_trunk_page_alloc(cache *cc, uint64 addr, page_type type)
 {
-   checkpoint_trunk_alloc_fault *fault = __atomic_load_n(
-      &active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE);
+   checkpoint_trunk_alloc_fault *fault =
+      __atomic_load_n(&active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE);
    platform_assert(fault != NULL && fault->cc == cc);
 
    if (type == PAGE_TYPE_TRUNK
@@ -2649,9 +2620,9 @@ static void
 checkpoint_trunk_alloc_fault_install(checkpoint_trunk_alloc_fault *fault,
                                      cache                        *cc)
 {
-   platform_assert(__atomic_load_n(&active_checkpoint_trunk_alloc_fault,
-                                   __ATOMIC_ACQUIRE)
-                   == NULL);
+   platform_assert(
+      __atomic_load_n(&active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE)
+      == NULL);
    ZERO_CONTENTS(fault);
    fault->cc                   = cc;
    fault->saved_ops            = cc->ops;
@@ -2666,9 +2637,9 @@ checkpoint_trunk_alloc_fault_install(checkpoint_trunk_alloc_fault *fault,
 static void
 checkpoint_trunk_alloc_fault_uninstall(checkpoint_trunk_alloc_fault *fault)
 {
-   platform_assert(__atomic_load_n(&active_checkpoint_trunk_alloc_fault,
-                                   __ATOMIC_ACQUIRE)
-                   == fault);
+   platform_assert(
+      __atomic_load_n(&active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE)
+      == fault);
    fault->cc->ops = fault->saved_ops;
    __atomic_store_n(
       &active_checkpoint_trunk_alloc_fault, NULL, __ATOMIC_RELEASE);
@@ -2721,12 +2692,11 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
          writeback_requests +=
             writeback_set_num_requests(&group->thread_data[tid].wbset);
       }
-      group_is_retryable = group->state == SHARD_LOG_GROUP_TERMINATING
-                           && final->state == SHARD_LOG_BUFFER_OPEN
-                           && final->offset > sizeof(shard_log_hdr)
-                           && final->incache_page == NULL
-                           && group->next_page_no == 0
-                           && writeback_requests == 0;
+      group_is_retryable =
+         group->state == SHARD_LOG_GROUP_TERMINATING
+         && final->state == SHARD_LOG_BUFFER_OPEN
+         && final->offset > sizeof(shard_log_hdr) && final->incache_page == NULL
+         && group->next_page_no == 0 && writeback_requests == 0;
    }
    platform_mutex_unlock(&slog->graduate_lock);
    ASSERT_TRUE(group_is_retryable,
@@ -2857,16 +2827,14 @@ CTEST2(splinter, test_checkpoint_reports_terminal_incorporation_failure)
    checkpoint_trunk_alloc_fault fault;
    checkpoint_trunk_alloc_fault_install(&fault, cc);
    platform_status rotation_rc = memtable_force_rotation(&spl.mt_ctxt, NULL);
-   platform_status failure_quiesce_rc =
-      task_perform_until_quiescent(spl.ts);
+   platform_status failure_quiesce_rc = task_perform_until_quiescent(spl.ts);
    checkpoint_trunk_alloc_fault_uninstall(&fault);
 
    ASSERT_TRUE(SUCCESS(rotation_rc));
    ASSERT_TRUE(SUCCESS(failure_quiesce_rc));
    ASSERT_EQUAL(1, __atomic_load_n(&fault.failures, __ATOMIC_RELAXED));
 
-   memtable *failed =
-      &spl.mt_ctxt.mt[target % spl.mt_ctxt.cfg.max_memtables];
+   memtable *failed = &spl.mt_ctxt.mt[target % spl.mt_ctxt.cfg.max_memtables];
    ASSERT_EQUAL(target, failed->generation);
    ASSERT_EQUAL(MEMTABLE_STATE_INCORPORATION_FAILED,
                 memtable_get_state(failed));

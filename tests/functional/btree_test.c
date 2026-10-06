@@ -64,10 +64,10 @@ typedef struct test_memtable_context {
 #define BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE 2010
 
 typedef struct btree_height_limit_iterator {
-   iterator    super;
-   uint64      pos;
-   uint8       keys[BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS]
-                     [BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE];
+   iterator super;
+   uint64   pos;
+   uint8    keys[BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS]
+             [BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE];
    data_handle data;
 } btree_height_limit_iterator;
 
@@ -150,15 +150,15 @@ test_btree_pack_height_limit(cache              *cc,
       memset(itor.keys[i], 'a' + i, sizeof(itor.keys[i]));
    }
 
-   btree_pack_req req;
+   btree_pack_req  req;
    platform_status rc =
       btree_pack_req_init(&req, cc, cfg, &itor.super, 0, 0, FALSE, hid);
    if (!SUCCESS(rc)) {
       return rc;
    }
    rc = btree_pack(&req);
-   bool32 passed = STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED)
-                   && req.root_addr == 0;
+   bool32 passed =
+      STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED) && req.root_addr == 0;
    if (SUCCESS(rc) && req.root_addr != 0) {
       btree_dec_ref(cc, cfg, req.root_addr, PAGE_TYPE_BRANCH);
    }
@@ -1319,7 +1319,7 @@ static void
 test_btree_iterator_async_callback(void *arg)
 {
    test_btree_iterator_async_context *ctxt = arg;
-   ctxt->ready                            = TRUE;
+   ctxt->ready                             = TRUE;
 }
 
 static platform_status
@@ -1535,11 +1535,8 @@ test_btree_query_validation(cache           *cc,
                                       key_buffer_key(&touched_key),
                                       TRUE);
    btree_node invalid_node = {.addr = touched_leaf_addr};
-   btree_print_node(Platform_default_log_handle,
-                    cc,
-                    cfg,
-                    &invalid_node,
-                    PAGE_TYPE_BRANCH);
+   btree_print_node(
+      Platform_default_log_handle, cc, cfg, &invalid_node, PAGE_TYPE_BRANCH);
    bool32 diagnostics_rejected =
       !btree_verify_tree(cc, cfg, root_addr, PAGE_TYPE_BRANCH);
 
@@ -1568,15 +1565,10 @@ test_btree_query_validation(cache           *cc,
    hdr->page_no = saved_page_no + 1;
    test_btree_unclaim_page(cc, page);
 
-   bool32 point_lookup_ok =
-      test_btree_query_status_matches(cc,
-                                      cfg,
-                                      root_addr,
-                                      PAGE_TYPE_BRANCH,
-                                      key_buffer_key(&touched_key),
-                                      TRUE);
+   bool32 point_lookup_ok = test_btree_query_status_matches(
+      cc, cfg, root_addr, PAGE_TYPE_BRANCH, key_buffer_key(&touched_key), TRUE);
 
-   btree_iterator sequence_itor;
+   btree_iterator  sequence_itor;
    platform_status forward_rc = btree_iterator_init(cc,
                                                     cfg,
                                                     &sequence_itor,
@@ -1592,8 +1584,7 @@ test_btree_query_validation(cache           *cc,
                                                     0,
                                                     0);
    if (SUCCESS(forward_rc)) {
-      while (SUCCESS(forward_rc)
-             && sequence_itor.curr.addr == first_leaf_addr
+      while (SUCCESS(forward_rc) && sequence_itor.curr.addr == first_leaf_addr
              && iterator_can_next(&sequence_itor.super))
       {
          forward_rc = iterator_next(&sequence_itor.super);
@@ -1601,13 +1592,8 @@ test_btree_query_validation(cache           *cc,
       btree_iterator_deinit(&sequence_itor);
    }
 
-   platform_status reverse_sync_rc =
-      test_btree_iterator_init_status(cc,
-                                      cfg,
-                                      root_addr,
-                                      less_than,
-                                      key_buffer_key(&touched_key),
-                                      FALSE);
+   platform_status reverse_sync_rc = test_btree_iterator_init_status(
+      cc, cfg, root_addr, less_than, key_buffer_key(&touched_key), FALSE);
    platform_status forward_async_rc =
       test_btree_iterator_init_status(cc,
                                       cfg,
@@ -1615,13 +1601,8 @@ test_btree_query_validation(cache           *cc,
                                       greater_than,
                                       key_buffer_key(&first_leaf_last_key),
                                       TRUE);
-   platform_status reverse_async_rc =
-      test_btree_iterator_init_status(cc,
-                                      cfg,
-                                      root_addr,
-                                      less_than,
-                                      key_buffer_key(&touched_key),
-                                      TRUE);
+   platform_status reverse_async_rc = test_btree_iterator_init_status(
+      cc, cfg, root_addr, less_than, key_buffer_key(&touched_key), TRUE);
 
    page = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
    hdr  = (btree_hdr *)page->data;
@@ -1636,9 +1617,8 @@ test_btree_query_validation(cache           *cc,
       goto deinit_keys;
    }
 
-   page =
-      test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
-   hdr = (btree_hdr *)page->data;
+   page = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
+   hdr  = (btree_hdr *)page->data;
    platform_assert(touched_idx < hdr->num_entries);
    table_entry saved_offset  = hdr->offsets[touched_idx];
    hdr->offsets[touched_idx] = btree_page_size(cfg);
