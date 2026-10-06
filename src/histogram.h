@@ -38,15 +38,20 @@ histogram_print(histogram           *histo,
 static inline void
 histogram_insert(histogram *histo, int64 datum)
 {
-   int lo = 0, hi = histo->num_buckets - 1;
+   platform_assert(0 < histo->num_buckets);
 
-   while (hi > lo) {
-      int mid = lo + (hi - lo) / 2;
+   uint32 lo = 0;
+   uint32 hi = histo->num_buckets - 1;
+
+   /* bucket_limits has one entry for every bucket except the final overflow
+    * bucket. Find the first limit greater than or equal to datum. */
+   while (lo < hi) {
+      uint32 mid = lo + (hi - lo) / 2;
 
       if (datum > histo->bucket_limits[mid]) {
          lo = mid + 1;
       } else {
-         hi = mid - 1;
+         hi = mid;
       }
    }
    platform_assert(lo < histo->num_buckets);

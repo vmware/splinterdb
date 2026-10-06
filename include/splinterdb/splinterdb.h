@@ -621,6 +621,10 @@ splinterdb_iterator_status(const splinterdb_iterator *iter);
  * Must set the use_stats config option.
  *
  * Prints insertion or lookup statistics. Both print cache statistics.
+ * Statistics printing is a best-effort snapshot: updates may proceed while
+ * statistics are being read, so fields in one report may reflect different
+ * points in time. Statistics must not be used for synchronization or database
+ * correctness decisions.
  *
  * Reset statistics clears all statistics, including cache statistics.
  */

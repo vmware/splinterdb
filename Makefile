@@ -469,7 +469,9 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 # Note each test bin/unit/<x> also depends on obj/unit/<x>.o, as
 # defined above using unit_test_self_dependency.
 #
-$(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
+$(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) \
+                                $(OBJDIR)/$(SRCDIR)/histogram.o \
+                                $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/platform_threads_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 

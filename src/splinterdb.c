@@ -239,6 +239,28 @@ splinterdb_validate_app_data_config(const data_config *cfg)
    return STATUS_OK;
 }
 
+static platform_status
+splinterdb_validate_path_config(const splinterdb_config *cfg)
+{
+   if (cfg->filename == NULL
+       || memchr(cfg->filename, '\0', MAX_STRING_LENGTH) == NULL)
+   {
+      platform_error_log(
+         "Filename is required and must be shorter than %u bytes.\n",
+         MAX_STRING_LENGTH);
+      return STATUS_BAD_PARAM;
+   }
+   if (cfg->cache_logfile != NULL
+       && memchr(cfg->cache_logfile, '\0', MAX_STRING_LENGTH) == NULL)
+   {
+      platform_error_log(
+         "Cache logfile must be shorter than %u bytes.\n",
+         MAX_STRING_LENGTH);
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * splinterdb_init_config --
@@ -488,6 +510,11 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    const disk_geometry *config_geometry = NULL;
 
    status = platform_ensure_thread_registered();
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+
+   status = splinterdb_validate_path_config(kvs_cfg);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
    }

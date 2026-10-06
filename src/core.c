@@ -2805,7 +2805,9 @@ core_apply_to_range(core_handle   *spl,
       goto destroy_range_itor;
    }
 
-   for (int i = 0; i < num_tuples && iterator_can_next(&range_itor->super); i++)
+   for (uint64 i = 0;
+        i < num_tuples && iterator_can_next(&range_itor->super);
+        i++)
    {
       key     curr_key;
       message data;

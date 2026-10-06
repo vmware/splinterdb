@@ -660,6 +660,28 @@ CTEST2(limitations, test_file_error_returns)
    // the error and recover!
 }
 
+CTEST2(limitations, test_oversized_paths_return_bad_param)
+{
+   splinterdb       *kvsb = NULL;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+   char              oversized_path[MAX_STRING_LENGTH + 1];
+
+   memset(oversized_path, 'x', sizeof(oversized_path) - 1);
+   oversized_path[sizeof(oversized_path) - 1] = '\0';
+   default_data_config_init(&default_data_cfg);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.filename = oversized_path;
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r, splinterdb_create(&cfg, &kvsb));
+   ASSERT_NULL(kvsb);
+
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
+   cfg.cache_logfile = oversized_path;
+   ASSERT_EQUAL(STATUS_BAD_PARAM.r, splinterdb_create(&cfg, &kvsb));
+   ASSERT_NULL(kvsb);
+}
+
 /*
  * Helper routine to create a valid Splinter configuration using default
  * page- and extent-size. Shared-memory usage is OFF by default.

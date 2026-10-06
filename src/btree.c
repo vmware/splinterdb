@@ -87,6 +87,7 @@
  * store BTREE_UNKNOWN_COUNTER for these counters.
  */
 #define BTREE_UNKNOWN_COUNTER (0x7fffffffUL)
+#define BTREE_MAX_KNOWN_COUNTER (BTREE_UNKNOWN_COUNTER - 1)
 static const btree_pivot_stats BTREE_PIVOT_STATS_UNKNOWN = {
    BTREE_UNKNOWN_COUNTER,
    BTREE_UNKNOWN_COUNTER,
@@ -2273,14 +2274,14 @@ btree_defragment_or_split_child_index(cache              *cc,
 }
 
 
-static inline uint64
-add_unknown(uint32 a, int32 b)
+static inline uint32
+add_unknown(uint32 a, uint64 b)
 {
-   if (a != BTREE_UNKNOWN_COUNTER && b != BTREE_UNKNOWN_COUNTER) {
-      return a + b;
-   } else {
+   if (a > BTREE_MAX_KNOWN_COUNTER
+       || b > BTREE_MAX_KNOWN_COUNTER - a) {
       return BTREE_UNKNOWN_COUNTER;
    }
+   return a + b;
 }
 
 static inline void
@@ -2307,7 +2308,7 @@ accumulate_node_ranks(const btree_config *cfg,
          stats->message_bytes =
             add_unknown(stats->message_bytes, leaf_entry_message_size(entry));
       }
-      stats->num_kvs += to - from;
+      stats->num_kvs = add_unknown(stats->num_kvs, to - from);
    } else {
       for (int i = from; i < to; i++) {
          index_entry *entry = btree_get_index_entry(cfg, hdr, i);
@@ -5181,10 +5182,30 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
                 message         msg)               // IN
 {
    platform_status rc;
-   log_trace_key(tuple_key, "btree_pack_loop");
 
    if (message_is_invalid_user_type(msg)) {
       return STATUS_INVALID_STATE;
+   }
+
+   uint64 key_size = key_length(tuple_key);
+   if (req->num_tuples >= BTREE_MAX_KNOWN_COUNTER
+       || key_size > BTREE_MAX_KNOWN_COUNTER - req->key_bytes)
+   {
+      platform_error_log(
+         "btree_pack: output statistics exceed the on-disk limit\n");
+      return STATUS_LIMIT_EXCEEDED;
+   }
+
+   log_trace_key(tuple_key, "btree_pack_loop");
+
+   uint64 message_size = 0;
+   if (!message_is_blob(msg)) {
+      message_size = message_length(msg);
+      if (message_size > BTREE_MAX_KNOWN_COUNTER - req->message_bytes) {
+         platform_error_log(
+            "btree_pack: output statistics exceed the on-disk limit\n");
+         return STATUS_LIMIT_EXCEEDED;
+      }
    }
 
    if (message_is_blob(msg)) {
@@ -5205,6 +5226,15 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
       msg = merge_accumulator_to_message(&req->blob_buffer);
    }
 
+   if (message_is_blob(msg)) {
+      message_size = message_materialized_length(msg);
+      if (message_size > BTREE_MAX_KNOWN_COUNTER - req->message_bytes) {
+         platform_error_log(
+            "btree_pack: output statistics exceed the on-disk limit\n");
+         return STATUS_LIMIT_EXCEEDED;
+      }
+   }
+
    btree_node *leaf = btree_pack_get_current_node(req, 0);
 
    if (!leaf
@@ -5222,8 +5252,8 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    btree_pivot_stats *leaf_stats = btree_pack_get_current_node_stats(req, 0);
    leaf_stats->num_kvs++;
-   leaf_stats->key_bytes += key_length(tuple_key);
-   leaf_stats->message_bytes += message_materialized_length(msg);
+   leaf_stats->key_bytes += key_size;
+   leaf_stats->message_bytes += message_size;
 
    log_trace_key(tuple_key, "btree_pack_loop (bottom)");
 
@@ -5234,8 +5264,8 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
    }
 
    req->num_tuples++;
-   req->key_bytes += key_length(tuple_key);
-   req->message_bytes += message_materialized_length(msg);
+   req->key_bytes += key_size;
+   req->message_bytes += message_size;
    return STATUS_OK;
 }
 

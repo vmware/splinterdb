@@ -4185,7 +4185,10 @@ clockcache_config_init(clockcache_config *cache_cfg,
    cache_cfg->page_capacity = capacity / io_cfg->page_size;
    cache_cfg->use_stats     = use_stats;
 
-   rc = snprintf(cache_cfg->logfile, MAX_STRING_LENGTH, "%s", cache_logfile);
+   rc = snprintf(cache_cfg->logfile,
+                 MAX_STRING_LENGTH,
+                 "%s",
+                 cache_logfile == NULL ? "" : cache_logfile);
    platform_assert(rc < MAX_STRING_LENGTH);
 }
 
@@ -4391,7 +4394,7 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       cc->lookup = NULL;
    }
    if (cc->entry) {
-      for (int i = 0; i < cc->cfg->page_capacity; i++) {
+      for (uint32 i = 0; i < cc->cfg->page_capacity; i++) {
          async_wait_queue_deinit(&cc->entry[i].waiters);
       }
       rc = platform_buffer_deinit(&cc->entry_bh);

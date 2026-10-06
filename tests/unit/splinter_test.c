@@ -1331,6 +1331,49 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
    merge_accumulator_deinit(&msg);
 }
 
+/* Packed branches persist exact subtree counters in uint32 fields, with
+ * INT32_MAX reserved to mean unknown. Reject an unrepresentable total before
+ * copying the tuple or publishing any part of the output tree. */
+CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
+{
+   allocator *alp = (allocator *)&data->al;
+   cache     *cc  = (cache *)data->clock_cache;
+   char       key_byte;
+   char       value_byte;
+
+   pack_abort_test_iterator itor = {
+      .super     = {.ops = &pack_abort_test_ops},
+      .tuple_key = key_create(FALSE, INT32_MAX, &key_byte),
+      .msg       = message_create(
+         MESSAGE_TYPE_INSERT, NULL, slice_create(1, &value_byte)),
+   };
+   btree_pack_req req;
+   platform_status rc = btree_pack_req_init(&req,
+                                             cc,
+                                             &data->system_cfg->btree_cfg,
+                                             &itor.super,
+                                             1,
+                                             42,
+                                             FALSE,
+                                             data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 before = allocator_in_use(alp);
+   rc            = btree_pack(&req);
+   uint64 after  = allocator_in_use(alp);
+
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED),
+               "oversized pack returned %s\n",
+               platform_status_to_string(rc));
+   ASSERT_EQUAL(0, req.root_addr);
+   ASSERT_EQUAL(before,
+                after,
+                "rejected pack leaked %lu extents\n",
+                after - before);
+
+   btree_pack_req_deinit(&req, data->hid);
+}
+
 /* A pivot bundle sits immediately after an on-disk pivot and its variable-size
  * key. Exercise the point (sync and async) and range consumers with an
  * oversized branch count, then restore the page so ordinary destruction can

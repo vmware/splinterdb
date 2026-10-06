@@ -15,6 +15,7 @@
 #include "platform_threads.h"
 #include "platform_units.h"
 #include "platform_assert.h"
+#include "histogram.h"
 
 #define ASSERT_OUTBUF_LEN 200
 
@@ -79,6 +80,28 @@ CTEST_SETUP(misc)
 CTEST_TEARDOWN(misc)
 {
    platform_deregister_thread();
+}
+
+CTEST2(misc, test_histogram_bucket_boundaries)
+{
+   const int64 limits[] = {10, 20, 30};
+   histogram *histo =
+      histogram_create(PROCESS_PRIVATE_HEAP_ID, ARRAY_SIZE(limits) + 1, limits);
+   ASSERT_NOT_NULL(histo);
+
+   histogram_insert(histo, 10);
+   histogram_insert(histo, 11);
+   histogram_insert(histo, 20);
+   histogram_insert(histo, 21);
+   histogram_insert(histo, 30);
+   histogram_insert(histo, 31);
+
+   ASSERT_EQUAL(1, histo->count[0]);
+   ASSERT_EQUAL(2, histo->count[1]);
+   ASSERT_EQUAL(2, histo->count[2]);
+   ASSERT_EQUAL(1, histo->count[3]);
+
+   histogram_destroy(PROCESS_PRIVATE_HEAP_ID, histo);
 }
 
 /*

@@ -452,7 +452,7 @@ rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
    uint64 map_addr =
       RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size;
    uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
-   uint32 io_size     = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
+   uint64 io_size     = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
 
    platform_status status = io_write(al->io, al->ref_count, io_size, map_addr);
    if (!SUCCESS(status)) {
