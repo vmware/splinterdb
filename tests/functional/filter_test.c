@@ -90,6 +90,85 @@ test_filter_lookup_rejects(cache                *cc,
 }
 
 static platform_status
+test_filter_add_rejects_late_malformed_index(cache           *cc,
+                                             routing_config  *cfg,
+                                             platform_heap_id hid)
+{
+   if (cfg->log_index_size + 1 > cfg->fingerprint_size
+       || cfg->log_index_size >= 31)
+   {
+      return STATUS_OK;
+   }
+
+   uint32  num_fingerprints = 1U << (cfg->log_index_size + 1);
+   uint32  stride_shift     = 32 - (cfg->log_index_size + 1);
+   uint32 *fp_arr           = TYPED_ARRAY_MALLOC(hid, fp_arr, num_fingerprints);
+   if (fp_arr == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   for (uint32 i = 0; i < num_fingerprints; i++) {
+      fp_arr[i] = i << stride_shift;
+   }
+
+   routing_filter  null_filter = NULL_ROUTING_FILTER;
+   routing_filter  old_filter  = NULL_ROUTING_FILTER;
+   routing_filter  output      = NULL_ROUTING_FILTER;
+   platform_status rc          = routing_filter_add(
+      cc, cfg, &null_filter, &old_filter, fp_arr, num_fingerprints, 0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+
+   uint64       page_size = cache_page_size(cc);
+   page_handle *index_page =
+      test_filter_claim_page(cc, old_filter.addr, PAGE_TYPE_FILTER);
+   uint64 hdr_raw_addr = ((uint64 *)index_page->data)[1];
+   test_filter_unclaim_page(cc, index_page);
+   uint64 header_addr = hdr_raw_addr - hdr_raw_addr % page_size;
+   uint64 header_off  = hdr_raw_addr - header_addr;
+
+   page_handle *header_page =
+      test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
+   test_routing_hdr *hdr = (test_routing_hdr *)(header_page->data + header_off);
+   uint64 encoding_size  = (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
+   if (encoding_size < sizeof(uint64)) {
+      test_filter_unclaim_page(cc, header_page);
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   uint64 saved_encoding_word;
+   memcpy(&saved_encoding_word, hdr->encoding, sizeof(saved_encoding_word));
+   memset(hdr->encoding, 0, sizeof(saved_encoding_word));
+   test_filter_unclaim_page(cc, header_page);
+
+   uint64          allocated_before = allocator_in_use(cache_get_allocator(cc));
+   uint32          new_fp           = UINT32_MAX;
+   platform_status add_rc =
+      routing_filter_add(cc, cfg, &old_filter, &output, &new_fp, 1, 1);
+   uint64 allocated_after = allocator_in_use(cache_get_allocator(cc));
+
+   header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
+   hdr         = (test_routing_hdr *)(header_page->data + header_off);
+   memcpy(hdr->encoding, &saved_encoding_word, sizeof(saved_encoding_word));
+   test_filter_unclaim_page(cc, header_page);
+
+   if (!STATUS_IS_EQ(add_rc, STATUS_INVALID_STATE)
+       || !routing_filters_equal(&output, &NULL_ROUTING_FILTER)
+       || allocated_after != allocated_before)
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   rc = STATUS_OK;
+
+out:
+   routing_filter_dec_ref(cc, &output);
+   routing_filter_dec_ref(cc, &old_filter);
+   platform_free(hid, fp_arr);
+   return rc;
+}
+
+static platform_status
 test_filter_malicious_metadata(cache           *cc,
                                routing_config  *cfg,
                                platform_heap_id hid)
@@ -97,8 +176,14 @@ test_filter_malicious_metadata(cache           *cc,
    platform_default_log(
       "filter_test: malicious routing/mini metadata test started\n");
 
+   platform_status rc =
+      test_filter_add_rejects_late_malformed_index(cc, cfg, hid);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    auto_writable_buffer keywb = NULL_WRITABLE_BUFFER(hid);
-   platform_status      rc    = writable_buffer_resize(&keywb, sizeof(uint64));
+   rc                         = writable_buffer_resize(&keywb, sizeof(uint64));
    if (!SUCCESS(rc)) {
       return rc;
    }
