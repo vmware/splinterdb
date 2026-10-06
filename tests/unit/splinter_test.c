@@ -64,6 +64,12 @@ typedef struct ONDISK test_trunk_bundle {
    branch_ref     branches[];
 } test_trunk_bundle;
 
+typedef struct ONDISK test_log_entry {
+   uint64       memtable_generation;
+   uint64       leaf_generation;
+   ondisk_tuple tuple;
+} test_log_entry;
+
 static page_handle *
 test_splinter_claim_page(cache *cc, uint64 addr, page_type type)
 {
@@ -266,9 +272,9 @@ checkpoint_barrier_fault_uninstall(checkpoint_barrier_fault *fault)
 
 /*
  * Pause the first core insert after its leaf-lock callback has reserved a log
- * group and made the memtable mutation visible, but before the reserved append
- * consumes that reservation.  Later writes pass through so a test can prove
- * that the blocked reservation does not exclude unrelated writers.
+ * group and made the memtable mutation visible, but before finish publishes
+ * the prepared record. Later writes pass through so a test can prove that the
+ * blocked reservation does not exclude unrelated writers.
  */
 typedef struct core_log_write_block {
    log_handle    *log;
@@ -282,12 +288,10 @@ typedef struct core_log_write_block {
 
 static core_log_write_block *active_core_log_write_block;
 
-static int
-core_log_write_reserved_blocked(log_write_token *token,
-                                key              tuple_key,
-                                message          data,
-                                uint64           memtable_generation,
-                                uint64           leaf_generation)
+static void
+core_log_write_finish_blocked(log_write_token *token,
+                              uint64           memtable_generation,
+                              uint64           leaf_generation)
 {
    core_log_write_block *block =
       __atomic_load_n(&active_core_log_write_block, __ATOMIC_ACQUIRE);
@@ -301,8 +305,7 @@ core_log_write_reserved_blocked(log_write_token *token,
          platform_sleep_ns(USEC_TO_NSEC(50));
       }
    }
-   return block->saved_ops->write_reserved(
-      token, tuple_key, data, memtable_generation, leaf_generation);
+   block->saved_ops->write_finish(token, memtable_generation, leaf_generation);
 }
 
 static void
@@ -314,7 +317,7 @@ core_log_write_block_install(core_log_write_block *block, log_handle *log)
    block->log                        = log;
    block->saved_ops                  = log->ops;
    block->blocked_ops                = *log->ops;
-   block->blocked_ops.write_reserved = core_log_write_reserved_blocked;
+   block->blocked_ops.write_finish   = core_log_write_finish_blocked;
    block->calls                      = 0;
    block->entered                    = FALSE;
    block->released                   = FALSE;
@@ -344,32 +347,29 @@ core_log_write_block_uninstall(core_log_write_block *block)
 }
 
 /*
- * Replace one valid core update's log message with a malformed blob only after
- * the memtable mutation has linearized.  The concrete log consumes the real
- * reservation and records the append failure in its group, while the memtable
- * retains the caller's original value.
+ * Replace one valid core update's message with a malformed blob during log
+ * preparation. The insert must fail before reaching the B-tree callback.
  */
-typedef struct core_log_append_fault {
+typedef struct core_log_prepare_fault {
    log_handle    *log;
    const log_ops *saved_ops;
    log_ops        fault_ops;
    uint64         calls;
    bool32         installed;
-} core_log_append_fault;
+} core_log_prepare_fault;
 
-static core_log_append_fault *active_core_log_append_fault;
+static core_log_prepare_fault *active_core_log_prepare_fault;
 
-static int
-core_log_write_reserved_invalid_blob(log_write_token *token,
-                                     key              tuple_key,
-                                     message          data,
-                                     uint64           memtable_generation,
-                                     uint64           leaf_generation)
+static platform_status
+core_log_write_prepare_invalid_blob(log_handle         *log,
+                                    key                 tuple_key,
+                                    message             data,
+                                    bool32              force_blob,
+                                    log_write_prepared *prepared)
 {
-   core_log_append_fault *fault =
-      __atomic_load_n(&active_core_log_append_fault, __ATOMIC_ACQUIRE);
-   platform_assert(fault != NULL && fault->installed
-                   && fault->log == token->log);
+   core_log_prepare_fault *fault =
+      __atomic_load_n(&active_core_log_prepare_fault, __ATOMIC_ACQUIRE);
+   platform_assert(fault != NULL && fault->installed && fault->log == log);
    (void)data;
 
    __atomic_fetch_add(&fault->calls, 1, __ATOMIC_RELAXED);
@@ -380,37 +380,37 @@ core_log_write_reserved_invalid_blob(log_write_token *token,
    };
    message invalid_msg =
       message_create(MESSAGE_TYPE_INSERT,
-                     ((shard_log *)fault->log)->cc,
+                     ((shard_log *)log)->cc,
                      slice_create(sizeof(invalid_blob), &invalid_blob));
-   return fault->saved_ops->write_reserved(
-      token, tuple_key, invalid_msg, memtable_generation, leaf_generation);
+   return fault->saved_ops->write_prepare(
+      log, tuple_key, invalid_msg, force_blob, prepared);
 }
 
 static void
-core_log_append_fault_install(core_log_append_fault *fault, log_handle *log)
+core_log_prepare_fault_install(core_log_prepare_fault *fault, log_handle *log)
 {
-   platform_assert(active_core_log_append_fault == NULL);
+   platform_assert(active_core_log_prepare_fault == NULL);
    platform_assert(!fault->installed);
 
    fault->log                      = log;
    fault->saved_ops                = log->ops;
    fault->fault_ops                = *log->ops;
-   fault->fault_ops.write_reserved = core_log_write_reserved_invalid_blob;
+   fault->fault_ops.write_prepare  = core_log_write_prepare_invalid_blob;
    fault->calls                    = 0;
    fault->installed                = TRUE;
-   __atomic_store_n(&active_core_log_append_fault, fault, __ATOMIC_RELEASE);
+   __atomic_store_n(&active_core_log_prepare_fault, fault, __ATOMIC_RELEASE);
    log->ops = &fault->fault_ops;
 }
 
 static void
-core_log_append_fault_uninstall(core_log_append_fault *fault)
+core_log_prepare_fault_uninstall(core_log_prepare_fault *fault)
 {
    if (!fault->installed) {
       return;
    }
 
    fault->log->ops = fault->saved_ops;
-   __atomic_store_n(&active_core_log_append_fault, NULL, __ATOMIC_RELEASE);
+   __atomic_store_n(&active_core_log_prepare_fault, NULL, __ATOMIC_RELEASE);
    fault->installed = FALSE;
    fault->log       = NULL;
    fault->saved_ops = NULL;
@@ -1338,8 +1338,8 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
 {
    allocator *alp = (allocator *)&data->al;
    cache     *cc  = (cache *)data->clock_cache;
-   char       key_byte;
-   char       value_byte;
+   char       key_byte   = 0;
+   char       value_byte = 0;
 
    pack_abort_test_iterator itor = {
       .super     = {.ops = &pack_abort_test_ops},
@@ -1827,6 +1827,108 @@ CTEST2(splinter, test_two_log_checkpoint)
    rc = core_checkpoint(&spl, 0);
    ASSERT_TRUE(SUCCESS(rc));
 
+   core_destroy(&spl);
+}
+
+/*
+ * Preparing the log record blobifies a large inline value before the B-tree
+ * sees it. The B-tree must attach the complete extents from that blob rather
+ * than rebuilding the value; only the partial tail is copied into each mini.
+ */
+CTEST2(splinter, test_logged_large_insert_shares_blob_extents)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   cache     *cc                          = (cache *)data->clock_cache;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  alp,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+
+   merge_accumulator value;
+   merge_accumulator_init(&value, data->hid);
+   uint64 value_length = cache_extent_size(cc) + cache_extent_size(cc) / 2;
+   ASSERT_TRUE(merge_accumulator_resize(&value, value_length));
+   merge_accumulator_set_class(&value, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&value), 'L', value_length);
+
+   rc = core_insert(&spl,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&value),
+                    NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   shard_log       *log = (shard_log *)spl.log;
+   shard_log_group *group =
+      __atomic_load_n(&log->accepting.group, __ATOMIC_ACQUIRE);
+   ASSERT_TRUE(group != NULL);
+   shard_log_thread_data *thread_data = &group->thread_data[platform_get_tid()];
+   shard_log_hdr         *hdr         = (shard_log_hdr *)thread_data->buf;
+   ASSERT_EQUAL(1, hdr->num_entries);
+
+   test_log_entry *entry = (test_log_entry *)(thread_data->buf + sizeof(*hdr));
+   message         log_message = ondisk_tuple_message(cc, &entry->tuple);
+   ASSERT_TRUE(message_is_blob(log_message));
+
+   parsed_blob log_blob;
+   rc = blob_parse_descriptor(cc, message_slice(log_message), &log_blob);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_NOT_EQUAL(0, log_blob.num_extents);
+   for (uint64 i = 0; i < log_blob.num_extents; i++) {
+      ASSERT_EQUAL(AL_ONE_REF + 1,
+                   allocator_get_refcount(alp, log_blob.base->addrs[i]),
+                   "blob extent %lu was not shared by the log and memtable",
+                   log_blob.base->addrs[i]);
+   }
+
+   memset(merge_accumulator_data(&value), 'R', value_length);
+   rc = core_insert(&spl,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&value),
+                    NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(2, hdr->num_entries);
+
+   uint64 first_entry_size =
+      sizeof(*entry) + sizeof_ondisk_tuple_data(&entry->tuple);
+   entry       = (test_log_entry *)((char *)entry + first_entry_size);
+   log_message = ondisk_tuple_message(cc, &entry->tuple);
+   ASSERT_TRUE(message_is_blob(log_message));
+   rc = blob_parse_descriptor(cc, message_slice(log_message), &log_blob);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_NOT_EQUAL(0, log_blob.num_extents);
+   for (uint64 i = 0; i < log_blob.num_extents; i++) {
+      ASSERT_EQUAL(AL_ONE_REF + 1,
+                   allocator_get_refcount(alp, log_blob.base->addrs[i]),
+                   "overwrite blob extent %lu was not shared by the log and "
+                   "memtable",
+                   log_blob.base->addrs[i]);
+   }
+
+   lookup_result found;
+   lookup_result_init(
+      &found, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = core_lookup(&spl, key_buffer_key(&keybuf), &found);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(lookup_result_found(&found));
+   ASSERT_EQUAL(0,
+                message_lex_cmp(merge_accumulator_to_message(&value),
+                                merge_accumulator_to_message(
+                                   lookup_result_accumulator(&found))));
+   lookup_result_deinit(&found);
+
+   merge_accumulator_deinit(&value);
    core_destroy(&spl);
 }
 
@@ -3209,13 +3311,13 @@ CTEST2(splinter, test_durable_barrier_waits_for_checkpoint_publication)
 
 /*
  * A failed cut publication leaves the sealed retiring log durably named and
- * the empty replacement log unnamed.  If that replacement's first append
- * fails before accepting a record, log_is_empty() remains true even though the
- * memtable mutation is visible.  With root publication faulted as well,
- * unmount must reject the retiring-log fallback because make_durable() exposes
- * the replacement log's poisoned group.
+ * the empty replacement log unnamed. If preparation of that replacement's
+ * first record fails, the operation must leave both the log and memtable
+ * unchanged. Even while the independent device fault prevents checkpoint
+ * publication, unmount can consume the handle after preserving enough recovery
+ * state for the next mount.
  */
-CTEST2(splinter, test_unmount_rejects_empty_poisoned_replacement_log)
+CTEST2(splinter, test_log_prepare_failure_leaves_update_unapplied)
 {
    allocator *alp                         = (allocator *)&data->al;
    data->system_cfg->splinter_cfg.use_log = TRUE;
@@ -3267,16 +3369,16 @@ CTEST2(splinter, test_unmount_rejects_empty_poisoned_replacement_log)
    bool32 no_sealed_log_published =
       SUPERBLOCK_NO_LOG(failed_cut_record.sealed_log);
 
-   core_log_append_fault append_fault = {0};
-   core_log_append_fault_install(&append_fault, spl.log);
+   core_log_prepare_fault prepare_fault = {0};
+   core_log_prepare_fault_install(&prepare_fault, spl.log);
    test_key(&keybuf, TEST_RANDOM, 2, 0, 0, data->workload_cfg->key_size, 0);
    generate_test_message(&data->gen, 2, &msg);
    message         expected = merge_accumulator_to_message(&msg);
-   platform_status append_rc =
+   platform_status prepare_rc =
       core_insert(&spl, key_buffer_key(&keybuf), expected, NULL);
-   uint64 append_fault_calls =
-      __atomic_load_n(&append_fault.calls, __ATOMIC_RELAXED);
-   core_log_append_fault_uninstall(&append_fault);
+   uint64 prepare_fault_calls =
+      __atomic_load_n(&prepare_fault.calls, __ATOMIC_RELAXED);
+   core_log_prepare_fault_uninstall(&prepare_fault);
 
    bool32        replacement_still_empty = log_is_empty(spl.log);
    lookup_result found;
@@ -3284,12 +3386,8 @@ CTEST2(splinter, test_unmount_rejects_empty_poisoned_replacement_log)
       &found, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    platform_status lookup_rc =
       core_lookup(&spl, key_buffer_key(&keybuf), &found);
-   bool32 failed_update_visible =
-      SUCCESS(lookup_rc) && lookup_result_found(&found)
-      && message_lex_cmp(
-            expected,
-            merge_accumulator_to_message(lookup_result_accumulator(&found)))
-            == 0;
+   bool32 failed_update_absent =
+      SUCCESS(lookup_rc) && !lookup_result_found(&found);
    lookup_result_deinit(&found);
 
    platform_status durability_rc = core_durable_barrier(&spl);
@@ -3348,28 +3446,30 @@ CTEST2(splinter, test_unmount_rejects_empty_poisoned_replacement_log)
                "failed cut publication did not retain the retiring log\n");
    ASSERT_TRUE(no_sealed_log_published,
                "failed cut publication unexpectedly changed the sealed slot\n");
-   ASSERT_EQUAL(1, append_fault_calls);
-   ASSERT_TRUE(STATUS_IS_EQ(append_rc, STATUS_INVALID_STATE),
-               "injected append returned %s\n",
-               platform_status_to_string(append_rc));
-   ASSERT_TRUE(failed_update_visible,
-               "failed log append did not leave its memtable update visible\n");
+   ASSERT_EQUAL(1, prepare_fault_calls);
+   ASSERT_TRUE(STATUS_IS_EQ(prepare_rc, STATUS_INVALID_STATE),
+               "injected preparation returned %s\n",
+               platform_status_to_string(prepare_rc));
+   ASSERT_TRUE(failed_update_absent,
+               "failed log preparation changed the memtable\n");
    ASSERT_TRUE(replacement_still_empty,
-               "failed first append incorrectly marked the log non-empty\n");
+               "failed first preparation incorrectly marked the log "
+               "non-empty\n");
    ASSERT_FALSE(SUCCESS(durability_rc),
-                "durability barrier crossed the poisoned replacement log\n");
-   ASSERT_FALSE(SUCCESS(unmount_rc),
-                "unmount accepted the retiring log despite a poisoned "
-                "replacement\n");
+                "durability barrier crossed the injected device fault\n");
+   ASSERT_TRUE(SUCCESS(unmount_rc),
+               "unmount did not preserve recovery state after the continuing "
+               "device fault: %s\n",
+               platform_status_to_string(unmount_rc));
    ASSERT_TRUE(unmount_barriers >= 2,
                "unmount reached only %lu faulted barriers\n",
                unmount_barriers);
-   ASSERT_TRUE(handle_remained_mounted,
-               "failed non-forced unmount consumed the core handle\n");
-   ASSERT_TRUE(handle_remained_usable,
-               "failed non-forced unmount left the core handle unusable\n");
+   ASSERT_FALSE(handle_remained_mounted,
+                "successful unmount retained the core handle\n");
+   ASSERT_FALSE(handle_remained_usable,
+                "successful unmount unexpectedly used the old handle\n");
    ASSERT_TRUE(SUCCESS(cleanup_mount_rc),
-               "cleanup mount failed after unexpected unmount success: %s\n",
+               "cleanup mount failed after recovery-preserving unmount: %s\n",
                platform_status_to_string(cleanup_mount_rc));
 }
 

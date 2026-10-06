@@ -801,8 +801,6 @@ shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
    group->next         = NULL;
    group->pool_next    = NULL;
    __atomic_store_n(&group->ever_used, FALSE, __ATOMIC_RELAXED);
-   __atomic_store_n(&group->append_error.r, STATUS_OK.r, __ATOMIC_RELAXED);
-
    uint64 page_size = shard_log_page_size(log->cfg);
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
@@ -1173,14 +1171,56 @@ shard_log_validate_reservation_entry(shard_log *log, key tuple_key, message msg)
    return STATUS_OK;
 }
 
-static platform_status
-shard_log_write_reserve(log_handle      *logh,
-                        key              tuple_key,
-                        message          msg,
-                        log_write_token *token)
+typedef struct shard_log_prepared_write {
+   key               tuple_key;
+   message           msg;
+   merge_accumulator log_blob;
+   uint64            entry_size;
+   threadid          owner_tid;
+   bool32            log_blob_inited;
+   bool32            reserved;
+} shard_log_prepared_write;
+
+_Static_assert(sizeof(shard_log_prepared_write)
+                  <= sizeof(((log_write_prepared *)0)->internal),
+               "log_write_prepared inline storage is too small");
+_Static_assert(_Alignof(log_write_prepared)
+                  >= _Alignof(shard_log_prepared_write),
+               "log_write_prepared inline storage is under-aligned");
+
+static shard_log_prepared_write *
+shard_log_prepared_state(log_write_prepared *prepared)
 {
-   shard_log *log = (shard_log *)logh;
-   threadid   tid = platform_get_tid();
+   return (shard_log_prepared_write *)&prepared->internal;
+}
+
+static const shard_log_prepared_write *
+shard_log_prepared_state_const(const log_write_prepared *prepared)
+{
+   return (const shard_log_prepared_write *)&prepared->internal;
+}
+
+static void
+shard_log_prepared_state_deinit(log_write_prepared *prepared)
+{
+   shard_log_prepared_write *state = shard_log_prepared_state(prepared);
+   if (state->log_blob_inited) {
+      merge_accumulator_deinit(&state->log_blob);
+   }
+   ZERO_CONTENTS(state);
+   prepared->log = NULL;
+}
+
+static platform_status
+shard_log_write_prepare(log_handle         *logh,
+                        key                 tuple_key,
+                        message             msg,
+                        bool32              force_blob,
+                        log_write_prepared *prepared)
+{
+   shard_log                *log   = (shard_log *)logh;
+   threadid                  tid   = platform_get_tid();
+   shard_log_prepared_write *state = shard_log_prepared_state(prepared);
 
    platform_status rc =
       shard_log_validate_reservation_entry(log, tuple_key, msg);
@@ -1188,62 +1228,151 @@ shard_log_write_reserve(log_handle      *logh,
       return rc;
    }
 
+   uint64 page_size      = shard_log_page_size(log->cfg);
+   uint64 max_entry_size = page_size - sizeof(shard_log_hdr);
+   bool32 input_is_blob  = message_is_blob(msg);
+   uint64 entry_size =
+      input_is_blob ? 0 : log_entry_required_capacity(tuple_key, msg);
+
+   if (input_is_blob || force_blob || max_entry_size < entry_size) {
+      merge_accumulator_init(&state->log_blob, platform_get_heap_id());
+      state->log_blob_inited = TRUE;
+      if (input_is_blob) {
+         rc = message_clone(
+            &log->cfg->blob_cfg, log->cc, &log->mini, msg, &state->log_blob);
+      } else {
+         rc = message_to_blob(
+            &log->cfg->blob_cfg, log->cc, &log->mini, msg, &state->log_blob);
+      }
+      if (!SUCCESS(rc)) {
+         goto fail;
+      }
+      msg        = merge_accumulator_to_message(&state->log_blob);
+      entry_size = log_entry_required_capacity(tuple_key, msg);
+   }
+
+   rc = shard_log_validate_reservation_entry(log, tuple_key, msg);
+   if (!SUCCESS(rc)) {
+      goto fail;
+   }
+
+   /*
+    * Pin the current group while enrolling prepared blob writes and making
+    * room in this thread's staging buffer.  This is only a temporary resource
+    * hazard: the ordering reservation is published later, at the caller's
+    * linearization point.  If a cut selects a successor in between, that
+    * successor's buffer for this thread is empty.
+    */
    uint64           ticket;
    shard_log_group *group = shard_log_publish_reservation(log, tid, &ticket);
-   platform_assert(group != NULL,
-                   "log_write_reserve called after the stream was sealed");
+   if (group == NULL) {
+      rc = STATUS_INVALID_STATE;
+      goto fail;
+   }
 
-   shard_log_atomic_bool_set_once(&group->ever_used);
-   token->log             = logh;
-   token->internal        = group;
-   token->owner_tid       = tid;
-   token->internal_ticket = ticket;
+   shard_log_thread_data *thread_data = shard_log_get_thread_data(group, tid);
+   if (state->log_blob_inited) {
+      rc = blob_writeback(log->cc, message_slice(msg), &thread_data->wbset);
+   }
+
+   if (SUCCESS(rc)
+       && (thread_data->state != SHARD_LOG_BUFFER_OPEN
+           || page_size - thread_data->offset < entry_size))
+   {
+      platform_assert(group->id >= SHARD_LOG_FIRST_GROUP_ID);
+      rc = shard_log_graduate_through(log, group->id - 1);
+      if (SUCCESS(rc)) {
+         rc = shard_log_graduate_ordinary_buffer(log, group, thread_data);
+      }
+   }
+
+   if (SUCCESS(rc)) {
+      platform_assert(thread_data->state == SHARD_LOG_BUFFER_OPEN);
+      platform_assert(entry_size <= page_size - thread_data->offset);
+   }
+   shard_log_reservation_slot_clear(log, tid);
+   if (!SUCCESS(rc)) {
+      goto fail;
+   }
+
+   state->tuple_key  = tuple_key;
+   state->msg        = msg;
+   state->entry_size = entry_size;
+   state->owner_tid  = tid;
+   prepared->log     = logh;
    return STATUS_OK;
+
+fail:
+   shard_log_prepared_state_deinit(prepared);
+   return rc;
+}
+
+static message
+shard_log_write_prepared_message(const log_write_prepared *prepared)
+{
+   return shard_log_prepared_state_const(prepared)->msg;
+}
+
+static void
+shard_log_write_abort(log_write_prepared *prepared)
+{
+   const shard_log_prepared_write *state =
+      shard_log_prepared_state_const(prepared);
+   platform_assert(state->owner_tid == platform_get_tid(),
+                   "prepared log writes are thread-affine");
+   platform_assert(!state->reserved, "a reserved log write cannot be aborted");
+   shard_log_prepared_state_deinit(prepared);
 }
 
 static platform_status
-shard_log_end_append(shard_log       *log,
-                     shard_log_group *group,
-                     threadid         tid,
-                     uint64           ticket,
-                     bool32           accepted_record,
-                     platform_status  append_rc)
+shard_log_write_reserve(log_write_prepared *prepared, log_write_token *token)
 {
-   platform_assert(shard_log_reservation_slot_load_relaxed(log, tid) == ticket);
-   if (!SUCCESS(append_rc)) {
-      /*
-       * The caller's update was already visible before it entered the log.
-       * Remember the first missing append permanently; a later retry or error
-       * must not obscure the reason this recovery suffix is unusable.
-       */
-      internal_platform_status expected = STATUS_OK.r;
-      (void)__atomic_compare_exchange_n(&group->append_error.r,
-                                        &expected,
-                                        append_rc.r,
-                                        FALSE,
-                                        __ATOMIC_SEQ_CST,
-                                        __ATOMIC_SEQ_CST);
-   }
-   if (accepted_record) {
-      shard_log_atomic_bool_set_once(&log->has_records);
-   }
-   platform_status result = {
-      .r = __atomic_load_n(&group->append_error.r, __ATOMIC_SEQ_CST),
-   };
+   shard_log                *log   = (shard_log *)prepared->log;
+   shard_log_prepared_write *state = shard_log_prepared_state(prepared);
+   threadid                  tid   = platform_get_tid();
 
-   /* Publish every staging-buffer write before allowing group graduation. */
-   shard_log_reservation_slot_clear(log, tid);
-   return result;
+   platform_assert(state->owner_tid == tid,
+                   "prepared log writes are thread-affine");
+   platform_assert(!state->reserved, "prepared log write was already reserved");
+
+   uint64           ticket;
+   shard_log_group *group = shard_log_publish_reservation(log, tid, &ticket);
+   if (group == NULL) {
+      return STATUS_INVALID_STATE;
+   }
+
+   shard_log_thread_data *thread_data = shard_log_get_thread_data(group, tid);
+   if (thread_data->state != SHARD_LOG_BUFFER_OPEN
+       || shard_log_page_size(log->cfg) - thread_data->offset
+             < state->entry_size)
+   {
+      /*
+       * The preflight group either remained current, preserving this thread's
+       * space, or was replaced by a fresh group with an empty per-thread
+       * buffer.  A failure here therefore indicates unsupported re-entrancy or
+       * a violated staging invariant, but it is still safe to reject before
+       * the caller's update becomes visible.
+       */
+      shard_log_reservation_slot_clear(log, tid);
+      return STATUS_BUSY;
+   }
+
+   shard_log_atomic_bool_set_once(&group->ever_used);
+   token->log             = prepared->log;
+   token->internal        = group;
+   token->prepared        = prepared;
+   token->owner_tid       = tid;
+   token->internal_ticket = ticket;
+   token->internal_offset = thread_data->offset;
+   state->reserved        = TRUE;
+   return STATUS_OK;
 }
 
-static int
-shard_log_write_reserved(log_write_token *token,
-                         key              tuple_key,
-                         message          msg,
-                         uint64           memtable_generation,
-                         uint64           leaf_generation)
+static void
+shard_log_write_finish(log_write_token *token,
+                       uint64           memtable_generation,
+                       uint64           leaf_generation)
 {
-   debug_assert(key_is_user_key(tuple_key));
    debug_assert(memtable_generation != INVALID_LOG_GENERATION);
    debug_assert(leaf_generation != INVALID_LOG_GENERATION);
 
@@ -1253,107 +1382,46 @@ shard_log_write_reserved(log_write_token *token,
 
    shard_log       *log    = (shard_log *)token->log;
    shard_log_group *group  = token->internal;
+   log_write_prepared *prepared = token->prepared;
+   platform_assert(prepared != NULL);
+   platform_assert(prepared->log == token->log);
+   shard_log_prepared_write *state  = shard_log_prepared_state(prepared);
    threadid         tid    = platform_get_tid();
    uint64           ticket = token->internal_ticket;
 
    platform_assert(token->owner_tid == tid,
                    "log reservations must be consumed by their owner thread");
+   platform_assert(state->reserved);
    platform_assert(ticket == group->id);
    platform_assert(shard_log_reservation_slot_load_relaxed(log, tid) == ticket,
                    "log write receipt does not match the active reservation");
 
-   /* Ownership is consumed on every return path from this point onward. */
-   token->log             = NULL;
-   token->internal        = NULL;
-   token->owner_tid       = INVALID_TID;
-   token->internal_ticket = 0;
-
-   cache                 *cc = log->cc;
-   platform_status        rc = STATUS_OK;
-   merge_accumulator      log_blob;
-   bool32                 log_blob_inited = FALSE;
-   bool32                 accepted_record = FALSE;
    shard_log_thread_data *thread_data = shard_log_get_thread_data(group, tid);
+   platform_assert(thread_data->state == SHARD_LOG_BUFFER_OPEN);
+   platform_assert(thread_data->offset == token->internal_offset);
 
-   uint64 page_size      = shard_log_page_size(log->cfg);
-   uint64 max_entry_size = page_size - sizeof(shard_log_hdr);
-   bool32 input_is_blob  = message_is_blob(msg);
-   uint64 new_entry_size =
-      input_is_blob ? 0 : log_entry_required_capacity(tuple_key, msg);
-   if (input_is_blob || max_entry_size < new_entry_size) {
-      merge_accumulator_init(&log_blob, platform_get_heap_id());
-      if (input_is_blob) {
-         rc =
-            message_clone(&log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
-      } else {
-         rc = message_to_blob(
-            &log->cfg->blob_cfg, cc, &log->mini, msg, &log_blob);
-      }
-      if (!SUCCESS(rc)) {
-         merge_accumulator_deinit(&log_blob);
-         goto out;
-      }
-      msg             = merge_accumulator_to_message(&log_blob);
-      log_blob_inited = TRUE;
-      new_entry_size  = log_entry_required_capacity(tuple_key, msg);
-   }
-
-   if (max_entry_size < new_entry_size) {
-      rc = STATUS_LIMIT_EXCEEDED;
-      goto out;
-   }
-
-   if (log_blob_inited) {
-      /*
-       * Enroll the value before publishing the record into a staging buffer.
-       * A partial blob-writeback enrollment may leave harmless extra receipts,
-       * but it can no longer leave behind a record whose value was not covered.
-       */
-      rc = blob_writeback(cc, message_slice(msg), &thread_data->wbset);
-      if (!SUCCESS(rc)) {
-         goto out;
-      }
-   }
-
-   debug_assert(new_entry_size <= max_entry_size);
-
-   // Full, or retrying an earlier hand-over: finish that frozen image first.
-   if (thread_data->state != SHARD_LOG_BUFFER_OPEN
-       || page_size - thread_data->offset < new_entry_size)
-   {
-      /*
-       * Log pages must remain physically grouped.  A later group may stage
-       * records immediately, but before it allocates its first page it helps
-       * graduate every predecessor (including each predecessor terminator).
-       */
-      platform_assert(group->id >= SHARD_LOG_FIRST_GROUP_ID);
-      log_durable_ticket predecessor = group->id - 1;
-      rc = shard_log_graduate_through(log, predecessor);
-      if (SUCCESS(rc)) {
-         rc = shard_log_graduate_ordinary_buffer(log, group, thread_data);
-      }
-      if (!SUCCESS(rc)) {
-         goto out;
-      }
-   }
-
-   log_entry *cursor = (log_entry *)(thread_data->buf + thread_data->offset);
+   log_entry *cursor = (log_entry *)(thread_data->buf + token->internal_offset);
    cursor->memtable_generation = memtable_generation;
    cursor->leaf_generation     = leaf_generation;
-   copy_tuple_to_ondisk_tuple(&cursor->tuple, tuple_key, msg);
+   copy_tuple_to_ondisk_tuple(&cursor->tuple, state->tuple_key, state->msg);
 
    ((shard_log_hdr *)thread_data->buf)->num_entries++;
+   thread_data->offset += state->entry_size;
+   debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
 
-   thread_data->offset += new_entry_size;
-   accepted_record = TRUE;
-   debug_assert(thread_data->offset <= page_size);
+   shard_log_atomic_bool_set_once(&log->has_records);
 
-out:
-   if (log_blob_inited) {
-      merge_accumulator_deinit(&log_blob);
-   }
-   rc = shard_log_end_append(log, group, tid, ticket, accepted_record, rc);
-   return rc.r;
+   /* Consume the preparation and token before publishing the finished entry. */
+   shard_log_prepared_state_deinit(prepared);
+   token->log             = NULL;
+   token->internal        = NULL;
+   token->prepared        = NULL;
+   token->owner_tid       = INVALID_TID;
+   token->internal_ticket = 0;
+   token->internal_offset = 0;
+
+   /* Publish every staging-buffer write before allowing group graduation. */
+   shard_log_reservation_slot_clear(log, tid);
 }
 
 /* Caller holds graduate_lock or durability_lock, excluding reclamation. */
@@ -1463,21 +1531,6 @@ static platform_status
 shard_log_graduate_group(shard_log *log, shard_log_group *group)
 {
    platform_assert(group->close != SHARD_LOG_CLOSE_NONE);
-   platform_status append_error = {
-      .r = __atomic_load_n(&group->append_error.r, __ATOMIC_SEQ_CST),
-   };
-
-   /*
-    * A terminator is the on-disk commit record for the whole group. Emitting
-    * one after any append failed would make recovery skip a visible update and
-    * then accept the suffix as complete. Data pages already graduated before
-    * the failure remain harmless because recovery discards an unterminated
-    * group and everything after it.
-    */
-   if (!SUCCESS(append_error)) {
-      return append_error;
-   }
-
    if (group->state == SHARD_LOG_GROUP_CLOSING) {
       /*
        * Pack only mutable images, then freeze every ordinary page before the
@@ -2239,15 +2292,18 @@ shard_log_is_empty(log_handle *logh)
 }
 
 static log_ops shard_log_ops = {
-   .write_reserve      = shard_log_write_reserve,
-   .write_reserved     = shard_log_write_reserved,
-   .make_durable_begin = shard_log_make_durable_begin,
-   .make_durable_wait  = shard_log_make_durable_wait,
-   .seal               = shard_log_seal,
-   .deinit             = shard_log_deinit,
-   .head               = shard_log_get_head,
-   .is_empty           = shard_log_is_empty,
-   .size               = shard_log_get_size,
+   .write_prepare          = shard_log_write_prepare,
+   .write_prepared_message = shard_log_write_prepared_message,
+   .write_abort            = shard_log_write_abort,
+   .write_reserve          = shard_log_write_reserve,
+   .write_finish           = shard_log_write_finish,
+   .make_durable_begin     = shard_log_make_durable_begin,
+   .make_durable_wait      = shard_log_make_durable_wait,
+   .seal                   = shard_log_seal,
+   .deinit                 = shard_log_deinit,
+   .head                   = shard_log_get_head,
+   .is_empty               = shard_log_is_empty,
+   .size                   = shard_log_get_size,
 };
 
 static void

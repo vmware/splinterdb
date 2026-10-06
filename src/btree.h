@@ -232,9 +232,8 @@ typedef struct btree_pack_req {
 typedef platform_status (*btree_insert_callback_fn)(void *arg);
 
 typedef struct btree_insert_results {
-   lookup_result    *old_result_buffer; // optional, not owned
-   uint64            leaf_generation;
-   merge_accumulator msg_blob;
+   lookup_result *old_result_buffer; // optional, not owned
+   uint64         leaf_generation;
    /*
     * Optional callback invoked exactly once while the final target leaf is
     * write-locked, immediately before the guaranteed logical incorporation.
@@ -250,7 +249,6 @@ btree_insert_results_init(btree_insert_results *results,
 {
    results->old_result_buffer = old_result_buffer;
    results->leaf_generation   = 0;
-   merge_accumulator_init(&results->msg_blob, PROCESS_PRIVATE_HEAP_ID);
    results->callback     = NULL;
    results->callback_arg = NULL;
 }
@@ -267,7 +265,6 @@ btree_insert_results_set_callback(btree_insert_results    *results,
 static inline void
 btree_insert_results_deinit(btree_insert_results *results)
 {
-   merge_accumulator_deinit(&results->msg_blob);
    results->old_result_buffer = NULL;
    results->leaf_generation   = 0;
    results->callback          = NULL;

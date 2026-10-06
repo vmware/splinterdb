@@ -133,13 +133,6 @@ struct shard_log_group {
    /* Atomic, set once by the first reservation in this incarnation. */
    bool32 ever_used;
    bool32 emergency; // Is this group from the pool of emergency groups?
-   /*
-    * First failed append after this group was selected. A non-success value
-    * permanently poisons the group: it must never receive a commit terminator.
-    * The first error is installed atomically by a completing reservation.
-    */
-   platform_status append_error;
-
    shard_log_thread_data *thread_data;
    char                  *thread_buffers;
 

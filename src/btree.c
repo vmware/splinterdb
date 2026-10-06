@@ -617,23 +617,6 @@ btree_record_old_result(const btree_config          *cfg,
 }
 
 static inline platform_status
-btree_record_insert_msg_blob(btree_insert_results        *results,
-                             const leaf_incorporate_spec *spec)
-{
-   if (spec->old_entry_state != ENTRY_DID_NOT_EXIST || spec->use_new_message
-       || !merge_accumulator_is_blob(&spec->msg.modified_message))
-   {
-      return STATUS_OK;
-   }
-
-   debug_assert(merge_accumulator_is_null(&results->msg_blob));
-   bool32 success = merge_accumulator_copy_message(
-      &results->msg_blob,
-      merge_accumulator_to_message(&spec->msg.modified_message));
-   return success ? STATUS_OK : STATUS_NO_MEMORY;
-}
-
-static inline platform_status
 btree_insert_invoke_callback(btree_insert_results *results)
 {
    /*
@@ -697,6 +680,27 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
       {
          merge_accumulator_deinit(&spec->msg.modified_message);
          return STATUS_NO_MEMORY;
+      } else if (merge_accumulator_is_blob(&spec->msg.modified_message)) {
+         /*
+          * A definitive incoming blob survives the merge unchanged. Take the
+          * B-tree's own reference to its complete extents before storing the
+          * descriptor in the leaf; the caller may release its owner as soon as
+          * this insertion returns.
+          */
+         merge_accumulator owned_blob;
+         merge_accumulator_init(&owned_blob, heap_id);
+         rc = message_clone(
+            &btree_blob_cfg,
+            cc,
+            mini,
+            merge_accumulator_to_message(&spec->msg.modified_message),
+            &owned_blob);
+         if (SUCCESS(rc)) {
+            merge_accumulator_deinit(&spec->msg.modified_message);
+            spec->msg.modified_message = owned_blob;
+         } else {
+            merge_accumulator_deinit(&owned_blob);
+         }
       } else if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
                  < merge_accumulator_length(&spec->msg.modified_message))
       {
@@ -2001,16 +2005,6 @@ btree_split_child_leaf(cache                 *cc,
       btree_node_full_unlock(cc, cfg, child);
       return rc;
    }
-   rc = btree_record_insert_msg_blob(results, spec);
-   if (!SUCCESS(rc)) {
-      if (child_next.addr != 0) {
-         btree_node_full_unlock(cc, cfg, &child_next);
-      }
-      btree_node_full_unlock(cc, cfg, &right_child);
-      btree_node_full_unlock(cc, cfg, parent);
-      btree_node_full_unlock(cc, cfg, child);
-      return rc;
-   }
    rc = btree_insert_invoke_callback(results);
    if (!SUCCESS(rc)) {
       if (child_next.addr != 0) {
@@ -2095,11 +2089,6 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       btree_node_lock(cc, cfg, child);
       platform_status rc =
          btree_record_old_result(cfg, cc, root_addr, child->hdr, spec, results);
-      if (!SUCCESS(rc)) {
-         btree_node_full_unlock(cc, cfg, child);
-         return rc;
-      }
-      rc = btree_record_insert_msg_blob(results, spec);
       if (!SUCCESS(rc)) {
          btree_node_full_unlock(cc, cfg, child);
          return rc;
@@ -2432,12 +2421,6 @@ start_over:
             destroy_leaf_incorporate_spec(&spec);
             return rc;
          }
-         rc = btree_record_insert_msg_blob(results, &spec);
-         if (!SUCCESS(rc)) {
-            btree_node_full_unlock(cc, cfg, &root_node);
-            destroy_leaf_incorporate_spec(&spec);
-            return rc;
-         }
          rc = btree_insert_invoke_callback(results);
          if (!SUCCESS(rc)) {
             btree_node_full_unlock(cc, cfg, &root_node);
@@ -2664,12 +2647,6 @@ start_over:
       btree_node_lock(cc, cfg, &child_node);
       rc = btree_record_old_result(
          cfg, cc, root_addr, child_node.hdr, &spec, results);
-      if (!SUCCESS(rc)) {
-         btree_node_full_unlock(cc, cfg, &child_node);
-         destroy_leaf_incorporate_spec(&spec);
-         return rc;
-      }
-      rc = btree_record_insert_msg_blob(results, &spec);
       if (!SUCCESS(rc)) {
          btree_node_full_unlock(cc, cfg, &child_node);
          destroy_leaf_incorporate_spec(&spec);

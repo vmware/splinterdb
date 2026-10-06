@@ -19,50 +19,70 @@ typedef struct log_iterator log_iterator;
 typedef struct log_config   log_config;
 
 /*
- * In order to support high concurrency while ensuring that the log makes
- * updates durable in their linearization order, log writes are performed in two
- * steps.  First, at the linearization point of an update, the caller uses
- * log_write_reserve() to reserve a spot in the log. The log_write_token is
- * the reservation receipt.  Then, they use log_write_reserved() to actually
- * write the log entry. We separate the process into two steps because, in order
- * to ensure correct linearization ordering of log durability, callers may need
- * to reserve their slot in the log while holding locks on other data structures
- * that they are updating (e.g. the btree leaf of the memtable).  The actual
- * write, which may require performing I/O, memory allocation, etc, can occur
- * later, outside of any critical section.
+ * Log writes have three phases.
  *
- * There is no way to cancel a successful reservation, so make the reservation
- * only once you know that you want to perform the write.  Reservation may
- * reject an entry that cannot be represented by the log; in that case it
- * returns an error without publishing a reservation and leaves the token
- * invalid.
+ * prepare() performs every fallible or potentially slow operation: validating
+ * and normalizing the record, constructing any log-owned blob, enrolling its
+ * writebacks, and making room in per-thread staging.  prepared_message()
+ * returns the normalized message so another data structure can share the
+ * immutable blob extents rather than blobifying the input again.  A caller
+ * which does not proceed to reserve() must abort() the prepared write.
+ * The prepared object and the key and message storage passed to prepare() must
+ * remain valid until finish() or abort() consumes the preparation.
  *
- * If the write fails, then the log will not satisfy subsequent make_durable
- * calls.
+ * reserve() runs at the update's logical linearization point.  It assigns the
+ * prepared write to a durability group and records an unused offset in that
+ * group's thread-private staging buffer.  It performs no allocation or I/O.
+ * Once reserve() succeeds it cannot be cancelled: the caller must perform its
+ * guaranteed update and call finish().
+ *
+ * finish() copies and publishes the already-prepared record after the caller's
+ * update, when its generation numbers are known.  It is infallible.  This
+ * means an update is never made visible and then reported as failed merely
+ * because its log append ran out of memory, space, or I/O resources.
  */
-typedef struct log_write_token {
+#define LOG_WRITE_PREPARED_INTERNAL_WORDS 32
+
+typedef struct log_write_prepared {
    log_handle *log;
-   void       *internal;
+   /*
+    * Concrete logs keep preparation state here.  Inline storage avoids a heap
+    * allocation on every write while preserving the abstract log interface.
+    */
+   union {
+      uint64      words[LOG_WRITE_PREPARED_INTERNAL_WORDS];
+      long double alignment;
+      void       *pointer_alignment;
+   } internal;
+} log_write_prepared;
+
+typedef struct log_write_token {
+   log_handle         *log;
+   void               *internal;
+   log_write_prepared *prepared;
    /*
     * Reservations are thread-affine and may not be nested.  The concrete log
     * records both the originating thread and its reservation ticket here so
-    * write_reserved() can validate the receipt before consuming it.
+    * finish() can validate the receipt before consuming it.
     */
    threadid owner_tid;
    uint64   internal_ticket;
+   uint64   internal_offset;
 } log_write_token;
 
-typedef platform_status (*log_write_reserve_fn)(log_handle      *log,
-                                                key              tuple_key,
-                                                message          data,
-                                                log_write_token *token);
-
-/* Append through, and always consume, a prior reservation. */
-typedef int (*log_write_reserved_fn)(log_write_token *token,
-                                     key              tuple_key,
-                                     message          data,
-                                     uint64           memtable_generation,
-                                     uint64           leaf_generation);
+typedef platform_status (*log_write_prepare_fn)(log_handle         *log,
+                                                key                 tuple_key,
+                                                message             data,
+                                                bool32              force_blob,
+                                                log_write_prepared *prepared);
+typedef message (*log_write_prepared_message_fn)(
+   const log_write_prepared *prepared);
+typedef void (*log_write_abort_fn)(log_write_prepared *prepared);
+typedef platform_status (*log_write_reserve_fn)(log_write_prepared *prepared,
+                                                log_write_token    *token);
+typedef void (*log_write_finish_fn)(log_write_token *token,
+                                    uint64           memtable_generation,
+                                    uint64           leaf_generation);
 
 /*
  * make_durable_{begin,wait}() are used to ensure that all log writes whose
@@ -78,9 +98,6 @@ typedef int (*log_write_reserved_fn)(log_write_token *token,
  * make_durable_begin request. (i.e. all writes whose reservation completed
  * before the beginning of make_durable_begin())
  *
- * If a covered write fails, then make_durable_wait will return an error -- the
- * log can never ensure that all covered writes have been made durable.
- *
  * A thread may not call make_durable_begin() while it owns a write reservation
  * on this log. Writers, other make_durable_begin() calls, and log_seal() may
  * run concurrently, subject to log_seal()'s exclusion of new reservations.
@@ -93,24 +110,23 @@ typedef platform_status (*log_make_durable_wait_fn)(log_handle        *log,
                                                     log_durable_ticket ticket);
 
 /*
- * Finish the log: ensure that everything in the log (including
- * reserved-but-not-yet-written items) is durably written to disk and mark the
- * last of it as the end of the log so that replay can tell a complete log from
- * one that a crash truncated.  The log is immutable afterward, but the handle
+ * Finish the log: ensure that everything in the log (including reserved writes
+ * whose finish() has not yet run) is durably written to disk and mark the last
+ * of it as the end of the log so that replay can tell a complete log from one
+ * that a crash truncated.  The log is immutable afterward, but the handle
  * remains valid and must still be released with log_deinit().
  *
- * The caller must exclude concurrent execution of log_write_reserve() and
- * log_seal(). Tokens returned by earlier reservations may remain outstanding
- * and are included in the sealed stream, but the sealing thread must not itself
- * own one because seal waits for all such reservations to complete.
+ * The caller must exclude log_write_prepare(), log_write_reserve(), and other
+ * log_seal() calls, and must ensure that no unreserved prepared write remains.
+ * Tokens returned by earlier reservations may remain outstanding and are
+ * included in the sealed stream, but the sealing thread must not itself own
+ * one because seal waits for all such reservations to complete.
  *
  * A caller that is about to discard the log outright can skip this and
  * call log_deinit() alone.
  *
  * On a transient failure nothing new is guaranteed durable, but seal may
- * simply be called again. Note, however, that an earlier failure in a log_write
- * means that the log is corrupted (from the point of that write onward) and
- * hence can never sealed.
+ * simply be called again.
  *
  * Calling seal again after success is idempotent.
  */
@@ -118,11 +134,12 @@ typedef platform_status (*log_seal_fn)(log_handle *log);
 
 /*
  * Release the stream owner's reference. Before calling this, the owner must
- * exclude concurrent reservations, log_make_durable_begin(), and log_seal()
- * calls, including waiting for any already executing calls to return. It need
- * not wait for log_make_durable_wait() calls consuming tickets issued before
- * deinit. The handle is otherwise invalid as soon as deinit is called. Deinit
- * writes nothing, so it cannot fail.
+ * exclude concurrent preparations, reservations, log_make_durable_begin(),
+ * and log_seal() calls, including waiting for any already executing calls to
+ * return, and no prepared write may remain. It need not wait for
+ * log_make_durable_wait() calls consuming tickets issued before deinit. The
+ * handle is otherwise invalid as soon as deinit is called. Deinit writes
+ * nothing, so it cannot fail.
  */
 typedef void (*log_deinit_fn)(log_handle *log);
 
@@ -143,15 +160,18 @@ typedef bool32 (*log_is_empty_fn)(log_handle *log);
 typedef uint64 (*log_size_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_reserve_fn      write_reserve;
-   log_write_reserved_fn     write_reserved;
-   log_make_durable_begin_fn make_durable_begin;
-   log_make_durable_wait_fn  make_durable_wait;
-   log_seal_fn               seal;
-   log_deinit_fn             deinit;
-   log_head_fn               head;
-   log_is_empty_fn           is_empty;
-   log_size_fn               size;
+   log_write_prepare_fn          write_prepare;
+   log_write_prepared_message_fn write_prepared_message;
+   log_write_abort_fn            write_abort;
+   log_write_reserve_fn          write_reserve;
+   log_write_finish_fn           write_finish;
+   log_make_durable_begin_fn     make_durable_begin;
+   log_make_durable_wait_fn      make_durable_wait;
+   log_seal_fn                   seal;
+   log_deinit_fn                 deinit;
+   log_head_fn                   head;
+   log_is_empty_fn               is_empty;
+   log_size_fn                   size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -160,33 +180,59 @@ struct log_handle {
 };
 
 static inline platform_status
-log_write_reserve(log_handle      *log,
-                  key              tuple_key,
-                  message          data,
-                  log_write_token *token)
+log_write_prepare(log_handle         *log,
+                  key                 tuple_key,
+                  message             data,
+                  bool32              force_blob,
+                  log_write_prepared *prepared)
 {
    platform_assert(log != NULL);
-   platform_assert(token != NULL);
-   ZERO_CONTENTS(token);
-   return log->ops->write_reserve(log, tuple_key, data, token);
+   platform_assert(prepared != NULL);
+   ZERO_CONTENTS(prepared);
+   return log->ops->write_prepare(log, tuple_key, data, force_blob, prepared);
 }
 
-/* Append a reserved record and consume token on every return path. */
-static inline int
-log_write_reserved(log_write_token *token,
-                   key              tuple_key,
-                   message          data,
-                   uint64           memtable_generation,
-                   uint64           leaf_generation)
+static inline message
+log_write_prepared_message(const log_write_prepared *prepared)
+{
+   platform_assert(prepared != NULL);
+   platform_assert(prepared->log != NULL);
+   return prepared->log->ops->write_prepared_message(prepared);
+}
+
+static inline void
+log_write_abort(log_write_prepared *prepared)
+{
+   platform_assert(prepared != NULL);
+   platform_assert(prepared->log != NULL);
+   prepared->log->ops->write_abort(prepared);
+   platform_assert(prepared->log == NULL);
+}
+
+static inline platform_status
+log_write_reserve(log_write_prepared *prepared, log_write_token *token)
+{
+   platform_assert(prepared != NULL);
+   platform_assert(prepared->log != NULL);
+   platform_assert(token != NULL);
+   ZERO_CONTENTS(token);
+   return prepared->log->ops->write_reserve(prepared, token);
+}
+
+/* Publish a reserved record and consume both the token and preparation. */
+static inline void
+log_write_finish(log_write_token *token,
+                 uint64           memtable_generation,
+                 uint64           leaf_generation)
 {
    platform_assert(token != NULL);
    platform_assert(token->log != NULL,
                    "log write token is absent or has already been consumed");
-   return token->log->ops->write_reserved(
-      token, tuple_key, data, memtable_generation, leaf_generation);
+   token->log->ops->write_finish(token, memtable_generation, leaf_generation);
+   platform_assert(token->log == NULL);
 }
 
-/* Convenience for callers whose reservation and append are adjacent. */
+/* Convenience for callers whose three phases are adjacent. */
 static inline int
 log_write(log_handle *log,
           key         tuple_key,
@@ -194,13 +240,20 @@ log_write(log_handle *log,
           uint64      memtable_generation,
           uint64      leaf_generation)
 {
-   log_write_token token;
-   platform_status rc = log_write_reserve(log, tuple_key, data, &token);
+   log_write_prepared prepared;
+   platform_status    rc =
+      log_write_prepare(log, tuple_key, data, FALSE, &prepared);
    if (!SUCCESS(rc)) {
       return rc.r;
    }
-   return log_write_reserved(
-      &token, tuple_key, data, memtable_generation, leaf_generation);
+   log_write_token token;
+   rc = log_write_reserve(&prepared, &token);
+   if (!SUCCESS(rc)) {
+      log_write_abort(&prepared);
+      return rc.r;
+   }
+   log_write_finish(&token, memtable_generation, leaf_generation);
+   return STATUS_OK.r;
 }
 
 /*

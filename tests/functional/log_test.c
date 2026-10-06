@@ -262,18 +262,21 @@ test_log_reserved_writer(void *arg)
                        0);
    generate_test_message(params->gen, params->entry, &msg);
 
+   log_write_prepared prepared;
+   platform_assert_status_ok(log_write_prepare(
+      params->log, skey, merge_accumulator_to_message(&msg), FALSE, &prepared));
    log_write_token reserved;
-   platform_assert_status_ok(log_write_reserve(
-      params->log, skey, merge_accumulator_to_message(&msg), &reserved));
+   platform_assert_status_ok(log_write_reserve(&prepared, &reserved));
    __atomic_store_n(&params->reserved, TRUE, __ATOMIC_RELEASE);
    while (!__atomic_load_n(&params->release, __ATOMIC_ACQUIRE)) {
       platform_sleep_ns(USEC_TO_NSEC(50));
    }
 
-   params->append_rc = log_write_reserved(
-      &reserved, skey, merge_accumulator_to_message(&msg), params->entry, 0);
+   log_write_finish(&reserved, params->entry, 0);
+   params->append_rc = 0;
    platform_assert(reserved.log == NULL);
    platform_assert(reserved.internal == NULL);
+   platform_assert(prepared.log == NULL);
    merge_accumulator_deinit(&msg);
 }
 
@@ -396,7 +399,7 @@ test_log_pipelined_groups(clockcache             *cc,
    /*
     * Leave the last record reserved across the cut. It must remain attached to
     * the group selected by reserve, and the cut must not graduate that group
-    * until log_write_reserved() consumes the reservation.
+    * until log_write_finish() consumes the reservation.
     */
    test_log_write_range(log, gen, hid, key_size, 0, per_group - 1);
    test_log_reserved_writer_params writer = {
@@ -1331,40 +1334,30 @@ test_log_seal_claim_precedes_begin(clockcache             *cc,
 }
 
 /*
- * A log append happens after its corresponding memtable update is visible, so
- * any append failure permanently invalidates that durability group. Verify
- * that the first failure is retained by both wait and seal, that a clean
- * predecessor can still become durable, and that neither records already
- * staged in the poisoned group nor records accepted into a later group become
- * replayable.
+ * A malformed record must fail during preparation, before it acquires an
+ * ordering reservation.  The surrounding stream remains usable and later
+ * records can cross a durability boundary normally.
  */
 static int
-test_log_append_failure_poison(clockcache             *cc,
-                               clockcache_config      *cache_cfg,
-                               io_handle              *io,
-                               allocator              *al,
-                               shard_log_config       *cfg,
-                               platform_heap_id        hid,
-                               test_message_generator *gen,
-                               uint64                  key_size)
+test_log_prepare_failure_does_not_poison(clockcache             *cc,
+                                         clockcache_config      *cache_cfg,
+                                         io_handle              *io,
+                                         allocator              *al,
+                                         shard_log_config       *cfg,
+                                         platform_heap_id        hid,
+                                         test_message_generator *gen,
+                                         uint64                  key_size)
 {
    cache        *cacheh = (cache *)cc;
    log_handle   *log;
-   log_iterator *itor;
 
    platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
    log_head segment = log_get_head(log);
 
-   /* Leave the clean predecessor unwaited so the poisoned wait must drive it.
-    */
+   /* Exercise both a predecessor and a substantially populated successor. */
    test_log_write_range(log, gen, hid, key_size, 0, 1);
    log_durable_ticket clean_ticket;
    platform_assert_status_ok(log_make_durable_begin(log, &clean_ticket));
-
-   /*
-    * Force ordinary data pages out of the next group before poisoning it. The
-    * missing terminator must make recovery discard every one of those pages.
-    */
    test_log_write_range(log, gen, hid, key_size, 1, 256);
 
    blob invalid_blob = {
@@ -1381,21 +1374,19 @@ test_log_append_failure_poison(clockcache             *cc,
    int append_rc   = log_write(log, invalid_key, invalid_msg, 257, 0);
    platform_assert(append_rc == STATUS_INVALID_STATE.r);
 
-   log_durable_ticket poisoned_ticket;
-   platform_assert_status_ok(log_make_durable_begin(log, &poisoned_ticket));
-   platform_assert(poisoned_ticket > clean_ticket);
+   /* Reuse the failed record's sequence number so verification stays dense. */
+   test_log_write_range(log, gen, hid, key_size, 257, 1);
 
-   /* A raw later append may stage, but it must never cross the poison on disk.
-    */
-   test_log_write_range(log, gen, hid, key_size, 258, 1);
-
-   platform_status rc = log_make_durable_wait(log, poisoned_ticket);
-   platform_assert(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+   log_durable_ticket successor_ticket;
+   platform_assert_status_ok(log_make_durable_begin(log, &successor_ticket));
+   platform_assert(successor_ticket > clean_ticket);
+   platform_status rc = log_make_durable_wait(log, successor_ticket);
+   platform_assert_status_ok(rc);
    rc = log_make_durable_wait(log, clean_ticket);
    platform_assert_status_ok(rc);
 
    rc = log_seal(log);
-   platform_assert(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+   platform_assert_status_ok(rc);
    log_deinit(log);
 
    rc = cache_writeback_dirty(cacheh);
@@ -1404,28 +1395,12 @@ test_log_append_failure_poison(clockcache             *cc,
    platform_assert_status_ok(rc);
 
    clockcache_deinit(cc);
-   rc = clockcache_init(cc,
-                        cache_cfg,
-                        io,
-                        al,
-                        "append-failure-poison",
-                        hid,
-                        platform_get_module_id());
+   rc = clockcache_init(
+      cc, cache_cfg, io, al, "prepare-failure", hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
-   platform_assert_status_ok(
-      shard_log_iterator_create((cache *)cc, cfg, hid, segment, 0, &itor));
-   platform_assert(!log_iterator_stream_complete(itor));
-   platform_assert(log_iterator_can_next(itor));
-   uint64 memtable_generation;
-   uint64 leaf_generation;
-   log_iterator_curr_generations(itor, &memtable_generation, &leaf_generation);
-   platform_assert(memtable_generation == 0);
-   platform_assert(leaf_generation == 0);
-   platform_assert_status_ok(log_iterator_next(itor));
-   platform_assert(!log_iterator_can_next(itor));
-
-   log_iterator_deinit(itor);
+   test_log_verify_segment(
+      (cache *)cc, cfg, &segment, gen, hid, key_size, 0, 258);
    shard_log_dec_ref((cache *)cc, &segment);
    return 0;
 }
@@ -2792,14 +2767,14 @@ log_test(int argc, char *argv[])
                                            workload_cfg.key_size);
    platform_assert(rc == 0);
 
-   rc = test_log_append_failure_poison(cc,
-                                       &system_cfg.cache_cfg,
-                                       io,
-                                       (allocator *)&al,
-                                       &system_cfg.log_cfg,
-                                       hid,
-                                       &gen,
-                                       workload_cfg.key_size);
+   rc = test_log_prepare_failure_does_not_poison(cc,
+                                                 &system_cfg.cache_cfg,
+                                                 io,
+                                                 (allocator *)&al,
+                                                 &system_cfg.log_cfg,
+                                                 hid,
+                                                 &gen,
+                                                 workload_cfg.key_size);
    platform_assert(rc == 0);
 
    rc = test_log_ticket_lifetime(

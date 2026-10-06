@@ -1297,8 +1297,8 @@ core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
 typedef struct core_log_write_context {
    log_handle                 *log;
    key                         tuple_key;
-   message                     msg;
    const btree_insert_results *insert_results;
+   log_write_prepared          prepared;
    log_write_token             token;
    bool32                      reserved;
 } core_log_write_context;
@@ -1308,27 +1308,20 @@ typedef struct core_insert_callback_context {
    lookup_result          *preactive_result;
 } core_insert_callback_context;
 
-static inline message
-core_log_message(const core_log_write_context *ctxt)
-{
-   return merge_accumulator_is_null(&ctxt->insert_results->msg_blob)
-             ? ctxt->msg
-             : merge_accumulator_to_message(&ctxt->insert_results->msg_blob);
-}
-
 /*
  * This is the update's logical linearization point.  The btree invokes it
  * exactly once with the final leaf write-locked, immediately before the
- * guaranteed incorporation.  Reserving is allocation- and I/O-free.
+ * guaranteed incorporation. Reserving only binds the prepared record to a log
+ * group and staging offset; it performs no allocation or I/O.
  */
 static platform_status
 core_log_write_reserve(void *arg)
 {
    core_log_write_context *ctxt = arg;
    platform_assert(ctxt->log != NULL);
+   platform_assert(ctxt->prepared.log == ctxt->log);
    platform_assert(!ctxt->reserved);
-   platform_status rc = log_write_reserve(
-      ctxt->log, ctxt->tuple_key, core_log_message(ctxt), &ctxt->token);
+   platform_status rc = log_write_reserve(&ctxt->prepared, &ctxt->token);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1413,13 +1406,9 @@ core_log_insert(core_handle            *spl,
    platform_assert(write_ctxt->reserved);
    platform_assert(write_ctxt->log == spl->log);
 
-   message log_msg = core_log_message(write_ctxt);
-
-   int log_rc = log_write_reserved(&write_ctxt->token,
-                                   write_ctxt->tuple_key,
-                                   log_msg,
-                                   memtable_generation,
-                                   write_ctxt->insert_results->leaf_generation);
+   log_write_finish(&write_ctxt->token,
+                    memtable_generation,
+                    write_ctxt->insert_results->leaf_generation);
    write_ctxt->reserved = FALSE;
 
    /*
@@ -1442,7 +1431,7 @@ core_log_insert(core_handle            *spl,
       __atomic_store_n(&spl->log_reached_threshold, TRUE, __ATOMIC_RELAXED);
    }
 
-   return log_rc == 0 ? STATUS_OK : (platform_status){.r = log_rc};
+   return STATUS_OK;
 }
 
 /*
@@ -2834,9 +2823,21 @@ core_insert(core_handle   *spl,
    core_log_write_context write_ctxt = {
       .log            = spl->cfg.use_log ? spl->log : NULL,
       .tuple_key      = tuple_key,
-      .msg            = data,
       .insert_results = &insert_results,
    };
+   message insert_data = data;
+   if (write_ctxt.log != NULL) {
+      bool32 force_blob = !message_is_blob(data)
+                          && MAX_INLINE_MESSAGE_SIZE(cache_page_size(spl->cc))
+                                < message_length(data);
+      rc = log_write_prepare(
+         write_ctxt.log, tuple_key, data, force_blob, &write_ctxt.prepared);
+      if (!SUCCESS(rc)) {
+         goto end_insert;
+      }
+      insert_data = log_write_prepared_message(&write_ctxt.prepared);
+   }
+
    core_insert_callback_context callback_ctxt;
    if (fetch_and_update) {
       callback_ctxt = (core_insert_callback_context){
@@ -2853,7 +2854,7 @@ core_insert(core_handle   *spl,
                         mt,
                         PROCESS_PRIVATE_HEAP_ID,
                         tuple_key,
-                        data,
+                        insert_data,
                         &insert_results);
    if (!SUCCESS(rc)) {
       platform_assert(!write_ctxt.reserved,
@@ -2903,6 +2904,10 @@ core_insert(core_handle   *spl,
    return rc;
 
 end_insert:
+   if (write_ctxt.prepared.log != NULL) {
+      platform_assert(!write_ctxt.reserved);
+      log_write_abort(&write_ctxt.prepared);
+   }
    btree_insert_results_deinit(&insert_results);
    memtable_end_insert(&spl->mt_ctxt);
 deinit_fetch_results:
@@ -4252,13 +4257,8 @@ core_unmount(core_handle *spl, bool32 force)
                             "durable: %s\n",
                             platform_status_to_string(log_rc));
       }
-      /*
-       * make_durable() also distinguishes a genuinely empty new stream from
-       * one whose first reserved append failed before accepting a record.  In
-       * the latter case log_is_empty() is still true, but the poisoned stream
-       * must not let the still-named retiring log stand in for the missing
-       * update.
-       */
+      /* A preparation failure cannot leave an unlogged visible update, so a
+       * successfully sealed empty replacement is a genuine empty stream. */
       log_durable = SUCCESS(log_rc) && (log_named || retiring_log_durable);
    }
 
