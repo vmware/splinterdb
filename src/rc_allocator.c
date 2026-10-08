@@ -160,6 +160,24 @@ rc_allocator_alloc_refcount_buffer(rc_allocator *al)
    return STATUS_OK;
 }
 
+/*
+ * Choose a useful starting point after loading or rebuilding the allocation
+ * map. These paths run before regular allocation is enabled, so no allocator
+ * can race with this scan.
+ */
+static void
+rc_allocator_reset_hand(rc_allocator *al)
+{
+   uint64 hand = 0;
+   while (hand < al->cfg->extent_capacity && al->ref_count[hand] != AL_FREE) {
+      hand++;
+   }
+   if (hand == al->cfg->extent_capacity) {
+      hand = 0;
+   }
+   __atomic_store_n(&al->hand, hand, __ATOMIC_RELAXED);
+}
+
 static platform_status
 rc_allocator_init_refcounts(rc_allocator *al)
 {
@@ -205,8 +223,8 @@ rc_allocator_init_refcounts(rc_allocator *al)
       rc_allocator_record_allocated_extent(al);
    }
 
-   /* Match a regular mount: the first post-recovery allocation scans at 0. */
-   al->hand = 0;
+   /* Everything after the fixed reserved prefix is free in a fresh map. */
+   __atomic_store_n(&al->hand, reserved_extent_count, __ATOMIC_RELAXED);
    return STATUS_OK;
 }
 
@@ -362,6 +380,7 @@ rc_allocator_recovery_finish(rc_allocator *al)
     * rc_allocator_persist(); another crash before then simply rebuilds it
     * again.
     */
+   rc_allocator_reset_hand(al);
    al->map_is_valid = TRUE;
 }
 
@@ -423,11 +442,17 @@ rc_allocator_load_refcounts(rc_allocator *al)
    // accumulate), so this is correct even if the allocator's stats were not
    // freshly zeroed.
    al->stats.curr_allocated = 0;
+   uint64 first_free        = al->cfg->extent_capacity;
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {
          al->stats.curr_allocated++;
+      } else if (first_free == al->cfg->extent_capacity) {
+         first_free = i;
       }
    }
+   __atomic_store_n(&al->hand,
+                    first_free == al->cfg->extent_capacity ? 0 : first_free,
+                    __ATOMIC_RELAXED);
    al->map_is_valid = TRUE;
    return STATUS_OK;
 }
@@ -577,6 +602,33 @@ rc_allocator_get_config(rc_allocator *al)
 }
 
 /*
+ * Publish progress made by a private allocation scan. hand is an unbounded
+ * ticket, reduced modulo extent_capacity only when indexing ref_count. A scan
+ * that finishes late must not move it behind progress already published by
+ * another allocator.
+ *
+ * The serial-number comparison remains unambiguous because one scan advances
+ * by at most extent_capacity, which is far below half the uint64 range for the
+ * supported I/O geometry.
+ */
+static void
+rc_allocator_advance_hand(rc_allocator *al, uint64 new_hand)
+{
+   uint64 old_hand = __atomic_load_n(&al->hand, __ATOMIC_RELAXED);
+   while (new_hand != old_hand && new_hand - old_hand < (UINT64_C(1) << 63)) {
+      if (__atomic_compare_exchange_n(&al->hand,
+                                      &old_hand,
+                                      new_hand,
+                                      FALSE,
+                                      __ATOMIC_RELAXED,
+                                      __ATOMIC_RELAXED))
+      {
+         return;
+      }
+   }
+}
+
+/*
  *----------------------------------------------------------------------
  * rc_allocator_alloc--
  *
@@ -590,8 +642,8 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 {
    platform_assert(al->map_is_valid);
    rc_allocator_assert_valid_page_type(type);
-   uint64 first_hand = __atomic_fetch_add(&al->hand, 1, __ATOMIC_RELAXED)
-                       % al->cfg->extent_capacity;
+   uint64 first_ticket   = __atomic_fetch_add(&al->hand, 1, __ATOMIC_RELAXED);
+   uint64 first_hand     = first_ticket % al->cfg->extent_capacity;
    uint64 hand           = first_hand;
    bool32 extent_is_free = FALSE;
 
@@ -617,6 +669,10 @@ rc_allocator_alloc(rc_allocator *al,   // IN
          al->cfg->extent_capacity);
       return STATUS_NO_SPACE;
    }
+   uint64 scan_distance = hand >= first_hand
+                             ? hand - first_hand
+                             : al->cfg->extent_capacity - first_hand + hand;
+   rc_allocator_advance_hand(al, first_ticket + scan_distance + 1);
    int64 curr_allocated = __sync_add_and_fetch(&al->stats.curr_allocated, 1);
    int64 max_allocated =
       __atomic_load_n(&al->stats.max_allocated, __ATOMIC_RELAXED);

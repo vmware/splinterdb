@@ -136,12 +136,12 @@ static platform_status
 mini_validate_metadata_stream(cache *cc, uint64 meta_head, page_type type);
 
 static platform_status
-mini_validate_meta_page(cache       *cc,
-                        page_handle *meta_page,
-                        uint64       expected_prev,
-                        bool32       check_prev,
-                        uint64       expected_page_no,
-                        bool32       check_page_no);
+mini_validate_meta_page_contents(cache       *cc,
+                                 page_handle *meta_page,
+                                 uint64       expected_prev,
+                                 bool32       check_prev,
+                                 uint64       expected_page_no,
+                                 bool32       check_page_no);
 
 static platform_status
 mini_metadata_corruption(const char *reason, uint64 addr);
@@ -908,7 +908,7 @@ mini_for_each_meta_page(cache                     *cc,
                                          meta_addr);
       }
 
-      platform_status rc = mini_validate_meta_page(
+      platform_status rc = mini_validate_meta_page_contents(
          cc, meta_page, expected_prev, TRUE, expected_page_no, TRUE);
       if (SUCCESS(rc) && func != NULL) {
          rc = func(cc, type, meta_page, arg);
@@ -1247,20 +1247,16 @@ mini_validate_meta_entry(const allocator_config *cfg,
 }
 
 static platform_status
-mini_validate_meta_page(cache       *cc,
-                        page_handle *meta_page,
-                        uint64       expected_prev,
-                        bool32       check_prev,
-                        uint64       expected_page_no,
-                        bool32       check_page_no)
+mini_validate_meta_page_contents(cache       *cc,
+                                 page_handle *meta_page,
+                                 uint64       expected_prev,
+                                 bool32       check_prev,
+                                 uint64       expected_page_no,
+                                 bool32       check_page_no)
 {
    allocator_config *cfg = allocator_get_config(cache_get_allocator(cc));
-   if (!mini_metadata_valid_geometry(cfg) || meta_page == NULL
-       || !mini_metadata_valid_page_addr(cfg, meta_page->disk_addr))
-   {
-      return mini_metadata_corruption("metadata page is invalid",
-                                      meta_page == NULL ? 0
-                                                        : meta_page->disk_addr);
+   if (meta_page == NULL) {
+      return mini_metadata_corruption("metadata page is invalid", 0);
    }
 
    uint64          meta_addr = meta_page->disk_addr;
@@ -1293,6 +1289,41 @@ mini_validate_meta_page(cache       *cc,
       entry = next_entry(entry);
    }
    return STATUS_OK;
+}
+
+/*
+ * Validate only the fields a cursor needs before it starts accessing entries.
+ * Entries and links are checked individually when the cursor uses them, which
+ * avoids a full metadata-page scan every time a range iterator is initialized.
+ */
+static platform_status
+mini_meta_cursor_validate_page(mini_meta_cursor *cursor,
+                               page_handle      *meta_page,
+                               uint64            expected_prev,
+                               bool32            check_prev,
+                               uint64            expected_page_no,
+                               bool32            check_page_no)
+{
+   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+   return mini_validate_meta_header(hdr,
+                                    cache_page_size(cursor->cc),
+                                    expected_prev,
+                                    check_prev,
+                                    expected_page_no,
+                                    check_page_no,
+                                    meta_page->disk_addr);
+}
+
+static platform_status
+mini_meta_cursor_validate_entry(mini_meta_cursor *cursor, uint64 entry_idx)
+{
+   if (entry_idx >= cursor->num_entries) {
+      return STATUS_INVALID_STATE;
+   }
+   allocator_config *cfg =
+      allocator_get_config(cache_get_allocator(cursor->cc));
+   meta_entry *entry = first_entry(cursor->meta_page) + entry_idx;
+   return mini_validate_meta_entry(cfg, entry, cursor->meta_addr);
 }
 
 typedef struct mini_recover_state {
@@ -1472,8 +1503,8 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
       return MINI_META_CURSOR_WOULD_BLOCK;
    }
 
-   platform_status rc =
-      mini_validate_meta_page(cc, cursor->meta_page, 0, FALSE, 0, FALSE);
+   platform_status rc = mini_meta_cursor_validate_page(
+      cursor, cursor->meta_page, 0, FALSE, 0, FALSE);
    if (!SUCCESS(rc)) {
       cache_unget(cursor->cc, cursor->meta_page);
       cursor->meta_page = NULL;
@@ -1485,6 +1516,12 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
    cursor->num_entries  = mini_num_entries(cursor->meta_page);
    cursor->entry_idx    = 0;
    while (cursor->entry_idx < cursor->num_entries) {
+      rc = mini_meta_cursor_validate_entry(cursor, cursor->entry_idx);
+      if (!SUCCESS(rc)) {
+         cache_unget(cursor->cc, cursor->meta_page);
+         cursor->meta_page = NULL;
+         return MINI_META_CURSOR_INVALID;
+      }
       meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
       if (meta_entry_extent_addr(cursor->cc, entry) == target_extent_addr) {
          return MINI_META_CURSOR_ENTRY;
@@ -1541,6 +1578,11 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
    }
 
    if (cursor->entry_idx + 1 < cursor->num_entries) {
+      if (!SUCCESS(
+             mini_meta_cursor_validate_entry(cursor, cursor->entry_idx + 1)))
+      {
+         return MINI_META_CURSOR_INVALID;
+      }
       cursor->entry_idx++;
       return MINI_META_CURSOR_ENTRY;
    }
@@ -1553,6 +1595,14 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_INVALID;
    }
 
+   allocator_config *cfg =
+      allocator_get_config(cache_get_allocator(cursor->cc));
+   if (!SUCCESS(
+          mini_validate_next_meta_addr(cfg, cursor->meta_addr, next_meta_addr)))
+   {
+      return MINI_META_CURSOR_INVALID;
+   }
+
    page_handle *next_page =
       cache_get(cursor->cc, next_meta_addr, FALSE, cursor->meta_type);
    if (next_page == NULL) {
@@ -1560,12 +1610,12 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_WOULD_BLOCK;
    }
 
-   platform_status rc      = mini_validate_meta_page(cursor->cc,
-                                                next_page,
-                                                cursor->meta_addr,
-                                                TRUE,
-                                                cursor->meta_page_no + 1,
-                                                TRUE);
+   platform_status rc      = mini_meta_cursor_validate_page(cursor,
+                                                       next_page,
+                                                       cursor->meta_addr,
+                                                       TRUE,
+                                                       cursor->meta_page_no + 1,
+                                                       TRUE);
    uint64 next_num_entries = SUCCESS(rc) ? mini_num_entries(next_page) : 0;
    if (!SUCCESS(rc) || next_num_entries == 0) {
       cache_unget(cursor->cc, next_page);
@@ -1578,6 +1628,9 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
    cursor->meta_page_no++;
    cursor->num_entries = next_num_entries;
    cursor->entry_idx   = 0;
+   if (!SUCCESS(mini_meta_cursor_validate_entry(cursor, 0))) {
+      return MINI_META_CURSOR_INVALID;
+   }
    return MINI_META_CURSOR_ENTRY;
 }
 
@@ -1591,6 +1644,11 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
    }
 
    if (cursor->entry_idx > 0) {
+      if (!SUCCESS(
+             mini_meta_cursor_validate_entry(cursor, cursor->entry_idx - 1)))
+      {
+         return MINI_META_CURSOR_INVALID;
+      }
       cursor->entry_idx--;
       return MINI_META_CURSOR_ENTRY;
    }
@@ -1604,6 +1662,14 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_INVALID;
    }
 
+   allocator_config *cfg =
+      allocator_get_config(cache_get_allocator(cursor->cc));
+   if (!SUCCESS(
+          mini_validate_prev_meta_addr(cfg, cursor->meta_addr, prev_addr)))
+   {
+      return MINI_META_CURSOR_INVALID;
+   }
+
    page_handle *prev_page =
       cache_get(cursor->cc, prev_addr, FALSE, cursor->meta_type);
    if (prev_page == NULL) {
@@ -1611,10 +1677,14 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_WOULD_BLOCK;
    }
 
-   platform_status rc = mini_validate_meta_page(
-      cursor->cc, prev_page, 0, FALSE, cursor->meta_page_no - 1, TRUE);
+   platform_status rc = mini_meta_cursor_validate_page(
+      cursor, prev_page, 0, FALSE, cursor->meta_page_no - 1, TRUE);
    mini_meta_hdr *prev_hdr = (mini_meta_hdr *)prev_page->data;
    uint64 prev_num_entries = SUCCESS(rc) ? mini_num_entries(prev_page) : 0;
+   if (SUCCESS(rc)) {
+      rc = mini_validate_next_meta_addr(
+         cfg, prev_page->disk_addr, prev_hdr->next_meta_addr);
+   }
    if (!SUCCESS(rc) || prev_hdr->next_meta_addr != cursor->meta_addr
        || prev_num_entries == 0)
    {
@@ -1628,6 +1698,9 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
    cursor->meta_page_no--;
    cursor->num_entries = prev_num_entries;
    cursor->entry_idx   = cursor->num_entries - 1;
+   if (!SUCCESS(mini_meta_cursor_validate_entry(cursor, cursor->entry_idx))) {
+      return MINI_META_CURSOR_INVALID;
+   }
    return MINI_META_CURSOR_ENTRY;
 }
 

@@ -1247,31 +1247,17 @@ btree_page_addr_is_valid(cache *cc, uint64 addr)
           && addr <= allocator_cfg->capacity - page_size;
 }
 
-static bool32
-btree_extent_addr_is_valid(cache *cc, uint64 addr)
-{
-   allocator_config *allocator_cfg =
-      allocator_get_config(cache_get_allocator(cc));
-   uint64 extent_size = cache_extent_size(cc);
-   return addr == 0
-          || (extent_size <= addr && addr % extent_size == 0
-              && extent_size <= allocator_cfg->capacity
-              && addr <= allocator_cfg->capacity - extent_size);
-}
-
 /* Point queries validate this fixed-size prefix before using checked entry
  * accessors. PAGE_TYPE_MEMTABLE remains trusted, mutable in-memory state. */
 static platform_status
-btree_hdr_validate_header(cache              *cc,
-                          const btree_config *cfg,
-                          uint64              addr,
+btree_hdr_validate_header(const btree_config *cfg,
                           const btree_hdr    *hdr,
                           page_type           type)
 {
    if (type != PAGE_TYPE_BRANCH) {
       return STATUS_OK;
    }
-   if (hdr == NULL || !btree_page_addr_is_valid(cc, addr)) {
+   if (hdr == NULL) {
       return STATUS_INVALID_STATE;
    }
 
@@ -1291,11 +1277,7 @@ btree_hdr_validate_header(cache              *cc,
    uint64 table_end =
       sizeof(*hdr) + (uint64)hdr->num_entries * sizeof(hdr->offsets[0]);
    if (hdr->next_entry < table_end || page_size < hdr->next_entry
-       || hdr->num_entries == 0
-       || !btree_extent_addr_is_valid(cc, hdr->prev_addr)
-       || !btree_extent_addr_is_valid(cc, hdr->next_addr)
-       || (hdr->meta_page_addr != 0
-           && !btree_page_addr_is_valid(cc, hdr->meta_page_addr)))
+       || hdr->num_entries == 0)
    {
       return STATUS_INVALID_STATE;
    }
@@ -1315,7 +1297,7 @@ btree_node_validate_header(cache              *cc,
    if (type == PAGE_TYPE_BRANCH && node->page->disk_addr != node->addr) {
       return STATUS_INVALID_STATE;
    }
-   return btree_hdr_validate_header(cc, cfg, node->addr, node->hdr, type);
+   return btree_hdr_validate_header(cfg, node->hdr, type);
 }
 
 static inline platform_status
@@ -1454,7 +1436,7 @@ btree_hdr_validate(cache              *cc,
    if (type != PAGE_TYPE_BRANCH) {
       return STATUS_OK;
    }
-   platform_status rc = btree_hdr_validate_header(cc, cfg, addr, hdr, type);
+   platform_status rc = btree_hdr_validate_header(cfg, hdr, type);
    if (!SUCCESS(rc)) {
       return rc;
    }

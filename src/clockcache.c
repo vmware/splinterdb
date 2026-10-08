@@ -426,12 +426,18 @@ clockcache_lookup(const clockcache *cc, uint64 addr)
 }
 
 static inline void
-clockcache_assert_page_access_valid(clockcache *cc, uint64 addr, page_type type)
+clockcache_assert_page_type_valid(uint64 addr, page_type type)
 {
    platform_assert(type >= PAGE_TYPE_FIRST && type < NUM_PAGE_TYPES,
                    "Invalid page type %d for addr %lu",
                    type,
                    addr);
+}
+
+static inline void
+clockcache_assert_page_access_valid(clockcache *cc, uint64 addr, page_type type)
+{
+   clockcache_assert_page_type_valid(addr, type);
 
    /*
     * Keep the allocation check in production too. A page address can be in
@@ -2226,6 +2232,13 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
                                   uint64      addr,
                                   page_type   type) // OUT
 {
+   /*
+    * Validate allocation membership only when admitting a new mapping. A
+    * cache hit inherits this property from the mapping, which is removed by
+    * cache_extent_discard() before the allocator can make the extent free.
+    */
+   clockcache_assert_page_access_valid(cc, addr, type);
+
    threadid          tid          = platform_get_tid();
    uint64            lookup_no    = clockcache_lookup_number(cc, addr);
    uint32            entry_number = clockcache_get_free_page(cc,
@@ -2342,7 +2355,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
                         page_type     type,     // IN
                         page_handle **page)     // OUT
 {
-   clockcache_assert_page_access_valid(cc, addr, type);
+   clockcache_assert_page_type_valid(addr, type);
 
    // We expect entry_number to be valid, but it's still validated below
    // in case some arithmetic goes wrong.
@@ -2594,7 +2607,7 @@ clockcache_get_internal_async(clockcache_get_async_state *state, uint64 depth)
    async_begin(state, depth);
 
    state->tid = platform_get_tid();
-   clockcache_assert_page_access_valid(state->cc, state->addr, state->type);
+   clockcache_assert_page_type_valid(state->addr, state->type);
 
    // We expect entry_number to be valid, but it's still validated below
    // in case some arithmetic goes wrong.

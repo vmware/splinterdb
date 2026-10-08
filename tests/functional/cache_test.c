@@ -21,8 +21,8 @@
 
 /*
  * One allocation claims one starting position from the shared hand and scans
- * the ring locally.  Advancing the shared hand for every examined extent lets
- * concurrent full-disk scans receive disjoint positions forever.
+ * the ring locally. It publishes how far that bounded scan progressed so the
+ * next allocator does not rescan the same occupied prefix.
  */
 static void
 test_rc_allocator_bounded_scan(rc_allocator *al)
@@ -30,13 +30,27 @@ test_rc_allocator_bounded_scan(rc_allocator *al)
    allocator *allocator = (struct allocator *)al;
    __atomic_store_n(&al->hand, 0, __ATOMIC_RELAXED);
 
-   uint64 addr;
-   platform_assert_status_ok(allocator_alloc(allocator, &addr, PAGE_TYPE_MISC));
-   platform_assert(__atomic_load_n(&al->hand, __ATOMIC_RELAXED) == 1);
+   uint64 first_addr;
+   platform_assert_status_ok(
+      allocator_alloc(allocator, &first_addr, PAGE_TYPE_MISC));
+   uint64 first_extent = first_addr / al->cfg->io_cfg->extent_size;
+   platform_assert(__atomic_load_n(&al->hand, __ATOMIC_RELAXED)
+                   == first_extent + 1);
 
-   platform_assert(allocator_dec_ref(allocator, addr, PAGE_TYPE_MISC)
+   uint64 second_addr;
+   platform_assert_status_ok(
+      allocator_alloc(allocator, &second_addr, PAGE_TYPE_MISC));
+   platform_assert(second_addr == first_addr + al->cfg->io_cfg->extent_size);
+   platform_assert(__atomic_load_n(&al->hand, __ATOMIC_RELAXED)
+                   == first_extent + 2);
+
+   platform_assert(allocator_dec_ref(allocator, first_addr, PAGE_TYPE_MISC)
                    == AL_NO_REFS);
-   platform_assert(allocator_dec_ref(allocator, addr, PAGE_TYPE_MISC)
+   platform_assert(allocator_dec_ref(allocator, first_addr, PAGE_TYPE_MISC)
+                   == AL_FREE);
+   platform_assert(allocator_dec_ref(allocator, second_addr, PAGE_TYPE_MISC)
+                   == AL_NO_REFS);
+   platform_assert(allocator_dec_ref(allocator, second_addr, PAGE_TYPE_MISC)
                    == AL_FREE);
 }
 
