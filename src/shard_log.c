@@ -1140,28 +1140,14 @@ shard_log_validate_reservation_entry(shard_log *log,
       return STATUS_LIMIT_EXCEEDED;
    }
 
-   /*
-    * The append converts an oversized inline value to a blob.  A descriptor
-    * has one address per whole extent and at most three addresses for the
-    * page/sub-page tail.  Use that upper bound here so reservation remains
-    * allocation- and I/O-free.
-    */
-   uint64 extent_size = cache_extent_size(log->cc);
-   uint64 num_addresses;
-   if (can_round_up(extent_size, message_size)) {
-      num_addresses =
-         message_size / extent_size + (message_size % extent_size != 0);
-   } else {
-      num_addresses = message_size / extent_size;
-      if (num_addresses > UINT64_MAX - 3) {
-         return STATUS_LIMIT_EXCEEDED;
-      }
-      num_addresses += 3;
+   uint64          descriptor_size;
+   platform_status rc = blob_descriptor_size_bound(&log->cfg->blob_cfg,
+                                                   cache_extent_size(log->cc),
+                                                   message_size,
+                                                   &descriptor_size);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   if (num_addresses > (UINT64_MAX - sizeof(blob)) / sizeof(uint64)) {
-      return STATUS_LIMIT_EXCEEDED;
-   }
-   uint64 descriptor_size = sizeof(blob) + num_addresses * sizeof(uint64);
    if (descriptor_size > UINT16_MAX
        || descriptor_size > max_entry_size - sizeof(log_entry) - key_size)
    {
@@ -2163,16 +2149,25 @@ shard_log_prefetch_readable_pages(
 static platform_status
 shard_log_recover_page_blob_allocations(cache            *cc,
                                         shard_log_config *cfg,
-                                        page_handle      *page)
+                                        page_handle      *page,
+                                        uint64  first_needed_generation,
+                                        uint64 *first_invalid_group)
 {
    shard_log_hdr  *hdr = (shard_log_hdr *)page->data;
    log_entry      *le  = first_log_entry(page->data);
    platform_status rc  = STATUS_OK;
    for (uint64 i = 0; i < hdr->num_entries; i++) {
-      if (log_entry_message_is_blob(le)) {
+      if (le->memtable_generation >= first_needed_generation
+          && log_entry_message_is_blob(le))
+      {
          message msg = log_entry_message(cc, le);
          rc          = blob_recover_allocations(cc, message_slice(msg));
-         if (!SUCCESS(rc)) {
+         if (STATUS_IS_EQ(rc, STATUS_INVALID_STATE)
+             || STATUS_IS_EQ(rc, STATUS_IO_ERROR))
+         {
+            *first_invalid_group = MIN(*first_invalid_group, hdr->group_id);
+            rc                   = STATUS_OK;
+         } else if (!SUCCESS(rc)) {
             return rc;
          }
       }
@@ -2184,6 +2179,19 @@ shard_log_recover_page_blob_allocations(cache            *cc,
 platform_status
 shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
 {
+   uint64 first_invalid_group;
+   return shard_log_recover_allocations_from(
+      cc, cfg, head, 0, &first_invalid_group);
+}
+
+platform_status
+shard_log_recover_allocations_from(cache            *cc,
+                                   shard_log_config *cfg,
+                                   log_head          head,
+                                   uint64            first_needed_generation,
+                                   uint64           *first_invalid_group)
+{
+   *first_invalid_group = UINT64_MAX;
    if (head.addr == 0) {
       return STATUS_OK; // no such log
    }
@@ -2247,7 +2255,8 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
                /* The latest valid page has the newest successor link. */
                next_extent_addr = shard_log_next_extent_addr(cfg, page);
                /* Include valid pages in a trailing incomplete group. */
-               rc = shard_log_recover_page_blob_allocations(cc, cfg, page);
+               rc = shard_log_recover_page_blob_allocations(
+                  cc, cfg, page, first_needed_generation, first_invalid_group);
                ends_stream = (((shard_log_hdr *)page->data)->pages_in_group
                               & SHARD_LOG_END_OF_STREAM)
                              != 0;
@@ -2531,10 +2540,11 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->data_cfg  = data_cfg;
    log_cfg->seed      = HASH_SEED;
    log_cfg->blob_cfg  = (blob_build_config){
-       .extent_batch  = 1,
-       .page_batch    = 2,
-       .subpage_batch = 3,
-       .alignment     = cache_config_page_size(cache_cfg),
+       .extent_batch             = 1,
+       .page_batch               = 2,
+       .subpage_batch            = 3,
+       .alignment                = cache_config_page_size(cache_cfg),
+       .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
    };
 }
 
@@ -2665,6 +2675,7 @@ shard_log_iterator_init(cache              *cc,
                         uint64              addr,
                         log_nonce           nonce,
                         uint64              first_needed_generation,
+                        uint64              first_invalid_group,
                         shard_log_iterator *itor)
 {
    page_handle    *page;
@@ -2759,6 +2770,11 @@ shard_log_iterator_init(cache              *cc,
             continue;
          }
          shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+         if (hdr->group_id >= first_invalid_group) {
+            cache_unget(cc, page);
+            broken = TRUE;
+            break;
+         }
          rc                 = shard_log_validate_page_header(cfg, page);
          if (SUCCESS(rc)) {
             rc = shard_log_validate_page_sequence(
@@ -3000,6 +3016,19 @@ shard_log_iterator_create(cache            *cc,
                           uint64            first_needed_generation,
                           log_iterator    **itor_out)
 {
+   return shard_log_iterator_create_recovered(
+      cc, cfg, hid, head, first_needed_generation, UINT64_MAX, itor_out);
+}
+
+platform_status
+shard_log_iterator_create_recovered(cache            *cc,
+                                    shard_log_config *cfg,
+                                    platform_heap_id  hid,
+                                    log_head          head,
+                                    uint64            first_needed_generation,
+                                    uint64            first_invalid_group,
+                                    log_iterator    **itor_out)
+{
    if (itor_out == NULL) {
       return STATUS_BAD_PARAM;
    }
@@ -3011,8 +3040,14 @@ shard_log_iterator_create(cache            *cc,
                          "shard_log_iterator\n");
       return STATUS_NO_MEMORY;
    }
-   platform_status rc = shard_log_iterator_init(
-      cc, cfg, hid, head.addr, head.nonce, first_needed_generation, itor);
+   platform_status rc = shard_log_iterator_init(cc,
+                                                cfg,
+                                                hid,
+                                                head.addr,
+                                                head.nonce,
+                                                first_needed_generation,
+                                                first_invalid_group,
+                                                itor);
    if (!SUCCESS(rc)) {
       platform_error_log("shard_log_iterator_create: shard_log_iterator_init "
                          "failed: %s\n",

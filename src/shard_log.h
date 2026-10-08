@@ -360,6 +360,26 @@ shard_log_dec_ref(cache *cc, const log_head *head);
 platform_status
 shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head);
 
+/* Recovery remembers the earliest needed group with incomplete blob discovery.
+ * The cutoff must survive replay allocations, which can change readability of
+ * missing pages. UINT64_MAX means no discovery failure. */
+platform_status
+shard_log_recover_allocations_from(cache            *cc,
+                                   shard_log_config *cfg,
+                                   log_head          head,
+                                   uint64            first_needed_generation,
+                                   uint64           *first_invalid_group);
+
+platform_status
+shard_log_iterator_create_recovered(cache            *cc,
+                                    shard_log_config *cfg,
+                                    platform_heap_id  hid,
+                                    log_head          head,
+                                    uint64            first_needed_generation,
+                                    uint64            first_invalid_group,
+                                    log_iterator    **itor_out);
+
+
 void
 shard_log_config_init(shard_log_config *log_cfg,
                       cache_config     *cache_cfg,
