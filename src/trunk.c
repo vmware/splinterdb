@@ -1015,12 +1015,13 @@ trunk_ondisk_pivot_key(trunk_ondisk_pivot *odp)
  * Node serialization/deserialization and refcounting.
  *
  * Page-address alignment, range, and allocation membership are enforced at
- * the cache and allocator boundaries. The validators below check only the
- * contents of pages returned by the cache.
+ * the cache and allocator boundaries. Read only the fixed header here;
+ * variable-sized pivots and bundles are checked when an operation reaches
+ * them.
  ********************************************************/
 
 static platform_status
-trunk_ondisk_node_header_validate(trunk_ondisk_node_handle *handle)
+trunk_ondisk_node_read_header(trunk_ondisk_node_handle *handle)
 {
    uint64 page_size   = cache_page_size(handle->cc);
    uint64 extent_size = cache_extent_size(handle->cc);
@@ -1038,31 +1039,6 @@ trunk_ondisk_node_header_validate(trunk_ondisk_node_handle *handle)
    {
       return STATUS_INVALID_STATE;
    }
-
-   uint64 table_end =
-      sizeof(*header)
-      + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
-   uint64 previous_offset = 0;
-   for (uint64 i = 0; i < header->num_pivots; i++) {
-      uint64 offset = header->pivot_offsets[i];
-      if (offset < table_end || extent_size <= offset
-          || page_size - (offset % page_size) < sizeof(trunk_ondisk_pivot)
-          || (i != 0 && offset <= previous_offset))
-      {
-         return STATUS_INVALID_STATE;
-      }
-      previous_offset = offset;
-   }
-
-   if (header->num_inflight_bundles == 0) {
-      if (header->inflight_bundles_offset != 0) {
-         return STATUS_INVALID_STATE;
-      }
-   } else if (header->inflight_bundles_offset <= previous_offset
-              || extent_size <= header->inflight_bundles_offset)
-   {
-      return STATUS_INVALID_STATE;
-   }
    return STATUS_OK;
 }
 
@@ -1073,9 +1049,8 @@ trunk_ondisk_node_header_validate(trunk_ondisk_node_handle *handle)
  * cycle and make query, recovery, or garbage-collection walks unbounded.
  */
 static platform_status
-trunk_ondisk_node_validate_expected_height(
-   const trunk_ondisk_node_handle *handle,
-   uint64                          expected_height)
+trunk_ondisk_node_check_expected_height(const trunk_ondisk_node_handle *handle,
+                                        uint64 expected_height)
 {
    const trunk_ondisk_node *header =
       (const trunk_ondisk_node *)handle->header_page->data;
@@ -1101,7 +1076,7 @@ trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
       platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
    }
-   platform_status rc = trunk_ondisk_node_header_validate(handle);
+   platform_status rc = trunk_ondisk_node_read_header(handle);
    if (!SUCCESS(rc)) {
       cache_unget(cc, handle->header_page);
       handle->header_page = NULL;
@@ -1144,14 +1119,14 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
       state->rc = STATUS_IO_ERROR;
       async_return(state);
    }
-   state->rc = trunk_ondisk_node_header_validate(&state->child_handle);
+   state->rc = trunk_ondisk_node_read_header(&state->child_handle);
    if (!SUCCESS(state->rc)) {
       cache_unget(state->context->cc, state->child_handle.header_page);
       state->child_handle.header_page = NULL;
       async_return(state);
    }
    state->rc = state->height == 0 ? STATUS_INVALID_STATE
-                                  : trunk_ondisk_node_validate_expected_height(
+                                  : trunk_ondisk_node_check_expected_height(
                                        &state->child_handle, state->height - 1);
    if (!SUCCESS(state->rc)) {
       cache_unget(state->context->cc, state->child_handle.header_page);
@@ -1336,15 +1311,44 @@ trunk_ondisk_node_num_pivots(trunk_ondisk_node_handle *handle)
    return header->num_pivots;
 }
 
-static trunk_ondisk_pivot *
-trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
+static platform_status
+trunk_ondisk_node_read_pivot_offset(trunk_ondisk_node_handle *handle,
+                                    uint64                    pivot_num,
+                                    uint64                   *offset_out)
 {
    trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
    if (header->num_pivots <= pivot_num) {
+      return STATUS_INVALID_STATE;
+   }
+
+   uint64 table_end =
+      sizeof(*header)
+      + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
+   uint64 offset    = header->pivot_offsets[pivot_num];
+   uint64 page_size = cache_page_size(handle->cc);
+   if (offset < table_end || cache_extent_size(handle->cc) <= offset
+       || page_size - (offset % page_size) < sizeof(trunk_ondisk_pivot)
+       || (pivot_num != 0 && offset <= header->pivot_offsets[pivot_num - 1])
+       || (pivot_num + 1 < header->num_pivots
+           && header->pivot_offsets[pivot_num + 1] <= offset))
+   {
+      return STATUS_INVALID_STATE;
+   }
+   *offset_out = offset;
+   return STATUS_OK;
+}
+
+static trunk_ondisk_pivot *
+trunk_ondisk_node_read_pivot_key(trunk_ondisk_node_handle *handle,
+                                 uint64                    pivot_num)
+{
+   uint64          offset;
+   platform_status rc =
+      trunk_ondisk_node_read_pivot_offset(handle, pivot_num, &offset);
+   if (!SUCCESS(rc)) {
       return NULL;
    }
-   uint64          offset = header->pivot_offsets[pivot_num];
-   platform_status rc     = trunk_ondisk_node_handle_setup_content_page(
+   rc = trunk_ondisk_node_handle_setup_content_page(
       handle, offset, &handle->pivot_page);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: ondisk_node_handle_setup_content_page() "
@@ -1362,18 +1366,44 @@ trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
    }
    trunk_ondisk_pivot *pivot =
       (trunk_ondisk_pivot *)(handle->pivot_page->data + page_offset);
-   uint64 key_size = sizeof_ondisk_key_data(&pivot->key);
    if (pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
-       || key_size > page_size - page_offset - sizeof(*pivot)
-       || header->num_inflight_bundles < pivot->num_live_inflight_bundles
-       || !trunk_pivot_stats_are_valid(pivot->stats))
+       || sizeof_ondisk_key_data(&pivot->key)
+             > page_size - page_offset - sizeof(*pivot))
    {
       return NULL;
    }
+   return pivot;
+}
+
+static platform_status
+trunk_ondisk_node_read_pivot_fields(trunk_ondisk_node_handle *handle,
+                                    uint64                    pivot_num,
+                                    trunk_ondisk_pivot       *pivot)
+{
+   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   if (header->num_inflight_bundles < pivot->num_live_inflight_bundles
+       || !trunk_pivot_stats_are_valid(pivot->stats))
+   {
+      return STATUS_INVALID_STATE;
+   }
    if (pivot_num + 1 < header->num_pivots) {
       if (header->height == 0 && pivot->child_addr != 0) {
-         return NULL;
+         return STATUS_INVALID_STATE;
       }
+   }
+   return STATUS_OK;
+}
+
+static trunk_ondisk_pivot *
+trunk_ondisk_node_read_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
+{
+   trunk_ondisk_pivot *pivot =
+      trunk_ondisk_node_read_pivot_key(handle, pivot_num);
+   if (pivot == NULL
+       || !SUCCESS(
+          trunk_ondisk_node_read_pivot_fields(handle, pivot_num, pivot)))
+   {
+      return NULL;
    }
    return pivot;
 }
@@ -1393,20 +1423,18 @@ trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
  * - state->cache_get_state: the state of the cache_get() operation
  */
 static async_status
-trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
-                                  uint64                          depth)
+trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
+                                       uint64                          depth)
 {
    async_begin(state, depth);
 
-   trunk_ondisk_node *header =
-      (trunk_ondisk_node *)state->handlep->header_page->data;
-   if (header->num_pivots <= state->pivot_num) {
+   state->rc = trunk_ondisk_node_read_pivot_offset(
+      state->handlep, state->pivot_num, &state->offset);
+   if (!SUCCESS(state->rc)) {
       state->pivot = NULL;
-      state->rc    = STATUS_INVALID_STATE;
       async_return(state);
    }
-   state->offset = header->pivot_offsets[state->pivot_num];
-   state->page   = &state->handlep->pivot_page;
+   state->page = &state->handlep->pivot_page;
    async_await_subroutine(state,
                           trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
@@ -1418,12 +1446,6 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
       state->pivot = NULL;
       async_return(state);
    }
-   /* async_await_subroutine() may resume this function on a different stack,
-    * so no automatic local initialized after async_begin() and before the
-    * await remains valid here.  The handle pins the header page; reconstruct
-    * the pointer from that persistent state before the remaining validation. */
-   trunk_ondisk_node *resumed_header =
-      (trunk_ondisk_node *)state->handlep->header_page->data;
    state->pivot =
       (trunk_ondisk_pivot *)(state->handlep->pivot_page->data + state->offset
                              - content_page_offset(state->handlep,
@@ -1435,12 +1457,7 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
    if (page_size - page_offset < sizeof(*state->pivot)
        || state->pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
        || sizeof_ondisk_key_data(&state->pivot->key)
-             > page_size - page_offset - sizeof(*state->pivot)
-       || resumed_header->num_inflight_bundles
-             < state->pivot->num_live_inflight_bundles
-       || !trunk_pivot_stats_are_valid(state->pivot->stats)
-       || (state->pivot_num + 1 < resumed_header->num_pivots
-           && resumed_header->height == 0 && state->pivot->child_addr != 0))
+             > page_size - page_offset - sizeof(*state->pivot))
    {
       state->pivot = NULL;
       state->rc    = STATUS_INVALID_STATE;
@@ -1450,13 +1467,13 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
    async_return(state);
 }
 
-
 static platform_status
 trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
                                 uint64                    pivot_num,
                                 key                      *k)
 {
-   trunk_ondisk_pivot *odp = trunk_ondisk_node_get_pivot(handle, pivot_num);
+   trunk_ondisk_pivot *odp =
+      trunk_ondisk_node_read_pivot_key(handle, pivot_num);
    if (odp == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
@@ -1467,13 +1484,13 @@ trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
 }
 
 static bool32
-trunk_ondisk_bundle_is_valid(trunk_ondisk_bundle *bundle,
+trunk_ondisk_bundle_readable(trunk_ondisk_bundle *bundle,
                              uint64               bytes_available,
                              bool32               allow_empty);
 
 static trunk_ondisk_bundle *
-trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
-                                        trunk_ondisk_pivot       *pivot);
+trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
+                                    trunk_ondisk_pivot       *pivot);
 
 static trunk_ondisk_bundle *
 trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
@@ -1483,17 +1500,17 @@ trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
    if (pivot_num + 1 >= header->num_pivots) {
       return NULL;
    }
-   trunk_ondisk_pivot *pivot = trunk_ondisk_node_get_pivot(handle, pivot_num);
+   trunk_ondisk_pivot *pivot = trunk_ondisk_node_read_pivot(handle, pivot_num);
    if (pivot == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return NULL;
    }
-   return trunk_ondisk_node_validate_pivot_bundle(handle, pivot);
+   return trunk_ondisk_node_read_pivot_bundle(handle, pivot);
 }
 
 static bool32
-trunk_ondisk_bundle_is_valid(trunk_ondisk_bundle *bundle,
+trunk_ondisk_bundle_readable(trunk_ondisk_bundle *bundle,
                              uint64               bytes_available,
                              bool32               allow_empty)
 {
@@ -1522,8 +1539,8 @@ trunk_ondisk_bundle_is_valid(trunk_ondisk_bundle *bundle,
 }
 
 static trunk_ondisk_bundle *
-trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
-                                        trunk_ondisk_pivot       *pivot)
+trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
+                                    trunk_ondisk_pivot       *pivot)
 {
    if (handle == NULL || handle->pivot_page == NULL || pivot == NULL) {
       return NULL;
@@ -1547,7 +1564,7 @@ trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
    uint64               bundle_offset = page_offset + sizeof(*pivot) + key_size;
    trunk_ondisk_bundle *bundle =
       (trunk_ondisk_bundle *)(handle->pivot_page->data + bundle_offset);
-   return trunk_ondisk_bundle_is_valid(bundle, page_size - bundle_offset, TRUE)
+   return trunk_ondisk_bundle_readable(bundle, page_size - bundle_offset, TRUE)
              ? bundle
              : NULL;
 }
@@ -1616,7 +1633,7 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
       page_offset =
          offset - content_page_offset(handle, handle->inflight_bundle_page);
    }
-   if (!trunk_ondisk_bundle_is_valid(result, page_size - page_offset, FALSE)) {
+   if (!trunk_ondisk_bundle_readable(result, page_size - page_offset, FALSE)) {
       return NULL;
    }
    return result;
@@ -1720,7 +1737,7 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
                     - content_page_offset(state->handlep,
                                           state->handlep->inflight_bundle_page);
    }
-   if (!trunk_ondisk_bundle_is_valid(
+   if (!trunk_ondisk_bundle_readable(
           state->bndl, page_size - page_offset, FALSE))
    {
       state->bndl = NULL;
@@ -1738,11 +1755,21 @@ trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
    trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
    if (header->num_inflight_bundles == 0) {
       *bndl = NULL;
-      return STATUS_OK;
+      return header->inflight_bundles_offset == 0 ? STATUS_OK
+                                                  : STATUS_INVALID_STATE;
    }
    uint64 offset = header->inflight_bundles_offset;
-   *bndl         = trunk_ondisk_node_bundle_at_offset(handle, offset);
-   return *bndl == NULL ? STATUS_IO_ERROR : STATUS_OK;
+   uint64 table_end =
+      sizeof(*header)
+      + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
+   if (offset < table_end || cache_extent_size(handle->cc) <= offset
+       || offset <= header->pivot_offsets[header->num_pivots - 1])
+   {
+      *bndl = NULL;
+      return STATUS_INVALID_STATE;
+   }
+   *bndl = trunk_ondisk_node_bundle_at_offset(handle, offset);
+   return *bndl == NULL ? STATUS_INVALID_STATE : STATUS_OK;
 }
 
 /*
@@ -1769,10 +1796,22 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
       (trunk_ondisk_node *)state->handlep->header_page->data;
    if (header->num_inflight_bundles == 0) {
       state->bndl = NULL;
-      state->rc   = STATUS_OK;
+      state->rc   = header->inflight_bundles_offset == 0 ? STATUS_OK
+                                                         : STATUS_INVALID_STATE;
       async_return(state);
    }
    state->offset = header->inflight_bundles_offset;
+   uint64 table_end =
+      sizeof(*header)
+      + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
+   if (state->offset < table_end
+       || cache_extent_size(state->handlep->cc) <= state->offset
+       || state->offset <= header->pivot_offsets[header->num_pivots - 1])
+   {
+      state->bndl = NULL;
+      state->rc   = STATUS_INVALID_STATE;
+      async_return(state);
+   }
    async_await_subroutine(state, trunk_ondisk_node_bundle_at_offset_async);
    async_return(state);
 }
@@ -1824,7 +1863,7 @@ trunk_pivot_deserialize(platform_heap_id          hid,
                         uint64                    i)
 {
    trunk_ondisk_node  *header = (trunk_ondisk_node *)handle->header_page->data;
-   trunk_ondisk_pivot *odp    = trunk_ondisk_node_get_pivot(handle, i);
+   trunk_ondisk_pivot *odp    = trunk_ondisk_node_read_pivot(handle, i);
    if (odp == NULL) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
@@ -2110,7 +2149,7 @@ trunk_ondisk_node_gc(trunk_context *context,
             if (!SUCCESS(rc)) {
                break;
             }
-            rc = trunk_ondisk_node_validate_expected_height(
+            rc = trunk_ondisk_node_check_expected_height(
                &child_handle, trunk_node_height(&node) - 1);
             trunk_ondisk_node_handle_deinit(&child_handle);
             if (!SUCCESS(rc)) {
@@ -2355,7 +2394,7 @@ trunk_recover_node_refs(const trunk_context *context,
          rc = trunk_ondisk_node_handle_init(
             &child_handle, context->cc, pvt->child_addr);
          if (SUCCESS(rc)) {
-            rc = trunk_ondisk_node_validate_expected_height(
+            rc = trunk_ondisk_node_check_expected_height(
                &child_handle, trunk_node_height(&node) - 1);
             trunk_ondisk_node_handle_deinit(&child_handle);
          }
@@ -6758,8 +6797,9 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
    int                 last_cmp;
    trunk_ondisk_pivot *min_pivot = NULL;
    while (min + 1 < max) {
-      uint64              mid       = (min + max) / 2;
-      trunk_ondisk_pivot *mid_pivot = trunk_ondisk_node_get_pivot(handle, mid);
+      uint64              mid = (min + max) / 2;
+      trunk_ondisk_pivot *mid_pivot =
+         trunk_ondisk_node_read_pivot_key(handle, mid);
       if (mid_pivot == NULL) {
          platform_error_log("ondisk_node_find_pivot: "
                             "ondisk_node_get_pivot failed\n");
@@ -6781,13 +6821,13 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
    */
    if (0 < min && last_cmp == 0 && cmp == less_than) {
       min--;
-      min_pivot = trunk_ondisk_node_get_pivot(handle, min);
+      min_pivot = trunk_ondisk_node_read_pivot_key(handle, min);
    }
 
    /* Reload the winning pivot even if it was visited during the search. A
     * later probe may have replaced handle->pivot_page, invalidating a pointer
     * retained from an earlier page. */
-   min_pivot = trunk_ondisk_node_get_pivot(handle, min);
+   min_pivot = trunk_ondisk_node_read_pivot(handle, min);
    if (min_pivot == NULL) {
       *pivot = NULL;
       return STATUS_INVALID_STATE;
@@ -6833,7 +6873,7 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    while (state->min + 1 < state->max) {
       state->mid       = (state->min + state->max) / 2;
       state->pivot_num = state->mid;
-      async_await_subroutine(state, trunk_ondisk_node_get_pivot_async);
+      async_await_subroutine(state, trunk_ondisk_node_read_pivot_key_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("ondisk_node_find_pivot_async: "
                             "ondisk_node_get_pivot_async failed: %d\n",
@@ -6863,8 +6903,15 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
    /* As in the synchronous path, reload the winner so state->pivot cannot
     * outlive the content page that supplied it. */
    state->pivot_num = state->min;
-   async_await_subroutine(state, trunk_ondisk_node_get_pivot_async);
+   async_await_subroutine(state, trunk_ondisk_node_read_pivot_key_async);
    if (!SUCCESS(state->rc)) {
+      state->min_pivot = NULL;
+      async_return(state);
+   }
+   state->rc = trunk_ondisk_node_read_pivot_fields(
+      state->handlep, state->pivot_num, state->pivot);
+   if (!SUCCESS(state->rc)) {
+      state->pivot     = NULL;
       state->min_pivot = NULL;
       async_return(state);
    }
@@ -7236,7 +7283,7 @@ trunk_merge_lookup(trunk_context            *context,
       }
 
       // Search the pivot bundle
-      bndl = trunk_ondisk_node_validate_pivot_bundle(handlep, pivot);
+      bndl = trunk_ondisk_node_read_pivot_bundle(handlep, pivot);
       if (bndl == NULL) {
          rc = STATUS_INVALID_STATE;
          goto cleanup;
@@ -7265,7 +7312,7 @@ trunk_merge_lookup(trunk_context            *context,
             goto cleanup;
          }
          rc = height == 0 ? STATUS_INVALID_STATE
-                          : trunk_ondisk_node_validate_expected_height(
+                          : trunk_ondisk_node_check_expected_height(
                                &child_handle, height - 1);
          if (!SUCCESS(rc)) {
             trunk_ondisk_node_handle_deinit(&child_handle);
@@ -7377,7 +7424,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
 
       // Search the pivot bundle
       state->bndl =
-         trunk_ondisk_node_validate_pivot_bundle(state->handlep, state->pivot);
+         trunk_ondisk_node_read_pivot_bundle(state->handlep, state->pivot);
       if (state->bndl == NULL) {
          state->rc = STATUS_INVALID_STATE;
          goto cleanup;
@@ -7540,7 +7587,7 @@ trunk_collect_branches(const trunk_context            *context,
       }
 
       // Add branches from the pivot bundle
-      bndl = trunk_ondisk_node_validate_pivot_bundle(&handle, pivot);
+      bndl = trunk_ondisk_node_read_pivot_bundle(&handle, pivot);
       if (bndl == NULL) {
          rc = STATUS_INVALID_STATE;
          goto cleanup;
@@ -7568,7 +7615,7 @@ trunk_collect_branches(const trunk_context            *context,
             goto cleanup;
          }
          rc = height == 0 ? STATUS_INVALID_STATE
-                          : trunk_ondisk_node_validate_expected_height(
+                          : trunk_ondisk_node_check_expected_height(
                                &child_handle, height - 1);
          if (!SUCCESS(rc)) {
             trunk_ondisk_node_handle_deinit(&child_handle);

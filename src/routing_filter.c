@@ -245,13 +245,6 @@ routing_filter_get_params(const routing_config  *cfg,
    return STATUS_OK;
 }
 
-platform_status
-routing_filter_validate(const routing_config *cfg, const routing_filter *filter)
-{
-   routing_filter_params params;
-   return routing_filter_get_params(cfg, filter, &params);
-}
-
 static platform_status
 routing_get_header(cache                *cc,
                    const routing_config *cfg,
@@ -1116,7 +1109,8 @@ routing_filter_estimate_unique_fp(cache                *cc,
 
    uint64 total_num_fp = 0;
    for (uint64 i = 0; i != num_filters; i++) {
-      platform_status rc = routing_filter_validate(cfg, &filter[i]);
+      routing_filter_params params;
+      platform_status rc = routing_filter_get_params(cfg, &filter[i], &params);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -1350,7 +1344,9 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
 
    if (state->filter.addr == 0) {
       *state->found_values = 0;
-      async_return(state, routing_filter_validate(state->cfg, &state->filter));
+      routing_filter_params params;
+      async_return(
+         state, routing_filter_get_params(state->cfg, &state->filter, &params));
    }
 
    routing_filter_params params;
@@ -1430,7 +1426,8 @@ routing_filter_lookup(cache                *cc,
    }
    if (filter->addr == 0) {
       *found_values = 0;
-      return routing_filter_validate(cfg, filter);
+      routing_filter_params params;
+      return routing_filter_get_params(cfg, filter, &params);
    }
 
    routing_filter_params params;

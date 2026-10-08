@@ -99,12 +99,6 @@ routing_filter_lookup(cache                *cc,
                       key                   target,
                       uint64               *found_values);
 
-/* Validate the scalar fields of an on-disk routing-filter descriptor before
- * using them in shifts, allocation sizes, or page-table indexes. */
-platform_status
-routing_filter_validate(const routing_config *cfg,
-                        const routing_filter *filter);
-
 static inline uint16
 routing_filter_get_next_value(uint64 found_values, uint16 last_value)
 {
