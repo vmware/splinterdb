@@ -347,7 +347,6 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, const btree_config *,         cfg,
    param, uint64,                       root_addr,
    param, page_type,                    type,
-   param, bool32,                       validate_entries_on_demand,
    param, key,                          target,
    param, lookup_result *,              result,
    param, async_callback_fn,            callback,
@@ -375,16 +374,8 @@ btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
                                         async_callback_fn         callback,
                                         void                     *callback_arg)
 {
-   btree_lookup_async_state_init(state,
-                                 cc,
-                                 cfg,
-                                 root_addr,
-                                 type,
-                                 TRUE,
-                                 target,
-                                 result,
-                                 callback,
-                                 callback_arg);
+   btree_lookup_async_state_init(
+      state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
 }
 
 async_status

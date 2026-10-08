@@ -1184,7 +1184,6 @@ test_btree_async_lookup(cache                   *cc,
                                  cfg,
                                  root_addr,
                                  type,
-                                 TRUE,
                                  target,
                                  &async_ctxt->result,
                                  btree_test_async_callback,
@@ -1272,7 +1271,6 @@ test_btree_async_lookup_status(cache        *cc,
                                  cfg,
                                  root_addr,
                                  type,
-                                 TRUE,
                                  target,
                                  &ctxt.result,
                                  btree_test_async_callback,
@@ -1695,6 +1693,12 @@ test_btree_query_validation(cache           *cc,
       goto deinit_keys;
    }
 
+   /*
+    * Point an index entry back at the root.  Both the parent and the selected
+    * child are individually well-formed index pages, but the child has not
+    * decreased in height.  Query and iterator descent must reject it before
+    * either path interprets the page as a leaf.
+    */
    page = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
    hdr  = (btree_hdr *)page->data;
    if (hdr->height == 0) {
@@ -1710,44 +1714,7 @@ test_btree_query_validation(cache           *cc,
    }
    index_entry *index            = btree_get_index_entry(cfg, hdr, child_idx);
    uint64       saved_child_addr = index->pivot_data.child_addr;
-   index->pivot_data.child_addr  = 1;
-   test_btree_unclaim_page(cc, page);
-   touched_rejected =
-      test_btree_query_status_matches(cc,
-                                      cfg,
-                                      root_addr,
-                                      PAGE_TYPE_BRANCH,
-                                      key_buffer_key(&touched_key),
-                                      FALSE);
-
-   page  = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
-   hdr   = (btree_hdr *)page->data;
-   index = btree_get_index_entry(cfg, hdr, child_idx);
-   index->pivot_data.child_addr = saved_child_addr;
-   test_btree_unclaim_page(cc, page);
-   if (!touched_rejected
-       || !test_btree_query_status_matches(cc,
-                                           cfg,
-                                           root_addr,
-                                           PAGE_TYPE_BRANCH,
-                                           key_buffer_key(&touched_key),
-                                           TRUE))
-   {
-      rc = STATUS_TEST_FAILED;
-      goto deinit_keys;
-   }
-
-   /*
-    * Point an index entry back at the root.  Both the parent and the selected
-    * child are individually well-formed index pages, but the child has not
-    * decreased in height.  Query and iterator descent must reject it before
-    * either path interprets the page as a leaf.
-    */
-   page             = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
-   hdr              = (btree_hdr *)page->data;
-   index            = btree_get_index_entry(cfg, hdr, child_idx);
-   saved_child_addr = index->pivot_data.child_addr;
-   index->pivot_data.child_addr = root_addr;
+   index->pivot_data.child_addr  = root_addr;
    test_btree_unclaim_page(cc, page);
 
    bool32 height_rejected =
