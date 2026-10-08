@@ -1013,28 +1013,18 @@ trunk_ondisk_pivot_key(trunk_ondisk_pivot *odp)
 
 /********************************************************
  * Node serialization/deserialization and refcounting.
+ *
+ * Page-address alignment, range, and allocation membership are enforced at
+ * the cache and allocator boundaries. The validators below check only the
+ * contents of pages returned by the cache.
  ********************************************************/
-
-static bool32
-trunk_ondisk_node_addr_is_valid(cache *cc, uint64 addr)
-{
-   allocator_config *cfg = allocator_get_config(cache_get_allocator(cc));
-   uint64            extent_size = cache_extent_size(cc);
-   return extent_size <= addr && addr % extent_size == 0
-          && extent_size <= cfg->capacity
-          && addr <= cfg->capacity - extent_size;
-}
 
 static platform_status
 trunk_ondisk_node_header_validate(trunk_ondisk_node_handle *handle)
 {
    uint64 page_size   = cache_page_size(handle->cc);
    uint64 extent_size = cache_extent_size(handle->cc);
-   if (handle->header_page == NULL
-       || !trunk_ondisk_node_addr_is_valid(handle->cc,
-                                           handle->header_page->disk_addr)
-       || page_size < sizeof(trunk_ondisk_node))
-   {
+   if (handle->header_page == NULL || page_size < sizeof(trunk_ondisk_node)) {
       return STATUS_INVALID_STATE;
    }
 
@@ -1106,10 +1096,7 @@ trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
    handle->header_page          = NULL;
    handle->pivot_page           = NULL;
    handle->inflight_bundle_page = NULL;
-   if (!trunk_ondisk_node_addr_is_valid(cc, addr)) {
-      return STATUS_INVALID_STATE;
-   }
-   handle->header_page = cache_get(cc, addr, TRUE, PAGE_TYPE_TRUNK);
+   handle->header_page          = cache_get(cc, addr, TRUE, PAGE_TYPE_TRUNK);
    if (handle->header_page == NULL) {
       platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
@@ -1142,12 +1129,6 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
    state->child_handle.header_page          = NULL;
    state->child_handle.pivot_page           = NULL;
    state->child_handle.inflight_bundle_page = NULL;
-   if (!trunk_ondisk_node_addr_is_valid(state->context->cc,
-                                        state->pivot->child_addr))
-   {
-      state->rc = STATUS_INVALID_STATE;
-      async_return(state);
-   }
    async_await_call(state,
                     cache_get_async,
                     &state->cache_get_state,
@@ -1219,14 +1200,10 @@ trunk_ondisk_node_handle_clone(trunk_ondisk_node_handle       *dst,
       platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
       return STATUS_IO_ERROR;
    }
+   /* The immutable source page was validated when its handle was initialized.
+    */
    dst->pivot_page           = NULL;
    dst->inflight_bundle_page = NULL;
-   platform_status rc        = trunk_ondisk_node_header_validate(dst);
-   if (!SUCCESS(rc)) {
-      cache_unget(dst->cc, dst->header_page);
-      dst->header_page = NULL;
-      return rc;
-   }
    return STATUS_OK;
 }
 
@@ -1394,13 +1371,7 @@ trunk_ondisk_node_get_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
       return NULL;
    }
    if (pivot_num + 1 < header->num_pivots) {
-      if (header->height == 0) {
-         if (pivot->child_addr != 0) {
-            return NULL;
-         }
-      } else if (!trunk_ondisk_node_addr_is_valid(handle->cc,
-                                                  pivot->child_addr))
-      {
+      if (header->height == 0 && pivot->child_addr != 0) {
          return NULL;
       }
    }
@@ -1469,10 +1440,7 @@ trunk_ondisk_node_get_pivot_async(trunk_merge_lookup_async_state *state,
              < state->pivot->num_live_inflight_bundles
        || !trunk_pivot_stats_are_valid(state->pivot->stats)
        || (state->pivot_num + 1 < resumed_header->num_pivots
-           && ((resumed_header->height == 0 && state->pivot->child_addr != 0)
-               || (resumed_header->height != 0
-                   && !trunk_ondisk_node_addr_is_valid(
-                      state->handlep->cc, state->pivot->child_addr)))))
+           && resumed_header->height == 0 && state->pivot->child_addr != 0))
    {
       state->pivot = NULL;
       state->rc    = STATUS_INVALID_STATE;
@@ -1499,8 +1467,7 @@ trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
 }
 
 static bool32
-trunk_ondisk_bundle_is_valid(cache               *cc,
-                             trunk_ondisk_bundle *bundle,
+trunk_ondisk_bundle_is_valid(trunk_ondisk_bundle *bundle,
                              uint64               bytes_available,
                              bool32               allow_empty);
 
@@ -1526,17 +1493,7 @@ trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
 }
 
 static bool32
-trunk_ondisk_branch_addr_is_valid(cache *cc, uint64 addr)
-{
-   allocator_config *cfg       = allocator_get_config(cache_get_allocator(cc));
-   uint64            page_size = cache_page_size(cc);
-   return page_size <= addr && addr % page_size == 0
-          && page_size <= cfg->capacity && addr <= cfg->capacity - page_size;
-}
-
-static bool32
-trunk_ondisk_bundle_is_valid(cache               *cc,
-                             trunk_ondisk_bundle *bundle,
+trunk_ondisk_bundle_is_valid(trunk_ondisk_bundle *bundle,
                              uint64               bytes_available,
                              bool32               allow_empty)
 {
@@ -1555,18 +1512,11 @@ trunk_ondisk_bundle_is_valid(cache               *cc,
       {
          return FALSE;
       }
-   } else if (!trunk_ondisk_branch_addr_is_valid(cc, filter->addr)
-              || !trunk_ondisk_branch_addr_is_valid(cc, filter->meta_head)
-              || filter->num_fingerprints == 0
+   } else if (filter->num_fingerprints == 0
               || filter->num_fingerprints < filter->num_unique
               || 5 < filter->value_size)
    {
       return FALSE;
-   }
-   for (uint64 i = 0; i < bundle->num_branches; i++) {
-      if (!trunk_ondisk_branch_addr_is_valid(cc, bundle->branches[i].addr)) {
-         return FALSE;
-      }
    }
    return TRUE;
 }
@@ -1597,8 +1547,7 @@ trunk_ondisk_node_validate_pivot_bundle(trunk_ondisk_node_handle *handle,
    uint64               bundle_offset = page_offset + sizeof(*pivot) + key_size;
    trunk_ondisk_bundle *bundle =
       (trunk_ondisk_bundle *)(handle->pivot_page->data + bundle_offset);
-   return trunk_ondisk_bundle_is_valid(
-             handle->cc, bundle, page_size - bundle_offset, TRUE)
+   return trunk_ondisk_bundle_is_valid(bundle, page_size - bundle_offset, TRUE)
              ? bundle
              : NULL;
 }
@@ -1667,9 +1616,7 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
       page_offset =
          offset - content_page_offset(handle, handle->inflight_bundle_page);
    }
-   if (!trunk_ondisk_bundle_is_valid(
-          handle->cc, result, page_size - page_offset, FALSE))
-   {
+   if (!trunk_ondisk_bundle_is_valid(result, page_size - page_offset, FALSE)) {
       return NULL;
    }
    return result;
@@ -1774,7 +1721,7 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
                                           state->handlep->inflight_bundle_page);
    }
    if (!trunk_ondisk_bundle_is_valid(
-          state->handlep->cc, state->bndl, page_size - page_offset, FALSE))
+          state->bndl, page_size - page_offset, FALSE))
    {
       state->bndl = NULL;
       state->rc   = STATUS_INVALID_STATE;

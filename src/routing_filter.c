@@ -252,16 +252,6 @@ routing_filter_validate(const routing_config *cfg, const routing_filter *filter)
    return routing_filter_get_params(cfg, filter, &params);
 }
 
-static bool32
-routing_page_addr_is_in_range(cache *cc, uint64 addr)
-{
-   allocator_config *al_cfg    = allocator_get_config(cache_get_allocator(cc));
-   uint64            page_size = cache_page_size(cc);
-   return al_cfg != NULL && page_size != 0 && page_size <= al_cfg->capacity
-          && page_size <= addr && addr % page_size == 0
-          && addr <= al_cfg->capacity - page_size;
-}
-
 static platform_status
 routing_get_header(cache                *cc,
                    const routing_config *cfg,
@@ -279,10 +269,7 @@ routing_get_header(cache                *cc,
    if (index_page_no > (UINT64_MAX - filter_addr) / page_size) {
       return STATUS_INVALID_STATE;
    }
-   uint64 index_addr = filter_addr + page_size * index_page_no;
-   if (!routing_page_addr_is_in_range(cc, index_addr)) {
-      return STATUS_INVALID_STATE;
-   }
+   uint64       index_addr = filter_addr + page_size * index_page_no;
    page_handle *index_page = cache_get(cc, index_addr, TRUE, PAGE_TYPE_FILTER);
    if (index_page == NULL) {
       return STATUS_IO_ERROR;
@@ -294,10 +281,7 @@ routing_get_header(cache                *cc,
    }
 
    uint64 header_addr = *hdr_raw_addr - (*hdr_raw_addr % page_size);
-   if (!routing_page_addr_is_in_range(cc, header_addr)) {
-      return STATUS_INVALID_STATE;
-   }
-   *filter_page = cache_get(cc, header_addr, TRUE, PAGE_TYPE_FILTER);
+   *filter_page       = cache_get(cc, header_addr, TRUE, PAGE_TYPE_FILTER);
    return *filter_page == NULL ? STATUS_IO_ERROR : STATUS_OK;
 }
 
@@ -332,8 +316,8 @@ routing_header_view_init(const routing_config *cfg,
    uint64 page_size   = cache_config_page_size(cfg->cache_cfg);
    uint64 header_addr = hdr_raw_addr - (hdr_raw_addr % page_size);
    uint64 header_off  = hdr_raw_addr - header_addr;
-   if (filter_page == NULL || filter_page->disk_addr != header_addr
-       || header_off > page_size || page_size - header_off < sizeof(routing_hdr)
+   if (filter_page == NULL || header_off > page_size
+       || page_size - header_off < sizeof(routing_hdr)
        || hdr_raw_addr % sizeof(uint32) != 0 || bits_per_item == 0
        || bits_per_item > 32)
    {
@@ -1075,10 +1059,7 @@ routing_filter_prefetch(cache                *cc,
       if (index_page_no > (UINT64_MAX - filter->addr) / page_size) {
          return STATUS_INVALID_STATE;
       }
-      uint64 index_addr = filter->addr + page_size * index_page_no;
-      if (!routing_page_addr_is_in_range(cc, index_addr)) {
-         return STATUS_INVALID_STATE;
-      }
+      uint64       index_addr = filter->addr + page_size * index_page_no;
       page_handle *index_page =
          cache_get(cc, index_addr, TRUE, PAGE_TYPE_FILTER);
       if (index_page == NULL) {
@@ -1097,10 +1078,7 @@ routing_filter_prefetch(cache                *cc,
       for (index_no = 0; index_no < max_index_no; index_no++) {
          uint64 hdr_raw_addr =
             ((uint64 *)index_page->data)[index_no % addrs_per_page];
-         uint64 header_addr = hdr_raw_addr - (hdr_raw_addr % page_size);
-         if (hdr_raw_addr == 0 || hdr_raw_addr % sizeof(uint32) != 0
-             || !routing_page_addr_is_in_range(cc, header_addr))
-         {
+         if (hdr_raw_addr == 0 || hdr_raw_addr % sizeof(uint32) != 0) {
             cache_unget(cc, index_page);
             return STATUS_INVALID_STATE;
          }
@@ -1323,9 +1301,6 @@ routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
       async_return(state, STATUS_INVALID_STATE);
    }
    state->index_addr = state->filter.addr + state->page_size * index_page_no;
-   if (!routing_page_addr_is_in_range(state->cc, state->index_addr)) {
-      async_return(state, STATUS_INVALID_STATE);
-   }
 
    async_await_call(state,
                     cache_get_async,
@@ -1349,9 +1324,6 @@ routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
    }
    state->header_addr =
       state->hdr_raw_addr - (state->hdr_raw_addr % state->page_size);
-   if (!routing_page_addr_is_in_range(state->cc, state->header_addr)) {
-      async_return(state, STATUS_INVALID_STATE);
-   }
 
    async_await_call(state,
                     cache_get_async,
