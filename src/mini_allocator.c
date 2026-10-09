@@ -1511,19 +1511,26 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
       return MINI_META_CURSOR_INVALID;
    }
 
-   mini_meta_hdr *hdr   = (mini_meta_hdr *)cursor->meta_page->data;
-   cursor->meta_page_no = hdr->meta_page_no;
-   cursor->num_entries  = mini_num_entries(cursor->meta_page);
-   cursor->entry_idx    = 0;
+   mini_meta_hdr *hdr          = (mini_meta_hdr *)cursor->meta_page->data;
+   cursor->meta_page_no        = hdr->meta_page_no;
+   cursor->num_entries         = mini_num_entries(cursor->meta_page);
+   cursor->entry_idx           = 0;
+   uint64 target_extent_number = target_extent_addr / cfg->io_cfg->extent_size;
    while (cursor->entry_idx < cursor->num_entries) {
-      rc = mini_meta_cursor_validate_entry(cursor, cursor->entry_idx);
-      if (!SUCCESS(rc)) {
-         cache_unget(cursor->cc, cursor->meta_page);
-         cursor->meta_page = NULL;
-         return MINI_META_CURSOR_INVALID;
-      }
       meta_entry *entry = first_entry(cursor->meta_page) + cursor->entry_idx;
-      if (meta_entry_extent_addr(cursor->cc, entry) == target_extent_addr) {
+      uint64      extent_number =
+         entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
+      if (extent_number == target_extent_number) {
+         /* The scan only compares fixed-width extent numbers. Validate the
+          * matching entry before exposing its remaining fields through curr;
+          * entries skipped by the search are validated if next/prev later
+          * moves the cursor onto them. */
+         rc = mini_meta_cursor_validate_entry(cursor, cursor->entry_idx);
+         if (!SUCCESS(rc)) {
+            cache_unget(cursor->cc, cursor->meta_page);
+            cursor->meta_page = NULL;
+            return MINI_META_CURSOR_INVALID;
+         }
          return MINI_META_CURSOR_ENTRY;
       }
       cursor->entry_idx++;
